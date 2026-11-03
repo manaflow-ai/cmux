@@ -92,3 +92,29 @@ async fn a_move_under_way_is_in_use() {
     session.meta.lock().unwrap().moved_to = Some(json!({}));
     assert_ne!(hub.in_use().await, Some("a move under way"), "a committed move");
 }
+
+/// A Cloud machine's activity counts each session at work (`sessions_at_work`): a running turn
+/// (the harness's own), a queued prompt and an agent request each count it once; with none, it
+/// is not at work.
+#[tokio::test]
+async fn sessions_at_work_counts_a_running_turn_until_it_ends() {
+    let (hub, session) = chat().await;
+    assert_eq!(hub.sessions_at_work(), 0, "a ready chat with nothing going on");
+    session.harness_turn.store(true, Ordering::SeqCst);
+    assert_eq!(hub.sessions_at_work(), 1, "a running turn");
+    session.queued.fetch_add(1, Ordering::SeqCst);
+    assert_eq!(hub.sessions_at_work(), 1, "one session, however much it does");
+    session.harness_turn.store(false, Ordering::SeqCst);
+    assert_eq!(hub.sessions_at_work(), 1, "a queued prompt");
+    session.queued.fetch_sub(1, Ordering::SeqCst);
+    {
+        let _asked = AgentRequest::new(&session);
+        assert_eq!(hub.sessions_at_work(), 1, "an agent request on its way");
+    }
+    assert_eq!(hub.sessions_at_work(), 0, "the turn ended");
+    *session.work_below_since.lock().unwrap() = 1;
+    assert_eq!(hub.sessions_at_work(), 1, "a sub-session or background subagent at work");
+    *session.work_below_since.lock().unwrap() = 0;
+    assert_eq!(hub.sessions_at_work(), 0);
+    hub.shutdown_all().await;
+}

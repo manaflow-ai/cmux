@@ -32,6 +32,10 @@ export type MinimapTurn = {
   /// The start of the first reply after the prompt.
   reply: ReplyBlock[];
   metadata?: MinimapTurnMetadata;
+  /// A prompt the chat's count says exists but neither the rows nor the prompt index hold yet
+  /// (pendingTurns): it draws a resting tick in its final row so the rail is full length on its
+  /// first frame, and has no card or jump until the index or its page names it.
+  pending?: true;
   /// A run of other chats' messages folded into this one tick (`foldIncoming`): every message's row
   /// id, the first (this turn's own) first. Absent for a tick of one prompt.
   members?: readonly string[];
@@ -126,6 +130,64 @@ export function tickProgress(distance: number | undefined): number {
 
 /// The drawn length of a tick at `progress`: 6 px at rest, 26 px hovered.
 export const tickLength = (progress: number) => TICK_BOX * (0.2308 + 0.7692 * progress);
+
+/// The hover wave's shapes (wave.experiment.ts): how magnified a tick is (0 to 1) at `distance` rows
+/// from the pointer, measured from the tick's middle to the pointer's fractional row. Each is smooth
+/// and reaches 0 at its `reach`, so a tick past it rests.
+export type WaveShape = { reach: number; at(distance: number): number };
+const SIGMA = 1.4;
+const bell = (distance: number) => Math.exp(-(distance * distance) / (2 * SIGMA * SIGMA));
+export const WAVE_SHAPES = {
+  "cosine-4": { reach: 4, at: (distance: number) => 0.5 + 0.5 * Math.cos((Math.PI * distance) / 4) },
+  "cosine-5": { reach: 5, at: (distance: number) => 0.5 + 0.5 * Math.cos((Math.PI * distance) / 5) },
+  // The bell less its value at the reach, scaled back to 1 at the peak, so it meets rest at 4.5 rows.
+  gaussian: { reach: 4.5, at: (distance: number) => (bell(distance) - bell(4.5)) / (1 - bell(4.5)) },
+} as const satisfies Record<string, WaveShape>;
+export type WaveShapeId = keyof typeof WAVE_SHAPES;
+
+/// How magnified the tick at `index` is with the pointer at fractional row `focus` (row `i` spans
+/// `i` to `i + 1`, its middle at `i + 0.5`), at `amplitude` of the full bump.
+export function waveProgress(shape: WaveShape, index: number, focus: number, amplitude = 1): number {
+  const distance = Math.abs(index + 0.5 - focus);
+  return distance >= shape.reach ? 0 : amplitude * shape.at(distance);
+}
+
+/// The wave's time constant as it follows the pointer: the bump closes 95% of the way to a still
+/// pointer in 3 of these (90 ms), inside the motion scale's micro step, so a sweep reads as one
+/// smooth wave and a flick never jumps.
+export const WAVE_FOLLOW_MS = 30;
+/// The rail's spring (threadMinimap.css `--acpmux-minimap-spring`, about 0.8% overshoot) as points
+/// of progress over its duration: the wave grows in on it when the pointer arrives.
+const SPRING: ReadonlyArray<readonly [number, number]> = [
+  [0, 0],
+  [0.1, 0.398],
+  [0.2, 0.682],
+  [0.3, 0.843],
+  [0.4, 0.925],
+  [0.5, 0.972],
+  [0.6, 1.004],
+  [0.7, 1.008],
+  [0.8, 1.003],
+  [1, 1],
+];
+export const WAVE_IN_MS = MOTION_MS.micro;
+/// The wave's amplitude `elapsed` ms after the pointer arrived: the spring over the micro step.
+export function waveAmplitude(elapsed: number): number {
+  const at = Math.max(0, Math.min(1, elapsed / WAVE_IN_MS));
+  for (let index = 1; index < SPRING.length; index += 1) {
+    const [x1, y1] = SPRING[index]!;
+    if (at > x1) continue;
+    const [x0, y0] = SPRING[index - 1]!;
+    return y0 + ((y1 - y0) * (at - x0)) / (x1 - x0);
+  }
+  return 1;
+}
+/// The pointer's fractional row a wave eases toward this frame, `elapsed` ms after the last.
+export function waveFollow(focus: number, target: number, elapsed: number): number {
+  const next = focus + (target - focus) * (1 - Math.exp(-Math.max(0, elapsed) / WAVE_FOLLOW_MS));
+  // Within a hundredth of a row (0.1 px) it is there: the loop stops.
+  return Math.abs(target - next) < 0.01 ? target : next;
+}
 
 /// The transcript's soft edges (conversation.css `.acpmux-scroll[data-fade-*]`): its mask fades
 /// rows out over this many px under the top once scrolled from the start, and above the view's foot
@@ -360,6 +422,9 @@ export type MinimapTurns = {
   loadedTicks?: readonly MinimapTick[];
   loadedStart?: number;
   earlierTurns?: readonly MinimapTurn[];
+  /// How many of `earlierTurns` are pending ticks (pendingTurns) for prompts the count names but
+  /// nothing holds yet.
+  pendingCount?: number;
   /// The list the next changed turns are written into (the one before `turns`), never `turns`.
   spare?: MinimapTurn[];
 };
@@ -395,6 +460,7 @@ export function minimapTurns(
   previous?: MinimapTurns,
   change?: RowsChange,
   earlierRows: readonly AcpmuxRow[] = EMPTY_EARLIER_ROWS,
+  promptCount = 0,
 ): MinimapTurns {
   const prior = previous?.sessionId === sessionId ? previous : undefined;
   const reuse = prior
@@ -510,20 +576,29 @@ export function minimapTurns(
     spare?: MinimapTurn[],
   ): MinimapTurns => {
     const base = { rows, sessionId, loadedTurns, loadedTicks, ...(spare ? { spare } : {}) };
-    if (!earlierRows.length) return { ...base, turns: loadedTurns, ticks: loadedTicks, loadedStart: 0 };
-    const sameEarlier = prior?.earlierRows === earlierRows && prior.earlierTurns !== undefined;
+    // The prompts the count names that neither the rows nor the index hold yet. They draw as resting
+    // ticks above the held ones, so the rail has its final length and every tick its final row on the
+    // first frame; the index or a page then names them in place (Leo, 2026-11-03: "mostly i just
+    // don't like it when the thing shifts and whatnot trying to center itself").
+    const pending = Math.max(0, promptCount - earlierRows.length - loadedTurns.length);
+    if (!earlierRows.length && !pending) return { ...base, turns: loadedTurns, ticks: loadedTicks, loadedStart: 0 };
+    const sameEarlier =
+      prior?.earlierRows === earlierRows && prior.earlierTurns !== undefined && (prior.pendingCount ?? 0) === pending;
     if (sameEarlier && prior!.loadedTurns === loadedTurns && prior!.loadedTicks === loadedTicks)
       return { ...prior!, ...base };
     const earlier = sameEarlier
       ? prior!.earlierTurns!
-      : earlierRows.map((row): MinimapTurn => ({
-          index: -1,
-          id: row.id,
-          key: turnKey(sessionId, row),
-          prompt: (row.text ?? "").trim(),
-          ...withSender(row),
-          reply: [],
-        }));
+      : [
+          ...pendingTurns(sessionId, pending),
+          ...earlierRows.map((row): MinimapTurn => ({
+            index: -1,
+            id: row.id,
+            key: turnKey(sessionId, row),
+            prompt: (row.text ?? "").trim(),
+            ...withSender(row),
+            reply: [],
+          })),
+        ];
     const turns = [...earlier, ...loadedTurns];
     return {
       ...base,
@@ -532,6 +607,7 @@ export function minimapTurns(
       ticks: sameEarlier && prior!.loadedTicks === loadedTicks ? prior!.ticks : ticksOf(turns, prior?.ticks),
       earlierRows,
       earlierTurns: earlier,
+      pendingCount: pending,
       loadedStart: earlier.length,
     };
   };
@@ -549,6 +625,30 @@ export function minimapTurns(
   agreed.set(old, { list, same: keep });
   const loaded = sameTicks ? oldTicks! : ticksOf(list, oldTicks);
   return withEarlier(list, loaded, old as MinimapTurn[]);
+}
+
+/// The pending ticks for a chat's first `count` prompts (MinimapTurn `pending`), keyed by their row
+/// from the top, so a page or the index that names some of them leaves the rest as they were. One
+/// list per session, grown as needed; a count asks only for its prefix.
+const pendingLists = new Map<string, MinimapTurn[]>();
+export function pendingTurns(sessionId: string, count: number): readonly MinimapTurn[] {
+  if (count <= 0) return [];
+  let list = pendingLists.get(sessionId);
+  if (!list) {
+    // Only the open chats' lists are kept.
+    if (pendingLists.size >= 16) pendingLists.delete(pendingLists.keys().next().value!);
+    pendingLists.set(sessionId, (list = []));
+  }
+  for (let at = list.length; at < count; at += 1)
+    list.push({
+      index: -1,
+      id: `pending:${at}`,
+      key: `${sessionId}#pending:${at}`,
+      prompt: "",
+      reply: [],
+      pending: true,
+    });
+  return list.slice(0, count);
 }
 
 /// A turn's `from`, only when it has one, so a person's turn keeps the shape it had.

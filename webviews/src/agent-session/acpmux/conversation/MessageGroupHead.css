@@ -32,6 +32,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--cv-text-dim);
+  /* Session names, not a count: set as the row's words, never in tabular figures. */
+  font-variant-numeric: normal;
 }
 .cv-message-group__head > .cv-tool__chevron {
   opacity: 0;

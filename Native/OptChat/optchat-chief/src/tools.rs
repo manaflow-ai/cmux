@@ -6,8 +6,8 @@
 
 // The tool limits the schemas name are the kernel's (chief-kernel tools.rs).
 pub use chief_kernel::tools::{
-    AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, MAX_SEND_ATTACHMENTS, PLACES, SLEEP_MAX_SECONDS,
-    SLEEP_MIN_SECONDS, WATCH_DEFAULT_SECONDS, WATCH_MAX_SECONDS, WATCH_MIN_SECONDS, WATCHES_KEPT,
+    AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, PLACES, SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS,
+    WATCH_DEFAULT_SECONDS, WATCH_MAX_SECONDS, WATCH_MIN_SECONDS, WATCHES_KEPT,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -270,11 +270,6 @@ impl SendCall {
             Some(Value::String(one)) if !one.trim().is_empty() => vec![one.trim().to_owned()],
             Some(_) => return Err("send: `attachments` must be a list of paths or URLs".into()),
         };
-        if attachments.len() > MAX_SEND_ATTACHMENTS {
-            return Err(format!(
-                "send: at most {MAX_SEND_ATTACHMENTS} attachments per message"
-            ));
-        }
         if text.is_none() && attachments.is_empty() {
             return Err("send: give `text`, `attachments` or both".into());
         }
@@ -1458,6 +1453,7 @@ fn connection(conn: UnixStream, served: &Served) {
                                 compactor_speed: field("compactor_speed"),
                                 compactor_harness: field("compactor_harness"),
                                 compactor_model: field("compactor_model"),
+                                turn_routing: field("turn_routing"),
                                 reactions: Box::new(crate::brain::ReactionFields {
                                     classifier_harness: field("classifier_harness"),
                                     classifier_model: field("classifier_model"),
