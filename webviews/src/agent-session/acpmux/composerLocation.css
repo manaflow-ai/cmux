@@ -1078,6 +1078,9 @@
 
 .acpmux-folder-popover .acpmux-location-search {
   display: block;
+  /* Only the results give up room in a short popup. Otherwise narrowing them lets the
+     compressed field grow back to its row height and moves every result under the caret. */
+  flex-shrink: 0;
   box-sizing: border-box;
   width: 100%;
   height: var(--ui-row-height);
