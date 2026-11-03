@@ -2,6 +2,7 @@ import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP } from ".
 import { composerHealthHarness } from "./composerPickerEntries";
 import { forkMenuRows } from "./header/forkMenu";
 import { openFork } from "./conversation/openFork";
+import { setSessionRefResolver } from "./conversation/sessionRefs";
 import { useStopThroughReconnect } from "./stopThroughReconnect";
 import React, {
   Activity,
@@ -374,6 +375,7 @@ import {
   foldToggleAt,
   holdFold,
   keepFold,
+  pushUpCut,
   trimmedFoldRoom,
   verticalWheel,
   type FoldAnchor,
@@ -1880,6 +1882,8 @@ const PendingMessagesRow = memo(
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
 );
 /// An inbox notice's thread the person opened (`chat.inbox.thread`): its messages, oldest first.
+// Agent links and `HOST/NAME` refs in replies resolve through the page's acpmux client.
+setSessionRefResolver((query) => callNative<unknown>("chat.session.resolve", { query }));
 const readInboxThread = (threadId: string) => callNative<InboxMessage[]>("chat.inbox.thread", { threadId });
 const LaneNoticeBatchRow = memo(function LaneNoticeBatchRow(props: RowProps) {
   return <LaneNoticeBatch row={props.row} renderMessage={(row) => <MessageRow {...props} row={row} />} />;
@@ -2475,6 +2479,53 @@ function movingDown(event?: Event): boolean {
   if (event?.type === "keydown")
     return ["ArrowDown", "PageDown", "End", " ", "Spacebar"].includes((event as KeyboardEvent).key);
   return false;
+}
+
+/// Holds the rows under what a bottom fold opened where they were drawn, against the thread's slide,
+/// and cuts each row rising with it at the line they hold (`pushUpCut`). On the thread animation's
+/// timing, so the text above moves and nothing under the opened line does. The first call runs
+/// before the thread's slide starts, when the boxes read their settled places: a row is held when
+/// its top did not rise with the stack since the click. Later calls (a late measure changed
+/// `stack.from`) update the same effects, and start a cut a row now needs at the slide's `time`.
+function holdUnderStack(
+  host: HTMLElement,
+  stack: {
+    from: number;
+    drawn: Map<Element, number>;
+    line?: number;
+    held?: Animation[];
+    cuts?: Map<HTMLElement, Animation>;
+  },
+  timing: EffectTiming,
+  time: CSSNumberish | null = 0,
+): void {
+  const hold = [{ translate: `0 ${-stack.from}px` }, { translate: "0 0" }];
+  const hostTop = host.getBoundingClientRect().top;
+  const rows = [...host.children] as HTMLElement[];
+  if (stack.line === undefined) {
+    const still = rows.filter((each) => {
+      const was = stack.drawn.get(each);
+      return was !== undefined && was - each.getBoundingClientRect().top < stack.from / 2;
+    });
+    stack.line = still.length
+      ? Math.min(...still.map((each) => each.getBoundingClientRect().top - hostTop))
+      : Math.max(0, ...rows.map((each) => each.getBoundingClientRect().bottom - hostTop));
+    stack.held = still.map((each) => each.animate(hold, { ...timing, composite: "add" }));
+    stack.cuts = new Map();
+  } else for (const held of stack.held ?? []) (held.effect as KeyframeEffect).setKeyframes(hold);
+  const heldRows = new Set(stack.held?.map((held) => (held.effect as KeyframeEffect).target));
+  for (const each of rows) {
+    if (heldRows.has(each)) continue;
+    // A row rising with the thread moves as one with it, so its box reads its settled place there.
+    const frames = pushUpCut(each.getBoundingClientRect().bottom - hostTop - stack.line, stack.from);
+    const cut = stack.cuts?.get(each);
+    if (cut) (cut.effect as KeyframeEffect).setKeyframes(frames);
+    else if (frames.length) {
+      const animation = each.animate(frames, timing);
+      animation.currentTime = time;
+      stack.cuts?.set(each, animation);
+    }
+  }
 }
 
 /// Puts a following view at the latest row. Anything past the browser's rounding is corrected: the
@@ -3645,13 +3696,24 @@ export function VirtualTranscript({
   const foldAnchor = useRef<FoldAnchor | undefined>(undefined);
   // A bottom disclosure lays out once, then the whole thread slides to that layout. Its row
   // marker tells useFold to skip the competing height animation; away from the end nothing changes.
+  // The rows under what opened hold their pixels against that slide, and what rises is cut at the
+  // line they hold, so only the text above moves: no room opens under the line first and closes
+  // again (Leo 2026-11-03: "you guys adding fake space or whatever / it grows and shrinks right").
   type BottomStackFold = {
     toggle: HTMLElement;
     row: HTMLElement;
     beforeTop: number;
     delta: number;
     from: number;
+    /// Each drawn row's viewport top at the click.
+    drawn: Map<Element, number>;
     animation?: Animation;
+    /// The line the held rows start at, in the thread's own coordinates.
+    line?: number;
+    /// The rows that keep their pixels, each sliding against the thread.
+    held?: Animation[];
+    /// The rows rising with the thread that would cross the line, each cut at it.
+    cuts?: Map<HTMLElement, Animation>;
     cleanupTimer?: ReturnType<typeof setTimeout>;
   };
   const bottomStackFold = useRef<BottomStackFold | undefined>(undefined);
@@ -3667,6 +3729,8 @@ export function VirtualTranscript({
       stack.animation.oncancel = null;
       stack.animation.cancel();
     }
+    for (const held of stack.held ?? []) held.cancel();
+    for (const cut of stack.cuts?.values() ?? []) cut.cancel();
   }, []);
   useEffect(() => stopBottomStackFold, [stopBottomStackFold]);
   /// The content end a clicked disclosure keeps (foldAnchor.ts `foldRoomFor`): 0, or the view's end
@@ -4297,13 +4361,18 @@ export function VirtualTranscript({
           if (typeof progress === "number" && progress < 1) {
             stack.from += (delta - stack.delta) / (1 - progress);
             effect.setKeyframes([{ translate: `0 ${stack.from}px` }, { translate: "0 0" }]);
+            // What grew late grew above the held rows: their line moves down the thread with it.
+            if (stack.line !== undefined) stack.line += delta - stack.delta;
+            holdUnderStack(host, stack, effect.getTiming(), stack.animation.currentTime);
           }
         } else {
           stack.from = delta;
           const frames = [{ translate: `0 ${delta}px` }, { translate: "0 0" }];
           const duration = foldMs(host);
           if (duration > 0) {
-            stack.animation = host.animate(frames, { duration, easing: foldMotion.easing(host) });
+            const timing = { duration, easing: foldMotion.easing(host) };
+            holdUnderStack(host, stack, timing);
+            stack.animation = host.animate(frames, timing);
             stack.animation.onfinish = () => {
               if (bottomStackFold.current === stack) stopBottomStackFold();
             };
@@ -5250,7 +5319,16 @@ export function VirtualTranscript({
       // expanded body itself supplies the height; keeping the old blank room would add a second,
       // jarring gap while the stack moves up.
       if (!stickyFoldRoom.current || opensBody(toggle)) dropFoldRoom();
-      const stack: BottomStackFold = { toggle: line, row, beforeTop: layoutScrollTop(node), delta: 0, from: 0 };
+      const drawn = new Map<Element, number>();
+      for (const each of thread.current?.children ?? []) drawn.set(each, each.getBoundingClientRect().top);
+      const stack: BottomStackFold = {
+        toggle: line,
+        row,
+        beforeTop: layoutScrollTop(node),
+        delta: 0,
+        from: 0,
+        drawn,
+      };
       bottomStackFold.current = stack;
       row.setAttribute("data-bottom-fold", "");
       // The explicit toggle reacquires follow even a few pixels from the end. Streaming never does.
@@ -11460,6 +11538,8 @@ function AcpmuxPane() {
           // An inbox notice's thread the person opened: its messages, read without marking them
           // read (conversation/InboxNoticeCard.tsx).
           "chat.inbox.thread": ({ threadId }) => client.inboxThread(String(threadId ?? "")),
+          // An agent link or `HOST/NAME` in a reply (conversation/sessionRefs.ts): the session it names.
+          "chat.session.resolve": ({ query }) => client.resolveSession(String(query ?? "")),
           // Open a started offer or a sub-session: the app shows its tab or opens it beside this
           // chat (AgentPaneOfferOpen); a host without that opens it as a side chat; else here.
           "chat.offer.open": async ({ sessionId, sender }) => {

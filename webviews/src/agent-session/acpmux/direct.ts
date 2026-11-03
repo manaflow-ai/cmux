@@ -7730,6 +7730,13 @@ export class AcpmuxDirectClient {
       replyId: `m-${crypto.randomUUID()}`,
     });
   }
+  /// The session an agent link or a `HOST/NAME` names (acpmux `_acpmux/resolve`, hub/locate.rs):
+  /// only sessions this daemon lists, its own and its peers', resolve; any other rejects.
+  async resolveSession(query: string): Promise<unknown> {
+    const value = query.trim();
+    if (!value) throw new Error(translate("error.notOpen"));
+    return this.request("_acpmux/resolve", { query: value }, 10_000);
+  }
   /// A thread of the chat's inbox (acpmux `_acpmux/inbox_thread`), oldest first, for an inbox
   /// notice's line the person opened (conversation/InboxNoticeCard.tsx). It marks nothing read: the
   /// person reading it is not the agent.
