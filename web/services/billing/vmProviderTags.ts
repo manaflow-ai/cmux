@@ -19,6 +19,7 @@ import {
   type StripeBillingStatus,
 } from "./pro";
 import { stripe } from "./stripe";
+import { billingPlanIdFromMetadata } from "./teamResolution";
 import { formatUsd } from "./subscriptionPrice";
 
 /** The billing scope a machine was created under (the cloud_vms row's columns). */
@@ -60,10 +61,16 @@ const PRODUCT_LOOKUP_TIMEOUT_MS = 5_000;
  * `unmatched` and no `stripe*` key is written.
  */
 export async function vmStripeProviderTags(scope: VmBillingScope): Promise<Record<string, string>> {
-  const status = await scopeBillingStatus(scope);
+  const teamMetadata = await billingTeamMetadata(scope);
+  const status = await scopeBillingStatus(scope, teamMetadata);
   // Only a row that grants access names the subscription: a canceled row, or
   // a past-due row chosen for the portal beside another active row, does not.
-  if (status?.subscriptionId && isActiveStripeStatus(status.subscriptionStatus)) {
+  // A personal row must also be the owner's best active plan: with Founder's
+  // Edition (stored as `pro`) beside Plus, the Plus row is only the portal pick.
+  if (
+    status?.subscriptionId && isActiveStripeStatus(status.subscriptionStatus) &&
+    (scope.billingPlanId === TEAM_PLAN_ID || status.subscriptionPlanId === status.activePlanId)
+  ) {
     return {
       cmuxPlanSource: "stripe",
       cmuxBillingPlan: status.subscriptionPlanId ?? "",
@@ -81,7 +88,30 @@ export async function vmStripeProviderTags(scope: VmBillingScope): Promise<Recor
       ...(status.customerId ? { stripeCustomerId: status.customerId } : {}),
     };
   }
-  return { cmuxPlanSource: await planSourceWithoutSubscription(scope), cmuxBillingPlan: "", cmuxBillingCohort: "" };
+  return { cmuxPlanSource: await planSourceWithoutSubscription(scope, teamMetadata), cmuxBillingPlan: "", cmuxBillingCohort: "" };
+}
+
+/**
+ * The billing team's Stack metadata, or undefined when Stack is not
+ * configured. A failed read fails the tagging step; the machine keeps its
+ * create-time labels.
+ */
+async function billingTeamMetadata(scope: VmBillingScope): Promise<unknown> {
+  if (!isStackConfigured()) return undefined;
+  const team = await getStackServerApp().getTeam(scope.billingTeamId);
+  return team?.clientReadOnlyMetadata;
+}
+
+/**
+ * Whether the machine's plan came from its billing team's own metadata (a
+ * Team purchase or an operator grant on the team) rather than from the
+ * creator, mirroring `billingPlanId = team plan ?? user plan` in vms/auth.ts.
+ * Max is the exception there: a personal Max purchase overrides the team.
+ */
+function planCameFromTeam(scope: VmBillingScope, teamMetadata: unknown): boolean {
+  const teamPlanId = billingPlanIdFromMetadata(teamMetadata);
+  if (!teamPlanId) return false;
+  return scope.billingPlanId !== MAX_PLAN_ID || teamPlanId === MAX_PLAN_ID;
 }
 
 /** Plus at $15 per month on a paid (`active`) row; every other subscription has no cohort. */
@@ -95,8 +125,11 @@ function billingCohort(status: StripeBillingStatus): string {
     : "";
 }
 
-async function scopeBillingStatus(scope: VmBillingScope): Promise<StripeBillingStatus | null> {
+async function scopeBillingStatus(scope: VmBillingScope, teamMetadata: unknown): Promise<StripeBillingStatus | null> {
   if (scope.billingPlanId === TEAM_PLAN_ID) return await stripeBillingStatusForTeam(scope.billingTeamId, { preferActive: true });
+  // A personal plan id that the team granted is not funded by the creator's
+  // own subscription, so that subscription must not label the machine.
+  if (planCameFromTeam(scope, teamMetadata)) return null;
   if (isPersonalPlanId(scope.billingPlanId) || scope.billingPlanId === FOUNDERS_PLAN_ID) {
     return await stripeBillingStatusForUser(scope.userId);
   }
@@ -136,8 +169,11 @@ function isActiveStripeStatus(status: string | null): boolean {
   return status !== null && (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(status);
 }
 
-async function planSourceWithoutSubscription(scope: VmBillingScope): Promise<VmPlanSource> {
+async function planSourceWithoutSubscription(scope: VmBillingScope, teamMetadata: unknown): Promise<VmPlanSource> {
   if (!isPaidPlanId(scope.billingPlanId)) return "none";
+  if (planCameFromTeam(scope, teamMetadata)) {
+    return isPaidPlanId(manualVmPlanOverride(teamMetadata)) ? "admin-grant" : "unmatched";
+  }
   // A failed grant lookup fails the tagging step; the machine keeps its create-time labels.
   return (await hasOperatorGrant(scope)) ? "admin-grant" : "unmatched";
 }
