@@ -112,6 +112,12 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
                   color: style.backgroundColor,
                 };
               })(),
+              stepIcons: [...document.querySelectorAll(".cv-steps > .cv-step > .cv-tool > .cv-tool__icon")].map(
+                (icon) => getComputedStyle(icon).visibility,
+              ),
+              headerIcon: getComputedStyle(
+                document.querySelector(".cv-tool.is-run > .cv-tool__icon, .cv-tool[aria-expanded] > .cv-tool__icon")!,
+              ).visibility,
               rows,
               verbGaps,
               under,
@@ -120,12 +126,13 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
           });
           console.log(`TOOL_ROW_COLUMN ${JSON.stringify({ theme, width, ...m })}`);
           expect(errors).toEqual([]);
-          expect(m.guide.content).toBe('""');
-          expect(m.guide.width).toBe(1);
-          expect(m.guide.contain).toContain("paint");
-          expect(m.guide.insidePaintBounds).toBe(true);
-          expect(m.guide.insideColumnGap).toBe(true);
-          expect(m.guide.color).not.toBe("rgba(0, 0, 0, 0)");
+          // An opened run draws as Claude Code desktop's (Leo, 2026-11-03: "we're not faithfully
+          // following how they're doing stuff"): no guide line, and its steps show no icons, their
+          // words still on the header's text column (checked with every row below).
+          expect(m.guide.content).toBe("none");
+          expect(m.stepIcons.length).toBe(3);
+          for (const visibility of m.stepIcons) expect(visibility).toBe("hidden");
+          expect(m.headerIcon).toBe("visible");
           // The lone read, the group line, its three steps, the lone failed command, the lone block.
           expect(m.rows.length).toBe(7);
           const icon = m.rows[0]!.iconLeft;
@@ -149,6 +156,37 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
           for (const gap of m.verbGaps) {
             expect(gap).toBeGreaterThan(0);
             expect(gap).toBeLessThan(8);
+          }
+          // A thought reads as Claude Code's: its text flush under its label, with no guide line or
+          // indent, opened and while it streams.
+          await page.locator('[data-fixture-thoughts] button[aria-expanded="false"]').click();
+          await page.locator("[data-fixture-thoughts] .cv-thought__body").waitFor();
+          const thoughts = await page.evaluate(() => {
+            const first = (node: Element) => {
+              const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+              let text = walker.nextNode();
+              while (text && !text.textContent!.trim()) text = walker.nextNode();
+              const range = document.createRange();
+              range.setStart(text!, text!.textContent!.search(/\S/));
+              range.setEnd(text!, text!.textContent!.search(/\S/) + 1);
+              return range.getBoundingClientRect().left;
+            };
+            const root = document.querySelector("[data-fixture-thoughts]")!;
+            return [
+              root.querySelector(".cv-thought__body")!,
+              root.querySelector(".cv-thought.is-full .cv-thought__text")!,
+            ].map((text) => {
+              const label = text.closest("[data-thought]")!.querySelector(".cv-thought__label")!;
+              return {
+                guide: getComputedStyle(text).boxShadow,
+                offset: first(text) - first(label),
+              };
+            });
+          });
+          expect(thoughts.length).toBe(2);
+          for (const thought of thoughts) {
+            expect(thought.guide).toBe("none");
+            expect(Math.abs(thought.offset)).toBeLessThanOrEqual(0.5);
           }
           // Opened, the blocked call shows the hook's words as its output, without the envelope.
           await page.locator('[data-tool-id="blocked-lone"]').click();

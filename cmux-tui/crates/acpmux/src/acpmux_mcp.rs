@@ -6,7 +6,8 @@
 //! team mailbox tools (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
 //! background tasks under the daemon (`bg_start`, `bg_list`, `bg_output`, `bg_stop`,
 //! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent, and reads a pull request's state
-//! in one condensed call (`pr_state`, `acpmux_mcp_pr.rs`). With a cmux sign-in it also saves,
+//! in one condensed call (`pr_state`, `acpmux_mcp_pr.rs`). `github_status` names the GitHub
+//! account cmux can see, never a token (`github_status.rs`). With a cmux sign-in it also saves,
 //! searches, lists and reads the person's cmux artifacts (`artifact_*`, `acpmux_mcp_artifacts.rs`).
 //!
 //! Each tool is the request the agent's own `acpmux` CLI makes, over a connection that carries
@@ -173,6 +174,7 @@ fn base_tools() -> Value {
     ]);
     if let Some(list) = all.as_array_mut() {
         list.insert(0, send::tool());
+        list.push(crate::github_status::definition());
     }
     all
 }
@@ -191,6 +193,19 @@ fn allowed(all: Value, allow: Option<&str>) -> Value {
     Value::Array(all.as_array().into_iter().flatten().filter(|t| keep(t)).cloned().collect())
 }
 
+/// The server's instructions: the background steer where the background tools are listed, and
+/// the GitHub one where `github_status` is.
+fn instructions(tools: &Value) -> Option<String> {
+    let mut parts = Vec::new();
+    if crate::mcp_hint::names(tools).any(|n| bg::TOOLS.contains(&n)) {
+        parts.push(BG_STEER);
+    }
+    if crate::mcp_hint::names(tools).any(|n| n == crate::github_status::TOOL) {
+        parts.push(crate::github_status::STEER);
+    }
+    (!parts.is_empty()).then(|| parts.join(" "))
+}
+
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
     // Read once: a sign-in or `artifacts.enabled` change reaches the next chat's server.
@@ -202,8 +217,7 @@ pub async fn run() -> Result<()> {
         .is_some()
         .then(|| Arc::new(crate::mcp_hint::names(&tools).map(str::to_owned).collect()));
     // The background steer only where the background tools are listed.
-    let steer =
-        crate::mcp_hint::names(&tools).any(|n| bg::TOOLS.contains(&n)).then(|| BG_STEER.to_owned());
+    let steer = instructions(&tools);
     crate::secret_mcp::serve(
         SERVER_NAME,
         SESSION_ENV,
@@ -237,6 +251,11 @@ pub async fn run() -> Result<()> {
                 }
                 if name == pr::NAME {
                     return pr::call(&daemon, &session, &args).await;
+                }
+                if name == crate::github_status::TOOL {
+                    let sources = crate::github_status::Sources::current();
+                    let status = crate::github_status::resolve(&sources).await;
+                    return crate::github_status::result(&status);
                 }
                 if matches!(name, "inbox_read" | "inbox_reply") {
                     return inbox_tool(&daemon, &session, name, &args).await;
@@ -459,7 +478,9 @@ fn ls_result(all: &Value, args: &Value) -> Value {
         })
         .collect();
     if more > 0 {
-        lines.push(format!("… {more} more; narrow with query or status, or raise limit."));
+        lines.push(format!(
+            "… {more} more: raise limit (up to {LS_MAX_LIMIT}), narrow with query, or pass status (closed lists the closed ones)."
+        ));
     }
     let slim: Vec<Value> = rows
         .iter()

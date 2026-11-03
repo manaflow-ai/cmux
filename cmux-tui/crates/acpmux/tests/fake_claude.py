@@ -624,6 +624,11 @@ while True:
         if (request.get("subtype") == "get_context_usage" and os.environ.get("FAKE_CLAUDE_CONTEXT") == "1"
                 and not LIMITED):
             answer = CONTEXT_USAGE
+        # An idle side_question answers as Claude Code 2.1.310 does: the side answer and whether it
+        # is synthetic; FAKE_CLAUDE_SIDE_ANSWER names its text (the question echoed otherwise).
+        if request.get("subtype") == "side_question":
+            said = os.environ.get("FAKE_CLAUDE_SIDE_ANSWER", "side: " + str(request.get("question")))
+            answer = {"response": said, "synthetic": False}
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": answer}})
         if request.get("subtype") == "apply_flag_settings":
             FLAG_SETTINGS.append(request.get("settings"))
