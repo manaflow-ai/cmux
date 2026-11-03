@@ -239,19 +239,19 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
                 "The user declined to connect this server.".to_owned()
             } else if result["declined"] == true {
                 "The user declined to give this secret.".to_owned()
-            } else if result["connect"] == "signInNeeded" {
+            } else if *field(&result, "connect") == "signInNeeded" {
                 format!(
                     "The user approved {} (scope {}). The server needs a sign-in before it lists tools: \
                      ask the user to sign in on the card. The sign-in happens on the user's side; no \
                      token or code comes to you, so never ask for one.",
-                    result["name"].as_str().unwrap_or("the server"),
-                    result["scope"].as_str().unwrap_or("chat"),
+                    field(&result, "name").as_str().unwrap_or("the server"),
+                    field(&result, "scope").as_str().unwrap_or("chat"),
                 )
-            } else if result["connect"] == "keyNeeded" {
+            } else if *field(&result, "connect") == "keyNeeded" {
                 format!(
                     "The user approved {}. It needs a key, which the user types only into the card's \
                      secure field; never ask for it in the chat.",
-                    result["name"].as_str().unwrap_or("the server"),
+                    field(&result, "name").as_str().unwrap_or("the server"),
                 )
             } else {
                 result.to_string()

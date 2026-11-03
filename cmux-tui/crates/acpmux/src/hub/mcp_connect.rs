@@ -197,20 +197,21 @@ impl Hub {
         card: &Value,
         key: Option<&str>,
     ) -> Value {
-        let result = match card["transport"].as_str() {
+        let result = match field(card, "transport").as_str() {
             Some("remote") => {
-                let url = card["url"].as_str().unwrap_or_default();
-                let key_header = match (card["auth"].as_str(), card["keyName"].as_str(), key) {
-                    (Some("key"), Some(name), Some(value)) => {
-                        Some(super::mcp_probe::KeyHeader { name, value })
-                    }
-                    _ => None,
-                };
-                if card["auth"] == "key"
-                    && card["keyOptional"] != json!(true)
+                let url = field(card, "url").as_str().unwrap_or_default();
+                let key_header =
+                    match (field(card, "auth").as_str(), field(card, "keyName").as_str(), key) {
+                        (Some("key"), Some(name), Some(value)) => {
+                            Some(super::mcp_probe::KeyHeader { name, value })
+                        }
+                        _ => None,
+                    };
+                if *field(card, "auth") == "key"
+                    && *field(card, "keyOptional") != json!(true)
                     && key_header.is_none()
                 {
-                    json!({"connect": "keyNeeded", "keyName": card["keyName"]})
+                    json!({"connect": "keyNeeded", "keyName": field(card, "keyName")})
                 } else {
                     let keyed = key_header.is_some();
                     match super::mcp_probe::probe(url, key_header).await {
@@ -227,7 +228,7 @@ impl Hub {
                         }
                         super::mcp_probe::Probe::SignIn { resource_metadata, scopes } => json!({
                             "connect": "signInNeeded",
-                            "auth": card["auth"],
+                            "auth": field(card, "auth"),
                             "resourceMetadata": resource_metadata,
                             "challengeScopes": scopes,
                         }),
@@ -241,8 +242,8 @@ impl Hub {
             _ => json!({"connect": "notStarted", "why": "local servers start in the sandbox step"}),
         };
         let mut record = result.clone();
-        record["requestId"] = json!(request_id);
-        record["name"] = card["name"].clone();
+        record.set("requestId", json!(request_id));
+        record.set("name", field(card, "name").clone());
         self.append(session, "mux", "mcp_connect_result", record);
         result
     }
