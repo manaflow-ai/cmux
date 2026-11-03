@@ -1,5 +1,23 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-02: a remote group's machine mark is a row mark's size. Leo, verbatim: "the sizes of the icons for groups
+  and workspaces aren't the same size anymore they should be". #29833 drew each workspace row's trailing marks at a
+  status mark's size (`SidebarStyle.statusGlyphSize`) but left the group header's trailing machine mark (from
+  4ef89f17eba, the remote group) at the leading glyph's side, larger than the rows under it. The header now draws it at
+  the status mark's size (`GroupHeaderRowView.machineMarkSide`, its own image so it does not depend on the rows'
+  machine mark, which #32688 removes); the non-default leading look keeps the icon column's glyph size. A group's own
+  icon already shares the workspace icon's box. Regression: `SidebarGroupIconSizeTests`, at each density and text size.
+- 2026-11-02: a group's fold clips its members to the group's height. Leo, verbatim, on collapsing a group: "the
+  collapsing group animation is kinda funky looking when the text all races up" ("*compared to claude code"). Each
+  member slid up to its header's y over its own distance while fading, so the members raced past each other and drew
+  over the rows rising below. Now the members stay where they are and fade, each masked to the group's slot under its
+  header (`SidebarListView.clipFold`), whose bottom edge closes on the `.move` spring with the rows below; an expand
+  opens the slot down the same way. The masks are render-server springs (no layout per frame), come off when the fold
+  ends or the row is reused, and are never added with motion off. Only a person's own fold of a group moves this way
+  (`foldGroup`); reload-driven folds keep the slide under the header. Regression:
+  `SidebarRowsMoveOnRenderServerTests.collapsingAGroupClipsItsMembersInPlace`,
+  `expandingAGroupOpensItsSlotOverTheMembersInPlace`, `aFoldWithoutMotionLeavesNoMask`.
+
 - 2026-11-02: a group nobody colored draws no bar, chip or wash: a plain row with only its hover and drop fills. Leo,
   on an uncolored group's header: "WTF IS THIS GROUP COLOUR????" / "THE GROUP COLOUR SOMEHOW BEING THE THEME COLOUR???"
   / "IT'S USELESS". `GroupTint.none.headerChip` and `headerWash` were the opaque `sidebarBackground`, which drew the
@@ -1101,6 +1119,38 @@ An empty group now keeps only its header at rest. The header's existing + appear
 ## Each space owns its pins and groups (2026-10-29)
 
 - Leo 2026-10-29: "could u guys also now work on the per space pins and groups? rn anything u make in teh default space goes across to new ones". No visual change: rows, headers, insets and the Pinned block look the same. What changes is which space draws a group or a Pinned link, tab or app: a new group stores the acting window's space as its `profile`, a Pinned item stores it as `extra.room`, and a window on space S draws only the ones that belong to S (anything made before reads as the default space's). Commits 68c7d49b5bc and 9fcf4ab6c1c carry no trailer; reviewed and logged here as no visual change. A link, tab or app moved into Pinned from another band (the band's Move, a document drag) stores the acting window's space too, in the same change (`item.update {room}`): 4e44c4baef8 and af2b1a3f8eb, no trailer, logged here as no visual change. A machine section's group lists with its parent in every space (`SidebarDocSections.sections`). Test: `SidebarSpaceOwnsPinsAndGroupsTests`. Pending `item.update` fields and a pending New Group's space (28d1f36386e, no trailer) are logged here as no visual change. An item or group naming a space that is gone (deleted, not mirrored back yet) reads as the default space's (`SidebarDocItem.owningRoom`), so none is left in no window; Delete Space with `moveTo` and Move Group to Space move the stored space with it.
+
+## A Cloud or remote workspace is named once, in the hover card's header (2026-11-02)
+
+- Leo 2026-11-02, on the hover card of a Cloud workspace that said Cloud four times (a cloud icon before the title, a
+  "Cloud" row with another cloud icon, "Cloud" under the Terminal tab, and the tiny cloud on the row behind it): "isn't
+  this extremely stupid looking?" / "the tiny cloud icon the repeated cloud cloud cloud". The card's header names the
+  machine once, "Cloud" or the remote machine's name in the secondary ink (its color pick when the person picked one)
+  right after the title, its connection dot beside it; the title has no icon on such a card and the separate Cloud row
+  is gone. A tab row names a machine only when the tab runs somewhere other than the header says; this Mac's rows name
+  no machine either (see the next section). The workspace row draws no machine glyph (the trailing machine mark of #29833, itself replacing #22763's
+  leading glyph); its accessibility label still names the machine. Replaces the hover host row of #30244 and the
+  per-row machine of #31511 on remote cards. Gallery: "Cloud workspace · machine named once · chosen". Tests:
+  `WorkspaceHoverHostIdentityTests.aCloudCardNamesItsMachineExactlyOnce`, `WorkspaceTabHoverCardRichRowsTests`,
+  `SidebarMachineMarkTests.aRowOnAnotherMachineDrawsNoMachineGlyph`, `HoverCardMachineColorTests`.
+
+## Hover card tab rows close on ✕, never flicker, and keep their line short (2026-11-02)
+
+- Leo 2026-11-02 23:55Z: "YOU SHOULD BE ABLE TO CLOSE THESE TABS FROM THE HOVER PREVIEW AND THE HOVER PREVIEW SHOULD NOT
+  MAKE THE SIDEBAR FLICKER ... I HAVE IT AS MY LAST HOVERED THING THEN I LEAVE IT THEN I GO BACK AND IT RE-RENDERS THE
+  SPINNER VIEW" / "PLUS THE PLACEMENT LOOKS LIKE SHIT".
+- A hovered tab row shows a ✕ in its trailing slot (over the unread dot) that sends `SidebarIntent.closeTab`; the card
+  stays open and the closed tab leaves it through `contentChanged`. A card with no `onClose` shows no ✕.
+- Coming back to the row whose card is still fading out shows the same card with no crossfade
+  (`HoverCardMachine.lastShownID`; `HoverCardPanel.present` no longer crossfades a body over itself), so its spinners
+  keep turning in place; a row shown again for the same tab keeps its hover state.
+- The row's spinner sits right after its title, centred on the title line. Its meta line drops "Working" (the spinner
+  says it), names "This Mac" only on the `namesLocalMachine` variant, ends in an ellipsis when too long, and a lane
+  session name ("lane-vm-11/nightly-rollback") shows its last part. Gallery: "Tab rows · spinner after the title ·
+  chosen", "Tab rows · close ✕ on hover · chosen", "Tab rows · only another machine named · chosen". Tests:
+  `WorkspaceTabHoverCardTests.aHoveredRowsCloseButtonClosesItsTabAndKeepsTheCard`,
+  `WorkspaceHoverCardBehaviorTests.comingBackToTheSameRowShowsTheSameCardWithNoCrossfade`,
+  `WorkspaceTabHoverCardRichRowsTests`.
 
 ## Reviewed behavior-only commits
 
