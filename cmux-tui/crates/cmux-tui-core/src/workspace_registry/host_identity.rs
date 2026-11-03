@@ -4,9 +4,9 @@
 //! machines answer with one id and overwrite each other's records in every
 //! store that keys on it: the app's session registrar rewrote one record
 //! about 50 times a second for nine such VMs. Each of these ids is stamped
-//! with a hash of the operating system's machine identity (`/etc/machine-id`,
-//! the macOS host UUID); one stamped on another machine is replaced by a
-//! fresh id at the next open. An id with no stamp (written before this, or
+//! with a hash of the operating system's machine identity (the cmux Cloud
+//! instance id, else `/etc/machine-id`; the macOS host UUID); one stamped on
+//! another machine is replaced by a fresh id at the next open. An id with no stamp (written before this, or
 //! on a machine with no OS identity) is kept and stamped: a machine that was
 //! not copied never changes its ids. Without an OS identity (a container
 //! with no machine-id) nothing is stamped or replaced.
@@ -43,8 +43,18 @@ fn stamp_of(raw: &str) -> String {
     hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// On a cmux Cloud machine, the instance id cmux-host binds (written before
+/// it starts the session daemon; `/etc/machine-id` is rekeyed after it, so a
+/// fork's first daemon would still read the image's). Elsewhere the systemd
+/// machine id.
 #[cfg(target_os = "linux")]
 fn os_machine_identity() -> Option<String> {
+    if let Ok(value) = fs::read_to_string("/etc/cmux/daemon-instance-id") {
+        let value = value.trim();
+        if !value.is_empty() && value.len() <= 256 && !value.contains(char::is_whitespace) {
+            return Some(format!("cmux-instance:{value}"));
+        }
+    }
     ["/etc/machine-id", "/var/lib/dbus/machine-id"].iter().find_map(|path| {
         let value = fs::read_to_string(path).ok()?;
         let value = value.trim();
