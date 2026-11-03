@@ -62,8 +62,12 @@ Steps (`do`):
                An agent chat in the named pane: `action.run palette.newAgentChat` with target pane:<id> and no focus, the
                app's targeted path (AgentHandlers.openTargetedChat) that opens the chat tab in that pane. With no target,
                a script's chat goes to a new left chat dock (NewChatPlacement .newDock) and leaves the pane a terminal;
-               with focus the targeted path is not taken. Waits until debug.surfaces shows the pane's selected tab as
-               the chat (kind conversation), then focuses the pane (`cmux pane focus`) for the next set-up step.
+               with focus the targeted path is not taken. The run answers the chat tab (`result.tab`); in a pane a
+               window shows, that path leaves the selection alone (#23085), so px_agent selects the tab
+               (`action.run tab.focus`, target tab:<id>: a focus action, as `cmux tab <id> focus`) unless the pane
+               shows it already. Waits until debug.surfaces reports that tab selected and shown with kind "agent" (an
+               agent chat, TabContent.agent; "conversation" is a native Home conversation tab), then focuses the pane
+               (`cmux pane focus`) for the next set-up step.
   px_switch    {key, value}
                A feature switch (a boolean Debug tunable) for the rest of the journey: the store activated when it is
                inactive (`debug.tunables activate`), the switch set and read back. A switch that does not take (a key
@@ -556,20 +560,45 @@ def film_bytes(j, name):
     return out
 
 
+# debug.surfaces' kind of a pane that shows an agent chat (PaneSurfaceStatus: TabContent.agent). "conversation" is a
+# native Home conversation tab (TabContent.conversation), never the chat palette.newAgentChat opens.
+AGENT_KIND = "agent"
+# The row fields that say what a pane shows (a 300-character cut of the whole row stopped before "kind").
+AGENT_FACTS = ("kind", "selected_tab", "shown_tab", "content_installed", "content_visible", "visible", "focused", "phase")
+
+
+def agent_shown(row, tab):
+    """The pane's report shows the chat tab TAB: selected, shown, an agent chat, its content installed in the pane."""
+    return (row.get("kind") == AGENT_KIND and row.get("selected_tab") == tab and row.get("shown_tab") == tab
+            and bool(row.get("content_installed")))
+
+
 def step_px_agent(j, step):
     rec = W.named(j, step["pane"])
-    opened = j.app.rpc("action.run", {"action": "palette.newAgentChat", "target": f"pane:{rec['pane']}", "args": {}})
+    opened = j.app.rpc("action.run", {"action": "palette.newAgentChat", "target": f"pane:{rec['pane']}", "args": {}}) or {}
+    tab = (opened.get("result") or {}).get("tab")
+    if not tab:
+        raise D.StepError(f"px_agent {step['pane']}: palette.newAgentChat named no chat tab: {json.dumps(opened)[:300]}")
+    selected = None
+    if not agent_shown(_surface_row(j, rec["pane"]) or {}, tab):
+        # In a pane a window shows, the targeted open adds the tab and leaves the selection alone
+        # (AgentChatPlacement.openTab(selects: shown == nil), #23085): select it as a person's `cmux tab <id> focus` does.
+        selected = j.app.rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab}"})
     timeout = float(step.get("timeout", 20))
     t0 = D.now()
-    row = {}
-    while D.now() < t0 + timeout:
+    while True:
         row = _surface_row(j, rec["pane"]) or {}
-        if row.get("kind") == "conversation":
+        if agent_shown(row, tab):
             focus = j.app.cmux("pane", rec["pane"], "focus")
-            return {"pane": rec["pane"], "kind": row.get("kind"), "tab": row.get("selected_tab"), "opened": opened, "focus": focus}
+            return {"pane": rec["pane"], "kind": row.get("kind"), "tab": tab, "opened": opened, "selected": selected,
+                    "focus": focus}
+        if D.now() >= t0 + timeout:
+            break
         time.sleep(0.1)  # orchestration poll of the app's own report
-    raise D.StepError(f"px_agent {step['pane']}: the pane shows no agent chat within {timeout:.0f} s "
-                      f"(pane {json.dumps(row)[:300]}; palette.newAgentChat: {json.dumps(opened)[:300]})")
+    facts = {k: row.get(k) for k in AGENT_FACTS if k in row}
+    raise D.StepError(f"px_agent {step['pane']}: the pane does not show its chat tab {tab} within {timeout:.0f} s "
+                      f"(pane {json.dumps(facts)}; tab.focus: {json.dumps(selected)[:200]}; "
+                      f"palette.newAgentChat: {json.dumps(opened)[:300]})")
 
 
 def step_px_window_frame(j, step):
