@@ -136,6 +136,57 @@ public nonisolated struct LinkHintHeldKeys<Key> {
     }
 }
 
+/// What a link-hint session does with the keys typed after the `f` that started it, until its page answers (review of
+/// #32537: every key reaches the page once and in order, or is a hint key; none is lost, and no key-up goes before its
+/// key-down). Every key typed while the page answers is held, letters or not.
+public nonisolated struct LinkHintPendingKeys<Key> {
+    /// A held key as the session reads it.
+    public enum Kind: Equatable, Sendable { case letter(String), backspace, escape, other }
+
+    /// The keys for the page, and what the session does, once the page answered (``resolve(_:targets:editing:)``).
+    public struct Resolution {
+        public var page: [Key]
+        public var outcome: LinkHintSession.Outcome
+        /// The page has nothing to label.
+        public var noLinks: Bool
+    }
+
+    public init() {}
+
+    public var isEmpty: Bool { true }
+
+    /// Holds a key-down typed while the page answers.
+    public mutating func hold(_ key: Key, kind: Kind, code: UInt16) {}
+
+    /// Holds a key-up whose key-down is held (red stub: never).
+    public mutating func holdUp(_ key: Key, code: UInt16) -> Bool { false }
+
+    /// The page did not answer (red stub: nothing).
+    public mutating func releaseAll() -> [Key] { [] }
+
+    /// The page answered (red stub: nothing for the page).
+    public mutating func resolve(_ session: inout LinkHintSession, targets: [LinkHintTarget], editing: Bool) -> Resolution {
+        Resolution(page: [], outcome: .cancel, noLinks: false)
+    }
+}
+
+/// Key-downs the app already dispatched (review of #32537). Chromium sends a key the page left unhandled through the app
+/// again (the same event); such a key the page already had is never a link-hint session's.
+public nonisolated struct LinkHintSeenKeys<Key: AnyObject> {
+    /// A key-down's identity across a copy: its own time, key code and characters (a synthetic key has no time).
+    public struct Signature: Equatable, Sendable {
+        public var time: TimeInterval
+        public var code: UInt16
+        public var characters: String?
+        public init(time: TimeInterval, code: UInt16, characters: String?) { (self.time, self.code, self.characters) = (time, code, characters) }
+    }
+
+    public init() {}
+
+    /// Notes `key`: whether it was noted before (red stub: never).
+    public mutating func note(_ key: Key, _ signature: Signature) -> Bool { false }
+}
+
 /// The keys link hints sent back to the page (``LinkHintHeldKeys``): each goes on to the page untouched once, never
 /// held or taken by a session again (a key sent again and taken again looped without end, v5 of #32537).
 public nonisolated struct LinkHintReplays<Key: AnyObject> {
