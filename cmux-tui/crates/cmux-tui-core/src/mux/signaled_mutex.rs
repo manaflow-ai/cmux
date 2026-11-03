@@ -355,6 +355,11 @@ impl StateMutex {
         self.publish_routes.store(on, std::sync::atomic::Ordering::Relaxed);
     }
 
+    /// Whether a writer panicked while it held the session state.
+    pub(crate) fn is_poisoned(&self) -> bool {
+        self.value.is_poisoned()
+    }
+
     /// The routing tables as of the last finished change: one atomic load, never a wait (R-DAEMON-STATE stage S1).
     pub(crate) fn routes(
         &self,
