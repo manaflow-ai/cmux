@@ -163,6 +163,13 @@ pub(super) async fn list(
                 continue;
             }
             let Some(id) = row.get("briefId").and_then(Value::as_str) else { continue };
+            if hub
+                .briefs
+                .get(id)
+                .is_some_and(|local| local.get("durable").and_then(Value::as_bool) == Some(true))
+            {
+                continue;
+            }
             if let Some(local) = rows
                 .iter_mut()
                 .find(|candidate| candidate.get("briefId").and_then(Value::as_str) == Some(id))
