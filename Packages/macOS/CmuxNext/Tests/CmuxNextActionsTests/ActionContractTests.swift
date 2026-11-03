@@ -51,7 +51,7 @@ import Testing
         #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id.rawValue).sorted()
             == (["agent.openSessionTab", "agent.openSessionWorkspace", "agent.share.kick", "agent.share.list", "agent.share.revoke", "browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
                 "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
-                "chief.openSubagent", "commandPaletteNext", "commandPalettePrevious", "history.goTo", "home.archiveChief", "home.deleteChief", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo",
+                "chief.openSubagent", "commandPaletteNext", "commandPalettePrevious", "history.goTo", "home.archiveChief", "home.deleteChief", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo", "home.setPrimaryChief",
                 "home.sendSelectionToChief", "list.next", "list.previous",
                 "import.card", "import.list", "import.suggest",
                 "machine.joined.check", "machine.joined.revoke", "machine.joined.rotate",
