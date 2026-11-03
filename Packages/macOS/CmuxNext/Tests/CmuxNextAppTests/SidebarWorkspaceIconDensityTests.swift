@@ -25,7 +25,7 @@ import Testing
         }
         let side = SidebarStyle.iconColumnBox
         let emoji = SidebarIconView(frame: NSRect(x: 0, y: 0, width: side, height: side))
-        emoji.configure(icon: .emoji("🚀", nil))
+        emoji.configure(icon: .emoji("🚀"))
         emoji.layoutSubtreeIfNeeded()
         let symbol = SidebarIconView(frame: NSRect(x: 0, y: 0, width: side, height: side))
         symbol.configure(icon: .symbol("star.fill", tint: nil))
