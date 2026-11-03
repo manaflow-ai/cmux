@@ -395,7 +395,7 @@ const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && 
 /// Put `acpmux.prev` back as `~/.local/bin/acpmux`; fails without one.
 const RESTORE_PREV: &str = "(cd ~/.local/bin && [ -f acpmux.prev ] && rm -f acpmux && { ln acpmux.prev acpmux 2>/dev/null || cp -p acpmux.prev acpmux; })";
 
-const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+pub(crate) const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>com.acpmux.daemon</string>
@@ -494,7 +494,7 @@ const LAUNCHD_START_GRACE: std::time::Duration = std::time::Duration::from_secs(
 /// acpmux's own start over ssh puts it then (`daemon/login_placement.rs`,
 /// `NoGuiLogin`), and launchd is not asked to stop or start anything. An
 /// in-place start says so on stdout ([`IN_PLACE`]).
-fn launchd_reload(json: bool) -> String {
+pub(crate) fn launchd_reload(json: bool) -> String {
     let detached = restart_detached(json);
     format!(
         r#"acpmux_uid=$(id -u); acpmux_job=gui/$acpmux_uid/com.acpmux.daemon; acpmux_plist=~/Library/LaunchAgents/com.acpmux.daemon.plist
@@ -546,7 +546,7 @@ const IN_PLACE: &str = "ACPMUX_IN_PLACE=";
 /// shutdown` restarts it too (`systemctl --user stop acpmux.service` stops
 /// it). `host update` rewrites a unit an older acpmux wrote
 /// ([`OLD_SYSTEMD_UNITS`]) to this text.
-const SYSTEMD_UNIT: &str = "[Unit]
+pub(crate) const SYSTEMD_UNIT: &str = "[Unit]
 Description=acpmux daemon
 After=default.target
 StartLimitIntervalSec=0
@@ -572,7 +572,7 @@ WantedBy=default.target
 /// replaces one of them with [`SYSTEMD_UNIT`] ([`unit_refresh`]). A unit
 /// with any other text was written or edited by someone else and is left
 /// as it is.
-const OLD_SYSTEMD_UNITS: [&str; 2] = [
+pub(crate) const OLD_SYSTEMD_UNITS: [&str; 2] = [
     // #22899 (2026-10-21): gave up after 5 failed starts in 60 s.
     "[Unit]
 Description=acpmux daemon

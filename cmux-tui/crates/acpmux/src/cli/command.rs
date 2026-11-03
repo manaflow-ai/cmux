@@ -583,6 +583,11 @@ pub enum Command {
     DaemonStart { person_key_fd: Option<i32>, show_token: bool },
     #[command(hide = true)]
     DaemonRestart,
+    #[command(hide = true)]
+    DaemonService {
+        #[command(subcommand)]
+        action: crate::cli::daemon_service::ServiceAction,
+    },
     /// App sign-out: clear peer tails without starting an agent or daemon.
     #[command(hide = true, name = "__clear-peer-snapshots")]
     ClearPeerSnapshots,
@@ -1216,6 +1221,12 @@ pub enum DaemonCmd {
     },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
+    /// The service that keeps this machine's daemon running: the LaunchAgent on macOS, the
+    /// user systemd unit on Linux (the files `host setup` writes on an ssh host).
+    Service {
+        #[command(subcommand)]
+        action: crate::cli::daemon_service::ServiceAction,
+    },
     /// Stop the daemon. Hosted agents keep running for the next daemon to
     /// adopt (a restart or an update); pooled hosts end. `--end-agents` ends
     /// every agent process too, agent hosts included, returns once they all
@@ -1401,6 +1412,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::Shutdown { keep_agents, end_agents, restart }
             }
             DaemonCmd::Restart => Command::DaemonRestart,
+            DaemonCmd::Service { action } => Command::DaemonService { action },
             DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
