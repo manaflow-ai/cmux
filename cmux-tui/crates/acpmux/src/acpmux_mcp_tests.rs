@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
+use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 
 async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {
@@ -106,7 +107,19 @@ fn the_send_schema_keeps_its_first_shape() {
     names.sort_unstable();
     assert_eq!(
         names,
-        ["class", "file", "messages", "pr", "steer", "supersede", "tag", "text", "thread", "to"]
+        [
+            "class",
+            "file",
+            "messages",
+            "notice",
+            "pr",
+            "steer",
+            "supersede",
+            "tag",
+            "text",
+            "thread",
+            "to"
+        ]
     );
     assert!(tools()[0]["inputSchema"].get("required").is_none());
     let item = &props["messages"]["items"]["properties"];
@@ -114,8 +127,10 @@ fn the_send_schema_keeps_its_first_shape() {
     item_keys.sort_unstable();
     assert_eq!(
         item_keys,
-        ["class", "file", "pr", "steer", "supersede", "tag", "text", "thread", "to"]
+        ["class", "file", "notice", "pr", "steer", "supersede", "tag", "text", "thread", "to"]
     );
+    assert_eq!(props["notice"]["required"], json!(["severity", "title"]));
+    assert_eq!(props["notice"]["properties"]["severity"]["enum"], json!(["info", "warn", "fire"]));
     assert_eq!(props["messages"]["maxItems"], json!(send::MAX_MESSAGES));
 }
 
@@ -207,6 +222,85 @@ fn top_level_fields_are_each_items_defaults() {
     assert!(send::items(&json!({"messages": many})).unwrap_err().contains("at most 32"));
 }
 
+/// `notice`: a tool's notice, checked as the daemon checks it, its sender this session's name by
+/// default, its links `{url, label?}` or `--link` strings; the text (optional) is its body.
+#[tokio::test]
+async fn a_notice_argument_is_checked_and_defaults_its_sender_and_host() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |k: &str| pairs.iter().find(|(key, _)| *key == k).map(|(_, v)| (*v).to_owned())
+    };
+    let given = json!({"severity": "fire", "title": "fast tier failed", "host": "ci-mini-3",
+                       "links": [{"url": "https://x.dev/pull/1", "label": "#1"}, "https://x.dev/run/2=run 2"]});
+    let notice =
+        send::notice_arg(Some(&given), env(&[("ACPMUX_SESSION_NAME", "lane-1")])).unwrap().unwrap();
+    assert_eq!(
+        notice,
+        json!({"sender": "lane-1", "host": "ci-mini-3", "severity": "fire", "title": "fast tier failed",
+               "links": [{"url": "https://x.dev/pull/1", "label": "#1"}, {"url": "https://x.dev/run/2", "label": "run 2"}]})
+    );
+    let named = json!({"sender": "base-red-watch", "severity": "info", "title": "t", "host": "h"});
+    let kept = send::notice_arg(Some(&named), env(&[("ACPMUX_SESSION_NAME", "lane-1")])).unwrap();
+    assert_eq!(kept.unwrap()["sender"], "base-red-watch");
+    assert_eq!(send::notice_arg(None, env(&[])).unwrap(), None);
+    assert_eq!(send::notice_arg(Some(&Value::Null), env(&[])).unwrap(), None);
+    let no_sender = json!({"severity": "info", "title": "t"});
+    assert!(send::notice_arg(Some(&no_sender), env(&[])).unwrap_err().contains("sender"));
+    let loud = json!({"sender": "s", "severity": "loud", "title": "t"});
+    assert!(send::notice_arg(Some(&loud), env(&[])).unwrap_err().contains("severity"));
+    assert!(send::notice_arg(Some(&json!("fire")), env(&[])).is_err());
+
+    // In a call: the item carries it, its body is optional, and the text is the rendered notice.
+    let args = json!({"to": "coord", "notice": {"sender": "s", "host": "h", "severity": "warn", "title": "T"}});
+    let mut items: Vec<send::Item> =
+        send::items(&args).unwrap().into_iter().map(Result::unwrap).collect();
+    assert_eq!(items[0].notice.as_ref().unwrap()["severity"], "warn");
+    assert_eq!(send::body(&mut items[0]).await.unwrap().0, "[notice from s on h · WARN] T");
+    let dir = tempfile::tempdir().unwrap();
+    let empty = dir.path().join("empty.txt");
+    std::fs::write(&empty, "").unwrap();
+    let mut from_file = send::Item {
+        file: Some(empty.to_str().unwrap().to_owned()),
+        notice: items[0].notice.clone(),
+        ..Default::default()
+    };
+    assert_eq!(send::body(&mut from_file).await.unwrap().0, "[notice from s on h · WARN] T");
+    let bad = json!({"to": "coord", "text": "x", "notice": {"sender": "s", "severity": "fire"}});
+    let errors: Vec<String> =
+        send::items(&bad).unwrap().into_iter().map(Result::unwrap_err).collect();
+    assert!(errors[0].contains("title"), "{errors:?}");
+}
+
+/// A notice sent with the tool reaches the receiver as one: its `user_message` carries the notice
+/// provenance and the rendered text.
+#[tokio::test]
+async fn a_notice_sent_with_the_tool_is_recorded_as_a_notice() {
+    let (hub, client, _dir) = daemon().await;
+    let coord = session(&client, "notice-coord").await;
+    let args = json!({"to": "notice-coord", "text": "3 PRs red", "notice": {
+        "sender": "base-red-watch", "host": "ci-mini-3", "severity": "fire", "title": "fast tier failed"}});
+    let r = call(&client, &tool("send", args)).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(received(&hub, &coord, "fast tier failed").await, "never received");
+    let events = hub.events(&coord, 0, 1000).unwrap();
+    let message = events
+        .iter()
+        .filter(|e| e.kind == "user_message" || e.kind == "inbox")
+        .find(|e| e.msg.to_string().contains("fast tier failed"))
+        .expect("its record");
+    let provenance = &message.msg["_meta"]["provenance"];
+    assert_eq!(provenance["kind"], "notice", "{}", message.msg);
+    assert_eq!(provenance["fromName"], "base-red-watch", "{}", message.msg);
+    assert_eq!(provenance["notice"]["severity"], "fire", "{}", message.msg);
+    assert!(
+        message
+            .msg
+            .to_string()
+            .contains("[notice from base-red-watch on ci-mini-3 · FIRE] fast tier failed"),
+        "{}",
+        message.msg
+    );
+}
+
 /// `file`: small text stays inline, while large files arrive as attachments.
 #[tokio::test]
 async fn a_message_can_be_a_file_of_yours() {
@@ -275,12 +369,18 @@ async fn a_message_can_be_a_file_of_yours() {
 /// receives the complete file by reference, through the same durable outbox.
 #[tokio::test]
 async fn a_large_message_file_is_uploaded_and_reaches_the_agent_intact() {
-    large_message_arrives(true).await;
+    large_message_arrives(true, false).await;
 }
 
 #[tokio::test]
 async fn text_past_the_rpc_envelope_reaches_the_agent_intact() {
-    large_message_arrives(false).await;
+    large_message_arrives(false, false).await;
+}
+
+#[tokio::test]
+async fn a_large_notice_keeps_its_metadata_and_complete_body() {
+    large_message_arrives(true, true).await;
+    large_message_arrives(false, true).await;
 }
 
 #[test]
@@ -291,7 +391,7 @@ fn json_expansion_is_counted_before_deciding_to_upload_text() {
     assert!(send::text_needs_file(&escaped));
 }
 
-async fn large_message_arrives(from_file: bool) {
+async fn large_message_arrives(from_file: bool, notice: bool) {
     use sha2::Digest;
     use std::io::{Read, Write};
     let (hub, client, _socket) = daemon().await;
@@ -308,11 +408,17 @@ async fn large_message_arrives(from_file: bool) {
         }
     }
     assert!(std::fs::metadata(&path).unwrap().len() > 40 << 20);
-    let args = if from_file {
+    let mut args = if from_file {
         json!({"to": "large-file-lane", "file": path})
     } else {
         json!({"to": "large-file-lane", "text": std::fs::read_to_string(&path).unwrap()})
     };
+    if notice {
+        args.set(
+            "notice",
+            json!({"sender": "audit", "host": "test", "severity": "warn", "title": "large brief"}),
+        );
+    }
     let name = if from_file { "instructions.md" } else { "message.txt" };
     let started = std::time::Instant::now();
     let r = call(&client, &tool("send", args)).await;
@@ -322,6 +428,17 @@ async fn large_message_arrives(from_file: bool) {
         started.elapsed()
     );
     assert!(received(&hub, &lane, name).await, "file was not recorded");
+    if notice {
+        let events = hub.events(&lane, 0, 1000).unwrap();
+        let message = events
+            .iter()
+            .find(|e| e.kind == "user_message" && e.msg.to_string().contains("large brief"))
+            .expect("notice message");
+        let provenance = &message.msg["_meta"]["provenance"];
+        assert_eq!(provenance["kind"], "notice", "{}", message.msg);
+        assert_eq!(provenance["notice"]["severity"], "warn", "{}", message.msg);
+        assert!(message.msg.to_string().contains("[notice from audit on test · WARN] large brief"));
+    }
     let finished = client
         .request(
             method::MUX_WAIT,
