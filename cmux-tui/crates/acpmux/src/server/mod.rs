@@ -1936,6 +1936,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 && let Some(m) = rec.msg.get("method").and_then(Value::as_str)
                 && m == method::SESSION_UPDATE
             {
+                hub.session_update_encodes.fetch_add(1, Ordering::Relaxed);
                 let mut params = rec.msg.get("params").cloned().unwrap_or(json!({}));
                 params.set("sessionId", Value::String(ev.session_id.clone()));
                 crate::hub::merge_mux_meta(
@@ -2597,3 +2598,7 @@ mod message_notice_tests {
         assert!(n.live(5));
     }
 }
+
+#[cfg(test)]
+#[path = "fanout_encode_tests.rs"]
+mod fanout_encode_tests;
