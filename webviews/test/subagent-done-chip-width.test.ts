@@ -5,7 +5,9 @@
 // agent-pane.subagent-done (subagents/SubagentDoneLine.gallery.tsx):
 // - a long name in a wide pane: the chip is wider than the old cap (40% of its sentence) and reaches
 //   the row's room, cut with an ellipsis;
-// - every line: the chevron's glyph starts within MAX_GAP px of the chip's right edge, nothing
+// - a failure's long error is cut before the chip;
+// - every line: the chevron's glyph starts within MAX_GAP px of the chip's right edge (or of the
+//   failure after it), nothing
 //   overflows the row, and the row stays one 22px line.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -46,7 +48,8 @@ await requireBrowserLane("subagent-done-chip-width.test.ts", async () => {
 
   type Line = {
     row: { left: number; right: number; height: number; overflow: number };
-    chip: { width: number; right: number; cut: boolean; ellipsis: string };
+    chip: { width: number; right: number; cut: boolean; ellipsis: string; words: number };
+    suffix: { cut: boolean; right: number } | null;
     sentence: number;
     chevron: number;
     chevronRight: number;
@@ -77,7 +80,14 @@ await requireBrowserLane("subagent-done-chip-width.test.ts", async () => {
               right: chipBox.right,
               cut: chip.scrollWidth > chip.clientWidth + 1,
               ellipsis: getComputedStyle(chip).textOverflow,
+              words: chip.scrollWidth,
             },
+            suffix: (() => {
+              const suffix = row.querySelector(".cv-subagent-done__suffix");
+              return suffix
+                ? { cut: suffix.scrollWidth > suffix.clientWidth + 1, right: suffix.getBoundingClientRect().right }
+                : null;
+            })(),
             sentence: row.querySelector(".cv-agent-activity__sentence")!.getBoundingClientRect().width,
             chevron: glyph.left,
             chevronRight: glyph.right,
@@ -100,17 +110,26 @@ await requireBrowserLane("subagent-done-chip-width.test.ts", async () => {
     expect(line!.chip.ellipsis).toBe("ellipsis");
   });
 
+  test("a failure with a long error: the error is cut first, the chip keeps its whole name", async () => {
+    const [line] = await lines("failed-long-error", 420);
+    expect(line?.suffix?.cut).toBe(true);
+    expect(line!.chip.cut).toBe(false);
+  });
+
   for (const [variant, width] of [
     ["long-title", 900],
     ["short-title", 900],
     ["narrow", 420],
     ["long-title", 420],
+    ["failed-long-error", 420],
+    ["failed-long-error", 900],
   ] as const)
-    test(`${variant} at ${width}px: the chevron right after the chip, one 22px line, no overflow`, async () => {
+    test(`${variant} at ${width}px: the chevron right after the words, one 22px line, no overflow`, async () => {
       const all = await lines(variant, width);
       expect(all.length).toBeGreaterThan(0);
       for (const line of all) {
-        const gap = line.chevron - line.chip.right;
+        // After the line's last words: the chip, or the reason or failure after it.
+        const gap = line.chevron - (line.suffix?.right ?? line.chip.right);
         expect(gap).toBeGreaterThanOrEqual(-0.5);
         expect(gap).toBeLessThanOrEqual(MAX_GAP);
         // The duration comes after the chevron, at the line's end.

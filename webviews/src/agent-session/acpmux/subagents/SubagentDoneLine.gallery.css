@@ -7,6 +7,3 @@
   flex: none;
   max-width: 40%;
 }
-.subagent-done-gallery[data-look="before"] .cv-subagent-done-row > .cv-subagent-done__trail {
-  order: 0;
-}

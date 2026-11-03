@@ -4,8 +4,8 @@
 // a lone chevron at its far right: "this is pretty bad spacing and formatting" / "i thought we made
 // this stuff smaller". The chip takes the room the row has and is cut only at the row's edge; the
 // chevron sits right after it; the duration stays at the line's end. Three looks are compared: the
-// chip taking the row (the pick), the chip capped at 60% of the line, and the base's 40% cap with the
-// chevron after the duration. Synthetic data.
+// chip taking the row (the pick), the chip capped at 60% of the line, and the base's 40% cap, which
+// left a gap after the chip. Synthetic data.
 import { componentEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
 import type { AcpmuxRow } from "../model";
@@ -13,19 +13,22 @@ import type { Subagent } from "./subagentFold";
 
 type Look = "fill" | "cap60" | "before";
 /** `pane`: the column's width in CSS px, for the narrow pane. */
-type Props = { names: string[]; look?: Look; pane?: number };
+type Props = { names: string[]; look?: Look; pane?: number; failed?: boolean };
 
-const LONG = "Fix defaults-snapshot drift in the settings schema generator and its golden files";
+const LONG =
+  "Fix defaults-snapshot drift in the settings schema generator, its golden files, the docs page, the MDM profile export and every test that reads them";
+const ERROR = "503: no non-exhausted claude accounts available after four retries on the capacity route, giving up";
 const SHORT = "Explore";
 
-const done = (name: string, index: number): AcpmuxRow => {
+const done = (name: string, index: number, failed = false): AcpmuxRow => {
   const agent: Subagent = {
     id: `agent-done-${index}`,
     parent: null,
     name,
     task: name,
     kind: "general-purpose",
-    state: "completed",
+    state: failed ? "failed" : "completed",
+    ...(failed && { error: ERROR }),
     startedAt: minutesAgo(12),
     endedAt: minutesAgo(10.6),
     prompt: name,
@@ -51,7 +54,7 @@ export default componentEntry<Props>({
   load: async () => {
     const { SubagentDoneLine } = await import("./SubagentDoneLine");
     const { SubagentNavContext } = await import("./SubagentGroup");
-    return function GallerySubagentDone({ names, look = "fill", pane }: Props) {
+    return function GallerySubagentDone({ names, look = "fill", pane, failed }: Props) {
       return (
         <SubagentNavContext.Provider value={() => undefined}>
           <main
@@ -62,7 +65,7 @@ export default componentEntry<Props>({
           >
             {names.map((name, index) => (
               <section key={index} className="acpmux-row">
-                <SubagentDoneLine row={done(name, index)} />
+                <SubagentDoneLine row={done(name, index, failed)} />
               </section>
             ))}
           </main>
@@ -90,12 +93,16 @@ export default componentEntry<Props>({
       note: "A 320px pane: the chip is cut first; the words before it, the chevron and the duration stay.",
       props: { names: [LONG, SHORT], pane: 320 },
     },
+    "failed-long-error": {
+      note: "A failure with a long error: the error is cut first, the name chip keeps its words.",
+      props: { names: ["Push relay for GCP lane bundles"], failed: true },
+    },
     "cap-60": {
       note: "Version B: the chip capped at 60% of the line. Leaves room on a wide pane, cuts names that would fit.",
       props: { names: [LONG, SHORT], look: "cap60" },
     },
     before: {
-      note: "Before: the base's 40% cap and the chevron after the duration, Leo's capture.",
+      note: "Before: the base's 40% cap, a cut name and an empty gap before the chevron, Leo's capture.",
       props: { names: [LONG, SHORT], look: "before" },
     },
   },
