@@ -1399,12 +1399,21 @@ export type UsageStats = {
    * Codex's `model_auto_compact_token_limit`); null otherwise.
    */
   autocompactCap: (number | null);
+  /**
+   * Of those calls' prompt tokens (input, cache read and cache write), the share the prompt
+   * cache served (0 to 1); null with no calls or when the day is not read whole.
+   */
+  cacheReadShare24h: (number | null);
+  /** Model calls of the last 24 hours, subagents' included. */
+  calls24h: (number | null);
   /** Compactions in the last 24 hours. */
   compactions24h: (number | null);
   /** The last call's context: its input, cache read and cache write tokens. */
   contextTokens: (number | null);
   /** The model's context window, as the harness reported it, else the catalog's. */
   contextWindow: (number | null);
+  /** `costUsd24h` over the priced calls: what one call costs at list prices, USD. */
+  costPerCallUsd24h: (number | null);
   /**
    * Those tokens at the model catalog's list prices, USD; null when no model
    * they ran on has a price, or when `tokens24h` is null.

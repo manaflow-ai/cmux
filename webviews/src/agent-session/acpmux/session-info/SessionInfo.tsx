@@ -59,7 +59,7 @@ import { useTabRow } from "../header/tabRow";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
-import { compactingUsage } from "../usageStats";
+import { compactingUsage, type UsageCacheLayout } from "../usageStats";
 import { registerPicker } from "../pickerOpeners";
 import { opensProcessTerminal } from "../processTerminal";
 import { tooltipProps } from "../shortcuts";
@@ -1544,6 +1544,7 @@ export function SessionInfo({
   onOpenChat,
   onShowUsage,
   usageOwnRowLayout,
+  usageCacheLayout,
   banner,
   agent,
   layout = RAIL_LAYOUT,
@@ -1629,6 +1630,8 @@ export function SessionInfo({
   onShowUsage?: () => void;
   /// Gallery-only alternatives for the Usage section's own-metrics leading column.
   usageOwnRowLayout?: UsageOwnRowLayout;
+  /// Gallery-only alternatives for Usage's prompt cache numbers (two rows, or one).
+  usageCacheLayout?: UsageCacheLayout;
   /// Opens the chat's project folder in the Files tree beside the chat.
   onOpenFolder?: (path: string) => void;
   /// Shows the Bash call that started a background command in the transcript: what its row opens
@@ -1946,6 +1949,7 @@ export function SessionInfo({
         onShowSubagents={subagentsSection ? showSubagents : undefined}
         locale={language}
         ownRowLayout={usageOwnRowLayout}
+        cacheLayout={usageCacheLayout}
       />
     </SessionInfoSection>
   );
