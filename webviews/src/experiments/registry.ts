@@ -10,6 +10,7 @@ import { hoverActions } from "../ui/hoverActions.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
+import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/height.experiment";
 import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutter.experiment";
@@ -63,6 +64,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   toolErrorLook,
   cloudStartLook,
   agentStartLook,
+  liveLineTokens,
   trayPanelLook,
   trayRowLook,
   trayMotionLook,

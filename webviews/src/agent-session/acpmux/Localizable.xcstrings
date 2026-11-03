@@ -1,6 +1,8 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "tools.mcp.using": {"comment":"Agent pane: an MCP call in flight, as Claude Code words it (Using repo: repo grep); {server} is the MCP server, {tool} the tool's name in words and what it acts on","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Using {server}: {tool}"}},"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ استخدام {server}: {tool}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Koristi se {server}: {tool}"}},"da":{"stringUnit":{"state":"needs_review","value":"Bruger {server}: {tool}"}},"de":{"stringUnit":{"state":"needs_review","value":"Verwende {server}: {tool}"}},"es":{"stringUnit":{"state":"needs_review","value":"Usando {server}: {tool}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Utilisation de {server} : {tool}"}},"it":{"stringUnit":{"state":"needs_review","value":"Uso di {server}: {tool}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{server} を使用中: {tool}"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងប្រើ {server}: {tool}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{server} 사용 중: {tool}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Bruker {server}: {tool}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Używanie {server}: {tool}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Usando {server}: {tool}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Используется {server}: {tool}"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังใช้ {server}: {tool}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{server} kullanılıyor: {tool}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Використовується {server}: {tool}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang dùng {server}: {tool}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在使用 {server}：{tool}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在使用 {server}：{tool}"}}}},
+    "tools.mcp.used": {"comment":"Agent pane: a finished MCP call, as Claude Code words it (Used repo: repo grep); {server} is the MCP server, {tool} the tool's name in words and what it acts on","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Used {server}: {tool}"}},"ar":{"stringUnit":{"state":"needs_review","value":"تم استخدام {server}: {tool}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Korišteno {server}: {tool}"}},"da":{"stringUnit":{"state":"needs_review","value":"Brugte {server}: {tool}"}},"de":{"stringUnit":{"state":"needs_review","value":"{server} verwendet: {tool}"}},"es":{"stringUnit":{"state":"needs_review","value":"Se usó {server}: {tool}"}},"fr":{"stringUnit":{"state":"needs_review","value":"{server} utilisé : {tool}"}},"it":{"stringUnit":{"state":"needs_review","value":"Usato {server}: {tool}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{server} を使用: {tool}"}},"km":{"stringUnit":{"state":"needs_review","value":"បានប្រើ {server}: {tool}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{server} 사용함: {tool}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Brukte {server}: {tool}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Użyto {server}: {tool}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Usou {server}: {tool}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Использовано {server}: {tool}"}},"th":{"stringUnit":{"state":"needs_review","value":"ใช้ {server} แล้ว: {tool}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{server} kullanıldı: {tool}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Використано {server}: {tool}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã dùng {server}: {tool}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已使用 {server}：{tool}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已使用 {server}：{tool}"}}}},
     "transcript.sentFrom": {"comment":"Agent pane: small muted line, beside the Chief's avatar, above a prompt the Chief sent this chat on the person's behalf; {name} is the Chief's name","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أُرسلت من {name}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Poslano iz {name}"}},"da":{"stringUnit":{"state":"needs_review","value":"Sendt fra {name}"}},"de":{"stringUnit":{"state":"needs_review","value":"Gesendet von {name}"}},"en":{"stringUnit":{"state":"translated","value":"Sent from {name}"}},"es":{"stringUnit":{"state":"needs_review","value":"Enviado desde {name}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Envoyé depuis {name}"}},"it":{"stringUnit":{"state":"needs_review","value":"Inviato da {name}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name} から送信"}},"km":{"stringUnit":{"state":"needs_review","value":"បានផ្ញើពី {name}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name}에서 보냄"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sendt fra {name}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wysłano z {name}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enviado de {name}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отправлено из {name}"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่งจาก {name}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} üzerinden gönderildi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Надіслано з {name}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Gửi từ {name}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"从 {name} 发送"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"從 {name} 傳送"}}}},
     "needsYou.expand": {"comment":"Agent pane Needs you: button that expands an ask's row to its whole text, options and next steps","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إظهار المزيد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži više"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis mere"}},"de":{"stringUnit":{"state":"needs_review","value":"Mehr anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show more"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar más"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher plus"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra altro"}},"ja":{"stringUnit":{"state":"needs_review","value":"さらに表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញបន្ថែម"}},"ko":{"stringUnit":{"state":"needs_review","value":"더 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis mer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż więcej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar mais"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать больше"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงเพิ่มเติม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Daha fazla göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати більше"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện thêm"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示更多"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示更多"}}}},
     "needsYou.collapse": {"comment":"Agent pane Needs you: button that folds an expanded ask's row back to one card","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إظهار أقل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži manje"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis mindre"}},"de":{"stringUnit":{"state":"needs_review","value":"Weniger anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show less"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar menos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher moins"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra meno"}},"ja":{"stringUnit":{"state":"needs_review","value":"表示を減らす"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញតិច"}},"ko":{"stringUnit":{"state":"needs_review","value":"간단히 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis mindre"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż mniej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar menos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать меньше"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงน้อยลง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Daha az göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати менше"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ẩn bớt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"收起"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"收合"}}}},
@@ -157144,138 +157146,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "已刪除 {target}"
-          }
-        }
-      }
-    },
-    "tools.mcp.call": {
-      "comment": "Agent pane: an MCP call of a tool whose name ({target}, as the tool calls itself) says no common action",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تم استدعاء {target}"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pozvano: {target}"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kaldte {target}"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{target} aufgerufen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Called {target}"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Se llamó a {target}"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{target} appelé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chiamato {target}"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{target} を呼び出しました"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បានហៅ {target}"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{target} 호출함"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kalte {target}"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wywołano: {target}"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{target} chamado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вызвано: {target}"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เรียก {target} แล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{target} çağrıldı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Викликано: {target}"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đã gọi {target}"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已调用 {target}"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已呼叫 {target}"
           }
         }
       }

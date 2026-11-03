@@ -233,6 +233,15 @@ async fn check_inner(
     {
         return Err(crate::author::origin_refused());
     }
+    // So is a tool's notice (`prompt_provenance::notice_of`): no remote text passes as a fire.
+    if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE)
+        && (crate::prompt_provenance::notice_present(params)
+            || params.get("request").is_some_and(crate::prompt_provenance::notice_present))
+        && !(origin == super::Origin::Peer
+            && control_of(origin, auth, params) == crate::hub::Control::Peer)
+    {
+        return Err(crate::prompt_provenance::notice_origin_refused());
+    }
     // What the Mac's mobile host refuses a phone by its own rule (cmux-mobile-host
     // `acpmux_policy.rs`: a mode that does not ask, a chat in one) it sends marked when the
     // phone presented its own credential: it runs only when that phone's Full-access setting

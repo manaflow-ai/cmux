@@ -9,6 +9,11 @@
 //! side by side ([`in_order`]), inside one [`STATUS_WAIT`]: a batch answers as fast as one
 //! message. A bad recipient is its own row's error; the rest still go.
 //!
+//! A message may be a tool's notice (`notice`: `{sender?, host?, severity, title, links?}`, as
+//! `acpmux send --notice`, `cli/send_notice.rs`): the text is its body, the prompt the rendered
+//! notice, and the receiver's chat draws it as a notice row. Its sender defaults to this session's
+//! name, its host to this machine.
+//!
 //! The call without `messages` and `tag` keeps its first shape: the same result fields and text,
 //! the same errors. A tag or a batch answers with `results`, one row per recipient.
 
@@ -35,7 +40,7 @@ const RESOLVE_WAIT: Duration = Duration::from_secs(2);
 pub(super) fn tool() -> Value {
     json!({
         "name": "send",
-        "description": "Message another agent session: a lane, a coordinator, or a chat on a peer (host/name). Use it instead of running `acpmux send` in a shell; to message several sessions, batch them in one call with messages instead of a shell loop. It goes through this daemon's outbox, like `acpmux send --no-wait`: it returns within seconds with the message's promptId and delivery id, and a slow target or a peer that is down is retried; it does not wait for a reply (read one later with last). The receiver's chat shows the message as yours. By default it steers: an agent in the middle of a turn reads it at its next tool step; steer: false queues it behind that turn. With messages or tag, the result has one row per recipient (to, ok, promptId, deliveryId, status, error); one bad recipient does not stop the others.",
+        "description": "Message another agent session: a lane, a coordinator, or a chat on a peer (host/name). Use it instead of running `acpmux send` in a shell; to message several sessions, batch them in one call with messages instead of a shell loop. It goes through this daemon's outbox, like `acpmux send --no-wait`: it returns within seconds with the message's promptId and delivery id, and a slow target or a peer that is down is retried; it does not wait for a reply (read one later with last). The receiver's chat shows the message as yours; with notice it shows as a tool's notice (severity, sender, title, links) and text, if any, is its body. By default it steers: an agent in the middle of a turn reads it at its next tool step; steer: false queues it behind that turn. With messages or tag, the result has one row per recipient (to, ok, promptId, deliveryId, status, error); one bad recipient does not stop the others.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -48,6 +53,7 @@ pub(super) fn tool() -> Value {
                 "file": {"type": "string", "description": "Instead of text: a file of yours whose contents are the message (UTF-8, at most 256 KiB). Best an absolute path; a relative one is read from the folder your agent runs in."},
                 "tag": {"type": "string", "description": "Instead of to: every live session carrying this tag, key or key=value (as acpmux send --tag), at most 32, not yourself."},
                 "supersede": {"type": "string", "description": "A key: your message still queued at the receiver under the same key is replaced by this one, so a correction is never read after the order it corrects."},
+                "notice": notice_schema("Send it as a tool's or reconciler's notice: the receiver's chat draws a notice row (severity mark, sender, title, links) and the agent reads `[notice from SENDER on HOST · FIRE] TITLE`, the body (text, optional here), then the links."),
                 "messages": {
                     "type": "array",
                     "maxItems": MAX_MESSAGES,
@@ -63,13 +69,75 @@ pub(super) fn tool() -> Value {
                             "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"]},
                             "pr": {"type": "integer"},
                             "thread": {"type": "string"},
-                            "supersede": {"type": "string"}
+                            "supersede": {"type": "string"},
+                            "notice": notice_schema("This item as a tool's notice.")
                         }
                     }
                 }
             }
         }
     })
+}
+
+/// The `notice` argument's schema.
+fn notice_schema(description: &str) -> Value {
+    json!({
+        "type": "object",
+        "description": description,
+        "properties": {
+            "sender": {"type": "string", "description": "Who sends it, a tool or role, one line of at most 64 characters (default: this session's name)."},
+            "host": {"type": "string", "description": "The machine it comes from (default: this one)."},
+            "severity": {"type": "string", "enum": crate::prompt_provenance::NOTICE_SEVERITIES},
+            "title": {"type": "string", "description": "One line, at most 200 characters."},
+            "links": {
+                "type": "array",
+                "maxItems": crate::prompt_provenance::MAX_NOTICE_LINKS,
+                "items": {
+                    "type": "object",
+                    "properties": {"url": {"type": "string", "description": "https only."}, "label": {"type": "string"}},
+                    "required": ["url"]
+                }
+            }
+        },
+        "required": ["severity", "title"]
+    })
+}
+
+/// A `notice` argument as the daemon takes it (`prompt_provenance::notice_of`): `None` when
+/// absent or null. Its sender defaults to this session's name (or `ACPMUX_FROM`), its host to
+/// this machine; a link may be `{url, label?}` or an `acpmux send --link` string.
+pub(super) fn notice_arg(
+    given: Option<&Value>,
+    env: impl Fn(&str) -> Option<String>,
+) -> Result<Option<Value>, String> {
+    let raw = match given {
+        None | Some(Value::Null) => return Ok(None),
+        Some(Value::Object(raw)) => raw,
+        Some(_) => return Err("notice must be an object".to_owned()),
+    };
+    let mut raw = Value::Object(raw.clone());
+    if raw.get("sender").is_none_or(Value::is_null) {
+        let sender = crate::cli::send_notice::default_sender(None, &env)
+            .ok_or_else(|| "notice.sender is required outside an acpmux session".to_owned())?;
+        raw.set("sender", json!(sender));
+    }
+    if raw.get("host").is_none_or(Value::is_null) {
+        let here = crate::host_pressure::host_name();
+        let here = here.strip_suffix(".local").unwrap_or(&here).to_owned();
+        let mut with_host = raw.clone();
+        with_host.set("host", json!(here));
+        if crate::cli::send_notice::checked(with_host.clone()).is_ok() {
+            raw = with_host;
+        }
+    }
+    if let Some(links) = raw.get_mut("links").and_then(Value::as_array_mut) {
+        for link in links.iter_mut() {
+            if let Some(text) = link.as_str() {
+                *link = crate::prompt_provenance::notice_link(text);
+            }
+        }
+    }
+    crate::cli::send_notice::checked(raw).map(|n| Some(n.0))
 }
 
 /// One message as the caller gave it, defaults applied.
@@ -84,6 +152,8 @@ pub(super) struct Item {
     pub pr: Option<u64>,
     pub thread: Option<String>,
     pub supersede: Option<String>,
+    /// A tool's notice ([`notice_arg`]): the message is its body.
+    pub notice: Option<Value>,
 }
 
 /// One recipient's message, ready to queue.
@@ -167,6 +237,7 @@ fn item_of(own: &Value, defaults: Option<&Value>) -> Result<Item, String> {
             .map(str::trim)
             .filter(|t| !t.is_empty())
             .map(str::to_owned),
+        notice: notice_arg(field("notice"), |k| std::env::var(k).ok())?,
     };
     match (&item.to, &item.tag) {
         (Some(_), Some(_)) => return Err("give to or tag, not both".to_owned()),
@@ -175,6 +246,8 @@ fn item_of(own: &Value, defaults: Option<&Value>) -> Result<Item, String> {
     }
     match (&item.text, &item.file) {
         (Some(_), Some(_)) => Err("give text or file, not both".to_owned()),
+        // A notice's title says it: its body may be empty.
+        (None, None) if item.notice.is_some() => Ok(Item { text: Some(String::new()), ..item }),
         (None, None) => Err("text (or file) is required".to_owned()),
         _ => Ok(item),
     }
@@ -190,13 +263,16 @@ fn pick<'v>(own: &'v Value, defaults: Option<&'v Value>, a: &str, b: &str) -> &'
     }
 }
 
-/// The message: its text, or its file's contents.
-fn body(item: &Item) -> Result<String, String> {
+/// The message: its text, or its file's contents; for a notice, the rendered notice over it.
+pub(super) fn body(item: &Item) -> Result<String, String> {
     let text = match (&item.text, &item.file) {
         (Some(text), _) => text.clone(),
         (None, Some(path)) => read_message_file(path)?,
         (None, None) => return Err("text (or file) is required".to_owned()),
     };
+    if let Some(notice) = &item.notice {
+        return Ok(crate::prompt_provenance::notice_text(notice, &text));
+    }
     if text.trim().is_empty() {
         return Err(
             if item.file.is_some() { "the file is empty" } else { "text is empty" }.to_owned()
@@ -257,7 +333,9 @@ pub(super) fn read_message_file(path: &str) -> Result<String, String> {
 /// this tool always gave; only `file` and `supersede` are new.
 async fn send_one(daemon: &Arc<Client>, args: &Value) -> Value {
     if arg(args, "to").is_none()
-        || (args.get("text").and_then(Value::as_str).is_none() && arg(args, "file").is_none())
+        || (args.get("text").and_then(Value::as_str).is_none()
+            && arg(args, "file").is_none()
+            && args.get("notice").is_none_or(Value::is_null))
     {
         return error_result("to and text are required".to_owned());
     }
@@ -535,6 +613,7 @@ async fn queue(daemon: &Arc<Client>, target: &Target) -> Result<(PromptId, Value
     prompt.pr = target.item.pr;
     prompt.thread = target.item.thread.clone();
     prompt.supersede = target.item.supersede.clone();
+    prompt.notice = target.item.notice.clone();
     let request = prompt.params(&target.key, &target.text, target.item.steer, None);
     let queued = daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await?;
     Ok((prompt, queued))
