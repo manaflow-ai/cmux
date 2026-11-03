@@ -27,5 +27,9 @@ export default componentEntry<Props>({
       note: "A failed copy keeps one actionable line with Retry, without exposing transport details.",
       props: { status: { phase: "failed", retry: () => undefined } },
     },
+    incomplete: {
+      note: "Valid attachments were copied; an unavailable item is reported and Cut keeps the draft.",
+      props: { status: { phase: "failed", partial: true, retry: () => undefined } },
+    },
   },
 });

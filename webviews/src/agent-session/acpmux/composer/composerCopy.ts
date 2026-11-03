@@ -250,7 +250,7 @@ export const pastesPlaced = new WeakSet<Event>();
 
 export type ComposerCopyStatus =
   | { phase: "copying"; written: number; total: number; cancel: () => void }
-  | { phase: "failed"; retry: () => void }
+  | { phase: "failed"; partial?: boolean; retry: () => void }
   | undefined;
 
 /// Puts `copy` on the pasteboard: its order kept for a paste here, the text and each attachment
@@ -281,8 +281,14 @@ export function writeComposerCopy(
     },
   })
     .then((reply) => {
-      if (staged && current()) status?.(undefined);
-      if (current() && !controller.signal.aborted) complete?.();
+      if (current() && !controller.signal.aborted) {
+        if ((reply?.skipped ?? 0) > 0)
+          status?.({ phase: "failed", partial: true, retry: () => writeComposerCopy(copy, status, complete) });
+        else {
+          if (staged) status?.(undefined);
+          complete?.();
+        }
+      }
       if (remembered(storage)?.revision !== revision) return;
       const files: (string | null)[] = copy.items.map(() => null);
       for (const each of reply?.files ?? [])

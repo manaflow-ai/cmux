@@ -139,20 +139,19 @@ extension AgentPaneImageCopies {
                   let files = model.replyLinks.composerStaging.take(tokens, owner: generation, revision: revision, work: work) else {
                 return AgentPaneModel.replyFailure(.openFailed)
             }
-            var keeping: Set<String> = []
             let answer: [String: Any]
             if let textFile = files[textReference], let text = await stagedText(textFile),
                model.droppedPaths.generation == generation, model.replyLinks.composerCopyRevision == revision {
                 let order = if let orderReference, let file = files[orderReference] { await stagedText(file) } else { nil as String? }
                 if (orderReference == nil || order != nil), model.droppedPaths.generation == generation,
                    model.replyLinks.composerCopyRevision == revision {
-                    for item in items {
-                        guard case .reference(let token) = item.payload else { continue }
-                        // SVGs publish a sanitized copy elsewhere; discard their original stage.
-                        let ext = composerExtension(item.name, mimeType: item.mimeType, fallback: "bin")
-                        if ext.lowercased() != "svg", item.mimeType.lowercased() != "image/svg+xml" { keeping.insert(token) }
-                    }
-                    answer = await copyComposer(text: text, items: items, in: model, references: files, order: order) {
+                    answer = await copyComposer(text: text, items: items, in: model, references: files, order: order) { published in
+                        let keeping = Set(items.enumerated().compactMap { index, item -> String? in
+                            guard published.contains(index), case .reference(let token) = item.payload else { return nil }
+                            // SVGs publish a sanitized copy elsewhere; discard their original stage.
+                            let ext = composerExtension(item.name, mimeType: item.mimeType, fallback: "bin")
+                            return ext.lowercased() != "svg" && item.mimeType.lowercased() != "image/svg+xml" ? token : nil
+                        })
                         model.replyLinks.composerStaging.published(keeping)
                     }
                 } else { answer = AgentPaneModel.replyFailure(.openFailed) }

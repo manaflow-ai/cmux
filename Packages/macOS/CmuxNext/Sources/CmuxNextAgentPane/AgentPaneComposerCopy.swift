@@ -100,7 +100,7 @@ extension AgentPaneImageCopies {
     /// refused or cannot be read is left out; with no text and nothing kept, nothing is written.
     @MainActor static func copyComposer(text: String, items: [AgentPaneComposerCopyItem], in model: AgentPaneModel,
                                        references: [String: URL]? = nil, order: String? = nil,
-                                       published: @MainActor () -> Void = {}) async -> [String: Any] {
+                                       published: @MainActor (Set<Int>) -> Void = { _ in }) async -> [String: Any] {
         if references == nil, !model.transport.gestures.consume() { return AgentPaneModel.replyFailure(.gestureRequired) }
         if references == nil { model.replyLinks.composerCopyRevision = UUID() }
         let revision = model.replyLinks.composerCopyRevision
@@ -115,8 +115,8 @@ extension AgentPaneImageCopies {
         // The files were made off the main actor: a chat that turned remote meanwhile puts none of
         // this Mac's own files on the pasteboard (cx-k21v).
         if model.chatIsElsewhere { files.removeAll { $0.isLocal } }
-        guard !Task.isCancelled, model.droppedPaths.generation == generation, model.replyLinks.composerCopyRevision == revision,
-              references == nil || files.count == items.count else { return AgentPaneModel.replyFailure(.openFailed) }
+        guard !Task.isCancelled, model.droppedPaths.generation == generation,
+              model.replyLinks.composerCopyRevision == revision else { return AgentPaneModel.replyFailure(.openFailed) }
         guard !files.isEmpty || !text.isEmpty else { return AgentPaneModel.replyFailure(.openFailed) }
         var board: [NSPasteboardItem] = []
         if !text.isEmpty {
@@ -127,7 +127,7 @@ extension AgentPaneImageCopies {
         board += files.map { composerPasteboardItem($0) }
         board[0].setString(html, forType: .html)
         guard model.replyLinks.copyItems(board) else { return AgentPaneModel.replyFailure(.openFailed) }
-        published()
+        published(Set(files.map(\.index)))
         // Each kept file's item and name: the page knows its own copy again by them on a paste, which
         // WebKit gives the files of with no text while the pasteboard holds file URLs.
         let written: [[String: Any]] = files.map { ["item": $0.index, "name": $0.file.lastPathComponent] }

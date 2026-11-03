@@ -2,7 +2,7 @@ import type { ComposerCopy, CopyItem } from "./composerCopy";
 import { base64 } from "./imageWork";
 
 type Call = <T>(method: string, params: Record<string, unknown>) => Promise<T>;
-type Reply = { copyID?: string; files?: { item?: unknown; name?: unknown }[] };
+type Reply = { copyID?: string; skipped?: number; files?: { item?: unknown; name?: unknown }[] };
 type Payload = { data: string } | { text: string };
 type Options = { signal?: AbortSignal; progress?: (written: number, total: number) => void };
 

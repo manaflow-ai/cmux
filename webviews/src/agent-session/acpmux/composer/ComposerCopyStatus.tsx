@@ -54,7 +54,7 @@ export function ComposerCopyStatusLine({ status }: { status: ComposerCopyStatus 
   const label =
     status.phase === "copying"
       ? t("composer.copying", { percent: Math.floor(fraction * 100) })
-      : t("composer.copyFailed");
+      : t(status.partial ? "composer.copyIncomplete" : "composer.copyFailed");
   return (
     <div className="acpmux-composer-copy-status">
       {status.phase === "copying" && <UploadProgress value={fraction} name={label} />}
