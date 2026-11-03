@@ -45,7 +45,7 @@ function SceneNodeView({ id, store, dispatch }: { id: string; store: SceneStore;
     case "Badge": return <span {...common} className="cmux-app-scene-badge">{text(props.text)}</span>;
     case "ProgressView": return <progress {...common} max={1} value={typeof props.value === "number" ? Math.max(0, Math.min(1, props.value)) : undefined} />;
     case "TextField": return <input {...common} value={text(props.text)} placeholder={text(props.placeholder)} onChange={(event) => dispatch(node.id, "edit", { text: event.currentTarget.value })} onKeyDown={(event) => { if (event.key === "Enter") dispatch(node.id, "submit", { text: event.currentTarget.value }); if (event.key === "Escape") dispatch(node.id, "cancel"); }} />;
-    case "Menu": return <button {...common} type="button" onClick={onTap} className="cmux-app-scene-button">{text(props.title) || "Menu"}</button>;
+    case "Menu": return <button {...common} type="button" onClick={() => dispatch(node.id, "menu", { path: [] })} className="cmux-app-scene-button">{text(props.title) || "Menu"}</button>;
     case "Image": return null;
     case "Circle": case "Capsule": case "Rectangle": case "RoundedRectangle": return <span {...common} className={`cmux-app-scene-shape cmux-app-scene-${node.type.toLowerCase()}`} />;
     default: return null;
