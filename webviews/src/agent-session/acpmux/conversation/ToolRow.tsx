@@ -16,6 +16,7 @@ import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
+import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
 import { toolDuration } from "./toolGroups";
 import { cleanText } from "./mcpCalls";
@@ -154,13 +155,15 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
       </span>
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
+          {tool.approved && <ApprovedMark />}
           <BackgroundMark background={background} />
           {duration && <span className="cv-command__time">{duration}</span>}
         </span>
       ) : (
-        !foreground && (
+        (!foreground || tool.approved) && (
           <span className="cv-command__meta">
-            {!failed && <Check size={14} className="cv-command__ok" />}
+            {tool.approved && <ApprovedMark />}
+            {!foreground && !failed && <Check size={14} className="cv-command__ok" />}
             {duration && <span className="cv-command__time">{duration}</span>}
           </span>
         )

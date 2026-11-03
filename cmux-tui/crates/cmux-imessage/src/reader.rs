@@ -19,9 +19,12 @@ const ATTACHMENT_TABLES: [&str; 2] = ["attachment", "message_attachment_join"];
 /// The most rows one call returns, whatever the caller asks for.
 pub const MAX_LIMIT: usize = 500;
 
-/// A message the conversation view shows: not a tapback (`associated_message_type` 2000-3005),
-/// and not a group event such as a rename or a member change (`item_type` > 0).
-const VISIBLE: &str = "m.associated_message_type = 0 AND m.item_type = 0";
+/// A message the conversation view shows: not a tapback or other associated message
+/// (`associated_message_type` 2000-2007, removals 3000-3007), and not a group event such as a
+/// rename or a member change (`item_type` > 0). Old rows may hold NULL in either column; NULL
+/// means a plain message.
+const VISIBLE: &str =
+    "IFNULL(m.associated_message_type, 0) = 0 AND IFNULL(m.item_type, 0) = 0";
 
 /// `~/Library/Messages/chat.db` for the current user, when `HOME` is set.
 pub fn default_database_path() -> Option<PathBuf> {
@@ -64,16 +67,19 @@ impl Reader {
     pub fn threads(&self, limit: usize) -> Result<Vec<Thread>, MirrorError> {
         let limit = clamp(limit);
         let sql = format!(
-            "WITH last AS (
-                 SELECT cmj.chat_id AS chat_id, MAX(cmj.message_id) AS last_id
+            // The newest visible message per chat by date (rowid breaks ties): iCloud backfill
+            // gives old messages high rowids, so the highest rowid is not the newest message.
+            "WITH ranked AS (
+                 SELECT cmj.chat_id AS chat_id, m.ROWID AS last_id, IFNULL(m.date, 0) AS last_date,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY cmj.chat_id ORDER BY IFNULL(m.date, 0) DESC, m.ROWID DESC
+                        ) AS rank
                  FROM chat_message_join cmj JOIN message m ON m.ROWID = cmj.message_id
-                 WHERE {VISIBLE}
-                 GROUP BY cmj.chat_id)
+                 WHERE {VISIBLE})
              SELECT c.ROWID, c.guid, c.display_name, c.style, c.service_name, c.chat_identifier,
-                    last.last_id
-             FROM chat c JOIN last ON last.chat_id = c.ROWID
-             JOIN message m ON m.ROWID = last.last_id
-             ORDER BY m.date DESC, c.ROWID DESC
+                    ranked.last_id
+             FROM chat c JOIN ranked ON ranked.chat_id = c.ROWID AND ranked.rank = 1
+             ORDER BY ranked.last_date DESC, c.ROWID DESC
              LIMIT ?1"
         );
         let mut statement = self.connection.prepare(&sql)?;
@@ -142,7 +148,9 @@ impl Reader {
         let sql = format!(
             "SELECT m.ROWID, m.guid, cmj.chat_id, h.id, m.is_from_me, m.date, m.text,
                     m.attributedBody
-             FROM message m JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
+             FROM message m
+             JOIN (SELECT message_id, MIN(chat_id) AS chat_id FROM chat_message_join
+                   WHERE message_id > ?1 GROUP BY message_id) cmj ON cmj.message_id = m.ROWID
              LEFT JOIN handle h ON h.ROWID = m.handle_id
              WHERE m.ROWID > ?1 AND {VISIBLE}
              ORDER BY m.ROWID ASC

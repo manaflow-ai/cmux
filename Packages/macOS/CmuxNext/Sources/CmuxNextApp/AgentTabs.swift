@@ -159,6 +159,8 @@ final class AgentTabStore {
     var sessions: [String: String] = [:]
     /// A tab's page now shows another acpmux session (its first, or a `chat.select` switch).
     var onTabSession: @MainActor () -> Void = {}
+    /// The daemon created a remote chat, including its effective seed folder and harness.
+    var onRemoteChatStarted: (@MainActor (String, String, String?, String?) -> Void)?
     /// A new chat's seed on another machine (its folder and harness start it there, its draft and
     /// prompt reach the page), by tab (``startRemoteChat(_:machine:endpoint:)``).
     var remoteSeeds: [String: AgentPaneSeedSource] = [:]

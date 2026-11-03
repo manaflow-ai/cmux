@@ -110,3 +110,30 @@ fn osascript_failures_map_to_codes() {
     let slow = FakeRunner::with(Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "slow")));
     assert_eq!(send(&request("iMessage;-;+1", "hi"), &slow), Err(SendError::TimedOut));
 }
+
+#[test]
+fn the_terminal_error_code_decides_not_codes_quoted_earlier() {
+    let quoted = "execution error: Messages got an error: Can’t get chat id \"iMessage;-;(-1743)\". (-1728)";
+    assert_eq!(
+        send(&request("iMessage;-;(-1743)", "hi"), &FakeRunner::failing(quoted)).map_err(|e| e.code()),
+        Err("invalid_chat")
+    );
+    let denied_then_newline = "execution error: Not authorized to send Apple events to Messages. (-1743)\n";
+    assert_eq!(
+        send(&request("iMessage;-;+1", "hi"), &FakeRunner::failing(denied_then_newline)).map_err(|e| e.code()),
+        Err("not_permitted")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn system_runner_reads_stderr_past_the_pipe_buffer_without_stalling() {
+    use cmux_imessage::send::SystemRunner;
+    let started = std::time::Instant::now();
+    let args =
+        vec!["-c".to_string(), "head -c 300000 /dev/zero | tr '\\0' x >&2; exit 3".to_string()];
+    let output = SystemRunner.run("sh", &args).expect("sh runs");
+    assert!(!output.success);
+    assert_eq!(output.stderr.len(), 300_000);
+    assert!(started.elapsed() < std::time::Duration::from_secs(30), "took {:?}", started.elapsed());
+}

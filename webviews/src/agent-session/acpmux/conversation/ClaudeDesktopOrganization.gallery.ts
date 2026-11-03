@@ -5,7 +5,8 @@
 // and five shell steps under "Ran 5 commands", opened, and the prose after them. Drawn through the
 // real transcript (TurnRows.tsx, ToolGroupRow.tsx), so the step bodies and the question and plan
 // cards show here as they change. The arms are the opened group's looks
-// (`data-tool-steps-look`, conversation.css `.cv-steps`): card (the default), tree and zebra.
+// (`data-tool-steps-look`, conversation.css `.cv-steps`): shared (the transcript's default, no step
+// icons and no guide, Leo 2026-11-03), guide (the replaced cmux#32363 look), card, tree and zebra.
 import answeredCollapsed from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/answered-collapsed.json";
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -107,10 +108,10 @@ const openRun: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-steps"), { capMs: 10_000 });
 };
 
-const variant = (look: "card" | "tree" | "zebra", note: string): AgentPaneVariant => ({
+const variant = (look: "shared" | "guide" | "card" | "tree" | "zebra", note: string): AgentPaneVariant => ({
   note,
   snapshot: chat(turn(), { title: "Stop retrying client errors" }),
-  documentAttributes: { "data-tool-steps-look": look },
+  documentAttributes: { "tool-steps-look": look },
   play: openRun,
 });
 
@@ -126,9 +127,17 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/toolGroups.ts",
   ],
   variants: {
+    shared: variant(
+      "shared",
+      "Chosen default, as Claude Code desktop lists a run: the steps under the run's line with no icons and no guide, their words on its text column; the thought's text flush under its label.",
+    ),
+    guide: variant(
+      "guide",
+      "Replaced (cmux#32363): each step's glyph and a 1px guide between the icon and text columns; the thought's text indented on a rule.",
+    ),
     card: variant(
       "card",
-      "Selected default: one rounded group in the cards' ring; the leading thought in full, then a row per step with its disclosure right after its words, hairlines between.",
+      "Alternative: one rounded group in the cards' ring; the leading thought in full, then a row per step with its disclosure right after its words, hairlines between.",
     ),
     tree: variant("tree", "Alternative: the earlier tree guide with the glyphs back, hairlines between steps."),
     zebra: variant("zebra", "Alternative: no ring or hairlines; every other step on the cards' fill."),
