@@ -8493,6 +8493,11 @@ export class AcpmuxDirectClient {
       if (readAt === undefined) return !keptTail(sessionId);
       if (now - readAt < READ_AHEAD_REFRESH_MS) return false;
       const listed = this.sessions.find((session) => session.sessionId === sessionId);
+      // A chat whose turn runs is read again once its turn ends, not on each change in the list
+      // while it streams: with dozens of busy chats that re-read 12 pages every few seconds. Its
+      // kept tail is behind meanwhile; the attach a switch sends lays the turn over it. A hover
+      // (`first`) still reads it.
+      if (!first && listed?.status === "running" && keptTail(sessionId)) return false;
       const seq = transcriptSeq(listed);
       const seen = this.readAheadSeq.get(sessionId);
       const ranOn = seq !== undefined && seen !== undefined ? seq > seen : Number(listed?.updatedAt ?? 0) > readAt;

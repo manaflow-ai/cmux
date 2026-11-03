@@ -34,18 +34,22 @@ const PAGE_TEXT = "x".repeat(120 * 1024);
 /// acpmux's `agent_start_waiting` cadence (hub/lifecycle.rs `START_PROGRESS`).
 const TICK_MS = 10_000;
 
-const id = (index: number) => `0190c000-0000-7000-8000-${String(index).padStart(12, "0")}`;
-const rows = [...Array(RECENT + 1).keys()].map((index) => ({
-  sessionId: id(index),
-  cwd: "/home/dev/project",
-  harness: "claude",
-  family: "claude",
-  status: "idle",
-  createdAt: START - 3_600_000,
-  updatedAt: START - index * 1_000,
-  lastSeq: 3,
-  transcriptSeq: 3,
-}));
+/// Each test's chats are its own: the page's kept tails (tailCache.ts) outlive a client.
+let prefix = "0190c000";
+const id = (index: number) => `${prefix}-0000-7000-8000-${String(index).padStart(12, "0")}`;
+const makeRows = () =>
+  [...Array(RECENT + 1).keys()].map((index) => ({
+    sessionId: id(index),
+    cwd: "/home/dev/project",
+    harness: "claude",
+    family: "claude",
+    status: "idle",
+    createdAt: START - 3_600_000,
+    updatedAt: START - index * 1_000,
+    lastSeq: 3,
+    transcriptSeq: 3,
+  }));
+let rows = makeRows();
 
 /** A daemon that answers the pane's handshake and counts the read-ahead's event pages. */
 class Daemon {
@@ -203,6 +207,71 @@ test("rows that move only for bookkeeping are not read again; a transcript chang
     // fixed-wait: past the read-ahead's idle timer, so a read it would send has gone out.
     await settle();
     expect(daemon.reads.slice(before)).toEqual([said.sessionId, said.sessionId]);
+  } finally {
+    client.close();
+  }
+}, 30_000);
+
+/// Turns streaming in many chats at once, the case of a person running dozens of agents: their
+/// transcripts change on every notice, and each pane re-read all 12 pages every few seconds.
+test("a chat whose turn runs is read again once, when the turn ends", async () => {
+  prefix = "0190d000";
+  rows = makeRows();
+  let now = START;
+  setSystemTime(new Date(now));
+  const daemon = new Daemon();
+  const client = await AcpmuxDirectClient.connect(
+    {
+      protocolVersion: 1,
+      transport: "acpmux-websocket",
+      endpoint: "ws://readahead-busy.invalid/",
+      token: "t",
+      sessionId: id(0),
+    },
+    () => {},
+    undefined,
+    () => daemon as unknown as WebSocket,
+  );
+  try {
+    // fixed-wait: past the read-ahead's idle timer, so a read it would send has gone out.
+    await settle();
+    expect(daemon.reads.length).toBe(RECENT);
+    const first = { reads: daemon.reads.length, bytes: daemon.bytes };
+    for (const row of rows.slice(1)) row.status = "running";
+
+    // One minute of 12 streaming turns: every 5 s each chat's transcript moves and acpmux notices it.
+    const step = 5_000;
+    for (let tick = 1; tick <= 60_000 / step; tick += 1) {
+      now += step;
+      setSystemTime(new Date(now));
+      for (const row of rows.slice(1)) {
+        row.updatedAt = now;
+        row.lastSeq += 5;
+        row.transcriptSeq = row.lastSeq;
+        daemon.changed("process_update", { ...row });
+      }
+      // fixed-wait: past the read-ahead's idle timer, so a read it would send has gone out.
+      await settle();
+    }
+    const busy = { reads: daemon.reads.length - first.reads, bytes: daemon.bytes - first.bytes };
+    console.log(
+      `agent-pane-readahead: ${RECENT} chats streaming turns, transcripts moved every ${step / 1000} s: ` +
+        `${busy.reads} _acpmux/events reads/min, ${busy.bytes} bytes/min`,
+    );
+    expect(busy.reads).toBe(0);
+
+    // One turn ends: that chat alone is read, once.
+    now += step;
+    setSystemTime(new Date(now));
+    const done = rows[4]!;
+    done.status = "idle";
+    done.updatedAt = now;
+    done.lastSeq += 1;
+    done.transcriptSeq = done.lastSeq;
+    daemon.changed("turn_result", { ...done });
+    // fixed-wait: past the read-ahead's idle timer, so a read it would send has gone out.
+    await settle();
+    expect(daemon.reads.slice(first.reads + busy.reads)).toEqual([done.sessionId]);
   } finally {
     client.close();
   }
