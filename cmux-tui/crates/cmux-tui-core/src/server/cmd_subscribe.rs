@@ -35,6 +35,10 @@ pub(super) fn subscribe_activity(
 /// `set-client-info`: its `subscribe` carries no `scroll-changed` (SWITCH FRAMES SF-5: every hidden busy terminal
 /// woke the app's event pump about 15 times a second for an event its store ignores).
 pub(crate) const SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY: &str = "subscribe-scroll-on-attach-v1";
+/// A delta subscriber that says this in `set-client-info` gets a selection change that rides with a
+/// tree delta as `selection-changed` (the changed workspace's whole selection) instead of a
+/// `tree-changed` that makes it read the whole tree again (#32408).
+pub(crate) const TREE_SELECTION_DELTAS_CAPABILITY: &str = "tree-selection-deltas-v1";
 
 pub(super) fn subscribe_command(
     mux: &Arc<Mux>,
@@ -59,6 +63,8 @@ pub(super) fn subscribe_command(
     // Read once: the handshake sends `set-client-info` before `subscribe`.
     let scroll_on_attach =
         mux.control_clients.supports_capability(client, SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY);
+    let selection_deltas =
+        mux.control_clients.supports_capability(client, TREE_SELECTION_DELTAS_CAPABILITY);
     // Conversation events go to the person's own clients: the Unix socket
     // and authenticated WebSocket connections (`ws-conversations-v1`).
     let conversation_client = mux.control_clients.is_owner_client(client);
@@ -280,10 +286,35 @@ pub(super) fn subscribe_command(
                 }),
                 MuxEvent::TreeDelta(delta) if tree_deltas => tree_delta_json(delta, &event_mux),
                 MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
-                MuxEvent::TreeSelectionChanged if tree_deltas => {
+                // Read when written: a screen or pane added since is unknown to the client until its
+                // own delta, which carries its selection; the client skips it here.
+                MuxEvent::TreeSelectionChanged(Some(workspace))
+                    if tree_deltas && selection_deltas =>
+                {
+                    event_mux
+                        .with_state(|state| {
+                            crate::server::selection_changed_json(state, *workspace)
+                        })
+                        .unwrap_or_else(|| json!({"event": "tree-changed"}))
+                }
+                MuxEvent::TreeSelectionChanged(_) if tree_deltas => {
                     json!({"event": "tree-changed"})
                 }
-                MuxEvent::TreeSelectionChanged => continue,
+                MuxEvent::TreeSelectionChanged(_) => continue,
+                MuxEvent::WorkspacePresentationChanged(workspace)
+                    if tree_deltas && selection_deltas =>
+                {
+                    event_mux
+                        .with_state(|state| {
+                            crate::server::workspace_presentation_changed_json(
+                                state,
+                                &event_mux.tree_decorations_in_state(state),
+                                *workspace,
+                            )
+                        })
+                        .unwrap_or_else(|| json!({"event": "tree-changed"}))
+                }
+                MuxEvent::WorkspacePresentationChanged(_) => json!({"event": "tree-changed"}),
                 MuxEvent::SizeStateChanged { surface, runtime, state } => {
                     if !event_mux
                         .control_clients
@@ -462,7 +493,8 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "at_bottom": at_bottom,
         }),
         MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
-        MuxEvent::TreeSelectionChanged => json!({"event": "tree-changed"}),
+        MuxEvent::TreeSelectionChanged(_) => json!({"event": "tree-changed"}),
+        MuxEvent::WorkspacePresentationChanged(_) => json!({"event": "tree-changed"}),
         MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
         MuxEvent::FrontendProjectionChanged {
             frontend,
