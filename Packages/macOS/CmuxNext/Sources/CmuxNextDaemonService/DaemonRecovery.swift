@@ -141,6 +141,9 @@ public final class DaemonRecovery {
         return await restart(automatic: true)
     }
 
+    /// Told after a restart replaced the owner (the service forgets the old owner's restore stall).
+    @ObservationIgnored public var onReplaced: (() -> Void)?
+
     /// Tries to connect now instead of at the next backoff step.
     public func retryNow() {
         restartFailure = nil
@@ -161,6 +164,7 @@ public final class DaemonRecovery {
         do {
             let result = try await launcher.replaceUnresponsive()
             replaced = true
+            onReplaced?()
             logger.notice("cmux-tui restart (\(source, privacy: .public)): \(result.status, privacy: .public), pid \(result.pid)")
         } catch {
             restartFailure = String(describing: error)

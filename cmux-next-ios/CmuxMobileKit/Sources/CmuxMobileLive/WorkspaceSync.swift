@@ -26,6 +26,13 @@ public final class WorkspaceSync {
     @ObservationIgnored public var onRows: (@MainActor (DaemonTree, Set<String>, Bool) -> Void)?
     /// A notification was posted on the Mac (terminal agents, `cmux notify`).
     @ObservationIgnored public var onNotification: (@MainActor (NotificationPost) -> Void)?
+    /// The Mac's running long jobs (`jobs-list` at bind, then `jobs-changed`; empty without `long_jobs`).
+    public private(set) var longJobs: [MacLongJob] = [] {
+        didSet { if longJobs != oldValue { onLongJobs?(longJobs) } }
+    }
+    @ObservationIgnored public var onLongJobs: (@MainActor ([MacLongJob]) -> Void)?
+    /// Counts `jobs-changed` events on this connection: a `jobs-list` reply sent before a newer event is dropped.
+    @ObservationIgnored private var longJobEvents = 0
     @ObservationIgnored private var client: DaemonClient?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
@@ -86,6 +93,7 @@ public final class WorkspaceSync {
         connectionSerial += 1
         activity = [:]
         titles = [:]
+        longJobs = []
         guard let channel else {
             lastError = nil
             identity = nil
@@ -140,6 +148,8 @@ public final class WorkspaceSync {
         agents.bySurface = [:]
         arrangement = nil
         arrangementStale = true
+        longJobs = []
+        longJobEvents = 0
         self.macID = macID
         let client = prepared.client
         self.client = client
@@ -160,6 +170,7 @@ public final class WorkspaceSync {
             guard self.client === client else { return }
             identity = setup.identity
             agents.bySurface = setup.agents.bySurface
+            if setup.servesLongJobs { listLongJobs(client) }
             let snapshot = try replies[4].get()
             let known = (tree?.workspaces ?? []).filter { $0.macID == macID }
             let next = try await projection.reset(snapshot: snapshot.data, macID: macID,
@@ -215,7 +226,31 @@ public final class WorkspaceSync {
 
     private func receive(_ event: DaemonEvent, sequence: UInt64, from client: DaemonClient) {
         guard self.client === client else { return }
+        if case .longJobs(let jobs) = event {
+            // Not part of the tree: applied at once, never covered by a snapshot.
+            longJobEvents += 1
+            longJobs = jobs
+            return
+        }
         enqueue(event, sequence: sequence)
+    }
+
+    /// Reads the Mac's long jobs once after bind (read-only, no params); a `jobs-changed` that arrives
+    /// while it is in flight is newer than its reply.
+    private func listLongJobs(_ client: DaemonClient) {
+        let sent = longJobEvents
+        // task-owner: one request on this connection; a later bind ignores its reply (client check).
+        Task { [weak self] in
+            guard let reply = try? await client.request("jobs-list"), let object = try? Self.check(reply) else { return }
+            guard let self, self.client === client, self.longJobEvents == sent else { return }
+            longJobs = MacLongJob.list(object["data"] as? [String: Any])
+        }
+    }
+
+    /// A `jobs-changed` event, as the stream delivers it (tests).
+    func handleLongJobs(_ jobs: [MacLongJob]) {
+        longJobEvents += 1
+        longJobs = jobs
     }
 
     func handle(_ event: DaemonEvent) { enqueue(event, sequence: nil) }
@@ -335,7 +370,8 @@ public final class WorkspaceSync {
         }
     }
 
-    private nonisolated static func decodeSetup(_ replies: [Result<Data, any Error>]) throws -> (identity: String?, agents: AgentStates) {
+    private nonisolated static func decodeSetup(_ replies: [Result<Data, any Error>]) throws
+        -> (identity: String?, agents: AgentStates, servesLongJobs: Bool) {
         _ = try check(replies[0].get())
         let identify = try check(replies[1].get())["data"] as? [String: Any]
         _ = try check(replies[2].get())
@@ -346,7 +382,8 @@ public final class WorkspaceSync {
             }
         }
         let identity = identify.map { "\($0["app"] as? String ?? "cmux-tui") \($0["version"] as? String ?? "") protocol \($0["protocol"] as? Int ?? 0)" }
-        return (identity, agents)
+        let servesLongJobs = (identify?["capabilities"] as? [String])?.contains("long_jobs") ?? false
+        return (identity, agents, servesLongJobs)
     }
 
     public func refresh() async {

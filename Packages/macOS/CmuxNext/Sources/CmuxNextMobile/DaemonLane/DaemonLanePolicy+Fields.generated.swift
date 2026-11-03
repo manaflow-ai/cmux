@@ -46,6 +46,7 @@ extension DaemonLanePolicy {
         "get-size-state": ["surface"],
         "identify": ["machine_metadata", "revisions"],
         "ids": ["kind"],
+        "jobs-list": [],
         "list-agents": ["state", "surface"],
         "list-clients": [],
         "list-notifications": ["limit"],

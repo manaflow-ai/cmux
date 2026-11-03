@@ -28,7 +28,7 @@ extension WindowController {
         }
         // The Activity indicator joins after it while long jobs run (plans/cmux-next/long-jobs-DESIGN.md).
         root.activityIndicator = ActivityIndicatorView(jobs: services.longJobs, labeled: { [weak services] in
-            services?.settings?.snapshot.activityIndicator == .labeled
+            (services?.settings?.snapshot.activityIndicator ?? ActivityIndicatorSetting.fallback) == .labeled
         }) { [weak self] in
             self?.root.needsLayout = true
             self?.root.layoutSubtreeIfNeeded()

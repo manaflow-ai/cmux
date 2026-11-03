@@ -50,6 +50,9 @@ public struct DaemonLanePolicy: Sendable {
         "list-workspace-groups", "list-tab-groups", "list-saved-tab-groups", "list-notifications",
         "list-personal", "list-agents", "list-terminals", "resolve-terminal", "process-info", "machine-usage",
         "machine-listening-tcp", "ids", "export-layout", "subscribe", "terminal-events", "wait-for",
+        // The owner's long jobs (`long_jobs`; issue 13742, read-only): kind, fixed title, step text and
+        // counts, no params. Its `jobs-changed` event rides the subscribe stream like every other event.
+        "jobs-list",
         // Terminal streams and input.
         "attach-surface", "vt-state", "read-screen", "read-scrollback", "scroll-surface", "send", "send-key",
         "copy", "clear-history", "set-terminal-idle-policy", "get-cell-pixels", "set-cell-pixels",

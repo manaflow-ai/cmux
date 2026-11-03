@@ -148,8 +148,14 @@ public struct WorkspacesList: View {
         groupDialogs(page)
     }
 
+    /// The long jobs of the Macs in scope (the chosen Mac, or every one), shown at the list's bottom while any runs.
+    private var longJobs: [MacLongJob] {
+        (scopedMac.map { [$0] } ?? macs).flatMap { store.macLongJobs[$0.id] ?? [] }
+    }
+
     private var page: some View {
         content
+            .safeAreaInset(edge: .bottom, spacing: 0) { MacLongJobsBar(jobs: longJobs) }
             .navigationTitle("Workspaces")
             .navigationSubtitle(subtitle)
             // The toolbar from plain values in a view of its own: SwiftUI skips it

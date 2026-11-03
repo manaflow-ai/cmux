@@ -76,12 +76,14 @@ struct DaemonRestoringStartupTests {
         try script.write(to: binary, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
 
+        // The launcher's clock (the ensure's idle bound, `server status`) never moves: the stand-in's ensure waits.
         let launcher = DaemonLauncher(configuration: .init(binary: binary, session: Self.session, stateDirectory: state,
                                                            rememberedSocket: socketPath, binaryIsBundled: true),
-                                      environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin"] })
+                                      environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin"] },
+                                      clock: ManualClock())
         let daemon = DaemonService()
         // The startup deadline (10 s) and the retry pacer run on a manual clock: the parked identify is judged first,
-        // then the test moves time past the deadline, which also lets the retry run `server ensure`.
+        // then the test moves time past the deadline, which also ends the retry's backoff so it runs `server ensure`.
         let clock = ManualClock()
         daemon.startupClock = clock
         let prestart = DaemonPrestart(launcher: launcher, configuration: launcher.localOwnerHooks(
@@ -95,19 +97,15 @@ struct DaemonRestoringStartupTests {
             if startup.isRestoring { break }
         }
         #expect(daemon.startup.restoringJobs.first?.percent == 43, "the parked identify did not read the owner's status file")
-        // Past the 10 s deadline (one second at a time, so the retry's backoff ends too): still restoring.
-        for _ in 0..<15 where !daemon.startupDeadlinePassed {
-            try? await clock.waitForSleeper()
-            clock.advance(by: .seconds(1))
-            await Task.yield()
-        }
+        // The deadline and the retry's backoff are both asleep: one step past both.
+        try await clock.waitForSleepers(2)
+        clock.advance(by: .seconds(11))
         for await passed in ObservationStream({ daemon.startupDeadlinePassed }) where passed { break }
-        // Then the retry's `server ensure` reports the job at 60%: time moves only while the retry waits.
-        while daemon.startup.restoringJobs.first?.percent != 60 {
-            #expect(!daemon.startup.isUnavailable, "past the deadline the restoring owner read as unavailable: \(daemon.startup)")
-            if clock.sleeperCount > 0 { clock.advance(by: .seconds(1)) }
-            // The next step is a sleeper, a progress line or a state change; each comes from another task.
-            try await Task.sleep(for: .milliseconds(20))
+        #expect(daemon.startup.isRestoring, "past the startup deadline the restoring owner read as \(daemon.startup)")
+        // Then the retry's `server ensure` reports the job at 60%.
+        for await startup in ObservationStream({ daemon.startup }) {
+            #expect(!startup.isUnavailable, "past the deadline the restoring owner read as unavailable: \(startup)")
+            if startup.restoringJobs.first?.percent == 60 { break }
         }
         #expect(daemon.startup.isRestoring)
         #expect(daemon.startup.restoringJobs.map(\.kind) == [LongJob.outputCleanupKind])

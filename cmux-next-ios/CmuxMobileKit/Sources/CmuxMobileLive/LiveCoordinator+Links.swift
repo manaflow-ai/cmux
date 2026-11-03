@@ -96,6 +96,12 @@ extension LiveCoordinator {
             ])
         }
         session.workspaces.onNotification = { [weak session] post in session?.terminalFeed.notificationPosted(post) }
+        // The Mac's long jobs (`long_jobs`, read-only): the Workspaces list shows the first while any runs.
+        session.workspaces.onLongJobs = { [weak self] jobs in
+            guard let self else { return }
+            let shown: [MacLongJob]? = jobs.isEmpty ? nil : jobs
+            if self.store.macLongJobs[macID] != shown { self.store.macLongJobs[macID] = shown }
+        }
         session.acpmux.onWatchEvent = { [weak session] event in
             guard let session else { return }
             session.feed.handle(event, sessions: session.acpmux.sessions)

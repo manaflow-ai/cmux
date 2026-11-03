@@ -7,9 +7,9 @@ public import CmuxNextWakeups
 /// The window's Activity indicator in the top row, after the host pressure indicator
 /// (`WindowRootView.activityIndicator`; plans/cmux-next/long-jobs-DESIGN.md). Hidden while no long job
 /// runs; while one does, a still glyph (no spin: the jobs' own progress is the motion), whose click
-/// opens ``ActivityPopover`` with every job. Two designs behind `ui.activityIndicator` for Lawrence to
-/// choose from: `icon` (the default, the quieter one: the glyph alone, the first job and its percent in
-/// the tooltip) and `labeled` (the glyph with the first job's title and percent beside it).
+/// opens ``ActivityPopover`` with every job. Two designs behind `ui.activityIndicator`: `labeled` (the
+/// default, Lawrence 2026-11-03: the glyph with the first job's title and percent beside it) and `icon`
+/// (the glyph alone, the first job and its percent in the tooltip).
 ///
 /// It observes ``LongJobs/all`` and the setting while in a window, and stops when it leaves it.
 public final class ActivityIndicatorView: NSView {
@@ -84,7 +84,7 @@ public final class ActivityIndicatorView: NSView {
         if list.isEmpty {
             if madePopover { popover.close() }
         } else if madePopover, popover.isShown {
-            popover.content.update(list)
+            popover.update(list)
         }
         if wasHidden != isHidden || oldWidth != width {
             superview?.needsLayout = true

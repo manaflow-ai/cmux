@@ -154,9 +154,18 @@ public final class DaemonService {
     @ObservationIgnored var longJobsConnection: Task<Void, Never>?
     /// The last restore report a failure already judged: an older one (a hop queued before it) changes nothing.
     @ObservationIgnored var restoreReportsJudged: UInt64 = 0
-    /// After `server.restore_timeout` (the owner's jobs stalled): the newest job update seen then. A report moves
-    /// startup back to `.restoring` only once a job moved past it; with no job named, only a connect ends it.
-    @ObservationIgnored var restoreStallMark: Int64?
+    /// After `server.restore_timeout` (the owner's startup jobs stalled): that owner and its startup jobs then. A
+    /// report moves startup back to `.restoring` only once it is progress past it (another owner, or its startup jobs
+    /// changed: `Report.isProgress(past:)`). A new attempt, a restart and a connect forget it.
+    @ObservationIgnored var restoreStall: OwnerRestoreProgress.Stall?
+    /// Counts the restore reports this service took (observed: the update restart's successor wait restarts its
+    /// bound on each one, so a long restore of the successor is not "no successor").
+    private(set) var restoreReportsSeen = 0
+    /// While a connection that was up is down and the owner restores again (a reconnect behind a restart or a
+    /// crash): its jobs, shown as this machine's while `startup` stays `.connected`. Nil otherwise.
+    var reconnectRestoringJobs: [LongJob]?
+    /// Counts `jobs-changed` events: a `jobs-list` reply sent before a newer event is dropped.
+    @ObservationIgnored var longJobEvents = 0
     /// The last failed connect attempt until a connection succeeds (`notConnectedReason`).
     @ObservationIgnored public private(set) var lastStartupError: DaemonError?
     /// Events that may let a failed connect succeed: the daemon socket
@@ -172,6 +181,7 @@ public final class DaemonService {
     public func beginAttempt() {
         startup = .connecting
         lastStartupError = nil
+        restoreStall = nil
         armStartupDeadline()
     }
     /// How the connections reach this app's daemon (the page relay opens its own with it).
@@ -210,6 +220,7 @@ public final class DaemonService {
         }
         endpointProvider = launcher.endpointProvider
         recovery.attach(launcher, wake: retryWake)
+        recovery.onReplaced = { [weak self] in self?.restoreStall = nil }
         followRestoreProgress(launcher.restoreProgress)
         // Before the first connection the retry loop has no socket watch of its own (the connection installs one
         // after its first handshake): watch the socket the last launch used and its ready marker, so a daemon
@@ -431,7 +442,7 @@ public final class DaemonService {
         startupDeadlineTimer = nil
         lastStartupError = nil
         startup = .connected
-        restoreStallMark = nil
+        restoreStall = nil
         followLongJobs()
         pushTerminalDefaultColors()
         relaunchKeptLayoutIfNeeded(connection)
@@ -444,10 +455,10 @@ public final class DaemonService {
     /// window offers Retry Now and Restart cmux-tui with "still restoring" (the next progress line restores `.restoring`).
     func noteStartupFailure(_ error: DaemonError, retries: Bool = true) {
         let permanent = DaemonStartup.shared.isPermanent(error)
-        // After a stall (`server.restore_timeout`), a parked identify counts only once a job moved past it.
-        let movedPastStall = restoreStallMark.map { mark in (restoreProgress?.current?.lastJobUpdateMs ?? .min) > mark } ?? true
+        // After a stall (`server.restore_timeout`), a parked identify counts only once its report is progress past it.
+        let movedPastStall = restoreStall.map { stall in restoreProgress?.current?.isProgress(past: stall) ?? false } ?? true
         if retries, !permanent, case .ownerRestoring = error, startup != .connected, movedPastStall {
-            restoreStallMark = nil
+            restoreStall = nil
             logger.info("cmux-tui owner is restoring: \(error.description, privacy: .public)")
             lastStartupError = error
             startup = .restoring(restoreProgress?.current?.jobs ?? startup.restoringJobs)
@@ -459,7 +470,7 @@ public final class DaemonService {
         // Reports from before this failure no longer prove the owner is restoring; after a stall only new job
         // progress does (else the stall's Retry Now / Restart flashed away at the next ensure's first line).
         restoreReportsJudged = restoreProgress?.current?.sequence ?? restoreReportsJudged
-        if case .sessionRestoreTimedOut = error { restoreStallMark = restoreProgress?.current?.lastJobUpdateMs ?? .max }
+        if case .sessionRestoreTimedOut = error { restoreStall = OwnerRestoreProgress.Stall(restoreProgress?.current) }
         if startup.isRestoring {
             startup = startupDeadlinePassed || !retries || permanent ? .unavailable(error) : .connecting
         }
@@ -481,6 +492,7 @@ public final class DaemonService {
             startup = .connecting
             lastStartupError = nil
         }
+        restoreStall = nil
         armStartupDeadline()
     }
 
@@ -660,6 +672,7 @@ public final class DaemonService {
         keptLayoutRelaunch = nil
         longJobsConnection?.cancel()
         longJobsConnection = nil
+        reconnectRestoringJobs = nil
         let connected = connection
         connection = nil
         return connected

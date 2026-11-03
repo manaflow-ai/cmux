@@ -1,5 +1,5 @@
 /// How the window's Activity indicator shows running long jobs (plans/cmux-next/long-jobs-DESIGN.md).
-/// Two designs for Lawrence to choose from; the quieter one is the default.
+/// Two designs; Lawrence chose `labeled` as the default (2026-11-03).
 public nonisolated enum ActivityIndicatorStyle: String, Sendable, CaseIterable {
     /// A glyph in the top row while jobs run; the job and its progress in its tooltip and popover.
     case icon
@@ -7,11 +7,11 @@ public nonisolated enum ActivityIndicatorStyle: String, Sendable, CaseIterable {
     case labeled
 }
 
-/// `ui.activityIndicator` in cmux.json: "icon" (default) or "labeled" (``ActivityIndicatorStyle``).
+/// `ui.activityIndicator` in cmux.json: "labeled" (default) or "icon" (``ActivityIndicatorStyle``).
 public nonisolated struct ActivityIndicatorSetting {
     public nonisolated init() {}
     public static let configPath = ["ui", "activityIndicator"]
-    public static let fallback: ActivityIndicatorStyle = .icon
+    public static let fallback: ActivityIndicatorStyle = .labeled
 
     /// A missing key is the default with no diagnostic; a bad value is the default plus a diagnostic.
     static func parse(_ root: JSONValue) -> (ActivityIndicatorStyle, SettingsDiagnostic?) {

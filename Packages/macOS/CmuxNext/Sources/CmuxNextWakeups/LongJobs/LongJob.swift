@@ -142,6 +142,8 @@ public struct LongJob: Sendable, Hashable, Identifiable, Codable {
 /// A list of jobs as the daemon sends it (`jobs-list` reply, `jobs-changed` event, status file).
 public struct LongJobList: Sendable, Hashable, Decodable {
     public var jobs: [LongJob]
+    /// The status file's format (`long-jobs.json`, 1); nil on the socket.
+    public var version: Int?
     /// The status file's owner process (`long-jobs.json`); nil on the socket.
     public var pid: Int32?
     public var updatedMs: Int64?
@@ -153,13 +155,14 @@ public struct LongJobList: Sendable, Hashable, Decodable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case jobs, pid
+        case jobs, pid, version
         case updatedMs = "updated_ms"
     }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         jobs = (try? c.decodeIfPresent([LongJob].self, forKey: .jobs)) ?? []
+        version = try? c.decodeIfPresent(Int.self, forKey: .version)
         pid = try? c.decodeIfPresent(Int32.self, forKey: .pid)
         updatedMs = try? c.decodeIfPresent(Int64.self, forKey: .updatedMs)
     }

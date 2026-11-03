@@ -139,20 +139,33 @@ something the person can do is a **long job**. A long job:
 - Launcher: `server ensure --restore-progress` has no total cap (idle bound `ensureTimeout`,
   20 s, per stdout line); each progress line's jobs reach `DaemonLauncher.restoreProgress`.
   An unanswered `identify` (only that reply) on the local owner's socket asks
-  `DaemonLauncher.parkedOwner`: a `long-jobs.json` whose pid is alive and that changed within the
-  120 s stall bound makes it `DaemonError.ownerRestoring`. A socket that merely accepts is no proof
+  `DaemonLauncher.parkedOwner`: a version-1 `long-jobs.json` whose pid is alive and whose
+  startup-blocking jobs (`blocks` has `startup`, as the daemon's `startup_progress_mark`) changed
+  within the 120 s stall bound makes it `DaemonError.ownerRestoring`; background jobs show but are
+  never progress. With no state directory (legacy channel session) the file is looked up under
+  `CMUX_TUI_STATE_DIR` of the environment `server ensure` passes. A socket that merely accepts is no proof
   (a wedged owner's listener accepts too), so without a fresh file it stays a timeout.
 - Startup: `DaemonStartupState.restoring([LongJob])`; a parked owner and every progress line
   move there, the startup deadline never turns it into `.unavailable`, and the store is not
   marked failed. `server.restore_timeout` (a stall) still shows "still restoring" with
-  Retry Now / Restart cmux-tui; after it, only a report whose jobs moved past the stall goes
-  back to `.restoring` (each report carries a sequence, so a hop queued before a failure never
-  undoes it). Callers of `DaemonService.endpoint()` keep waiting while it restores (the owner
+  Retry Now / Restart cmux-tui; after it, only progress past the stall goes back to
+  `.restoring`: a report from another owner pid, or one whose startup jobs changed
+  (`OwnerRestoreProgress.Stall`). A new attempt, Restart cmux-tui and a connect forget the stall.
+  Each report carries a sequence, so a hop queued before a failure never undoes it, and no report
+  moves anything after the service stopped. Callers of `DaemonService.endpoint()` keep waiting while it restores (the owner
   will answer), as they wait while connecting.
 - Connected: `jobs-list` on every connect (a reconnect after a drop too), `jobs-changed`
-  replaces the list, a drop clears it.
-- Surfaces: the launch window's connecting state (title, detail, percent bar, "Don't quit"),
-  the top-row Activity indicator (setting `ui.activityIndicator`: `icon`, default, or
-  `labeled`) with a popover, refusals naming the job (`RefusalStrings.restoring`).
+  replaces the list (a `jobs-list` reply older than an event is dropped), a drop clears it.
+  While a connection that was up is down and its owner restores again (a restart, a crash),
+  the reconnect's progress reports show as this machine's jobs. "Restart cmux-tui to update"
+  waits for the successor as long as its restore reports keep coming (30 s without one).
+- Surfaces: the launch window's connecting state (title, detail, percent bar, and "Don't quit"
+  only while a job blocks `quit`), the top-row Activity indicator (setting
+  `ui.activityIndicator`: `labeled`, the default since Lawrence's choice on 2026-11-03, or
+  `icon`) with a popover whose rows update in place by job id and whose card fits them,
+  refusals naming the job (`RefusalStrings.restoring`).
+- Phone (issue 13742, allowed read-only): both lane policies forward `jobs-list` with no params;
+  the phone asks once after its setup when `identify` lists `long_jobs`, follows
+  `jobs-changed`, and shows the first job (title and percent) at the bottom of Workspaces.
 - App jobs registered: update download and install (UpdaterService), browser import,
   Cloud uploads.

@@ -59,6 +59,9 @@ public final class AppStore {
     /// What each Mac's host said it does (`version` service `capabilities`), for
     /// Macs this phone has linked to. Absent: unknown (older host, or never linked).
     public var macCapabilities: [String: Set<String>] = [:]
+    /// Each linked Mac's running long jobs (cleanups, compaction), oldest first; absent or empty while none
+    /// runs or the Mac's cmux-tui has no `long_jobs`. The Workspaces list shows the first one.
+    public var macLongJobs: [String: [MacLongJob]] = [:]
     /// True once live data drives the store (false in mock mode).
     public var tracksMacData = false
     /// How many Macs the signed-in account has in any team or its personal

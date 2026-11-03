@@ -38,6 +38,9 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "subscribe",
         "terminal-events",
         "wait-for",
+        // The owner's long jobs (`long_jobs`; issue 13742, read-only): no params. Its
+        // `jobs-changed` event rides the subscribe stream like every other event.
+        "jobs-list",
         // Terminal streams and input.
         "attach-surface",
         "vt-state",
@@ -227,6 +230,8 @@ fn creation_fields(command: &str) -> Option<HashSet<&'static str>> {
         "reopen-saved-tab-group" => return Some(["saved", "pane", "transaction"].into_iter().collect()),
         "delete-saved-tab-group" => return Some(["saved"].into_iter().collect()),
         "notification-reply" => return Some(["notification", "text", "reply_id"].into_iter().collect()),
+        // The owner's long jobs, read-only: no params at all (issue 13742).
+        "jobs-list" => return Some(HashSet::new()),
         "new-tab" | "new-pane" => &["pane"],
         "new-pane-right" => &["pane", "width"],
         "split" => &["pane", "dir"],
@@ -943,6 +948,28 @@ mod tests {
             assert_eq!(answer["ok"], false);
             assert_eq!(answer["error_code"], "forbidden");
             assert_eq!(answer["id"], 1);
+        }
+    }
+
+    /// Long jobs (issue 13742): `jobs-list` passes with no params and refuses any; every other
+    /// `jobs-*` command stays denied. The `jobs-changed` event needs no rule: replies and events
+    /// pass back unfiltered on the daemon lane, and the phone receives it after `subscribe`.
+    #[test]
+    fn long_jobs_list_is_read_only_and_takes_no_params() {
+        assert_eq!(policy().evaluate(br#"{"id":1,"cmd":"jobs-list"}"#), Verdict::Forward);
+        for line in [
+            br#"{"id":1,"cmd":"jobs-list","kind":"registry.compact"}"#.as_slice(),
+            br#"{"id":1,"cmd":"jobs-list","command":"id"}"#,
+            br#"{"id":1,"cmd":"jobs-cancel","id_job":"x"}"#,
+            br#"{"id":1,"cmd":"jobs-cancel"}"#,
+            br#"{"id":1,"cmd":"jobs-changed"}"#,
+            br#"{"id":1,"cmd":"jobs-start"}"#,
+        ] {
+            let Verdict::Refuse(answer) = policy().evaluate(line) else {
+                panic!("forwarded {}", String::from_utf8_lossy(line));
+            };
+            let answer: Value = serde_json::from_str(&answer).unwrap();
+            assert_eq!(answer["error_code"], "forbidden");
         }
     }
 

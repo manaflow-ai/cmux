@@ -361,8 +361,12 @@ public struct DaemonLauncher: Sendable {
     /// a running process and changed within cmux-tui's stall bound (``OwnerJobsFile/read(_:nowMs:)``); a socket
     /// that merely accepts is no proof (a wedged owner's listener accepts too). A report also goes to
     /// ``restoreProgress``. Runs on the connection's executor, never the main thread: one small file read.
-    public func parkedOwner() -> OwnerRestoreProgress.Report? {
-        let report = OwnerJobsFile.url(session: configuration.session, stateDirectory: configuration.stateDirectory)
+    public func parkedOwner() async -> OwnerRestoreProgress.Report? {
+        // A launcher with no state directory (the legacy channel session) leaves the root to cmux-tui, which reads
+        // `CMUX_TUI_STATE_DIR` from the environment `server ensure` gives it: read the same one.
+        let environment = configuration.stateDirectory == nil ? await ensureEnvironment() : [:]
+        let report = OwnerJobsFile.url(session: configuration.session, stateDirectory: configuration.stateDirectory,
+                                       environment: environment)
             .flatMap { OwnerJobsFile.read($0) }
         if let report { restoreProgress.note(report) }
         return report
@@ -375,7 +379,7 @@ public struct DaemonLauncher: Sendable {
     public func localOwnerHooks(_ configuration: DaemonConnection.Configuration) -> DaemonConnection.Configuration {
         var configuration = handingOffIncompatibleOwners(configuration)
         let launcher = self
-        configuration.parkedOwner = { _ in launcher.parkedOwner() != nil }
+        configuration.parkedOwner = { _ in await launcher.parkedOwner() != nil }
         return configuration
     }
 

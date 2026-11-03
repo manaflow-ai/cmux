@@ -101,7 +101,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var motionCategories = MotionCategoriesSetting()
     /// `ui.calm`; off when unset or invalid.
     public var calmMode: CalmMode = CalmModeSetting.fallback
-    /// `ui.activityIndicator`; "icon" when unset or invalid.
+    /// `ui.activityIndicator`; "labeled" when unset or invalid.
     public var activityIndicator: ActivityIndicatorStyle = ActivityIndicatorSetting.fallback
     /// `ui.paneAnimations`; on when unset or invalid.
     public var paneAnimations: Bool = PaneAnimationsSetting.fallback

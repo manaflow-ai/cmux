@@ -135,9 +135,11 @@ struct OwnerRestoreLongJobsTests {
 
     private static func nowMs() -> Int64 { Int64(exactly: (Date().timeIntervalSince1970 * 1000).rounded()) ?? 0 }
 
-    /// The owner's status file, written by a live process (this one), last changed at `updatedMs`.
-    private static func writeStatus(in sessionDirectory: URL, updatedMs: Int64) throws {
-        let status = #"{"version":1,"pid":\#(getpid()),"updated_ms":\#(updatedMs),"jobs":[{"id":"output_cleanup:1","kind":"registry.output_cleanup","title":"Cleaning up stored terminal output","detail":"segment 387 of 900","done":387,"total":900,"unit":"segments","started_ms":\#(updatedMs - 60_000),"updated_ms":\#(updatedMs),"blocks":["startup"],"cancellable":false}]}"#
+    /// The owner's status file, written by a live process (this one), last changed at `updatedMs`, its job blocking
+    /// `blocks` (only a `startup` job is start progress).
+    private static func writeStatus(in sessionDirectory: URL, updatedMs: Int64, blocks: String = #""startup""#,
+                                    version: Int = 1) throws {
+        let status = #"{"version":\#(version),"pid":\#(getpid()),"updated_ms":\#(updatedMs),"jobs":[{"id":"output_cleanup:1","kind":"registry.output_cleanup","title":"Cleaning up stored terminal output","detail":"segment 387 of 900","done":387,"total":900,"unit":"segments","started_ms":\#(updatedMs - 60_000),"updated_ms":\#(updatedMs),"blocks":[\#(blocks)],"cancellable":false}]}"#
         try Data(status.utf8).write(to: sessionDirectory.appendingPathComponent(OwnerJobsFile.fileName))
     }
 
@@ -178,20 +180,33 @@ struct OwnerRestoreLongJobsTests {
         #expect(jobs.first?.percent == 43)
     }
 
-    /// No status file (an owner that names no job), or one whose jobs stopped changing past the stall bound (a
-    /// wedged owner whose process lives on): the parked identify stays a failure, so Retry Now and Restart show.
-    @Test(arguments: [false, true])
-    func aParkedIdentifyWithoutLiveProgressStaysAFailure(staleFile: Bool) async throws {
+    enum NoProgress: CaseIterable, Sendable {
+        /// No status file (an owner that names no job).
+        case noFile
+        /// Its startup job stopped changing past the stall bound (a wedged owner whose process lives on).
+        case stale
+        /// Only a background job beats (cmux-tui's stall bound counts startup jobs only).
+        case backgroundOnly
+        /// A file of another format version.
+        case otherVersion
+    }
+
+    /// Without live start progress the parked identify stays a failure, so Retry Now and Restart show.
+    @Test(arguments: NoProgress.allCases)
+    func aParkedIdentifyWithoutLiveProgressStaysAFailure(_ file: NoProgress) async throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let socketPath = directory.appendingPathComponent("o.sock").path
         let listener = try parkedSocket(at: socketPath)
         defer { close(listener) }
         let state = directory.appendingPathComponent("state", isDirectory: true)
-        if staleFile {
-            let sessionDirectory = state.appendingPathComponent(OwnerJobsFile.storageComponent(session: "cmux-app"), isDirectory: true)
-            try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
-            try Self.writeStatus(in: sessionDirectory, updatedMs: Self.nowMs() - 600_000)
+        let sessionDirectory = state.appendingPathComponent(OwnerJobsFile.storageComponent(session: "cmux-app"), isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        switch file {
+        case .noFile: break
+        case .stale: try Self.writeStatus(in: sessionDirectory, updatedMs: Self.nowMs() - 600_000)
+        case .backgroundOnly: try Self.writeStatus(in: sessionDirectory, updatedMs: Self.nowMs(), blocks: #""none""#)
+        case .otherVersion: try Self.writeStatus(in: sessionDirectory, updatedMs: Self.nowMs(), version: 2)
         }
         let launcher = DaemonLauncher(configuration: .init(binary: URL(fileURLWithPath: "/usr/bin/false"), session: "cmux-app",
                                                            stateDirectory: state, binaryIsBundled: true),

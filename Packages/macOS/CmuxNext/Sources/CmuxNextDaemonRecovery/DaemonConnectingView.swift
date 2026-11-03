@@ -160,8 +160,10 @@ public final class DaemonConnectingView: NSView {
             } else {
                 progressBar.isHidden = true
             }
-            guidanceLabel.stringValue = DaemonRecoveryStrings.dontQuit
-            guidanceLabel.isHidden = false
+            // "Don't quit" only where it is true: a job that quitting would interrupt (`blocks` has `quit`).
+            let quitInterrupts = jobs.contains { $0.holds(.quit) }
+            guidanceLabel.stringValue = quitInterrupts ? DaemonRecoveryStrings.dontQuit : ""
+            guidanceLabel.isHidden = !quitInterrupts
             copyDetailsButton.isHidden = true
             recoveryControls?.isOffered = false
         case .unavailable(let error):

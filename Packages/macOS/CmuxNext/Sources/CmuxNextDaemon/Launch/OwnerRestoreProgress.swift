@@ -24,8 +24,31 @@ public final class OwnerRestoreProgress: Sendable {
             self.jobs = jobs
         }
 
-        /// The newest progress or heartbeat of its jobs (`updated_ms`), nil with none.
-        public var lastJobUpdateMs: Int64? { jobs.map(\.updatedMs).max() }
+        /// The jobs that hold the owner's start (`blocks` has `startup`): only they are restore progress, as for
+        /// cmux-tui's stall bound (`JobsStatus::startup_progress_mark`). Background jobs still show.
+        public var startupJobs: [LongJob] { jobs.filter { $0.holds(.startup) } }
+
+        /// What changes whenever a startup job starts, ends or steps: each one's id and `updated_ms`
+        /// (cmux-tui's `startup_progress_mark`).
+        public var startupMark: [String: Int64] {
+            Dictionary(startupJobs.map { ($0.id, $0.updatedMs) }) { first, _ in first }
+        }
+
+        /// The newest progress or heartbeat of its startup jobs (`updated_ms`), nil with none.
+        public var lastStartupUpdateMs: Int64? { startupJobs.map(\.updatedMs).max() }
+    }
+
+    /// The restore a `server.restore_timeout` ended: its owner and its startup jobs then. A later report is
+    /// progress past the stall only when another owner sent it or its startup jobs changed
+    /// (``isProgress(past:)``).
+    public struct Stall: Sendable, Equatable {
+        public var pid: Int32?
+        public var mark: [String: Int64]
+
+        public init(_ report: Report?) {
+            pid = report?.pid
+            mark = report?.startupMark ?? [:]
+        }
     }
 
     private struct Reports {
@@ -97,9 +120,9 @@ struct OwnerJobsFile {
     }
 
     /// The file of `session` under `stateDirectory`, or under cmux-tui's own root when the launcher names
-    /// none (`CMUX_TUI_STATE_DIR`, else `~/Library/Application Support/cmux-tui/sessions`).
-    static func url(session: String, stateDirectory: URL?,
-                    environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
+    /// none: `CMUX_TUI_STATE_DIR` of `environment` (the one `server ensure` gives the owner), else
+    /// `~/Library/Application Support/cmux-tui/sessions`.
+    static func url(session: String, stateDirectory: URL?, environment: [String: String]) -> URL? {
         let root = stateDirectory
             ?? environment["CMUX_TUI_STATE_DIR"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
             ?? CloudLinkLauncher.defaultStateRoot()
@@ -107,26 +130,33 @@ struct OwnerJobsFile {
             .appendingPathComponent(fileName, isDirectory: false)
     }
 
-    /// How long an owner's jobs may go without an `updated_ms` change and still count as making progress:
+    /// How long an owner's startup jobs may go without an `updated_ms` change and still count as making progress:
     /// cmux-tui's `RESTORE_STALL` (a live job steps or beats at least every 5 s).
     static let stall: Int64 = 120_000
 
-    /// The jobs of a live owner that is making progress: nil when the file is missing or does not parse, its
-    /// process is gone, or neither the file nor any job changed within ``stall`` of `nowMs` (a wedged owner
-    /// whose process lives on is a failure, not a restore).
+    /// The jobs of a live owner that is making start progress: nil when the file is missing, does not parse or is
+    /// not version 1, its process is gone, or no startup job changed within ``stall`` of `nowMs` (a wedged owner
+    /// whose process lives on, or one whose only live jobs run in the background, is a failure, not a restore).
     static func read(_ url: URL, nowMs: Int64 = Int64(exactly: (Date().timeIntervalSince1970 * 1000).rounded()) ?? 0)
         -> OwnerRestoreProgress.Report? {
         guard let data = try? Data(blockingContentsOf: url), let list = try? JSONDecoder().decode(LongJobList.self, from: data),
-              let pid = list.pid, pid > 0, isAlive(pid) else { return nil }
+              list.version == 1, let pid = list.pid, pid > 0, isAlive(pid) else { return nil }
         let report = OwnerRestoreProgress.Report(pid: pid, jobs: list.jobs)
-        guard let newest = [list.updatedMs, report.lastJobUpdateMs].compactMap(\.self).max(), nowMs - newest <= stall else {
-            return nil
-        }
+        // Only a startup job proves the owner is busy starting (a background job's beat while it hangs does not).
+        guard let newest = report.lastStartupUpdateMs, nowMs - newest <= stall else { return nil }
         return report
     }
 
     /// Whether `pid` names a running process (a zero signal: EPERM means it runs as another user).
     static func isAlive(_ pid: Int32) -> Bool {
         kill(pid, 0) == 0 || errno == EPERM
+    }
+}
+
+extension OwnerRestoreProgress.Report {
+    /// Progress past `stall`: another owner sent it, or it names startup jobs and they changed since then.
+    public func isProgress(past stall: OwnerRestoreProgress.Stall) -> Bool {
+        if let pid, let stalled = stall.pid, pid != stalled { return true }
+        return !startupMark.isEmpty && startupMark != stall.mark
     }
 }
