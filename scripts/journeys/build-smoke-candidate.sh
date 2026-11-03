@@ -12,8 +12,10 @@
 #
 # What it does:
 #   1. a detached worktree of SHA (default: a sibling of this checkout, smoke-candidate-<sha12>);
-#   2. if SHA has no dogfood bench mapping (Resources/build/cmux-next.dogfood.conf + reload.sh's RELEASE_FLAG),
-#      cherry-picks the mapping commit BENCH_MAPPING (no app source change) onto it;
+#   2. finds SHA's dogfood bench mapping (reload.sh's RELEASE_FLAG and a release_bench_tags conf): feat's own
+#      scripts/cmux-next/cmux-next.dogfood.conf (then a feat-tip-fixes-* tag gets one commit that adds its glob to that
+#      conf), a dogfood line's Resources/build/cmux-next.dogfood.conf, or none (then it cherry-picks the mapping
+#      commit BENCH_MAPPING, no app source change);
 #   3. pushes that as branch cp/smoke-candidate-<sha12> (a dogfood line: never merge it), through the normal hooks:
 #      when SHA is already on origin, the branch is first made at SHA (gh api git/refs), so the hook judges only the
 #      mapping commit (fleet rules "Cutting a dogfood line"; never --no-verify);
@@ -51,8 +53,14 @@ git -C "$root" worktree add -q --detach "$worktree" "$full"
 # The worktree is only for this candidate: removed on every exit (the pushed branch keeps the commit).
 trap 'cd "$root" && git worktree remove --force "$worktree" >/dev/null 2>&1 || true' EXIT
 cd "$worktree"
+# Where the commit keeps its bench mapping: feat's own (scripts/cmux-next/, #32872, outside Resources/ so it is not
+# bundled), a dogfood line's (Resources/build/), or none (then the mapping commit is cherry-picked).
+native=scripts/cmux-next/cmux-next.dogfood.conf
 conf=Resources/build/cmux-next.dogfood.conf
-if [ -f "$conf" ] && grep -q 'RELEASE_FLAG' scripts/reload.sh; then
+if [ -f "$native" ] && grep -q 'RELEASE_FLAG' scripts/reload.sh; then
+  conf="$native"
+  echo "==> $short has feat's own dogfood bench mapping ($conf)"
+elif [ -f "$conf" ] && grep -q 'RELEASE_FLAG' scripts/reload.sh; then
   echo "==> $short already has the dogfood bench mapping"
 else
   git -C "$root" fetch -q origin "$BENCH_MAPPING" 2>/dev/null || true
@@ -71,6 +79,17 @@ for glob in "${globs[@]}"; do
   # shellcheck disable=SC2053
   if [[ "$tag" == $glob ]]; then matched=1; fi
 done
+if [ "$matched" = 0 ] && [ "$conf" = "$native" ] && [[ "$tag" == feat-tip-fixes-* ]]; then
+  # feat's conf names chrome-parity-* and cap<sha10>, not the smoke candidates' feat-tip-fixes-<sha10>: one commit on
+  # the candidate adds that glob (a new last release_bench_tags line, the one that counts). Only the conf changes; the
+  # candidate branch is a dogfood line, never merged.
+  printf '# smoke candidate (build-smoke-candidate.sh): feat-tip-fixes-* builds as bench on this dogfood line only\nrelease_bench_tags=%s feat-tip-fixes-*\n' \
+    "${globs[*]}" >>"$conf"
+  git add "$conf"
+  git commit -q -m "dogfood(smoke candidate): feat-tip-fixes-* builds as bench (release_bench_tags in $conf); no app source change; a dogfood line, never merge"
+  echo "==> added feat-tip-fixes-* to $conf on $short: $(git rev-parse --short HEAD)"
+  matched=1
+fi
 [ "$matched" = 1 ] || { echo "tag $tag matches no release_bench_tags glob (${globs[*]}) in $conf" >&2; exit 2; }
 head="$(git rev-parse HEAD)"
 if [ "$dry" = 1 ]; then
