@@ -8437,6 +8437,11 @@ export class AcpmuxDirectClient {
 
   /// Chats read ahead, by when their read went out.
   private readAheadAt = new Map<string, number>();
+  /// Chats read ahead, by the row's `transcriptSeq` when their read went out: acpmux moves it only
+  /// for a transcript record, so a chat whose row moved only for bookkeeping (an agent start's
+  /// `agent_start_waiting` every 10 s, usage, git, process counts all move `updatedAt`) is not read
+  /// again. Absent for a row without one (a peer on an older acpmux): `updatedAt` decides instead.
+  private readAheadSeq = new Map<string, number>();
   /// Reads out now, by chat, so a switch to one can wait on it briefly.
   private readingAhead = new Map<string, Promise<void>>();
   /// Chats waiting for a read, the next one first.
@@ -8467,7 +8472,10 @@ export class AcpmuxDirectClient {
       if (readAt === undefined) return !keptTail(sessionId);
       if (now - readAt < READ_AHEAD_REFRESH_MS) return false;
       const listed = this.sessions.find((session) => session.sessionId === sessionId);
-      return Number(listed?.updatedAt ?? 0) > readAt || !keptTail(sessionId);
+      const seq = transcriptSeq(listed);
+      const seen = this.readAheadSeq.get(sessionId);
+      const ranOn = seq !== undefined && seen !== undefined ? seq > seen : Number(listed?.updatedAt ?? 0) > readAt;
+      return ranOn || !keptTail(sessionId);
     });
     const rest = this.readAheadQueue.filter((sessionId) => !wanted.includes(sessionId));
     this.readAheadQueue = first ? [...wanted, ...rest] : [...rest, ...wanted];
@@ -8498,6 +8506,9 @@ export class AcpmuxDirectClient {
     // The session and machine its row names when asked: a page read while the row changed is of
     // the session before, so it is not kept under the new one's row.
     const asked = this.sessions.find((session) => session.sessionId === sessionId);
+    const askedSeq = transcriptSeq(asked);
+    if (askedSeq === undefined) this.readAheadSeq.delete(sessionId);
+    else this.readAheadSeq.set(sessionId, askedSeq);
     const result = await this.typed("_acpmux/events", {
       sessionId,
       beforeSeq: Number.MAX_SAFE_INTEGER,
@@ -9905,6 +9916,13 @@ function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
 /// (hub/auto_resume.rs `SUFFIX`).
 export function promptRoot(promptId: string): string {
   return promptId.replace(/~resume-\d+$/, "");
+}
+
+/// A row's `transcriptSeq` (acpmux `SessionSummary::transcript_seq`), or undefined from an acpmux
+/// that does not send it.
+function transcriptSeq(session: Session | undefined): number | undefined {
+  const seq = session?.transcriptSeq;
+  return typeof seq === "number" && Number.isFinite(seq) ? seq : undefined;
 }
 
 function pageShown(): boolean {
