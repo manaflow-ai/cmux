@@ -556,9 +556,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// The Dock icon's menu, from rows the controller already holds: it never waits on acpmux or disk.
-    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
-        services?.dockMenu.menu()
-    }
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? { services?.dockMenu.menu() }
 
     /// The app stays running with no windows (standard macOS behavior): a window closes when its
     /// last workspace closes, and the daemon keeps every terminal regardless.
