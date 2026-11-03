@@ -12,6 +12,13 @@ app="${1:?usage: stamp-cloud-tunnel-identity.sh APP_PATH [TEAM_ID]}"
 team="${2:-7WLXT3NR37}"
 dir="$app/Contents/Library/SystemExtensions"
 shopt -s nullglob
+# An incremental build copies a fresh cmux-cloud-tunnel.systemextension beside the
+# one a previous build renamed: the fresh copy wins.
+if [[ -d "$dir/cmux-cloud-tunnel.systemextension" ]]; then
+  for stale in "$dir"/*.systemextension; do
+    [[ "$stale" == "$dir/cmux-cloud-tunnel.systemextension" ]] || rm -rf "$stale"
+  done
+fi
 extensions=("$dir"/*.systemextension)
 ((${#extensions[@]} > 0)) || { echo "cloud tunnel identity: no extension in $(basename "$app")"; exit 0; }
 ((${#extensions[@]} == 1)) || { echo "error: more than one system extension in $dir" >&2; exit 1; }

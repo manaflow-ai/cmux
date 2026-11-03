@@ -41,8 +41,9 @@ packet tunnel as a system extension.
       `POST /api/vm/tunnel` with the device id the hub uses and a
       fingerprint of `<device id>.browser.<channel>`. The completed wg-quick
       config (private key included) goes into the `NETunnelProviderProtocol`
-      `providerConfiguration`, which macOS stores in the System keychain;
-      it is never written to a file.
+      `providerConfiguration`, which macOS keeps in the NetworkExtension
+      preferences (root-readable, not the keychain). Follow-up: move it to a
+      keychain item passed as `passwordReference`, as WireGuard's client does.
    3. Save the `NETunnelProviderManager` ("cmux Cloud", on-demand off) and
       `startVPNTunnel()`.
 3. The extension (`NEPacketTunnelProvider`) parses the config, sets the
@@ -50,13 +51,13 @@ packet tunnel as a system extension.
    `AllowedIPs`, MTU, the endpoint as tunnel remote address), finds the utun
    fd and starts the engine. Default route changes call
    `cmux_wg_tun_network_changed` (rebind + re-handshake).
-4. Later launches with the setting on load the saved manager and start it if
-   it is not connected. No approval prompt at launch: a launch never submits
-   an activation request unless the extension was approved before (then the
-   request is silent and only replaces an older version).
+4. Later launches with the setting on load the saved manager and start it.
+   A launch never submits an activation request, so it can never prompt; a
+   removed extension makes the start fail with the reason.
 5. `cloud tunnel off` stops the tunnel and removes the manager; the extension
    stays installed (removing it needs the user's password). Sign-out also
-   `DELETE`s the `browser` peer (purpose passed explicitly).
+   turns the setting off and revokes this Mac's peers (through the hub, or
+   directly when no hub ran).
 
 ## Security
 
@@ -64,12 +65,16 @@ The tunnel widens access on purpose: with it on, every program of every user
 on this Mac can reach the VPC, as with Tailscale. That is why it is off by
 default and the Settings row says so. Guarantees that stay:
 
-- Only VPC routes enter the tunnel (no default route, no DNS change), so the
-  rest of the Mac's traffic is untouched.
+- Only Cloud routes enter the tunnel (no DNS change): a config whose
+  `AllowedIPs` leaves 10/8, 100.64/10 or 172.16/12 (prefix 12 or longer) or
+  fc00::/7 (prefix 48 or longer) is refused, so no default, split-default,
+  public or home-LAN (192.168/16) route can take the Mac's other traffic.
+- Agents cannot turn it on: `cloud tunnel on` from MCP or another client is
+  refused, like the setting's `.network` agent policy.
 - Crypto-key routing: the engine drops a decrypted packet whose source is
   outside `AllowedIPs` (tested).
-- The private key is made per enrollment, lives in the System keychain via
-  `providerConfiguration`, and is never on disk in a file or in logs
+- The private key is made per enrollment, lives in the NetworkExtension
+  preferences via `providerConfiguration`, and is never in logs
   (`description` of every config type redacts it).
 - The hub's token-guarded SOCKS path is unchanged, so cmux's own panes keep
   working with the tunnel off.

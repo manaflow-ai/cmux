@@ -54,8 +54,12 @@ final class CloudService {
         }
     )
 
+    /// The settings ``followTunnelSetting(_:)`` follows; sign-out turns the tunnel's setting off there.
+    @ObservationIgnored private weak var tunnelSettings: SettingsController?
+
     /// Applies `cloud.tunnel.enabled` to ``systemTunnel``, the one path for Settings, the CLI and MCP.
     func followTunnelSetting(_ settings: SettingsController) {
+        tunnelSettings = settings
         systemTunnel.follow(ObservationStream { CloudTunnelSetting().enabled(in: settings.snapshot.root) })
     }
     /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
@@ -915,9 +919,18 @@ final class CloudService {
         await link.endLink(final: false)
         do { try await AcpmuxEnvironment.clearPeerTails(build: LaunchIdentity.current().build, work: work) } catch { logger.error("clear peer tails on sign-out: \(String(describing: error), privacy: .public)") }
         desktopRdTokens.removeAll()
-        if let hub { await hub.revoke() }
-        // The revoke above removed the tunnel's peer too; its saved VPN configuration goes with it.
-        if systemTunnel.status != .off { await systemTunnel.disable() }
+        let tunnelWasOn = systemTunnel.status != .off
+        if let hub {
+            await hub.revoke()
+        } else if tunnelWasOn, let id = try? paths.loadOrCreateDeviceID() {
+            // No hub ran: revoke this Mac's peers (the Cloud Tunnel's `browser` one too) directly.
+            do { try await api.revokeTunnel(deviceID: id) } catch { logger.error("tunnel revoke failed: \(String(describing: error), privacy: .public)") }
+        }
+        // The revoke above removed the tunnel's peer; its setting and saved VPN configuration go with it.
+        if tunnelWasOn {
+            try? await tunnelSettings?.set(.bool(false), at: CloudTunnelSetting.enabledPath)
+            await systemTunnel.disable()
+        }
         // Revoke the install while the Stack session still exists.
         if let stackUser = auth.user?.id {
             let auth = auth

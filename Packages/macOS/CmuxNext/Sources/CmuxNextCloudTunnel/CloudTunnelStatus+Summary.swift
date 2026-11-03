@@ -38,3 +38,12 @@ extension CloudTunnelStatus {
         }
     }
 }
+
+extension CloudTunnelStatus {
+    /// Why an agent or another client cannot turn the tunnel on.
+    public static var agentRefusal: String {
+        String(localized: "cloudTunnel.error.agentRefused",
+               defaultValue: "Only you can turn on the Cloud Tunnel: use Settings or `cmux cloud tunnel on` in a terminal.",
+               bundle: .module)
+    }
+}

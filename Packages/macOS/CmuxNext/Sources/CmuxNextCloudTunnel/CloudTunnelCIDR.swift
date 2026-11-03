@@ -52,6 +52,27 @@ public struct CloudTunnelCIDR: Sendable, Hashable, CustomStringConvertible {
     /// Whether this is a default route (`0.0.0.0/0` or `::/0`).
     public var isDefaultRoute: Bool { prefix == 0 }
 
+    /// Whether this network may enter the Cloud Tunnel: it lies inside a private range a Cloud
+    /// network uses (IPv4 `10.0.0.0/8`, `100.64.0.0/10` or `172.16.0.0/12` with a prefix of at
+    /// least 12; IPv6 `fc00::/7` with a prefix of at least 48). Never a default or split-default
+    /// route, a public range, or `192.168.0.0/16`, which home networks use.
+    public var isCloudRoute: Bool {
+        switch family {
+        case .ipv4:
+            var storage = in_addr()
+            guard prefix >= 12, address.withCString({ inet_pton(AF_INET, $0, &storage) }) == 1 else { return false }
+            let value = UInt32(bigEndian: storage.s_addr)
+            let ranges: [(UInt32, Int)] = [(0x0A00_0000, 8), (0x6440_0000, 10), (0xAC10_0000, 12)]
+            return ranges.contains { base, length in
+                prefix >= length && (value >> UInt32(32 - length)) == (base >> UInt32(32 - length))
+            }
+        case .ipv6:
+            var storage = in6_addr()
+            guard prefix >= 48, address.withCString({ inet_pton(AF_INET6, $0, &storage) }) == 1 else { return false }
+            return withUnsafeBytes(of: &storage) { $0[0] & 0xFE } == 0xFC
+        }
+    }
+
     public var description: String { "\(address)/\(prefix)" }
 
     private static func isIPv4(_ text: String) -> Bool {

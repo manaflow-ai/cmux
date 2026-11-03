@@ -5,8 +5,8 @@ public import Foundation
 /// the MTU and the WireGuard endpoint's host.
 ///
 /// The text holds the private key. It travels only inside the `NETunnelProviderProtocol`
-/// `providerConfiguration` (stored by macOS in the System keychain) and is never logged:
-/// ``description`` leaves it out.
+/// `providerConfiguration`, which macOS keeps in the NetworkExtension preferences (readable by
+/// root, not the keychain), and is never logged: ``description`` leaves it out.
 ///
 /// ```swift
 /// let configuration = try CloudTunnelConfiguration(wgQuick: completedConfig)
@@ -25,6 +25,9 @@ public struct CloudTunnelConfiguration: Sendable, Equatable, CustomStringConvert
         case missingEndpoint
         /// A value that is not an address, a CIDR or a number.
         case invalid(String)
+        /// A route outside the Cloud's private ranges (``CloudTunnelCIDR/isCloudRoute``): it would
+        /// send other traffic of this Mac into the tunnel.
+        case notACloudRoute(String)
     }
 
     /// The wg-quick text, private key included; handed to the engine as is.
@@ -65,6 +68,7 @@ public struct CloudTunnelConfiguration: Sendable, Equatable, CustomStringConvert
         guard !addresses.isEmpty else { throw ParseError.missingAddress }
         let routes = try list("peer.allowedips").map { try CloudTunnelCIDR(parsing: $0) }
         guard !routes.isEmpty else { throw ParseError.missingRoutes }
+        if let route = routes.first(where: { !$0.isCloudRoute }) { throw ParseError.notACloudRoute(route.description) }
         guard let endpoint = values["peer.endpoint"]?.first, let host = Self.host(ofEndpoint: endpoint) else { throw ParseError.missingEndpoint }
         var mtu = 1420
         if let text = values["interface.mtu"]?.first {

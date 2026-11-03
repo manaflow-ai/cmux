@@ -163,7 +163,7 @@ import Testing
         manager.saved = true
         let tunnel = controller()
         await tunnel.restore(enabled: true)
-        #expect(activator.requests == [Self.identifier], "a silent replace of an allowed extension")
+        #expect(activator.requests.isEmpty, "a launch submits no activation request, so it can never ask")
         #expect(enroller.count == 0)
         #expect(manager.calls == ["load", "load", "start"])
     }
@@ -245,5 +245,45 @@ import Testing
         #expect(tunnel.status.name == "unavailable")
         #expect(activator.requests.isEmpty)
         #expect(manager.calls.isEmpty)
+    }
+
+    @Test func turningOffDuringApprovalEndsTheWaitAndNeverInstalls() async {
+        activator.script = [.needsApproval]
+        activator.holdOpen = true
+        let tunnel = controller()
+        let enabling = Task { await tunnel.enable() }
+        await settle(tunnel) { $0 == .awaitingApproval }
+        let off = await tunnel.request(on: false)
+        await enabling.value
+        #expect(off == .off)
+        // The person approves after turning it off: nothing follows.
+        activator.pending?.yield(.activated)
+        activator.pending?.finish()
+        await drain { false }
+        #expect(enroller.count == 0)
+        #expect(!manager.calls.contains { $0.hasPrefix("install") || $0 == "start" })
+        #expect(tunnel.status == .off)
+    }
+
+    @Test func aSecondTurnOnJoinsTheFirstInsteadOfEnrollingAgain() async {
+        let tunnel = controller()
+        await tunnel.enable()
+        manager.continuation?.yield(.connected(since: nil))
+        await settle(tunnel) { $0 == .connected(since: nil) }
+        await tunnel.enable()
+        let again = await tunnel.request(on: true)
+        #expect(again == .connected(since: nil))
+        #expect(enroller.count == 1, "a working tunnel is not re-enrolled")
+        #expect(activator.requests.count == 1)
+    }
+
+    @Test func aRequestAnswersTheStatusItSettlesInNotTheOneBefore() async {
+        enroller.result = .failure(EnrollFailure())
+        let tunnel = controller()
+        await tunnel.enable()
+        #expect(tunnel.status == .failed("Sign in to cmux Cloud."))
+        let off = await tunnel.request(on: false)
+        #expect(off == .off, "not the earlier failure")
+        #expect(manager.calls.suffix(2) == ["stop", "remove"])
     }
 }

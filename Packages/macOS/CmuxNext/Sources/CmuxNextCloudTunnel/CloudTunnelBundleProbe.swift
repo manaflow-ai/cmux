@@ -31,7 +31,8 @@ public struct CloudTunnelBundleProbe: Sendable {
                 bundle: .module
             ))
         }
-        guard Self.hasEntitlement("com.apple.developer.system-extension.install") else {
+        guard Self.hasEntitlement("com.apple.developer.system-extension.install"),
+              Self.grantsPacketTunnel() else {
             return .unavailable(String(
                 localized: "cloudTunnel.unavailable.notSigned",
                 defaultValue: "This build of cmux is not signed to install the Cloud Tunnel. Use cmux or cmux NIGHTLY.",
@@ -39,6 +40,14 @@ public struct CloudTunnelBundleProbe: Sendable {
             ))
         }
         return .available(extensionIdentifier: identifier)
+    }
+
+    /// Whether the app may save a packet-tunnel VPN configuration for a system extension.
+    private static func grantsPacketTunnel() -> Bool {
+        guard let task = SecTaskCreateFromSelf(nil),
+              let value = SecTaskCopyValueForEntitlement(task, "com.apple.developer.networking.networkextension" as CFString, nil) as? [String]
+        else { return false }
+        return value.contains("packet-tunnel-provider-systemextension")
     }
 
     private static func hasEntitlement(_ name: String) -> Bool {

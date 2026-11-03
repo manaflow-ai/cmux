@@ -72,7 +72,12 @@ public final class LiveTunnelManager: TunnelManaging {
         continuation.yield(Self.state(of: connection))
         // task-owner: the stream; ends when its consumer cancels.
         let watch = Task { @MainActor in
-            for await _ in NotificationCenter.default.notifications(named: .NEVPNStatusDidChange, object: connection) {
+            let changes = NotificationCenter.default.notifications(named: .NEVPNStatusDidChange, object: connection)
+            // The observer registers on the first `next()`, after a start() the caller may already
+            // have made: read the status again here, with no suspension before that `next()`, so a
+            // change between the two is not lost.
+            continuation.yield(Self.state(of: connection))
+            for await _ in changes {
                 continuation.yield(Self.state(of: connection))
             }
         }

@@ -27,7 +27,7 @@ shipped() { [[ "${CONFIGURATION:-Debug}" != "Release" || "${CMUX_CLOUD_TUNNEL:-N
 
 archs="${ARCHS:-$(uname -m)}"
 archs="${archs//,/ }"
-key="$(git -C "$repo_root" rev-parse HEAD:cmux-tui/crates/cmux-wg-tun 2>/dev/null || echo unknown)-$(git -C "$repo_root" rev-parse HEAD:cmux-tui/crates/cmux-wg 2>/dev/null || echo unknown)-${archs// /+}"
+key="$(git -C "$repo_root" rev-parse HEAD:cmux-tui/crates/cmux-wg-tun 2>/dev/null || echo unknown)-$(git -C "$repo_root" rev-parse HEAD:cmux-tui/crates/cmux-wg 2>/dev/null || echo unknown)-$(git -C "$repo_root" rev-parse HEAD:cmux-tui/Cargo.lock 2>/dev/null || echo unknown)-${archs// /+}"
 
 if shipped && build_allowed; then
   slices=()

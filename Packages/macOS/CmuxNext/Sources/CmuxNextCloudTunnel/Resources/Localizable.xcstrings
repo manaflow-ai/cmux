@@ -656,6 +656,137 @@
         }
       }
     },
+    "cloudTunnel.error.agentRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أنت فقط من يمكنه تشغيل Cloud Tunnel: استخدم الإعدادات أو `cmux cloud tunnel on` في الطرفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo vi možete uključiti Cloud Tunnel: koristite Postavke ili `cmux cloud tunnel on` u terminalu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun du kan slå Cloud Tunnel til: brug Indstillinger eller `cmux cloud tunnel on` i en terminal."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur du kannst den Cloud Tunnel einschalten: Verwende die Einstellungen oder `cmux cloud tunnel on` in einem Terminal."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only you can turn on the Cloud Tunnel: use Settings or `cmux cloud tunnel on` in a terminal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo tú puedes activar Cloud Tunnel: usa Ajustes o `cmux cloud tunnel on` en una terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vous seul pouvez activer Cloud Tunnel : utilisez les Réglages ou `cmux cloud tunnel on` dans un terminal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo tu puoi attivare Cloud Tunnel: usa Impostazioni o `cmux cloud tunnel on` in un terminale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Tunnel をオンにできるのはあなただけです。設定か、ターミナルで `cmux cloud tunnel on` を使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានតែអ្នកទេដែលអាចបើក Cloud Tunnel៖ ប្រើការកំណត់ ឬ `cmux cloud tunnel on` ក្នុងទែមីណាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel은 사용자만 켤 수 있습니다. 설정이나 터미널에서 `cmux cloud tunnel on`을 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare du kan slå på Cloud Tunnel: bruk Innstillinger eller `cmux cloud tunnel on` i en terminal."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko Ty możesz włączyć Cloud Tunnel: użyj Ustawień lub `cmux cloud tunnel on` w terminalu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só você pode ativar o Cloud Tunnel: use os Ajustes ou `cmux cloud tunnel on` em um terminal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Включить Cloud Tunnel можете только вы: используйте Настройки или `cmux cloud tunnel on` в терминале."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มีเพียงคุณที่เปิด Cloud Tunnel ได้: ใช้การตั้งค่า หรือ `cmux cloud tunnel on` ในเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel'ı yalnızca siz açabilirsiniz: Ayarlar'ı veya bir terminalde `cmux cloud tunnel on` komutunu kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увімкнути Cloud Tunnel можете лише ви: скористайтеся Параметрами або `cmux cloud tunnel on` у терміналі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ bạn mới bật được Cloud Tunnel: dùng Cài đặt hoặc `cmux cloud tunnel on` trong terminal."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有你可以打开 Cloud Tunnel：请使用设置，或在终端中运行 `cmux cloud tunnel on`。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有你可以開啟 Cloud Tunnel：請使用設定，或在終端機中執行 `cmux cloud tunnel on`。"
+          }
+        }
+      }
+    },
     "cloudTunnel.error.notInstalled": {
       "extractionState": "manual",
       "localizations": {
