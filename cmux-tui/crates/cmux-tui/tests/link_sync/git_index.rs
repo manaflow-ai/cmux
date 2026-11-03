@@ -51,7 +51,7 @@ fn padded_index_pull(padding: u32) {
     // Measure only the real CLI pull, not fixture creation. GNU time reports the
     // CLI's peak RSS (excluding the in-process fs service and fixture verifier).
     let rss = socket.with_extension("rss");
-    let mut command = if cfg!(target_os = "linux") {
+    let mut command = if cfg!(target_os = "linux") && Path::new("/usr/bin/time").is_file() {
         let mut command = Command::new("/usr/bin/time");
         command.args(["-f", "%M", "-o"]).arg(&rss);
         command.arg(env!("CARGO_BIN_EXE_cmux-tui"));
