@@ -133,11 +133,12 @@ find_claude() {
 find_codex() {
   command -v codex 2>/dev/null && return 0
   [ -x "$acpmux" ] || return 1
-  st="$("$acpmux" harness codex-runtime status 2>/dev/null | tr -d ' \t\r\n')" || return 1
-  case "$st" in
-    *'"ready":true'*) printf '%s' "$st" | sed -n 's/.*"path":"\([^"]*\)".*/\1/p' ;;
-    *) return 1 ;;
-  esac
+  # Line breaks go, spaces stay: the runtime's path may hold them ("Application Support").
+  st="$("$acpmux" harness codex-runtime status 2>/dev/null | tr -d '\r\n')" || return 1
+  printf '%s' "$st" | grep -q '"ready"[[:space:]]*:[[:space:]]*true' || return 1
+  p="$(printf '%s' "$st" | sed -n 's/.*"path"[[:space:]]*:[[:space:]]*"\([^"\\]*\)".*/\1/p')"
+  [ -n "$p" ] && [ -x "$p" ] || return 1
+  printf '%s\n' "$p"
 }
 # Whether a harness is signed in, by its own status command; nothing it says is shown.
 signed_in() {

@@ -225,6 +225,22 @@ pub(super) fn parse(args: &[String]) -> Option<Result<Command, UsageError>> {
     Some(parse_verb(verb, rest))
 }
 
+/// Switches `machine add` and `machine vault` own that take no value, so a `--json` after one is
+/// the global output mode, not its value (`machine add HOST --bootstrap --json`). Scoped to these
+/// verbs: `cloud new-machine --bootstrap NAME` takes a value, so they are not in the global
+/// `BOOLEAN_FLAGS`.
+#[cfg(unix)]
+pub(super) fn own_switch(command: &[String], flag: &str) -> bool {
+    let ours = matches!(
+        command.get(..2),
+        Some([scope, verb]) if scope == "machine" && matches!(verb.as_str(), "add" | "vault")
+    );
+    ours && matches!(
+        flag,
+        "--vault" | "--bootstrap" | "--yes" | "--wait" | "--no-wait" | "--cloud-token-stdin"
+    )
+}
+
 /// `machine add HOST` and `machine add --destination HOST` are the app's ssh card.
 fn names_a_host(rest: &[String]) -> bool {
     let mut words = rest.iter();
@@ -285,7 +301,10 @@ fn parse_verb(verb: &str, rest: &[String]) -> Result<Command, UsageError> {
             ("add", "no-wait") => wait = Some(false),
             ("add", "vault") => add.vault = true,
             ("add", "bootstrap") => add.bootstrap = true,
-            ("add", "usb") => add.usb = value.filter(|v| !v.is_empty()).map(PathBuf::from),
+            ("add", "usb" | "destination") if value.as_deref().is_none_or(str::is_empty) => {
+                return Err(UsageError::new(format!("--{flag} needs a value")));
+            }
+            ("add", "usb") => add.usb = value.map(PathBuf::from),
             ("add", "destination") => positional.push(value.unwrap_or_default()),
             ("revoke" | "add", "yes") => yes = true,
             (_, "platform") => auth.platform = value,

@@ -348,3 +348,39 @@ fn add_flags_parse_together_and_refuse_what_does_not_fit() {
         assert!(parsed(&bad).is_some_and(|r| r.is_err()), "{bad:?}");
     }
 }
+
+#[test]
+fn an_empty_usb_or_destination_is_refused_before_anything_runs() {
+    for bad in [
+        vec!["machine", "add", "--usb", ""],
+        vec!["machine", "add", "--usb="],
+        vec!["machine", "add", "--vault", "--usb="],
+        vec!["machine", "add", "--vault", "--destination="],
+    ] {
+        let error = parsed(&bad).expect("ours").unwrap_err();
+        assert!(error.0.ends_with("needs a value"), "{bad:?}: {}", error.0);
+    }
+    // Refused at parse: `run_if_requested` fails before reading a credential, so nothing is
+    // minted and no line is printed.
+}
+
+#[test]
+fn machine_adds_switches_leave_json_to_the_global_output_mode() {
+    let words = |w: &[&str]| w.iter().map(|s| (*s).to_owned()).collect::<Vec<String>>();
+    for args in [
+        vec!["machine", "add", "leo@mini-9", "--bootstrap", "--json"],
+        vec!["machine", "add", "--vault", "--json", "--yes"],
+        vec!["machine", "add", "--vault", "--yes", "--json"],
+        vec!["machine", "add", "--wait", "--json"],
+        vec!["machine", "vault", "ls", "--cloud-token-stdin", "--json"],
+    ] {
+        let (global, rest) = crate::cli::parse_globals(&words(&args)).ok().expect("parses");
+        assert_eq!(global.output, OutputMode::Json, "{args:?}");
+        assert!(!rest.contains(&"--json".to_owned()), "{args:?}: {rest:?}");
+        assert!(parsed(&rest.iter().map(String::as_str).collect::<Vec<_>>()).is_some_and(|r| r.is_ok()), "{rest:?}");
+    }
+    // Elsewhere `--bootstrap` keeps its value (`cloud new-machine --bootstrap NAME`).
+    let (_, rest) =
+        crate::cli::parse_globals(&words(&["cloud", "new-machine", "--bootstrap", "--json"])).ok().unwrap();
+    assert_eq!(rest, words(&["cloud", "new-machine", "--bootstrap", "--json"]));
+}

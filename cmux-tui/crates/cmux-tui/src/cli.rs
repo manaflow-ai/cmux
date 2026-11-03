@@ -1005,6 +1005,7 @@ fn scan_globals(
             _ => {
                 command.push(value.clone());
                 if option_takes_value(value)
+                    && !machine_join::own_switch(&command, value)
                     && let Some(next) = args.get(index + 1)
                 {
                     command.push(next.clone());

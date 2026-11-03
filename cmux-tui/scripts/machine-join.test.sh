@@ -161,7 +161,7 @@ case "\$*" in
   "harness codex-runtime install") [ "\${JT_CODEX_RT:-0}" = 1 ] || exit 2; : >"\$HOME/codex-ready" ;;
   "harness codex-runtime status")
     if [ -f "\$HOME/codex-ready" ]; then
-      printf '{"path": "%s", "ready": true}\n' "\$JT_SERVE/codex"
+      printf '{\n  "path": "%s",\n  "ready": true\n}\n' "\$JT_SERVE/codex dir/codex"
     else
       printf '{"path": "/nowhere", "ready": false}\n'
     fi ;;
@@ -246,6 +246,9 @@ case "\$*" in
 esac
 EOS
   chmod 755 "$1/codex"
+  # The managed runtime's path has a space in it, as ~/Library/Application Support does.
+  mkdir -p "$1/codex dir"
+  cp "$1/codex" "$1/codex dir/codex"
   c="$(sha "$1/cmux")"
   printf '{"commit": "a6d89d443f5f9ffb66c296d7a9680e307bbe6c58", "cmux-tui-x86_64-unknown-linux-gnu": "%s", "cmux-tui-aarch64-apple-darwin": "%s"}\n' "$c" "$c" >"$1/manifest.json"
 }
@@ -625,6 +628,7 @@ suite() {
   check "signed in: exit 0 (got $rc)" rc_is 0
   check "signed in: claude" out_has "Claude Code is signed in"
   check "signed in: codex" out_has "Codex is signed in"
+  check "signed in: the runtime path with a space was used" grep -q "^codex login status" "$d/log/argv"
   check "signed in: no sign-in line" eval '! out_has "sign in to"'
   check "signed in: nothing of claude's status is shown" eval '! out_has "x@example.com"'
 
