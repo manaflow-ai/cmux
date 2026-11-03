@@ -560,13 +560,14 @@ def watch_layout(run, out, stop_at):
         time.sleep(0.033)  # test script: no page shows the chat yet (a few asks a frame would load the main actor)
 
 
-def frame_pictures(folder, frames, record, width=640):
+def frame_pictures(folder, frames, record, width=640, names=None):
     """The frame before the click, the first-content frame, the final frame and the last frame of a strip, each as
     a PNG at most `width` px wide in base64 (sips; macOS), keyed by name: pixel evidence of what the click drew, in
     the one file a fleet step returns. A frame that could not be read is left out."""
     import base64
-    rows = [f for f in frames or [] if isinstance(f.get("ms"), (int, float)) and f.get("file")]
-    picks = {"before": next((f for f in reversed(rows) if f["ms"] <= 0), None),
+    rows = [f for f in frames or [] if f.get("file")]
+    picks = {name: next((f for f in rows if f["ms"] == ms), None) for name, ms in names.items()} if names else {
+             "before": next((f for f in reversed(rows) if isinstance(f["ms"], (int, float)) and f["ms"] <= 0), None),
              "first_content": next((f for f in rows if f["ms"] == record.get("first_content_ms")), None),
              "final": next((f for f in rows if f["ms"] == record.get("final_frame_ms")), None),
              "last": rows[-1] if rows else None}
@@ -604,6 +605,11 @@ def frame_click(run, key, label, keep=False):
     record = cof.final_frame(strip.get("frames"), settle_frames=opts.settle_frames, tolerance=opts.strip_tolerance)
     if keep:
         record["pictures"] = frame_pictures(folder, strip.get("frames"), record)
+        # The same moment through the screen (screencapture, this script's own capture), to check the app's frames
+        # show the chat's page pixels: a capture without them shows the pane empty.
+        screen = os.path.join(folder, "screen.png")
+        if subprocess.run(["screencapture", "-x", "-t", "png", screen], capture_output=True, timeout=30).returncode == 0:
+            record["pictures"].update(frame_pictures(folder, [{"ms": "screen", "file": "screen.png"}], {}, names={"screen": "screen"}))
     shutil.rmtree(folder, ignore_errors=True)  # the PNGs: the numbers per frame, and the kept pictures, are the evidence
     record.update({"click": strip.get("key"), "frame_count": strip.get("frame_count"),
                    "mean_interval_ms": strip.get("mean_interval_ms"), "strip_settled_ms": strip.get("settled_ms"),
@@ -612,8 +618,8 @@ def frame_click(run, key, label, keep=False):
                                round(f.get("flatness") or 0, 4), bool(f.get("blank"))] for f in strip.get("frames") or []],
                    "frames_columns": ["ms", "content_vs_before", "content_vs_final", "flatness", "blank"],
                    "layout_watch": out.get("watch"), "drift": cof.row_drift(out.get("watch")),
-                   "transcript_ms": cof.transcript_ms(out.get("watch"), (out["watch_asked"] - clicked) * 1000 if out.get("watch_asked") else None,
-                                                      opts.strip_ms)})
+                   "watch_started_ms": round((out["watch_asked"] - clicked) * 1000) if out.get("watch_asked") else None})
+    record["transcript_ms"] = cof.transcript_ms(out.get("watch"), record["watch_started_ms"], opts.strip_ms)
     if not out.get("watch"):
         record["layout_watch_error"] = out.get("watch_error")
         record["layout_watch_errors"] = out.get("watch_errors")
