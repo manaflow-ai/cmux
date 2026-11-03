@@ -124,7 +124,7 @@ fn json_step(error: &serde_json::Error) -> String {
             && field.len() <= 64
             && field.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
         {
-            return format!("json {}{field}", &kind[..kind.len() - 1]);
+            return format!("json {}{field}", kind.trim_end_matches('`'));
         }
     }
     format!("json {:?}", error.classify()).to_lowercase()
@@ -177,6 +177,20 @@ mod tests {
                 "{message}"
             );
         }
+    }
+
+    #[test]
+    fn json_step_names_the_missing_or_unknown_field() {
+        #[derive(Debug, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Probe {
+            #[allow(dead_code)]
+            version: u32,
+        }
+        let missing = serde_json::from_str::<Probe>("{}").unwrap_err();
+        assert_eq!(json_step(&missing), "json missing field version");
+        let unknown = serde_json::from_str::<Probe>(r#"{"version":1,"origin":2}"#).unwrap_err();
+        assert_eq!(json_step(&unknown), "json unknown field origin");
     }
 
     #[test]
