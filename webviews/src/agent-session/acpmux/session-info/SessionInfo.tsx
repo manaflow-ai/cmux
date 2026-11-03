@@ -48,6 +48,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
+import "../../../ui/controls.css";
 import { chatGlass, chatUnderGlass } from "../chatUnderGlass";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
@@ -294,11 +295,8 @@ export const sessionInfoPushes = (
 /// moves right as the chat widens.
 const columnEnd = (chatWidth: number, column?: ChatColumn) => chatWidth - transcriptColumn(chatWidth, column).inset;
 
-/// A room of a multiple of 8 pixels: the column's inset is on the 4 grid (model.ts transcriptColumn,
-/// design/grid.md 5.5), so the column centered in the chat beside it then starts on it and keeps the
-/// width it has in the whole pane (pushKeepsColumn), never a pixel less.
-const even = (room: number) => Math.ceil(room / 8) * 8;
-
+/// A room stepped in 8px increments while the column needs only part of the panel: the column's inset is
+/// on the 4 grid (model.ts transcriptColumn, design/grid.md 5.5), so the centered column keeps its width.
 /// The room a pushed panel `panel` wide (pushedWidth) takes from the chat's right end: by default only
 /// what the gutter lacks, so the chat narrows gradually from the pane width where the gutter stops
 /// holding the panel (0 there) to the panel and its margin (Leo, 2026-11-03: "gradually pushing into the
@@ -307,10 +305,12 @@ const even = (room: number) => Math.ceil(room / 8) * 8;
 export const pushedRoom = (paneWidth: number, panel: number, column?: ChatColumn, overflow = 0, full = false) => {
   const all = panel + FLOAT_MARGIN;
   if (paneWidth <= 0) return all;
-  if (full) return even(all);
+  // Panel widths are user-controlled and may be any pixel value. Keep the panel's own 8px inset exact
+  // instead of rounding the whole room up: an odd drag width must not leave a gap (#33865).
+  if (full) return all;
   const end = paneWidth - panel - 2 * FLOAT_MARGIN - Math.max(0, overflow);
   if (columnEnd(paneWidth, column) <= end) return 0;
-  if (paneWidth - all <= 0 || columnEnd(paneWidth - all, column) > end) return even(all);
+  if (paneWidth - all <= 0 || columnEnd(paneWidth - all, column) > end) return all;
   // The least room, in steps of 8 (the column's inset is on the 4 grid, so each step moves the column's
   // end in by about 4), whose column still ends by `end`. Rounding a pixel search up to 8 instead could
   // land 1-3 px past it: columnEnd does not grow steadily with the chat's width. At most about 70 steps,
@@ -319,7 +319,7 @@ export const pushedRoom = (paneWidth: number, panel: number, column?: ChatColumn
   while (room < all && columnEnd(paneWidth - room, column) > end) room += 8;
   // Once the chat would end under the panel itself (its page edge under the card), the whole room: the
   // chat's right edge, its scrollbar with it, is then the panel's left margin, as Push always draws it.
-  return room >= panel ? even(all) : room;
+  return room >= panel ? all : room;
 };
 /// The chat's content Session Info must never float over: the transcript's rows and the composer.
 const CHAT_CONTENT = ".acpmux-main :is(.acpmux-row, .acpmux-composer-box)";
