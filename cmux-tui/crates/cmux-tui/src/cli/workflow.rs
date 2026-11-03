@@ -33,7 +33,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Ok(invocation) => {
             let mut arguments = serde_json::Map::new();
             match invocation {
-                Invocation::Start { name, source, args, session_id } => {
+                Invocation::Start { name, source, args, session_id, .. } => {
                     arguments.insert("action".into(), json!("start"));
                     arguments.insert("name".into(), json!(name));
                     arguments.insert("source".into(), json!(source));
@@ -70,7 +70,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Invocation {
-    Start { name: String, source: String, args: Value, session_id: Option<String> },
+    Start { name: String, source: String, args: Value, session_id: Option<String>, cwd: PathBuf },
     Status { run_id: Option<String> },
     Pause { run_id: String },
     Resume { run_id: String },
@@ -132,6 +132,7 @@ fn parse_start(words: &[String], cwd: &Path) -> Result<Invocation, String> {
         source,
         args,
         session_id,
+        cwd: cwd.to_path_buf(),
     })
 }
 
@@ -207,11 +208,20 @@ fn nonempty(value: &str, name: &str) -> Result<String, String> {
 /// drift in field spelling.  The hidden runner is handled by `mcp::workflow_run`.
 pub(crate) fn request(invocation: &Invocation) -> Value {
     match invocation {
-        Invocation::Start { name, source, args, session_id } => json!({
-            "action": "start", "name": name, "source": source, "args": args,
-            "sessionId": session_id,
-        }),
-        Invocation::Status { run_id } => json!({"action": "status", "runId": run_id}),
+        Invocation::Start { name, source, args, session_id, cwd } => {
+            let mut request = json!({"action": "start", "name": name, "source": source, "args": args, "cwd": cwd});
+            if let Some(session_id) = session_id {
+                request["sessionId"] = Value::String(session_id.clone());
+            }
+            request
+        }
+        Invocation::Status { run_id } => {
+            let mut request = json!({"action": "status"});
+            if let Some(run_id) = run_id {
+                request["runId"] = Value::String(run_id.clone());
+            }
+            request
+        }
         Invocation::Pause { run_id } => json!({"action": "pause", "runId": run_id}),
         Invocation::Resume { run_id } => json!({"action": "resume", "runId": run_id}),
         Invocation::Run { run_id, generation } => {
