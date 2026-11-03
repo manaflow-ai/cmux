@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4156852011001",
+  "notes": "notes/4156852011001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32751,
+      "title": "Session Info: gutter, then a gradual push, then an overlay above the composer, by the pane's width",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32722,
+      "title": "workspace list: list Cloud machines' workspaces, marked with their machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28068,
+      "title": "fix(cmux-next): keep late agent chat workspace creation together",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32871,
+      "title": "cmux NEXT: a lone chat's link opens only in the pane on the right, never first in the main pane",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32733,
+      "title": "Agent pane: the managed-chat line says what it means, and shows only while the manager drives",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32657,
+      "title": "Agent chat: bare file names next to a linked file are file chips",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32870,
+      "title": "ci: guard the send path against new size or count caps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32883,
+      "title": "Transcript: the Sending message line draws no chevron",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32863,
+      "title": "fix(diff): clear pinned + after closing a comment",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32798,
+      "title": "Transcript: a background update with nothing to open has no chevron, and draws no line once it ends",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32850,
+      "title": "Session Info: the machine, Context, what it runs, then Sources by default",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32783,
+      "title": "base red: the queued-row test asks the DOM whether the model picker covers an action",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
