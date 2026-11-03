@@ -9,17 +9,22 @@
 # Run alone on a worker (it launches an app):
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-10x-idle.sh --ref SHA [--arg=counts=1,10,50] [--arg=measure=60] \
-#     [--arg=agents=2,6,21] [--arg=agents_settle=370]
+#     [--arg=agents=2,6,21] [--arg=agents_settle=370] [--arg=agents_hibernation=off|on]
 # agents: workspace counts including the launch workspace (2,6,21 opens 1,5,20
 # chats). Also measure idle agent chats (one workspace each, on the
 # acpmux test agent cmux-tui/crates/acpmux/tests/fake_agent.py, its first turn
 # answered), as PERF-IDLE app-agents lines (resource-efficiency-DESIGN.md).
+# agents_hibernation: default keeps the app's defaults; off/on writes only
+# agents.chatPages.enabled in its scratch config. Run both at the same ref and
+# idle age for a matched comparison. Their artifacts are agents-off.json and
+# agents-on.json; the default keeps the existing agents.json name.
 # Output: PERF-IDLE lines; JSON under .build/perf-idle.
 set -euo pipefail
 counts="1,10,50"
 measure=60
 agents=""
 agents_settle=20
+agents_hibernation=default
 reload_config=()
 for arg in "$@"; do
   case "$arg" in
@@ -28,10 +33,19 @@ for arg in "$@"; do
     measure=*) measure="${arg#measure=}" ;;
     agents=*) agents="${arg#agents=}" ;;
     agents_settle=*) agents_settle="${arg#agents_settle=}" ;;
+    agents_hibernation=*) agents_hibernation="${arg#agents_hibernation=}" ;;
     *) echo "perf-10x-idle.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
 [[ "$agents_settle" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "perf-10x-idle.sh: agents_settle must be nonnegative seconds" >&2; exit 2; }
+agents_config='{}'
+agents_name=agents
+case "$agents_hibernation" in
+  default) ;;
+  off) agents_config='{"agents":{"chatPages":{"enabled":false}}}'; agents_name=agents-off ;;
+  on) agents_config='{"agents":{"chatPages":{"enabled":true}}}'; agents_name=agents-on ;;
+  *) echo "perf-10x-idle.sh: agents_hibernation must be default, off or on" >&2; exit 2 ;;
+esac
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 work="$root/.build/perf-idle"
@@ -95,13 +109,16 @@ for s in data.get("samples", []):
               f"wakeups_per_s={e.get('wakeups_per_s')} rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']}")
 PY
 if [[ -n "$agents" ]]; then
+  echo "PERF-IDLE-CONFIG agents hibernation=$agents_hibernation config=$agents_config artifact=$agents_name.json"
   echo "PERF-IDLE-LOAD agents $(uptime | sed 's/.*load averages*: //')"
   python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
     --fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py \
-    --settle "$agents_settle" --measure "$measure" --top 8 --out "$work/agents.json" > "$work/agents.log" 2>&1 || { status=$?; tail -n 60 "$work/agents.log"; }
-  python3 - "$work/agents.json" <<'PY' || status=$?
+    --config "$agents_config" --run-label "chat-pages-$agents_hibernation" \
+    --settle "$agents_settle" --measure "$measure" --top 8 --out "$work/$agents_name.json" > "$work/$agents_name.log" 2>&1 || { status=$?; tail -n 60 "$work/$agents_name.log"; }
+  python3 - "$work/$agents_name.json" <<'PY' || status=$?
 import json, sys
 data = json.load(open(sys.argv[1]))
+print(f"PERF-IDLE-CONFIG artifact={sys.argv[1]} run_label={data.get('run_label')} config={json.dumps(data.get('config'), sort_keys=True)}")
 for s in data.get("samples", []):
     chats = s.get("chats", {})
     print(f"PERF-IDLE-CHATS {s['label']} workspaces={s['workspaces']} chats={chats.get('count')} "

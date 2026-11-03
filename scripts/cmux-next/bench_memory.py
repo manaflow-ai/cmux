@@ -539,6 +539,17 @@ def merged(base: dict, extra: dict) -> dict:
     return out
 
 
+def config_object(text: str) -> dict:
+    """The launch override is an object, rather than a silently ignored JSON value."""
+    try:
+        value = json.loads(text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"invalid config JSON: {error}") from error
+    if not isinstance(value, dict):
+        raise argparse.ArgumentTypeError("config JSON must be an object")
+    return value
+
+
 def tail(path: str, lines: int = 20) -> str:
     """The last `lines` of the app's own output, for a launch that failed (empty when none)."""
     try:
@@ -722,8 +733,9 @@ def main():
     parser.add_argument("--cef-switches", default="",
                         help="launch, DEBUG builds: extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES)")
     parser.add_argument("--top", type=int, default=15)
-    parser.add_argument("--config", default="{}",
+    parser.add_argument("--config", type=config_object, default="{}",
                         help='launch: cmux.json settings as JSON, e.g. \'{"browser": {"hibernation": 1}}\'')
+    parser.add_argument("--run-label", default="", help="comparison variant recorded in the JSON artifact")
     parser.add_argument("--fake-agent", metavar="SCRIPT",
                         help="an ACP agent script (cmux-tui/crates/acpmux/tests/fake_agent.py) the chats use: "
                              "its turns end, as a chat's do after its reply")
@@ -739,10 +751,12 @@ def main():
     if args.socket:
         if not args.app_pid:
             raise SystemExit("bench-memory: --socket needs --app-pid")
+        if args.config:
+            raise SystemExit("bench-memory: --config only applies when launching an app, not attaching")
         socket_path, app_pid = args.socket, args.app_pid
     else:
         extra = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": args.cef_switches} if args.cef_switches else {}
-        launched, socket_path, scratch = launch(bundle, json.loads(args.config), extra)
+        launched, socket_path, scratch = launch(bundle, args.config, extra)
         app_pid = launched
     app = App(bundle, socket_path)
     _observed_webkit.pop(app_pid, None)
@@ -750,6 +764,7 @@ def main():
     recipes = args.mix.split(",")
     counts = sorted(int(n) for n in args.workspaces.split(",") if n)
     report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [], "cef_switches": args.cef_switches,
+              "run_label": args.run_label, "config": args.config if launched is not None else None,
               "webkit_attributed": _responsible is not None,
               "webkit_attribution": "responsibility plus live-page PID and birth date"}
     opened = []

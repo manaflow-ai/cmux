@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Portable checks for rendered-chat evidence and WebKit PID attribution."""
 import importlib.util
+import argparse
+import json
 from pathlib import Path
+import subprocess
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -64,6 +67,46 @@ class ChatMeasurements(unittest.TestCase):
     def test_unrendered_chat_fails_instead_of_silently_lowering_counts(self):
         with self.assertRaisesRegex(RuntimeError, "never observed rendering"):
             self.chats.observation(["ws_chat"], {"processes": [], "kinds": {}})
+
+
+class MatchedConfiguration(unittest.TestCase):
+    def test_boolean_launch_overrides_are_kept_exactly(self):
+        for enabled in [False, True]:
+            config = {"agents": {"chatPages": {"enabled": enabled}}}
+            self.assertEqual(bm.config_object(json.dumps(config)), config)
+
+    def test_bad_launch_config_is_rejected(self):
+        for text in ["[]", "null", "true", '"text"', "not JSON"]:
+            with self.subTest(text=text), self.assertRaises(argparse.ArgumentTypeError):
+                bm.config_object(text)
+
+    def preflight(self, *args):
+        # Run the wrapper's real argument parser, stopping before its first
+        # filesystem/build command so this check is portable and cheap.
+        script = Path(__file__).resolve().parents[2] / "measure" / "perf-10x-idle.sh"
+        source = script.read_text().split('root="$(git rev-parse --show-toplevel)"', 1)[0]
+        self.assertNotIn("scripts/reload.sh --tag", source)
+        return subprocess.run(["bash", "-c", source + '\nprintf "%s\\n" "$agents_settle" "$agents_config" "$agents_name"',
+                               "preflight", *args], capture_output=True, text=True)
+
+    def test_variants_have_the_same_idle_age_and_distinct_artifacts(self):
+        for variant, enabled in [("off", False), ("on", True)]:
+            result = self.preflight("agents_settle=370", f"agents_hibernation={variant}")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            settle, config, name = result.stdout.splitlines()
+            self.assertEqual(settle, "370")
+            self.assertEqual(json.loads(config), {"agents": {"chatPages": {"enabled": enabled}}})
+            self.assertEqual(name, f"agents-{variant}")
+
+    def test_existing_default_artifact_and_idle_age_are_preserved(self):
+        result = self.preflight()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ["20", "{}", "agents"])
+
+    def test_invalid_variant_fails_before_build_or_filesystem_changes(self):
+        result = self.preflight("agents_hibernation=maybe")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("agents_hibernation must be default, off or on", result.stderr)
 
 
 if __name__ == "__main__":
