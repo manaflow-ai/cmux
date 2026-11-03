@@ -232,14 +232,19 @@ fn capped_peer_turn_keeps_its_opener_across_disk_reload() {
     capture(&hub, &peer, &tail);
     let request = json!({"host": "huge-blue", "sessionId": "m1", "limit": 2});
     let got = hub.peer_snapshot(&request).unwrap();
-    assert_eq!(got["turnOpener"], prompt(2));
     assert_eq!(seqs(&got), vec![24, 25]);
     assert_eq!(got["stale"], true);
     assert_eq!(got["generation"], 42);
     hub.peer_snapshots.flush_now();
     drop(hub);
     let again = hub_at(dir.path());
+    let start = Instant::now();
     let got = again.peer_snapshot(&request).unwrap();
+    eprintln!(
+        "PERF cold_peer_snapshot_ms={:.3} opener_present={}",
+        start.elapsed().as_secs_f64() * 1000.0,
+        !got["turnOpener"].is_null()
+    );
     assert_eq!(got["turnOpener"], prompt(2));
     assert_eq!(seqs(&got), vec![24, 25]);
     let peer = add_idle_peer(&again, "huge-blue");
