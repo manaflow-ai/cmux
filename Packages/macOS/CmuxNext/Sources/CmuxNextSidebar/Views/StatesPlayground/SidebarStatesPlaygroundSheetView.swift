@@ -2,14 +2,19 @@ import AppKit
 import CmuxNextDesign
 
 /// DEV and NIGHTLY (Debug menu > Sidebar States Playground): one appearance's sheet. A title and the legend, then a
-/// grid: one column per density and text size (``SidebarStatesPlaygroundColumn/all``), one row per state
-/// (``SidebarStatesPlaygroundState``), each cell the real row (``SidebarStatesPlaygroundCellView``).
+/// grid: one column per density and text size (``SidebarStatesPlaygroundColumn/all``) or per favicon style
+/// (``SidebarStatesPlaygroundColumn/faviconStyles``), one row per state of ``states``, each cell the real row
+/// (``SidebarStatesPlaygroundCellView``).
 ///
 /// ``labelFrame`` and ``densityFrames`` name the sheet's parts, so a capture can cut one density's columns out with
 /// the state names beside them.
 final class SidebarStatesPlaygroundSheetView: NSView {
     let appearanceKind: SidebarStatesPlaygroundAppearance
     let columns: [SidebarStatesPlaygroundColumn]
+    /// The rows, in order: every state, or the favicon rows on the favicon styles sheet.
+    let states: [SidebarStatesPlaygroundState]
+    /// The sheet's title: the appearance's, or its favicon styles title.
+    let title: String
     /// The cells, by column, then state.
     let cells: [SidebarStatesPlaygroundColumn: [SidebarStatesPlaygroundState: SidebarStatesPlaygroundCell]]
     /// The state names' column, from the column captions to the last row.
@@ -25,9 +30,12 @@ final class SidebarStatesPlaygroundSheetView: NSView {
     private static var rowGap: CGFloat { Metrics.space3 }
 
     init(appearance: SidebarStatesPlaygroundAppearance, columns: [SidebarStatesPlaygroundColumn],
-         cells: [SidebarStatesPlaygroundColumn: [SidebarStatesPlaygroundState: SidebarStatesPlaygroundCell]]) {
+         cells: [SidebarStatesPlaygroundColumn: [SidebarStatesPlaygroundState: SidebarStatesPlaygroundCell]],
+         states: [SidebarStatesPlaygroundState] = SidebarStatesPlaygroundState.allCases, title: String? = nil) {
         appearanceKind = appearance
         self.columns = columns
+        self.states = states
+        self.title = title ?? appearance.title
         self.cells = cells
         super.init(frame: .zero)
         self.appearance = appearance.appearance
@@ -62,7 +70,7 @@ final class SidebarStatesPlaygroundSheetView: NSView {
         let columnWidth = cells.values.flatMap(\.values).map(\.size.width).max() ?? 260
         let gridWidth = Self.labelWidth + CGFloat(columns.count) * (columnWidth + Self.columnGap)
         var y = margin
-        let title = label(appearanceKind.title, font: Typography.title, color: .labelColor, at: NSPoint(x: margin, y: y), width: gridWidth)
+        let title = label(self.title, font: Typography.title, color: .labelColor, at: NSPoint(x: margin, y: y), width: gridWidth)
         y = title.frame.maxY + Metrics.space2
         let legend = label(Strings.statesPlaygroundLegend, font: Typography.caption, color: .secondaryLabelColor,
                            at: NSPoint(x: margin, y: y), width: min(gridWidth, 900))
@@ -75,7 +83,7 @@ final class SidebarStatesPlaygroundSheetView: NSView {
             captionBottom = max(captionBottom, caption.frame.maxY)
         }
         y = captionBottom + Metrics.space3
-        for state in SidebarStatesPlaygroundState.allCases {
+        for state in states {
             var rowHeight: CGFloat = 0
             for (index, column) in columns.enumerated() {
                 guard let cell = cells[column]?[state] else { continue }
