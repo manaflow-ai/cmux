@@ -35,7 +35,7 @@ mod tests;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use zeroize::Zeroizing;
 
@@ -183,19 +183,49 @@ pub fn env_for_children() -> Vec<(String, String)> {
     if !ACTIVE.load(Ordering::SeqCst) {
         return Vec::new();
     }
-    refresh(&store::OsStore);
-    let held = pull::held(&crate::config::home());
-    delivered(pull::current_credential(), held)
+    deliver_at(&crate::config::home(), &store::OsStore, pull::current_credential(), Instant::now())
+}
+
+/// What a spawn gets, checked against a withdrawal racing the load: nothing
+/// while a removal is held, and nothing when the state file changed or a
+/// hold was placed while the values were read (a pull or `forget` that ran
+/// during `load_values` may have saved a state without them). The next
+/// spawn reloads.
+fn deliver_at(
+    home: &std::path::Path,
+    store: &dyn SecretStore,
+    current: Option<(String, bool)>,
+    at: Instant,
+) -> Vec<(String, String)> {
+    if pull::held(home) {
+        return Vec::new();
+    }
+    let path = pull::state_path(home);
+    refresh_at(&path, store, at);
+    let (seen, values) = {
+        let loaded = LOADED.read().unwrap_or_else(|e| e.into_inner());
+        (loaded.seen.clone(), given(&loaded, current))
+    };
+    // Checked after the values were taken: a save or a hold since then (or
+    // during the load) means they may include a withdrawn entry.
+    if seen != Some(stamp_of(&path)) || pull::held(home) {
+        return Vec::new();
+    }
+    values
 }
 
 /// The loaded values agents get: none while a removal is held (`held`, the
 /// state not yet saved after one), else each entry whose authorizing answer
 /// came for the machine's credential now, while it is not revoked (`current`).
+#[cfg(test)]
 fn delivered(current: Option<(String, bool)>, held: bool) -> Vec<(String, String)> {
     if held {
         return Vec::new();
     }
-    let loaded = LOADED.read().unwrap_or_else(|e| e.into_inner());
+    given(&LOADED.read().unwrap_or_else(|e| e.into_inner()), current)
+}
+
+fn given(loaded: &Loaded, current: Option<(String, bool)>) -> Vec<(String, String)> {
     let Some(state) = loaded.state.as_ref() else { return Vec::new() };
     let names = state.delivered_names(current.as_ref().map(|(c, revoked)| (c.as_str(), *revoked)));
     loaded
@@ -243,7 +273,7 @@ pub async fn start_worker() {
                 tracing::warn!(code = %code, failures, "vault pull failed");
                 first_delay = backoff(failures);
             }
-            // Still running: the loop's first round finds it (`busy`) or retries.
+            // Timed out: the pull was dropped; the loop's first round runs it again now.
             None => tracing::warn!(code = "vault.initial_timeout", "vault pull failed"),
         }
     }

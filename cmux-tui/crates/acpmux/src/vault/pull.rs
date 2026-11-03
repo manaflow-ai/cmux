@@ -66,7 +66,7 @@ pub fn held(home: &Path) -> bool {
 }
 
 /// Put the hold down before a removal. An empty file: it needs no free blocks.
-fn hold(home: &Path) -> Result<(), &'static str> {
+pub(super) fn hold(home: &Path) -> Result<(), &'static str> {
     crate::config::private_state_dir(home).map_err(|_| "vault.state_write_failed")?;
     #[cfg(unix)]
     {

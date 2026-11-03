@@ -484,6 +484,7 @@ fn a_failed_write_fails_the_pull_and_keeps_the_rest() {
 #[test]
 #[cfg(unix)]
 fn an_incomplete_load_is_read_again_without_a_state_change() {
+    let _one = LOADED_TESTS.lock().unwrap_or_else(|e| e.into_inner());
     use std::sync::atomic::Ordering;
     let home = tempfile::tempdir().unwrap();
     let store = MemoryStore::default();
@@ -511,6 +512,75 @@ fn an_incomplete_load_is_read_again_without_a_state_change() {
         .unwrap();
     super::refresh_at(&path, &store, start + super::RETRY_INCOMPLETE);
     assert!(super::loaded_names().is_empty());
+}
+
+/// One test at a time touches the daemon's in-memory values.
+static LOADED_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// A store whose first read lets a withdrawal run before it returns the
+/// value it read: a `not_granted` pull racing the daemon's load.
+struct RacingStore<'a> {
+    inner: &'a MemoryStore,
+    home: &'a std::path::Path,
+    raced: std::sync::atomic::AtomicBool,
+}
+
+impl SecretStore for RacingStore<'_> {
+    fn kind(&self) -> &'static str {
+        "memory"
+    }
+    fn put(&self, name: &str, value: &str) -> Result<(), &'static str> {
+        self.inner.put(name, value)
+    }
+    fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, &'static str> {
+        let value = self.inner.get(name);
+        if !self.raced.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            pull::settle(
+                self.home,
+                "https://hub.test",
+                CRED,
+                Answer::NotGranted,
+                self.inner,
+                &live,
+                9,
+            )
+            .unwrap();
+        }
+        value
+    }
+    fn delete(&self, name: &str) -> Result<(), &'static str> {
+        self.inner.delete(name)
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn a_withdrawal_during_the_load_gives_the_next_spawn_nothing() {
+    let _one = LOADED_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+    let racing = RacingStore {
+        inner: &store,
+        home: home.path(),
+        raced: std::sync::atomic::AtomicBool::new(false),
+    };
+    let at = std::time::Instant::now();
+    assert!(super::deliver_at(home.path(), &racing, live(), at).is_empty());
+    assert!(racing.raced.load(std::sync::atomic::Ordering::SeqCst), "the race ran");
+    // The next spawn reloads the saved state, which lists nothing.
+    assert!(super::deliver_at(home.path(), &store, live(), at).is_empty());
+    assert!(super::loaded_names().is_empty());
+
+    // A grant again: the value is given.
+    let answer = Answer::Granted { env: vec![active("API_TOKEN", 2, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 10).unwrap();
+    let given = super::deliver_at(home.path(), &store, live(), at);
+    assert_eq!(given.len(), 1);
+    // A held removal gives nothing, before any reload.
+    pull::hold(home.path()).unwrap();
+    assert!(super::deliver_at(home.path(), &store, live(), at).is_empty());
 }
 
 #[test]
