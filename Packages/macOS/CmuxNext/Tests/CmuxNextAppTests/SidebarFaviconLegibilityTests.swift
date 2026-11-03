@@ -150,4 +150,29 @@ import Testing
         #expect(CGFloat(bitmap.width) >= wanted, "the favicon draws from \(bitmap.width) px for \(f.width) pt")
         #expect(f.width == f.height && f.width >= SidebarStyle.kindGlyphSize - 0.5, "the favicon is \(f.size), not the column's glyph size")
     }
+
+    /// A band item draws its favicon through the same favicon path as a workspace row: on the dark sidebar a dark mono
+    /// favicon turns into a template in the label colour, and a colourful one keeps its own colours.
+    @Test func aBandItemTreatsItsFaviconAsAWorkspaceRowDoes() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 220, height: 40), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 40))
+        window.contentView = root
+        try AAPinnedNoCloseGalleryTests.theme(root, window, dark: true)
+        for (image, tinted) in [(Self.monoMark(white: false), true), (Self.colourful(), false)] {
+            var info = SidebarItemInfo(title: "GitHub", symbol: "globe")
+            info.favicon = SidebarFavicon(image)
+            let row = SidebarItemRowView(frame: root.bounds)
+            root.addSubview(row)
+            defer { row.removeFromSuperview() }
+            row.configure(info, style: .list)
+            row.layoutSubtreeIfNeeded()
+            row.updateLayer()
+            let shown = try #require(row.icon.image, "the band item shows no favicon")
+            #expect(shown.isTemplate == tinted, "a \(tinted ? "dark mono" : "colourful") favicon is\(shown.isTemplate ? "" : " not") a template")
+            if tinted { #expect(row.icon.contentTintColor != nil, "the tinted favicon has no ink") }
+        }
+    }
 }
