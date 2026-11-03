@@ -1,0 +1,194 @@
+import AppKit
+@testable import CmuxNextApp
+@testable import CmuxNextDesign
+@testable import CmuxNextLayout
+import CmuxNextTestSupport
+import CmuxNextWakeups
+import QuartzCore
+import Testing
+
+/// FRAME OWNER REFACTOR S7 (window live resize). On macOS 26 and 27 AppKit resizes a window from each drag event the
+/// window gets (`-[NSWindow sendEvent:]` -> its resize gesture -> `setFrame(_:display:)`), and each `setFrame` lays the
+/// whole view tree out in that event's turn (`_layoutViewTree`; profile winresize-profile-b08cc6f, cmux22: 169 samples
+/// under `ShellWindow.setFrame`). In the x1 film of px-window-resize-4 (FEAT DOGFOOD BUILD 8e149f2e) every queued drag
+/// got its own window frame and layout pass, about 6 ms apart and back to back, so the window's frame ticks came
+/// 44-62 ms apart and 52-67 refreshes dropped per film. A live-resize drag is input, as a divider drag is (S2), and
+/// Chrome aligns input to the begin-frame: the window keeps only its newest drag, and its frame tick gives that one to
+/// AppKit, so N drags in one display frame cost one window frame, one layout and one commit, in the frame's own turn.
+///
+/// The test is the clock (`FrameScheduler.frameDidFire` is one display frame) and stands in for AppKit's resize: the
+/// right pane's content resizes the window from each drag it gets, as AppKit's gesture does, and
+/// `Motion.liveResizeOverride` stands for the window's live resize (AppKit's tracking needs a real pointer). Every
+/// test is synchronous, so the process-wide motion state cannot leak into another test.
+@MainActor
+@Suite(.serialized, .closesItsWindows)
+struct WindowLiveResizeFrameTickTests {
+    /// Resizes its window from each drag it gets, as AppKit's live-resize gesture does: the window's width follows the
+    /// pointer from where the press was. Records each drag's pointer and the release, in the order they came.
+    final class ResizeEdge: NSView {
+        enum Event: Equatable, CustomStringConvertible {
+            case drag(CGFloat), up
+
+            var description: String {
+                switch self {
+                case let .drag(x): "drag(\(x))"
+                case .up: "up"
+                }
+            }
+        }
+
+        private(set) var events: [Event] = []
+        private var start: (width: CGFloat, x: CGFloat)?
+
+        /// The test's window is never key: the press reaches this view all the same.
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func mouseDown(with event: NSEvent) {
+            guard let window else { return }
+            start = (window.frame.width, event.locationInWindow.x)
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            guard let window, let start else { return }
+            let x = event.locationInWindow.x
+            events.append(.drag(x))
+            var frame = window.frame
+            frame.size.width = start.width + x - start.x
+            window.setFrame(frame, display: true)
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            events.append(.up)
+            start = nil
+        }
+    }
+
+    /// Pane p2's content is the resize edge; the rest are plain layer-backed views.
+    final class Panes: LayoutPaneContentProvider {
+        let edge = ResizeEdge()
+
+        func makeContentView(for pane: CmuxNextLayout.PaneID) -> NSView {
+            if pane == "p2" { return edge }
+            let view = NSView()
+            view.wantsLayer = true
+            return view
+        }
+    }
+
+    /// A shell window (as the app makes it) whose content is a layout of two panes side by side.
+    final class Rig {
+        let provider = Panes()
+        let model: LayoutModel
+        let root: LayoutRootView
+        let window: ShellWindow
+
+        init() {
+            _ = NSApplication.shared
+            let layout = ScreenLayout.splits(.split("v", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))
+            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: "p1")
+            model.followsDesignMetrics = false
+            root = LayoutRootView(model: model, contentProvider: provider)
+            root.context.reduceMotionOverride = false
+            window = ShellWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 560), styleMask: [.titled, .resizable],
+                                 backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = root
+            if let visible = NSScreen.main?.visibleFrame { window.setFrameOrigin(NSPoint(x: visible.minX + 40, y: visible.minY + 40)) }
+            // Mouse events reach the views only in a window that was ordered in.
+            window.orderFrontRegardless()
+            root.layoutSubtreeIfNeeded()
+            // The layout's springs step only when the test says (nothing springs in a live resize).
+            root.driver.isManual = true
+        }
+
+        var edge: ResizeEdge { provider.edge }
+        var screen: ScreenContentView { root.screenViews["s"]! }
+
+        func close() { window.close() }
+
+        func event(_ type: NSEvent.EventType, _ point: CGPoint) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                               pressure: type == .leftMouseUp ? 0 : 1)!
+        }
+
+        /// The middle of the resize edge in window coordinates (well inside the window: AppKit's own resize area along
+        /// the window's edge never takes the press).
+        func pressPoint() throws -> CGPoint {
+            let point = edge.convert(CGPoint(x: edge.bounds.midX, y: edge.bounds.midY), to: nil)
+            let frameView = try #require(window.contentView?.superview)
+            try #require(frameView.hitTest(frameView.convert(point, from: nil)) === edge, "the press does not reach the resize edge")
+            return point
+        }
+
+        /// One display frame of the window's display link.
+        func frameTick() {
+            FrameScheduler.forWindow(window).frameDidFire(timestamp: CACurrentMediaTime(), refreshInterval: 1.0 / 120)
+        }
+
+        /// Whether `pane` shows where the screen's geometry puts it (nothing springs toward another size).
+        func settled(_ pane: CmuxNextLayout.PaneID) -> Bool {
+            guard let shown = screen.displayedFrame(of: pane), let target = screen.geometry.panes[pane] else { return false }
+            return abs(shown.minX - target.minX) < 0.5 && abs(shown.width - target.width) < 0.5
+        }
+    }
+
+    @Test func liveResizeDragsInOneFrameResizeTheWindowAndLayItOutOnceAtTheFrameTick() throws {
+        let rig = Rig()
+        defer { rig.close() }
+        let window = rig.window, screen = rig.screen
+        let startWidth = window.frame.width
+        let press = try rig.pressPoint()
+        window.sendEvent(rig.event(.leftMouseDown, press))
+        // AppKit's live resize of the window runs from its first drag to the release.
+        Motion.liveResizeOverride = true
+        defer { Motion.liveResizeOverride = nil }
+        let reconciles = screen.reconcilePasses, presentations = screen.presentationPasses
+
+        // Five drags in one display frame, back to back, as AppKit delivers the drags that queued during a long turn.
+        for step in 1...5 {
+            window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 12 * CGFloat(step), y: press.y)))
+        }
+        rig.root.layoutSubtreeIfNeeded()
+        #expect(rig.edge.events.isEmpty, "each drag reached the window's resize in its own turn: \(rig.edge.events)")
+        #expect(window.frame.width == startWidth, "the window took \(window.frame.width - startWidth) pt before its frame tick")
+        #expect(screen.reconcilePasses == reconciles, "\(screen.reconcilePasses - reconciles) screen reconciles before the frame tick")
+
+        // The window's frame tick: the newest drag resizes the window, and the layout follows it in the same turn.
+        rig.frameTick()
+        rig.root.layoutSubtreeIfNeeded()
+        #expect(rig.edge.events == [.drag(press.x + 60)], "the frame tick gave the resize \(rig.edge.events)")
+        #expect(window.frame.width == startWidth + 60, "the window is \(window.frame.width - startWidth) pt wider after its frame tick")
+        #expect(screen.reconcilePasses - reconciles == 1, "\(screen.reconcilePasses - reconciles) screen reconciles for one display frame")
+        #expect(screen.presentationPasses - presentations == 1,
+                "\(screen.presentationPasses - presentations) presentation passes for one display frame")
+        // That frame's pane rects are at the window's new size.
+        #expect(screen.frame.size == rig.root.bounds.size, "screen \(screen.frame.size), root \(rig.root.bounds.size)")
+        #expect(rig.settled("p1") && rig.settled("p2"), "a pane is not where the frame's layout puts it")
+
+        // A release while a drag waits: that drag reaches the resize first, then the release, in the release's turn.
+        window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 72, y: press.y)))
+        window.sendEvent(rig.event(.leftMouseUp, CGPoint(x: press.x + 72, y: press.y)))
+        #expect(rig.edge.events == [.drag(press.x + 60), .drag(press.x + 72), .up], "the resize got \(rig.edge.events)")
+        #expect(window.frame.width == startWidth + 72, "the window ended \(window.frame.width - startWidth) pt wider")
+    }
+
+    /// Scope: outside a live resize a drag reaches its view in its own turn, as before (a text selection, a tab drag).
+    @Test func outsideALiveResizeEachDragReachesItsViewInItsOwnTurn() throws {
+        let rig = Rig()
+        defer { rig.close() }
+        let window = rig.window
+        let startWidth = window.frame.width
+        let press = try rig.pressPoint()
+        Motion.liveResizeOverride = false
+        defer { Motion.liveResizeOverride = nil }
+        window.sendEvent(rig.event(.leftMouseDown, press))
+        for step in 1...3 {
+            window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 12 * CGFloat(step), y: press.y)))
+        }
+        #expect(rig.edge.events == [.drag(press.x + 12), .drag(press.x + 24), .drag(press.x + 36)], "\(rig.edge.events)")
+        #expect(window.frame.width == startWidth + 36)
+        window.sendEvent(rig.event(.leftMouseUp, CGPoint(x: press.x + 36, y: press.y)))
+        #expect(rig.edge.events.last == .up)
+    }
+}
