@@ -201,7 +201,9 @@ import Testing
         #expect(starts.contains { abs($0.width - workspaceSurface.width) <= 1 && abs($0.height - workspaceSurface.height) <= 1 },
                 "the card did not resize from the workspace card's \(workspaceSurface.size); animated sizes: \(starts)")
         let surface = Self.surface(of: second)
-        #expect(abs(surface.width - 340) <= 1 && abs(surface.height - 220) <= 1, "the card does not end at the highlights' size: \(surface)")
+        // The highlights' width is derived from the rows' text size (``SidebarRowTokens/popover``, msg 19857).
+        let width = SidebarRowTokens.current.popover.width
+        #expect(abs(surface.width - width) <= 1 && abs(surface.height - 220) <= 1, "the card does not end at the highlights' size: \(surface)")
     }
 
     @Test func goingFromTheUpdateCardToAWorkspaceCardMorphsBackAndParksTheHighlights() async throws {

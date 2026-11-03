@@ -510,6 +510,16 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
+            // Lawrence msg 19857: every size derived from the sidebar's density and text size. A live Swift
+            // playground of the tab strip, rows, update card and What's New popover at every density and text size.
+            ActionDescriptor(
+                id: "debug.sizingPlayground",
+                title: String(localized: "action.debug.sizingPlayground", defaultValue: "Sizing Playground", bundle: .module),
+                keywords: ["sizing", "size", "density", "compact", "comfortable", "text size", "popover", "what's new", "tokens", "playground", "debug"],
+                category: .settings, symbol: "textformat.size", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
             // The per-action budget's HUD (zero-latency.md, the budget contract): the newest action runs
             // and their perform-to-commit times, over-budget ones in red (Debug menu, DEV and NIGHTLY).
             ActionDescriptor(

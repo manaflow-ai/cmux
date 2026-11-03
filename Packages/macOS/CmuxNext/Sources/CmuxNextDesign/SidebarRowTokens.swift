@@ -66,6 +66,21 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
             closeSide: rowHeight - 2 * base.space2)
     }
 
+    /// A popover that opens from the sidebar (the update card's What's New highlights) at this density:
+    /// the rows' title and detail text on ``SidebarPopoverMetrics/lineRatio`` lines, twice the rows'
+    /// inset beside the text, the card's vertical padding plus a step above and below it, a row's
+    /// vertical room around each change and a width of ``SidebarPopoverMetrics/widthInBodies`` titles.
+    public var popover: SidebarPopoverMetrics {
+        let card = card
+        return SidebarPopoverMetrics(
+            width: (titleSize * SidebarPopoverMetrics.widthInBodies / 2).rounded() * 2,
+            paddingX: 2 * horizontalInset, paddingY: card.paddingY + base.space2,
+            bodySize: titleSize, bodyLine: SidebarPopoverMetrics.line(for: titleSize),
+            detailSize: captionSize, detailLine: SidebarPopoverMetrics.line(for: captionSize),
+            itemPaddingY: isComfortable ? base.space3 : base.space2, numberColumn: titleSize.rounded(),
+            columnGap: base.space3, blockGap: base.space3, mediaRadius: base.cornerRadius)
+    }
+
     /// The app's tokens now (`Metrics`, `Typography`) under the sidebar's settings.
     @MainActor public static var current: SidebarRowTokens {
         let sections = DesignSettings.shared.sidebarSections
