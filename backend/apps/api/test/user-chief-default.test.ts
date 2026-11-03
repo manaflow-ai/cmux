@@ -143,12 +143,12 @@ describe("signup outbox integration", () => {
     const namespace = (env as unknown as { USER_DO: DurableObjectNamespace }).USER_DO
     const stub = namespace.get(namespace.idFromName(user))
     await runInDurableObject(stub, async (i) => {
-      i.env = { ...i.env, PLATFORM: { ensureDefaultMachine: async (owner: string) => {
+      i.signupPlatform = () => ({ ensureDefaultMachine: async (owner: string) => {
         if (owner !== user) throw new Error("wrong owner")
         const registered = i.submitSystem("install.register_server", { public_jwk: { kty: "EC", crv: "P-256", x: "a".repeat(43), y: "b".repeat(43) }, kind: "vm", name: "Default machine", device_name: "Cloud", platform: "linux", bound_team: team, bound_machine: VM }, "register-signup-vm", `system:cloud:${team}`)
         if (registered.frames.some((f: { t: string }) => f.t === "reject")) throw new Error("VM registration failed")
         return { ok: true, value: { workspace: defaultChiefWorkspace(user), team, connectionMachine: VM, machine: { ...platformValue().machine, creator: user } } }
-      } } }
+      } })
     })
     const request = { ...session, identity: `user:${user}`, user, team, stack_user_id: "signup-integration" }
     const result = await (stub as unknown as { submit(e: string, p: Principal, f: unknown): Promise<{ frames: Array<{ t: string }> }> }).submit(user, request, { t: "op", op: "user.ensure", params: {}, idempotency_key: "signup", origin: "user" })

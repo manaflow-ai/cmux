@@ -52,6 +52,8 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** Sends one Home alert (APNs, as FeedDO); tests replace it inside the object. */
   protected homePushSender = apnsHomePushSender(this.env)
+  /** Signup's server-only service binding (replaced inside the object in integration tests). */
+  protected signupPlatform = () => this.env.PLATFORM as unknown as DefaultMachinePlatform | undefined
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, makeUserDomain(appIdHashFor(env.IOS_APP_ID)), "user")
@@ -146,7 +148,7 @@ export class UserDO extends OwnerDO<UserState> {
   /** Signup's two durable self-deliveries; platform admission and placement never impersonate a client. */
   override async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
     return deliverSignupChief(entity, source, items, {
-      platform: this.env.PLATFORM as unknown as DefaultMachinePlatform | undefined,
+      platform: this.signupPlatform(),
       current: () => this.isBound(entity) ? this.bind(entity).currentState : undefined,
       deliver: (batch) => super.systemDeliver(entity, source, batch),
       bind: (machine, key) => this.submitSystem(DEFAULT_CHIEF_BIND, machine, key, defaultChiefIdentity(entity))
