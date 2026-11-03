@@ -183,20 +183,36 @@ pub(super) async fn cache_remote(
 ) -> Result<Value, RpcError> {
     let flight = flight(hub, id);
     let _gate = flight.gate.lock().await;
-    check(&row, identity)?;
-    // The destination's local-reservation proof is never true at a forwarding
-    // daemon. Keeping it would reveal another peer's receipt to peer callers.
-    if let Some(object) = row.as_object_mut() {
-        object.remove("dispatchLocal");
+    let previous = hub
+        .briefs
+        .get(id)
+        .ok_or_else(|| RpcError::not_found("durable dispatch reservation is missing"))?;
+    if previous.get("durable").and_then(Value::as_bool) != Some(true)
+        || previous.get("briefId").and_then(Value::as_str) != Some(id)
+    {
+        return Err(RpcError::invalid_params("durable dispatch reservation is not valid"));
     }
-    if let Some(previous) = hub.briefs.get(id) {
-        check(&previous, identity)?;
-        row.set("fromSession", previous.get("fromSession").cloned().unwrap_or(Value::Null));
-        if previous.get("outcome").is_some() {
-            row = previous;
+    if row.get("briefId").and_then(Value::as_str) != Some(id)
+        || row.get("durable").and_then(Value::as_bool) != Some(true)
+    {
+        return Err(RpcError::invalid_params(
+            "peer durable dispatch receipt does not match its requested brief id",
+        )
+        .with_data(json!({"reason":"dispatch.identity_changed"})));
+    }
+    check(&previous, identity)?;
+    check(&row, identity)?;
+    // The source daemon owns the durable identity and routing fields. Start
+    // with its reservation, then import only peer-owned result fields. This
+    // prevents a peer from moving the receipt to another host or caller while
+    // still allowing its final outcome to be replayed locally.
+    let mut merged = previous.clone();
+    for key in ["status", "outcome", "error", "harness", "model", "dispatchCancelled"] {
+        if let Some(value) = row.get(key) {
+            merged.set(key, value.clone());
         }
     }
-    hub.briefs.put_durable(row).map_err(|error| RpcError::internal(error.to_string()))
+    hub.briefs.put_durable(merged).map_err(|error| RpcError::internal(error.to_string()))
 }
 
 /// Cancelling names exactly the durable prompt, never whichever turn happens
@@ -455,6 +471,51 @@ mod tests {
         let late = cache_remote(&hub, "placement", &identity, pending).await.unwrap();
         assert_eq!(late, finished, "a late pending response erased the final reply");
         assert_eq!(hub.briefs.get("placement"), Some(finished));
+        hub.shutdown_all().await;
+    }
+
+    #[tokio::test]
+    async fn cache_remote_rejects_peer_key_or_durability_changes_and_keeps_local_routing() {
+        let mut config = crate::config::Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let params = json!({
+            "briefId":"local-id",
+            "durable":true,
+            "receiptToken":"1111111111111111111111111111111111111111111111111111111111111111",
+            "brief":"local brief",
+            "title":"local title"
+        });
+        let identity = identity(&params, "local-id");
+        reserve_remote(&hub, Some("caller"), &params, "local-id", &identity, "paired-target")
+            .await
+            .unwrap();
+        let reserved = hub.briefs.get("local-id").unwrap();
+
+        let mut wrong_id = reserved.clone();
+        wrong_id.set("briefId", json!("other-id"));
+        assert!(cache_remote(&hub, "local-id", &identity, wrong_id).await.is_err());
+        assert_eq!(hub.briefs.get("other-id"), None, "peer key created a second receipt");
+        assert_eq!(hub.briefs.get("local-id"), Some(reserved.clone()));
+
+        let mut advisory = reserved.clone();
+        advisory.set("durable", json!(false));
+        assert!(cache_remote(&hub, "local-id", &identity, advisory).await.is_err());
+        assert_eq!(hub.briefs.get("local-id"), Some(reserved.clone()));
+
+        let mut finished = reserved.clone();
+        finished.set("host", json!("attacker-host"));
+        finished.set("fromSession", json!("attacker-caller"));
+        finished.set("dispatchLocal", json!(true));
+        finished.set("status", json!("reported"));
+        finished.set("outcome", json!({"Ok":{"finalReply":"done"}}));
+        let cached = cache_remote(&hub, "local-id", &identity, finished).await.unwrap();
+        assert_eq!(cached["host"], reserved["host"]);
+        assert_eq!(cached["fromSession"], reserved["fromSession"]);
+        assert!(cached.get("dispatchLocal").is_none());
+        assert_eq!(cached["outcome"]["Ok"]["finalReply"], "done");
         hub.shutdown_all().await;
     }
 
