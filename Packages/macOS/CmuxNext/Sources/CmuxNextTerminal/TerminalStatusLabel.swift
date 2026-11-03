@@ -110,12 +110,10 @@ final class TerminalStatusLabel {
     }
 
     private func showNow(_ text: String, fadeIn: Bool) {
-        let banner = banner ?? {
-            let made = TerminalStatusBanner()
-            install(made)
-            banner = made
-            return made
-        }()
-        banner.show(text, fadeIn: fadeIn)
+        if let banner { return banner.show(text, fadeIn: fadeIn) }
+        let made = TerminalStatusBanner()
+        install(made)
+        banner = made
+        made.show(text, fadeIn: fadeIn)
     }
 }
