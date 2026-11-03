@@ -1120,6 +1120,38 @@ An empty group now keeps only its header at rest. The header's existing + appear
 
 - Leo 2026-10-29: "could u guys also now work on the per space pins and groups? rn anything u make in teh default space goes across to new ones". No visual change: rows, headers, insets and the Pinned block look the same. What changes is which space draws a group or a Pinned link, tab or app: a new group stores the acting window's space as its `profile`, a Pinned item stores it as `extra.room`, and a window on space S draws only the ones that belong to S (anything made before reads as the default space's). Commits 68c7d49b5bc and 9fcf4ab6c1c carry no trailer; reviewed and logged here as no visual change. A link, tab or app moved into Pinned from another band (the band's Move, a document drag) stores the acting window's space too, in the same change (`item.update {room}`): 4e44c4baef8 and af2b1a3f8eb, no trailer, logged here as no visual change. A machine section's group lists with its parent in every space (`SidebarDocSections.sections`). Test: `SidebarSpaceOwnsPinsAndGroupsTests`. Pending `item.update` fields and a pending New Group's space (28d1f36386e, no trailer) are logged here as no visual change. An item or group naming a space that is gone (deleted, not mirrored back yet) reads as the default space's (`SidebarDocItem.owningRoom`), so none is left in no window; Delete Space with `moveTo` and Move Group to Space move the stored space with it.
 
+## A Cloud or remote workspace is named once, in the hover card's header (2026-11-02)
+
+- Leo 2026-11-02, on the hover card of a Cloud workspace that said Cloud four times (a cloud icon before the title, a
+  "Cloud" row with another cloud icon, "Cloud" under the Terminal tab, and the tiny cloud on the row behind it): "isn't
+  this extremely stupid looking?" / "the tiny cloud icon the repeated cloud cloud cloud". The card's header names the
+  machine once, "Cloud" or the remote machine's name in the secondary ink (its color pick when the person picked one)
+  right after the title, its connection dot beside it; the title has no icon on such a card and the separate Cloud row
+  is gone. A tab row names a machine only when the tab runs somewhere other than the header says; this Mac's rows name
+  no machine either (see the next section). The workspace row draws no machine glyph (the trailing machine mark of #29833, itself replacing #22763's
+  leading glyph); its accessibility label still names the machine. Replaces the hover host row of #30244 and the
+  per-row machine of #31511 on remote cards. Gallery: "Cloud workspace · machine named once · chosen". Tests:
+  `WorkspaceHoverHostIdentityTests.aCloudCardNamesItsMachineExactlyOnce`, `WorkspaceTabHoverCardRichRowsTests`,
+  `SidebarMachineMarkTests.aRowOnAnotherMachineDrawsNoMachineGlyph`, `HoverCardMachineColorTests`.
+
+## Hover card tab rows close on ✕, never flicker, and keep their line short (2026-11-02)
+
+- Leo 2026-11-02 23:55Z: "YOU SHOULD BE ABLE TO CLOSE THESE TABS FROM THE HOVER PREVIEW AND THE HOVER PREVIEW SHOULD NOT
+  MAKE THE SIDEBAR FLICKER ... I HAVE IT AS MY LAST HOVERED THING THEN I LEAVE IT THEN I GO BACK AND IT RE-RENDERS THE
+  SPINNER VIEW" / "PLUS THE PLACEMENT LOOKS LIKE SHIT".
+- A hovered tab row shows a ✕ in its trailing slot (over the unread dot) that sends `SidebarIntent.closeTab`; the card
+  stays open and the closed tab leaves it through `contentChanged`. A card with no `onClose` shows no ✕.
+- Coming back to the row whose card is still fading out shows the same card with no crossfade
+  (`HoverCardMachine.lastShownID`; `HoverCardPanel.present` no longer crossfades a body over itself), so its spinners
+  keep turning in place; a row shown again for the same tab keeps its hover state.
+- The row's spinner sits right after its title, centred on the title line. Its meta line drops "Working" (the spinner
+  says it), names "This Mac" only on the `namesLocalMachine` variant, ends in an ellipsis when too long, and a lane
+  session name ("lane-vm-11/nightly-rollback") shows its last part. Gallery: "Tab rows · spinner after the title ·
+  chosen", "Tab rows · close ✕ on hover · chosen", "Tab rows · only another machine named · chosen". Tests:
+  `WorkspaceTabHoverCardTests.aHoveredRowsCloseButtonClosesItsTabAndKeepsTheCard`,
+  `WorkspaceHoverCardBehaviorTests.comingBackToTheSameRowShowsTheSameCardWithNoCrossfade`,
+  `WorkspaceTabHoverCardRichRowsTests`.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
