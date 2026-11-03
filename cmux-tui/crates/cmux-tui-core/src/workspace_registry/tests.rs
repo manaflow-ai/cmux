@@ -3516,6 +3516,88 @@ fn frontend_projection_is_durable_cas_and_exactly_once() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// The app saves its window and sidebar documents again on many events with
+/// nothing changed. An identical save under a new mutation id writes nothing:
+/// no revision, no ledger row, and so no change event (`replayed`), which
+/// woke every subscriber and the launch snapshot for each save and kept the
+/// app's idle owner busy.
+#[test]
+fn an_identical_frontend_projection_under_a_new_mutation_writes_nothing() {
+    let root = temp_root("projection-identical");
+    let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let put = |registry: &mut WorkspaceRegistry, id: &str, schema: u32, body: &Value| {
+        registry.put_frontend_projection(
+            &WorkspaceMutation::daemon(id, "cmux-app").unwrap(),
+            "cmux-app",
+            "window",
+            "main",
+            schema,
+            None,
+            body,
+        )
+    };
+    let ledger_rows = |registry: &WorkspaceRegistry| -> i64 {
+        registry
+            .connection
+            .get()
+            .query_row("SELECT COUNT(*) FROM projection_mutations", [], |row| row.get(0))
+            .unwrap()
+    };
+    let body = json!({"frame":[0, 0, 800, 600], "tabs":["a", "b"]});
+    let first = put(&mut registry, "save-1", 1, &body).unwrap();
+    assert!(!first.replayed);
+    assert_eq!(first.projection.projection_revision, 1);
+    let rows = ledger_rows(&registry);
+
+    // Key order does not count as a change.
+    let same = json!({"tabs":["a", "b"], "frame":[0, 0, 800, 600]});
+    for id in ["save-2", "save-3"] {
+        let again = put(&mut registry, id, 1, &same).unwrap();
+        assert!(again.replayed, "{id}: an identical save is not a change");
+        assert_eq!(again.projection.projection_revision, 1, "{id}");
+        assert_eq!(again.projection.projection, body, "{id}");
+    }
+    assert_eq!(ledger_rows(&registry), rows, "an identical save adds no ledger row");
+    // A matching expected revision is still checked, and still no change.
+    let expected = registry
+        .put_frontend_projection(
+            &WorkspaceMutation::daemon("save-4", "cmux-app").unwrap(),
+            "cmux-app",
+            "window",
+            "main",
+            1,
+            Some(1),
+            &body,
+        )
+        .unwrap();
+    assert!(expected.replayed);
+    assert!(
+        registry
+            .put_frontend_projection(
+                &WorkspaceMutation::daemon("save-5", "cmux-app").unwrap(),
+                "cmux-app",
+                "window",
+                "main",
+                1,
+                Some(0),
+                &body,
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("projection revision conflict")
+    );
+
+    // A different body or schema version is a change.
+    let moved = put(&mut registry, "save-6", 1, &json!({"frame":[10, 0, 800, 600]})).unwrap();
+    assert!(!moved.replayed);
+    assert_eq!(moved.projection.projection_revision, 2);
+    let schema = put(&mut registry, "save-7", 2, &json!({"frame":[10, 0, 800, 600]})).unwrap();
+    assert!(!schema.replayed);
+    assert_eq!(schema.projection.projection_revision, 3);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn personal_and_shared_frontend_projections_coexist_and_restore_independently() {
     let root = temp_root("projection-scopes");
