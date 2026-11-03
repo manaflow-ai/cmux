@@ -438,6 +438,12 @@ impl Hub {
                                 if action == RecoveryAction::Nudge {
                                     state.nudge = Some(Nudge {id:format!("{}-nudge",activity.id),session_id:session.id.clone(),
                                         prompt_id:format!("{current_id}-nudge"),target_prompt_id:current_id.clone()});
+                                } else if matches!(action, RecoveryAction::Restart { .. }) {
+                                    // The daemon retry belongs to the original session. A
+                                    // fallback must reserve its own prompt identity before
+                                    // admission, including after recovery from this write.
+                                    state.waiting_for = None;
+                                    state.route_nudge = false;
                                 }
                                 self.workflow_runs.store().update_activity_policy(&run.id,generation,&run.owner_session_id,
                                     &activity.id,serde_json::to_value(&state).map_err(workflow_error)?).map_err(workflow_error)?;
