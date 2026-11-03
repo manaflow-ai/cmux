@@ -615,6 +615,24 @@ class WebLintPrePushTests(unittest.TestCase):
                 self.commit(f"drop {name}")
                 self.push(CMUX_WEB_LINT_SKIP_REASON="fixture: reset between the upward-search sub-tests")
 
+    def test_a_pushed_node_modules_is_check_code_on_every_host(self):
+        # Tools run what node_modules holds (web/'s ESLint is node_modules/.bin/eslint), so a push that carries one is
+        # never linted with it.
+        marker = self.root / "pushed-code-ran"
+        for number, env in enumerate(({}, LIGHT_HOST)):
+            with self.subTest(env=env):
+                self.write("web/node_modules/.bin/eslint", f"#!/bin/sh\ntouch {marker}\n")
+                (self.repo / "web/node_modules/.bin/eslint").chmod(0o755)
+                self.write("web/app/page.tsx", f"export const page = {80 + number};\n")
+                self.git("add", "-f", "web/node_modules/.bin/eslint")
+                self.commit("a pushed eslint")
+
+                result = self.push(**env)
+
+                self.assertFalse(marker.exists(), "the hook ran a node_modules the push carried")
+                self.assertIn("web: not linted here", result.stderr)
+                self.assertIn("web/node_modules/.bin/eslint", result.stderr)
+
     def test_a_symlink_in_executed_code_is_never_followed(self):
         # A symlink already on the base points executed code at a source file, which a push may change.
         self.seed_reviewed_check()
@@ -1581,6 +1599,41 @@ class TrustBoundaryTests(unittest.TestCase):
                 self.assertEqual(lint.executed_changes(tui, [path]), [])
         web = lint.ESLINT_PACKAGES[0]
         self.assertEqual(lint.eslint_executed_changes(web, ["eslint.config.js", "web/app/page.tsx"]), ["eslint.config.js"])
+
+    def test_a_node_modules_anywhere_is_check_code(self):
+        lint = load_lint(SOURCE)
+        for package in lint.SCRIPT_PACKAGES:
+            for path in (f"{package.directory}/src/node_modules/a.js", f"{package.directory}/test/Node_Modules/b/c.js",
+                         "docs/node_modules/x.js"):
+                with self.subTest(package=package.directory, path=path):
+                    self.assertEqual(lint.executed_changes(package, [path]), [path])
+        web = lint.ESLINT_PACKAGES[0]
+        self.assertEqual(lint.eslint_executed_changes(web, ["web/node_modules/.bin/eslint", "web/app/x.tsx"]),
+                         ["web/node_modules/.bin/eslint"])
+        self.assertEqual(lint.executed_changes(lint.SCRIPT_PACKAGES[0], ["webviews/src/node_modules_list.ts"]), [])
+
+    def test_a_lint_tree_never_links_over_a_node_modules_the_commit_holds(self):
+        lint = load_lint(SOURCE)
+        holder = Path(tempfile.mkdtemp(prefix="cmux-tree-of-"))
+        self.addCleanup(shutil.rmtree, holder, True)
+        repo = holder / "repo"
+        env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
+        run = lambda *args: subprocess.run(["git", "-C", str(repo), *args], env=env, check=True, capture_output=True)
+        repo.mkdir()
+        run("init", "--quiet")
+        (repo / "web/node_modules/.bin").mkdir(parents=True)
+        (repo / "web/package.json").write_text("{}")
+        (repo / "web/node_modules/.bin/eslint").write_text("")
+        run("add", "-f", "-A")
+        run("-c", "user.email=a@b", "-c", "user.name=n", "commit", "--quiet", "-m", "x")
+        sha = run("rev-parse", "HEAD").stdout.decode().strip()
+        (repo / "web/package.json").write_text('{"dirty": true}')  # not checked out exactly: a lint tree is made
+        with mock.patch.object(lint, "shares_deps", lambda *args: True), \
+                mock.patch.dict(os.environ, {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}):
+            with self.assertRaises(SystemExit) as raised:
+                with lint.tree_of(repo, sha, ["web"]):
+                    pass
+        self.assertIn("node_modules", str(raised.exception))
 
     def test_a_path_that_resolves_elsewhere_in_the_tree_escapes(self):
         lint = load_lint(SOURCE)
