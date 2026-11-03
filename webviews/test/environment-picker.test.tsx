@@ -1471,6 +1471,10 @@ const sshSaved = {
     environments: [
       { id: "s1", name: "Projects", kind: "ssh", host: "gpu-box", folder: "/home/dev/Projects", updatedAt: 2 },
       { id: "s2", name: "gpu-box model", kind: "ssh", host: "gpu-box", folder: "/home/dev/model", updatedAt: 1 },
+      // Named after the machine, as Claude's second "cmux16" row: its folder, or that it is saved,
+      // tells it from the machine's own row.
+      { id: "s3", name: "gpu-box", kind: "ssh", host: "gpu-box", folder: "/home/dev/train", updatedAt: 1 },
+      { id: "s4", name: "GPU-BOX", kind: "ssh", host: "gpu-box", updatedAt: 1 },
     ],
     onPick: () => undefined,
     onClear: () => undefined,
@@ -1487,7 +1491,12 @@ test("a saved SSH environment's row and control name its machine, not only its f
   expect(saved.map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
     "Projects · gpu-box",
     "gpu-box model",
+    "gpu-box · train",
+    `GPU-BOX · ${t("composer.envSaved")}`,
   ]);
+  // No two rows of Machines… read the same.
+  const labels = rows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent?.toLowerCase());
+  expect(new Set(labels).size).toBe(labels.length);
   // Still one line each.
   for (const row of saved) expect(row.querySelectorAll(".acpmux-menu-text > *")).toHaveLength(1);
   act(() => root?.unmount());
