@@ -18,7 +18,7 @@ import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { RowShimmer } from "./ShimmerText";
 import { toolDuration } from "./toolGroups";
-import { cleanText, mcpCall } from "./mcpCalls";
+import { cleanText } from "./mcpCalls";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { useRowDisclosure } from "./transcriptDisclosure";
 import { toolResult } from "./toolResult";
@@ -86,8 +86,6 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
     cwd,
     t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
   );
-  // An MCP call's plain name ("Hub · read chat", toolPaths.ts) leads with its server, not a verb.
-  const plainMcp = useMemo(() => label.includes(" · ") && mcpCall(tool) !== undefined, [label, tool]);
   // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
   const recovery = useMemo(() => repoRecoveryFor(tool), [tool]);
   const failed = rowFailed(tool) && !recovery;
@@ -138,7 +136,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
     return () => observer.disconnect();
   }, [hasDetails, open, label, expandable]);
   const images = useMemo(() => toolImages(tool), [tool]);
-  const words = write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} whole={plainMcp} />;
+  const words = write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} />;
   const content = (
     <>
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
