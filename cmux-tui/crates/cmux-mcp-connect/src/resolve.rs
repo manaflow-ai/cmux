@@ -9,8 +9,9 @@ use crate::target::{RemoteTarget, check_url};
 /// The result of resolving an input.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Resolved {
-    /// A registry server: the card shows "Verified".
-    Known { entry: Entry, target: RemoteTarget },
+    /// A registry server: the card shows "Verified". The entry is boxed: it is the largest
+    /// variant by far.
+    Known { entry: Box<Entry>, target: RemoteTarget },
     /// A remote URL that is not exactly a registry URL: "Unverified".
     Remote { target: RemoteTarget },
     /// A local command.
@@ -39,13 +40,15 @@ pub fn resolve(input: &str, registry: &Registry) -> Result<Resolved, Refusal> {
     if text.contains("://") {
         let target = check_url(text)?;
         return Ok(match registry.by_url(&target.url) {
-            Some(entry) if !target.idn => Resolved::Known { entry: entry.clone(), target },
+            Some(entry) if !target.idn => {
+                Resolved::Known { entry: Box::new(entry.clone()), target }
+            }
             _ => Resolved::Remote { target },
         });
     }
     if let Some(entry) = registry.find(text) {
         let target = check_url(&entry.url)?;
-        return Ok(Resolved::Known { entry: entry.clone(), target });
+        return Ok(Resolved::Known { entry: Box::new(entry.clone()), target });
     }
     let argv = split(text);
     if argv.len() > 1 || text.starts_with('/') || text.starts_with("./") {

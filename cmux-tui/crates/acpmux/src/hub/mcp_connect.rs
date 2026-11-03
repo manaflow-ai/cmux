@@ -143,7 +143,7 @@ impl Hub {
             self.mcp_connects.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&request_id);
             return Ok(json!({"status": "cancelled", "name": name}));
         }
-        self.append(session, "mux", "mcp_connect_request", card);
+        self.append(session, "mux", "mcp_connect_request", card.clone());
         let prev = session.status();
         self.set_status(session, SessionStatus::Waiting);
         let mut answer = tokio::time::timeout(ASK_TTL, rx).await.ok().and_then(Result::ok);
