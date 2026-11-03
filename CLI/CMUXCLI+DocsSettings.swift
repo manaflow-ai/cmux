@@ -312,11 +312,11 @@ extension CMUXCLI {
         DocsReference(
             topic: "settings",
             aliases: ["configuration", "config", "cmux-json", "settings-json", "settingsjson", "schema"],
-            summary: "cmux-owned settings, cmux.json locations, schema, and reload flow.",
+            summary: workflowText("cli.docs.settings.summary", "cmux-owned settings, cmux.json locations, schema, and reload flow."),
             webURL: settingsDocsURL,
             rawResources: [
-                DocsResource(label: "settings schema", url: settingsSchemaURL),
-                DocsResource(label: "cmux skill", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux/SKILL.md"),
+                DocsResource(label: workflowText("cli.docs.resources.settingsSchema", "settings schema"), url: settingsSchemaURL),
+                DocsResource(label: workflowText("cli.docs.resources.cmuxSkill", "cmux skill"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux/SKILL.md"),
             ],
             commands: [
                 "cmux settings path",
@@ -328,10 +328,10 @@ extension CMUXCLI {
         DocsReference(
             topic: "managed-policies",
             aliases: ["mdm", "managed", "policy", "policies", "enterprise", "managed-device-policies"],
-            summary: "MDM-enforceable managed policies: disable the embedded browser, iOS remote control, and Cloud on managed Macs.",
+            summary: workflowText("cli.docs.managedPolicies.summary", "MDM-enforceable managed policies: disable the embedded browser, iOS remote control, and Cloud on managed Macs."),
             webURL: "https://cmux.com/docs/managed-policies",
             rawResources: [
-                DocsResource(label: "managed device policies", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/managed-device-policies.md"),
+                DocsResource(label: workflowText("cli.docs.resources.managedDevicePolicies", "managed device policies"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/managed-device-policies.md"),
             ],
             commands: [
                 "cmux browser status --json",
@@ -340,11 +340,11 @@ extension CMUXCLI {
         DocsReference(
             topic: "shortcuts",
             aliases: ["keyboard", "keybindings", "keys"],
-            summary: "cmux-owned keyboard shortcuts and two-step chord syntax.",
+            summary: workflowText("cli.docs.shortcuts.summary", "cmux-owned keyboard shortcuts and two-step chord syntax."),
             webURL: "https://cmux.com/docs/keyboard-shortcuts",
             rawResources: [
-                DocsResource(label: "shortcut data", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-shortcuts.ts"),
-                DocsResource(label: "settings schema", url: settingsSchemaURL),
+                DocsResource(label: workflowText("cli.docs.resources.shortcutData", "shortcut data"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-shortcuts.ts"),
+                DocsResource(label: workflowText("cli.docs.resources.settingsSchema", "settings schema"), url: settingsSchemaURL),
             ],
             commands: [
                 "cmux shortcuts",
@@ -355,11 +355,11 @@ extension CMUXCLI {
         DocsReference(
             topic: "api",
             aliases: ["cli", "socket", "automation", "handles"],
-            summary: "CLI/socket API, handle model, windows, workspaces, panes, and surfaces.",
+            summary: workflowText("cli.docs.api.summary", "CLI/socket API, handle model, windows, workspaces, panes, and surfaces."),
             webURL: "https://cmux.com/docs/api",
             rawResources: [
-                DocsResource(label: "CLI contract", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/cli-contract.md"),
-                DocsResource(label: "cmux skill", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux/SKILL.md"),
+                DocsResource(label: workflowText("cli.docs.resources.cliContract", "CLI contract"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/cli-contract.md"),
+                DocsResource(label: workflowText("cli.docs.resources.cmuxSkill", "cmux skill"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux/SKILL.md"),
             ],
             commands: [
                 "cmux identify --json",
@@ -369,11 +369,11 @@ extension CMUXCLI {
         DocsReference(
             topic: "browser",
             aliases: ["browser-automation", "webview"],
-            summary: "Browser panel automation commands and snapshot-driven web interaction.",
+            summary: workflowText("cli.docs.browser.summary", "Browser panel automation commands and snapshot-driven web interaction."),
             webURL: "https://cmux.com/docs/browser-automation",
             rawResources: [
-                DocsResource(label: "browser skill", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux-browser/SKILL.md"),
-                DocsResource(label: "browser commands", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux-browser/references/commands.md"),
+                DocsResource(label: workflowText("cli.docs.resources.browserSkill", "browser skill"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux-browser/SKILL.md"),
+                DocsResource(label: workflowText("cli.docs.resources.browserCommands", "browser commands"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux-browser/references/commands.md"),
             ],
             commands: [
                 "cmux browser --help",
@@ -383,11 +383,11 @@ extension CMUXCLI {
         DocsReference(
             topic: "capture",
             aliases: ["screenshot", "screenshots", "shot", "record", "recording", "clip", "gif"],
-            summary: "Screenshot or record a cmux window from the CLI: png, jpeg, mp4 or gif, with no Screen Recording permission.",
+            summary: workflowText("cli.docs.capture.summary", "Screenshot or record a cmux window from the CLI: png, jpeg, mp4 or gif, with no Screen Recording permission."),
             webURL: "https://cmux.com/docs/api",
             rawResources: [
-                DocsResource(label: "capture skill", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux-capture/SKILL.md"),
-                DocsResource(label: "capture commands", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux-capture/references/commands.md"),
+                DocsResource(label: workflowText("cli.docs.resources.captureSkill", "capture skill"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux-capture/SKILL.md"),
+                DocsResource(label: workflowText("cli.docs.resources.captureCommands", "capture commands"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux-capture/references/commands.md"),
             ],
             commands: [
                 "cmux shot --label before",
@@ -405,9 +405,9 @@ extension CMUXCLI {
             rawResources: [
                 DocsResource(label: workflowText("cli.docs.agents.hooks", "agent hook docs"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/agent-hooks.md"),
                 DocsResource(label: workflowText("cli.docs.agents.messages", "agent messages"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/agent-messages.md"),
-                DocsResource(label: "feed docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/feed.md"),
-                DocsResource(label: "notifications docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/notifications.md"),
-                DocsResource(label: "capture skill", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux-capture/SKILL.md"),
+                DocsResource(label: workflowText("cli.docs.resources.feedDocs", "feed docs"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/feed.md"),
+                DocsResource(label: workflowText("cli.docs.resources.notificationsDocs", "notifications docs"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/notifications.md"),
+                DocsResource(label: workflowText("cli.docs.resources.captureSkill", "capture skill"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux-capture/SKILL.md"),
             ],
             commands: [
                 "cmux agent message <workspace|surface> <text>",
@@ -433,11 +433,11 @@ extension CMUXCLI {
         DocsReference(
             topic: "dock",
             aliases: ["doc", "controls", "right-sidebar", "dock-json"],
-            summary: "Custom right-sidebar terminal controls from .cmux/dock.json or ~/.config/cmux/dock.json.",
+            summary: workflowText("cli.docs.dock.summary", "Custom right-sidebar terminal controls from .cmux/dock.json or ~/.config/cmux/dock.json."),
             webURL: "https://cmux.com/docs/dock",
             rawResources: [
-                DocsResource(label: "dock docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/dock.md"),
-                DocsResource(label: "dock web copy", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/messages/en.json"),
+                DocsResource(label: workflowText("cli.docs.resources.dockDocs", "dock docs"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/dock.md"),
+                DocsResource(label: workflowText("cli.docs.resources.dockWebCopy", "dock web copy"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/messages/en.json"),
             ],
             commands: [
                 "cmux docs dock",
@@ -448,16 +448,10 @@ extension CMUXCLI {
         DocsReference(
             topic: "completion",
             aliases: ["shell-completion", "autocomplete", "tab-completion"],
-            summary: String(localized: "cli.docs.completion.summary", defaultValue: "Shell completion scripts for zsh, bash, and fish."),
+            summary: workflowText("cli.docs.completion.summary", "Shell completion scripts for zsh, bash, and fish."),
             webURL: "https://cmux.com/docs/api",
             rawResources: [
-                DocsResource(
-                    label: String(
-                        localized: "cli.docs.completion.cliContractLabel",
-                        defaultValue: "CLI contract"
-                    ),
-                    url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/cli-contract.md"
-                ),
+                DocsResource(label: workflowText("cli.docs.resources.cliContract", "CLI contract"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/cli-contract.md"),
             ],
             commands: [
                 "cmux completion zsh",
@@ -468,10 +462,10 @@ extension CMUXCLI {
         DocsReference(
             topic: "sidebars",
             aliases: ["sidebar", "custom-sidebar", "custom-sidebars", "vibe-sidebar"],
-            summary: "Vibe-code a custom sidebar: a runtime-interpreted SwiftUI-style file in ~/.config/cmux/sidebars/ (beta).",
+            summary: workflowText("cli.docs.sidebars.summary", "Vibe-code a custom sidebar: a runtime-interpreted SwiftUI-style file in ~/.config/cmux/sidebars/ (beta)."),
             webURL: "https://cmux.com/docs/custom-sidebars",
             rawResources: [
-                DocsResource(label: "custom sidebar authoring guide", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/custom-sidebars.md"),
+                DocsResource(label: workflowText("cli.docs.resources.customSidebarGuide", "custom sidebar authoring guide"), url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/custom-sidebars.md"),
             ],
             commands: [
                 "mkdir -p ~/.config/cmux/sidebars",
@@ -516,9 +510,9 @@ extension CMUXCLI {
         }
 
         guard args.count == 1 else {
-            throw CLIError(message: String(
-                localized: "cli.docs.usage.topics",
-                defaultValue: "Usage: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+            throw CLIError(message: Self.workflowText(
+                "cli.docs.usage.topics",
+                "Usage: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
             ))
         }
 
@@ -532,7 +526,10 @@ extension CMUXCLI {
         }
 
         guard let reference = docsReference(for: topic) else {
-            throw CLIError(message: "Unknown docs topic '\(topic)'. Run 'cmux docs' for topics.")
+            throw CLIError(message: String(
+                format: Self.workflowText("cli.docs.error.unknownTopic", "Unknown docs topic '%@'. Run 'cmux docs' for topics."),
+                topic
+            ))
         }
 
         if wantsJSON {
@@ -543,23 +540,32 @@ extension CMUXCLI {
     }
 
     func docsUsage() -> String {
-        let usageLine = String(
-            localized: "cli.docs.usage.topics",
-            defaultValue: "Usage: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+        let usageLine = Self.workflowText(
+            "cli.docs.usage.topics",
+            "Usage: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
         )
+        let description = Self.workflowText(
+            "cli.docs.usage.description",
+            "Print the canonical docs URL, raw GitHub resources, and useful commands for a cmux topic."
+        )
+        let noSocket = Self.workflowText("cli.docs.usage.noSocket", "This command does not require a running cmux app or socket.")
+        let agentsHeading = Self.workflowText("cli.docs.usage.agents.heading", "Agents:")
+        let agentGuidance = [
+            Self.workflowText("cli.docs.usage.agents.settings", "Use `cmux docs settings` before editing ~/.config/cmux/cmux.json."),
+            Self.workflowText("cli.workflow.guidance.discover", "Use `cmux docs workflows --json` to choose a shipped workflow example or discover the saved-layout lifecycle."),
+            Self.workflowText("cli.docs.usage.agents.dock", "Use `cmux docs dock` before creating or editing .cmux/dock.json."),
+            Self.workflowText("cli.docs.usage.agents.capture", "Use `cmux docs capture` to screenshot or record a window for a pull request or a bug report."),
+            Self.workflowText("cli.docs.usage.agents.backup", "Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert."),
+            Self.workflowText("cli.docs.usage.agents.fetch", "Fetch raw resources with the printed curl commands when you need the latest schema."),
+        ].map { "  \($0)" }.joined(separator: "\n")
         return """
         \(usageLine)
 
-        Print the canonical docs URL, raw GitHub resources, and useful commands for a cmux topic.
-        This command does not require a running cmux app or socket.
+        \(description)
+        \(noSocket)
 
-        Agents:
-          Use `cmux docs settings` before editing ~/.config/cmux/cmux.json.
-          \(Self.workflowText("cli.workflow.guidance.discover", "Use `cmux docs workflows --json` to choose a shipped workflow example or discover the saved-layout lifecycle."))
-          Use `cmux docs dock` before creating or editing .cmux/dock.json.
-          Use `cmux docs capture` to screenshot or record a window for a pull request or a bug report.
-          Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert.
-          Fetch raw resources with the printed curl commands when you need the latest schema.
+        \(agentsHeading)
+        \(agentGuidance)
         """
     }
 
@@ -609,11 +615,20 @@ extension CMUXCLI {
             ]
             payload["ghostty_config"] = [
                 "path": Self.ghosttyConfigDisplayPath,
-                "note": "Not cmux-owned, but cmux reads it. Use for terminal transparency (background-opacity), blur, font, theme, etc.",
+                "note": Self.workflowText(
+                    "cli.docs.settings.json.ghosttyNote",
+                    "Not cmux-owned, but cmux reads it. Use for terminal transparency (background-opacity), blur, font, theme, etc."
+                ),
             ]
-            payload["backup"] = "Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert."
+            payload["backup"] = Self.workflowText(
+                "cli.docs.usage.agents.backup",
+                "Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert."
+            )
             payload["reload_command"] = "cmux reload-config"
-            payload["reload_scope"] = "Reloads Ghostty config + cmux.json and refreshes terminals in place. No app restart needed."
+            payload["reload_scope"] = Self.workflowText(
+                "cli.docs.settings.json.reloadScope",
+                "Reloads Ghostty config + cmux.json and refreshes terminals in place. No app restart needed."
+            )
         }
         return payload
     }
@@ -621,34 +636,34 @@ extension CMUXCLI {
     private func printDocsIndex() {
         print("cmux docs")
         print()
-        print("Topics:")
+        print(Self.workflowText("cli.docs.index.topics", "Topics:"))
         for reference in Self.docsReferences {
             print("  \(reference.topic.padding(toLength: 10, withPad: " ", startingAt: 0)) \(reference.summary)")
         }
         print()
-        print("Run `cmux docs <topic>` for URLs, raw resources, and next commands.")
+        print(Self.workflowText("cli.docs.index.footer", "Run `cmux docs <topic>` for URLs, raw resources, and next commands."))
     }
 
     private func printDocsReference(_ reference: DocsReference) {
         print("\(reference.topic): \(reference.summary)")
         print()
-        print("Web:")
+        print(Self.workflowText("cli.docs.reference.web", "Web:"))
         print("  \(reference.webURL)")
         if !reference.rawResources.isEmpty {
             print()
-            print("Raw resources:")
+            print(Self.workflowText("cli.docs.reference.rawResources", "Raw resources:"))
             for resource in reference.rawResources {
                 print("  \(resource.label): \(resource.url)")
             }
             print()
-            print("Fetch:")
+            print(Self.workflowText("cli.docs.reference.fetch", "Fetch:"))
             for resource in reference.rawResources {
                 print("  curl -fsSL \(resource.url)")
             }
         }
         if !reference.commands.isEmpty {
             print()
-            print("Useful commands:")
+            print(Self.workflowText("cli.docs.reference.usefulCommands", "Useful commands:"))
             for command in reference.commands {
                 print("  \(command)")
             }
@@ -658,20 +673,20 @@ extension CMUXCLI {
         }
         if reference.topic == "settings" {
             print()
-            print("Config files:")
-            print("  primary: \(Self.primarySettingsDisplayPath)")
-            print("  legacy config: \(Self.legacySettingsDisplayPath)")
-            print("  legacy app support: \(Self.fallbackSettingsDisplayPath)")
+            print(Self.workflowText("cli.docs.settings.files.heading", "Config files:"))
+            print("  \(Self.workflowText("cli.docs.settings.files.primary", "primary")): \(Self.primarySettingsDisplayPath)")
+            print("  \(Self.workflowText("cli.docs.settings.files.legacyConfig", "legacy config")): \(Self.legacySettingsDisplayPath)")
+            print("  \(Self.workflowText("cli.docs.settings.files.legacyAppSupport", "legacy app support")): \(Self.fallbackSettingsDisplayPath)")
             print()
-            print("Related (not cmux-owned, but cmux reads it for terminal behavior):")
+            print(Self.workflowText("cli.docs.settings.related.heading", "Related (not cmux-owned, but cmux reads it for terminal behavior):"))
             print("  \(Self.ghosttyConfigDisplayPath)")
-            print("  Use this for terminal transparency (background-opacity), blur, font, theme, etc.")
+            print("  \(Self.workflowText("cli.docs.settings.related.hint", "Use this for terminal transparency (background-opacity), blur, font, theme, etc."))")
             print()
-            print("Before editing cmux.json:")
-            print("  Back up any existing cmux.json file to a timestamped .bak copy so the user can revert.")
+            print(Self.workflowText("cli.docs.settings.backup.heading", "Before editing cmux.json:"))
+            print("  \(Self.workflowText("cli.docs.settings.backup.body", "Back up any existing cmux.json file to a timestamped .bak copy so the user can revert."))")
             print()
-            print("Reload after editing cmux.json or Ghostty config:")
-            print("  cmux reload-config   (reloads BOTH and refreshes terminals; no app restart needed)")
+            print(Self.workflowText("cli.docs.settings.reload.heading", "Reload after editing cmux.json or Ghostty config:"))
+            print("  \(Self.workflowText("cli.docs.settings.reload.body", "cmux reload-config   (reloads BOTH and refreshes terminals; no app restart needed)"))")
         }
     }
 
