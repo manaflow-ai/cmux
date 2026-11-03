@@ -136,26 +136,65 @@ impl CommandRunner for SystemRunner {
 
 /// Checks a request without sending it.
 pub fn validate(request: &SendRequest) -> Result<(), SendError> {
-    let _ = request;
+    if request.text.trim().is_empty() {
+        return Err(SendError::EmptyText);
+    }
+    if request.text.len() > MAX_TEXT_BYTES {
+        return Err(SendError::TextTooLong);
+    }
+    if request.text.contains('\0') {
+        return Err(SendError::Failed("the text contains a NUL byte".to_string()));
+    }
+    if !is_chat_guid(&request.chat_guid) {
+        return Err(SendError::InvalidChat(request.chat_guid.clone()));
+    }
     Ok(())
 }
 
 /// The `osascript` arguments for a request: the script lines as `-e` options, then the chat
 /// guid and the text as plain arguments (the script's `argv`).
 pub fn osascript_args(request: &SendRequest) -> Vec<String> {
-    let _ = request;
-    Vec::new()
+    let mut args = Vec::with_capacity(SEND_SCRIPT.len() * 2 + 2);
+    for line in SEND_SCRIPT {
+        args.push("-e".to_string());
+        args.push(line.to_string());
+    }
+    args.push(request.chat_guid.clone());
+    args.push(request.text.clone());
+    args
 }
 
 /// Validates and sends one message through Messages.app.
 pub fn send(request: &SendRequest, runner: &dyn CommandRunner) -> Result<(), SendError> {
-    let _ = (request, runner);
-    Err(SendError::Failed("not implemented".to_string()))
+    validate(request)?;
+    let output = match runner.run("osascript", &osascript_args(request)) {
+        Ok(output) => output,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Err(SendError::Unsupported),
+        Err(error) if error.kind() == ErrorKind::TimedOut => return Err(SendError::TimedOut),
+        Err(error) => return Err(SendError::Failed(error.to_string())),
+    };
+    if output.success {
+        return Ok(());
+    }
+    let detail = output.stderr.trim().to_string();
+    Err(if detail.contains(ERR_NOT_AUTHORIZED) {
+        SendError::NotPermitted(detail)
+    } else if detail.contains(ERR_NO_SUCH_OBJECT) {
+        SendError::InvalidChat(detail)
+    } else {
+        SendError::Failed(detail)
+    })
 }
 
 /// `service;-;handle` (1:1) or `service;+;room` (group), with no control characters, and not
 /// starting with `-` (so `osascript` never reads it as an option).
 fn is_chat_guid(guid: &str) -> bool {
-    let _ = guid;
-    true
+    if guid.is_empty() || guid.len() > 512 || guid.starts_with('-') || guid.chars().any(char::is_control) {
+        return false;
+    }
+    let mut parts = guid.splitn(3, ';');
+    let (Some(service), Some(kind), Some(id)) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    !service.is_empty() && (kind == "-" || kind == "+") && !id.is_empty()
 }
