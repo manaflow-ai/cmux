@@ -94,6 +94,7 @@ import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
 import { trayFoldHeadLook } from "./trayFoldHead.experiment";
+import { trayKindCounts, trayKindsText } from "./trayKinds";
 import { trayOpenLook } from "./trayOpen.experiment";
 import { traySurfaceLook } from "./traySurface.experiment";
 import { Tick, useTrayMotion } from "./trayMotion";
@@ -308,6 +309,8 @@ export const SubagentTray = memo(function SubagentTray({
   const arrivalRefs = useRef(new Map<string, (node: HTMLElement | null) => (() => void) | undefined>());
   // What runs by name, newest first: computed when the items change (an event), never per tick.
   const newest = useMemo(() => newestNames(t, items), [t, items]);
+  // What runs by kind, counted when the items change; only the times read the clock.
+  const kinds = useMemo(() => trayKindCounts(items), [items]);
   if (items.length === 0 && finished.length === 0) return null;
   // Its subagents and the chats it started are one word: subagents.
   const subagents = items.filter((item) => item.kind !== "command").length;
@@ -333,9 +336,12 @@ export const SubagentTray = memo(function SubagentTray({
   // Claude Code's running-tasks list does (trayFoldHead.experiment.ts; Leo, 2026-11-03: "the
   // "running" bar above the composer is currently no longer usable bc it doesn't display much").
   // A narrow pane names only the newest; the rest are a count. Open, the lines name them.
-  const named = !open && foldHead !== "counts" && newest.length > 0;
+  // By kind (the default), it counts what runs by kind, each with its oldest one's time, "2 subagents
+  // 4m / 2 waits 30s" (trayKinds.ts), so the header's one time would repeat one of them.
+  const byKind = !open && foldHead === "kinds" && kinds.length > 0;
+  const named = !open && (foldHead === "one" || foldHead === "two") && newest.length > 0;
   const shownNames = named ? newest.slice(0, foldHead === "one" || oneName ? 1 : 2) : [];
-  const headText = named ? shownNames.join(" · ") : title;
+  const headText = byKind ? trayKindsText(t, kinds, now, formatDuration) : named ? shownNames.join(" · ") : title;
   const moreCount = items.length - shownNames.length;
   // Keep live and ended cards in one keyed child list. When a task completes, its card moves
   // between groups without remounting, so keyboard focus and the open affordance stay put.
@@ -442,13 +448,20 @@ export const SubagentTray = memo(function SubagentTray({
           >
             <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
           </span>
-          <Tick className="acpmux-summary-text acpmux-running-tray__title" text={headText} steadyCounts />
+          {/* By kind, the times tick in the text: it changes in place, never through the word motion. */}
+          {byKind ? (
+            <span className="acpmux-summary-text acpmux-running-tray__title" data-by-kind="">
+              {headText}
+            </span>
+          ) : (
+            <Tick className="acpmux-summary-text acpmux-running-tray__title" text={headText} steadyCounts />
+          )}
           {named && moreCount > 0 && (
             <span className="acpmux-summary-meta acpmux-running-tray__more">{t("tools.more", { n: moreCount })}</span>
           )}
           {/* Quiet meta right after the counts, never a column of its own far from them. */}
-          <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
-            {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
+          <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0 || byKind}>
+            {starts.length > 0 && !byKind ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
           </span>
           {/* The panel button's room, in the lines' Stop column: the button lies over it, outside the
               header's own button (a button holds no button). */}

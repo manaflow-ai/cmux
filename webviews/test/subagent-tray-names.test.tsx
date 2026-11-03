@@ -82,8 +82,9 @@ const command = (id: string, line: string, startedAgo: number, description?: str
   ...(description ? { description } : {}),
 });
 
-async function head(agents: Subagent[], commands: BackgroundCommand[]) {
+async function head(agents: Subagent[], commands: BackgroundCommand[], arm?: string) {
   resetTrayOpenMemory();
+  scope.cmuxExperiments = arm ? { "subagent-tray-fold-head": arm } : undefined;
   const host = dom.window.document.getElementById("root")!;
   const root = createRoot(host);
   const items = trayItems(agents, commands, [], true);
@@ -94,8 +95,12 @@ async function head(agents: Subagent[], commands: BackgroundCommand[]) {
   return {
     button,
     title: () => button.querySelector(".acpmux-running-tray__title")?.textContent,
+    time: () => button.querySelector(".acpmux-running-tray__time")?.textContent ?? "",
     more: () => button.querySelector(".acpmux-running-tray__more")?.textContent ?? "",
-    done: async () => act(async () => root.unmount()),
+    done: async () => {
+      await act(async () => root.unmount());
+      scope.cmuxExperiments = undefined;
+    },
   };
 }
 
@@ -104,6 +109,7 @@ describe("the folded running bar names what runs", () => {
     const bar = await head(
       [agent("a1", "Explore how the daemon updates itself", 4_000)],
       [command("c1", "cd ~/app && bun test --watch", 2_000, "Watch the tests")],
+      "one",
     );
     try {
       expect(bar.button.getAttribute("aria-expanded")).toBe("false");
@@ -121,6 +127,7 @@ describe("the folded running bar names what runs", () => {
     const bar = await head(
       [agent("a1", "Review the tray", 9_000)],
       [command("c1", "cd ~/Projects/app && bun run dev", 1_000)],
+      "one",
     );
     try {
       expect(bar.title()).toBe("bun run dev");
@@ -140,10 +147,52 @@ describe("the folded running bar names what runs", () => {
         command("c1", "bun run dev", 30_000, "Run the dev server"),
         command("c2", "bun run lint", 1_000, "Lint the web"),
       ],
+      "one",
     );
     try {
       expect(bar.title()).toBe("Lint the web");
       expect(bar.more()).toBe("+4 more");
+    } finally {
+      await bar.done();
+    }
+  });
+});
+
+// Leo, 2026-11-03: "you can split up commands/waits/bg tasks/subagents/maybe agent sessions you
+// expect something from ... so you can fit that all in counts of stuff and maybe times all in one
+// line like a \ b \ c or a | b| c or a / b / c". By kind is the default arm.
+describe("the folded running bar counts what runs by kind, with times", () => {
+  test("each kind's count and its oldest one's time, on one line, in kind order", async () => {
+    const bar = await head(
+      [agent("a1", "Review the tray", 245_000), agent("a2", "Review the fold", 30_000)],
+      [
+        command("c1", "cd ~/app && bun run dev", 725_000, "Run the dev server"),
+        command("c2", "glaeda-gh wait run 123 --sha abc", 40_000, "Wait for CI"),
+        command("c3", "sleep 30 && gh pr view 12", 12_000),
+        command("c4", "acpmux send tests 'run the suite'", 9_000),
+        command("c5", "bun run lint", 5_000, "Lint the web"),
+      ],
+    );
+    try {
+      expect(bar.title()).toBe("2 subagents 4m 5s / 1 message 9s / 2 waits 40s / 1 server 12m 5s / 1 command 5s");
+      // The kinds carry the times, so the header's one time and +N are not drawn.
+      expect(bar.time()).toBe("");
+      expect(bar.more()).toBe("");
+      // Open, the header goes back to its counts.
+      await act(async () => bar.button.click());
+      expect(bar.title()).toBe("2 subagents running · 5 commands");
+    } finally {
+      await bar.done();
+    }
+  });
+
+  test("only kinds that run are named", async () => {
+    const bar = await head(
+      [],
+      [command("c1", "gh run watch 991", 3_000), command("c2", "tail -f /tmp/build.log", 70_000, "Follow the build")],
+    );
+    try {
+      expect(bar.title()).toBe("2 waits 1m 10s");
     } finally {
       await bar.done();
     }
