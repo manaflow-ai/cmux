@@ -651,10 +651,10 @@ fn exec(runner: &mut dyn Runner, machine: &str, script: &str) -> Result<String, 
     Ok(at(&result, "stdout").as_str().unwrap_or_default().to_owned())
 }
 
-/// The shell words that set `f` to the prompt file of `session` on the machine (after
+/// The shell words that set `f` to the prompt file `name` on the machine (after
 /// [`GUEST_PRELUDE`], which sets `HOME`): `f=...; `.
-fn prompt_file(session: &str) -> String {
-    let name: String = session
+fn prompt_file(name: &str) -> String {
+    let name: String = name
         .chars()
         .map(|ch| if ch.is_ascii_alphanumeric() || "-_.".contains(ch) { ch } else { '_' })
         .collect();
@@ -674,7 +674,7 @@ fn command_too_long(error: &Value) -> bool {
 }
 
 /// Writes `prompt` to the session's prompt file on the machine (0600, in the work user's
-/// `~/.cmux/prompts`), one `cloud exec` per piece, each piece's base64 decoded there and
+/// `~/.cmux/prompts`, a file of this upload's own), one `cloud exec` per piece, each piece's base64 decoded there and
 /// appended. There is no limit on the prompt: a route that refuses a large piece as too long a
 /// command gets small ones, as many as it takes. Answers the [`prompt_file`] words for the send.
 pub(super) fn upload_prompt(
@@ -684,7 +684,8 @@ pub(super) fn upload_prompt(
     prompt: &[u8],
 ) -> Result<String, Value> {
     use base64::Engine as _;
-    let file = prompt_file(session);
+    // A file of this upload's own: two starts can share a session id, and neither may send the other's text.
+    let file = prompt_file(&format!("{session}-{}", uuid::Uuid::new_v4().simple()));
     let mut piece = PROMPT_PIECE_BYTES;
     let mut sent = 0;
     while sent < prompt.len() {
