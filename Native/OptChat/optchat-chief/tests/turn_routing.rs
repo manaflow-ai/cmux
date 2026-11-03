@@ -30,7 +30,11 @@ fn routing_changes_each_turn_and_records_the_pick() {
     ] {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("engine.json");
-        let saved = json!({"model": "saved-model", "effort": "medium", "turn_routing": routing});
+        let mut saved =
+            json!({"model": "saved-model", "effort": "medium", "turn_routing": routing});
+        if routing == "default" {
+            saved.as_object_mut().unwrap().remove("turn_routing");
+        }
         std::fs::write(&file, saved.to_string()).unwrap();
         let mut s = settings(dir.path());
         s.engine_file = Some(file.clone());

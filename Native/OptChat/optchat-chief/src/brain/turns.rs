@@ -1086,16 +1086,27 @@ impl Brain {
     }
 
     fn turn_engine_choice(&mut self, items: &[Queued]) -> crate::engine::TurnEngine {
-        let (mut engine, unknown, routing) = self.next_engine();
+        let (mut engine, unknown, choice) = self.next_engine();
         if let Some(named) = unknown {
             (self.log)(&format!(
                 "engine.json names harness {named}, which acpmux does not have; this turn runs on {}",
                 engine.harness
             ));
         }
-        self.turn_engine = Some(engine.clone());
         self.turn_spawn_engine = Some(engine.clone());
-        self.route_turn(items, &mut engine, routing);
+        // The native engine has its own defaults. Resolve them for this turn's
+        // request and receipts without changing what subagents inherit.
+        if let super::Engine::Native(native) = &self.settings.engine {
+            let (model, effort) = native.defaults();
+            engine.model = choice.model.clone().or_else(|| Some(model.to_owned()));
+            engine.effort = choice.effort.clone().or_else(|| effort.map(str::to_owned));
+        }
+        self.turn_engine = Some(engine.clone());
+        self.route_turn(
+            items,
+            &mut engine,
+            choice.turn_routing.as_deref() == Some("auto"),
+        );
         engine
     }
 

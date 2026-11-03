@@ -436,6 +436,10 @@ pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
                 file.display(),
                 serde_json::to_string(&choice).expect("json")
             );
+            out.push_str(&format!(
+                "turn routing: {}\n",
+                choice.turn_routing.as_deref().unwrap_or("off")
+            ));
             // The CLI each role runs, as the host resolved it at its start.
             match load_resolved(&home) {
                 Some(r) => {
