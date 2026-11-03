@@ -1324,6 +1324,57 @@ card and traces each refusal; a refused request repeated three times ends
 the turn with a line; a child or a section 9 subagent spawned in such a turn
 takes the floor and is refused without a question).
 
+## Multiplayer rights, audit and caps
+
+Design: cmuxterm-hq `plans/multiplayer-chief/DESIGN.md` (Lawrence's rights
+table, `/audit` and `/cap`) and leo-workspace `design/multiplayer-chief.md`.
+Code: `src/rights.rs`, `src/audit.rs`, `src/brain/rights_gate.rs`. On by
+default; `OPTCHAT_RIGHTS=0` turns it off (the floor above still holds).
+
+**Who may prompt.** Watching a shared Chief is always allowed. Another
+person's prompt runs on the owner's model login, so it runs only when the
+owner declared a commercial login (`/auth api-key|bedrock|vertex|foundry|team|enterprise`)
+and listed that person in `$MUX_HOME/optchat/rights.json`. On a personal
+subscription (the default, and what an undeclared login counts as) another
+person's message is a suggestion: the host answers "Not run: ... a suggestion"
+and no turn runs. A request from another person's Chief is held to the same
+rule on this Chief's login.
+
+**What they may trigger.** A listed person's turn still runs under the ask
+floor. Each tool call passes the turn session's hook (`optchat-chief
+rights-hook pre|post`, put in the turn folder's project settings): the host
+allows a call every non-owner author of the turn holds a grant for
+(`Read(/dir/*)`, `Bash(ls*)` and other read-only commands with plain
+arguments only, `WebFetch`,
+`mcp__server__*`), and denies the rest. A hook that cannot reach the host
+gives no answer, so the call reaches the floor and is refused (fail closed).
+No grant writes `$MUX_HOME/optchat` (the table, the audit). An approver
+(`/approver PERSON on`, the owner only; never a Chief) runs as the owner.
+
+**Audit.** `$MUX_HOME/optchat/audit/audit.jsonl`: every call of every turn
+(before: allow or deny and why; after: the output's SHA-256 and size), every
+refusal, every rights change and each turn's spend, with who, the turn, the
+host and the cwd. Each record carries the hash of the one before it;
+`optchat-chief audit verify` (or `/audit verify`) walks the chain. `/audit
+[N] [PERSON]` in chat: the owner and approvers see everything, anyone else
+their own records.
+
+**Caps.** `/cap USD|off` (the Chief, every turn) and `/cap PERSON USD|off`
+(a person's turns), per local day, from the audit's `spend` records. A
+message over a cap gets one line and no turn; `/cap` itself always answers.
+
+**Chat commands** (answered by the host, no turn): `/rights`, `/audit`,
+`/grant PERSON PATTERN...`, `/revoke PERSON [PATTERN...]`, `/approver PERSON
+on|off`, `/cap ...`, `/auth KIND|auto`. The CLI does the same:
+`optchat-chief rights ...`, `optchat-chief audit [verify|head]`.
+
+**Chief to Chief across people.** A peer Chief's message (peer_chiefs.rs) is
+`chief:<name>`'s request: stamped with the person the owner says it acts for
+(`owner` in its table entry, never the request's word), run under the floor
+with that Chief's grants, and answered with `tell("chief:<name>")`, the one
+`tell` its turn may make. A Chief in a shared group conversation is
+`chief:<participant>` the same way.
+
 ## Deviations from the spec
 
 Taelin's updated recipe (gist 3c190e0, 2026-10-08) is followed for the view
@@ -1556,6 +1607,11 @@ manifest; host.json does not move. A sealed home (`optchat/MOVED`) never starts 
 pinned binaries (optchat-chief, cmux-tui, acpmux and the Rust `cmux` CLI, all from one
 build; the CLI beside optchat-chief is what the Chief's and its subagents' `cmux` calls run);
 `deploy/brain/rollback.sh` removes them and keeps the memory and key.
+
+On a shared Linux box (a fleet VM, a cmux Cloud machine), `deploy/linux-box/install.sh` installs
+the same three processes as hardened systemd units under their own user, with one CPU and
+memory cap over the Chief and its agents, and the `chief-box` command for pairing, the rights
+table and the audit log (`deploy/linux-box/README.md`).
 
 ## Link previews
 

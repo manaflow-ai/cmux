@@ -8,7 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ContextRing } from "./ComposerPickers";
-import { contextSegments } from "./ContextCard";
+import { cacheTimeLeft, contextSegments } from "./ContextCard";
 import { translate } from "./i18n";
 
 let dom: JSDOM | undefined;
@@ -361,4 +361,32 @@ test("the ring takes no hover or open pill in any stylesheet", () => {
       offenders.push(`${ringStates.join(", ")} -> ${fill[1]}`);
   }
   expect(offenders).toEqual([]);
+});
+
+test("the cache line counts down to acpmux's expiry and stops at it", async () => {
+  let clock = 1_000_000;
+  const now = () => clock;
+  const ring = await mount({ used: 316_900, size: 399_100, cacheExpiresAt: clock + 1_500, now });
+  await act(async () => ring.focus());
+  await wait();
+  const line = () => card()!.querySelector<HTMLElement>(".acpmux-context-card-cache");
+  expect(line()!.textContent).toBe(translate("context.cacheWarm", { left: "0:02" }));
+  expect(line()!.dataset.state).toBe("soon");
+  clock += 2_000;
+  await until(() => line()!.dataset.state === "expired", 2_500);
+  expect(line()!.textContent).toBe(translate("context.cacheExpired"));
+});
+
+test("no cache line without an expiry", async () => {
+  const ring = await mount({ used: 111_000, size: 475_000 });
+  await act(async () => ring.focus());
+  await wait();
+  expect(card()!.querySelector(".acpmux-context-card-cache")).toBeNull();
+});
+
+test("time left reads minutes and seconds, rounded up", () => {
+  expect(cacheTimeLeft(192_000)).toBe("3:12");
+  expect(cacheTimeLeft(191_001)).toBe("3:12");
+  expect(cacheTimeLeft(3_130_000)).toBe("52:10");
+  expect(cacheTimeLeft(-5)).toBe("0:00");
 });

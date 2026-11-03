@@ -66,6 +66,16 @@ elif cmd == "encode-app-store-connect-api-key":
     out = opt("-o")
     json.dump({"issuer_id": issuer, "key_id": key_id, "private_key": open(p8).read()}, open(out, "w"))
 elif cmd == "notary-submit":
+    refusals = os.environ.get("FAKE_RATE_LIMITS")
+    left = int(open(refusals).read() or 0) if refusals else 0
+    if left > 0:
+        open(refusals, "w").write(str(left - 1))
+        print('Error: appstore connect error:\nPOST https://appstoreconnect.apple.com/notary/v2/submissions\n'
+              '{"errors": [{"code": "RATE_LIMIT", "detail": "Exceeded daily limit for notarizations. '
+              'Try again in 0:04:11.", "status": "429", "title": "Too many notarizations"}]}')
+        sys.exit(1)
+    if os.environ.get("FAKE_SUBMIT_FAILS"):
+        sys.exit("Error: the submission was rejected")
     key = json.load(open(opt("--api-key-file")))
     ssl("pkey", "-noout", stdin=key["private_key"].encode())
     assert b"\nSIGNED:" in open(argv[-1], "rb").read(), "submitted unsigned"
@@ -165,6 +175,52 @@ class NotarizeDmgTests(unittest.TestCase):
             self.assertNotIn(self.env["ASC_API_KEY_P8_BASE64"], joined)
         # The secrets directory is gone.
         self.assertEqual(sorted(p.name for p in self.tmp.glob("cmux-dmg-signer.*")), [])
+
+    def rate_limited(self, refusals, **env):
+        """Runs notarize-dmg.sh with Apple refusing the first `refusals`
+        submissions as rate limited; a stand-in sleep records each wait."""
+        (self.tmp / "refusals").write_text(str(refusals))
+        tools = self.tmp / "tools"
+        tools.mkdir(exist_ok=True)
+        (tools / "sleep").write_text('#!/bin/sh\necho "$1" >> "$FAKE_SLEEPS"\n')
+        (tools / "sleep").chmod(0o755)
+        self.sleeps = self.tmp / "sleeps"
+        return run(["bash", NOTARIZE_DMG, self.dmg], dict(
+            self.env, PATH=f"{tools}:{self.env['PATH']}", FAKE_RATE_LIMITS=str(self.tmp / "refusals"),
+            FAKE_SLEEPS=str(self.sleeps), **env))
+
+    def submits(self):
+        return [c for c in self.calls() if c["argv"][0] == "notary-submit"]
+
+    def test_waits_out_a_notary_rate_limit_and_submits_again(self):
+        result = self.rate_limited(1)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(self.submits()), 2)
+        # Apple's "Try again in 0:04:11", plus 15 s.
+        self.assertEqual(self.sleeps.read_text().split(), ["266"])
+        self.assertIn("rate limited (429 RATE_LIMIT); submitting again in 266s", result.stderr)
+        self.assertTrue(self.dmg.read_bytes().endswith(b"\nSTAPLED"))
+        self.assertEqual(sorted(p.name for p in self.tmp.glob("cmux-notary-submit.*")), [])
+
+    def test_stops_when_the_rate_limit_outlasts_the_budget(self):
+        result = self.rate_limited(1, CMUX_NOTARY_RATE_LIMIT_SECONDS="200")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(self.submits()), 1)
+        self.assertFalse(self.sleeps.exists())
+        self.assertIn("rate limit asks for 266s more", result.stderr)
+
+    def test_stops_after_the_budget_is_spent_across_refusals(self):
+        result = self.rate_limited(3)
+        self.assertNotEqual(result.returncode, 0)
+        # 266 + 266 fits in 600 s; a third wait would not.
+        self.assertEqual(self.sleeps.read_text().split(), ["266", "266"])
+        self.assertEqual(len(self.submits()), 3)
+
+    def test_does_not_retry_a_failure_that_is_not_a_rate_limit(self):
+        result = self.rate_limited(0, FAKE_SUBMIT_FAILS="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(self.submits()), 1)
+        self.assertFalse(self.sleeps.exists())
 
     def test_refuses_a_signature_for_another_team(self):
         result = run(["bash", NOTARIZE_DMG, self.dmg], dict(self.env, FAKE_TEAM="OTHERTEAM1"))

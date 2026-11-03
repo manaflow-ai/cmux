@@ -10,11 +10,14 @@ import { hoverActions } from "../ui/hoverActions.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
+import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/height.experiment";
 import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutter.experiment";
 import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.experiment";
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
+import { threadMinimapWave } from "../agent-session/acpmux/threadMinimap/wave.experiment";
+import { threadMinimapIncoming } from "../agent-session/acpmux/threadMinimap/incoming.experiment";
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
@@ -23,13 +26,15 @@ import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.exper
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
-import { trayPanelLook, trayRowLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
+import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
+import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
 import { traySurfaceLook } from "../agent-session/acpmux/subagents/traySurface.experiment";
 import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment";
 import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
+import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
 import type { Experiment } from "./experiment";
 
@@ -49,6 +54,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   newTabComposerTrailingGap,
   threadMinimapLit,
   threadMinimapMark,
+  threadMinimapWave,
+  threadMinimapIncoming,
   chatMinimapPlaceholder,
   turnErrorCard,
   pausedMachineResume,
@@ -58,14 +65,18 @@ export const EXPERIMENTS: readonly Experiment[] = [
   toolErrorLook,
   cloudStartLook,
   agentStartLook,
+  liveLineTokens,
   trayPanelLook,
   trayRowLook,
+  trayStopLook,
   trayMotionLook,
   trayHeadLook,
+  trayFoldHeadLook,
   traySurfaceLook,
   chatSwitchMotion,
   liveBackground,
   composerPlusCommands,
+  promptSuggestionLook,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

@@ -1034,6 +1034,7 @@ impl Hub {
                 &meta,
                 crate::claude_stdio::prompt_suggestions::OPTION,
             ));
+            let recap = current_option(&meta, crate::claude_stdio::RECAP_OPTION);
             let mode = meta
                 .modes
                 .as_ref()
@@ -1102,6 +1103,7 @@ impl Hub {
                     effort: effort.clone(),
                     fast,
                     prompt_suggestions: suggestions,
+                    recap: recap.clone(),
                     claude_session_id: known.clone(),
                 };
                 self.spawn_hosted_child(
@@ -1122,6 +1124,7 @@ impl Hub {
                 );
                 *tr.fast.lock().await = fast;
                 tr.prompt_suggestions.store(suggestions, std::sync::atomic::Ordering::SeqCst);
+                tr.set_recap(recap.as_deref());
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);
                 }
