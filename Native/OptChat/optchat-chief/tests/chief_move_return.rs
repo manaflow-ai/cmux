@@ -346,7 +346,12 @@ fn a_cloud_chief_moves_to_another_home_with_what_it_learned_in_the_cloud() {
     let moved: Value =
         serde_json::from_str(&std::fs::read_to_string(src.join("state/moved.json")).unwrap())
             .unwrap();
-    assert_eq!(moved["to"], format!("local:{}", dst.display()));
+    let to = moved["to"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("local:")
+        .unwrap();
+    assert_eq!(std::fs::canonicalize(to).unwrap(), dst);
     assert!(!dst.join("state/moved.json").exists());
 }
 
