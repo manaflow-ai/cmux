@@ -6726,7 +6726,8 @@ function AcpmuxPane() {
   useEffect(() => {
     settleRoute(snapshot.sessionId, authPending);
   }, [authPending, settleRoute, snapshot.sessionId]);
-  const authBlock = isAuthPreflightPending(routeChanging, routeAuthPending, snapshot.sessionId, authPending)
+  const authPreflightPending = isAuthPreflightPending(routeChanging, routeAuthPending, snapshot.sessionId, authPending);
+  const authBlock = authPreflightPending
     ? t("harnesses.checking")
     : authBlocksSend(sessionAuth)
       ? authText(sessionAuth, t)
@@ -14137,7 +14138,9 @@ function AcpmuxPane() {
             closeOnTrustAsk={Boolean(
               trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted"),
             )}
-            authBlock={signInNoticeVisible ? undefined : authBlock}
+            // A preflight still disables sending, but must not insert then remove a checking row
+            // above the already-painted composer. Settled authentication failures keep their notice.
+            authBlock={signInNoticeVisible || authPreflightPending ? undefined : authBlock}
             authBlocked={Boolean(authBlock)}
             accessory={<DictationMic dictation={dictation} />}
             dictating={isWaitingForWords(dictation.state)}
