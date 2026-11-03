@@ -221,6 +221,15 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "chart.bar.xaxis", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // The Messages mirror (webviews/src/pages/imessage): this Mac's Messages conversations, read
+            // only, once `imessage.enabled` is on; the page itself says how to turn it on.
+            ActionDescriptor(
+                id: "imessage.show",
+                title: String(localized: "action.imessage.show", defaultValue: "Messages Mirror", bundle: .module),
+                keywords: ["imessage", "messages", "sms", "texts", "chats", "group chats", "contacts", "mirror"],
+                category: .window, symbol: "message", surfaces: [.palette, .menu], mainMenu: .window,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "palette.toggleDictation",
                 title: String(localized: "action.palette.toggleDictation", defaultValue: "Toggle Dictation", bundle: .module),

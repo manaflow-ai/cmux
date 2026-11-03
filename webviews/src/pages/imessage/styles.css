@@ -1,0 +1,430 @@
+/* The Messages mirror page: the Channels page's two columns (home-channels/ledger.css: a list on
+   the window's material with a hairline, the conversation beside it, the same 44 px headers and
+   16 px insets), with Messages' bubbles in the conversation. Colors come only from the shared web
+   theme; mine is the theme-fixed Messages blue (theme/messages.css, the Home sent bubble's
+   HomeThemePalette.messagesBlue), theirs the foreground at low alpha. Sizes come from the type
+   tokens. */
+.im-page {
+  --im-line: var(--page-separator);
+  --im-pad: 16px;
+  --im-list: clamp(232px, 27vw, 296px);
+  --im-header: 44px;
+  --im-avatar: 32px;
+  --im-radius: 18px;
+  --im-mine: var(--cmux-messages-blue);
+  --im-on-mine: var(--cmux-on-messages-blue);
+  --im-theirs: color-mix(in srgb, var(--page-text) 9%, transparent);
+  --im-on-theirs: var(--page-text);
+  display: grid;
+  grid-template-columns: var(--im-list) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100vh;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.im-page[data-tone="accent"] {
+  --im-mine: var(--cmux-accent, var(--cmux-messages-blue));
+}
+.im-page[data-tone="neutral"] {
+  --im-mine: color-mix(in srgb, var(--page-text) 18%, transparent);
+  --im-on-mine: var(--page-text);
+}
+.im-page.is-state {
+  grid-template-columns: minmax(0, 1fr);
+}
+.im-page > :not(.im-banner) {
+  grid-row: 2;
+}
+
+.im-muted {
+  color: var(--page-text-3);
+}
+
+.im-banner {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  margin: 0;
+  padding: 6px var(--im-pad);
+  border-bottom: 1px solid var(--im-line);
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.im-button {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--im-line);
+  border-radius: 6px;
+  background: var(--page-hover);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  cursor: default;
+}
+.im-button:hover {
+  background: var(--page-selection);
+}
+.im-button:focus-visible {
+  outline: 2px solid var(--cmux-accent, currentColor);
+  outline-offset: 2px;
+}
+
+/* ---------- States ---------- */
+.im-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 32px var(--im-pad);
+  text-align: center;
+}
+.im-state-glyph {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 4px;
+  color: var(--page-text-3);
+}
+.im-state-title {
+  margin: 0;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
+}
+.im-state-body {
+  margin: 0;
+  color: var(--page-text-2);
+}
+.im-state .im-button {
+  margin-top: 8px;
+}
+.im-state-note {
+  margin: 4px 0 0;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+/* ---------- List ---------- */
+.im-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-inline-end: 1px solid var(--im-line);
+}
+.im-list-header {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: var(--im-header);
+  padding: 0 var(--im-pad);
+  flex: none;
+}
+.im-list-title {
+  margin: 0;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
+}
+.im-readonly {
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.im-threads {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 4px 8px 8px;
+  overflow-y: auto;
+  list-style: none;
+}
+/* The row is the control, so its highlight is the row (5 px inset, the menu grid). */
+.im-thread {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: start;
+  cursor: default;
+}
+.im-thread:hover {
+  background: var(--page-hover);
+}
+.im-thread.is-selected {
+  background: var(--page-selection);
+}
+.im-thread:focus-visible {
+  outline: 2px solid var(--cmux-accent, currentColor);
+  outline-offset: -2px;
+}
+.im-avatar {
+  display: grid;
+  place-items: center;
+  width: var(--im-avatar);
+  height: var(--im-avatar);
+  flex: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--page-text) 14%, transparent);
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  font-weight: 600;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.im-avatar svg {
+  width: 18px;
+  height: 18px;
+}
+.im-thread-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.im-thread-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.im-thread-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+  font-weight: 600;
+}
+.im-thread-name,
+.im-thread-preview,
+.im-conversation-title,
+.im-conversation-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.im-group-mark {
+  display: inline-flex;
+  flex: none;
+  color: var(--page-text-3);
+}
+.im-group-mark svg {
+  width: 14px;
+  height: 14px;
+}
+.im-thread-time {
+  flex: none;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+  font-variant-numeric: tabular-nums;
+}
+.im-thread-preview {
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+/* ---------- Conversation ---------- */
+.im-conversation {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.im-conversation-empty {
+  align-items: center;
+  justify-content: center;
+}
+.im-conversation-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--im-header);
+  padding: 0 var(--im-pad);
+  flex: none;
+  border-bottom: 1px solid var(--im-line);
+}
+.im-conversation-header .im-avatar {
+  --im-avatar: 24px;
+  font-size: var(--text-caption);
+}
+.im-conversation-header .im-avatar svg {
+  width: 14px;
+  height: 14px;
+}
+.im-conversation-heading {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.im-conversation-title {
+  font-weight: 600;
+}
+.im-conversation-subtitle {
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.im-scroller {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-anchor: none;
+  padding: 8px var(--im-pad) 16px;
+  user-select: text;
+}
+.im-conversation-note {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 48px 0 0;
+  text-align: center;
+}
+.im-conversation-note p {
+  margin: 0;
+}
+.im-older {
+  margin: 0 0 8px;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  text-align: center;
+}
+.im-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.im-day {
+  margin: 16px 0 8px;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+  text-align: center;
+}
+.im-message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  max-width: min(72%, 560px);
+  margin-top: 2px;
+}
+.im-message.first {
+  margin-top: 8px;
+}
+.im-message.mine {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.im-sender {
+  padding: 0 12px;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.im-bubble {
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: var(--im-radius);
+  background: var(--im-theirs);
+  color: var(--im-on-theirs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.im-message.mine .im-bubble {
+  background: var(--im-mine);
+  color: var(--im-on-mine);
+}
+/* A run's bubbles share their inner corners, as Messages draws them. */
+.im-message.theirs:not(.first) .im-bubble {
+  border-start-start-radius: 6px;
+}
+.im-message.theirs:not(.last) .im-bubble {
+  border-end-start-radius: 6px;
+}
+.im-message.mine:not(.first) .im-bubble {
+  border-start-end-radius: 6px;
+}
+.im-message.mine:not(.last) .im-bubble {
+  border-end-end-radius: 6px;
+}
+.im-bubble.is-unsupported {
+  background: transparent;
+  border: 1px dashed var(--im-line);
+  color: var(--page-text-3);
+  font-style: italic;
+}
+.im-message.mine .im-bubble.is-unsupported {
+  background: transparent;
+  color: var(--page-text-3);
+}
+.im-attachments {
+  display: flex;
+  flex-direction: column;
+  align-items: inherit;
+  gap: 2px;
+}
+.im-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--im-line);
+  border-radius: 12px;
+  color: var(--page-text);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.im-attachment-glyph {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--page-text-2);
+}
+.im-attachment-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.im-attachment-type {
+  flex: none;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+}
+
+/* A narrow pane keeps the conversation: the list shrinks to its avatars. */
+@media (max-width: 520px) {
+  .im-page {
+    --im-list: 64px;
+  }
+  .im-list-header,
+  .im-thread-main {
+    display: none;
+  }
+  .im-thread {
+    justify-content: center;
+  }
+}
