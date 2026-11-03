@@ -196,6 +196,7 @@ import { acpmuxPerf, type MountedSpan } from "./perf";
 import {
   drawsAsIs,
   drewStreamingRow,
+  onStreamingRowBlocked,
   setStreamingRowBlocked,
   streamingRow,
   streamingRowBlocked,
@@ -9527,6 +9528,27 @@ function AcpmuxPane() {
   /// The direct client's snapshot the pane last drew; a newer one that only grows the streaming
   /// reply's text goes to that row instead (streamingRow.ts).
   const drawnSnapshot = useRef<AcpmuxSnapshot | undefined>(undefined);
+  // Find or an artifact opened while a chunk is held (streamingRow.ts): the pane draws the newest
+  // snapshot the client sent, so that view reads the newest rows at once.
+  useEffect(
+    () =>
+      onStreamingRowBlocked(() => {
+        const newest = snapshotRef.current;
+        streamingRow.clear();
+        if (!newest) return;
+        drawnSnapshot.current = newest;
+        // As the client's listener draws it (a hand-off record the pane holds stays).
+        setSnapshot((previous) =>
+          newest.canHandoff &&
+          !newest.handoff?.ready &&
+          newest.sessionId === previous.sessionId &&
+          previous.handoff?.record
+            ? { ...newest, handoff: { ...newest.handoff, record: previous.handoff.record } }
+            : newest,
+        );
+      }),
+    [],
+  );
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
   /// The chat menu shows New side chat: the right-click menu then opens one from any turn that forks.

@@ -76,9 +76,25 @@ export function useStreamingRow(active: boolean): StreamingRow | undefined {
 /// so that view stays exact (review of #34004).
 const blockedBy = new Set<string>();
 
+/// The pane's draw of its newest snapshot (App.tsx), asked for when a block turns on while a chunk
+/// is held here, so the view that turned it on reads the newest rows at once.
+let drawNewest: (() => void) | undefined;
+
+export function onStreamingRowBlocked(draw: () => void): () => void {
+  drawNewest = draw;
+  return () => {
+    if (drawNewest === draw) drawNewest = undefined;
+  };
+}
+
 export function setStreamingRowBlocked(blocked: boolean, by: string): void {
-  if (blocked) blockedBy.add(by);
-  else blockedBy.delete(by);
+  if (!blocked) {
+    blockedBy.delete(by);
+    return;
+  }
+  const was = blockedBy.size > 0;
+  blockedBy.add(by);
+  if (!was && current !== undefined) drawNewest?.();
 }
 
 export function streamingRowBlocked(): boolean {
