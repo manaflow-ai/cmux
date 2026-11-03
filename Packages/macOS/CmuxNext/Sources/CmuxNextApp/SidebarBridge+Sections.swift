@@ -112,7 +112,6 @@ extension SidebarBridge {
                                           workspace: { workspaces[$0] }, chiefPicture: picture,
                                           chiefImage: picture.flatMap(uploads.image(at:)))
                 if model.itemInfo != infos { model.itemInfo = infos }
-                if model.newWorkspaceShortcut != shortcuts["newTab"] { model.newWorkspaceShortcut = shortcuts["newTab"] }
                 let suppressed = AppPresence(apps.apps).suppressed
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
             }
