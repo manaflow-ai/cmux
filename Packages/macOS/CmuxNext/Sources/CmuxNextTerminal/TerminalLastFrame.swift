@@ -8,7 +8,8 @@ import IOSurface
 /// copy, no readback. A frame the system purged shows nothing: the pane attaches as before.
 @MainActor
 public final class TerminalLastFrame {
-    private let surface: IOSurface
+    /// Internal for tests that check which frame the store kept (SWITCH FRAMES item 2: the newest frame at hide time).
+    let surface: IOSurface
     /// Readers that need the pages now (hover card renders); the frame is volatile only while none
     /// holds it and no new surface took it.
     private var pins = 0
