@@ -221,6 +221,12 @@ import Testing
         #expect(read.marksSettled)
         #expect(read.placeholder == placeholder)
         #expect(read.adopted == [marked])
+        #expect(read.markPlaceholder)
+
+        _ = try tmux.run(["set-option", "-w", "-t", placeholder, RemoteTmuxViewSession.optPlaceholder, "1"])
+        let placed = try tmux.run(["list-windows", "-t", "=view", "-F", format]).split(separator: "\n").map(String.init)
+        #expect(!RemoteTmuxViewConnection.readBringupRows(placed).markPlaceholder)
+        #expect(RemoteTmuxViewConnection.readBringupRows(placed).placeholder == placeholder)
     }
 
     /// Owning an adopted window waits for tmux's answer to its link, not for the write to queue.
@@ -248,6 +254,11 @@ import Testing
         completions[1](false)
         #expect(owned == ["@7"])
         #expect(failed == ["@8"], "a refused link is reported, so the view can try again")
+        #expect((1...RemoteTmuxViewConnection.maxAdoptionRetries).allSatisfy {
+            RemoteTmuxViewConnection.shouldRetryAdoption(failures: $0)
+        })
+        #expect(!RemoteTmuxViewConnection.shouldRetryAdoption(
+            failures: RemoteTmuxViewConnection.maxAdoptionRetries + 1))
     }
 
     /// The writes that link or mark view windows, each sent on the view's control stream.
@@ -350,6 +361,9 @@ import Testing
         let read = RemoteTmuxViewConnection.readBringupRows(rows)
         #expect(read.placeholder == "@0")
         #expect(read.adopted == ["@1"])
+        #expect(!read.markPlaceholder)
+        #expect(RemoteTmuxViewConnection.readBringupRows(["@0 0  1 ", "@1 1 1 1 "]).markPlaceholder,
+                "a view whose placeholder has no mark yet gets one")
     }
 }
 

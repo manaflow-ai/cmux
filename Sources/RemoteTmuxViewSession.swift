@@ -41,6 +41,10 @@ struct RemoteTmuxViewSession: Equatable, Sendable {
     /// can tell those apart from windows that were created in the view by somebody else.
     static let optLinked = "@cmux_view_linked"
 
+    /// Window option on the view's placeholder, the window the view was created with, so a
+    /// bringup finds it wherever later windows have put it.
+    static let optPlaceholder = "@cmux_view_placeholder"
+
     /// Session option a bringup sets on the view once every window cmux linked into it carries
     /// ``optLinked``. A view without it was left by a cmux that set no marks.
     static let optMarksSettled = "@cmux_view_marks_settled"

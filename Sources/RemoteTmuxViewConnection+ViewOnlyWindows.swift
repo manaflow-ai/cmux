@@ -8,26 +8,33 @@ extension RemoteTmuxViewConnection {
     /// Each link and its mark go out as one command sequence, and `onLinked` gets the window when
     /// tmux answers the link with `%end`. From then on the window is cmux's: if its new session is killed
     /// later it is cleaned up instead of adopted again. A link tmux refuses leaves the window
-    /// unmarked and unowned, so no reconcile destroys it with `unlink-window -k`.
+    /// unmarked and unowned, so no reconcile destroys it with `unlink-window -k`, and `onFailed`
+    /// gets the window.
     nonisolated static func adopt(
         _ adoptions: [RemoteTmuxViewOnlyWindows.Adoption],
         send: ([String], @escaping (Bool) -> Void) -> Bool,
         onLinked: @escaping (String) -> Void,
-        onFailed: @escaping (String) -> Void = { _ in }
+        onFailed: @escaping (String) -> Void
     ) {
         for (adoption, command) in zip(adoptions, RemoteTmuxViewOnlyWindows.linkCommands(adoptions)) {
             _ = send(command) { linked in
-                if linked { onLinked(adoption.windowId) }
+                if linked { onLinked(adoption.windowId) } else { onFailed(adoption.windowId) }
             }
         }
     }
 
-    /// ``adopt(_:send:onLinked:)`` on the view's control stream.
+    /// ``adopt(_:send:onLinked:onFailed:)`` on the view's control stream.
     static func adopt(
         _ adoptions: [RemoteTmuxViewOnlyWindows.Adoption],
         on connection: RemoteTmuxControlConnection,
-        onLinked: @escaping (String) -> Void
+        onLinked: @escaping (String) -> Void,
+        onFailed: @escaping (String) -> Void = { _ in }
     ) {
-        adopt(adoptions, send: { connection.sendSequence($0, firstCommandResolved: $1) }, onLinked: onLinked)
+        adopt(
+            adoptions,
+            send: { connection.sendSequence($0, firstCommandResolved: $1) },
+            onLinked: onLinked,
+            onFailed: onFailed
+        )
     }
 }
