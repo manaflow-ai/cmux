@@ -16,6 +16,7 @@
 // it again, or, where acpmux cannot, the line asks the chat's agent to ("Ask parent to retry").
 // A refusal leaves a short note after the line until the row next changes.
 import { createContext, useContext, useState } from "react";
+import { experimentArm } from "../../../experiments/experiment";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { AgentTag } from "../conversation/AgentTag";
 import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRow";
@@ -32,6 +33,7 @@ import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type SessionRetryFields } from "./retryState";
 import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
 import { subagentDisplayName, subagentTaskLabel, useSubsessionInfo } from "./subsessions";
+import { failedLineLook } from "./failedLine.experiment";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -50,6 +52,14 @@ export const RetryAffordanceContext = createContext<RetryAffordance>("button");
 const PLACEHOLDER_TASKS = new Set(["Workflow", "Agent"]);
 
 const ACTION_LABEL: Record<RetryAction, StringKey> = { daemon: "retry.action", ask: "retry.askParent" };
+
+/// A failure's reason as a failed line shows it: its first sentence, the rest in the tooltip and the
+/// button's name ("Agent terminated early due to an API error. Retry with …" reads its first part).
+export function shortReason(error: string): string {
+  const line = error.trim().split("\n")[0]!.trim();
+  const sentence = /^(.+?[.!?])(?:\s|$)/u.exec(line);
+  return (sentence ? sentence[1]! : line).replace(/[.]$/u, "");
+}
 
 export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
   // Only a sub-session's line reads the session list (its retry is on its own session row): the
@@ -77,6 +87,8 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   // until the row changes (acpmux's next word on it), so it can't go twice; acpmux refuses a second
   // one of its own as `retry.busy` meanwhile.
   const [note, setNote] = useState<{ version: number; key?: RetryNote; busy?: boolean }>();
+  // How a failed line reads (failedLine.experiment.ts): the quiet grid by default.
+  const [failedLook] = useState(() => experimentArm(failedLineLook));
   const open = pane ?? nav;
   if (!agent) return null;
   // The row's retry, as every surface reads it (retryState.ts ``subagentRetry``).
@@ -113,6 +125,16 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   // button's name still read the whole line with it.
   const whole = (waiting ? parts : [...head, time, ...(error ? [error] : [])]).join(" · ");
   const shown = note?.version === row.version ? note : undefined;
+  // A failed line in the quiet looks (Leo, 2026-11-03: "this ui is pretty awkward looking"): its
+  // title in plain text and its reason muted, red only on its mark; the grid arm also lines its
+  // columns up from row to row: mark | title | short reason | Retry | time.
+  const failed = agent.state === "failed" && !waiting;
+  const look = failed ? failedLook : undefined;
+  const quiet = look === "grid" || look === "quiet";
+  const reason = [
+    ...(phase.kind === "failed" && phase.gaveUp ? [t("retry.retriedOut", { of: phase.gaveUp.of })] : []),
+    ...(error ? [shortReason(error)] : []),
+  ].join(" · ") || t("subagents.state.failed");
   const run = () => {
     if (!retryAgent || shown?.busy) return;
     setNote({ version: row.version, busy: true });
@@ -136,7 +158,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
     <div className="cv-tools">
       <TranscriptActivityRowShell
         className="cv-tool cv-subagent-done-row"
-        attributes={{ "data-state": waiting ? "retrying" : agent.state }}
+        attributes={{ "data-state": waiting ? "retrying" : agent.state, ...(look && { "data-look": look }) }}
       >
         <button
           type="button"
@@ -155,7 +177,14 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
               fallback={SUBAGENT_FALLBACK}
             />
           </span>
-          {/* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */}
+          {quiet ? (
+            // tooltip-allow: the line cuts its title and reason; its whole text, the failure included
+            <span className="cv-tool__text cv-subagent-failed__text" title={whole}>
+              <span className="cv-subagent-failed__title">{name}</span>
+              {reason && <span className="cv-subagent-failed__reason">{reason}</span>}
+            </span>
+          ) : (
+          /* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */
           <span className="cv-tool__text cv-agent-activity__sentence" title={whole}>
             {!waiting && before}
             <AgentTag name={name} />
@@ -163,6 +192,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
             {/* Its own box, cut before the chip (subagents.css): the reason and failure go first. */}
             {parts.length > 1 && <span className="cv-subagent-done__suffix">{` · ${parts.slice(1).join(" · ")}`}</span>}
           </span>
+          )}
         </button>
         {inline}
         {shown?.key && <output className="cv-subagent-done__note">{t(shown.key)}</output>}
