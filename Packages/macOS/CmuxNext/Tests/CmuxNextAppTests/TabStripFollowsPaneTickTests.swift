@@ -176,13 +176,15 @@ struct TabStripFollowsPaneTickTests {
         let axis: SplitAxis
         let direction: LayoutDirection
         let anchor: PaneMotionAnchor
-        var testDescription: String {
-            let edge = switch anchor {
-            case .top: "top"
-            case .bottom: "bottom"
+        /// The held content rides the bottom edge (a terminal with its prompt on its last row). A case match, not `==`:
+        /// the anchor's Equatable conformance is main-actor isolated.
+        var ridesBottom: Bool {
+            switch anchor {
+            case .top: false
+            case .bottom: true
             }
-            return "\(axis.rawValue) split, \(direction), content rides the \(edge)"
         }
+        var testDescription: String { "\(axis.rawValue) split, \(direction), content rides the \(ridesBottom ? "bottom" : "top")" }
     }
 
     /// Ctrl-Shift-H and L on p1 | p2; Ctrl-Shift-K and J on p1 over p2, with terminals whose prompt is on the last row
@@ -217,6 +219,43 @@ struct TabStripFollowsPaneTickTests {
             #expect(strays.isEmpty, "\(strays.count) strip frames off their pane in \(frames) frames: \(strays.prefix(6))")
             for (pane, content) in rig.provider.contents {
                 #expect(content.sizes.count <= 1, "\(pane.rawValue)'s content resized \(content.sizes.count) times in one key press: \(content.sizes.prefix(4))")
+            }
+        }
+    }
+
+    /// The key presses whose held content rides the bottom edge (the red cases).
+    nonisolated static let heldKeyPresses: [KeyPress] = keyPresses.filter { $0.ridesBottom }
+
+    /// A held key (film px-5fe33a3 P9: the repeats keep the first press's hold through every retarget, 762 px for 1.7 s):
+    /// three presses 4 frames apart (a key repeat at about 30 Hz) retarget one spring. In every frame of the chain, and at
+    /// its landing's release, each strip is on its pane; the content below each strip lays out at most once for the chain.
+    @Test(arguments: heldKeyPresses)
+    func aHeldKeyKeepsEachStripOnItsPaneThroughEveryRetarget(_ press: KeyPress) throws {
+        try Self.withFrameOwnerSwitch {
+            let rig = Rig(.split("x", axis: press.axis, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")), focused: "p2")
+            defer { rig.window.closeAfterTest() }
+            try #require(rig.strayStrips("at rest").isEmpty, "\(rig.strayStrips("at rest"))")
+            for content in rig.provider.contents.values {
+                content.sizes.removeAll()
+                content.anchor = press.anchor
+            }
+            var strays: [String] = []
+            for repeatIndex in 1...2 {
+                #expect(PaneResize.press("p2", press.direction, model: rig.model, view: rig.root), "press \(repeatIndex) moved nothing")
+                for frame in 1...4 {
+                    try #require(rig.root.advanceFrame(1.0 / 120), "the spring landed before the next repeat (press \(repeatIndex), frame \(frame))")
+                    strays += rig.strayStrips("press \(repeatIndex) frame \(frame) tick")
+                    rig.root.layoutSubtreeIfNeeded()
+                    strays += rig.strayStrips("press \(repeatIndex) frame \(frame) commit")
+                }
+            }
+            #expect(PaneResize.press("p2", press.direction, model: rig.model, view: rig.root), "press 3 moved nothing")
+            let (frames, landing) = rig.runMotion()
+            try #require(frames > 3, "the last press did not spring (\(frames) frames)")
+            strays += landing.map { "press 3 \($0)" }
+            #expect(strays.isEmpty, "\(strays.count) strip frames off their pane in a held key: \(strays.prefix(6))")
+            for (pane, content) in rig.provider.contents {
+                #expect(content.sizes.count <= 1, "\(pane.rawValue)'s content resized \(content.sizes.count) times in one held key: \(content.sizes.prefix(4))")
             }
         }
     }
