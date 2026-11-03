@@ -332,6 +332,9 @@ public final class CreationInputBuffer {
     /// waits, with no terminal lane, and runs again as typed once it shows (REOPEN-F4 browser case).
     public private(set) var awaitsPage = false
 
+    /// A click ends this hold first (red stub).
+    public var keysGoBeforeClick: Bool { false }
+
     /// The hold waits for `content` (``AwaitedContent``): a terminal by its lane on `machine`, a page with no lane.
     public func awaitContent(_ content: AwaitedContent, machine: String?) {
         guard content.hasTerminalLane else { (awaitedTab, awaitsPage) = (content.tab, true); return }

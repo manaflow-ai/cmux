@@ -151,9 +151,9 @@ import Testing
         runtime.handle(.loadStart(browser: 17, url: "https://example.com/?c=1", fromPost: false))
         Self.paint(runtime, 17)
         runtime.handle(.loadEnd(browser: 17, httpStatus: 200))
-        #expect(!tab.pageReady, "ready before Chromium stopped loading")
+        #expect(tab.pageReady, "the main frame's document painted and loaded, and the page is not ready (its subframes may load for seconds)")
         runtime.handle(.loadingState(browser: 17, loading: false, canGoBack: false, canGoForward: false))
-        #expect(tab.pageReady, "loading stopped on a real document, and the page is not ready")
+        #expect(tab.pageReady)
         #expect(reported() == 1)
         let (failing, failed) = try Self.readyTab(runtime, browser: 18)
         runtime.handle(.loadingState(browser: 18, loading: true, canGoBack: false, canGoForward: false))
@@ -247,6 +247,24 @@ import Testing
         runtime.handle(.loadEnd(browser: 27, httpStatus: 200))
         runtime.handle(.loadingState(browser: 27, loading: false, canGoBack: false, canGoForward: false))
         #expect(!twice.pageReady && twiceReported() == 0, "the paint of a document the same load replaced counted for the next one")
+    }
+
+    /// Review of #32633 (6594624994): the hold waited until every frame stopped loading (ads, slow iframes), so on a
+    /// heavy page its keys waited up to the 2 s bound after the page showed and took clicks. Chrome's own signals are the
+    /// main frame's: its document loaded and painted content. An error page is ready at its error.
+    @Test func aPageIsReadyAtItsMainFrameLoadEndAndPaintWhileSubframesStillLoad() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, reported) = try Self.readyTab(runtime, browser: 28, restored: "https://example.com/heavy")
+        runtime.handle(.loadingState(browser: 28, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadStart(browser: 28, url: "https://example.com/heavy", fromPost: false))
+        Self.paint(runtime, 28)
+        runtime.handle(.loadEnd(browser: 28, httpStatus: 200))
+        #expect(tab.pageReady && reported() == 1, "the keys waited for the page's subframes")
+        let (failed, failedReported) = try Self.readyTab(runtime, browser: 29, restored: "https://nowhere.invalid/")
+        runtime.handle(.loadingState(browser: 29, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadError(browser: 29, code: -105, text: "net::ERR_NAME_NOT_RESOLVED", url: "https://nowhere.invalid/", chromiumInterstitial: false))
+        #expect(failed.pageReady && failedReported() == 1, "an error page waited for loading to stop")
     }
 
     /// A shown tab whose browser Chromium created, and a count of its ready-for-keys reports. `restored`: the URL the tab
