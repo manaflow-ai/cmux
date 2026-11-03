@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import Security
 
@@ -21,7 +22,7 @@ public struct CloudTunnelBundleProbe: Sendable {
     @concurrent
     public func availability() async -> CloudTunnelController.Availability {
         let directory = bundleURL.appendingPathComponent("Contents/Library/SystemExtensions", isDirectory: true)
-        let extensions = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        let extensions = (try? FileManager.checked.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         guard let url = extensions.first(where: { $0.pathExtension == "systemextension" }),
               let identifier = Bundle(url: url)?.bundleIdentifier else {
             return .unavailable(String(
