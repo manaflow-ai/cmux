@@ -37,7 +37,7 @@ export default componentEntry<{ state: SlackState }>({
   widths: { narrow: 360, normal: 640, wide: 900 },
   covers: ["pages/settings/components/SlackAccountsCard.tsx"],
   load: async () => SlackRowGallery,
-  styles: () => Promise.all([import("./styles.css"), import("./layout.css"), import("./refined.css")]),
+  styles: () => import("./page.css"),
   variants: {
     disconnected: { props: { state: disconnected } },
     connecting: { props: { state: { ...disconnected, phase: "connecting" } } },
