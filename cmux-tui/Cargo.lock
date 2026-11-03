@@ -1987,6 +1987,13 @@ name = "cmux-url-input"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-view-rows"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "cmux-vm"
 version = "0.1.0"
 dependencies = [

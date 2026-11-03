@@ -222,6 +222,7 @@ extension TabStripView {
         cell.isWindowMain = windowMain.isMain
         cell.isWindowVisible = windowVisibility.isVisible
         cell.isStripShown = isShownInWindow
+        frameFixture.outline(cell)
         let id = item.id
         cell.accessibility.setAccessibilityParent(self)
         cell.accessibility.onPress = { [weak self] in self?.model.send(.select(id)) }

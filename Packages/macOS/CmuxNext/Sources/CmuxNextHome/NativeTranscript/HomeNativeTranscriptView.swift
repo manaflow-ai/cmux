@@ -286,6 +286,12 @@ public final class HomeNativeTranscriptView: NSView {
         set { transcript.onNamePill = newValue }
     }
 
+    /// A small control right after the header's name pill (the Chief's location chip); nil: none.
+    public var headerPillAccessory: NSView? {
+        get { transcript.headerPillAccessory }
+        set { transcript.headerPillAccessory = newValue }
+    }
+
     /// The header's name pill, which the Chief's settings popover opens under.
     public var namePill: NSView { transcript.namePill }
     /// The header views that run ``onNamePill`` (the pill and the avatar).

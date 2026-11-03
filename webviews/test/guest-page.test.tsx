@@ -227,7 +227,7 @@ test("an invite joins as the signed-in account: no name field, and Join accepts 
   expect(joinButton(page.host).disabled).toBe(false);
   await submit(page.host);
   expect(asked).toEqual([{ attempt_id: "a".repeat(32) }]);
-  expect(joined).toEqual([["g1", undefined, "talk"]]);
+  expect(joined).toEqual([["g1", undefined, "talk", "invite"]]);
   await roomFrames();
   expect(page.host.textContent).toContain("Fix the flaky upload retry test");
   expect(page.host.querySelector(".guest-live__dock textarea")).not.toBeNull();
