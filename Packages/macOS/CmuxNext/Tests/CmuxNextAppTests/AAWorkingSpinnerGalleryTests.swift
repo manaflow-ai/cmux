@@ -36,7 +36,7 @@ import Testing
 
     /// The square around the spinner view under `row`, in `crop`'s point space (the crop pads `rowRect` by 6).
     static func spinnerBox(in row: NSView, root: NSView, rowRect: NSRect) throws -> CGRect {
-        let spinner = try #require(spinners(in: row).first { !$0.isHiddenOrHasHiddenAncestor && !$0.bounds.isEmpty },
+        let spinner = try #require(spinners(in: row).first { !$0.isHiddenOrHasHiddenAncestor && $0.indicator.plan.glyph != .none },
                                    "no spinner in \(row)")
         var r = root.convert(spinner.bounds, from: spinner).insetBy(dx: -2, dy: -2)
         let padded = rowRect.insetBy(dx: -6, dy: -6).intersection(root.bounds)
@@ -64,9 +64,8 @@ import Testing
         for key in [SidebarRowKey.workspace(T.busy), .group(T.folded)] {
             let row = try harness.row(key)
             row.layoutSubtreeIfNeeded()
-            for spinner in spinners(in: row) where !spinner.isHiddenOrHasHiddenAncestor {
-                #expect(spinner.indicator.plan.animation == .spin, "\(key): \(spinner.indicator.plan)")
-            }
+            let drawn = spinners(in: row).filter { !$0.isHiddenOrHasHiddenAncestor && $0.indicator.plan.glyph != .none }
+            #expect(!drawn.isEmpty && drawn.allSatisfy { $0.indicator.plan.animation == .spin }, "\(key): \(drawn.map(\.indicator.plan))")
             let rect = root.convert(row.bounds, from: row)
             let image = try AAPinnedNoCloseGalleryTests.crop(root, rect)
             let scale = CGFloat(image.width) / rect.insetBy(dx: -6, dy: -6).intersection(root.bounds).width
