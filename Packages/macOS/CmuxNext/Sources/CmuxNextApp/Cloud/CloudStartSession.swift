@@ -413,7 +413,7 @@ struct CloudStartSession {
     static let connectWait: Duration = .seconds(180)
 }
 
-extension CloudStartSessionRuns.Key {
+extension CloudStartRunKey {
     /// The run of `request` asked by chat `caller` (nil: a person's or a script's) in `account`.
     init(_ request: CloudStartSession.Request, caller: String?, account: [String?]) {
         self.init(machine: request.machineID.map { "id:" + $0 } ?? "name:" + (request.name ?? ""), agent: request.agent, cwd: request.cwd,
