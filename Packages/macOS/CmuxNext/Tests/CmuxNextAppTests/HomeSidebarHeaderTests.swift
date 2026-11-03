@@ -73,6 +73,48 @@ struct HomeSidebarHeaderTests {
         #expect(!home.unreadToggle.isOn)
     }
 
+    /// The user, 2026-11-03 (msg 20156): "somehow i got search to be stuck in this state": a click on the
+    /// filter button left an empty field over "No Results" and no chats, with nothing showing that a
+    /// filter was on. An on filter shows as a chip (Unread ×) under the search row with the list under
+    /// it; the empty list says No Unread Chats over Show All; the chip, Show All and the toggle each
+    /// turn it off, and every chat shows again.
+    @Test func anOnFilterShowsItselfAndTurnsOffFromTheChipOrShowAll() {
+        let off = HomeSidebarHeaderLayout(width: 320, searchOpen: false, filterOn: false)
+        #expect(off.filterChip == .zero)
+        let on = HomeSidebarHeaderLayout(width: 320, searchOpen: false, filterOn: true)
+        #expect(on.filterChip.height == HomeSidebarHeaderLayout.chipHeight)
+        #expect(on.filterChip.minY >= on.search.maxY)
+        #expect(on.listTop == on.filterChip.maxY + HomeSidebarHeaderLayout.chipGap)
+
+        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
+        func laidOut() {
+            home.layoutSubtreeIfNeeded()
+            home.list.headerView.needsLayout = true
+            home.list.headerView.layoutSubtreeIfNeeded()
+        }
+        laidOut()
+        #expect(home.filterChip.isHidden)
+        home.unreadToggle.performClick(nil)
+        laidOut()
+        #expect(!home.filterChip.isHidden)
+        #expect(home.filterChip.frame.minY == home.header.filterChip.minY && home.filterChip.frame.width > 0)
+        let empty = home.list.controller
+        #expect(!empty.noResults.isHidden)
+        #expect(empty.noResults.stringValue == SidebarStrings.noUnread)
+        #expect(!empty.showAll.isHidden)
+        empty.showAll.performClick(nil)
+        laidOut()
+        #expect(!home.unreadOnly && !home.unreadToggle.isOn && home.list.controller.filter == .all)
+        #expect(home.filterChip.isHidden && empty.showAll.isHidden)
+        // The chip turns it off the same way.
+        home.unreadOnly = true
+        laidOut()
+        home.filterChip.performClick(nil)
+        laidOut()
+        #expect(!home.unreadOnly && home.filterChip.isHidden)
+        #expect(home.list.controller.filter == .all)
+    }
+
     /// live-qa on nightly 3a63d6d: in light mode the compose and filter glyphs did not draw at all.
     /// A button has its glyph from the start and at its size as soon as the header sets its frame,
     /// without waiting for the button's own layout pass.
