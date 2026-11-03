@@ -439,7 +439,7 @@ impl Mux {
         // terminal id the caller would retry with; the commit checks it again for races.
         if let Some(pane_id) = &pane_id {
             let registry = self.workspace_registry.lock().unwrap();
-            let state = self.state.lock().unwrap();
+            let state = self.lock_state_pinned(&registry).unwrap();
             resource_topology::ensure_client_pane_id_unused(&state, &registry, pane_id)?;
         }
         let size = self.surface(surface).map(|runtime| runtime.size());
