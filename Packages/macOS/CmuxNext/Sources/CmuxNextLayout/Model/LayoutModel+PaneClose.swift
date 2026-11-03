@@ -183,6 +183,8 @@ extension LayoutModel {
         case var .columns(columns):
             guard let index = columns.firstIndex(where: { $0.root.contains(pane) }) else { return nil }
             if columns[index].hasRows {
+                // A pane in no row (one the rows did not map) leaves with the daemon's tree.
+                guard columns[index].row(containing: pane) != nil else { return nil }
                 releasingChatRole(of: &columns[index], closing: pane)
                 columns[index] = removingRowPane(pane, from: columns[index])
                 // A lone column left with one row is the screen's split tree again
