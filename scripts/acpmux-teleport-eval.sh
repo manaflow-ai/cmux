@@ -25,9 +25,17 @@ word="WORD-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n' | tr a-f A-F)"
 dir="$HOME/teleport-eval/${harness}-${stamp}"
 mkdir -p "$dir"
 
+# This script plays the person who owns the chat: run from inside an agent's session, a send
+# would otherwise arrive as another agent's inbox message, which a careful agent will not answer
+# with a code word. Only the session-identity variables go; the daemon socket stays.
+here() {
+  env -u ACPMUX_SESSION_ID -u ACPMUX_SESSION_NAME -u ACPMUX_SESSION_TOKEN \
+    -u ACPMUX_SESSION_TOKEN_SOCKET -u CLAUDECODE -u CODEX_THREAD_ID "$ACPMUX" "$@"
+}
+
 # Runs acpmux for the chat where it is now: here, or on the ssh peer `$where`.
 on() {
-  if [[ "$where" == local ]]; then "$ACPMUX" "$@"; else
+  if [[ "$where" == local ]]; then here "$@"; else
     local ssh
     ssh="$("$ACPMUX" --json machine ls 2>/dev/null | python3 -I -c '
 import json, sys
@@ -62,7 +70,7 @@ ask() {
 results=()
 where=local
 # `--machine local`: a new chat on a person's Mac is otherwise placed on another machine.
-"$ACPMUX" new -m "$harness" -n "$name" --machine local --cwd "$dir" -d --quiet \
+here new -m "$harness" -n "$name" --machine local --cwd "$dir" -d --quiet \
   "Remember the code word $word. Reply only: ok" >/dev/null
 echo "chat $name ($harness) in $dir, code word $word"
 
