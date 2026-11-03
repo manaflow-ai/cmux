@@ -15,6 +15,7 @@ import { Icon } from "../icons/Icon";
 import { forwardWheel } from "../wheelPassThrough";
 import { BookmarkIcon } from "./BookmarkIcon";
 import { cardOffset, type MinimapTurnMetadata, type ReplyBlock } from "./model";
+import { Button } from "../../../ui/Button";
 import { sliceWhole, sliceWholeEnd } from "../../../ui/wholeChars";
 import { type CoveredCandidates, useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
 
@@ -316,8 +317,10 @@ export const PreviewCard = React.forwardRef<
             <span className="acpmux-minimap__prompt">{prompt}</span>
           )}
           {bookmark && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
+              icon
               className="acpmux-minimap__bookmark"
               aria-pressed={bookmark.marked}
               aria-label={t(bookmark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
@@ -326,7 +329,7 @@ export const PreviewCard = React.forwardRef<
               onKeyDown={scrollKey}
             >
               <BookmarkIcon filled={bookmark.marked} />
-            </button>
+            </Button>
           )}
         </div>
       )}
