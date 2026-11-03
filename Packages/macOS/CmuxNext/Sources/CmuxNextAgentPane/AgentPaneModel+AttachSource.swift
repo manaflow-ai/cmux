@@ -32,12 +32,10 @@ extension AgentPaneModel {
     /// `.zip`), each file used once, by its metadata (`file`); else the pasteboard's `claimed` writer.
     nonisolated static func sources(for names: [String], urls: [URL], claimed: AttachmentSource?,
                                     file: (URL) -> AttachmentSource?) -> [AttachmentSource?] {
-        var left = urls
+        var matcher = AgentPaneDroppedPaths.NameMatcher(urls: urls)
         return names.map { name in
-            guard let index = left.firstIndex(where: { $0.lastPathComponent == name || $0.lastPathComponent + ".zip" == name }) else {
-                return claimed
-            }
-            return file(left.remove(at: index)) ?? claimed
+            guard let index = matcher.take(name) else { return claimed }
+            return file(urls[index]) ?? claimed
         }
     }
 }

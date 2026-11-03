@@ -111,13 +111,14 @@ public final class AgentPaneDroppedPaths {
             return nil
         }
         guard !names.isEmpty, names.count <= record.items else { return nil }
-        var left = record.urls
+        var matcher = NameMatcher(urls: record.urls)
         var picked: [URL] = []
+        picked.reserveCapacity(record.urls.count)
         for name in names {
-            guard let index = left.firstIndex(where: { Self.named($0, name) }) else { continue }
-            picked.append(left.remove(at: index))
+            guard let index = matcher.take(name) else { continue }
+            picked.append(record.urls[index])
         }
-        guard left.isEmpty else { return nil }
+        guard picked.count == record.urls.count else { return nil }
         sourced[kind] = nil
         return (picked, record.claimed)
     }
@@ -138,11 +139,12 @@ public final class AgentPaneDroppedPaths {
         // WebKit hands the page the pasteboard's files in its order: a folder and a zip of the same
         // name (both `name.zip` to the page) stay apart.
         if zip(record.items, names).allSatisfy({ Self.named($0.0.url, $0.1) }) { return record.items }
-        var left = record.items
+        var matcher = NameMatcher(urls: record.items.map(\.url))
         var picked: [Item] = []
+        picked.reserveCapacity(record.items.count)
         for name in names {
-            guard let index = left.firstIndex(where: { Self.named($0.url, name) }) else { return nil }
-            picked.append(left.remove(at: index))
+            guard let index = matcher.take(name) else { return nil }
+            picked.append(record.items[index])
         }
         return picked
     }
@@ -175,6 +177,39 @@ public final class AgentPaneDroppedPaths {
     private static func named(_ url: URL, _ name: String) -> Bool {
         let last = url.lastPathComponent
         return name == last || name == last + ".zip"
+    }
+
+    /// The earliest unused URL for either of its WebKit names, including duplicate basenames.
+    /// Shared consumption across the basename and `.zip` queues prevents an alias from naming a
+    /// file twice. Each candidate is visited at most twice, with no shifting array removals.
+    nonisolated struct NameMatcher {
+        private var candidates: [String: [Int]] = [:]
+        private var next: [String: Int] = [:]
+        private var used: [Bool]
+
+        init(urls: [URL]) {
+            used = Array(repeating: false, count: urls.count)
+            candidates.reserveCapacity(urls.count)
+            for (index, url) in urls.enumerated() {
+                let name = url.lastPathComponent
+                candidates[name, default: []].append(index)
+                candidates[name + ".zip", default: []].append(index)
+            }
+        }
+
+        mutating func take(_ name: String) -> Int? {
+            guard let indices = candidates[name] else { return nil }
+            var offset = next[name, default: 0]
+            while offset < indices.count, used[indices[offset]] { offset += 1 }
+            guard offset < indices.count else {
+                next[name] = offset
+                return nil
+            }
+            let index = indices[offset]
+            used[index] = true
+            next[name] = offset + 1
+            return index
+        }
     }
 
     /// A name the page may ask for: one a folder holds (``AgentPaneUpload/isFileName(_:)``), a dot
