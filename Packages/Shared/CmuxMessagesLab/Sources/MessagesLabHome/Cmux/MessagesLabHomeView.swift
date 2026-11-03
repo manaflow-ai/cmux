@@ -31,6 +31,8 @@ public final class MessagesLabHomeView: NSView {
         if let diagrams { HomeDiagramRowProvider.install(diagrams) }
         // An agent's pipe tables as full-width table and plan cards (Leo 2026-10-20).
         HomeTableRowProvider.install()
+        // Agent-message folds as muted caption lines, not bubbles (user 2026-10-31).
+        HomeAgentFoldRowProvider.install()
         controller = ChatController(wake: wake)
         // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
         projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
@@ -83,11 +85,12 @@ public final class MessagesLabHomeView: NSView {
     /// transcript keeps MessagesLab's metrics: it is laid out at this view's size over the zoom and this view's
     /// bounds draw it magnified, as NSScrollView magnification does, so its text, bubbles and field grow together
     /// and the rows wrap to the narrower width. Its bitmaps render at the window's scale times the zoom, so the
-    /// magnified text stays sharp. Clamped to 0.5-2.
+    /// magnified text stays sharp. Clamped to 0.5-3: Home draws the chat at its default size (1.5) times Agent Chat
+    /// Zoom (0.5-2).
     public var zoom: CGFloat {
         get { controller.host.contentZoom }
         set {
-            let next = newValue.isFinite ? min(max(newValue, 0.5), 2) : 1
+            let next = newValue.isFinite ? min(max(newValue, 0.5), 3) : 1
             guard next != controller.host.contentZoom else { return }
             controller.host.contentZoom = next
             applyZoomBounds()
@@ -183,10 +186,31 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onStop = newValue }
     }
 
+    /// Runs after the daemon accepts a Chief stop, when the stop button
+    /// becomes Continue.
+    public var onContinue: (() -> Void)? {
+        get { controller.onContinue }
+        set { controller.onContinue = newValue }
+    }
+
+    /// Whether the stopped Chief can be continued from the stop button.
+    public var continueAvailable: Bool {
+        get { controller.continueAvailable }
+        set { controller.continueAvailable = newValue }
+    }
+
     /// The host's Stop all agents: Option-click on the stop button.
     public var onStopAll: (() -> Void)? {
         get { controller.onStopAll }
         set { controller.onStopAll = newValue }
+    }
+
+    /// A committed person message in a Chief conversation asks the Chief to
+    /// answer that message again. The app supplies the `chief.retry` bridge;
+    /// ordinary Home conversations leave it unset.
+    public var onChiefRetry: ((MessageID) -> Void)? {
+        get { projection.onChiefRetry }
+        set { projection.onChiefRetry = newValue }
     }
 
     /// The stop button's tooltip while the Chief works; nil: "Stop".
@@ -603,10 +627,16 @@ public final class MessagesLabHomeView: NSView {
 
     /// Automation (DEBUG socket): the field's height and, for the newest
     /// receipt row with a row under it, its top to that row's body (macOS 27
-    /// Messages: the field is 30 pt after a send and 31 pt from the first key; 20 pt).
+    /// Messages: the field is 30 pt after a send and 31 pt from the first key; 20 pt), and
+    /// where the transcript rests (`scrollOffset`, `scrollBottom`, `scrollTop`, `pinned`).
     public func debugGeometry() -> [String: Double] {
         guard let demo = controller.demo else { return [:] }
         var out: [String: Double] = ["fieldHeight": Double(demo.compose.fieldRect.height)]
+        // Where the transcript rests: its offset, the bottom (newest message) and top ends, and the pin.
+        out["scrollOffset"] = Double(demo.collection.contentOffset.y)
+        out["scrollBottom"] = Double(demo.pinnedOffset)
+        out["scrollTop"] = Double(demo.minOffset)
+        out["pinned"] = demo.store.state.ui.scroll.pinnedToBottom && demo.store.state.atNewest ? 1 : 0
         let rows = demo.model.rows
         // crash program: no index math.
         for (i, row) in rows.enumerated().reversed().dropFirst() where !row.ghost {

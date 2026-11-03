@@ -37,15 +37,16 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
     static let textClearance: CGFloat = 8
 
     /// The metrics at `tokens`, with the user's overrides (each clamped into its range).
-    public init(tokens: DensityTokens, height: Double? = nil, fontSize: Double? = nil) {
-        let densityFont = tokens.textSize(compact: TypeScale.field, comfortable: TypeScale.title)
+    /// `textScale` is the caller's live Interface Size multiplier; pure callers keep reference sizes.
+    public init(tokens: DensityTokens, height: Double? = nil, fontSize: Double? = nil, textScale: CGFloat = 1) {
+        let densityFont = tokens.textSize(compact: TypeScale.Base.field, comfortable: TypeScale.Base.title) * textScale
         // Whole points: a fractional bar would sit off the pixel grid.
         let font = fontSize.flatMap { $0.isFinite ? CGFloat(Self.clamp($0, Self.fontSizeRange).rounded()) : nil } ?? densityFont
         let densityHeight = tokens.resolve(compact: 28, comfortable: 34)
         let requested = height.flatMap { $0.isFinite ? CGFloat(Self.clamp($0, Self.heightRange).rounded()) : nil } ?? densityHeight
         barHeight = max(requested, Self.minimumBarHeight(fontSize: font))
         self.fontSize = font
-        buttonSize = tokens.resolve(compact: 28, comfortable: 34)
+        buttonSize = tokens.toolbarButtonSize
         // The chip is the bar less 2 pt on each side. Its glyph draws at `iconRowSize`, about 1.2
         // times this point size (13 -> 16 at Standard), and keeps 2 pt inside the chip, so a short
         // bar shrinks it (a suggestion row centers the glyph on the chip's center).
@@ -64,7 +65,8 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
     /// an Observation-tracked scope (`DensityBinding`) re-applies on a density or override change.
     @MainActor public static var current: OmnibarMetrics {
         let overrides = OmnibarGlassAppearance.current
-        return OmnibarMetrics(tokens: Metrics.tokens, height: overrides.height, fontSize: overrides.fontSize)
+        return OmnibarMetrics(tokens: Metrics.tokens, height: overrides.height, fontSize: overrides.fontSize,
+                              textScale: Typography.userScale)
     }
 
     private static func clamp(_ value: Double, _ range: ClosedRange<Double>) -> Double {

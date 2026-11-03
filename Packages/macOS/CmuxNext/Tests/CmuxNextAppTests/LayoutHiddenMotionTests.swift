@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextTestSupport
 import CmuxNextWakeups
 import Testing
 
@@ -9,6 +10,7 @@ import Testing
 /// showed, the hidden workspace's clock stopped, and showing it again never restarted it. Hiding
 /// a layout now ends its motion where it was going.
 @MainActor
+@Suite(.closesItsWindows)
 struct LayoutHiddenMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
@@ -30,10 +32,13 @@ struct LayoutHiddenMotionTests {
             window.contentView = root
             root.layoutSubtreeIfNeeded()
         }
+
+        func tearDown() { window.closeAfterTest() }
     }
 
     @Test func showingAfterAnInterruptedScreenSwitchFinishesTheTransition() throws {
         let fixture = Screens()
+        defer { fixture.tearDown() }
         let root = fixture.root
         let incoming = try #require(root.screenViews["s2"])
         let outgoing = try #require(root.screenViews["s1"])
@@ -63,6 +68,7 @@ struct LayoutHiddenMotionTests {
 
     @Test func showingAnUnchangedSettledRootLeavesTheDriverIdle() {
         let fixture = Screens()
+        defer { fixture.tearDown() }
         let root = fixture.root
         let moving = root.screenViews.values.contains(where: \.hasMotion)
         #expect(!moving)
@@ -82,6 +88,7 @@ struct LayoutHiddenMotionTests {
         root.context.reduceMotionOverride = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         // The test is the clock: the display link never ticks.

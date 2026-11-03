@@ -30,6 +30,8 @@
 //!   daemon's home or a chat's folder, and the daemon refuses to start an
 //!   agent in the user's home folder unless a person picks it;
 //! - `TMPDIR`: the test process's temp directory (macOS: the per-user one);
+//! - `ACPMUX_SESSION_CPU_CLASS=normal`: a stand-in harness keeps its normal CPU class (see
+//!   [`vars`]);
 //! - `ACPMUX_AGENT_LAUNCH=deny`: no agent starts at all (cx-9ettq). A test
 //!   that drives a stand-in agent (fake_agent.py, fake_claude.py) opts out
 //!   with [`Agents::StandIn`]; it keeps the bare PATH, so only its stand-in
@@ -168,13 +170,11 @@ const _: Process = super::HERMETIC;
 pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
     use std::os::unix::process::CommandExt;
     if std::env::var_os(ENTERED).is_some() {
+        remove_moved_scratch_at_exit();
         return;
     }
     // A folder an earlier process with this pid left is not this one's.
-    // Under Cargo's target tmp, not the temp directory: tests use the temp
-    // directory as a Web root, and a root that holds HOME is dropped.
-    let scratch =
-        Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("amx-proc-{}", std::process::id()));
+    let scratch = scratch_base().join(format!("amx-proc-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&scratch);
     std::fs::create_dir_all(home(&scratch)).unwrap();
     let mut env = vars(&scratch, process.agents, &[]);
@@ -183,6 +183,15 @@ pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
             env.retain(|(k, _)| k != key);
             env.push(((*key).to_owned(), value));
         }
+    }
+    // Threads at the daemon's worker stack (`cli/entry.rs`), not std's 2 MiB: a hub this process
+    // runs polls the same request futures the daemon polls on its workers, and they need more than
+    // 2 MiB in places (a `/btw` side session's start, 2.0-2.3 MiB on Linux CI, 2026-10-31). A test
+    // on a smaller thread than the daemon's would fail on a stack the daemon never has, and one on
+    // a larger thread would pass where the daemon aborts. A host's own RUST_MIN_STACK, kept above,
+    // wins.
+    if !env.iter().any(|(key, _)| key == "RUST_MIN_STACK") {
+        env.push(("RUST_MIN_STACK".into(), acpmux::cli::entry::WORKER_STACK_BYTES.to_string()));
     }
     for (key, value) in process.inject {
         env.retain(|(k, _)| k != key);
@@ -202,6 +211,73 @@ pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
     }
     let err = cmd.args(args).env_clear().envs(env).exec();
     panic!("start {} again with the hermetic environment: {err}", exe.display());
+}
+
+/// Where a test process keeps its scratch folder (and so its HOME): Cargo's target tmp, not the
+/// temp directory, because tests use the temp directory as a Web root and a root that holds HOME
+/// is dropped. But in a folder the daemon guards (`protected_folders.rs`: another volume, as a
+/// fleet Mac's `/Volumes/ephemeral0` build disk, or a checkout in ~/Documents), every test chat
+/// under HOME would be one whose restored queue waits for a person. There the scratch goes to
+/// [`moved_scratch_base`] on the boot volume and is removed when the process exits.
+#[cfg(unix)]
+fn scratch_base() -> PathBuf {
+    let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    // With the host's HOME still: a checkout in ~/Documents is guarded too.
+    if acpmux::protected_folders::unasked_refusal(&target).is_none() {
+        return target;
+    }
+    let base = moved_scratch_base();
+    own_private_dir(&base);
+    base
+}
+
+/// `amx-<uid>` in a boot-volume folder outside the temp directory, the tests' Web root:
+/// `/private/tmp` on macOS (the temp directory there is the per-user folder or a fleet step's
+/// own; `/tmp` links to `/private/tmp`, so the path is the same spelled and resolved), and
+/// `/var/tmp` elsewhere (where the temp directory is often `/tmp`).
+#[cfg(unix)]
+fn moved_scratch_base() -> PathBuf {
+    let tmp = if cfg!(target_vendor = "apple") { "/private/tmp" } else { "/var/tmp" };
+    // SAFETY: getuid has no preconditions and cannot fail.
+    let uid = unsafe { libc::getuid() };
+    PathBuf::from(format!("{tmp}/amx-{uid}"))
+}
+
+/// Makes `dir` owner-only (0700) if missing and refuses one another user owns, so no other
+/// account can read or replace a test's HOME in a shared folder.
+#[cfg(unix)]
+fn own_private_dir(dir: &Path) {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    let _ = std::fs::DirBuilder::new().mode(0o700).create(dir);
+    let meta = std::fs::symlink_metadata(dir).expect("the moved scratch folder");
+    // SAFETY: getuid has no preconditions and cannot fail.
+    let uid = unsafe { libc::getuid() };
+    assert!(meta.is_dir() && meta.uid() == uid, "{} is not a folder of this user", dir.display());
+    let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+}
+
+/// In the hermetic process: when its scratch folder was moved out of Cargo's target tmp
+/// ([`scratch_base`]), removes it at exit, so a fleet host's disk does not fill with one folder
+/// per test process. Only this process's own folder, `amx-proc-<its pid>` (the start again keeps
+/// the pid): a process the test starts from this binary has the same HOME and another pid, and
+/// its exit must not remove its parent's HOME. A process that aborts leaves its folder; the next
+/// process with its pid removes it.
+#[cfg(unix)]
+fn remove_moved_scratch_at_exit() {
+    fn own_moved_scratch() -> Option<PathBuf> {
+        let home = PathBuf::from(std::env::var_os("HOME")?);
+        let own = moved_scratch_base().join(format!("amx-proc-{}", std::process::id()));
+        (home.parent()? == own).then_some(own)
+    }
+    extern "C" fn remove() {
+        if let Some(scratch) = own_moved_scratch() {
+            let _ = std::fs::remove_dir_all(scratch);
+        }
+    }
+    if own_moved_scratch().is_some() {
+        // SAFETY: `remove` takes no arguments and only reads the environment and removes files.
+        unsafe { libc::atexit(remove) };
+    }
 }
 
 /// The readiness line a `daemon run --ready-fd 1` writes on `stdout`. The daemon's log shares
@@ -284,6 +360,11 @@ pub fn vars(scratch: &Path, agents: Agents, tools: &[&str]) -> Vec<(String, Stri
     if agents == Agents::Deny {
         env.push(("ACPMUX_AGENT_LAUNCH".into(), "deny".into()));
     }
+    // Stand-in harnesses at normal CPU class once their start is over, not the product's
+    // background default (`cpu_class.rs`): they time their turns with short sleeps, and at
+    // background class on a loaded fleet Mac (load 13 to 21 on 10 performance cores) a Codex-steer
+    // turn did not end in 18 to 30 s. `tests/cpu_class.rs` sets background itself.
+    env.push((acpmux::cpu_class::ENV.into(), "normal".into()));
     env
 }
 

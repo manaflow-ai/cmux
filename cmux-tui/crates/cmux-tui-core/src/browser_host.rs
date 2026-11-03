@@ -336,7 +336,10 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
 
     let socket = config.socket.as_path();
     let dir = socket.parent().ok_or("the browser host socket has no directory")?;
-    std::fs::create_dir_all(dir)
+    // 0700 for every folder made, the shared `cmux-tui-<uid>` parent too: `create_dir_all`
+    // left it at the umask's 755, and the cmux link refuses a socket folder open to others.
+    std::os::unix::fs::DirBuilderExt::mode(std::fs::DirBuilder::new().recursive(true), 0o700)
+        .create(dir)
         .and_then(|()| std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)))
         .map_err(|error| format!("cannot prepare {}: {error}", dir.display()))?;
     let secret = mint_secret()?;

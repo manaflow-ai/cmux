@@ -1,8 +1,9 @@
 // l10n-allow-file: test fixture prompts, replies and file text, not shipped UI.
 // A finished turn's Edited files card and its diff (cx-ncc.82, Claude parity). The card's header
-// always shows the turn's +/- totals beside one View changes; on a wide pane the diff opens as a
-// column beside the transcript, which stays visible and reflows narrower, and on a narrow pane it
-// covers the transcript as before. The page is the pane's dev entry with its browser host, talking
+// always shows the turn's +/- totals beside one View changes; the diff opens as a column on the right,
+// beside the transcript, which stays visible and reflows narrower, on a wide pane and a narrow one
+// alike (Leo, 2026-10-31: "why does it still not open to the right"; it used to cover the
+// transcript below 1160px). The page is the pane's dev entry with its browser host, talking
 // JSON-RPC to a stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -183,14 +184,18 @@ await requireBrowserLane("agent-pane-edited-side.test.ts", async () => {
     await page.close();
   });
 
-  test("on a narrow pane the diff covers the transcript", async () => {
+  test("on a narrow pane the diff still opens on the right, never over the transcript", async () => {
     const page = await browser!.newPage({ viewport: { width: 800, height: 760 } });
     await page.goto(url(CHAT));
     await page.getByText("Retry added to the uploader.").waitFor();
     await page.locator(".acpmux-edited-head .acpmux-review-changes").click();
     await page.locator(".acpmux-diff-panel").waitFor();
-    expect((await box(page, ".acpmux-scroll"))?.visible).toBe(false);
-    expect((await box(page, ".acpmux-diff-panel"))?.left).toBeLessThan(10);
+    const scroll = await box(page, ".acpmux-scroll");
+    const panel = await box(page, ".acpmux-diff-panel");
+    expect(scroll?.visible).toBe(true);
+    // The chat keeps at least 320px on the left; the diff takes the rest on the right.
+    expect(panel!.left).toBeGreaterThanOrEqual(320);
+    expect(scroll!.right).toBeLessThanOrEqual(panel!.left + 1);
     await page.close();
   });
 });

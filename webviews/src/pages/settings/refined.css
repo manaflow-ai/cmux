@@ -266,7 +266,9 @@
   :root[data-settings-look="refined"] .settings .row { padding: 10px; }
   :root[data-settings-look="refined"] .settings { --row-main-gap: 8px; }
   :root[data-settings-look="refined"] .settings .row-main { flex-wrap: wrap; }
-  :root[data-settings-look="refined"] .settings .rows .row-label { max-width: none; }
+  /* Leave a readable label column before wrapping a wide editor below it. A zero flex basis
+     squeezed labels narrower than their words when Interface Size enlarged the controls. */
+  :root[data-settings-look="refined"] .settings .rows .row-label { flex-basis: 10rem; max-width: none; }
 }
 
 /* Icon-only and text buttons (play a sound, reset, reveal): the base hover fills with the field

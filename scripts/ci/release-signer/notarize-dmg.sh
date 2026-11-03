@@ -39,7 +39,14 @@ secrets="$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/cmux-dmg-signer.XXXXXX")"
 
 # The signer cannot read the PBES2 PKCS#12 a keychain exports, so openssl
 # turns it into one PEM.
-(umask 077 && printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 -d > "$secrets/identity.p12") 2>/dev/null ||
+decode_base64() {
+  if base64 --decode >/dev/null 2>&1 </dev/null; then
+    base64 --decode
+  else
+    base64 -D
+  fi
+}
+(umask 077 && printf '%s' "$APPLE_CERTIFICATE_BASE64" | decode_base64 > "$secrets/identity.p12") 2>/dev/null ||
   { echo "error: APPLE_CERTIFICATE_BASE64 is not valid base64" >&2; exit 1; }
 pkcs12_to_pem() {
   (umask 077 && openssl pkcs12 "$@" -passin env:APPLE_CERTIFICATE_PASSWORD -nodes -clcerts \
@@ -50,7 +57,7 @@ rm -f "$secrets/identity.p12"
 unset APPLE_CERTIFICATE_PASSWORD APPLE_CERTIFICATE_BASE64
 # The notary key goes to a file before any signer call, so no signer process
 # inherits it in its environment.
-(umask 077 && printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 -d > "$secrets/AuthKey_${ASC_API_KEY_ID}.p8") 2>/dev/null ||
+(umask 077 && printf '%s' "$ASC_API_KEY_P8_BASE64" | decode_base64 > "$secrets/AuthKey_${ASC_API_KEY_ID}.p8") 2>/dev/null ||
   { echo "error: ASC_API_KEY_P8_BASE64 is not valid base64" >&2; exit 1; }
 [[ -s "$secrets/AuthKey_${ASC_API_KEY_ID}.p8" ]] || { echo "error: ASC_API_KEY_P8_BASE64 decoded to nothing" >&2; exit 1; }
 unset ASC_API_KEY_P8_BASE64
@@ -65,7 +72,9 @@ team="$(awk '/^ *organizationalUnitName *=/ { sub(/^ *organizationalUnitName *= 
 want="$APPLE_SIGNING_IDENTITY"
 if [[ "$want" =~ ^[0-9A-Fa-f]{40}$ ]]; then
   fp="$(openssl x509 -noout -fingerprint -sha1 < "$secrets/identity.pem")"; fp="${fp#*=}"
-  [[ "${fp//:/}" == "${want^^}" || "${fp//:/}" == "${want,,}" ]] ||
+  fp_normalized="$(printf '%s' "${fp//:/}" | tr '[:upper:]' '[:lower:]')"
+  want_normalized="$(printf '%s' "$want" | tr '[:upper:]' '[:lower:]')"
+  [[ "$fp_normalized" == "$want_normalized" ]] ||
     { echo "error: the certificate ($cn) is not the SHA-1 APPLE_SIGNING_IDENTITY names" >&2; exit 1; }
 elif [[ "$cn" != *"$want"* ]]; then
   echo "error: the certificate ($cn) does not match APPLE_SIGNING_IDENTITY" >&2; exit 1

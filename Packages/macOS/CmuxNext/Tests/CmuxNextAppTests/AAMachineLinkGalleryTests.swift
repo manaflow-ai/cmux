@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import CmuxTheme
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// little green dot"): connected, connecting, reconnecting and offline, in Soft Blue dark. Written
 /// to `machine-link-gallery/all.png`, bundled to `machine-link-gallery.tar` for
 /// `cmux-ci run --artifact`.
-@MainActor @Suite(.serialized) struct AAMachineLinkGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AAMachineLinkGalleryTests {
     static func sections() -> [SidebarSection] {
         let states: [(String, SidebarMachine.Status)] = [
             ("build-box", .connected), ("gpu-box", .connecting), ("agent-vm", .reconnecting), ("old-mini", .offline),

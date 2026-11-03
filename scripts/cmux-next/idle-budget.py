@@ -21,6 +21,7 @@ Sessions (--sessions):
   light         the launch window with its terminal (Home's pages run in Chromium by default)
   light-webkit  the same with browser.defaultEngine webkit: no Chromium at all
   light-hidden  the light session with the app hidden (Show/Hide All Windows hidden=true)
+  sleepy        the light session covered by Sleepy Mode
   Each session starts from an empty saved session (`fresh_session`).
   stress-static  STRESS with its pages served without their rAF spinner (STRESS's own pages animate: not idle)
   stress   STRESS (scripts/cmux-next/perf-stress-session.py: 60 workspaces, a 12-pane grid of 6 tabs each,
@@ -220,11 +221,21 @@ def window_state(app):
     return {"main": main, "any_key": any(w.get("key") for w in windows)}
 
 
+def sleepy_windows(app):
+    """Require the scene being measured, not merely an accepted action."""
+    reply = app.rpc("debug.window_list", timeout=10)
+    windows = reply.get("windows", []) if isinstance(reply, dict) else []
+    visible = [w for w in windows if w.get("kind") == "next.sleepyMode" and w.get("visible")]
+    if not visible:
+        raise RuntimeError("Sleepy Mode has no visible overlay window")
+    return visible
+
+
 def sample_threads(pid, seconds, path):
     """`/usr/bin/sample` of `pid` for `seconds` after the window (it suspends the process to sample, so it
     never runs inside the measured window); per thread, the frames with the most samples outside the wait."""
     try:
-        subprocess.run(["/usr/bin/sample", str(pid), str(seconds), "-mayDie", "-file", path], capture_output=True,
+        subprocess.run(["/usr/bin/sample", str(pid), str(seconds), "-mayDie", "-fullPaths", "-file", path], capture_output=True,
                        timeout=seconds + 60)
         text = open(path, errors="replace").read()
     except (OSError, subprocess.TimeoutExpired):
@@ -250,6 +261,52 @@ def sample_threads(pid, seconds, path):
     for entry in threads_out.values():
         entry["frames"] = sorted(entry["frames"].items(), key=lambda kv: -kv[1])[:12]
     return threads_out
+
+
+def display_link_clients(path, limit=8):
+    """Who a CVDisplayLink thread calls when it fires: in `path` (a /usr/bin/sample report), the frames of each
+    CVDisplayLink thread outside CoreVideo and the system's wait and thread-start frames, most samples first.
+    The link's owner is the client its callback reaches (the thread itself starts in CoreVideo)."""
+    try:
+        text = open(path, errors="replace").read()
+    except OSError:
+        return []
+    graph = text.split("Call graph:", 1)[-1].split("Total number in stack", 1)[0]
+    found, inside = {}, False
+    for line in graph.splitlines():
+        if re.match(r"\s{4}\d+ Thread_\d+", line):
+            inside = "CVDisplayLink" in line
+            continue
+        frame = re.match(r"[\s+!:|]*(\d+) (.+?)\s+\(in ([^)]+)\)", line)
+        if not (inside and frame):
+            continue
+        count, symbol, image = int(frame.group(1)), frame.group(2), os.path.basename(frame.group(3))
+        if image in ("CoreVideo", "libsystem_pthread.dylib", "libsystem_kernel.dylib", "libdyld.dylib"):
+            continue
+        key = f"{symbol} ({image})"
+        found[key] = max(found.get(key, 0), count)
+    return sorted(found.items(), key=lambda kv: -kv[1])[:limit]
+
+
+def bundle(out, sessions, report_path):
+    """What this run wrote, as one file `out/idle-budget.tgz` (`cmux-ci run --artifact` uploads one regular file,
+    not a directory: artifacts/split-spring/idle-budget.tgz): each session's folder (its app log and sample),
+    idle-budget.md and the report. Nothing else under `out` (split-spring keeps the tagged app and the virtual
+    display there). Returns the path, or None when it could not be written (the run's result stands)."""
+    import tarfile
+    path = os.path.join(out, "idle-budget.tgz")
+    members = [(os.path.join(out, name), name) for name in sessions if os.path.isdir(os.path.join(out, name))]
+    members += [(os.path.join(out, "idle-budget.md"), "idle-budget.md"), (report_path, os.path.basename(report_path))]
+    try:
+        with tarfile.open(path, "w:gz") as archive:
+            for source, name in members:
+                if os.path.exists(source):
+                    archive.add(source, arcname=name)
+    except OSError as error:
+        print(f"IDLE-BUDGET-BUNDLE-FAILED {path}: {error}", flush=True)
+        return None
+    print(f"IDLE-BUDGET-BUNDLE {path}", flush=True)
+    return path
 
 
 def app_counters(app):
@@ -417,6 +474,7 @@ SESSIONS = {
     "light": {},
     "light-webkit": {"config": {**BASE_CONFIG, "browser": {"defaultEngine": "webkit"}}},
     "light-hidden": {"hide": True},
+    "sleepy": {"sleepy": True},
     "stress": {},
     "stress-static": {},
 }
@@ -492,14 +550,28 @@ def main():
             if SESSIONS[session].get("hide"):
                 entry["hide"] = app.rpc("action.run", {"action": "showHideAllWindows", "args": {"hidden": True},
                                                        "focus": False, "origin": "script"}, timeout=30)
+            if SESSIONS[session].get("sleepy"):
+                entry["sleepy"] = app.rpc("action.run", {"action": "palette.sleepyMode", "args": {},
+                                                         "focus": False, "origin": "script"}, timeout=30)
+                if not isinstance(entry["sleepy"], dict) or entry["sleepy"].get("error"):
+                    raise RuntimeError(f"Sleepy Mode activation failed: {entry['sleepy']}")
             time.sleep(opts.settle)  # bench: the session settles (page loads, Chromium's post-load work) before the window
             instance = procs.Instance(app.app, app.process.pid)
             window_before = window_state(app)
+            if SESSIONS[session].get("sleepy"):
+                entry["sleepy_windows"] = {"start": sleepy_windows(app)}
             result = measure(app, instance, opts.measure)
+            if SESSIONS[session].get("sleepy"):
+                entry["sleepy_windows"]["end"] = sleepy_windows(app)
             result["window_state"] = {"start": window_before, "end": window_state(app)}
             print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
             if opts.sample:
-                result["sample"] = sample_threads(app.process.pid, opts.sample, os.path.join(out, session, "sample-app.txt"))
+                sample_path = os.path.join(out, session, "sample-app.txt")
+                result["sample"] = sample_threads(app.process.pid, opts.sample, sample_path)
+                result["display_link_clients"] = display_link_clients(sample_path)
+                if result["display_link_clients"]:
+                    clients = "; ".join(f"{frame} x{count}" for frame, count in result["display_link_clients"])
+                    print(f"IDLE-BUDGET-CVDISPLAYLINK {session}: {clients}", flush=True)
             kinds = aggregate(result)
             overs = over_budget(session, kinds, budget)
             entry.update({"result": result, "kinds": kinds, "over": [list(o) for o in overs]})
@@ -547,6 +619,7 @@ def main():
     with open(path, "w") as handle:
         json.dump(report, handle, indent=1)
     print(f"IDLE-BUDGET over={len(all_overs)} sessions={json.dumps(report['session_exits'])} json={path}", flush=True)
+    bundle(out, list(report["sessions"]), path)
     sys.exit(1 if opts.gate and all_overs else 0)
 
 

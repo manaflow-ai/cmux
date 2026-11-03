@@ -86,9 +86,9 @@ if not served:
 required = json.load(open(required_path, encoding="utf-8"))
 runtime_only = {
     "agent-inventory-watch-admission-v1", "agent-inventory-watch-v1",
-    "agent-session-attach-v1", "agent-session-children-v1", "agent-session-observe-v1",
-    "agent-session-presence-v1", "agent-session-start-keyed-reason-v1", "agent-session-start-v1",
-    "agent-session-start-vm-kind-v1", "agent-session-start-model-v1", "agent-session-trust-v1", "agent-session-trust-vm-kind-v1",
+    "agent-session-attach-v1", "agent-session-children-v1", "agent-session-folders-v1", "agent-session-login-v1", "agent-session-observe-v1",
+    "agent-session-presence-v1", "agent-session-settings-v1", "agent-session-start-keyed-reason-v1", "agent-session-start-v1",
+    "agent-session-start-vm-kind-v1", "agent-session-start-model-v1", "agent-session-start-no-cwd-v1", "agent-session-trust-v1", "agent-session-trust-vm-kind-v1",
     "cloud-attachments-v1", "cloud-chief-live-v1",
     "cloud-conversation-runs-v1", "cloud-conversation-typing-v1", "cloud-conversations-v1",
     "cloud-host-replica-v1", "cloud-selfhost-v1", "history-v1", "terminal-reaper-active-v1",

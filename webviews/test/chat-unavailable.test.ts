@@ -58,6 +58,10 @@ describe("chatUnavailable", () => {
     expect(
       chatUnavailable({ peers: { box: { connected: false, state: "reconnecting", attempts: 0 } }, waitedMs: 0 }).reason,
     ).toBe("connecting");
+    // A peer whose daemon announced a restart (acpmux peer_link.rs `Restarting`) is on its way back.
+    expect(
+      chatUnavailable({ peers: { box: { connected: false, state: "restarting", attempts: 0 } }, waitedMs: 0 }).reason,
+    ).toBe("connecting");
   });
 
   test("a machine that is down names itself and when it was last seen", () => {

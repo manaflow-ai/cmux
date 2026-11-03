@@ -74,6 +74,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onDraftTextChange: () -> Void = {}
     /// Forward… on a bubble (u5402): the host asks where its text goes; nil offers no Forward….
     var onForward: ((String) -> Void)?
+    /// Retry a committed person message in a Chief conversation. The app
+    /// forwards this canonical owner message id to `chief.retry`.
+    var onChiefRetry: ((MessageID) -> Void)?
     /// Cancel Upload (`HomeStoreBinding.cancelSend`).
     var onCancelSend: (IdempotencyKey) -> Bool = { _ in false }
     /// Bubble pictures and originals.
@@ -109,7 +112,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var deferredThread: (root: MessageID?, parent: MessageID?) = (nil, nil)
     /// A permalink's message waiting for the window that holds it (`reveal`, HomeProjection+Tree.swift).
     var pendingReveal: MessageID?
-    /// Tree threads: permalink paging, the thread header, Copy Link (HomeProjection+ThreadHeader.swift).
+    /// Tree threads: permalink paging and Copy Link (HomeProjection+ThreadHeader.swift).
     let tree = HomeTreeState()
     /// One streamed-text commit per display frame (HomeStreamPacer).
     let streamPacer = HomeStreamPacer()
@@ -189,8 +192,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if let activity = live?.activity { liveLine.show(activity, thought: live?.thought) } else { liveLine.hide(after: controller) }
         passStep("liveLine", &mark)
         revealIfLoaded()
-        refreshThreadHeader()
-        passStep("reveal+threadHeader", &mark)
+        passStep("reveal", &mark)
     }
 
     /// The whole current value; unchanged values return before any work.
@@ -289,7 +291,6 @@ final class HomeProjection: @preconcurrency ChatIntents {
         self.hasOlder = hasOlder
         let store = controller.install(conv, windowStart: w.start, total: w.total)
         store.linkPreviews = linkPreviews
-        installThreadHeader()
         if let previews = linkPreviews?.previews {
             // A historical outgoing card on screen may receive a late answer from the guarded
             // parser; no system preview provider or unguarded subresource loader runs.
@@ -322,6 +323,12 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // Rows the store does not list (my local bubbles before HomeStore logs them) only at the end.
         return have.drop(while: { wanted.contains($0) }).allSatisfy { !wanted.contains($0) }
     }
+
+    #if DEBUG
+    /// DEBUG: maps and lays out every shown row again, without animation (the Agent Messages
+    /// Playground registered another fold row style).
+    func debugRebuild() { rebuild() }
+    #endif
 
     /// The whole window again, without animation (MessagesLab has no action
     /// for it): `.replaceWindow`, then the pin or the first visible row's
