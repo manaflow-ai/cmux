@@ -3,7 +3,8 @@
 // the same name (Leo, 2026-10-29: "i like these tasks i like the order that things split on the right
 // i want that in cmux next"). The chat's ⋯ menu opens it in the chat's right column, docked under the
 // side panel when one is open: one block per agent, its time and stop button, "N tasks, M failed",
-// its running tasks with their own stop buttons, then "N finished". A click on an agent or a task
+// its running tasks with their own stop buttons, then "N finished", the agents under "Running N" and
+// "Finished N". The running tray's header opens it too (its panel button, trayOpen.experiment.ts). A click on an agent or a task
 // opens its transcript in place, from the snapshot, with nothing to wait for (Leo: "i also like the
 // way it just loads in the subagent stuff instantly :(").
 import { agentPaneEntry } from "../../../gallery/format";
@@ -52,6 +53,11 @@ const WORKSPACE = agent("agent-workspace", "Workspace link + copy menus", 49.4);
 const AUDIT = agent("agent-audit", "Audit the composer menus for fade-in", 31, {
   state: "completed",
   endedAt: minutesAgo(12),
+});
+
+const CODEX = agent("agent-codex", "Make Codex reviews reliable (P0)", 40, {
+  state: "failed",
+  endedAt: minutesAgo(20),
 });
 
 const FINISHED_STEPS: [string, number][] = [
@@ -105,11 +111,16 @@ const auditView = (): AcpmuxRow[] => [
   assistant("No menu fades in on open; two fade out on close, which the rulebook allows.", 12, { id: "audit-answer" }),
 ];
 
+const codexView = (): AcpmuxRow[] => [
+  user("Make Codex reviews reliable (P0)", 40, { id: "codex-ask" }),
+  activity([done("Run router-review on the head", 39, 61, "failed")], 39, { id: "codex-steps" }),
+];
+
 const snapshot = (withDocument: boolean) =>
   chat(
     [
       user("Ship the attachment badge and the copy menus, and audit the menus", 50),
-      row(SUBAGENTS, 49.4, { id: "bg-group", subagents: [WORKSPACE, ATTRIBUTION, AUDIT] }),
+      row(SUBAGENTS, 49.4, { id: "bg-group", subagents: [WORKSPACE, ATTRIBUTION, AUDIT, CODEX] }),
       assistant(
         withDocument
           ? `Three agents are on it. The ledger so far:\n\n${fence("markdown", ledger)}`
@@ -124,6 +135,7 @@ const snapshot = (withDocument: boolean) =>
         [ATTRIBUTION.id]: attributionView(),
         [WORKSPACE.id]: workspaceView(),
         [AUDIT.id]: auditView(),
+        [CODEX.id]: codexView(),
       },
     },
   );
@@ -201,6 +213,32 @@ export default agentPaneEntry({
       note: "No side panel open: the panel is the chat's right column. The first running agent opens on its running task, then 11 finished, folded.",
       snapshot: snapshot(false),
       play: openPanel,
+    },
+    sections: {
+      note: "Claude Desktop's split: Running 2 then Finished 2, each heading folding its agents; an ended agent's line shows its duration, a failed one Failed in red; each agent's tasks under N tasks.",
+      snapshot: snapshot(false),
+      play: async (ctx) => {
+        await openPanel(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-bg__section[data-section="finished"]'));
+      },
+    },
+    "from-tray": {
+      note: "Opened from the running tray's panel button (SubagentTray.tsx), not the ⋯ menu: the same panel.",
+      snapshot: snapshot(false),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__open"));
+        await ctx.click({ selector: ".acpmux-running-tray__open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-bg"));
+      },
+    },
+    "finished-transcript": {
+      note: "A finished agent opened from Finished: its transcript in place, with the back chevron to the list.",
+      snapshot: snapshot(false),
+      play: async (ctx) => {
+        await openPanel(ctx);
+        await ctx.click({ selector: `.acpmux-bg__group[data-group="agent:${AUDIT.id}"] .acpmux-bg__name` });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-bg__transcript [data-row-id]"));
+      },
     },
     finished: {
       note: "The finished tasks open, the latest first, each with how long it took; failures in red; Show more past eight.",
