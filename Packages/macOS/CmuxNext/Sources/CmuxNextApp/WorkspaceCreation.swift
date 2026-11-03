@@ -2,7 +2,6 @@ import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextWorkspaceRepair
 import Foundation
-import os
 
 /// Creates a workspace and its first terminal with two daemon requests
 /// (create-workspace, then create-terminal), and never leaves a
@@ -11,29 +10,6 @@ import os
 /// daemon's single atomic `workspace.create` cannot take a caller key, cwd,
 /// env, terminal id or keep yet (plans: the workspace.create extension).
 enum WorkspaceCreation {
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.workspace-create")
-
-    static func withTerminal<T>(
-        _ key: WorkspaceKey,
-        createWorkspace: () async throws -> Void,
-        createTerminal: (WorkspaceKey) async throws -> T,
-        closeWorkspace: (WorkspaceKey) async throws -> Void
-    ) async throws -> T {
-        var refused = false // a refused create made nothing (the key may name a live workspace)
-        do {
-            do { try await createWorkspace() } catch { refused = (error as? DaemonError).map { if case .command = $0 { true } else { false } } ?? false; throw error }
-            return try await createTerminal(key)
-        } catch {
-            if !refused { do {
-                try await closeWorkspace(key)
-            } catch let closeError {
-                // The create failure stays the one error the user sees.
-                logger.error("closing a half-created workspace failed: \(String(describing: closeError), privacy: .public)")
-            } }
-            throw error
-        }
-    }
-
     /// Closes a workspace whose first terminal failed; when the close fails
     /// too, `repair` releases it (it stays, empty, with the terminal error).
     /// Only while it is empty: a first tab the daemon made after its reply's
@@ -70,7 +46,7 @@ enum WorkspaceCreation {
         defer { if !completed { ledger?.forget(key.rawValue) } }
         let sent = await NewWorkspacePlacements.sending(rule, key: key, on: connection, ledger: ledger)
         let result = try await repair.populating(key) {
-            try await withTerminal(
+            try await repair.withTerminal(
                 key, createWorkspace: { _ = try await connection.createWorkspaceWaitingForReply(name: name, key: key, placesBySetting: sent != nil, current: sent?.current.map { WorkspaceKey(rawValue: $0) }, placement: sent?.placement.rawValue) },
                 createTerminal: terminal,
                 closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
@@ -108,7 +84,7 @@ enum WorkspaceCreation {
         let sent = await NewWorkspacePlacements.sending(rule, key: key, on: connection, ledger: ledger)
         let result = try await repair.populating(key) {
             var created: WorkspaceMutationResult?
-            return try await withTerminal(
+            return try await repair.withTerminal(
                 key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: sent != nil, current: sent?.current.map { WorkspaceKey(rawValue: $0) }, placement: sent?.placement.rawValue, until: giveUp) },
                 createTerminal: { _ in
                     guard let created else { throw DaemonError.notConnected }

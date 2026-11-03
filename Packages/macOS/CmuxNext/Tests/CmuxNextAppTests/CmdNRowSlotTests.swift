@@ -9,9 +9,8 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// Both suites drive one same-tree daemon each through process-wide state (`services.sidebarDoc.store`,
-/// `services.sidebarDoc.docSections`, `PendingWorkspaceRows.shared`), which follows the last app services started:
-/// run side by side, one suite's sidebar read the other's placement setting and anchors. One at a time.
+/// Both suites drive one same-tree daemon each, and share process-wide pending rows (`PendingWorkspaceRows.shared`):
+/// run side by side, one suite's rows mixed into the other's. One at a time.
 @MainActor @Suite(.serialized)
 struct CmdNRowSlotSuites {
     /// Austin 2026-10-20: Cmd-N "draws the new workspace somewhere in the sidebar and then moves it via an
