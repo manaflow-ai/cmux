@@ -10,11 +10,13 @@ import os
 /// trees, where they are stored, and the fan-out to the omnibar stars,
 /// bookmarks bars and manager pages.
 ///
-/// Storage: the home daemon's `bookmarks-v1` table when it serves it, else
-/// `<Application Support>/<bundle id>/BrowserProfiles/bookmarks.json`. An
-/// edit is applied to the local tree first (the same `BookmarkTree.apply`
-/// rules the daemon enforces), then written; with the daemon, its
-/// `bookmarks-changed` event refetches the profile and replaces the tree.
+/// Storage: the home daemon's `bookmarks-v1` table, the one writer. An edit
+/// is applied to the local tree first (the same `BookmarkTree.apply` rules
+/// the daemon enforces), then sent; the daemon's `bookmarks-changed` event
+/// refetches the profile and replaces the tree. Until the daemon serves
+/// bookmarks, an edit is refused. A `bookmarks.json` left by an older build
+/// (`<Application Support>/<bundle id>/BrowserProfiles/`) is copied into the
+/// daemon once and then deleted (``migrateFileToDaemon()``).
 @Observable @MainActor
 final class BookmarkService {
     /// Each browser profile's tree (wire id: `default` or a UUID).
@@ -33,9 +35,6 @@ final class BookmarkService {
     /// `observeHome` finished its pass for the daemon's current capability.
     @ObservationIgnored var homeSettled = false
     @ObservationIgnored var fetching: [String: Task<Void, Never>] = [:]
-    @ObservationIgnored var fileTrees: [String: [BookmarkNode]] = [:]
-    @ObservationIgnored var fileLoaded = false
-    @ObservationIgnored var saving: Task<Void, Never>?
     @ObservationIgnored var homeObservation: Task<Void, Never>?
     @ObservationIgnored var barObservation: Task<Void, Never>?
     @ObservationIgnored var faviconObservation: Task<Void, Never>?
@@ -67,8 +66,8 @@ final class BookmarkService {
         self.services = services
     }
 
-    /// Reads the file, observes the home daemon, and runs the one-time
-    /// migrations (file to daemon, earlier browser imports into bookmarks).
+    /// Observes the home daemon, which runs the one-time migrations once it
+    /// serves bookmarks (an older build's file, earlier browser imports).
     func start(directory: URL, importStore: ImportedDataStore?) {
         self.directory = directory
         self.importStore = importStore
@@ -79,19 +78,7 @@ final class BookmarkService {
         services.machines.local.store.sideEvents.subscribe { [weak self] event in
             if case .bookmarksChanged(let profile, _) = event { self?.daemonChanged(profile) }
         }
-        // task-owner: one-shot launch read of the bookmark file
-        Task { [weak self] in
-            let loaded = await file.load()
-            guard let self else { return }
-            fileTrees = loaded
-            fileLoaded = true
-            if !usesDaemon {
-                trees = loaded.mapValues(BookmarkTree.init(ordered:))
-                changed(profiles: Set(loaded.keys))
-            }
-            observeHome()
-            await migrateLegacyImports()
-        }
+        observeHome()
     }
 
     // MARK: Reading
@@ -120,14 +107,10 @@ final class BookmarkService {
 
     func isBookmarked(_ url: URL?, profile: String) -> Bool { tree(profile).isBookmarked(url) }
 
-    /// `profile`'s tree is the stored one, not an empty placeholder: with the
-    /// daemon, once its reply arrived; with the file, once the file is read
-    /// and the home daemon is known not to serve bookmarks (it answered
-    /// without the capability, or is unavailable), so the file is the truth.
+    /// `profile`'s tree is the stored one, not an empty placeholder: the
+    /// daemon's reply arrived (after an older build's file was copied over).
     func isLoaded(_ profile: String) -> Bool {
-        if usesDaemon { return loadedFromDaemon.contains(profile) }
-        let home = services.machines.local
-        return fileLoaded && (home.store.identity != nil || home.startup != .connecting)
+        usesDaemon && loadedFromDaemon.contains(profile)
     }
 
     /// The folder a new bookmark goes to: the last one used, else the bar.
@@ -138,20 +121,18 @@ final class BookmarkService {
 
     // MARK: Writing
 
-    /// Applies `operation` to `profile`'s tree and writes it. Validation
-    /// errors throw before anything changes.
+    /// Applies `operation` to `profile`'s tree and sends it to the daemon.
+    /// Validation errors throw before anything changes; so does an edit
+    /// before the home daemon serves bookmarks (it has nowhere to go).
     @discardableResult
     func apply(_ operation: BookmarkOperation, profile: String) throws -> BookmarkChange {
+        guard usesDaemon else { throw DaemonError.notConnected }
         var tree = tree(profile)
         let change = try tree.apply(operation)
         guard !change.isEmpty || isImport(operation) else { return change }
         trees[profile] = tree
         if case .create(let node, _) = operation { lastFolder[profile] = node.parent }
-        if usesDaemon {
-            send(operation, profile: profile)
-        } else {
-            saveFile(profile: profile)
-        }
+        send(operation, profile: profile)
         changed(profiles: [profile])
         return change
     }
@@ -165,23 +146,6 @@ final class BookmarkService {
         if case .importDrafts = operation { return true }
         return false
     }
-
-    func saveFile(profile: String) {
-        guard let file else { return }
-        let nodes = trees[profile]?.ordered ?? []
-        fileTrees[profile] = nodes
-        let previous = saving, logger = logger
-        // task-owner: chained single-file saves; each waits for the previous
-        saving = Task {
-            await previous?.value
-            do { try await file.save(profile: profile, nodes: nodes) } catch {
-                logger.error("save bookmarks: \(String(describing: error), privacy: .public)")
-            }
-        }
-    }
-
-    /// Waits for pending file saves (tests, termination).
-    func flush() async { await saving?.value }
 
     /// Every view of `profiles` redraws (stars, bars, manager pages).
     func changed(profiles: Set<String>) {
@@ -197,6 +161,5 @@ final class BookmarkService {
         trees[profile] = nil
         fetched.remove(profile)
         loadedFromDaemon.remove(profile)
-        if !usesDaemon, fileTrees[profile] != nil { saveFile(profile: profile) }
     }
 }

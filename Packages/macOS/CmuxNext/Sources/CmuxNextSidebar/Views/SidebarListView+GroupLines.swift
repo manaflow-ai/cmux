@@ -93,7 +93,7 @@ extension SidebarGroupLine {
             let x = layout == .inside ? max(bar, SidebarStyle.groupLineX(membersMinX: head.minX)) : bar
             return SidebarGroupLine(group: id, frame: CGRect(x: x, y: head.minY,
                                                              width: width, height: tail.maxY - head.minY),
-                                    color: colors[id]?.tint ?? .palette(row.groupColor ?? .grey), level: nested ? max(0, row.depth - 1) : 0)
+                                    color: colors[id]?.tint ?? row.groupColor.map(GroupTint.palette) ?? .none, level: nested ? max(0, row.depth - 1) : 0)
         }
         return soleLines + headers.compactMap { id, header in
             guard !header.isCollapsed, let end = last[id], end.y > header.y else { return nil }
@@ -112,7 +112,7 @@ extension SidebarGroupLine {
             let x = layout == .inside ? max(head.minX, insideRail)
                 : head.minX
             return SidebarGroupLine(group: id, frame: CGRect(x: x, y: top, width: width, height: bottom - top),
-                                    color: colors[id]?.tint ?? .palette(end.groupColor ?? .grey), level: nested ? header.depth : 0)
+                                    color: colors[id]?.tint ?? end.groupColor.map(GroupTint.palette) ?? .none, level: nested ? header.depth : 0)
         }
     }
 }

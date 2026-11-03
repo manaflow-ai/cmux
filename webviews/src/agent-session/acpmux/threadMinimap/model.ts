@@ -2,6 +2,7 @@
 // (the Codex desktop app's prompt rail). Pure functions, so geometry and previews need no DOM.
 import { transcriptColumn, type AcpmuxRow } from "../model";
 import { opensTurn } from "../turnStart";
+import { inboxCounts } from "../conversation/inboxNotice";
 import { MOTION_MS } from "../../../motion/scale.generated";
 
 export type ReplySpan = { text: string; bold: boolean; code?: true };
@@ -25,6 +26,9 @@ export type MinimapTurn = {
   key: string;
   /// The prompt, preserving its line breaks for the card's bounded three-line title.
   prompt: string;
+  /// Who sent it, when it is another session's message and not the person's (promptSender): its
+  /// tick draws apart from the person's and its card names the sender.
+  from?: string;
   /// The start of the first reply after the prompt.
   reply: ReplyBlock[];
   metadata?: MinimapTurnMetadata;
@@ -32,8 +36,8 @@ export type MinimapTurn = {
 
 /// The rail's geometry and timing, measured from 60 Hz recordings of the Codex desktop app's prompt
 /// rail (lane notes: minimap-ref/SPEC.md). CSS px and ms; the drawn sizes live in threadMinimap.css.
-/// The rail shows from this many prompts...
-export const MIN_PROMPTS = 4;
+/// Every prompt has a tick, even when the whole chat fits on one screen.
+export const MIN_PROMPTS = 1;
 /// One row per prompt: a fixed 10 px pitch (not proportional to the thread), 36 px wide to hit.
 export const ROW_PITCH = 10;
 export const ROW_WIDTH = 36;
@@ -52,10 +56,16 @@ export function railPlacement(
   spacing: { min: number; max: number; compact: number; narrowest?: number } = { min: 8, max: 16, compact: 12 },
 ): { left: number; width: number; overlapsText: boolean; gutter: number } {
   const paneInset = transcriptColumn(paneWidth).inset;
-  const left = Math.min(spacing.max, Math.max(spacing.min, Math.floor(paneInset - ROW_WIDTH)));
   // The narrowest hit width: the compact step for the tight gutter (gutter.experiment.ts), so the
   // resting rail fits the page edge; the inset plus that step for the edge strip.
   const minimumWidth = spacing.narrowest ?? spacing.min + spacing.compact;
+  // The tight gutter: a gutter too short for the widest step keeps up to the compact step of room left
+  // of the ticks, taken from the hit width down to its narrowest, before the inset drops toward the
+  // narrowest step (Lawrence via Leo, 2026-10-28: "needs more left padding"). The edge strip keeps its
+  // 2026-10-28 placement.
+  const roomy =
+    spacing.narrowest === undefined ? spacing.min : Math.min(spacing.compact, Math.floor(paneInset - minimumWidth));
+  const left = Math.min(spacing.max, Math.max(spacing.min, Math.floor(paneInset - ROW_WIDTH), roomy));
   const width = Math.min(ROW_WIDTH, Math.max(minimumWidth, textInset - left));
   // `gutter` is the text's own inset, so the occluded rail's hover strip can stop at the text edge.
   return { left, width, overlapsText: left + width > textInset, gutter: Math.max(0, textInset) };
@@ -238,6 +248,19 @@ export function jumpDuration(distance: number): number {
   return Math.round(200 + 200 * share);
 }
 
+/// How many viewports of a long Jump to latest are glided; the rest is skipped at once.
+export const JUMP_GLIDE_VIEWPORTS = 1;
+
+/// Where Jump to latest's glide starts: from `from` when the end is within JUMP_GLIDE_VIEWPORTS,
+/// else that far above `target`. Gliding the whole way through a long chat mounted every row in
+/// between for a frame or two, drawn blank while they measured (Leo, 2026-10-28: "when I click the
+/// jump to bottom button, it should be, like, on the in-between. It shouldn't need to be doing that
+/// thing"). Skipping the middle draws only rows near the end.
+export function jumpGlideStart(from: number, target: number, viewport: number): number {
+  const span = Math.max(0, viewport) * JUMP_GLIDE_VIEWPORTS;
+  return target - from > span ? target - span : from;
+}
+
 /// Each prompt's turn and the reply it previews, by row object: rows are immutable, so a long
 /// chat's snapshot hashes and previews only the turns that changed.
 const turnsByPrompt = new WeakMap<AcpmuxRow, { turn: MinimapTurn; sessionId: string; reply?: AcpmuxRow }>();
@@ -306,7 +329,19 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
 
 /// What a turn's tick on the rail shows: its prompt, by key. A tick changes only when its prompt
 /// does, not when the reply it previews streams on.
-export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt">;
+export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "from">;
+
+/// Who sent a prompt that is not the person's (conversation/incomingMessage.ts): another session's
+/// message, or acpmux's inbox notice of several. The rail keeps their ticks, set apart from the
+/// person's own prompts (Leo, 2026-10-27: "Messages sent from other sessions, like do they really
+/// need to be forming a part of the side area? Like shouldn't they be designated as like a special
+/// sort of thing?").
+export function promptSender(row: AcpmuxRow): string | undefined {
+  const incoming = row.incoming;
+  if (incoming?.kind === "message") return incoming.message.name || undefined;
+  if (incoming?.kind === "inbox") return inboxCounts(incoming.notice).senders.join(", ") || undefined;
+  return undefined;
+}
 
 /// The turns of `rows`, the ticks they draw, and the rows they were read from.
 export type MinimapTurns = {
@@ -411,6 +446,7 @@ export function minimapTurns(
         // Keep explicit prompt line breaks for the hover card; its CSS clamps the title without
         // changing what the person wrote. Spaces are normalized by white-space: pre-line there.
         prompt: (user.text ?? "").trim(),
+        ...withSender(user),
         reply: sameReply ? kept.turn.reply : reply?.text ? replyPreview(reply.text) : [],
         metadata: nextMetadata,
       };
@@ -449,7 +485,12 @@ export function minimapTurns(
     if (old?.[keep + at] !== turn) sameTurns = false;
     const tick = oldTicks?.[keep + at];
     // A tick keeps its key (its turn's, or that and its row: ticksOf) while its turn does.
-    if ((tick?.key !== turn.key && tick?.key !== repeatKey(turn)) || tick.prompt !== turn.prompt || tick.id !== turn.id)
+    if (
+      (tick?.key !== turn.key && tick?.key !== repeatKey(turn)) ||
+      tick.prompt !== turn.prompt ||
+      tick.id !== turn.id ||
+      tick.from !== turn.from
+    )
       sameTicks = false;
   }
   // Changed turns go into the spare list, never into `old`: it holds `old`'s turns up to where the
@@ -477,6 +518,7 @@ export function minimapTurns(
           id: row.id,
           key: turnKey(sessionId, row),
           prompt: (row.text ?? "").trim(),
+          ...withSender(row),
           reply: [],
         }));
     const turns = [...earlier, ...loadedTurns];
@@ -504,6 +546,12 @@ export function minimapTurns(
   agreed.set(old, { list, same: keep });
   const loaded = sameTicks ? oldTicks! : ticksOf(list, oldTicks);
   return withEarlier(list, loaded, old as MinimapTurn[]);
+}
+
+/// A turn's `from`, only when it has one, so a person's turn keeps the shape it had.
+function withSender(row: AcpmuxRow): Pick<MinimapTurn, "from"> {
+  const from = promptSender(row);
+  return from !== undefined ? { from } : {};
 }
 
 /// A turn's key: its prompt's promptId, which the row keeps from the moment this pane sends it
@@ -565,16 +613,26 @@ function ticksOf(turns: readonly MinimapTurn[], previous: readonly MinimapTick[]
       taken.add(key);
     }
     const tick = previous[index];
-    return tick && tick.key === key && tick.prompt === turn.prompt && tick.id === turn.id
+    return tick && tick.key === key && tick.prompt === turn.prompt && tick.id === turn.id && tick.from === turn.from
       ? tick
-      : { key, id: turn.id, prompt: turn.prompt };
+      : { key, id: turn.id, prompt: turn.prompt, ...(turn.from !== undefined ? { from: turn.from } : {}) };
   });
 }
 
 /// The turn the reader is in: the last prompt above a third of the way down the viewport.
+/// A row's layout top by index, undefined past the rows (an estimate's `tops[index]`, or a
+/// placement's index read for just the rows asked: the rail reads a few turns, never every row).
+export type RowTops = (index: number) => number | undefined;
+
+/// RowTops over a placed layout's geometry.
+export const rowTopsOf =
+  (geometry: { count: number; topAt: (index: number) => number }): RowTops =>
+  (index) =>
+    index >= 0 && index < geometry.count ? geometry.topAt(index) : undefined;
+
 export function currentTurn(
   turns: readonly MinimapTurn[],
-  tops: Float64Array,
+  tops: RowTops,
   scrollTop: number,
   viewportHeight: number,
   firstLoaded = 0,
@@ -586,7 +644,7 @@ export function currentTurn(
   low = firstLoaded;
   while (low < high) {
     const middle = (low + high) >>> 1;
-    if ((tops[turns[middle].index] ?? 0) <= anchor) low = middle + 1;
+    if ((tops(turns[middle].index) ?? 0) <= anchor) low = middle + 1;
     else high = middle;
   }
   return Math.max(firstLoaded, low - 1);
@@ -601,7 +659,7 @@ export function currentTurn(
 /// counts once its bubble is on screen: our turns have no block above the bubble to show first.
 export function visibleTurns(
   turns: readonly MinimapTurn[],
-  tops: Float64Array,
+  tops: RowTops,
   totalHeight: number,
   scrollTop: number,
   viewportHeight: number,
@@ -611,14 +669,14 @@ export function visibleTurns(
   const bottom = scrollTop + viewportHeight - THREAD_PADDING_TOP;
   const first = currentTurn(turns, tops, scrollTop + LANDING_OFFSET, 0, firstLoaded);
   let last = first;
-  while (last + 1 < turns.length && (tops[turns[last + 1].index] ?? totalHeight) < bottom) last += 1;
+  while (last + 1 < turns.length && (tops(turns[last + 1].index) ?? totalHeight) < bottom) last += 1;
   return { first, last };
 }
 
 /// The scroll offset that lands a turn's prompt row (its images, else its bubble) LANDING_OFFSET
 /// below the viewport's top.
-export function turnScrollTop(turn: MinimapTurn, tops: Float64Array): number {
-  return Math.max(0, THREAD_PADDING_TOP + (tops[turn.index] ?? 0) - LANDING_OFFSET);
+export function turnScrollTop(turn: MinimapTurn, tops: RowTops): number {
+  return Math.max(0, THREAD_PADDING_TOP + (tops(turn.index) ?? 0) - LANDING_OFFSET);
 }
 
 /// The start of a reply as blocks with bold/code spans; fenced code, heading marks and link targets drop.

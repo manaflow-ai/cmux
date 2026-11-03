@@ -143,6 +143,9 @@ fn of_updates_that_start_at_once_one_takes_the_lock() {
                         home: home.clone(),
                         after_copy: Default::default(),
                         lease_ends_after_copy: Default::default(),
+                        gone_after_copy: Default::default(),
+                        copy_drops: Default::default(),
+                        gone: Default::default(),
                     });
                     start.wait();
                     lock_updates(&*peer).unwrap()

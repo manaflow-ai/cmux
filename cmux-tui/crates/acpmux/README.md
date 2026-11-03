@@ -118,7 +118,12 @@ read `acpmux --json ls`, which is the daemon's rows, unchanged.
 ## Web dashboard
 
 The daemon serves a dashboard on the same port as its WebSocket, by default
-`http://127.0.0.1:47811/?token=…`. The token is generated on first run and saved in
+`http://127.0.0.1:47811/#token=…`. The token sits in the URL fragment, which a browser never
+sends to a server or in a Referer; the page moves it out of the address bar into the tab's
+session storage. The page itself is static and needs no token; its WebSocket does, and takes it
+only from a header: `Authorization: Bearer <token>` from a native client, or, from a browser,
+the subprotocols `acpmux.v1` and `acpmux.token.<token>` (the upgrade answers with `acpmux.v1`
+only). A token in the URL query is never read. The token is generated on first run and saved in
 `config.json`; `acpmux web` opens the full link and prints it without the token
 (`--show-token` prints it whole, `--json` has it in `url`). Only the local socket ever
 reads it back: a remote-origin (WebSocket) connection gets no `webUrl` and no peer URL query.
@@ -147,8 +152,11 @@ unfolds every turn, `?session=<name>` opens one, `?session=new` (or `&draft=1`) 
 draft. Keys: `⌘K`/`Ctrl-K` new session, `Alt-↑`/`Alt-↓` (or `Alt-j`/`Alt-k`) walk the rail,
 `y`/`n` answer a permission, `Esc` in the composer cancels the turn. On a phone the rail is a
 sheet behind a `Sessions` button. To reach it
-from another machine, set `websocket.listen` to a non-loopback address and put a tunnel or
-firewall in front. Clients may then connect by IP address; list every host name they use (a
+from another machine, keep the listener on loopback and use ssh (an `ssh://` peer) or a TLS
+proxy. The listener speaks plain `ws://`, so on a network address (a tailnet or VPN address
+too) its token crosses that network in clear: the daemon refuses to bind one unless you opt in
+with `"allowInsecureNetwork": true` under `websocket` (or `daemon run --insecure-network-listen`
+for one run). Clients may then connect by IP address; list every host name they use (a
 tailnet name, for example) in `websocket.allowedHosts`, because any other `Host` is refused.
 
 ### Remote connections (`webRoots`, `webAskingModes`)
@@ -1352,7 +1360,9 @@ so an agent messages another lane or session with a tool call instead of piping 
   before it was taken, so they arrive in the order given (one still on its way after the 5 s
   wait holds back the rest to that session, with a row saying why); different sessions go side
   by side, so a batch answers within the one 5 s wait. Use it in place of a shell loop of `acpmux send --no-wait`.
-- `acpmux_ls {status?}`: one line per session on this machine and its peers.
+- `acpmux_ls {status?, query?, limit?}`: one line per session on this machine and its peers,
+  newest first. Closed sessions are left out unless `status` is `closed`; `query` matches name,
+  title or peer; the list stops at `limit` (default 100, at most 500) and says how many more match.
 - `acpmux_last {name, count?}`: a session's last replies.
 - `acpmux_info {name}`: a session's state, as `acpmux session info`.
 
@@ -1539,6 +1549,40 @@ list with no daemon running, which the cmux app bundle records for its web pages
 
 Any other method that names a `sessionId` is forwarded to the agent unchanged, so vendor
 extensions keep working.
+
+### Fork before an edited prompt
+
+Gate Edit and Resend on `initialize._meta.acpmux.operations` containing
+`acp.session.fork.beforePromptId`. Send the source's recorded prompt identity and a stable
+client-generated retry identity:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"acp.session.fork","params":{"sessionId":"source","beforePromptId":"prompt-id","requestId":"edit-request-id"}}
+```
+
+Both ids must contain 1–512 UTF-8 bytes. Omit `throughSeq` and `live` entirely, including
+`live: false`. The daemon validates the complete source history. For Claude and Codex it
+forks through the preceding completed turn, or creates an empty configured child for the
+true first prompt. The reply's `sessionId` is the child; send the edited prompt there.
+Configuration and parent/boundary lineage follow fork semantics; source history stays unchanged.
+A retry with the same source, request id and boundary returns that child even after a lost reply.
+Reusing the request id for another boundary is refused. An incomplete persisted fork is refused
+without creating another child. Direct `session/fork` cannot supply internal boundary metadata.
+
+Refusals use JSON-RPC `-32602` and `data.reason`:
+
+| Reason | Meaning |
+| --- | --- |
+| `fork.invalid_boundary` | Invalid ids or combined boundary selectors. |
+| `fork.unknown_prompt` | No recorded prompt has that identity. |
+| `fork.ambiguous_prompt` | More than one recorded prompt has that identity. |
+| `fork.unsupported` | Unsupported harness or steering boundary. |
+| `fork.unreconstructable` | The full boundary or prompt content cannot be reconstructed. |
+| `fork.request_conflict` | The persisted request identity names a different boundary. |
+| `fork.incomplete` | The persisted fork has not completed safely. |
+
+Existing fork authorization and admission checks still apply. Retain the editor draft on refusal;
+never fall back to a whole-conversation fork when the capability is absent.
 
 ### Typed errors
 

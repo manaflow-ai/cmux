@@ -131,7 +131,7 @@ public final class LayoutRootView: NSView {
     public var holdsTerminalGrids: Bool { !context.gridHoldScreens.isEmpty }
 
     /// Everything the view reads from the model, observed as one value.
-    private struct Snapshot: Equatable, Sendable {
+    struct Snapshot: Equatable, Sendable {
         var screens: [LayoutScreen]
         var activeScreen: ScreenID?
         var focused: PaneID?
@@ -182,7 +182,7 @@ public final class LayoutRootView: NSView {
         registerForDraggedTypes([LayoutTabDrag.pasteboardType, .URL])
         sync(snapshot())
         observe()
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         ScreenContentView.registerMotionSampler()
         #endif
     }
@@ -255,6 +255,20 @@ public final class LayoutRootView: NSView {
     public func navigationFrames(ofScreenContaining pane: PaneID) -> [PaneID: CGRect] {
         guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return [:] }
         return view.navigationFrames
+    }
+
+    /// The split ratios and column widths `pane`'s screen can show (``ShownResizeRange``), from the geometry its springs
+    /// head for; nil for a screen not sized yet. A keyboard resize steps inside them (RESIZE KEYS K1).
+    public func shownResizeRange(ofScreenContaining pane: PaneID) -> ShownResizeRange? {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id], view.bounds.width > 0 else { return nil }
+        return ShownResizeRange(geometry: view.baseGeometry, style: context.style, scale: view.reconciledScale ?? view.scale)
+    }
+
+    /// A keyboard resize press (`resizePane*`) is about to move `pane`'s screen: until that spring lands, every pane of
+    /// the screen keeps its content at its size and lays it out once at the landing (RESIZE KEYS K3).
+    public func keyboardResizeWillChange(screenContaining pane: PaneID) {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id], !view.isHidden else { return }
+        view.holdsContentForKeyResize = true
     }
 
     /// The width `pane`'s content rests at in the layout this view shows: its frame in the geometry its
@@ -334,7 +348,8 @@ public final class LayoutRootView: NSView {
 
     var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }
 
-    private func sync(_ snapshot: Snapshot) {
+    /// ``sync(_:)``'s body (`LayoutRootView+AvoiderBatch`).
+    func syncBatched(_ snapshot: Snapshot) {
         let previous = lastSnapshot
         lastSnapshot = snapshot
         // Chrome (focus ring, dim) fades whenever motion is allowed; pane frames, the strip's
@@ -504,7 +519,8 @@ public final class LayoutRootView: NSView {
         setLayoutInMotion(false)
     }
 
-    func advanceFrame(_ dt: Double) -> Bool {
+    /// ``advanceFrame(_:)``'s body (`LayoutRootView+AvoiderBatch`).
+    func advanceFrameBatched(_ dt: Double) -> Bool {
         // A released resize drag whose layout the observation has not applied yet: apply it before this
         // frame, so the frame that ends the drag for the pane contents is the release's (`ScreenContentView+ResizeGesture`).
         if !model.isGestureActive, screenViews.values.contains(where: { $0.resizeGesture == .releasing }) {
@@ -573,8 +589,14 @@ public final class LayoutRootView: NSView {
         reportedKeepAlive = keepAlive
         model.reportVisiblePanes(visible, keepAlive: keepAlive)
         // Losses first, so content leaving the band frees room before new
-        // content attaches.
-        for (pane, presence) in changes.sorted(by: { $0.1.rank < $1.1.rank }) {
+        // content attaches. Among the panes of one kind of change, the focused pane goes first, then
+        // layout order: the app makes one new surface per frame in this order, and the pane the
+        // person types into must not wait behind the others (REOPEN-F4: in a Set's hash order, the
+        // first key after a reopen was lost in 10 of 15 cycles).
+        let focused = model.focusedPane
+        let order = Dictionary((model.activeScreen?.layout.panes ?? []).enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        func place(_ pane: PaneID) -> (Int, Int, String) { (pane == focused ? 0 : 1, order[pane] ?? .max, pane.rawValue) }
+        for (pane, presence) in changes.sorted(by: { $0.1.rank != $1.1.rank ? $0.1.rank < $1.1.rank : place($0.0) < place($1.0) }) {
             context.provider?.panePresenceDidChange(pane, presence: presence)
         }
     }
@@ -593,9 +615,11 @@ public final class LayoutRootView: NSView {
         for (id, view) in screenViews {
             if view.frame.size != bounds.size { view.setFrameSize(bounds.size) }
             if var frame = screenFrames[id] {
-                let target = id == model.activeScreenID ? bounds : bounds.offsetBy(dx: 0, dy: 0)
-                frame.setTarget(target)
-                frame.x.snap(); frame.y.snap(); frame.width.snap(); frame.height.snap()
+                // Only the size follows the root at once. A screen switch in flight (its x and alpha springs)
+                // goes on from where it shows: snapping x and y here ended the slide in whatever frame a layout
+                // pass came, both screens jumping to the middle (`switchScreens` sets the slide's targets).
+                frame.width.snap(to: bounds.width)
+                frame.height.snap(to: bounds.height)
                 screenFrames[id] = frame
             }
         }

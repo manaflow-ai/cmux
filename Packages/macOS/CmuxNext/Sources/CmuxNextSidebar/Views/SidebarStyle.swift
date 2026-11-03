@@ -8,8 +8,15 @@ enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
     /// Every row highlight ends on the same outer inset.
     static var rowTrailingTrim: CGFloat { rowEdgeGap - horizontalInset }
-    /// Leo 2026-10-27: "one or two pixels, 1.5"; content columns do not change the fill edge.
-    static let rowEdgeGap: CGFloat = 1.5
+    /// The gap between a row's fill and the sidebar's trailing edge: the same as its leading inset, so a
+    /// highlight sits inside the sidebar with an even gap on both sides, as ChatGPT's does (8 pt beside its
+    /// 30 pt row; ours is 6 compact, 8 comfortable). Leo 2026-11-02: "CHATGPT HAS A SLIGHT GAP" / "WE DON'T".
+    /// Replaced Leo 2026-10-27's 1.5 pt ("one or two pixels, 1.5"). Content columns do not change the fill edge.
+    static var rowEdgeGap: CGFloat { horizontalInset }
+    /// The plain sidebar background between a row's trailing edge and the curved main-pane card: the
+    /// same gap as `rowEdgeGap`, so a selected row stops as far short of the card as of a flat
+    /// sidebar's edge, with no resize line or chrome shade in the band.
+    static var rowToPaneGap: CGFloat { rowEdgeGap }
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// Height of a placeholder row's bar (about a caption's x-height).
     static var placeholderBarHeight: CGFloat { Metrics.space3 }
@@ -35,6 +42,18 @@ enum SidebarStyle {
     /// every leading glyph (a band row's, a pinned row's pin, a workspace row's icon) centers its ink here, one
     /// `iconBox` wide, so glyphs of different shapes and margins share one center x at every density.
     static func iconColumnCenterX(leading: CGFloat) -> CGFloat { leading + iconColumnBox / 2 }
+    /// The Debug `sidebar.leadingColumn` look: where a glyph's ink sits in the icon column.
+    static var leadingColumnLook: SidebarLeadingColumnLook { SidebarLeadingColumnLook.tunable.value }
+    /// A text-only row keeps the icon column empty, so its title starts at the text x (the `slotted` look only).
+    static var textOnlyKeepsIconSlot: Bool { leadingColumnLook == .slotted }
+    /// The one rule every leading glyph takes (Lawrence msg 19643, "left alignment here is bad"): the x of a glyph
+    /// drawn with `ink` (its drawn extent, in the glyph's own coordinates) in the icon column whose box starts at
+    /// `leading`. The ink starts on the box's leading edge, the row inset, so a pin, Home's house, a favicon, an emoji
+    /// and a symbol start on the left edge text-only titles start on; the `centered` look centers it instead. Callers
+    /// snap the result to their pixel grid.
+    static func iconColumnGlyphX(leading: CGFloat, ink: CGRect) -> CGFloat {
+        leadingColumnLook == .centered ? iconColumnCenterX(leading: leading) - ink.midX : leading - ink.minX
+    }
     /// The leading icon column's box (grid.md 3: 16 compact, 20 comfortable, wider when the text size grows the
     /// glyph). Leading icon frames take this box and draw their glyph, at its own `iconBox` size, centered in it,
     /// so the text column is one 8 pt gap after the frame at both densities.
@@ -49,7 +68,8 @@ enum SidebarStyle {
     /// Workspace title geometry shared by realized rows and virtualized parents of tab rows. A left-rail row with no
     /// symbol, emoji or favicon keeps the swatch's slot (#25705), so its title sits where the dot style draws it.
     static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int, reservesColorRail: Bool = false) -> CGFloat {
-        columns(rowWidth: 0, depth: treeDepth).text(hasLeadingMark: icon != nil || reservesColorRail) - WorkspaceRowView.labelInset
+        columns(rowWidth: 0, depth: treeDepth).text(hasLeadingMark: icon != nil || reservesColorRail || textOnlyKeepsIconSlot)
+            - WorkspaceRowView.labelInset
     }
     static func titleXAfterLeadingMark(_ x: CGFloat) -> CGFloat {
         x + WorkspaceRowView.labelInset + indicatorSize + Metrics.space1
@@ -184,8 +204,8 @@ enum SidebarStyle {
     /// The Debug `sidebar.groupLineLayout` choice.
     static var groupLineLayout: SidebarGroupLineLayout { groupChromeShape ? .joined : SidebarGroupLineLayout.tunable.value }
     /// How far inside a header's left edge Chrome sets its line (Leo 2026-10-19: about 4 to 5 pt): the line's right
-    /// edge meets the end of the bar's corner arc.
-    static var groupLineCornerInset: CGFloat { max(0, rowCornerRadius - groupBarWidth) }
+    /// edge meets the end of the app's item corner arc (the row fill's own corner is rounder since 2026-11-02).
+    static var groupLineCornerInset: CGFloat { max(0, Metrics.itemCornerRadius - groupBarWidth) }
     /// How much further left than its rail a group header's bar reaches: `inside`, the corner inset, so the line sits
     /// under the bar's rounded corner (never past the list's edge, `SidebarListView.railReach(for:)`).
     static var groupHeaderOverhang: CGFloat { groupLineLayout == .inside ? groupLineCornerInset : 0 }

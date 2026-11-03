@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8";
+pub const ir_sha256 = "7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -7301,6 +7301,8 @@ pub const NewFrontendBrowserTabRequest = struct {
     pane: wire.Field(Id) = .absent,
     profile_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
+    /// With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after.
+    split: wire.Field(ConversationTabSplit) = .absent,
     title: wire.Field([]const u8) = .absent,
     url: []const u8,
 
@@ -7319,6 +7321,9 @@ pub fn newFrontendBrowserTab(client: anytype, request: NewFrontendBrowserTabRequ
             .authority = "control",
             .since = 12,
             .capability = "frontend-browser-tabs-v1",
+            .fields = &.{
+                .{ .name = "split", .since = null, .capability = "frontend-browser-tab-split-v1" },
+            },
         },
         request,
     );
@@ -8570,6 +8575,28 @@ pub fn serverStats(client: anytype, request: ServerStatsRequest) !wire.Decoded(S
             .authority = "local-admin",
             .since = 12,
             .capability = "server-stats-v1",
+        },
+        request,
+    );
+}
+
+pub const SetAttachVisibilityRequest = struct {
+    surface: Id,
+    visible: bool,
+};
+
+pub const SetAttachVisibilityResult = struct {
+    viewers: u32,
+};
+
+pub fn setAttachVisibility(client: anytype, request: SetAttachVisibilityRequest) !wire.Decoded(SetAttachVisibilityResult) {
+    return client.callTyped(
+        SetAttachVisibilityResult,
+        .{
+            .name = "set-attach-visibility",
+            .authority = "frontend",
+            .since = 12,
+            .capability = "attach-visibility-v1",
         },
         request,
     );
@@ -11659,7 +11686,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 287;
+pub const command_count: usize = 288;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11884,6 +11911,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "send", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "send-key", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "server-stats", .authority = "local-admin", .since = 12, .capability = "server-stats-v1", .stream = null },
+    .{ .name = "set-attach-visibility", .authority = "frontend", .since = 12, .capability = "attach-visibility-v1", .stream = null },
     .{ .name = "set-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-info", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-sizing", .authority = "control", .since = 10, .capability = null, .stream = null },

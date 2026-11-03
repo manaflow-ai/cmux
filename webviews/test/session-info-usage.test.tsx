@@ -3,6 +3,8 @@
 // acpmux's `usageStats` on the session summary, and every session acpmux lists, this Mac's and its
 // peers', sorted by 24h cost or by context. Leo, 2026-10-30: "that visibility into huge-blue guys
 // was (and is?) pretty bad i feel like we can make more improvements to acpmux/cmux-next".
+// Every section in view (`setSessionInfoMore(true)`): the panel's compact default view is
+// session-info-compact-default.test.tsx's.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -10,7 +12,11 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import { DEFAULT_SECTIONS, resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import {
+  DEFAULT_SECTIONS,
+  resetSessionInfoState,
+  setSessionInfoMore,
+} from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { DEFAULT_ORDER, GROUP_SECTIONS } from "../src/agent-session/acpmux/session-info/sectionOrder";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
 import { byUsage, sameUsageStats, usageCost, usageStatsOf } from "../src/agent-session/acpmux/usageStats";
@@ -41,6 +47,7 @@ beforeEach(() => {
   for (const key of Object.keys(replacements)) saved.set(key, scope[key]);
   Object.assign(scope, replacements);
   resetSessionInfoState();
+  setSessionInfoMore(true);
   host = dom.window.document.getElementById("root")!;
 });
 
@@ -48,6 +55,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   resetSessionInfoState();
+  setSessionInfoMore(true);
   dom.window.close();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
@@ -200,6 +208,11 @@ test("open, Usage lists this chat's numbers, then every host's sessions by 24h c
     row.dataset.usage,
     row.querySelector(".acpmux-session-info-row__end")?.textContent,
   ]);
+  expect(
+    [...usage.querySelectorAll<HTMLElement>("li[data-usage]")].every((row) =>
+      row.querySelector(".acpmux-session-info-usage__lead-slot"),
+    ),
+  ).toBe(true);
   expect(own).toEqual([
     ["cost", "$12.40"],
     ["tokens", "4M"],

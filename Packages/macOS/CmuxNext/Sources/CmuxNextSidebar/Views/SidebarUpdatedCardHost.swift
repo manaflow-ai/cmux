@@ -10,7 +10,9 @@ import CmuxNextDesign
 /// (Leo 2026-10-30: "I don't like the non-glassness"). A web page's CSS glass
 /// sees nothing of the sidebar behind its view, so the page alone could paint
 /// only a flat fill. Under Reduce Transparency the surface is the opaque
-/// elevated fill, as every card's.
+/// elevated fill, as every card's. Its veil takes the theme's glass tint
+/// (``CardSurfaceView/takesThemeTint``): over a themed sidebar the neutral
+/// gray read as an unthemed card (Leo 2026-11-02).
 ///
 /// The x is native, over the page's top right, shown while the pointer is on
 /// the card (Lawrence 2026-10-23: "i cant X this out anymore even when hovering
@@ -55,18 +57,25 @@ final class SidebarUpdatedCardHost: NSView {
         }
     }
 
-    /// The card's corner: the page's own card radius (`.wn-card`'s 12 px, updateSurfaces.css), so the
-    /// glass keeps the card's shape. Space 5 is 12 pt at the default density.
-    static var cornerRadius: CGFloat { Metrics.space5 }
+    /// The card's sizes at the sidebar's density (Lawrence 2026-11-01: "the card must reflect my
+    /// compactness level"): the page reads the same ones (`--cmux-sidebar-card-*`, WebTheme).
+    static var metrics: SidebarCardMetrics { SidebarRowTokens.current.card }
+    /// The card's corner: the page's own card radius, so the glass keeps the card's shape.
+    static var cornerRadius: CGFloat { metrics.cornerRadius }
 
-    /// The x's side and its inset from the card's top right (the page's own x stood there).
-    static let closeSide: CGFloat = 18
-    static let closeInset = NSSize(width: 8, height: 7)
+    /// The x's side and its inset from the card's top right: on the title line, inside the padding.
+    static var closeSide: CGFloat { metrics.closeSide }
+    static var closeInset: NSSize {
+        let m = metrics
+        return NSSize(width: max(m.paddingX - 2, 0), height: max(m.paddingY - 2, 0))
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         isHidden = true
         setAccessibilityElement(false)
+        // The theme's surface, not the neutral gray (Leo 2026-11-02: "why is the update thing unthemed").
+        surface.takesThemeTint = true
         addSubview(surface)
         closeButton.showsLabelToolTip = false
         closeButton.takesKeyFocus = true

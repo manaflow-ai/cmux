@@ -19,12 +19,28 @@ from test_ci_fork_runner_routing import parse_expression
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/workflows/nightly.yml'))
 DOC = yaml.safe_load(nightly_expand(WORKFLOW_FILE.read_text()))
-# The nightly signer jobs and their Linux picker.
-SIGNER_ROUTE_JOBS = ('signer-build', 'signer-app', 'signer-app-notary', 'signer-dmg', 'pick-nightly-sign-runner')
+# The nightly signer jobs: GitHub-hosted Ubuntu, then Blacksmith Linux 4 vCPU on a re-run.
+SIGNER_JOBS = ('signer-build', 'signer-app', 'signer-app-notary', 'signer-dmg')
+# They, their picker, the cmux NIGHTLY-identity copy's release-signer jobs and the feed compare that picks its
+# build (legacy-identity-target; all on the signer route itself) have their own routes, outside the 16/32 rule.
+# sentry-dsyms-nightly (a network-bound Sentry upload, off the build's path) takes the signer route too.
+SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-identity-target', 'legacy-signer-app', 'legacy-signer-dmg',
+                                   'sentry-dsyms-nightly')
 TAIL_CONTROL_JOBS = (
     'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
     'nightly-identity-legacy-published', 'report-nightly-failure', 'close-nightly-failure-issue',
 )
+
+DEFAULT_POOL_MEMBERS = {
+    'linux_2': 'blacksmith-2vcpu-ubuntu-2404',
+    'linux_4': 'blacksmith-4vcpu-ubuntu-2404',
+    'linux_8': 'blacksmith-8vcpu-ubuntu-2404',
+    'linux_16': 'blacksmith-16vcpu-ubuntu-2404',
+    'linux_32': 'blacksmith-32vcpu-ubuntu-2404',
+    'macos_15': 'blacksmith-6vcpu-macos-15',
+    'macos_26': 'blacksmith-6vcpu-macos-26',
+    'macos_26_large': 'blacksmith-12vcpu-macos-26',
+}
 
 
 def evaluate(node, context):
@@ -43,6 +59,21 @@ def evaluate(node, context):
         return {'true': True, 'false': False, 'null': None}.get(value, value)
     if kind == 'ref':
         return context.get(node[1], '')
+    if kind == 'pool':
+        # Resolve the same declared pool members as runs_on_labels.py. A test
+        # may provide RUNNER_POOLS JSON to exercise a reconciled member; when
+        # it does not, use the declaration's first member as the stable
+        # fixture value.
+        configured = context.get('vars.RUNNER_POOLS', '')
+        try:
+            pools = json.loads(configured) if configured else {}
+        except (TypeError, json.JSONDecodeError):
+            pools = {}
+        if isinstance(pools, dict) and isinstance(pools.get(node[1]), str):
+            return pools[node[1]]
+        declaration = json.loads((ROOT / '.github/runners.json').read_text())
+        members = declaration.get('pools', {}).get(node[1], {}).get('members', [])
+        return members[0] if members else ''
     if kind == 'cmp':
         left, right = (str(evaluate(arg, context)).lower() for arg in node[2:])
         if node[1] in ('>', '<', '>=', '<='):
@@ -58,9 +89,15 @@ def evaluate(node, context):
         if node[1].lower() == 'format':
             return args[0].format(*args[1:])
         if node[1].lower() == 'fromjson':
-            return json.loads(args[0])
+            try:
+                return json.loads(args[0])
+            except (TypeError, json.JSONDecodeError):
+                return {}
         if node[1].lower() == 'contains':
             return str(args[1]).lower() in str(args[0]).lower()
+    if kind == 'prop':
+        value = evaluate(node[1], context)
+        return value.get(node[2], DEFAULT_POOL_MEMBERS.get(node[2], '')) if isinstance(value, dict) else DEFAULT_POOL_MEMBERS.get(node[2], '')
     raise ValueError(node)
 
 
@@ -200,10 +237,12 @@ class NightlyTrustedRouting(unittest.TestCase):
         uses = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('runs-on', '')))
         # The existing native routes use the nightly slot; the three secret-free Mac
         # jobs also read it for the bounded attempt-2 retry added in #29847. OwnedVerify in
-        # test_nightly_sign_runner.py checks that retry and its later overflow destinations.
-        self.assertEqual(uses, ['generate-nightly-deltas', 'sign-nightly-identity-legacy',
+        # test_nightly_sign_runner.py checks that retry and its later overflow destinations. The cmux
+        # NIGHTLY-identity copy's release-signer image job and its verify take the legacy verify's route.
+        self.assertEqual(uses, ['generate-nightly-deltas', 'launch-smoke-nightly', 'legacy-signer-dmg-image', 'sign-nightly-identity-legacy',
                                 'signer-dmg-image', 'verify-final-dmg-nightly',
-                                'verify-nightly-identity-legacy', 'verify-signed-nightly'])
+                                'verify-nightly-identity-legacy', 'verify-nightly-identity-legacy-pool',
+                                'verify-signed-nightly'])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
         # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's.
         self.assertEqual(steps, ['pick-nightly-build-runner', 'pick-nightly-sign-runner'])
@@ -306,28 +345,38 @@ class NightlyTrustedRouting(unittest.TestCase):
             with self.subTest(runner=runner):
                 self.assertIn(label('prepare-nightly-variant', runner, 'failure'), members)
 
-    def test_signer_jobs_use_the_dedicated_blacksmith_linux_picker(self):
-        # The picker validates the 4/16/32-vCPU set and rotates after a stalled queue;
-        # signer jobs consume only its outputs, never hosted/GCP or a scalar variable.
-        picker_context = {
-            'github.repository_owner': 'manaflow-ai', 'github.run_attempt': 1,
-            'vars.RUNNER_POOLS': '{"linux":"blacksmith-16vcpu-ubuntu-2404"}',
-        }
-        for name in SIGNER_ROUTE_JOBS:
+    def test_signer_jobs_take_hosted_ubuntu_then_blacksmith_4vcpu_never_16_or_32(self):
+        # Signing is notarization-bound (W44 p50 on Blacksmith 32 vCPU: signer-app 240 s, signer-dmg 199 s,
+        # signer-build 7 s). Leo, 2026-11-01: "a small job that is not CPU-bound, such as signing and its runner
+        # pick, takes GitHub-hosted Ubuntu first". Attempt 1 takes GitHub-hosted Ubuntu, a re-run Blacksmith Linux
+        # 4 vCPU, whatever LINUX_RUNNER, RUNNER_POOLS, the overflow switch or the sign pick's outputs hold.
+        for name in SIGNER_JOBS + ('legacy-identity-target', 'legacy-signer-app', 'legacy-signer-dmg', 'sentry-dsyms-nightly'):
             source = DOC['jobs'][name]['runs-on'].removeprefix('${{').removesuffix('}}')
-            context = dict(picker_context)
-            if name != 'pick-nightly-sign-runner':
-                context.update({
-                    'needs.pick-nightly-sign-runner.outputs.linux': 'blacksmith-4vcpu-ubuntu-2404',
-                    'needs.pick-nightly-sign-runner.outputs.linux_alternate': 'blacksmith-16vcpu-ubuntu-2404',
-                    'needs.pick-nightly-sign-runner.outputs.attempt': '1',
-                })
-            with self.subTest(job=name):
-                selected = evaluate(parse_expression(source), context)
-                if isinstance(selected, list):
-                    selected = selected[0]
-                self.assertIn(selected, {'blacksmith-4vcpu-ubuntu-2404', 'blacksmith-16vcpu-ubuntu-2404',
-                                          'blacksmith-32vcpu-ubuntu-2404'})
+            self.assertNotIn('blacksmith-16vcpu', source)
+            self.assertNotIn('blacksmith-32vcpu', source)
+            self.assertNotRegex(source, r'RUNNER_POOLS\)\.linux_(?:16|32)\b')
+            for runner in ('', 'ubuntu-24.04', 'blacksmith-4vcpu-ubuntu-2404', 'blacksmith-16vcpu-ubuntu-2404',
+                           'blacksmith-32vcpu-ubuntu-2404'):
+                for attempt, want in ((1, 'ubuntu-24.04'), (2, 'blacksmith-4vcpu-ubuntu-2404'),
+                                      (3, 'blacksmith-4vcpu-ubuntu-2404')):
+                    context = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': attempt,
+                               'vars.LINUX_RUNNER': runner, 'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}',
+                               'vars.RUNNER_POOLS': '{"linux":"%s"}' % runner,
+                               'needs.pick-nightly-sign-runner.outputs.linux': 'blacksmith-16vcpu-ubuntu-2404',
+                               'needs.pick-nightly-sign-runner.outputs.linux_alternate': 'blacksmith-32vcpu-ubuntu-2404',
+                               'needs.pick-nightly-sign-runner.outputs.attempt': str(attempt)}
+                    with self.subTest(job=name, runner=runner, attempt=attempt):
+                        self.assertEqual(evaluate(parse_expression(source), context), want)
+            fork = {'github.repository_owner': 'someone', 'github.run_attempt': 1}
+            self.assertEqual(evaluate(parse_expression(source), fork), 'ubuntu-24.04')
+        # signer-build holds no secret: decide's early fleet placement (#29864) comes first on its own attempt.
+        source = DOC['jobs']['signer-build']['runs-on'].removeprefix('${{').removesuffix('}}')
+        placed = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': 1,
+                  'needs.decide.outputs.early_attempt': '1', 'needs.decide.outputs.early_linux_jobs': ' signer-build ',
+                  'needs.decide.outputs.early_linux_runner': 'cmux-fleet-linux-x64'}
+        self.assertEqual(evaluate(parse_expression(source), placed), 'cmux-fleet-linux-x64')
+        self.assertEqual(evaluate(parse_expression(source), {**placed, 'github.run_attempt': 2}),
+                         'blacksmith-4vcpu-ubuntu-2404')
 
     def test_credentialed_publish_controls_use_owned_claim_then_linux_overflow(self):
         # Release App publication jobs may use a drained owned Mac, but only the
@@ -429,8 +478,6 @@ class NightlyTrustedRouting(unittest.TestCase):
                                'needs.prepare-nightly-variant-primary.result': primary}
                     with self.subTest(job=name, runner=runner, primary=primary):
                         self.assertIn(evaluate(parse_expression(source), context),
-                                      {"blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"}
-                                      if name == "legacy-identity-target" else
                                       (members | {"ubuntu-24.04"}) if f"nightly.yml#{name}" in light else members)
         self.assertGreater(checked, 20)
 
@@ -667,10 +714,8 @@ class LightJobsOnAFreeMini(unittest.TestCase):
     def test_only_the_light_jobs_read_the_placement(self):
         readers = sorted(name for name, job in DOC['jobs'].items() if 'light_mini' in str(job.get('runs-on', '')))
         self.assertEqual(readers, sorted(self.LIGHT))
-        step = next(step for step in DOC['jobs']['build-nightly-app']['steps'] if step.get('id') == 'place-light')
-        # The primary preparation keeps its placement-aware runs-on but is not offered: it ran 4.8 min on a
-        # dedicated nightly Mac against 57 s on its Blacksmith route (runs 41360732074, 41358657711).
-        self.assertEqual(step['env']['JOBS'].split(), [job for job in self.LIGHT if job != 'prepare-nightly-variant-primary'])
+        step = next(step for step in DOC['jobs']['build-nightly-app']['steps'] if step.get('id') == 'place-light-start')
+        self.assertEqual(step['env']['JOBS'].split(), list(self.LIGHT))
         self.assertEqual(step['env']['NIGHTLY'], '1')
         self.assertEqual(step['env']['NIGHTLY_WAIT_FOR_FLEET'], '1')
         self.assertEqual(step['timeout-minutes'], 5)
@@ -679,6 +724,31 @@ class LightJobsOnAFreeMini(unittest.TestCase):
         self.assertTrue(step['continue-on-error'])
         # Only after the token the nightly-next-only mint step makes.
         self.assertIn("steps.light-route-token.outputs.token != ''", step['if'])
+
+    def test_the_placement_waits_beside_the_uploads_and_is_collected_last(self):
+        steps = DOC['jobs']['build-nightly-app']['steps']
+        ids = [step.get('id') for step in steps]
+        names = [step.get('name') for step in steps]
+        start, collect = steps[ids.index('place-light-start')], steps[ids.index('place-light')]
+        self.assertEqual(start['run'], 'bash scripts/ci/nightly-steps/light-placement.sh start')
+        self.assertEqual(collect['run'], 'bash scripts/ci/nightly-steps/light-placement.sh finish')
+        # Started before the archive and the uploads, so its wait for an idle runner overlaps them.
+        self.assertLess(ids.index('light-route-token'), ids.index('place-light-start'))
+        self.assertLess(ids.index('place-light-start'), names.index('Archive unsigned nightly app'))
+        self.assertLess(names.index('Upload unsigned nightly app'), ids.index('place-light'))
+        # Collected only when started, and still the last step before the always() cleanup that ends it.
+        self.assertIn("steps.place-light-start.outcome == 'success'", collect['if'])
+        self.assertTrue(collect['continue-on-error'])
+        # Only the fleet Linux offer for the primary preparation (a census read, no wait) sits between them.
+        self.assertEqual(names[ids.index('place-light') + 1:],
+                         ['Offer fleet Linux to the primary preparation', 'Stop the helper builds still running'])
+        self.assertTrue(steps[-1]['if'].startswith('always()'))
+        # The job's outputs read the collecting step.
+        outputs = DOC['jobs']['build-nightly-app']['outputs']
+        for key in ('light_mini_runner', 'light_mini_jobs', 'light_attempt'):
+            with self.subTest(output=key):
+                self.assertIn('steps.place-light.', outputs[key])
+                self.assertNotIn('place-light-start', outputs[key])
 
     def test_the_build_job_mints_only_the_routing_token_for_the_placement(self):
         steps = DOC['jobs']['build-nightly-app']['steps']
@@ -689,6 +759,123 @@ class LightJobsOnAFreeMini(unittest.TestCase):
         self.assertEqual(sorted(key for key in mint['with'] if key.startswith('permission-')),
                          ['permission-administration', 'permission-organization-self-hosted-runners'])
         self.assertTrue(all(value == 'read' for key, value in mint['with'].items() if key.startswith('permission-')))
+
+
+    def test_light_placement_runs_in_the_background_and_hands_its_outputs_to_the_collecting_step(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tree = Path(tmp) / 'tree'
+            (tree / 'scripts/ci/nightly-steps').mkdir(parents=True)
+            for name in ('scripts/ci/background_build.py', 'scripts/ci/nightly-steps/light-placement.sh'):
+                (tree / name).write_bytes((ROOT / name).read_bytes())
+            # A stand-in placement: it writes the outputs and summary the real one writes, after
+            # the start step has already returned.
+            (tree / 'scripts/ci/portable_job_placement.py').write_text(
+                'import os, time\n'
+                'time.sleep(1)\n'
+                'open(os.environ["GITHUB_OUTPUT"], "a").write("mini_runner=glaeda-nightly-only-m4pro\\n'
+                'mini_jobs= prepare-nightly-variant \\n")\n'
+                'open(os.environ["GITHUB_STEP_SUMMARY"], "a").write("placed\\n")\n'
+                'print("portable placement: placed")\n')
+            runner_temp = Path(tmp) / 'runner'
+            runner_temp.mkdir()
+            start_out, finish_out, summary = (Path(tmp) / n for n in ('start.out', 'finish.out', 'summary'))
+            for path in (start_out, finish_out, summary):
+                path.write_text('')
+            base = {**os.environ, 'RUNNER_TEMP': str(runner_temp)}
+            script = ['bash', 'scripts/ci/nightly-steps/light-placement.sh']
+            subprocess.run([*script, 'start'], cwd=tree, check=True, capture_output=True,
+                           env={**base, 'GITHUB_OUTPUT': str(start_out), 'GITHUB_STEP_SUMMARY': str(summary)})
+            finished = subprocess.run([*script, 'finish'], cwd=tree, capture_output=True, text=True,
+                                      env={**base, 'GITHUB_OUTPUT': str(finish_out), 'GITHUB_STEP_SUMMARY': str(summary)})
+            self.assertEqual(finished.returncode, 0, finished.stdout + finished.stderr)
+            self.assertIn('portable placement: placed', finished.stdout)
+            self.assertEqual(start_out.read_text(), '')
+            self.assertEqual(finish_out.read_text(),
+                             'mini_runner=glaeda-nightly-only-m4pro\nmini_jobs= prepare-nightly-variant \n')
+            self.assertEqual(summary.read_text(), 'placed\n')
+            # A placement that fails fails the collecting step (continue-on-error), so the light jobs keep Blacksmith.
+            (tree / 'scripts/ci/portable_job_placement.py').write_text('raise SystemExit(3)\n')
+            subprocess.run(['rm', '-rf', str(runner_temp / 'nightly-helper-builds')], check=True)
+            subprocess.run([*script, 'start'], cwd=tree, check=True, capture_output=True,
+                           env={**base, 'GITHUB_OUTPUT': str(start_out), 'GITHUB_STEP_SUMMARY': str(summary)})
+            failed = subprocess.run([*script, 'finish'], cwd=tree, capture_output=True, text=True,
+                                    env={**base, 'GITHUB_OUTPUT': str(finish_out), 'GITHUB_STEP_SUMMARY': str(summary)})
+            self.assertNotEqual(failed.returncode, 0)
+
+
+class CmuxTuiClientPrefetch(unittest.TestCase):
+    """The cmux-tui client "Bundle the cmux-tui client" installs is fetched beside the compile into the
+    cache that step reads, with the same manifest and checks, and joined before the install."""
+
+    def test_the_prefetch_fetches_what_the_bundle_step_installs_into_its_cache(self):
+        steps = DOC['jobs']['build-nightly-app']['steps']
+        by_name = {step.get('name'): step for step in steps}
+        fetch, bundle = by_name['Fetch the resolved cmux-tui tree companions'], by_name['Bundle the cmux-tui client']
+        for key in ('CMUX_TUI_CLIENT_COMMIT', 'CMUX_TUI_CLIENT_CACHE'):
+            with self.subTest(env=key):
+                self.assertEqual(fetch['env'][key], bundle['env'][key])
+        # GH_TOKEN would change how pin-cmux-tui.sh reads GitHub in the same step: only the prefetch gets it.
+        self.assertNotIn('GH_TOKEN', fetch['env'])
+        self.assertEqual(fetch['env']['PREFETCH_GH_TOKEN'], bundle['env']['GH_TOKEN'])
+        # The prefetch never runs where the bundle step does not, nor before the tree is published.
+        for condition in ("needs.decide.outputs.fast_build != 'true'", "needs.decide.outputs.build_only != 'true'"):
+            self.assertIn(condition, fetch['if'])
+            self.assertIn(condition, bundle['if'])
+        self.assertIn("needs.resolve-nightly-cmux-tui-client.outputs.tree_pending != 'true'", fetch['if'])
+        self.assertLess(steps.index(fetch), [step.get('name') for step in steps].index('Build nightly app (Release)'))
+        prefetch = (ROOT / 'scripts/ci/nightly-steps/app-fetch-tree-companions.sh').read_text()
+        install = (ROOT / 'scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh').read_text()
+        for flag in ('--require-capability wireguard-hub', '--require-acpmux',
+                     'https://files.cmux.com/cmux-tui/${'):
+            with self.subTest(flag=flag):
+                self.assertIn(flag, prefetch)
+                self.assertIn(flag, install)
+        self.assertIn('background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" cmux-tui-client', prefetch)
+        join = install.index('background_build.py join --state "$state" cmux-tui-client')
+        self.assertLess(join, install.index('./scripts/install-cmux-tui-client.sh'))
+        # A failed prefetch drops its cache, so the install downloads everything itself.
+        self.assertIn('rm -rf "${CMUX_TUI_CLIENT_CACHE:?}"', install[join:install.index('./scripts/install-cmux-tui-client.sh')])
+
+
+class PrimaryPreparationOnFleetLinux(unittest.TestCase):
+    """prepare-nightly-variant-primary takes fleet Linux first: median 45 s on Linux against 202 s on a
+    dedicated nightly Mac (download 49 s and upload 85 s on the Mac network). build-nightly-app's place-fleet
+    names the label only while an idle runner waits there, so the job starts at once; otherwise the light
+    placement's mini, then Blacksmith, as before (#31636 reverted a Blacksmith-only route that queued 5-14 min)."""
+
+    FLEET = 'cmux-fleet-linux-x64'
+    MINI = 'glaeda-nightly-only-m4pro'
+
+    def runs_on(self, **changes):
+        context = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': 1,
+                   'vars.LINUX_RUNNER': 'blacksmith-32vcpu-ubuntu-2404',
+                   'needs.build-nightly-app.outputs.light_attempt': '1',
+                   'needs.build-nightly-app.outputs.light_linux_runner': self.FLEET,
+                   'needs.build-nightly-app.outputs.light_mini_runner': self.MINI,
+                   'needs.build-nightly-app.outputs.light_mini_jobs': ' prepare-nightly-variant-primary ', **changes}
+        source = DOC['jobs']['prepare-nightly-variant-primary']['runs-on'].removeprefix('${{').removesuffix('}}')
+        return evaluate(parse_expression(source), context)
+
+    def test_fleet_linux_first_then_the_mini_then_blacksmith(self):
+        self.assertEqual(self.runs_on(), self.FLEET)
+        self.assertEqual(self.runs_on(**{'needs.build-nightly-app.outputs.light_linux_runner': ''}), self.MINI)
+        self.assertEqual(self.runs_on(**{'needs.build-nightly-app.outputs.light_linux_runner': '',
+                                         'needs.build-nightly-app.outputs.light_mini_jobs': ''}),
+                         'blacksmith-32vcpu-ubuntu-2404')
+        # A re-run keeps attempt 1's outputs; the runner it saw idle may be gone, so it takes Blacksmith.
+        self.assertEqual(self.runs_on(**{'github.run_attempt': 2}), 'blacksmith-32vcpu-ubuntu-2404')
+        self.assertEqual(self.runs_on(**{'github.repository_owner': 'someone'}), 'ubuntu-24.04')
+
+    def test_the_fallback_leg_keeps_its_mini_and_blacksmith_route(self):
+        fallback = DOC['jobs']['prepare-nightly-variant']
+        self.assertNotIn('light_linux_runner', fallback['runs-on'])
+        self.assertIn('prepare-nightly-variant-primary', fallback['needs'])
+
+    def test_place_fleet_follows_the_light_placement_token(self):
+        step = next(step for step in DOC['jobs']['build-nightly-app']['steps'] if step.get('id') == 'place-fleet')
+        self.assertEqual(step['env']['FLEET_LINUX'], self.FLEET)
+        self.assertIn("steps.light-route-token.outputs.token != ''", step['if'])
+        self.assertEqual(step['run'], 'python3 scripts/ci/portable_job_placement.py')
 
 
 class DaemonBesideTheApp(unittest.TestCase):
@@ -788,7 +975,11 @@ class CredentialedControls(unittest.TestCase):
         class Context(dict):
             def get(self, key, default=''):
                 if key == 'pool_linux':
-                    return json.loads(pool or '{}').get('linux', '')
+                    try:
+                        member = json.loads(pool or '{}').get('linux', '')
+                    except (TypeError, json.JSONDecodeError):
+                        return ''
+                    return member if member in CREDENTIALED_CONTROL_MEMBERS else ''
                 return super().get(key, default)
         source = DOC['jobs'][job]['runs-on'][3:-2]
         self.assertIn("fromJSON(vars.RUNNER_POOLS || '{}').linux", source)

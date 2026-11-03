@@ -152,6 +152,39 @@
   }
 }
 
+/* FISHEYE (Fisheye.tsx; Leo 2026-10-21 on Jump to latest: "I want, like glassier stuff. I want it to
+   be like a fucking glass, like a lens thing, like a fisheye. I want more fisheye!"). A small round
+   glass that adds .ui-glass-fisheye and renders <FisheyeFilters size=…/> magnifies and bends the page
+   under it: Chromium runs the filter as its backdrop (the middle zooms in, the rim squeezes), over
+   the theme surface so a see-through page's text never shows twice. The surface keeps a frosted tint
+   (the bent words blur to soft shapes and never read through) and a lens's light: a bright arc where the light comes from (above, a little left), a shade on the
+   far side and a darker inner edge for the glass's thickness. --glass-fisheye picks the strength
+   (Fisheye.tsx FISHEYE_STRENGTHS). WebKit draws nothing for an SVG backdrop filter, so it keeps the
+   shared glass; Reduce Transparency keeps the opaque surface (the rules above). */
+.ui-glass-fisheye {
+  --glass-fisheye: url(#cmux-glass-fisheye-medium);
+  /* The tint and what runs after the bend (CSS filter functions): the shared fisheye level
+     (desktop.css --ds-glass-fisheye-*), so the bent words frost instead of reading through the disc
+     (Leo 2026-11-03: "this is a little too transparent"). cmux#32577 shipped 14% and no frost. */
+  --glass-fisheye-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-fisheye-tint, 50%), transparent);
+  --glass-fisheye-frost: var(--ds-glass-fisheye-frost, blur(2.5px) saturate(1.15));
+}
+@media not (prefers-reduced-transparency: reduce) {
+  @supports not (-webkit-backdrop-filter: none) {
+    :root:not([data-reduce-transparency]) .ui-glass.ui-glass-fisheye {
+      /* The color alone, so a surface's own background-image (a hover wash) still draws. */
+      background-color: var(--glass-fisheye-tint);
+      backdrop-filter: var(--glass-fisheye) var(--glass-fisheye-frost);
+      box-shadow:
+        inset 0.75px 1px 0.5px -0.25px var(--glass-specular),
+        inset -0.75px -1px 1px -0.5px var(--glass-shade),
+        inset 0 0 3px 0 var(--glass-shade),
+        inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge),
+        var(--glass-elevation);
+    }
+  }
+}
+
 /* CHROMIUM OVER THE WINDOW GLASS (Leo 2026-10-22: "we can't be having unstyled main chat panes").
    Chromium draws a backdrop-filter's blurred copy over the page's own pixels, not in their place.
    The window glass is not in a see-through page, so that copy is mostly clear and the text under a

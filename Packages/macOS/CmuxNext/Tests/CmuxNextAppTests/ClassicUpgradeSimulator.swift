@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -128,7 +129,7 @@ final class ClassicUpgradeSimulator {
             let layout = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: services),
                                               onRefused: { [weak services] message in services?.registry.refuse(message) })
             layout.start()
-            SidebarDocWiring.start(services, layout: layout, wrapping: documentRemote)
+            services.sidebarDoc.start(services, layout: layout, wrapping: documentRemote)
             services.sidebarLayout = layout
         }
         AppActions.bind(services)
@@ -152,8 +153,13 @@ final class ClassicUpgradeSimulator {
         let clock = ContinuousClock()
         let start = clock.now
         let launcher = self.launcher
-        services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+        // As the app connects (`DaemonService.localConfiguration`): `session.events` brings the sidebar document's
+        // changes (the echo of each adopt and move) and the personal rows, and the document path echoes
+        // `placement-shift-v1`. Without them the document never confirms a placement (#28425).
+        var configuration = DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true)
+        configuration.echoesPlacementShift = SidebarMirror.isLinked
+        services.daemon.start { [configuration] in
+            DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
         var result = Launch()
@@ -313,15 +319,36 @@ final class ClassicUpgradeSimulator {
         return made
     }
 
+    /// The names of the workspaces made from classic that the sidebar document does not place with an item the
+    /// daemon confirmed (its echo applied, not only this client's pending change), sorted.
+    func unplacedInDocument() -> [String] {
+        guard let document = services.sidebarDoc.store, document.isActive else { return ["(the sidebar document is not active)"] }
+        let store = services.daemon.store
+        return made().compactMap { id, made in
+            guard let workspace = store.workspace(id: id), let ref = SidebarDocSections.ref(of: workspace, session: store.registryID),
+                  let item = document.shown?.items[ref], document.records.items[item] != nil else { return made.name }
+            return nil
+        }.sorted()
+    }
+
     /// Group name to collapsed, for every personal group.
     func groups() -> [String: Bool] {
         Dictionary(services.daemon.store.personal.groups.map { ($0.name, $0.collapsed) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// Each window's sidebar containers (loose rows, then each group), workspace ids in the order shown.
+    /// Each window's sidebar containers (loose rows, then each group, then the Pinned band's workspaces), workspace ids
+    /// in the order shown, with the window's own top projection (`SidebarTopProjection.make`, as `SidebarBridge` draws):
+    /// on the sidebar document a pinned workspace lists in the Pinned band or pinned in its group, never in the legacy
+    /// Pinned list section.
     func windows() -> [[[String]]] {
-        services.windows.registry.value.windows.map { window in
-            SidebarBridge.sections(services.machines, members: window.workspaceIDs, profile: .defaultProfile).flatMap { section in
+        let refs = WorkspaceLayoutRefs(machines: services.machines)
+        let pinned = services.sidebarDoc.store?.shown?.layout.sections.first { $0.id.rawValue == SidebarDocStore.pinnedSection }?
+            .items.compactMap { refs.workspaceID(for: $0.ref) } ?? []
+        let room = ProfileID.defaultProfile
+        let top = SidebarTopProjection.make(services.sidebarLayout, machines: services.machines, room: room.rawValue)
+        return services.windows.registry.value.windows.map { window in
+            let members = Set(window.workspaceIDs)
+            return SidebarBridge.sections(services.machines, doc: services.sidebarDoc, members: window.workspaceIDs, profile: room, top: top).flatMap { section in
                 var loose: [String] = []
                 var groups: [[String]] = []
                 for node in section.nodes {
@@ -332,7 +359,7 @@ final class ClassicUpgradeSimulator {
                     }
                 }
                 return [loose] + groups
-            }
+            } + [pinned.filter(members.contains)]
         }
     }
 
@@ -356,9 +383,9 @@ final class ClassicUpgradeSimulator {
     /// - Parameter source: the classic file the run read (default: the session file).
     ///   - ignoring: cmux-next workspaces that are not classic's (one the person made before).
     ///   - excusing: classic keys whose workspace is allowed not to have opened (a declared known limit).
-    ///   - orderIsKnownIssue: classic's order is a declared known issue (a resumed run makes its workspaces last).
+    ///   - orderKnownIssue: why classic's order is a declared, intermittent known issue for this run (nil: it is checked).
     func verify(_ profile: ClassicUpgradeProfile, classicBefore: [String: String], source: URL? = nil, ignoring: Set<String> = [],
-                excusing: Set<String> = [], orderIsKnownIssue: Bool = false, sourceLocation: SourceLocation = #_sourceLocation) throws {
+                excusing: Set<String> = [], orderKnownIssue: Comment? = nil, sourceLocation: SourceLocation = #_sourceLocation) throws {
         let label = profile.name
         // The file on disk: panel ids (and so older snapshots' keys) are made when it is written.
         let file = source ?? mac.session()
@@ -420,8 +447,8 @@ final class ClassicUpgradeSimulator {
                     #expect(shown == classic, "\(label): order differs: \(shown.compactMap { made[$0]?.name.prefix(20) }) for \(classic.compactMap { made[$0]?.name.prefix(20) })",
                             sourceLocation: sourceLocation)
                 }
-                if orderIsKnownIssue {
-                    withKnownIssue("a resumed run makes its workspaces last in the sidebar", isIntermittent: true, sourceLocation: sourceLocation, check)
+                if let orderKnownIssue {
+                    withKnownIssue(orderKnownIssue, isIntermittent: true, sourceLocation: sourceLocation, check)
                 } else {
                     check()
                 }

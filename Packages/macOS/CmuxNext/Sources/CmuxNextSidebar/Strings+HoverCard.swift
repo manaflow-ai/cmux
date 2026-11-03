@@ -2,6 +2,8 @@ import Foundation
 
 extension Strings {
     static var hoverCloud: String { String(localized: "sidebar.hoverCard.cloud", defaultValue: "Cloud", bundle: .module) }
+    /// The ✕ on a hover preview tab row, for VoiceOver.
+    static var hoverCardCloseTab: String { String(localized: "sidebar.hoverCard.closeTab", defaultValue: "Close tab", bundle: .module) }
     static var showDetails: String { String(localized: "sidebar.hoverCard.showDetails", defaultValue: "Show details", bundle: .module) }
     static var hideDetails: String { String(localized: "sidebar.hoverCard.hideDetails", defaultValue: "Hide details", bundle: .module) }
     /// "3 subagents": an agent chat's running subagents (`WorkspaceHoverCardWork`).
@@ -22,6 +24,8 @@ extension Strings {
     }
     static var hoverCardKindBrowser: String { String(localized: "sidebar.hoverCard.tab.kind.browser", defaultValue: "Browser", bundle: .module) }
     static var hoverCardKindAgentChat: String { String(localized: "sidebar.hoverCard.tab.kind.agentChat", defaultValue: "Agent chat", bundle: .module) }
+    /// Where a tab of this Mac runs, in the hover card's tab rows.
+    static var hoverCardThisMac: String { String(localized: "sidebar.hoverCard.tab.thisMac", defaultValue: "This Mac", bundle: .module) }
     static var hoverCardKindTab: String { String(localized: "sidebar.hoverCard.tab.kind.tab", defaultValue: "Tab", bundle: .module) }
     /// The tab list's kind groups (a gallery variant).
     static var hoverCardGroupTerminals: String { String(localized: "sidebar.hoverCard.tab.group.terminals", defaultValue: "Terminals", bundle: .module) }

@@ -1,8 +1,13 @@
 public import Foundation
 
 extension CloudCredentialTransfer {
-    /// The defaults key of ``passesHarnessLogin(isDogfoodBuild:setting:)``.
+    /// The defaults key of ``passesHarnessLogin(isDogfoodBuild:defaults:)``.
     public nonisolated static let passHarnessLoginKey = "cmux.cloud.passHarnessLogin"
+
+    /// The `cmux.cloud.passHarnessLogin` setting in `defaults`; nil when unset.
+    public nonisolated static func passHarnessLoginSetting(_ defaults: UserDefaults) -> Bool? {
+        defaults.object(forKey: passHarnessLoginKey) as? Bool
+    }
 
     /// The one switch for every Mac-to-machine login transfer: `cloud.startChat`'s pass, the turn
     /// card's recovery and the new-workspace setup, Claude's `setup-token` and the Codex broker alike.
@@ -10,11 +15,9 @@ extension CloudCredentialTransfer {
     /// `cmux.cloud.passHarnessLogin` default wins when set (`-bool NO` makes a DEV build behave as
     /// production); unset, it is on in a dogfood build (the app passes `DevTools.isEnabled`: a Debug
     /// compile or a NIGHTLY bundle, the NEXT nightly included) and off in release, where the machine
-    /// signs in on its own instead.
-    public nonisolated static func passesHarnessLogin(isDogfoodBuild: Bool, setting: Bool?) -> Bool { setting ?? isDogfoodBuild }
-
-    /// ``passesHarnessLogin(isDogfoodBuild:setting:)`` with the setting read from `defaults`.
+    /// signs in on its own instead. The precedence is Rust's (cmux-cloud-start-core
+    /// `passes_harness_login`); an FFI that does not answer passes no login.
     public nonisolated static func passesHarnessLogin(isDogfoodBuild: Bool, defaults: UserDefaults) -> Bool {
-        passesHarnessLogin(isDogfoodBuild: isDogfoodBuild, setting: defaults.object(forKey: passHarnessLoginKey) as? Bool)
+        CloudHarnessLoginDecision(dogfood: isDogfoodBuild, setting: passHarnessLoginSetting(defaults), harness: nil, signedIn: false).gate
     }
 }

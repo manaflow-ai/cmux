@@ -11,7 +11,8 @@ import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
-import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
+import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
+import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
 import { BrowseFailure, browseFailureMessage } from "../BrowseFailure";
 import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "../AddProjectPanel";
@@ -86,7 +87,7 @@ import type { NewTabWeather } from "./ambient";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
-import { screenSections, type ScreenTemplate } from "./templates";
+import { DEFAULT_NEW_TAB_TEMPLATE, screenSections, screenTemplate, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
 import { composerPlusRegistry, composerPlusSearchExtensions } from "../composerPlusRegistry";
 import { ComposerPlusMenu } from "../ComposerPlusMenu";
@@ -124,6 +125,7 @@ import { useHarnessesListed } from "../catalog";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
+import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = NewTabCommandActions & {
@@ -156,7 +158,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
   onAction?(id: string): void;
   onOpenSession(sessionId: string): void;
   /// A device chat card (acpmux chat index, the sidebar's All chats): the host's Open Chat path.
-  onOpenChat?(key: string): void;
+  onOpenChat?(key: string): void | Promise<unknown>;
   /// Open in terminal from an All chats row's right-click menu.
   onOpenChatInTerminal?(key: string): void;
   onViewChat?(key: string): void;
@@ -276,7 +278,7 @@ type Props = NewTabScreenActions & {
   /// false: the field does not take the keyboard when the screen appears (Cmd-L gave it to the
   /// omnibar); Cmd-L on the page still focuses it when the page shows no omnibar.
   focusField?: boolean;
-  /// Which screen template draws the page (newtab/templates.ts); "default" when unset.
+  /// Which screen template draws the page (newtab/templates.ts); Minimal when unset.
   template?: ScreenTemplate;
   /// The widget view (Debug Settings `newTab.widgets`): the Projects and Needs you cards.
   widgets?: boolean;
@@ -329,7 +331,9 @@ export function NewTabScreen(props: Props) {
   // What the page shows or opens appears at once; exits keep their fades (noEntryMotion.ts).
   useNoEntryMotion();
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;
-  const template = props.template ?? "default";
+  // NewTabPage resolves the host's unset template too, but keep this component safe when mounted
+  // directly (gallery/tests and embedders): the written default is Minimal, not the retired stage.
+  const template: ScreenTemplate = props.template ?? screenTemplate(DEFAULT_NEW_TAB_TEMPLATE);
   const sections = screenSections(template);
   const widgets = props.pageWidgets ?? shownPageWidgets(template);
   // Claude Code desktop's new-session page (templates.ts stage, the Default template): the composer
@@ -355,7 +359,7 @@ export function NewTabScreen(props: Props) {
   const [text, setText] = useState(carried?.text || untouchedText.current);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
   const [commandActive, setCommandActive] = useState(0);
-  /// The `/word` the arrows chose a row at: Return picks that row while the word stays the same.
+  /// The `/word` the arrows chose a row at: Return picks that row while the word and the list stay.
   const [commandArrowedAt, setCommandArrowedAt] = useState<string>();
   const [commandDismissed, setCommandDismissed] = useState<string>();
   /// The `/word` the field's caret ends (MarkdownField `onSlash`), as in the chat composer.
@@ -540,7 +544,8 @@ export function NewTabScreen(props: Props) {
     const element = fieldElement();
     setDropHost(element ? (element.closest(".acpmux-main") ?? element.ownerDocument.body) : null);
   }, []);
-  const dropLandingTarget = useCallback(() => fieldElement()?.parentElement ?? null, []);
+  // The input card, which a file drag rings (composer/DropOverlay.tsx).
+  const dropLandingTarget = useCallback(() => fieldElement()?.closest(".nt-box") ?? null, []);
   const submitNow = useRef(() => {});
   const continueAfterSetup = useRef<(harness: string) => void>(() => {});
   const openSetup = () => {
@@ -741,6 +746,8 @@ export function NewTabScreen(props: Props) {
   pastedChips.opens.current = inline.expand;
   inlinePlace.current = (chips) => inline.place(chips, "paste");
   const parentSignIn = useSignIn();
+  const offMachine =
+    (props.runMode?.mode === "cloud" && props.onCloud) || (props.runMode?.mode === "sandboxed" && props.onSandbox);
   // Auth must follow the same target precedence as askChat: a saved environment wins over a
   // previously picked machine, so an old machine verdict cannot block this environment's prompt.
   const targetHost = environment
@@ -749,9 +756,29 @@ export function NewTabScreen(props: Props) {
       : undefined
     : machine?.peer;
   const remoteTarget = environment ? environment.kind === "ssh" : Boolean(machine?.peer);
+  // Match screenActions: an inherited tab folder is not the host's chat start folder.
+  const localChatCwd = none ? undefined : project && project !== props.cwd ? project : props.startCwd;
+  const environmentCwd = environment?.kind === "local" ? (environment.folder ?? props.startCwd) : environment?.folder;
+  const createsWorktree =
+    environment?.kind === "local" && environment.worktree && environment.folder && props.onNewWorktree;
+  // Its final directory (and project-local credentials) exists only after creation.
+  const targetCwd = createsWorktree
+    ? undefined
+    : environment
+      ? environmentCwd
+      : machine
+        ? machine.folder
+        : localChatCwd;
+  // Cloud and Sandbox allocate their own destination. Local credentials say nothing about it.
   const authQuery =
-    harness && (!remoteTarget || targetHost)
-      ? { target: { harness, ...(targetHost ? { host: targetHost } : {}) } }
+    harness && !offMachine && (!remoteTarget || targetHost)
+      ? {
+          target: {
+            harness,
+            ...(targetHost ? { host: targetHost } : {}),
+            ...(targetCwd?.startsWith("/") ? { cwd: targetCwd } : {}),
+          },
+        }
       : undefined;
   const { auth: targetAuth, recheck: recheckTarget } = useSessionAuth(
     authQuery,
@@ -775,7 +802,15 @@ export function NewTabScreen(props: Props) {
     () => (commandAt ? slashMatches(snapshot.commands ?? [], commandAt) : []),
     [commandAt, snapshot.commands],
   );
+  // An Escape (the person's, or the one the host sends as its list closes, ui/popupHost.ts) hides the
+  // list for the text it was pressed on only: any edit forgets it, a cleared draft too, so the same
+  // word typed again opens the list again, as in the chat composer (Composer `edit`).
+  if (commandDismissed !== undefined && commandDismissed !== text) setCommandDismissed(undefined);
   const commandsOpen = commandAt !== undefined && commandDismissed !== text && commandMatches.length > 0;
+  // The row the arrows chose holds only while its word and its list stay: a new word, a cleared draft
+  // or the list closing forgets it (adjusted while rendering, before any key reads it).
+  if (commandArrowedAt !== undefined && (!commandsOpen || commandQuery !== commandArrowedAt))
+    setCommandArrowedAt(undefined);
   // A `/word` further on that names no command is the person's text (a path): the rows stay.
   const commandTyping = commandAt !== undefined && (commandAt.leading || commandMatches.length > 0);
   const commandIndex = Math.min(commandActive, Math.max(0, commandMatches.length - 1));
@@ -800,9 +835,10 @@ export function NewTabScreen(props: Props) {
   };
   // The list loads once the text holds any `/word`, not only while the caret ends one: a pasted
   // `use /emil-color now` reads its skill too (blue, and `/$name` for Codex at send).
+  // Never in shell mode: a shell command's `/word` is a path, and asking for the list starts the chat.
   const wantsCommands = useMemo(
-    () => commandQuery !== undefined || /(^|[\s\uFFFC])\/[^\s\uFFFC]/.test(text),
-    [commandQuery, text],
+    () => !shell && (commandQuery !== undefined || /(^|[\s\uFFFC])\/[^\s\uFFFC]/.test(text)),
+    [shell, commandQuery, text],
   );
   useEffect(() => {
     if (!wantsCommands) {
@@ -881,6 +917,7 @@ export function NewTabScreen(props: Props) {
   const look = useComposerLook();
   const chatBox = props.chips !== undefined;
   const split = chatBox;
+  const trailingGap = newTabComposerTrailingGapArm();
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -914,6 +951,21 @@ export function NewTabScreen(props: Props) {
     !!props.loadChatsPage &&
     !!props.onOpenChat;
   const activeCards = useMemo(() => cards.filter((card) => card.state !== "idle"), [cards]);
+  // Every leader, once: the live chats other chats report to (leads.ts).
+  const leads = useMemo(
+    () =>
+      allChats
+        ? leaders(snapshot.sessions).map(({ entry, reports }) => ({
+            id: entry.sessionId,
+            title: entry.displayTitle ?? entry.name ?? entry.sessionId,
+            ...(entry.harness ? { harness: entry.harness } : {}),
+            state:
+              entry.indicator === "failed" ? ("failed" as const) : (sessionMark(entry, false) ?? ("idle" as const)),
+            label: nt("leads.reports", { count: String(reports.length) }),
+          }))
+        : [],
+    [allChats, snapshot.sessions, nt],
+  );
   // The stage layout's suggested actions start with the chats waiting on the user: one asking for
   // input, or one that hit an error or lost its agent. Picked from every chat, not the trimmed
   // recent cards (needsYouCards).
@@ -923,7 +975,17 @@ export function NewTabScreen(props: Props) {
   );
   const openCard = (id: string) => {
     const key = cards.find((card) => card.sessionId === id)?.chatKey;
-    if (key && props.onOpenChat) return props.onOpenChat(key);
+    if (key && props.onOpenChat) {
+      // A recent chat's native open can fail without navigating. Keep its refusal on New Tab.
+      try {
+        void Promise.resolve(props.onOpenChat(key)).catch((error: unknown) => {
+          setStartError(errorMessage(error) || t("switch.unknownError"));
+        });
+      } catch (error) {
+        setStartError(errorMessage(error) || t("switch.unknownError"));
+      }
+      return;
+    }
     props.onOpenSession(id);
   };
   // A card's Open in Terminal, by its chat's key, as All chats opens one (only cards with a key offer it).
@@ -1268,7 +1330,7 @@ export function NewTabScreen(props: Props) {
       if (
         plain &&
         (event.key === "Tab" ||
-          (event.key === "Enter" && returnPicks(match, commandQuery ?? "", commandArrowedAt === commandQuery)))
+          (event.key === "Enter" && returnPicks(match, commandQuery ?? "", commandArrowedAt !== undefined)))
       ) {
         event.preventDefault();
         pickCommand(match!.command);
@@ -1719,6 +1781,7 @@ export function NewTabScreen(props: Props) {
                 ? t("header.failed")
                 : nt(`card.${card.state as "input" | "running" | "error" | "unread"}`),
           }))}
+          leads={leads}
           onOpenActive={openCard}
           {...(props.onOpenChatInTerminal ? { onOpenInTerminal: props.onOpenChatInTerminal } : {})}
           {...(props.onViewChat ? { onViewOnly: props.onViewChat } : {})}
@@ -1741,6 +1804,7 @@ export function NewTabScreen(props: Props) {
         ref={setComposer}
         className="nt-composer"
         data-composer-look={look === "codex" ? "codex" : undefined}
+        data-trailing-gap={trailingGap}
         data-attachment-view={attachmentView}
       >
         {authBlocksSend(targetAuth) ? (
@@ -1999,8 +2063,6 @@ export function NewTabScreen(props: Props) {
   // the folder Enter asks in, picked in place as the composer's strip picks it, and its machine the
   // one the chat starts on: a saved SSH environment's machine, else the location row's machine, else
   // this Mac's name. Cloud and Sandboxed send the prompt to no machine of these, so it names none.
-  const offMachine =
-    (props.runMode?.mode === "cloud" && props.onCloud) || (props.runMode?.mode === "sandboxed" && props.onSandbox);
   const headlineMachine = offMachine
     ? undefined
     : (environment?.kind === "ssh" ? environment.host : undefined) || machine?.peer || props.machineName;
@@ -2234,7 +2296,7 @@ export function NewTabScreen(props: Props) {
       value={
         parentSignIn && {
           ...parentSignIn,
-          signedOut: targetHost ? {} : parentSignIn.signedOut,
+          signedOut: offMachine || remoteTarget ? {} : parentSignIn.signedOut,
           sessionAuth: targetAuth,
           recheckSession: recheckTarget,
           loginSession: () => parentSignIn.loginSession?.(targetAuth),

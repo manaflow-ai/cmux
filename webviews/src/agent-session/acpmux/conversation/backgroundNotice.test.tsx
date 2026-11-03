@@ -3,7 +3,7 @@
 // the connection to it was lost. The notice
 // leaves on the next key or click, with a newer request, or when the chat changes. The real pane is covered by
 // test/agent-pane-ctrl-b-background.test.ts.
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -92,8 +92,11 @@ async function track(request: Promise<unknown>, stillForeground?: () => boolean)
 
 const notice = (): BackgroundNotice | undefined => latest?.notice;
 const timedOut = () => Promise.reject(Object.assign(new Error(), { code: "native.timed_out" }));
+/// Moves the fake clock (jest.useFakeTimers) and lets the timers due by then fire.
+const elapse = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
 
 afterEach(async () => {
+  jest.useRealTimers();
   if (root) await act(async () => root!.unmount());
   root = undefined;
   latest = undefined;
@@ -187,27 +190,31 @@ describe("useBackgroundNotice", () => {
   });
 
   test("a move is checked: work still in the foreground a moment later stayed, work that left moved", async () => {
+    jest.useFakeTimers();
     await mount("chat-1");
     let running = true;
     await track(Promise.resolve({ backgrounded: true }), () => running);
     expect(notice()).toBe("moved");
-    await act(() => new Promise((resolve) => setTimeout(resolve, BACKGROUND_CHECK_MS + 50)));
+    await elapse(BACKGROUND_CHECK_MS - 1);
+    expect(notice()).toBe("moved");
+    await elapse(1);
     expect(notice()).toBe("kept");
 
     running = false;
     await track(Promise.resolve({ backgrounded: true }), () => running);
-    await act(() => new Promise((resolve) => setTimeout(resolve, BACKGROUND_CHECK_MS + 50)));
+    await elapse(BACKGROUND_CHECK_MS);
     expect(notice()).toBe("moved");
   });
 
   test("a newer request or another chat drops the pending check", async () => {
+    jest.useFakeTimers();
     await mount("chat-1");
     await track(Promise.resolve({ backgrounded: true }), () => true);
     await track(Promise.resolve({ backgrounded: false }));
     await rerender("chat-2");
     await track(Promise.resolve({ backgrounded: true }), () => true);
     await rerender("chat-3");
-    await act(() => new Promise((resolve) => setTimeout(resolve, BACKGROUND_CHECK_MS + 50)));
+    await elapse(BACKGROUND_CHECK_MS);
     expect(notice()).toBeUndefined();
   });
 });

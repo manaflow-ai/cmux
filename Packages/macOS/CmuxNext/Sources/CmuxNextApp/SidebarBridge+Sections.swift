@@ -79,11 +79,12 @@ extension SidebarBridge {
     /// does not register draws dimmed.
     func observeSections() {
         let model = model
-        // Another client's group fold (the sidebar document's fold-only batches) folds this window's rows.
-        if let doc = SidebarDocStore.current { rows.edits.followFolds(of: doc) }
         let registry = services.registry
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         let service = services.sidebarLayout
+        // Another client's group fold (the sidebar document's fold-only batches) folds this window's rows. After the
+        // `sidebarLayout` read, which starts this app's document.
+        if let doc = services.sidebarDoc.store { rows.edits.followFolds(of: doc) }
         let apps = services.apps.client
         let store = services.machines.local.store
         let settings = services.settings
@@ -111,17 +112,16 @@ extension SidebarBridge {
                                           workspace: { workspaces[$0] }, chiefPicture: picture,
                                           chiefImage: picture.flatMap(uploads.image(at:)))
                 if model.itemInfo != infos { model.itemInfo = infos }
-                if model.newWorkspaceShortcut != shortcuts["newTab"] { model.newWorkspaceShortcut = shortcuts["newTab"] }
                 let suppressed = AppPresence(apps.apps).suppressed
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
             }
         }
     }
 
-    /// Built-in tooltips and the empty-workspace hint use the same shortcut text as menus.
+    /// Built-in tooltips use the same shortcut text as menus.
     static func builtInShortcuts(_ registry: ActionRegistry) -> [ActionID: String] {
         var shortcuts: [ActionID: String] = [:]
-        for action in Array(builtInActions.values) + ["newTab"] {
+        for action in builtInActions.values {
             if let shortcut = registry.shortcutDisplay(for: action) { shortcuts[action] = shortcut }
         }
         return shortcuts
@@ -209,15 +209,15 @@ extension SidebarBridge {
     func layoutItemMenu(_ id: LayoutItemID) -> NSMenu? {
         let tile = model.layout.item(id), item = tile ?? model.listedItem(id)
         let entries = services.registry.contextMenuEntries(for: .sidebarItem, removing: ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item?.ref == .builtIn(.chief), isTile: tile != nil)
-            .union(Self.pendingEdits(id)))
+            .union(Self.pendingEdits(id, document: services.sidebarDoc.store)))
         return services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue),
                                                  entries: entries, customize: true)
     }
 
     /// The item menu rows an item `id` does not offer while its add waits for the daemon (a Chief just dragged in): an
     /// edit of its own fields waits for the echo (the planner refuses it until then), so the menu leaves it out.
-    static func pendingEdits(_ id: LayoutItemID) -> Set<ActionID> {
-        SidebarDocStore.current?.isPending(id) == true ? ["sidebar.item.toggleLabel"] : []
+    static func pendingEdits(_ id: LayoutItemID, document: SidebarDocStore?) -> Set<ActionID> {
+        document?.isPending(id) == true ? ["sidebar.item.toggleLabel"] : []
     }
 
     func applyLayoutOp(_ op: SidebarLayoutOp) {

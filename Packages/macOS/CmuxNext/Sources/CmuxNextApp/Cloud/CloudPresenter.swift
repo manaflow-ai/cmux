@@ -65,10 +65,13 @@ enum CloudPresenter {
     /// Asks a yes/no question; `done(true)` only for a click on `button`.
     static func confirm(_ title: String, _ body: String, button: String, identifier: String = "cmux.dialog.cloud.confirm",
                         in window: NSWindow?, done: @escaping (Bool) -> Void) {
-        let spec = CmuxDialogSpec(title: title, lines: [body],
-                                  buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "confirm", title: button, role: .default)],
-                                  identifier: identifier)
-        present(spec, in: window) { answer in done(answer?.button == "confirm") }
+        present(confirmSpec(title, body, button: button, identifier: identifier), in: window) { answer in done(answer?.button == "confirm") }
+    }
+
+    /// The yes/no question ``confirm(_:_:button:identifier:in:done:)`` shows; its yes button's id is `confirm`.
+    static func confirmSpec(_ title: String, _ body: String, button: String, identifier: String) -> CmuxDialogSpec {
+        CmuxDialogSpec(title: title, lines: [body], buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "confirm", title: button, role: .default)],
+                       identifier: identifier)
     }
 
     /// Offers cmux Pro after a refusal Pro lifts, with the server's `message` (its
@@ -135,8 +138,6 @@ enum CloudPresenter {
               currentTab === tab,
               (try? services.machines.agentDaemon(forTab: currentTab)) === daemon else { return false }
 
-        // DEV and dogfood builds (cloud.startChat's own gate) let the creator's team machine take the
-        // login here too; production keeps requiring an owner guest.
         let transfer = CloudCredentialTransfer(
             provider: provider, machineID: session.machineID, teamID: teamID,
             userID: userID,
@@ -166,7 +167,7 @@ enum CloudPresenter {
                   currentTab === tab,
                   (try? services.machines.agentDaemon(forTab: currentTab)) === daemon else { return false }
             let pinned = services.cloud.machineAPI.pinningTeam(teamID)
-            guard try await restartCredentialSession(request.sessionID, creatorTeamGuest: transfer.allowsCreatorTeamGuest, exec: {
+            guard try await restartCredentialSession(request.sessionID, guestCheck: transfer.restartGuestCheck, exec: {
                 try await pinned.exec(session.machineID, command: $0, timeoutMs: 300_000)
             }) else {
                 CloudPresenter.show(String(localized: "cloud.credentialRecovery.installedTitle", defaultValue: "Credentials installed", table: "CloudCredentialRecovery", bundle: .module),
@@ -249,13 +250,10 @@ enum CloudPresenter {
 
     /// Use the same installed CLI and user as the credentials. Old/root-layout machines fail
     /// closed rather than restarting a different daemon. No provider output reaches the UI.
-    /// `creatorTeamGuest`: the transfer's DEV creator allowance, so a team guest it installed on restarts too.
-    @MainActor static func restartCredentialSession(_ sessionID: String, creatorTeamGuest: Bool = false,
-                                                    exec: (String) async throws -> CloudExecResult) async throws -> Bool {
-        let kinds = creatorTeamGuest ? "owner|team" : "owner"
+    @MainActor static func restartCredentialSession(_ sessionID: String, guestCheck: String, exec: (String) async throws -> CloudExecResult) async throws -> Bool {
         let command = """
             set -eu
-            case "$(cat /etc/cmux/vm-kind 2>/dev/null)" in \(kinds)) ;; *) exit 1 ;; esac
+            \(guestCheck)
             [ -x /home/cmux/.cmux/bin/cmux-tui ]
             if [ "$(id -u)" = 0 ]; then
               set -- setpriv --reuid=cmux --regid=cmux --init-groups

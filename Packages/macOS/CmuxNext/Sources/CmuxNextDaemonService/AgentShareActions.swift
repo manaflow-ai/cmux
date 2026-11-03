@@ -43,7 +43,10 @@ public struct AgentShareActions {
                 // A link exposes the chat's whole transcript: only the owner's yes makes one (#30263).
                 // Asked before the owner's token is minted, so a declined run spends nothing.
                 if !person, !(await host.shareAskOwner(ask)) { throw AgentShareDeclined() }
-                let token = await host.shareOwnerToken()
+                // The token comes from the API the daemon's room takes (cmux#31372); a daemon too old to
+                // say leaves the build's default.
+                let room = try? await chat.connection?.request(AgentSessionShareRoomRequest())
+                let token = await host.shareOwnerToken(api: room?.ownerApi.flatMap { URL(string: $0) })
                 // The session pins the chat: the daemon refuses if the surface shows another one by now.
                 let createID = UUID().uuidString
                 let request = AgentSessionShareCreateRequest(surface: chat.surface, session: chat.session, createId: createID, ttlSecs: ttl,

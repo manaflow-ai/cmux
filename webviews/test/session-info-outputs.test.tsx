@@ -2,6 +2,8 @@
 // Session Info's Outputs (Claude Code desktop's): each artifact the chat produced by its title with an
 // Artifact tag, opening in the side panel beside the chat; the gallery; the files, each opening its
 // diff; the links with a Link tag. Every row opens what it names.
+// Every section in view (`setSessionInfoMore(true)`): the panel's compact default view is
+// session-info-compact-default.test.tsx's.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -10,7 +12,7 @@ import type { Artifact } from "../src/agent-session/acpmux/conversation/artifact
 import { renderId } from "../src/agent-session/acpmux/conversation/renderCall";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import { resetSessionInfoState, setSessionInfoMore } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import {
   OUTPUTS_SHOWN,
   OutputsSection,
@@ -49,7 +51,10 @@ function installDom(): HTMLElement {
   return dom.window.document.getElementById("root")!;
 }
 
-beforeEach(() => resetSessionInfoState());
+beforeEach(() => {
+  resetSessionInfoState();
+  setSessionInfoMore(true);
+});
 
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
@@ -233,4 +238,40 @@ test("five Outputs show, then a whole-row Show more opens the rest and Show less
   );
   expect(shown()).toBe(OUTPUTS_SHOWN);
   expect(fold()).toBeNull();
+});
+
+// An Outputs link to a local page opens where a Sources link or a pull request opens: in the pane
+// beside the chat (onOpenUrl, cmux #28544). The host's preview opens only loopback pages
+// (URL.isAgentPanePreview), so any other link, and a modified click (⌘, ⌃, ⇧), keeps the link's own
+// behaviour instead of being swallowed.
+test("an Outputs link to a local page opens beside the chat; an external link or a modified click is the link's own", async () => {
+  const container = installDom();
+  const beside: string[] = [];
+  const links = [
+    { url: "http://localhost:3000/", label: "localhost:3000" },
+    { url: "https://cmux.com/docs/session-info", label: "cmux.com/docs/session-info" },
+  ];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<OutputsSection files={[]} links={links} artifacts={0} onOpenBeside={(url) => beside.push(url)} />);
+  });
+  const anchors = container.querySelectorAll<HTMLAnchorElement>('ul[data-section="outputs"] a.acpmux-session-info-row');
+  const click = (link: HTMLAnchorElement, init: MouseEventInit = {}) => {
+    const event = new dom!.window.MouseEvent("click", { bubbles: true, cancelable: true, ...init });
+    link.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  let prevented = false;
+  await act(async () => {
+    prevented = click(anchors[0]!);
+  });
+  expect({ beside, prevented }).toEqual({ beside: ["http://localhost:3000/"], prevented: true });
+  await act(async () => {
+    prevented = click(anchors[0]!, { metaKey: true });
+  });
+  expect({ beside, prevented }).toEqual({ beside: ["http://localhost:3000/"], prevented: false });
+  await act(async () => {
+    prevented = click(anchors[1]!);
+  });
+  expect({ beside, prevented }).toEqual({ beside: ["http://localhost:3000/"], prevented: false });
 });

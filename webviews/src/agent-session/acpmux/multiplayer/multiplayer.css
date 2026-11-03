@@ -20,7 +20,7 @@
   object-fit: cover;
 }
 
-/* The author over a prompt: the bubble's trailing edge, the size of "From the Chief". */
+/* The author over a prompt: the bubble's trailing edge, the size of "Sent from <Chief>". */
 .cv-author {
   display: flex;
   align-items: center;
@@ -214,6 +214,23 @@
 .cv-held[data-held] .cv-received__hover {
   opacity: 1;
   pointer-events: auto;
+}
+/* Shown at rest, the slot's fade ends in the bare page under the line: the shared slot's fade ends
+   in the hover plate's tint (conversation.css .cv-received__hover), which on a held line nobody
+   points at drew a gray patch over the preview's tail. The tint comes back with the plate. */
+.cv-held[data-held] .cv-received__hover {
+  background: linear-gradient(to right, transparent, var(--acpmux-base, var(--cv-bg)) var(--ds-space-2));
+}
+.cv-held[data-held] .cv-received > .cv-disclosure__line:is(:hover, :focus-within) .cv-received__hover,
+.cv-held[data-held]
+  .cv-received
+  > .cv-disclosure__line:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open]))
+  .cv-received__hover {
+  background: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in srgb, var(--cv-text) 6%, var(--acpmux-base, var(--cv-bg))) var(--ds-space-2)
+  );
 }
 /* "Waiting for you", "Updating…": a quiet note after the buttons, in the line's caption type. */
 .cv-held .cv-received__queued {

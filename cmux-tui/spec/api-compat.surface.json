@@ -9944,6 +9944,22 @@
         "ty": "uint16",
         "nullable": true
       },
+      "/split": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/split/direction": {
+        "ty": "string",
+        "required": true
+      },
+      "/split/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/split/split_id": {
+        "ty": "string",
+        "nullable": true
+      },
       "/title": {
         "ty": "string",
         "nullable": true
@@ -11004,6 +11020,16 @@
       },
       "/include/*": {
         "ty": "string"
+      }
+    },
+    "request:set-attach-visibility": {
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/visible": {
+        "ty": "boolean",
+        "required": true
       }
     },
     "request:set-cell-pixels": {
@@ -20065,6 +20091,12 @@
       },
       "/data/write_path/writer_registry_locks": {
         "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:set-attach-visibility": {
+      "/data/viewers": {
+        "ty": "uint32",
         "required": true
       }
     },

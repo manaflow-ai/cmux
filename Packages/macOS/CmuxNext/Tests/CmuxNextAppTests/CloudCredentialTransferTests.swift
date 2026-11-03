@@ -267,7 +267,9 @@ struct CloudCredentialTransferTests {
         try Data("team".utf8).write(to: policy.appendingPathComponent("vm-kind"))
         let shared = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", resolve],
             environment: environment, timeout: .seconds(10), clock: ContinuousClock())
-        #expect(String(decoding: shared.stdout, as: UTF8.self) == "team shared-machine")
+        // A team guest runs Claude on the creator's transferred login (agent-auth.sh
+        // cmux_agent_creator_login); Codex's stays shared.
+        #expect(String(decoding: shared.stdout, as: UTF8.self) == (provider == .claude ? "own login" : "team shared-machine"))
     }
 
     static func pythonLiteral(_ value: String) -> String { CloudCredentialInstaller.quote(value) }

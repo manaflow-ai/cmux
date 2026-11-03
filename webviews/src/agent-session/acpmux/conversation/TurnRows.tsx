@@ -21,7 +21,7 @@ import { TurnActionsContext } from "./turnActions";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
 import { turnCopyText } from "./turnCopy";
-import { hasTokens, TimedLabel, TurnTokens } from "./TurnTokens";
+import { hasTokens, TimedLabel, tokensText, TurnTokens } from "./TurnTokens";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
   ForkButton,
@@ -29,15 +29,15 @@ import {
   MessageCopy,
   MessageFooterRow,
   MessageMore,
-  MessageTime,
   PinButton,
   ReadAloudButton,
+  ReplyTime,
   ROW_ICON,
 } from "./MessageActions";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import type { CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
-import { useT } from "../i18n";
+import { usePaneLanguage, useT } from "../i18n";
 import {
   failureCopy,
   failureKind,
@@ -257,13 +257,17 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
   );
 }
 
-/// The quiet row under an answer, as Claude Code desktop's: Copy, Fork from here (when acpmux
-/// serves forks), Pin, Read aloud, then the answer's age, and why the turn ended when it did not
-/// complete. Retry is the prompt's (UserBubble.tsx), and also here when the turn failed, whose row
-/// always shows. A turn without a "Worked for" line (history paged in mid-turn) says its time and
-/// count here first.
+/// The quiet row under an answer, as ChatGPT's: its buttons first, the first glyph's ink on the
+/// prose's left edge whatever the turn did (Copy, Fork from here when acpmux serves forks, Pin, Read
+/// aloud, More), then Continue for a stopped last turn, then the answer's exact time, shown on hover.
+/// Leo, 2026-11-02: "this should not be placed in front of the copy/whatever buttons. those buttons
+/// should always just be there left aligned". A turn without a "Worked for" line (a Claude turn,
+/// #30176; history paged in mid-turn) keeps its time and tokens in the time's tooltip, never in the
+/// row. Retry is the prompt's (UserBubble.tsx), and also here when the turn failed, whose row always
+/// shows; so does the footer that ends the chat (#31503), so a finished reply's Copy is in sight.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
+  const language = usePaneLanguage();
   const messages = useContext(PresentationContext) === "messages";
   const {
     fork,
@@ -275,6 +279,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     reauthenticate,
     transferCloudCredentials,
     cloudSignIn,
+    apiKeySignIn,
     resume,
     compact,
     route,
@@ -295,6 +300,10 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const teamMachine = route?.hostKind === "cloud" && route.teamMachine === true;
   const authenticationFailed = (kind === "subscription-login" || kind === "auth") && !teamMachine;
   const label = footerLabel(t, row);
+  // The turn's time and tokens, for the time's tooltip: "Worked for 13s · ↓ 359 out ↑ 328.8K in".
+  const detail =
+    [label, hasTokens(row.tokens) ? tokensText(t, language, row.tokens) : undefined].filter(Boolean).join(" · ") ||
+    undefined;
   // The last turn, stopped and not yet followed by a prompt, offers Continue (Codex's): it sends the
   // continue prompt as the composer would, and the button goes once that prompt shows (turns.ts).
   const resumable = row.resumable === true && resume !== undefined;
@@ -373,6 +382,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           compact={compact}
           reauthenticate={reauthenticate}
           cloudSignIn={cloudSignIn}
+          apiKeySignIn={apiKeySignIn}
           retryRowId={row.retryRowId}
           prompt={prompt}
           retry={failedRetry}
@@ -434,19 +444,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               </button>
             )}
           </span>
-          {!messages && label && (
-            <span className="cv-turn-summary">
-              {label}
-              {hasTokens(row.tokens) && (
-                <>
-                  <span className="cv-worked__sep" aria-hidden="true">
-                    {" · "}
-                  </span>
-                  <TurnTokens split={row.tokens} />
-                </>
-              )}
-            </span>
-          )}
           {resumable && (
             <button
               type="button"
@@ -461,7 +458,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               <ArrowRight size={ROW_ICON} aria-hidden="true" />
             </button>
           )}
-          {!messages && <MessageTime at={row.at} className="cv-turn-time" />}
+          {!messages && <ReplyTime at={row.at} detail={detail} />}
         </MessageFooterRow>
       </div>
     </>
@@ -482,6 +479,7 @@ function TurnFailure({
   compact,
   reauthenticate,
   cloudSignIn,
+  apiKeySignIn,
   retryRowId,
   prompt,
   retry,
@@ -500,6 +498,9 @@ function TurnFailure({
   reauthenticate?: () => void;
   /// A Cloud chat's own sign-in on its machine (cloudAgentLogin.ts, CloudSignIn.tsx).
   cloudSignIn?: CloudSignInActions;
+  /// A chat here whose built-in Claude Code or Codex is not signed in: Use an API key
+  /// (cloudAgentLogin.ts `localApiKeyLogin`).
+  apiKeySignIn?: CloudSignInActions;
   /// The failed prompt's row and text, which the Cloud sign-in sends again once signed in.
   retryRowId?: string;
   prompt?: string;
@@ -557,6 +558,10 @@ function TurnFailure({
   // card keeps only Use an API key of the sign-in, never Sign in to Claude, which would dead-end.
   const teamMachine = isTeamMachineSignIn(kind, route);
   const cloudSignInLeads = recovery === "sign-in" && cloudSignIn !== undefined && !signInFirst && !teamMachine;
+  // A chat here whose built-in Claude Code or Codex is not signed in (Leo 2026-10-26: "if user picks a
+  // model they don't have api key, we offer them to add credits or add their own api key"): Use an API
+  // key follows Sign in again, outlined; the key goes where the agent's own CLI reads it.
+  const localKey = recovery === "sign-in" && cloudSignIn === undefined ? apiKeySignIn : undefined;
   // Continue or Retry is the way out, or the second one after Switch model for a key or proxy
   // failure, or after Sign in again; never for trust (errorRecovery.ts).
   const offersRetry = goOn !== undefined && (recovery !== "sign-in" || signInFirst);
@@ -646,6 +651,7 @@ function TurnFailure({
             {t("turn.signInAgain")}
           </button>
         )}
+        {localKey && <CloudSignIn signIn={localKey} rowId={retryRowId} prompt={prompt} keyOnly />}
         {offersRetry && (
           <button
             type="button"

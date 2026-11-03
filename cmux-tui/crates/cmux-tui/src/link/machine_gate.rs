@@ -100,22 +100,47 @@ pub(crate) fn identify(socket: &Path) -> Option<Value> {
 /// One request on the daemon's socket: its `data`, or why not (the daemon's
 /// `error_code: error`, or what went wrong reading it).
 pub(super) fn call(socket: &Path, request: Value) -> Result<Value, String> {
+    call_within(socket, request, REQUEST_BUDGET).map_err(|failure| failure.to_string())
+}
+
+/// [`call`], telling a daemon's own refusal from an answer that never came.
+pub(super) fn call_checked(socket: &Path, request: Value) -> Result<Value, CallFailure> {
     call_within(socket, request, REQUEST_BUDGET)
 }
 
-fn call_within(socket: &Path, mut request: Value, budget: Duration) -> Result<Value, String> {
+/// Why a request got no `data`.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum CallFailure {
+    /// The daemon answered and refused: `error_code: error`.
+    Refused(String),
+    /// No answer arrived, so whether the daemon acted on the request is not known.
+    Lost(String),
+}
+
+impl std::fmt::Display for CallFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Refused(why) | Self::Lost(why) => f.write_str(why),
+        }
+    }
+}
+
+fn call_within(socket: &Path, mut request: Value, budget: Duration) -> Result<Value, CallFailure> {
+    let lost = |why: String| CallFailure::Lost(why);
     let deadline = Instant::now() + budget;
-    let stream = UnixStream::connect(socket).map_err(|e| format!("cannot connect: {e}"))?;
-    stream.set_write_timeout(Some(budget)).map_err(|e| e.to_string())?;
+    let stream = UnixStream::connect(socket).map_err(|e| lost(format!("cannot connect: {e}")))?;
+    stream.set_write_timeout(Some(budget)).map_err(|e| lost(e.to_string()))?;
     let mut reader = BufReader::new(stream);
     request.set("id", json!(1));
     let mut line = request.to_string();
     line.push('\n');
-    reader.get_mut().write_all(line.as_bytes()).map_err(|e| e.to_string())?;
+    reader
+        .get_mut()
+        .write_all(line.as_bytes())
+        .map_err(|e| lost(format!("cannot send the request: {e}")))?;
     for _ in 0..=MAX_OTHER_ANSWERS {
-        let line = read_line(&mut reader, deadline)
-            .ok_or("the daemon did not answer in time, closed, or answered too much")?;
-        let answer: Value = serde_json::from_slice(&line).map_err(|e| e.to_string())?;
+        let line = read_line(&mut reader, deadline, budget).map_err(lost)?;
+        let answer: Value = serde_json::from_slice(&line).map_err(|e| lost(e.to_string()))?;
         if answer["id"] != json!(1) {
             continue;
         }
@@ -123,22 +148,58 @@ fn call_within(socket: &Path, mut request: Value, budget: Duration) -> Result<Va
             return Ok(answer["data"].clone());
         }
         let code = answer["error_code"].as_str().unwrap_or("refused");
-        return Err(format!("{code}: {}", answer["error"].as_str().unwrap_or_default()));
+        return Err(CallFailure::Refused(format!(
+            "{code}: {}",
+            answer["error"].as_str().unwrap_or_default()
+        )));
     }
-    Err("the daemon kept answering other requests".into())
+    Err(lost("the daemon kept answering other requests".into()))
 }
 
-/// One answer line, newline included; None past `deadline`, at EOF or past
-/// [`MAX_ANSWER_BYTES`].
-fn read_line(reader: &mut BufReader<UnixStream>, deadline: Instant) -> Option<Vec<u8>> {
+/// One answer line, newline included; or why none came within `budget`
+/// (ending at `deadline`): the time ran out, the daemon closed the
+/// connection, or the line passed [`MAX_ANSWER_BYTES`].
+fn read_line(
+    reader: &mut BufReader<UnixStream>,
+    deadline: Instant,
+    budget: Duration,
+) -> Result<Vec<u8>, String> {
     let mut line = Vec::new();
+    let timed_out = |line: &[u8]| {
+        format!(
+            "the daemon did not answer within {} s ({} bytes of its answer arrived)",
+            budget.as_secs(),
+            line.len()
+        )
+    };
     loop {
-        let left =
-            deadline.checked_duration_since(Instant::now()).filter(|left| !left.is_zero())?;
-        reader.get_ref().set_read_timeout(Some(left)).ok()?;
-        let available = reader.fill_buf().ok()?;
+        let Some(left) = deadline.checked_duration_since(Instant::now()).filter(|l| !l.is_zero())
+        else {
+            return Err(timed_out(&line));
+        };
+        reader.get_ref().set_read_timeout(Some(left)).map_err(|e| e.to_string())?;
+        let available = match reader.fill_buf() {
+            Ok(available) => available,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                return Err(timed_out(&line));
+            }
+            Err(error) => {
+                return Err(format!(
+                    "the connection to the daemon failed after {} bytes of its answer: {error}",
+                    line.len()
+                ));
+            }
+        };
         if available.is_empty() {
-            return None;
+            return Err(format!(
+                "the daemon closed the connection after {} bytes of its answer",
+                line.len()
+            ));
         }
         let (taken, done) = match available.iter().position(|byte| *byte == b'\n') {
             Some(end) => (end + 1, true),
@@ -147,10 +208,13 @@ fn read_line(reader: &mut BufReader<UnixStream>, deadline: Instant) -> Option<Ve
         line.extend_from_slice(&available[..taken]);
         reader.consume(taken);
         if line.len() as u64 > MAX_ANSWER_BYTES + 1 {
-            return None;
+            return Err(format!(
+                "the daemon's answer passed the {MAX_ANSWER_BYTES}-byte limit ({} bytes read)",
+                line.len()
+            ));
         }
         if done {
-            return Some(line);
+            return Ok(line);
         }
     }
 }

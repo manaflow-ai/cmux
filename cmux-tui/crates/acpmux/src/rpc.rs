@@ -418,6 +418,8 @@ pub mod method {
     pub const MUX_MESH_CONTROL: &str = "_acpmux/mesh_control";
     /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
+    /// The person takes a managed chat over, or hands it back (`hub/agent_hold.rs`).
+    pub const MUX_AGENT_HOLD: &str = "_acpmux/agent_hold";
     /// Retry a chat's failed last turn now (`hub/auto_resume/retry_turn.rs`).
     pub const MUX_RETRY: &str = "_acpmux/retry";
     /// What this daemon knows of a chat's sign-in (`hub/session_auth.rs`).
@@ -439,7 +441,7 @@ pub mod method {
     pub const MUX_MAIL_READ: &str = "_acpmux/mail/read";
     pub const MUX_MAIL_WAIT: &str = "_acpmux/mail/wait";
     pub const MUX_MAIL_ACK: &str = "_acpmux/mail/ack";
-    /// Team-scoped relay messaging (Labs gated): send and inspect durable inbox entries.
+    /// Team-scoped relay messaging (on wherever a hub is configured): send and inspect durable inbox entries.
     pub const MUX_TEAM_SEND: &str = "_acpmux/team/send";
     pub const MUX_TEAM_INBOX: &str = "_acpmux/team/inbox";
     pub const MUX_TEAM_READ: &str = "_acpmux/team/read";
@@ -491,6 +493,10 @@ pub mod method {
     /// An answer in an inbox thread, to its sender's inbox: `{sessionId, threadId, text}`.
     pub const MUX_INBOX_REPLY: &str = "_acpmux/inbox_reply";
     pub const MUX_TAG: &str = "_acpmux/tag";
+    /// Ends a session's link to the session that started it (`acpmux session detach`,
+    /// `hub/lane_reports.rs`): `{sessionId}` -> `{sessionId, detached}`. Its turns no longer go
+    /// to that session's chat, and its tag `lane.reportsTo` is removed.
+    pub const MUX_DETACH_PARENT: &str = "_acpmux/detach_parent";
     /// The chat menu's Archive (`archived: true`) or Unarchive of one session:
     /// the `archived` tag, valued with when (milliseconds), set or removed.
     pub const MUX_ARCHIVE: &str = "_acpmux/archive";

@@ -53,7 +53,7 @@
 // a new message does, leaves on a kept snapshot, its list opens and folds on the shared fold
 // (conversation/fold.ts), a line that joins it rises in, and its header's words tick. What runs
 // turns the shared spinner, never a breathing dot.
-import { memo, type ReactElement, useCallback, useId, useLayoutEffect, useRef, useState } from "react";
+import { memo, type ReactElement, useCallback, useContext, useId, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { foldMotion, useFold } from "../conversation/fold";
@@ -67,10 +67,12 @@ import { StopButton as ProcessStopButton } from "../session-info/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
 import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentLine } from "./AgentLine";
+import { SUBAGENT_FALLBACK } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
+import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
-import { elapsed, StopButton, useNow } from "./SubagentGroup";
+import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
 import { toolDetail } from "./trayDetail";
 import { trayPanelLook, trayRowLook } from "./trayPanel.experiment";
@@ -154,6 +156,8 @@ export const SubagentTray = memo(function SubagentTray({
 }) {
   const t = useT();
   const language = usePaneLanguage();
+  // The chat's harness, for a subagent that names none (SubagentGroup.tsx `Avatar`).
+  const chatHarness = useContext(SubagentHarnessContext);
   const listId = useId();
   const now = useNow(items.length > 0);
   const trayNode = useRef<HTMLElement | null>(null);
@@ -344,8 +348,9 @@ export const SubagentTray = memo(function SubagentTray({
       data-placement={placement}
       data-look={look}
       data-row={row}
-      // Nothing runs: the ended lines sit quietly over the composer, no card around them (Leo,
-      // 2026-10-31, on a finished one-line row in a bordered card: "why is this still so ass").
+      // Nothing runs: the ended lines sit quietly over the composer in the settled surface, joined to
+      // the composer's top as one glass (no card of its own floating over it; Leo, 2026-10-31, on a
+      // finished one-line row in a bordered card: "why is this still so ass").
       data-settled={items.length === 0 || undefined}
       // A headed tray keeps its own surface, settled too: a slightly lighter or darker glass than the
       // chat behind it and a hairline rim (Leo, 2026-11-01: "you can't just have it be the exact same
@@ -353,8 +358,10 @@ export const SubagentTray = memo(function SubagentTray({
       data-headed={headed || undefined}
       data-surface={surface}
       // It draws a card (and joins the composer as one glass, bottomStack.css): always while something
-      // runs; settled, only headed and in an arm with a surface.
-      data-card={items.length > 0 || (headed && surface !== "none") || undefined}
+      // runs, and settled in every arm with a surface, a lone ended line too, so the transcript never
+      // shows through it (Leo, 2026-11-02, on a done line over a reply's footer icons: "this running
+      // thing now looks mildly awkward").
+      data-card={items.length > 0 || surface !== "none" || undefined}
       data-motion={motion}
       data-narrow={narrow || undefined}
       data-head={head}
@@ -381,7 +388,7 @@ export const SubagentTray = memo(function SubagentTray({
           >
             <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
           </span>
-          <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} />
+          <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} steadyCounts />
           {/* Quiet meta right after the counts, never a column of its own far from them. */}
           <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
             {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
@@ -455,10 +462,12 @@ export const SubagentTray = memo(function SubagentTray({
     if (item.kind === "agent")
       return menu(
         <AgentLine
-          name={item.agent.name}
+          // Its task, as Claude Code's and ChatGPT's task rows read; its name moves to the tooltip.
+          name={subagentTaskLabel(t, item.agent)}
           progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
           progressAgent={item.agent}
-          mark={item.agent.harness}
+          icon={SUBAGENT_FALLBACK}
+          mark={item.agent.harness ?? chatHarness}
           tone={agentTone(item.agent.id)}
           status={subagentStatus(item.agent, waiting)}
           working={subagentStatus(item.agent, waiting) === "running"}
@@ -469,7 +478,7 @@ export const SubagentTray = memo(function SubagentTray({
           // Its kind and what it does now are off the line (Leo, 2026-10-31: "a lot of these
           // subtitles are bad"); the tooltip keeps them under its task.
           title={agentTooltip(t, item.agent)}
-          label={t("subagents.open", { name: item.agent.name })}
+          label={t("subagents.open", { name: subagentTaskLabel(t, item.agent) })}
           chevron
           trayColumns
           // A narrow tray's second line is its time and controls: the stats wrap under the title.
@@ -485,8 +494,11 @@ export const SubagentTray = memo(function SubagentTray({
         stop &&
           item.agent.state === "running" &&
           !item.agent.command &&
-          stopItem(stopKey(item)!, item.agent.name, t("subagents.stop", { name: item.agent.name }), () =>
-            stop(item.agent.id),
+          stopItem(
+            stopKey(item)!,
+            subagentDisplayName(t, item.agent),
+            t("subagents.stop", { name: subagentDisplayName(t, item.agent) }),
+            () => stop(item.agent.id),
           ),
       );
     if (item.kind === "command") {
@@ -583,12 +595,20 @@ const quietAgent = (agent: Subagent, waiting: ReadonlySet<string>) => {
   return status === "done" || status === "running";
 };
 
-/// What the line no longer says, in its tooltip: its task, its kind (Explore, general-purpose) and,
-/// while it runs, what it does now.
+/// What the line no longer says, in its tooltip: its whole task (the line may cut it), its name
+/// when the line shows its task instead, its kind (Explore, general-purpose) and, while it runs,
+/// what it does now.
 function agentTooltip(t: Translate, agent: Subagent): string | undefined {
   const doing =
     agent.state !== "running" ? undefined : agent.actionShell ? toolDetail(t, agent.action, true) : agent.action;
-  const lines = [agent.task, agent.kind && agent.kind !== agent.name ? agent.kind : undefined, doing];
+  const label = subagentTaskLabel(t, agent);
+  const name = subagentDisplayName(t, agent);
+  const lines = [
+    agent.task,
+    name !== label && name !== agent.task ? name : undefined,
+    agent.kind && agent.kind !== agent.name ? agent.kind : undefined,
+    doing,
+  ];
   return lines.filter((line): line is string => Boolean(line)).join("\n") || undefined;
 }
 

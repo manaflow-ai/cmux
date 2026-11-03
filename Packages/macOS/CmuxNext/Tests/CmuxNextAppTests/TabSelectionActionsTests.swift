@@ -78,6 +78,11 @@ struct TabSelectionActionsTests {
             let refusal = services.registry.capturingRefusal { _ = services.registry.perform("tabGroup.create", invocation: ActionInvocation()) }
             #expect(refusal == nil, "the palette's New Tab Group refused: \(refusal ?? "")")
             try await PinnedPageTests.until({ Self.grouped(ids, in: pane) }, report: { "groups \(ids.map { pane.tab($0)?.tabGroup?.rawValue })" })
+            // A group nobody gave a color is grey, never a palette color nobody picked (Leo,
+            // 2026-10-31: "WHERE IS ORANGE COMING FROM?").
+            let group = try #require(pane.tab(ids[0])?.tabGroup)
+            let color = pane.pane.tabGroups.first { $0.id == group }?.color
+            #expect(color == "grey", "a new tab group took \(color ?? "nil"), not grey")
         }
     }
 

@@ -61,6 +61,7 @@ extension NewTabPage {
         // The page's folder: the selected tab's, or (an empty pane of another machine) its workspace's there.
         let cwd = page.cwd
         page.inputToken = inputToken
+        page.draft = services.windowController(showing: pane).flatMap { services.agentTabs.unsentDrafts.leftover(inWindow: $0.state.id) }
         // A moved page (another pane, workspace or window) acts in the pane that shows it now; it
         // opened its pick in the pane it left, or nowhere once that pane closed. Its folder stays
         // the one the page shows (`page.cwd`), as a split's page does.
@@ -350,7 +351,7 @@ extension NewTabPage {
         case (.agent, true): return page.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)))
         case (.browser, false), (.agent, false):
             let arguments: [String: ActionValue] = ["text": .string(request.text), "search": .bool(request.search)]
-            return page.services.registry.perform(NewTabSubmit.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: page.pane.id), arguments: arguments, origin: .user))
+            return page.services.registry.perform(NewTabSubmit.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: page.pane.id), arguments: arguments, origin: .user).onMachine(page.daemon.machineID))
         }
         return true
     }

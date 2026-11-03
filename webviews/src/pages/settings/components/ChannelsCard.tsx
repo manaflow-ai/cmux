@@ -7,7 +7,7 @@
 // running build stays until that channel passes it. Every other build (older or newer, kept or
 // not, never the pulled ones) has a Switch, shown while the pointer is on its row: one restart into
 // it, downloaded first unless kept (Leo: "be able to hot swap your dev build for any other dev build").
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useSettingsState, useStore } from "../context";
 import { channelsQuery } from "../sectionQueries";
@@ -224,7 +224,14 @@ function MachinesRow({ machines }: { machines: ChannelMachines }) {
   );
 }
 
-export function ChannelsCard() {
+/** The `?focus=` value that scrolls to this card: the palette's Install an Earlier Nightly… opens
+ * `#/settings/updates?focus=channels:N`, a new N each time, so a second open scrolls back to it. */
+export const CHANNELS_FOCUS = "channels";
+
+const revealsCard = (focus: string | null) =>
+  focus === CHANNELS_FOCUS || (focus?.startsWith(`${CHANNELS_FOCUS}:`) ?? false);
+
+export function ChannelsCard({ focus = null }: { focus?: string | null }) {
   const store = useStore();
   // The row's value moves before the host has the write, so the card marks it, not a re-read.
   const ring = useSettingsState().rows.get("updates.channel")?.value;
@@ -232,9 +239,15 @@ export function ChannelsCard() {
   // One read per picked channel (the way back depends on it); the route's loader read the current
   // one, and the last answer stays while a new pick's read is out.
   const state = useQuery({ ...channelsQuery(store, shown), placeholderData: keepPreviousData }).data ?? null;
+  // Scrolls to the card once it draws, and again for each new focus value naming it.
+  const card = useRef<HTMLElement>(null);
+  const drawn = state !== null;
+  useEffect(() => {
+    if (drawn && revealsCard(focus)) card.current?.scrollIntoView?.({ block: "start" });
+  }, [drawn, focus]);
   if (!state) return null;
   return (
-    <section className="group" data-card="channels">
+    <section className="group" data-card="channels" ref={card}>
       <h3 className="group-title">{state.title}</h3>
       <div className="row-help">{state.installed}</div>
       {/* The app's acpmux daemon: its build, and whether it is up to date or restarting. */}

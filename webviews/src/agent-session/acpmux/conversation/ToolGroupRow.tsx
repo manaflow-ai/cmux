@@ -14,7 +14,7 @@ import { EditCounts, useEditTotals } from "./EditCounts";
 import { EditDiff } from "./EditDiff";
 import { StepThought, ThoughtRow } from "./ThoughtRow";
 import { ToolRow } from "./ToolRow";
-import { ChevronRight, Magnifier, OpenBook, Pencil, Spinner, TerminalSquare } from "./icons";
+import { ChevronRight, Magnifier, OpenBook, Pencil, TerminalSquare } from "./icons";
 import { isQuietThought, isThought } from "./thoughts";
 import { groupCalls, isFailed, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { useT } from "../i18n";
@@ -104,9 +104,9 @@ function entryNodes(
       const node = !item.tool ? (
         <ThoughtRow key={key} id={key as string} item={item} />
       ) : kind === "commands" ? (
-        <CommandRow key={key} item={item} grouped />
+        <CommandRow key={key} item={item} />
       ) : (
-        <ToolRow key={key} item={item} grouped />
+        <ToolRow key={key} item={item} />
       );
       entry = { kind, key, node };
       entryCache.set(item, entry);
@@ -143,9 +143,9 @@ const Step = memo(
       <div className={item.tool ? "cv-step" : lead ? "cv-step is-thought is-lead" : "cv-step is-thought"}>
         {item.tool ? (
           commands ? (
-            <CommandRow item={item} grouped />
+            <CommandRow item={item} />
           ) : (
-            <ToolRow item={item} grouped />
+            <ToolRow item={item} />
           )
         ) : (
           <StepThought id={thoughtId} item={item} lead={lead} />
@@ -214,7 +214,7 @@ export function ToolGroupRow({
         ref={fold.headerRef}
         onClick={fold.toggle}
       >
-        <span className="cv-tool__icon">{running ? <Spinner size={16} /> : groupIcon(kind)}</span>
+        <span className="cv-tool__icon">{groupIcon(kind)}</span>
         {write ? (
           <span className="cv-tool__text" data-find-skip>
             <WriteLabel tool={tools[0]!} write={write} t={t} />

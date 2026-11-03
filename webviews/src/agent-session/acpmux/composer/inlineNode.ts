@@ -9,7 +9,14 @@
 // hands it.
 import { closeHistory } from "@milkdown/kit/prose/history";
 import { Fragment, type Node as ProseNode, Slice } from "@milkdown/kit/prose/model";
-import { type EditorState, Plugin, Selection, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
+import {
+  type EditorState,
+  NodeSelection,
+  Plugin,
+  Selection,
+  TextSelection,
+  type Transaction,
+} from "@milkdown/kit/prose/state";
 import { Decoration, DecorationSet, type EditorView, type NodeView } from "@milkdown/kit/prose/view";
 import { $node, $prose } from "@milkdown/kit/utils";
 import {
@@ -157,12 +164,77 @@ function normalize(transactions: readonly Transaction[], previous: EditorState, 
   return tr.docChanged ? tr : null;
 }
 
+/// A chip's face: the button that covers its picture, sheet or page and opens it on a click
+/// (attachmentIntake.tsx AttachmentChip, VideoAttachmentTile, inlineAttachments.tsx). A press on it
+/// that moves is the chip's drag, as anywhere else on the chip (Leo, 2026-11-02: "I can't drag to
+/// reorder these inline attachments very easily anymore"); a press that stays is its click.
+const CHIP_FACE =
+  ".acpmux-attachment-open, .acpmux-attachment-pasted-open, .acpmux-attachment-document-open, .acpmux-text-card__open";
+
+/// A drag's own events: the editor's wherever they land on a chip, its buttons too, so a chip dragged
+/// over another one's thumbnail or × still drops into the text there.
+const DRAG_EVENTS = new Set(["dragstart", "drag", "dragend", "dragenter", "dragover", "dragleave", "drop"]);
+
+/// The button `target` is in, inside a chip's element `dom`; none for the chip itself.
+const buttonIn = (target: EventTarget | null, dom: HTMLElement) =>
+  target instanceof Element && target !== dom ? target.closest("button") : null;
+
+/// Whether `target` is one of a chip's small controls (its ×, Retry): every button but its face.
+const onControl = (target: EventTarget | null, dom: HTMLElement) => {
+  const button = buttonIn(target, dom);
+  return Boolean(button && !button.matches(CHIP_FACE));
+};
+
+/// A placed attachment dragged in the text and dropped on another one: it goes before that chip or
+/// after it, by which half of it the pointer is over (in the text's direction). WebKit, the app's
+/// engine, reads no caret over a draggable chip, and ProseMirror then puts every drop on a chip
+/// before it, so a chip dragged onto its right-hand neighbour never moved. False for any other drop,
+/// which ProseMirror places.
+export function dropOnChip(view: EditorView, event: DragEvent, moved: boolean): boolean {
+  // ProseMirror keeps the dragged node's selection on `dragging` (its Dragging class); its types omit it.
+  const dragging = (view.dragging as { node?: NodeSelection } | null)?.node;
+  if (!moved || !(dragging instanceof NodeSelection) || dragging.node.type.name !== INLINE_NODE) return false;
+  const under = view.dom.ownerDocument.elementFromPoint(event.clientX, event.clientY);
+  const chip = under?.closest<HTMLElement>("[data-inline-attachment]");
+  if (!chip || !view.dom.contains(chip)) return false;
+  const target = inlineNodes(view.state.doc).find(({ pos }) => view.nodeDOM(pos) === chip);
+  if (!target || target.pos === dragging.from) return false;
+  const box = chip.getBoundingClientRect();
+  const rtl = view.dom.ownerDocument.defaultView?.getComputedStyle(chip).direction === "rtl";
+  const after = event.clientX > box.left + box.width / 2 !== rtl;
+  const tr = view.state.tr.delete(dragging.from, dragging.to);
+  const at = tr.mapping.map(after ? target.pos + 1 : target.pos);
+  tr.insert(at, dragging.node);
+  tr.setSelection(NodeSelection.create(tr.doc, at));
+  event.preventDefault();
+  view.focus();
+  view.dispatch(tr.setMeta("uiEvent", "drop"));
+  return true;
+}
+
 function nodeView(node: ProseNode, view: EditorView, views: InlineViews): NodeView {
   const id = idOf(node);
   const dom = view.dom.ownerDocument.createElement("span");
   dom.className = "acpmux-md-inline";
   dom.contentEditable = "false";
   dom.dataset.inlineAttachment = id;
+  // A press on the × or Retry that moves never drags the chip out from under it: the press is the
+  // control's (the node is draggable, so the browser would start one from anywhere inside it). The
+  // drag's own target is the chip's element, never the control, so the press says where it began.
+  // Both press events: WebKit sends no pointerdown for a press right after a drag, only mousedown.
+  let pressOnControl = false;
+  const press = (event: Event) => {
+    pressOnControl = onControl(event.target, dom);
+  };
+  dom.addEventListener("pointerdown", press, true);
+  dom.addEventListener("mousedown", press, true);
+  dom.addEventListener("dragstart", (event) => {
+    if (pressOnControl || onControl(event.target, dom)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    pressOnControl = false;
+  });
   views.add(id, dom);
   return {
     dom,
@@ -170,9 +242,15 @@ function nodeView(node: ProseNode, view: EditorView, views: InlineViews): NodeVi
     update: (next) => next.type === node.type && idOf(next) === id,
     // The chip drawn inside is the composer's.
     ignoreMutation: () => true,
-    // Its buttons (×, Retry, open) are the chip's; a press elsewhere on it selects the node.
-    stopEvent: (event) =>
-      event.target instanceof Element && event.target !== dom && Boolean(event.target.closest("button")),
+    // Its buttons (×, Retry, open) are the chip's. A press on its face (the open button over the
+    // whole thumbnail) is the editor's too, so the chip drags from anywhere on it; its click stays the
+    // face's (`handleClickOn` below). A press elsewhere on it selects the node.
+    stopEvent: (event) => {
+      if (DRAG_EVENTS.has(event.type)) return false;
+      const button = buttonIn(event.target, dom);
+      if (!button) return false;
+      return !(event.type === "mousedown" && button.matches(CHIP_FACE));
+    },
     destroy: () => views.remove(id, dom),
   };
 }
@@ -250,6 +328,13 @@ export function inlinePlugin(views: InlineViews) {
         props: {
           decorations: selectedDecorations,
           nodeViews: { [INLINE_NODE]: (node, view) => nodeView(node, view, views) },
+          // A click on a chip's face opens it (its own handler) and leaves the selection where it
+          // was: the press that started it is the editor's only so the chip can be dragged.
+          handleDrop: (view, event, _slice, moved) => dropOnChip(view, event, moved),
+          handleClickOn: (_view, _pos, node, _nodePos, event) =>
+            node.type.name === INLINE_NODE &&
+            event.target instanceof Element &&
+            Boolean(event.target.closest("button")),
           handleKeyDown: (view, event) => {
             // Left and Right step over a placed attachment as over one character, never selecting it
             // (Leo, 2026-11-01: "i dont want left arrow to be selecting them??? just jump over them
