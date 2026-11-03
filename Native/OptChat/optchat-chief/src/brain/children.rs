@@ -274,6 +274,9 @@ impl Brain {
             self.orphan_wait = None;
             return;
         }
+        // A person's message that came before the agent link was back (a
+        // restart) does not wait for it either (`queue_in`).
+        let force = force || self.queue.iter().any(super::Queued::is_owner_message);
         let orphans = std::mem::take(&mut self.state.orphans);
         let mut gone = Vec::new();
         let mut running = false;
