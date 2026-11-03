@@ -70,6 +70,7 @@ await requireBrowserLane("agent-pane-stream-renders.test.ts", async () => {
       composer: renders.composer ?? 0,
       rowsRendered: rowRenders.length,
       streamingRow: busiest,
+      liveLineShown: run.live_line_shown_frames,
       reactMs: run.react_ms,
       workMs: run.work_ms,
     };
@@ -79,5 +80,8 @@ await requireBrowserLane("agent-pane-stream-renders.test.ts", async () => {
     expect(busiest[1]).toBeGreaterThan(20);
     expect(report.pane, "pane root renders during a text-only stream").toBeLessThanOrEqual(STRUCTURAL);
     expect(report.composer, "composer renders during a text-only stream").toBeLessThanOrEqual(STRUCTURAL);
+    // The reply's text moves on every few frames, so the live line under it never shows while it
+    // streams (review of #34004: the line came back once the pane stopped re-rendering per chunk).
+    expect(report.liveLineShown, "frames with the live line shown while the reply streams").toBe(0);
   });
 });

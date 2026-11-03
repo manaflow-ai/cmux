@@ -58,9 +58,31 @@ export function drawsAsIs(row: AcpmuxRow): boolean {
   return drawn !== undefined && drawn.id === row.id && drawn.text === row.text;
 }
 
-/// The streaming row the transcript draws ahead of the pane's snapshot, if any.
-export function useStreamingRow(): StreamingRow | undefined {
-  return useSyncExternalStore(streamingRow.subscribe, streamingRow.get, streamingRow.get);
+const none = (): undefined => undefined;
+const noSubscribe = (): (() => void) => () => {};
+
+/// The streaming row the transcript draws ahead of the pane's snapshot, if any. Only the pane's
+/// live transcript (`active`) subscribes; a replay, guest or other transcript never re-renders for it.
+export function useStreamingRow(active: boolean): StreamingRow | undefined {
+  return useSyncExternalStore(
+    active ? streamingRow.subscribe : noSubscribe,
+    active ? streamingRow.get : none,
+    active ? streamingRow.get : none,
+  );
+}
+
+/// Whether the pane may draw a streamed chunk through the row alone: false while a view that reads
+/// the reply's text from the pane's snapshot is open (an artifact following an open fence, Find),
+/// so that view stays exact (review of #34004).
+const blockedBy = new Set<string>();
+
+export function setStreamingRowBlocked(blocked: boolean, by: string): void {
+  if (blocked) blockedBy.add(by);
+  else blockedBy.delete(by);
+}
+
+export function streamingRowBlocked(): boolean {
+  return blockedBy.size > 0;
 }
 
 /// Every own field of the two rows is the same, except `text` and `version`.

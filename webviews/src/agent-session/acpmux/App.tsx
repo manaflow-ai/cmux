@@ -193,7 +193,15 @@ import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { type AutomationCompose, pageAction } from "./automation";
 import { acpWire } from "./wire";
 import { acpmuxPerf, type MountedSpan } from "./perf";
-import { drawsAsIs, drewStreamingRow, streamingRow, textOnlyRow, useStreamingRow } from "./streamingRow";
+import {
+  drawsAsIs,
+  drewStreamingRow,
+  setStreamingRowBlocked,
+  streamingRow,
+  streamingRowBlocked,
+  textOnlyRow,
+  useStreamingRow,
+} from "./streamingRow";
 import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
@@ -2355,7 +2363,7 @@ const RowFrame = React.memo(function RowFrame({
   children: React.ReactNode;
 }) {
   acpmuxPerf.span("row.renders", 1);
-  acpmuxPerf.render(`row:${row.id}`);
+  if (acpmuxPerf.enabled) acpmuxPerf.render(`row:${row.id}`);
   const t = useT();
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
@@ -2832,19 +2840,18 @@ function TranscriptContext({
 }
 
 /// The index of the streaming reply's row when `next` differs from `drawn` only in that row's
-/// text (HOT PATH AUDIT area F, row W1), else -1. The client rebuilds `summary`, `subagentViews`
-/// and an empty `catalog` on every snapshot, so those compare by value; every other field by
-/// identity. Drawn only while the transcript draws that row as the client holds it (`drawsAsIs`).
+/// text (HOT PATH AUDIT area F, row W1), else -1. Every other field compares by identity: the client
+/// keeps the same objects while they do not change (direct.ts `publishedSummary`, `NO_CATALOG`,
+/// subagentFold.ts `views`), so this is O(fields + rows), with no serialization. Drawn only while
+/// the transcript draws that row as the client holds it (`drawsAsIs`) and no view that reads the
+/// pane's rows is open (`streamingRowBlocked`).
 function streamedOnly(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): number {
   const before = drawn as unknown as Record<string, unknown>;
   const after = next as unknown as Record<string, unknown>;
   const keys = Object.keys(after);
   if (keys.length !== Object.keys(before).length) return -1;
-  for (const key of keys) {
-    if (key === "rows" || Object.is(before[key], after[key])) continue;
-    if (key !== "summary" && key !== "subagentViews" && key !== "catalog") return -1;
-    if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) return -1;
-  }
+  for (const key of keys) if (key !== "rows" && !Object.is(before[key], after[key])) return -1;
+  if (streamingRowBlocked()) return -1;
   const at = textOnlyRow(drawn.rows, next.rows);
   return at >= 0 && drawsAsIs(drawn.rows[at]!) ? at : -1;
 }
@@ -2988,7 +2995,7 @@ export function VirtualTranscript({
 }) {
   // The streaming reply's newer text, when the pane has not redrawn for it (streamingRow.ts): that
   // row only, in place, with its version moved on by the chunks it is ahead.
-  const live = useStreamingRow();
+  const live = useStreamingRow(streams);
   const rows = useMemo(() => {
     if (!streams || !live) return paneRows;
     for (let index = paneRows.length - 1; index >= 0; index -= 1) {
@@ -2996,7 +3003,16 @@ export function VirtualTranscript({
       if (row.id !== live.row.id) continue;
       if (row.text !== live.drawnText) return paneRows;
       const next = paneRows.slice();
-      next[index] = { ...row, text: live.row.text, version: row.version + live.ahead };
+      const version = row.version + live.ahead;
+      next[index] = { ...row, text: live.row.text, version };
+      // The live line under the reply stays quiet while the reply's text moves (turns.ts
+      // `quietKey` names the reply's id and version): it moves with the newer version here.
+      const stale = `${row.id}:${row.version}`;
+      for (let below = index + 1; below < next.length; below += 1) {
+        const line = next[below]!;
+        if (line.kind === THINKING && line.quietKey === stale)
+          next[below] = { ...line, quietKey: `${row.id}:${version}`, version: line.version + live.ahead };
+      }
       return next;
     }
     return paneRows;
@@ -6473,6 +6489,11 @@ function AcpmuxPane() {
         : undefined,
     [artifact, artifactRows, snapshot.sessionId],
   );
+  // An open artifact follows its fence in the pane's rows: chunks draw through the pane meanwhile.
+  useLayoutEffect(() => {
+    setStreamingRowBlocked(artifact !== undefined, "artifact");
+    return () => setStreamingRowBlocked(false, "artifact");
+  }, [artifact]);
   const liveArtifact = liveDocument?.artifact ?? artifact;
   // Render cards by id (cx-ncc.94): a render that names an earlier one's id shows in that card.
   const pages = useMemo(() => renderPages(snapshot.rows), [snapshot.rows]);
