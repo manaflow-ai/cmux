@@ -76,22 +76,28 @@ git 2.43. If you cannot upgrade git, do a plain merge with these steps:
    main's tip.
 2. Make sure that this clone has the trusted merge drivers:
    `git config --get merge.xcstrings-v2.driver` and
-   `git config --get merge.pbxproj-v1.driver` must print a path. If they do
-   not, run `scripts/install-git-hooks.sh`. With the drivers, git merges
+   `git config --get merge.pbxproj-v1.driver` must print a command. If they
+   do not, run `scripts/install-git-hooks.sh` from a trusted checkout at
+   origin/feat-cmux-next. With the drivers, git merges
    `.xcstrings` key by key and `project.pbxproj` as a union of the added
    entries, as the resolver does. Never take one side of these files. That
    loses the other side's strings or project entries.
 3. Merge with a merge commit: `git fetch origin <base branch>`, then
-   `git merge --no-edit <commit>`. Do not rebase, squash or force-push.
+   `git merge --no-edit <commit>`. With no conflict, git makes the merge
+   commit at once; steps 4 and 6 then add a separate commit. Do not rebase,
+   squash or force-push.
    Do this only on your own branch, or on a branch whose `.gitattributes`
    you trust. In a plain merge, your branch's `.gitattributes` chooses the
    drivers. A path that it maps to `cmux-generated-v1` keeps your side
    with no conflict.
 4. Repair the generated files. With the drivers installed, git keeps your
    side of each `merge=cmux-generated-v1` path in `.gitattributes`
-   (settings schema, `docs/mdm/*`, action exports, web bundles) and shows no
-   conflict. Do not edit them by hand. Let the PR autofix regenerate them,
-   or run the matching `scripts/cmux-next/regenerate-*.sh`.
+   (settings schema, `docs/mdm/*`, action exports, web bundles, SDK
+   bindings, strings tables, `ci-target-graph.json`) and shows no conflict.
+   Do not edit them by hand. Let the PR autofix regenerate them. The action
+   and settings exports need a Mac `swift test`, so never run their
+   `scripts/cmux-next/regenerate-*.sh` on a person's Mac: run them on the
+   fleet (`cmux-ci run`) if the autofix cannot.
 5. When you merge main into a feat-cmux-next branch, keep main's former web
    bundles out of the index, as step 3 above says:
    `git rm -r --cached Resources/markdown-viewer/webviews-app` for the
