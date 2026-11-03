@@ -1,11 +1,14 @@
 public import CoreGraphics
 
 /// Downscaled tab preview images, least recently used first out, capped by
-/// decoded byte size (architecture.md section 4: 32 MB total).
+/// byte size (architecture.md section 4: 32 MB total): an image's decoded size, or
+/// the compressed size its owner gives for an image that decodes from data when drawn.
 public final class PreviewImageCache {
     public let capacityBytes: Int
     public private(set) var totalBytes = 0
     private var images: [String: CGImage] = [:]
+    /// What each image counts against `capacityBytes`.
+    private var costs: [String: Int] = [:]
     /// Least recently used first.
     private var order: [String] = []
 
@@ -22,10 +25,16 @@ public final class PreviewImageCache {
     }
 
     public func insert(_ image: CGImage, for key: String) {
-        let cost = Self.cost(image)
+        insert(image, for: key, cost: Self.cost(image))
+    }
+
+    /// Keeps `image` at `cost` bytes: an image that decodes from compressed data when drawn (ImageIO, no cache)
+    /// holds only that data, so it counts its compressed size.
+    public func insert(_ image: CGImage, for key: String, cost: Int) {
         guard cost <= capacityBytes else { return }
         remove(key)
         images[key] = image
+        costs[key] = cost
         order.append(key)
         totalBytes += cost
         while totalBytes > capacityBytes, let oldest = order.first {
@@ -34,8 +43,8 @@ public final class PreviewImageCache {
     }
 
     public func remove(_ key: String) {
-        guard let image = images.removeValue(forKey: key) else { return }
-        totalBytes -= Self.cost(image)
+        guard images.removeValue(forKey: key) != nil else { return }
+        totalBytes -= costs.removeValue(forKey: key) ?? 0
         order.removeAll { $0 == key }
     }
 

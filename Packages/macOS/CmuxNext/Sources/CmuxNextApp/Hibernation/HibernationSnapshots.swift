@@ -1,3 +1,4 @@
+import CmuxNextBridge
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -69,7 +70,7 @@ final class HibernationSnapshots {
         let pixels = Double(image.width * image.height)
         let scale = min(1, (Double(maxPixels) / max(pixels, 1)).squareRoot())
         let source = scale < 1
-            ? TabPreviewFitting.fitted(image, CGSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
+            ? PreviewImageCache.fitted(image, CGSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
             : image
         let data = NSMutableData()
         let type = isOpaque(source) ? UTType.jpeg : UTType.png
