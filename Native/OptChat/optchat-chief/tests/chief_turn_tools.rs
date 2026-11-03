@@ -506,6 +506,34 @@ fn turn_tools_sleep_until_event_is_dropped_when_a_message_comes_first() {
 }
 
 #[test]
+fn spawn_place_parser_preserves_machine_names_and_checks_cloud_sizes() {
+    for place in [
+        "here",
+        "local",
+        "mac",
+        "cloud",
+        "cloud:small",
+        "cloud:medium",
+        "cloud:large",
+        "design-mini",
+    ] {
+        let call = Call::parse(
+            "spawn",
+            &json!({"tasks": ["build a hello web page"], "place": format!(" {place} ")}),
+        )
+        .unwrap();
+        assert!(matches!(call, Call::Spawn { place: Some(actual), .. } if actual == place));
+    }
+    let error = Call::parse(
+        "spawn",
+        &json!({"tasks": ["build it"], "place": "cloud:giant"}),
+    )
+    .unwrap_err();
+    assert!(error.contains("no Cloud size giant"), "{error}");
+    assert!(error.contains("small, medium, large"), "{error}");
+}
+
+#[test]
 fn turn_tools_sleep_zero_clears_wakes_and_bounds_hold() {
     assert!(
         Call::parse("sleep", &json!({"seconds": 5})).is_err(),

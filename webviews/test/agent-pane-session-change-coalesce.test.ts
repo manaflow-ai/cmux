@@ -185,6 +185,43 @@ test("a burst of other chats' changes draws the pane once, in the next frame", a
   }
 });
 
+// A busy acpmux sends chats' summaries again with nothing changed (Leo, 2026-11-03: "im at 100% cpu
+// rn"): each one drew a full snapshot, so an idle pane rebuilt its transcript and list many times a
+// second. A summary equal to the one the pane holds changes nothing and draws nothing.
+test("another chat's summary sent again unchanged draws nothing", async () => {
+  const { socket, client, snapshots } = await openPane();
+  jest.useFakeTimers();
+  try {
+    const before = snapshots();
+    for (let round = 0; round < 20; round++) {
+      for (let chat = 2; chat < 32; chat++)
+        socket.notify("_acpmux/session_changed", {
+          sessionId: id(chat),
+          // The same fields in another order: still the same summary.
+          session: Object.fromEntries(Object.entries(summary(chat)).reverse()),
+          kind: "updated",
+          seq: 10 + round,
+        });
+      flushFrames();
+      jest.advanceTimersByTime(1000);
+      flushFrames();
+    }
+    expect(snapshots() - before).toBe(0);
+    // A real change still draws, once, in the next frame.
+    socket.notify("_acpmux/session_changed", {
+      sessionId: id(2),
+      session: { ...summary(2), title: "Renamed" },
+      kind: "renamed",
+      seq: 40,
+    });
+    flushFrames();
+    expect(snapshots() - before).toBe(1);
+  } finally {
+    jest.useRealTimers();
+    client.close();
+  }
+});
+
 test("a hidden pane draws other chats' changes only when it shows again", async () => {
   const { socket, client, snapshots } = await openPane();
   try {

@@ -137,7 +137,7 @@ function WorkflowTask({
       <div className="acpmux-workflow-task__head">
         <span className="acpmux-workflow-task__name">{workflow.title}</span>
         {elapsed !== undefined && <span className="acpmux-session-info-task__time">{formatDuration(elapsed)}</span>}
-        {running && onStop && <StopButton id={workflow.id} name={workflow.title} stop={onStop} />}
+        {running && onStop && <StopButton id={workflow.id} name={workflow.title} stop={onStop} solid />}
       </div>
       {meta.length > 0 && <p className="acpmux-workflow-task__meta">{meta.join(" · ")}</p>}
       {workflow.description && (
