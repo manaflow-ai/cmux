@@ -746,9 +746,10 @@ class TerminalController {
         ) { [weak self] note in
             guard let surfaceId = note.userInfo?["surfaceId"] as? UUID,
                   let event = note.userInfo?["event"] as? [String: Any] else { return }
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.v2RecordBrowserDownloadEvent(surfaceId: surfaceId, event: event)
+            // Recorded before the post returns, so a download wait sent right
+            // after a download finishes always finds it queued.
+            MainActor.assumeIsolated {
+                self?.v2RecordBrowserDownloadEvent(surfaceId: surfaceId, event: event)
             }
         }
         browserMainFrameCommitObserver = NotificationCenter.default.addObserver(
