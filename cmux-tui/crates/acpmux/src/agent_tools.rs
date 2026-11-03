@@ -208,10 +208,7 @@ const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/cmux-browser/templates/form-automation.sh"),
     ),
     ("cmux-cua/SKILL.md", include_str!("../../../../skills/cmux-cua/SKILL.md")),
-    (
-        "cmux-customization/SKILL.md",
-        include_str!("../../../../skills/cmux-customization/SKILL.md"),
-    ),
+    ("cmux-customization/SKILL.md", include_str!("../../../../skills/cmux-customization/SKILL.md")),
     (
         "cmux-customization/references/examples.md",
         include_str!("../../../../skills/cmux-customization/references/examples.md"),

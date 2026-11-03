@@ -29,7 +29,7 @@ permissions:
 # still pending, never one that started, and that run ends cancelled with no job run. When a coalesced run's
 # webview tests go red, `web bisect` re-runs only the new red files on the commits it covered and names the first
 # red commit and its pull request (test_reds.py bisect_report). Pull requests are unchanged. `web lint (fast)`
-# keeps one run per push in cmux-next-web-lint.yml. vars.CMUX_NEXT_WEB_COALESCE = '0' runs every push at once.
+# keeps one run per push in cmux-next-web-lint.yml. vars.NEXT_WEB_COALESCE = '0' runs every push at once.
 
 # One run per pushed commit: a later push must not cancel the verdict that
 # base-aware excusal reads.
@@ -47,12 +47,12 @@ jobs:
     # One coalesce job waits at a time; a newer push's replaces a pending one (never a started one). A dispatch
     # (next_batch's web lane) and the off switch get a group of their own and run at once.
     concurrency:
-      group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.CMUX_NEXT_WEB_COALESCE) != '0' && 'cmux-next-web-coalesce' || format('cmux-next-web-coalesce-{0}', github.run_id) }}
+      group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.NEXT_WEB_COALESCE) != '0' && 'cmux-next-web-coalesce' || format('cmux-next-web-coalesce-{0}', github.run_id) }}
       cancel-in-progress: false
     outputs:
       base: ${{ steps.wait.outputs.base }}
     env:
-      COALESCE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.CMUX_NEXT_WEB_COALESCE) != '0' && '1' || '0' }}
+      COALESCE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.NEXT_WEB_COALESCE) != '0' && '1' || '0' }}
     steps:
       - name: Checkout the coalesce helper
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

@@ -2004,7 +2004,7 @@ fn ended_turn_text(
 
 #[cfg(test)]
 mod cut_kind_tests {
-    use super::{cut_kind, Cut};
+    use super::{Cut, cut_kind};
     use crate::turn::TurnOutcome;
 
     fn failed(error: &str) -> TurnOutcome {
