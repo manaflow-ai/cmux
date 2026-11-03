@@ -158,8 +158,16 @@ public final class StatusIndicatorAppearance {
         }
     }
 
-    /// Tells every client to check its indicator again (`statusIndicatorResync`).
-    public func resync() {
+    /// A resync ran in this main run loop turn: the turn's other moments are the same moment.
+    private var resyncedThisTurn = false
+
+    /// Tells every client to check its indicator again (`statusIndicatorResync`), once per main run loop turn: one
+    /// Cmd-Tab posts both `didBecomeActive` and `didBecomeMain`, and each walked every indicator of the session (HOT
+    /// PATH AUDIT frames, cmd-tab). The first moment of a turn runs at once, so nothing waits.
+    public func resync() { // perf-hot: 0.5ms cmd-tab (every app activation; once per turn)
+        guard !resyncedThisTurn else { return }
+        resyncedThisTurn = true
+        MainRunLoopBlock.perform { [weak self] in self?.resyncedThisTurn = false }
         for case let client as any StatusIndicatorConfigClient in clients.allObjects {
             client.statusIndicatorResync()
         }
