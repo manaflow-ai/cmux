@@ -34,7 +34,7 @@ struct NativeNewTabModelTests {
         empty.omnibar.actions = []
         var asks: [@MainActor ([AgentPaneOmnibar.Action]) -> Void] = []
         let model = NativeNewTabModel(page: empty, actions: NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _ in }),
-                                      paletteActions: { asks.append($0) })
+                                      paletteActions: { _, deliver in asks.append(deliver) })
         #expect(asks.isEmpty, "the page shows before the palette's actions are listed")
         model.text = "toggle side"
         #expect(asks.count == 1)
@@ -52,9 +52,9 @@ struct NativeNewTabModelTests {
         empty.omnibar.actions = []
         var asks: [@MainActor ([AgentPaneOmnibar.Action]) -> Void] = []
         let actions = NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _ in })
-        let model = NativeNewTabModel(page: empty, actions: actions, paletteActions: { asks.append($0) })
+        let model = NativeNewTabModel(page: empty, actions: actions, paletteActions: { _, deliver in asks.append(deliver) })
         model.loadPaletteActions()
-        model.adopt(page: empty, actions: actions, paletteActions: { asks.append($0) })
+        model.adopt(page: empty, actions: actions, paletteActions: { _, deliver in asks.append(deliver) })
         asks[0](Self.page().omnibar.actions)
         #expect(model.page.omnibar.actions.isEmpty, "the earlier page's answer reached the adopted page")
         model.loadPaletteActions()

@@ -65,7 +65,7 @@ public final class AgentPaneNewTabActions {
 
     /// A native New Tab page's ask for the actions (``NativeNewTabModel/PaletteActionsRequest``): one waiter of the listing.
     public var request: NativeNewTabModel.PaletteActionsRequest {
-        { [weak self] deliver in self?.list(wanted: { true }) { deliver($0.actions) } }
+        { [weak self] wanted, deliver in self?.list(wanted: wanted) { deliver($0.actions) } }
     }
 
     /// The first task: the palette's context (the focused object) and catalog are read here, not in the key's turn.

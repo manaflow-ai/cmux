@@ -29,7 +29,9 @@ public final class NativeNewTabModel {
     @ObservationIgnored private let ranker: NativeNewTabRanker
     /// Asks for the palette's actions once, at the first keystroke or ``loadPaletteActions()``; they come later
     /// (the host reads them as budgeted background work, ``AgentPaneNewTabActions``), never in the keystroke's turn.
-    public typealias PaletteActionsRequest = @MainActor (@escaping @MainActor ([AgentPaneOmnibar.Action]) -> Void) -> Void
+    /// `(wanted, deliver)`: `wanted` says whether the page still waits (false once it is gone), asked when the read starts.
+    public typealias PaletteActionsRequest = @MainActor (_ wanted: @escaping @MainActor () -> Bool,
+                                                         _ deliver: @escaping @MainActor ([AgentPaneOmnibar.Action]) -> Void) -> Void
     @ObservationIgnored private var paletteActions: PaletteActionsRequest?
     /// Which ask an answer belongs to: an adoption (a new tab's context) drops an earlier page's answer.
     @ObservationIgnored private var paletteAsk = 0
@@ -56,10 +58,10 @@ public final class NativeNewTabModel {
         guard let ask = paletteActions else { return }
         paletteActions = nil
         let asked = paletteAsk
-        ask { [weak self] actions in
+        ask({ [weak self] in self.map { asked == $0.paletteAsk } ?? false }, { [weak self] actions in
             guard let self, asked == paletteAsk else { return }
             page.omnibar.actions = actions
-        }
+        })
     }
 
     /// The dropdown's rows for the current text and kind.

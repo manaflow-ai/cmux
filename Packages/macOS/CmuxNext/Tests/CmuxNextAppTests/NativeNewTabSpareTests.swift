@@ -182,15 +182,21 @@ struct NativeNewTabSpareTests {
         pool.warmNative()
         _ = try #require(pool.nativeSpare, "no native spare was prepared")
 
+        var seen: [ObjectIdentifier] = []
         for adopted in [true, false] {
             BenchSpans.begin()
             let key = try #require(NewTabPage.openNative(in: pane, reusingShown: false))
             for _ in 0..<300 where pane.currentTabKey != key { try await Task.sleep(for: .milliseconds(10)) }
-            let model = try #require(Self.host(in: pane.view)?.model, "no native page shows (adopted spare: \(adopted))")
+            // This tab's own page: the earlier one stays parked in the pane, hidden.
+            let page = try #require(services.pages.existingView(key), "no page view for tab \(key) (adopted spare: \(adopted))")
+            let model = try #require(Self.host(in: page)?.model, "no native page in tab \(key) (adopted spare: \(adopted))")
+            #expect(!seen.contains(ObjectIdentifier(model)), "the second Cmd-T found the first page's model")
+            seen.append(ObjectIdentifier(model))
+            @MainActor func readCount() -> Int { BenchSpans.spans.filter { $0.name == "newTab.paletteActions" }.count }
             // A keystroke before the list came reads nothing in its turn.
+            let before = readCount()
             model.text = "t"
-            #expect(BenchSpans.spans.filter { $0.name == "newTab.paletteActions" }.count <= 1,
-                    "a keystroke read the palette's actions in its turn (adopted spare: \(adopted))")
+            #expect(readCount() == before, "a keystroke read the palette's actions in its turn (adopted spare: \(adopted))")
             for _ in 0..<2000 where model.page.omnibar.actions.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
             #expect(!model.page.omnibar.actions.isEmpty, "the native page never got the palette's actions (adopted spare: \(adopted))")
             let reads = BenchSpans.end().filter { $0.name == "newTab.paletteActions" }
