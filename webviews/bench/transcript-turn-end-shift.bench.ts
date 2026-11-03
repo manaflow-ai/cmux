@@ -315,6 +315,12 @@ async function round(browser: Browser, url: string): Promise<Round> {
     await page.locator(LIVE).waitFor({ timeout: 60_000 });
     await page.mouse.move(0, 0);
     await rest(page);
+    const SCEN = process.env.SCENARIO ?? "mine";
+    if (SCEN !== "mine") {
+      for (const part of REPLY) emit("in", "agent_message_chunk", chunk(part));
+      await page.getByText("Final reply marker.").waitFor();
+      await rest(page);
+    }
     // The reader scrolls with the wheel into the running turn's work, well off the end.
     await page.mouse.move(450, 300);
     const target = await page.locator(".acpmux-scroll").evaluate((node) => {
@@ -339,7 +345,7 @@ async function round(browser: Browser, url: string): Promise<Round> {
     await page.waitForTimeout(600);
 
     const since = await startSampling(page);
-    for (let step = 20; step < 24; step++) {
+    for (let step = 20; step < (SCEN === "end" ? 20 : 24); step++) {
       emit("in", "tool_call", ran(`t${step}`, "in_progress"));
       await paint(page, 3);
       emit("in", "agent_message_chunk", chunk(`Call site ${step} also retries; `));
@@ -351,9 +357,10 @@ async function round(browser: Browser, url: string): Promise<Round> {
       );
       await paint(page, 3);
     }
-    emit("mux", "user_message", fromAgent("m-1", "The reviewer found one more retry loop in the upload queue."));
+    if (SCEN !== "end")
+      emit("mux", "user_message", fromAgent("m-1", "The reviewer found one more retry loop in the upload queue."));
     await paint(page, 8);
-    for (const part of REPLY) {
+    for (const part of SCEN === "mine" ? REPLY : []) {
       emit("in", "agent_message_chunk", chunk(part));
       await paint(page, 3);
     }
