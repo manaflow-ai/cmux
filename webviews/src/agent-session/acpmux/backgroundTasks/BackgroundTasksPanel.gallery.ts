@@ -134,6 +134,22 @@ const openPanel = async (ctx: PlayContext) => {
   await ctx.click({ role: "menuitem", name: "Background tasks" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-bg"));
 };
+/// No ruled edge down the panel's left side and no rule under its header (Leo, 2026-11-03: "background
+/// tasks why is there this white border it's weird"). A side or bottom inset shadow is a drawn line.
+const noStrayEdges = (ctx: PlayContext) => {
+  const view = ctx.document.defaultView!;
+  const lines = (element: Element | null) =>
+    (element ? view.getComputedStyle(element).boxShadow : "none")
+      .split(/,(?![^(]*\))/)
+      .map((part) => part.trim())
+      .filter((part) => part !== "none" && part.includes("inset"));
+  const panel = ctx.document.querySelector(".acpmux-bg");
+  // Only a top rule (0 offset across, a positive offset down) may part a docked panel from the side panel.
+  const left = lines(panel).filter((part) => !/(^|\s)0px\s+[1-9][\d.]*px\s+0px/.test(part.replace(/^.*?\)\s*/, "")));
+  if (left.length > 0) throw new Error(`the panel draws an edge of its own: ${left.join(", ")}`);
+  const head = lines(ctx.document.querySelector(".acpmux-bg__head"));
+  if (head.length > 0) throw new Error(`the panel's header draws a rule under it: ${head.join(", ")}`);
+};
 const openDocument = async (ctx: PlayContext) => {
   await ctx.click({ role: "button", name: "Open preview" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-artifact"));
@@ -145,6 +161,7 @@ const docked = async (ctx: PlayContext) => {
   const panel = ctx.document.querySelector(".acpmux-bg")!.getBoundingClientRect();
   if (panel.top < side.bottom - 1) throw new Error("the panel docks under the side panel, never over it");
   if (Math.abs(panel.left - side.left) > 1) throw new Error("the panel shares the side panel's column");
+  noStrayEdges(ctx);
 };
 const drill = async (ctx: PlayContext) => {
   await openPanel(ctx);
@@ -201,7 +218,10 @@ export default agentPaneEntry({
     alone: {
       note: "No side panel open: the panel is the chat's right column. The first running agent opens on its running task, then 11 finished, folded.",
       snapshot: snapshot(false),
-      play: openPanel,
+      play: async (ctx) => {
+        await openPanel(ctx);
+        noStrayEdges(ctx);
+      },
     },
     sections: {
       note: "Claude Desktop's split: Running 2 then Finished 1, each heading folding its agents; an ended agent's line shows its duration; each agent's tasks under N tasks, failures in red.",

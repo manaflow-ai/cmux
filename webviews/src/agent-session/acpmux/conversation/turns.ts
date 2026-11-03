@@ -1061,6 +1061,8 @@ const staysOut = (row: AcpmuxRow) =>
   // A move to the fallback harness changes who answers the rest of the turn; folded, nobody would
   // see it happened.
   row.kind === "failover" ||
+  // A recap is about the whole chat, not the turn above it.
+  row.kind === "recap" ||
   // A policy the harness cannot keep: the agent runs without the asks the person chose.
   row.kind === "policyUnenforced" ||
   // A paused agent pair waits for the person's Resume.
