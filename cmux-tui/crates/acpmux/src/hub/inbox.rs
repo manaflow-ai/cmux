@@ -649,17 +649,16 @@ fn first_work_waits(session: &Session) -> bool {
 
 /// Whether a prompt is the person's own (module docs): no other agent's message, and none of
 /// acpmux's own prompts (a notice, a digest, the turn cap's notice, a subagent's retry, a cut
-/// turn's automatic continuation, the cache compaction), whose turns take notices and steers as before.
+/// turn's continuation, the cache compaction), whose turns take notices and steers as before.
 pub(super) fn persons_prompt(agent: Option<&str>, provenance: Option<&Value>) -> bool {
-    let auto_resume =
-        provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some("auto_resume");
+    let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
+    let auto_resume = matches!(kind, Some("auto_resume" | super::idle::cache_compact::KIND));
     agent.is_none()
         && !auto_resume
         && !is_notice(provenance)
         && !super::digest::inbox_digest::is_digest(provenance)
         && !super::turn_cap::is_notice(provenance)
         && !super::subagent_retry::is_retry(provenance)
-        && !super::cache_compact::is_compaction(provenance)
 }
 
 /// Whether the running turn is one the person's own prompt started: no notice and no other

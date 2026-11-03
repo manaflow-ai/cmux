@@ -304,8 +304,6 @@ impl Hub {
         steer: bool,
         opts: PromptOptions,
     ) -> Result<Value, RpcError> {
-        // A prompt ends the idle stretch the cache compaction waits in (`cache_compact.rs`).
-        self.cache_compact_prompt_started(session, opts.provenance.as_ref());
         // The agent messages that go in with this one (`digest.rs`) answer with its answer, or
         // wait again when it failed.
         let joined = super::digest::DigestTurn::default();

@@ -167,9 +167,6 @@ mod titles;
 mod tool_paths;
 mod tools;
 pub(crate) mod turn_cap;
-pub(crate) mod cache_compact;
-#[cfg(test)]
-mod cache_compact_tests;
 mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
@@ -1314,8 +1311,6 @@ impl Hub {
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
-            cache_compact_timer: StdMutex::new(None),
-            cache_compacted: AtomicBool::new(false),
             inbox: StdMutex::new(inbox::Inbox::default()),
             last_active: AtomicU64::new(self.clock_now()),
             hibernated_at: AtomicU64::new(hibernated_at),

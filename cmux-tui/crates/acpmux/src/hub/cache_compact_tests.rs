@@ -2,8 +2,7 @@
 //! for a usage report, and that its prompt is acpmux's own. The timer end to end, on the hub's
 //! clock with the fake Claude: `tests/cache_compact.rs`.
 
-use super::cache_compact::*;
-use serde_json::{Value, json};
+use super::*;
 
 const SOURCE: &str = include_str!("../../../../../schemas/settings/source/agent-cache.json");
 
@@ -60,9 +59,6 @@ fn it_fires_the_lead_before_the_expiry_only_over_the_threshold() {
 #[test]
 fn its_prompt_is_acpmuxs_own_not_the_persons() {
     let ours = json!({"kind": KIND});
-    assert!(is_compaction(Some(&ours)));
-    assert!(!is_compaction(Some(&json!({"kind": "auto_resume"}))));
-    assert!(!is_compaction(None));
-    assert!(!super::inbox::persons_prompt(None, Some(&ours)));
-    assert!(super::inbox::persons_prompt(None, None));
+    assert!(!super::super::inbox::persons_prompt(None, Some(&ours)));
+    assert!(super::super::inbox::persons_prompt(None, None));
 }

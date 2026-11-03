@@ -11,16 +11,18 @@
 //! ([`KIND`]), which reads the still-warm cache.
 //!
 //! It fires only when the chat is idle (no turn running or starting, nothing queued, no
-//! permission, question or continuation waiting), nobody is typing in it and its composer holds no
-//! draft; it is sent `no_queue`, so a turn that starts at that moment refuses it rather than
-//! queueing it. It runs once per idle stretch: after it fires, no timer is armed until a prompt of
-//! the person's (or any prompt but this one) runs.
+//! permission, question or continuation waiting), nobody is typing in it, its composer holds no
+//! draft and its last turn was not a Web or phone one (a local prompt would lift the remote
+//! floor that turn left, `remote_floor.rs`); it is sent `no_queue`, so a turn that starts at that
+//! moment refuses it rather than queueing it. It runs once per idle stretch: the compaction's own
+//! context is far under any threshold, so its usage arms no timer, and the next turn's usage arms
+//! one again.
 //!
-//! The timer: one task per session (`Session::cache_compact_timer`). Stop condition: it fires once
-//! at its deadline and ends. Cleanup: every new `usage_update` aborts the previous one before
-//! arming (a turn's own updates, a new expiry, none for a compacted context), and so does the
-//! session's next prompt (`prompt_started`); it holds only weak references, so a dropped session
-//! or hub ends it at its deadline without effect.
+//! The timer: one task per session, in [`TIMERS`] under the session's id with a generation of its
+//! own. Stop condition: it fires once at its deadline and ends, removing its entry if the entry is
+//! still its own. Cleanup: every new live `usage_update` of the session aborts and replaces it
+//! (a turn's own updates, a new expiry, none for a compacted context); it holds only weak
+//! references, so a dropped session or hub ends it at its deadline without effect.
 
 use super::*;
 
@@ -29,6 +31,10 @@ pub(crate) const KIND: &str = "cache_compact";
 /// How long before the cache's expiry the compaction runs: room for the request to reach the
 /// model while the cache is still warm.
 pub(crate) const LEAD_MS: u64 = 30_000;
+/// The armed timers: session id -> (generation, the task, when the cache lapses in unix ms).
+static TIMERS: std::sync::LazyLock<StdMutex<TimerMap>> = std::sync::LazyLock::new(Default::default);
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+type TimerMap = HashMap<String, (u64, tokio::task::AbortHandle, u64)>;
 pub const SETTING_ENABLED: &str = "agents.cacheCompact.enabled";
 pub const SETTING_MIN_CONTEXT: &str = "agents.cacheCompact.minContextPercent";
 const DEFAULT_MIN_CONTEXT: f64 = 50.0;
@@ -70,56 +76,51 @@ pub(crate) fn wait_ms(update: &Value, threshold: f64, now_ms: u64) -> Option<u64
     fire.checked_sub(now_ms).filter(|wait| *wait > 0)
 }
 
-/// Whether a prompt is this timer's compaction.
-pub(crate) fn is_compaction(provenance: Option<&Value>) -> bool {
-    provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(KIND)
-}
-
 impl Hub {
+    /// `on_update` for an update the agent sent, then the timer for a live `usage_update`.
+    pub(super) fn on_update_cache(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        params: Option<&Value>,
+        replayed: bool,
+    ) {
+        self.on_update(session, params, replayed);
+        let update = params.and_then(|p| p.get("update"));
+        if let Some(update) = update.filter(|u| !replayed && u["sessionUpdate"] == "usage_update") {
+            self.cache_compact_on_usage(session, update);
+        }
+    }
+
     /// A live (not replayed) `usage_update` of `session`: arms its timer again (module docs).
     pub(super) fn cache_compact_on_usage(self: &Arc<Self>, session: &Arc<Session>, update: &Value) {
-        self.disarm_cache_compact(session);
-        if session.cache_compacted.load(Ordering::SeqCst) {
-            return;
+        let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((_, timer, _)) = timers.remove(&session.id) {
+            timer.abort();
         }
         let Some(threshold) = read_threshold() else { return };
         let Some(wait) = wait_ms(update, threshold, now_ms()) else { return };
+        let expires = now_ms() + wait + LEAD_MS;
         let deadline = self.clock_now().saturating_add(wait.saturating_mul(1_000_000));
         let clock = self.clock.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let hub = Arc::downgrade(self);
-        let weak = Arc::downgrade(session);
+        let generation = GENERATION.fetch_add(1, Ordering::SeqCst);
+        let (hub, weak) = (Arc::downgrade(self), Arc::downgrade(session));
         let task = tokio::spawn(async move {
             clock.sleep_until(std::time::Duration::from_nanos(deadline)).await;
             let (Some(hub), Some(session)) = (hub.upgrade(), weak.upgrade()) else { return };
-            hub.cache_compact_fire(&session).await;
+            // Its own entry, or a later usage replaced it (the lock orders it after the insert).
+            let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
+            if timers.get(&session.id).is_none_or(|(g, _, _)| *g != generation) {
+                return;
+            }
+            timers.remove(&session.id);
+            drop(timers);
+            hub.cache_compact_fire(&session, expires).await;
         });
-        *session.cache_compact_timer.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(task.abort_handle());
+        timers.insert(session.id.clone(), (generation, task.abort_handle(), expires));
     }
 
-    /// Aborts `session`'s timer, if one is armed.
-    pub(super) fn disarm_cache_compact(&self, session: &Session) {
-        if let Some(timer) =
-            session.cache_compact_timer.lock().unwrap_or_else(|e| e.into_inner()).take()
-        {
-            timer.abort();
-        }
-    }
-
-    /// A prompt of `session` starts: its timer goes, and any prompt but the compaction itself
-    /// begins a new idle stretch.
-    pub(super) fn cache_compact_prompt_started(
-        &self,
-        session: &Session,
-        provenance: Option<&Value>,
-    ) {
-        self.disarm_cache_compact(session);
-        if !is_compaction(provenance) {
-            session.cache_compacted.store(false, Ordering::SeqCst);
-        }
-    }
-
-    /// Whether `session` may be compacted now: idle, nobody typing, no draft (module docs).
+    /// Whether `session` may be compacted now: idle, nobody typing, no draft, no Web turn last
+    /// (module docs).
     fn cache_compact_ready(&self, session: &Session) -> bool {
         let idle = !self.stopping.load(Ordering::SeqCst)
             && matches!(session.status(), SessionStatus::Ready | SessionStatus::Idle)
@@ -131,24 +132,25 @@ impl Hub {
             && session.agent_requests.load(Ordering::SeqCst) == 0
             && !self.continuation_pending(session)
             && session.turn_lock.try_lock().is_ok();
+        let remote = session.floor.last_turn_web.load(Ordering::SeqCst)
+            || session.floor.cloud_mobile_turn.load(Ordering::SeqCst);
         let typing = self.presence.snapshot(&session.id)["participants"]
             .as_array()
             .is_some_and(|people| people.iter().any(|p| p["typing"] == true));
         let draft = session
             .read_meta(|m| m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()));
-        idle && !typing && !draft
+        idle && !remote && !typing && !draft
     }
 
-    async fn cache_compact_fire(self: &Arc<Self>, session: &Arc<Session>) {
-        session.cache_compact_timer.lock().unwrap_or_else(|e| e.into_inner()).take();
-        if session.cache_compacted.load(Ordering::SeqCst) || !self.cache_compact_ready(session) {
+    async fn cache_compact_fire(self: &Arc<Self>, session: &Arc<Session>, expires_ms: u64) {
+        // Read again: the setting may have been turned off since the timer was armed, and the
+        // cache must still be warm when the request goes.
+        if !self.cache_compact_ready(session)
+            || read_threshold().is_none()
+            || now_ms() >= expires_ms
+        {
             return;
         }
-        // Read again: the setting may have been turned off since the timer was armed.
-        if read_threshold().is_none() {
-            return;
-        }
-        session.cache_compacted.store(true, Ordering::SeqCst);
         let opts = PromptOptions {
             prompt_id: Some(format!("cache-compact-{}", uuid::Uuid::now_v7())),
             provenance: Some(json!({"kind": KIND})),
@@ -161,3 +163,7 @@ impl Hub {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "cache_compact_tests.rs"]
+mod tests;
