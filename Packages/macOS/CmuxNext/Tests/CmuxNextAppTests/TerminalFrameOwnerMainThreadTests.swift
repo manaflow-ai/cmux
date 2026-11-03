@@ -1,0 +1,187 @@
+import AppKit
+import CmuxNextCompat
+@testable import CmuxNextDesign
+import CmuxNextSignposts
+@testable import CmuxNextTerminal
+import CmuxNextTestSupport
+import Foundation
+import GhosttyNextKit
+import Testing
+
+/// FRAME OWNER REFACTOR S4 P0 (switch round ab-s4-sw-22, build ada386be): with `motion.frameOwner.terminals` turned on
+/// while terminals showed frames, the app's main thread stopped for good at the first terminal resize, and every RPC
+/// timed out after it. The switch-OFF films of the same build worked.
+///
+/// A real Ghostty surface (its renderer thread, Metal and the GPU completion thread) in a window on screen, as in the
+/// films: the switch goes on at runtime, after the first frame; one resize lands; then the terminal keeps drawing at
+/// that size (output and a blinking cursor: frames that go to the screen off the main thread). The main thread must
+/// keep turning. A watchdog thread pings it every 250 ms. When a ping gets no answer within 3 s, the watchdog samples
+/// this process (`/usr/bin/sample`, every thread's stack), writes the sample to stderr and ends the process with exit
+/// code 70. So a hang fails the step with the stacks, and never waits for the runner's stall limit.
+///
+/// It needs a window server session: run it on a display worker (`cmux-ci run --display --label gui-session-v1`).
+@MainActor @Suite(.serialized, .closesItsWindows,
+                  .enabled(if: ["CMUX_TEST_REQUIRE_GUI", "CMUX_CI_DISPLAY_ROUTED"].contains { ProcessInfo.processInfo.environment[$0] == "1" }))
+struct TerminalFrameOwnerMainThreadTests {
+    @Test func theMainThreadKeepsTurningWhenTheSwitchGoesOnAndATerminalResizes() async throws {
+        let watchdog = MainThreadWatchdog(deadline: .seconds(3))
+        watchdog.start()
+        defer { watchdog.stop() }
+        let fixture = try await Fixture()
+        defer { fixture.close() }
+
+        // The switch goes on while the terminal shows frames (the films' px_tunable).
+        let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
+        try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
+
+        // One resize through the window's layout, as a pane's layout does.
+        fixture.container.terminalWidth = 520
+        fixture.container.needsLayout = true
+        let landed = await fixture.waitShown(width: 520)
+        #expect(landed, "520 pt never showed its own frame")
+
+        // The terminal keeps drawing at the shown size: output, with the cursor shown and blinking.
+        let offMainBefore = fixture.offMainPresents
+        for line in 0..<40 {
+            fixture.io.send(.output(Data("line \(line) after the resize\r\n".utf8)))
+            await fixture.commits(2)
+        }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < deadline { await fixture.commits(1) }
+
+        // The hang needs frames that go to the screen off the main thread: the case must have made some.
+        #expect(fixture.offMainPresents > offMainBefore,
+                "no frame went to the screen off the main thread after the resize (host_off_main_presents \(offMainBefore) -> \(fixture.offMainPresents))")
+        #expect(fixture.session.surfaceView.frame.width == 520, "the terminal is \(fixture.session.surfaceView.frame.width) pt wide")
+    }
+
+    /// The window's content: its `layout()` gives the terminal the width asked for, as a pane's layout does.
+    final class ResizingContainer: NSView {
+        var terminalWidth: CGFloat = 600
+        weak var terminal: NSView?
+
+        override func layout() {
+            super.layout()
+            terminal?.frame = NSRect(x: 0, y: 0, width: terminalWidth, height: 300)
+        }
+    }
+
+    final class Fixture {
+        let io = ScriptedTerminalIO()
+        let session: TerminalSession
+        let window: NSWindow
+        let container: ResizingContainer
+        private let drew: Bool
+
+        init() async throws {
+            _ = NSApplication.shared
+            TunableStore.shared.activate(file: nil)
+            TunableStore.shared.register(TerminalDragTunables.all)
+            // The switch starts off, as in the films; ``close()`` resets it.
+            TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(false))
+            drew = WindowDrawPolicy.drawsWhenOccluded
+            WindowDrawPolicy.drawsWhenOccluded = true
+            session = TerminalSession(io: io)
+            window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 640, height: 320), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            container = ResizingContainer(frame: NSRect(x: 0, y: 0, width: 640, height: 320))
+            window.contentView = container
+            container.terminal = session.view
+            container.addSubview(session.view)
+            window.orderFrontRegardless()
+            guard session.surfaceView.surface != nil else {
+                close()
+                try #require(Bool(false), "libghostty created no surface")
+                return
+            }
+            container.layoutSubtreeIfNeeded() // sync-layout: the first size, before the text
+            // A prompt-like screen with the cursor shown (it blinks: frames at the shown size).
+            io.send(.output(Data("\u{1b}[?25h$ echo ready\r\nready\r\n$ ".utf8)))
+            let shown = await waitShown(width: 600)
+            if !shown { close() }
+            try #require(shown, "the terminal never showed its first frame")
+        }
+
+        func close() {
+            io.finish()
+            window.close()
+            WindowDrawPolicy.drawsWhenOccluded = drew
+            TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, nil)
+        }
+
+        /// Ghostty's frames of this surface that went to the screen off the main thread.
+        var offMainPresents: UInt64 {
+            guard let surface = session.surfaceView.surface else { return 0 }
+            return ghostty_surface_render_counters(surface).host_off_main_presents
+        }
+
+        /// Returns after `count` main run-loop turns ended with a Core Animation commit.
+        func commits(_ count: Int) async {
+            for _ in 0..<count {
+                await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                    CommitBoundary().after { _ in done.resume() }
+                }
+            }
+        }
+
+        /// Waits, commit by commit (at most 10 s), until the shown frame is `width` points wide at the layer's scale.
+        func waitShown(width: CGFloat) async -> Bool {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+            while ContinuousClock.now < deadline {
+                let scale = session.surfaceView.layer?.contentsScale ?? 2
+                if let frame = session.surfaceView.presentedFrame, frame.width == Int((width * scale).rounded()) { return true }
+                await commits(1)
+            }
+            return false
+        }
+    }
+}
+
+/// Pings the main thread from a background queue. A ping that gets no answer within `deadline` samples this process
+/// (`/usr/bin/sample`, 2 s, every thread), writes the sample to stderr and ends the process with exit code 70: a main
+/// thread that stopped for good fails the test with its stack.
+nonisolated final class MainThreadWatchdog: Sendable {
+    private let deadline: DispatchTimeInterval
+    private let stopped = DispatchSemaphore(value: 0)
+    private let running = Mutex<Bool>(false)
+
+    init(deadline: DispatchTimeInterval) {
+        self.deadline = deadline
+    }
+
+    func start() {
+        running.withLock { $0 = true }
+        DispatchQueue.global(qos: .userInitiated).async { [self] in watch() }
+    }
+
+    func stop() {
+        running.withLock { $0 = false }
+        stopped.signal()
+    }
+
+    private func watch() {
+        // wakeup-allow: a test watchdog: one ping per 250 ms on a background queue, only while its test runs
+        while running.withLock({ $0 }) {
+            let answered = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async { answered.signal() }
+            if answered.wait(timeout: .now() + deadline) == .timedOut, running.withLock({ $0 }) { sampleAndExit() }
+            // The next ping in 250 ms, or at once when the test stops the watchdog.
+            _ = stopped.wait(timeout: .now() + .milliseconds(250))
+        }
+    }
+
+    private func sampleAndExit() {
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let file = NSTemporaryDirectory() + "main-thread-hang-\(pid).txt"
+        let sample = Process()
+        sample.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
+        sample.arguments = [String(pid), "2", "-file", file]
+        try? sample.run()
+        // concurrency-allow: the watchdog's background queue, after the main thread was seen stopped; it waits for sample
+        sample.waitUntilExit()
+        let text = (try? String(contentsOfFile: file, encoding: .utf8)) ?? "sample did not run"
+        FileHandle.standardError.write(Data("MAIN THREAD HANG (S4 frame owner): the main thread did not answer in 3 s. sample of pid \(pid):\n\(text)\n".utf8))
+        exit(70)
+    }
+}
