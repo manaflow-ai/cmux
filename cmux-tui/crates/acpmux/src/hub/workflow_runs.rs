@@ -325,6 +325,55 @@ fn workflow_runner_command() -> Result<tokio::process::Command> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn workflow_runs_recovery_preserves_a_runner_launched_by_this_daemon() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        // Construct before entering a runtime, so no background hub task holds a clone.
+        let mut hub = Hub::new(cfg, store);
+        Arc::get_mut(&mut hub).unwrap().workflow_runs =
+            crate::workflow_runs::Service::with_root(dir.path().into());
+        let run = hub
+            .workflow_runs
+            .store()
+            .start(RunRecord {
+                version: 1,
+                id: "wf-live-recovery".into(),
+                name: "Recovery".into(),
+                owner_session_id: "owner".into(),
+                local_principal: false,
+                source: "return 1;".into(),
+                source_hash: String::new(),
+                args: Value::Null,
+                allowed_tools: None,
+                cwd: dir.path().into(),
+                generation: 0,
+                state: State::Running,
+                activities: BTreeMap::new(),
+                outcome: None,
+            })
+            .unwrap();
+        // A local resume can finish before startup recovery takes its snapshot.
+        let proof = hub.workflow_runs.issue_runner(&run).unwrap().unwrap();
+        let (mut stop, finished) = hub.workflow_runs.track_runner(&run.id, run.generation);
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(hub.recover_workflows());
+        assert_eq!(
+            hub.workflow_runs.store().get(&run.id).unwrap(),
+            run,
+            "recovery replaced a runner that this daemon already owns"
+        );
+        assert!(hub.workflow_runs.authorize_runner(&run.id, run.generation, &proof).is_ok());
+        assert!(matches!(stop.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty)));
+        finished.send(()).unwrap();
+        hub.workflow_runs.retire_runner(&run.id, run.generation);
+    }
+
     #[tokio::test]
     async fn cancelling_a_stale_activity_never_fences_another_prompt() {
         let mut cfg = crate::config::Config::default();
