@@ -169,7 +169,7 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
       [true, false],
       [false, true],
     ] as const)
-      for (const width of [560, 900, 1200, 1600]) {
+      for (const width of [560, 900, 1100, 1200, 1600]) {
         const where = `${width}px pane${row ? " under a tab row" : ""}${preview ? " beside a computer use card" : ""}`;
         test(`${name}: in a ${where}, opening, folding and closing Session Info moves nothing else`, async () => {
           current = browsers.get(name)!;
@@ -210,12 +210,12 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
             await close(page);
             await settle(page);
             const closing = await moved(page);
-            // Where the right gutter holds the panel (1600px), and under 648px where it lies over the
-            // chat (SessionInfo.tsx sessionInfoStage; Leo, 2026-11-03: "not affecting layout at all ->
-            // gradually pushing into the chat layout -> overlay"), nothing else moves at all. Between,
-            // it pushes the chat left as it opens and back as it closes, and its content changing
-            // still moves nothing.
-            if (width >= 1600 || width < 648)
+            // Where the right gutter holds the panel (1600px), and where a push would narrow the column
+            // so it lies over the chat (560, 900 and 1200px; SessionInfo.tsx sessionInfoStage; Leo,
+            // 2026-11-03: "if it would need to be then session info should be an overlay"), nothing else
+            // moves at all. At 1100px it pushes the column left as it opens and back as it closes, and
+            // its content changing still moves nothing.
+            if (width !== 1100)
               expect({ opening, content, closing }).toEqual({ opening: [], content: [], closing: [] });
             else expect({ pushed: opening.length > 0, content }).toEqual({ pushed: true, content: [] });
           } finally {

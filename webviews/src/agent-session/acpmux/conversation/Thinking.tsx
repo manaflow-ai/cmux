@@ -129,7 +129,8 @@ export function Thinking({
       </div>
     );
   return (
-    <div className={`cv-worked${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
+    // `cv-worked--live`: its words start on the icon rows' text column (conversation.css).
+    <div className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}

@@ -72,7 +72,10 @@ impl Mux {
         // check again (terminal_respawn.rs). Free when none waits.
         if matches!(
             event,
-            MuxEvent::TreeChanged | MuxEvent::TreeSelectionChanged | MuxEvent::TreeDelta(_)
+            MuxEvent::TreeChanged
+                | MuxEvent::TreeSelectionChanged(_)
+                | MuxEvent::WorkspacePresentationChanged(_)
+                | MuxEvent::TreeDelta(_)
         ) {
             self.respawn_gate.wake_waiters();
         }
@@ -171,9 +174,12 @@ impl Mux {
         {
             hook(revision);
         }
+        let workspace = delta.workspace;
         self.emit(MuxEvent::TreeDelta(delta));
         if selection_resync {
-            self.emit(MuxEvent::TreeSelectionChanged);
+            // The selection a delta moves (the focused workspace, the pane's active tab) is in its
+            // workspace: a client that reads `selection-changed` applies it without a snapshot (#32408).
+            self.emit(MuxEvent::TreeSelectionChanged(Some(workspace)));
         }
     }
 

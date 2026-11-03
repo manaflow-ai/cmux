@@ -8,17 +8,19 @@
   flex: none;
   max-width: 40%;
   min-width: 0;
-  height: 20px;
+  /* The row's words in a box no taller than they are (Leo, 2026-11-03: "i thought we made this
+     stuff smaller"): the row's own size, 2px over its glyphs, no ring. */
+  height: calc(1em + var(--ds-space-1));
   padding: 0 var(--cv-disclosure-gap);
   overflow: hidden;
-  border-radius: 6px;
+  border-radius: 4px;
   color: var(--cv-text);
   background: color-mix(in srgb, var(--cv-fg, var(--cv-text)) 8%, transparent);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px)
-    color-mix(in srgb, var(--cv-fg, var(--cv-text)) 10%, transparent);
-  font-size: var(--text-control);
-  line-height: 20px;
-  letter-spacing: var(--text-control--letter-spacing);
+  font-size: inherit;
+  line-height: calc(1em + var(--ds-space-1));
+  letter-spacing: inherit;
+  /* A name, not a count: never the tabular figures a status line or tool row sets for its timer. */
+  font-variant-numeric: normal;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: default;
@@ -28,25 +30,31 @@
   margin-inline-start: calc(-1 * var(--cv-disclosure-gap));
 }
 /* A tag that opens a chat is a link chip (design/chat-transcript.md, "Session link chip"): the
-   theme's text on a wash of it, real padding, centred on its row's icon line, with no arrow glyph after the
-   name (Leo, 2026-11-01: "nobody asked for that up right arrow"), so it reads as a way to somewhere else and not as the row's own words (Leo,
-   2026-11-01: "it's not obvious that clicking on this will be a new thing"). Its colours are the
-   theme's, never the link blue (Leo, 2026-11-01: "dont do blue by default, theme it"). The look is
-   this one rule's; rows only place it. */
+   theme's text on a light wash of it, centred on its row's icon line, with no arrow glyph after the
+   name (Leo, 2026-11-01: "nobody asked for that up right arrow"), so it reads as a way to somewhere
+   else and not as the row's own words (Leo, 2026-11-01: "it's not obvious that clicking on this will
+   be a new thing"). Its colours are the theme's, never the link blue (Leo, 2026-11-01: "dont do blue
+   by default, theme it"). It is the row's words in a box no taller than they are: the row's own
+   size, 2px over its glyphs top and bottom (1em + 4px, 18 at 14px) with 4px at the sides and no
+   ring at rest, so the row reads as one line,
+   the way Claude Code desktop names a sender inline (Leo, 2026-11-03, on a bordered chip taller
+   than its row's text: "this is pretty bad spacing and formatting" / "i thought we made this stuff
+   smaller"; transcriptSpacing.ts SESSION_CHIP). The look is this one rule's; rows only place it. */
 button.cv-agent-tag.is-open {
   display: inline-flex;
   align-items: center;
   align-self: center;
   box-sizing: border-box;
   gap: var(--ds-space-1);
-  /* The tool row's height (design/grid.md): a step under the 26px message line, so the chip has
-     room above and below inside every row it sits on. */
-  height: var(--cv-tool-row-height);
+  height: calc(1em + var(--ds-space-1));
   padding: 0 var(--ds-space-1);
+  border-radius: 4px;
   color: var(--cv-text);
-  background: color-mix(in srgb, var(--cv-text) 9%, transparent);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 18%, transparent);
-  line-height: var(--cv-tool-row-height);
+  background: color-mix(in srgb, var(--cv-text) 8%, transparent);
+  box-shadow: none;
+  font-size: inherit;
+  letter-spacing: inherit;
+  line-height: calc(1em + var(--ds-space-1));
 }
 .cv-agent-tag__label {
   min-width: 0;

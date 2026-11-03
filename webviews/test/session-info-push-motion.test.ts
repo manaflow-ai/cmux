@@ -109,8 +109,9 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
   for (const name of browsers.keys())
     test(`${name}: pushing, the chat narrows and widens with the panel, and neither end jumps`, async () => {
       current = browsers.get(name)!;
-      // A 900px pane's gutter has no room for the 320px panel: it pushes.
-      const page = await pane!.open({ width: 900, height: 600 });
+      // A 1100px pane's gutter has no room for the 320px panel, and Push always's whole room keeps the
+      // transcript's column at its width there (SessionInfo.tsx pushKeepsColumn): it pushes.
+      const page = await pane!.open({ width: 1100, height: 600 });
       try {
         const toggle = await ready(page);
         const shell = await page.evaluate(() => document.querySelector(".acpmux-shell")!.clientWidth);
@@ -166,8 +167,9 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
   // Since #31423 the default (Overlay) floats only where the pane's right gutter holds the panel; in a
   // narrower pane (900px) it pushes too, so Push always changes nothing there. The switch is made in a
   // pane wide enough that Overlay really floats (SessionInfo.tsx sessionInfoPushes, at the panel's
-  // opening width), the same 1600px the layout-still and rail tests float in.
-  const floatingPane = { width: 1600, height: 600 };
+  // opening width), at 1800px, where Push always's whole room still keeps the transcript's column at its
+  // width (SessionInfo.tsx pushKeepsColumn).
+  const floatingPane = { width: 1800, height: 600 };
   test("the switch's pane floats with Overlay and pushes with Push always", () => {
     expect({
       overlay: sessionInfoPushes("overlay", floatingPane, SESSION_INFO_WIDTH.fallback),
