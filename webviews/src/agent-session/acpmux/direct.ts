@@ -2216,7 +2216,12 @@ export class AcpmuxDirectClient {
       // The read itself takes a chat it lacks off the screen (`selectFallbackSession`, as for a chat
       // that left the list while shown); at open it is the tab's missing chat, said as such.
       const stillOpen = generation === this.selectionGeneration && this.selectedSessionId === sessionId;
-      const leftByRead = this.fallback?.from === sessionId && this.fallback.generation === generation + 1;
+      // A selection made after the read owns the page; an older fallback must not clear it.
+      const leftByRead =
+        this.fallback?.from === sessionId &&
+        this.fallback.generation === generation + 1 &&
+        this.fallback.generation === this.selectionGeneration &&
+        this.selectedSessionId === undefined;
       if (relisted && !listed() && (stillOpen || leftByRead)) return this.adoptedMissing(sessionId);
       // select() drops a kept tail it drew and says so itself; with nothing drawn the pane says
       // the open failed here, for the chat this adoption still shows.
