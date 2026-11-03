@@ -38,4 +38,7 @@ for (const [name, body] of [["admin", { x: ["admin"] }], ["empty", { x: [] }], [
   writeFileSync(file, JSON.stringify(body));
   assert.notEqual(apply([entry("x", ["vm:read"])], file).exitCode, 0, `${name} grant file was accepted`);
 }
+const notList = apply("cmuxvm_sk_leak");
+assert.notEqual(notList.exitCode, 0, "a JSON string was accepted as the key list");
+assert.ok(!notList.stderr.toString().includes("leak"), "the key list leaked into stderr");
 console.log("service key grants: ok");

@@ -10,4 +10,8 @@ if ! jq -e 'type == "object" and all(.[]; type == "array" and length > 0 and all
   echo "::error::$grants_file must map service key ids to non-empty lists of scopes (never admin)" >&2
   exit 1
 fi
-jq -c --slurpfile grants "$grants_file" 'map(.id as $id | if $grants[0][$id] then .scopes = ((.scopes + $grants[0][$id]) | unique) else . end)'
+# jq's own errors can quote part of its input, a secret here, so they never reach the log.
+if ! jq -c --slurpfile grants "$grants_file" 'if type == "array" then map(.id as $id | if $grants[0][$id] then .scopes = ((.scopes + $grants[0][$id]) | unique) else . end) else error("not an array") end' 2>/dev/null; then
+  echo "::error::the service key list is not a JSON array of entries; refusing to deploy it" >&2
+  exit 1
+fi
