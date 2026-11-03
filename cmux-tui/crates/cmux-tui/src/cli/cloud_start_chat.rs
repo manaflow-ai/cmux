@@ -483,6 +483,8 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
 
     // 3. The prompt: inside the command when it fits there, else from a file on the machine.
     let quoted = shell_quote(&request.prompt);
+    // The uploaded prompt's file words, when the prompt went to a file.
+    let mut uploaded = None;
     let send = if quoted.len() <= INLINE_PROMPT_BYTES {
         format!(
             "{GUEST_PRELUDE}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; echo @@send; \
@@ -504,6 +506,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
                 );
             }
         };
+        uploaded = Some(file.clone());
         format!(
             "{GUEST_PRELUDE}{file}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
              echo @@send; \"$c\" acp send --no-wait {sid} - < \"$f\" 2>&1; echo \"@@exit $?\"; \
@@ -513,7 +516,13 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     };
     let sent = match exec(runner, machine_id, &send) {
         Ok(stdout) => stdout,
-        Err(error) => return sent_failure(error, answer),
+        Err(error) => {
+            // The send may never have started: the uploaded prompt does not stay on the machine.
+            if let Some(file) = &uploaded {
+                let _ = exec(runner, machine_id, &format!("{GUEST_PRELUDE}{file}rm -f \"$f\""));
+            }
+            return sent_failure(error, answer);
+        }
     };
     let reported = sections(&sent);
     let baseline = last_turn(reported.get("history")).map_or(0, |turn| turn.seq);

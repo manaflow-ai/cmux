@@ -229,18 +229,60 @@ const REFUSAL: Readonly<Record<Exclude<MachineExecReply, { ok: true }>["refusal"
   output_limit: [413, "vm_output_too_large", "the machine's answer exceeded the response limit; its output was discarded"]
 }
 
+/** How long an exec's body may take to arrive. */
+const EXEC_BODY_READ_TIMEOUT_MS = 10 * 60_000
+
+/**
+ * An exec's body of any length, as its bytes arrive: nothing is allocated from a declared length, so a caller that
+ * declares much and sends little holds only what it sent. A read that stalls past EXEC_BODY_READ_TIMEOUT_MS, or
+ * whose request is aborted, is cancelled and answers null.
+ */
+const readGrowing = async (request: Request): Promise<Uint8Array | null> => {
+  if (!request.body) return new Uint8Array(0)
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  let stop = (): void => undefined
+  const stopped = new Promise<null>((resolve) => { stop = () => resolve(null) })
+  const deadline = setTimeout(stop, EXEC_BODY_READ_TIMEOUT_MS)
+  request.signal?.addEventListener("abort", stop, { once: true })
+  try {
+    for (;;) {
+      const next = await Promise.race([reader.read(), stopped])
+      if (next === null) {
+        await reader.cancel().catch(() => undefined)
+        for (const chunk of chunks) chunk.fill(0)
+        return null
+      }
+      if (next.done) break
+      chunks.push(next.value)
+      size += next.value.byteLength
+    }
+  } catch {
+    for (const chunk of chunks) chunk.fill(0)
+    return null
+  } finally {
+    clearTimeout(deadline)
+    request.signal?.removeEventListener("abort", stop)
+  }
+  const out = new Uint8Array(size)
+  let at = 0
+  for (const chunk of chunks) {
+    out.set(chunk, at)
+    at += chunk.byteLength
+    chunk.fill(0)
+  }
+  return out
+}
+
 /**
  * A JSON object body, or the refusal: a file write's of at most BODY_MAX bytes; an exec's of any length (its
- * command is staged on the machine in pieces), read whole into exactly its declared length when it declares one.
+ * command is staged on the machine in pieces), read as it arrives (readGrowing).
  */
 const jsonBody = async (request: Request, anyLength = false): Promise<Record<string, unknown> | Response> => {
   const declared = Number(request.headers.get("content-length") ?? "0")
   if (!(declared >= 0 && (anyLength || declared <= BODY_MAX))) return refuse(413, "vm_file_too_large", "the request body is too large")
-  const bytes = !anyLength
-    ? await readBody(request, BODY_MAX).catch(() => null)
-    : request.headers.has("content-length")
-      ? await readBody(request, declared).catch(() => null)
-      : await request.arrayBuffer().then((b) => new Uint8Array(b), () => null)
+  const bytes = anyLength ? await readGrowing(request) : await readBody(request, BODY_MAX).catch(() => null)
   if (bytes === null) return refuse(413, "vm_file_too_large", "the request body is too large")
   let body: unknown
   try {
