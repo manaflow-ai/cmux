@@ -52,7 +52,7 @@ export default agentPaneEntry({
       ]),
     },
     "sent-from": {
-      note: "Leo 2026-11-02, beside ChatGPT's \"Sent from dot\": a prompt the Chief sent on the person's behalf draws the Chief's existing avatar and a muted \"Sent from <Chief>\" line right-aligned above its bubble.",
+      note: "Leo 2026-11-02, beside ChatGPT's “Sent from dot”: a prompt the Chief sent on the person's behalf draws the Chief's existing avatar and a muted “Sent from <Chief>” line right-aligned above its bubble.",
       snapshot: chat([
         user("Rebase and push when the tests pass.", 6, { seq: 1, from: "chief" }),
         assistant("Rebased; pushing once the tests finish.", 5.5),
