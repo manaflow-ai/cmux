@@ -257,7 +257,6 @@ pub(super) fn publish_draft(
         turn,
         seq,
         fresh,
-        text_bytes: text.len(),
     };
     let published = mux
         .admit_conversation_draft(draft, Instant::now())

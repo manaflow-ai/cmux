@@ -16,8 +16,8 @@ import CmuxNextCompat
 ///   prompt id at most once: its ledger and its session log answer one it has seen as `duplicate`.
 /// - A connection the daemon closed while the app runs drops the prompts its page sent: the pane
 ///   shows each as not sent, with Retry, so the pane owns them from then on.
-/// - An entry older than ``maximumAge`` is dropped, never sent. The file holds at most
-///   ``maximumEntries``; a prompt larger than ``maximumParamsBytes`` is not kept.
+/// - An entry older than ``maximumAge`` is dropped, never sent. All newer entries are kept so a
+///   prompt of any size or a burst of prompts cannot disappear during a restart.
 ///
 /// The host sends again only what it recorded from a frame the page rules let through; the page
 /// can never set `resend` itself (``AcpmuxPaneMethods/knownParams``). The pane's Retry sends a
@@ -28,8 +28,6 @@ import CmuxNextCompat
 public nonisolated final class AgentPanePromptJournal: Sendable {
     /// How long a prompt may wait for its send again; an older one is dropped.
     public static let maximumAge: TimeInterval = 24 * 60 * 60
-    static let maximumEntries = 64
-    static let maximumParamsBytes = 8 << 20
     static let fileName = "agent-pane-unsent-prompts.json"
 
     /// The app's journal: `<Application Support>/<bundle id>/agent-pane-unsent-prompts.json`. Nil
@@ -119,12 +117,8 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     private static func key(_ daemon: String, _ promptId: String) -> String { daemon + "\u{0}" + promptId }
 
     /// Records a prompt the page sent on connection `owner`, on disk before it returns. Call off
-    /// the main thread. False when it is not kept (too large, or the connection ended).
+    /// the main thread. False only when the connection has already ended.
     func record(_ entry: Entry, owner: UUID) -> Bool {
-        guard entry.params.utf8.count <= Self.maximumParamsBytes else {
-            Self.logger.info("agent pane prompt not journaled: too large")
-            return false
-        }
         var kept = false
         change { state in
             guard !state.ended.contains(owner) else { return false }
@@ -132,10 +126,6 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             state.entries.removeAll { Self.key($0.daemon, $0.promptId) == key }
             state.entries.append(entry)
             state.holders[key] = .page(owner)
-            while state.entries.count > Self.maximumEntries {
-                let dropped = state.entries.removeFirst()
-                state.holders[Self.key(dropped.daemon, dropped.promptId)] = nil
-            }
             kept = true
             return true
         }
@@ -302,7 +292,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             Self.logger.error("agent pane prompt journal unreadable; set aside, starting empty")
             return
         }
-        state.entries = Array(document.entries.suffix(Self.maximumEntries))
+        state.entries = document.entries
         state.pendingTrust = document.pendingTrust
     }
 

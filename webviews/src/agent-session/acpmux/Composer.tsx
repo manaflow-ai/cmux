@@ -80,11 +80,9 @@ import {
   hydratedDraft,
   lastQueuedDraftText,
   markDraftRead,
-  draftFits,
   mergedDraft,
   noteDraftEdited,
   noteDraftHeld,
-  noteDraftKeptApart,
   noteDraftSent,
   readDurableDraftState,
   readPersistedDraft,
@@ -712,13 +710,7 @@ export function Composer({
   pendingRef.current = pending;
   /// A new chat's text as the host keeps it (`onUnsentDraft`): the person's words only. The host keeps
   /// no attachment with it, so each attachment's token goes, a placeholder still being read included.
-  /// A new chat's kept draft (the handshake's) that did not fit the limit beside text typed before it
-  /// came (`draftFits`): the host keeps it, not the editor's text, until the editor is cleared, which
-  /// brings it back into the editor. Before (cmux#28204 review at b7cddbbf), the merge past the limit
-  /// went to the host, whose store turned it into nil and removed the kept draft.
-  const keptOverLimit = useRef<string | undefined>(undefined);
   const unsentText = (value: string) =>
-    keptOverLimit.current ??
     withoutInlineTokens(
       value,
       (id) =>
@@ -781,15 +773,6 @@ export function Composer({
     const edited = editedBeforeHydration.current || history.edited;
     editedBeforeHydration.current = false;
     const next = hydratedDraft({ current: currentText, restored: saved, ...history, edited });
-    if (next.overflow) {
-      // acpmux's draft and the typed text do not fit the limit together: acpmux keeps its draft,
-      // the editor keeps the typing, and the chat stays unread, so no edit or quit writes the typed
-      // text over the saved draft; the next read tries again (deleting the typing brings it back).
-      editedBeforeHydration.current = true;
-      noteDraftKeptApart(session);
-      if (session) cachePersistedDraft(session, currentText);
-      return currentText;
-    }
     if (next.shown) {
       // Its own write (below) or none: the text effect does not write it again.
       restoringSession.current = next.text !== textRef.current;
@@ -989,13 +972,6 @@ export function Composer({
     if (draftWasRead(persistedSession.current)) return;
     const next = mergedDraft(typed, draft);
     if (next === typed) return;
-    if (!draftFits(next)) {
-      // Both do not fit the limit: the host keeps the kept draft and the editor the typing.
-      keptOverLimit.current = draft;
-      unsentDraft.current?.push(draft);
-      return;
-    }
-    keptOverLimit.current = undefined;
     notTyped();
     field.current?.reset(next);
     setText(next);
@@ -1032,7 +1008,7 @@ export function Composer({
     // switch's new session always is, so moving to another chat mid-switch keeps that chat's draft.
     // Merged only before the page ever read this chat's draft; after it, what was typed wins.
     const initial = typedBefore.trim()
-      ? draftWasRead(sessionId) || !draftFits(mergedDraft(typedBefore, restored || draft))
+      ? draftWasRead(sessionId)
         ? typedBefore
         : mergedDraft(typedBefore, restored || draft)
       : restored || carried || draft || "";
@@ -1148,17 +1124,6 @@ export function Composer({
     };
   }, [sessionId, onUnsentDraft]);
   useEffect(() => {
-    const kept = keptOverLimit.current;
-    if (kept !== undefined && !text.trim()) {
-      // The typing is gone (deleted, or sent): the kept draft comes back into the editor.
-      keptOverLimit.current = undefined;
-      notTyped();
-      field.current?.reset(kept);
-      setText(kept);
-      setCaret(kept.length);
-      pendingCaret.current = kept.length;
-      return;
-    }
     unsentDraft.current?.push(unsentText(text));
   }, [text, sessionId, onUnsentDraft]);
   const commands = snapshot.commands;

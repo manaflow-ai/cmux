@@ -101,7 +101,7 @@ import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage, startCancelled } from "./transportErrors";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
-import { isLostConnection, JOURNAL_PARAMS_BYTES, lostPrompt, type LostPrompt } from "./lostPrompt";
+import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isPlumbingCall, showsNothing } from "./hiddenTools";
@@ -8692,15 +8692,9 @@ export class AcpmuxDirectClient {
     );
   }
   /// Whether the host's prompt journal keeps a prompt of these blocks that this connection lost
-  /// (Swift `AgentPanePromptRelay`): only on a connection to this Mac's acpmux (a chat of another
-  /// Mac it relays included), and for a prompt within the journal's `maximumParamsBytes` (8 MiB).
+  /// (Swift `AgentPanePromptRelay`): only on a connection to this Mac's acpmux.
   private journalsPrompts(blocks: unknown): boolean {
-    if (!this.localOrigin) return false;
-    try {
-      return JSON.stringify(blocks).length < JOURNAL_PARAMS_BYTES;
-    } catch {
-      return false;
-    }
+    return this.localOrigin;
   }
   /// The `awaitResent` waits, with their chat: each settles false once this connection closes or
   /// the pane shows another chat.
