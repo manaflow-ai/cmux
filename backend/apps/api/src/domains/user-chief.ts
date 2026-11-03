@@ -21,6 +21,15 @@ export interface ChiefBrainPlace {
   readonly host: string
   readonly install: string
 }
+/** The hosted brain's own Cloud workspace; this does not move its brain onto a paired server. */
+export interface ChiefCloudMachine {
+  readonly workspace: string
+  readonly team: string
+  readonly machine: string
+  readonly provider: string
+  readonly connection_machine: string
+  readonly install: string
+}
 export interface ChiefRecord {
   readonly id: string
   readonly owner_user: string
@@ -29,6 +38,7 @@ export interface ChiefRecord {
   readonly brain: "cloud"
   /** Null when no server is named; absent on records written before G8 (read as null). */
   readonly brain_place?: ChiefBrainPlace | null
+  readonly cloud_machine?: ChiefCloudMachine | null
   readonly main_conversation: string | null
   readonly harness: string | null
   readonly rev: number
@@ -46,6 +56,8 @@ export interface ChiefTombstone {
 export interface ChiefsState {
   readonly chiefs?: Readonly<Record<string, ChiefRecord>>
   readonly chief_tombstones?: Readonly<Record<string, ChiefTombstone>>
+  /** The signup Chief selected under chief-hosted-default; retained after archive/delete. */
+  readonly hosted_default?: string
 }
 
 export const CHIEF_OPS = new Set(["chief.create", "chief.update", "chief.archive", "chief.delete"])

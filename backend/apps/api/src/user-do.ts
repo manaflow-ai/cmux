@@ -23,6 +23,9 @@ import { pullLargeRows, readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 import { installAuthorityVersion } from "./domains/user-authority.ts"
+import { DEFAULT_CHIEF_BIND, defaultChiefIdentity } from "./domains/user-chief-default.ts"
+import { deliverSignupChief, type DefaultMachinePlatform } from "./user-chief-provision.ts"
+import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
 
@@ -139,6 +142,16 @@ export class UserDO extends OwnerDO<UserState> {
   }
   /** A Chief's own chief.create / chief.update from its Cloud brain (brain-chiefs.ts; DO RPC, no route reaches it): user-chief.ts `viaChief`. */
   async chiefManage(entity: string, agent: string, frame: OpFrame): Promise<SubmitResult> { return super.submit(entity, { identity: `agent:${agent} via chief`, kind: "agent", agent, user: entity }, frame) }
+
+  /** Signup's two durable self-deliveries; platform admission and placement never impersonate a client. */
+  override async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
+    return deliverSignupChief(entity, source, items, {
+      platform: this.env.PLATFORM as unknown as DefaultMachinePlatform | undefined,
+      current: () => this.isBound(entity) ? this.bind(entity).currentState : undefined,
+      deliver: (batch) => super.systemDeliver(entity, source, batch),
+      bind: (machine, key) => this.submitSystem(DEFAULT_CHIEF_BIND, machine, key, defaultChiefIdentity(entity))
+    })
+  }
 
   private closeRetryAt: number | null = null // Retry time of a socket close that failed (socket-registry.ts); memory only.
 
