@@ -1,34 +1,35 @@
-import AppKit
-import CmuxNextSettings
+public import AppKit
 
 /// `debug.loops`: every repeating Core Animation animation in the app's windows, and whether
 /// anyone can see it (hq#3716). `debug.wakeups` counts main-thread wakeups; a CA loop runs in the
 /// render server and never wakes the app, so it needs its own count. A loop is hidden when its
 /// window is occluded or a layer or view above it is hidden; `hidden_loops` should be 0.
 ///
-/// `{"limit": N}` lists at most N loops per window (default 50); the counts cover all of them.
-/// One walk per call, on the main actor; no timer or observer.
-enum DebugLoops {
-    static func report(params: [String: JSONValue] = [:]) -> JSONValue {
-        let limit = max(0, params["limit"]?.intValue ?? 50)
+/// `limit` lists at most that many loops per window; the counts cover all of them. One walk per
+/// call, on the main actor; no timer or observer. The report is a `JSONSerialization` object graph.
+@MainActor
+public enum DebugLoops {
+    public static func report(limit: Int = 50) -> [String: Any] {
+        let limit = max(0, limit)
         var total = 0
         var hidden = 0
-        let windows = NSApp.windows.compactMap { window -> JSONValue? in
+        let windows = NSApp.windows.compactMap { window -> [String: Any]? in
             guard let root = window.contentView?.superview?.layer ?? window.contentView?.layer else { return nil }
             var loops: [Loop] = []
             collect(root, windowVisible: window.isVisible && window.occlusionState.contains(.visible), into: &loops)
             guard !loops.isEmpty else { return nil }
+            let hiddenHere = loops.count { !$0.visible }
             total += loops.count
-            hidden += loops.filter { !$0.visible }.count
-            return .object([
-                "window_number": .number(Double(window.windowNumber)),
-                "class": .string(String(describing: type(of: window))),
-                "loops": .number(Double(loops.count)),
-                "hidden_loops": .number(Double(loops.filter { !$0.visible }.count)),
-                "items": .array(loops.prefix(limit).map(\.json)),
-            ])
+            hidden += hiddenHere
+            return [
+                "window_number": window.windowNumber,
+                "class": String(describing: type(of: window)),
+                "loops": loops.count,
+                "hidden_loops": hiddenHere,
+                "items": loops.prefix(limit).map(\.json),
+            ]
         }
-        return .object(["loops": .number(Double(total)), "hidden_loops": .number(Double(hidden)), "windows": .array(windows)])
+        return ["loops": total, "hidden_loops": hidden, "windows": windows]
     }
 
     private struct Loop {
@@ -37,9 +38,8 @@ enum DebugLoops {
         let view: String?
         let visible: Bool
 
-        var json: JSONValue {
-            .object(["key": .string(key), "layer": .string(layer), "view": view.map(JSONValue.string) ?? .null,
-                     "visible": .bool(visible)])
+        var json: [String: Any] {
+            ["key": key, "layer": layer, "view": view ?? NSNull(), "visible": visible]
         }
     }
 

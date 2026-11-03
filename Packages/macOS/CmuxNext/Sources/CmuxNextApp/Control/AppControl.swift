@@ -182,9 +182,7 @@ final class AppControl {
                 DebugHints.watchMenus()
                 return .value(DebugHints.report(services.windowHints, params: call.params))
             },
-            .mainActor("debug.page_host_pool") { [weak services] call in
-                .value(DebugPageHostPool.handle(call.params, services: services))
-            },
+            .mainActor("debug.page_host_pool") { [weak services] call in .value(DebugPageHostPool.handle(call.params, services: services)) },
             // Focus model vs AppKit vs Ghostty per window (plans/cmux-next/focus.md); `deactivate` backgrounds the app first.
             .mainActor("debug.focus") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -230,7 +228,7 @@ final class AppControl {
                 return .value(DebugLayers.report(services: services, params: call.params))
             },
             // Repeating Core Animation loops and whether anyone can see them (hq#3716).
-            .mainActor("debug.loops") { call in .value(DebugLoops.report(params: call.params)) },
+            .mainActor("debug.loops") { call in .value(CmuxNextSettings.JSONValue(foundation: DebugLoops.report(limit: call.params["limit"]?.intValue ?? 50)) ?? .null) },
             // The one hover card: machine phase, card window, timer, monitor.
             // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).
             .mainActor("debug.hover_cards") { [weak services] call in
