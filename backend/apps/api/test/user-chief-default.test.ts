@@ -179,6 +179,11 @@ describe("signup outbox integration", () => {
     // Signup enabled the server-first Chief; machine execution's route stays pending until validated.
     expect(await brain.admit(chiefId, user, true)).toEqual({ ok: false, reason: "provisioning_pending" })
     expect(await brain.configure(chiefId, user, { enabled: false })).toMatchObject({ ok: true })
+    // The account's default can move while signup retains its selected hosted Chief.
+    const other = await (stub as unknown as { submit(e: string, p: Principal, f: unknown): Promise<{ frames: Array<{ t: string }> }> }).submit(user, request, {
+      t: "op", op: "chief.create", params: { display_name: "Research", is_default: true }, idempotency_key: "another-default", origin: "user"
+    })
+    expect(other.frames.some((f) => f.t === "result")).toBe(true)
     // A crash after activation can replay signup even after the owner deliberately turned it off.
     await (stub as unknown as { systemDeliver(e: string, source: string, items: Array<TargetItem>): Promise<unknown> }).systemDeliver(user, `user:${user}`, [
       { id: 100, op: DEFAULT_CHIEF_ENSURE, key: HOSTED_DEFAULT_KEY, params: {} }

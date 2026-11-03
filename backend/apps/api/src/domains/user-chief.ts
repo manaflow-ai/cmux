@@ -308,7 +308,7 @@ export const chiefList = (stateIn: UserState, now: number, includeArchived: bool
   const sorted = all
     .filter((c) => includeArchived || c.archived_at === null)
     .sort((a, b) => Number(b.archived_at === null) - Number(a.archived_at === null) || Number(b.is_default) - Number(a.is_default) || a.created_at.localeCompare(b.created_at))
-    .map((c) => ({ ...c, brain_place: c.brain_place ?? null }))
+    .map((c) => ({ ...c, brain_place: c.brain_place ?? null, is_hosted_default: state.hosted_default === c.id }))
   return { chiefs: sorted, tombstones: Object.values(state.chief_tombstones ?? {}) }
 }
 
