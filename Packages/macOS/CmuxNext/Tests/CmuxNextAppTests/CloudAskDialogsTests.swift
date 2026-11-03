@@ -71,6 +71,21 @@ struct CloudAskDialogsTests {
         #expect(asks.waiting.isEmpty)
     }
 
+    /// Only the first answer is taken: a Start after Not now (or a click after a CLI answer) says
+    /// the ask is gone instead of reporting a start that never happens.
+    @Test func onlyTheFirstAnswerIsTaken() async throws {
+        let asks = CloudStartSessionAsks(), cards = Asks.Cards()
+        cards.install(asks)
+        let task = await Self.open(asks, cards, "chat-5")
+        let dialogs = CloudAskDialogs(asks: { asks }, delegated: { false })
+        let id = try #require(asks.waiting.first?.dialog)
+        // Both in one main-actor turn, before the ask resumes.
+        _ = try dialogs.reply(id, selection: "notNow", params: Self.person)
+        #expect(Self.refusal { try dialogs.reply(id, selection: "start", params: Self.person) }?.code == "not_found")
+        cards.click("chat-5", "start")
+        await #expect(throws: ActionFailure(message: CloudStartSessionStrings.declined(Asks.asked))) { _ = try await task.value }
+    }
+
     @Test func aDelegatedAgentMayStart() async throws {
         let asks = CloudStartSessionAsks(), cards = Asks.Cards()
         cards.install(asks)

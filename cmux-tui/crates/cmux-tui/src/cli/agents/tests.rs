@@ -332,7 +332,7 @@ fn dialog_answers_name_who_answers() {
     assert_eq!(agent["origin"], "cli");
     assert_eq!(agent["caller"], json!({"agent_session": "s1"}));
     // A Chief turn names the Home chat; the MCP tool is mcp.
-    let chief = with_answerer(params.clone(), "mcp", env(&[("CMUX_CALLER_HOME_CHAT", "1")]));
+    let chief = with_answerer(params, "mcp", env(&[("CMUX_CALLER_HOME_CHAT", "1")]));
     assert_eq!(chief["origin"], "mcp");
     assert_eq!(chief["caller"], json!({"home_chat": true}));
 }

@@ -26,6 +26,8 @@ final class CloudStartSessionAsks {
         var caller: String?
         /// The ask's wait for the person's answer; nil once they clicked Start.
         var answer: AsyncStream<Answer>.Continuation?
+        /// The person answered (the card or ``answer(dialog:start:)``): a later answer is not taken.
+        var answered = false
         /// Its account ended (``endAll()``) while it asked: a Start already sent is void.
         var ended = false
     }
@@ -60,7 +62,7 @@ final class CloudStartSessionAsks {
     /// The asks still waiting for an answer (their card asks), oldest chat first by tab id.
     var waiting: [Waiting] {
         open.compactMap { tab, ask in
-            ask.answer == nil ? nil : Waiting(dialog: ask.dialog, tab: tab, text: ask.text, caller: ask.caller, asked: ask.asked)
+            ask.answer == nil || ask.answered ? nil : Waiting(dialog: ask.dialog, tab: tab, text: ask.text, caller: ask.caller, asked: ask.asked)
         }.sorted { $0.tab < $1.tab }
     }
 
@@ -68,8 +70,16 @@ final class CloudStartSessionAsks {
     /// ask waits under that id (answered, ended, or never one). Who may answer is the caller's check
     /// (``CloudAskDialogs``): this only delivers it.
     func answer(dialog: String, start: Bool) -> Bool {
-        guard let ask = open.values.first(where: { $0.dialog == dialog }), let answer = ask.answer else { return false }
-        answer.yield(start ? .start : .notNow)
+        guard let tab = open.first(where: { $0.value.dialog == dialog })?.key else { return false }
+        return deliver(tab: tab, dialog: dialog, start ? .start : .notNow)
+    }
+
+    /// The person's one answer to the ask `dialog` in chat `tab`, from the card or the CLI; false
+    /// when that ask no longer waits or was answered already.
+    private func deliver(tab: String, dialog: String, _ value: Answer) -> Bool {
+        guard let ask = open[tab], ask.dialog == dialog, !ask.answered, let answer = ask.answer else { return false }
+        open[tab]?.answered = true
+        answer.yield(value)
         return true
     }
 
@@ -84,14 +94,17 @@ final class CloudStartSessionAsks {
         guard open[tab] == nil else { throw ActionFailure(message: CloudStartSessionStrings.askOpen(asked)) }
         let token = UUID()
         let (answers, continuation) = AsyncStream<Answer>.makeStream(bufferingPolicy: .bufferingOldest(1))
-        guard set([Self.askCard(tab: tab, text: text)], tab: tab, answer: { _, action, _ in continuation.yield(action == "start" ? .start : .notNow) }) else {
+        let dialog = Self.dialogID(token)
+        guard set([Self.askCard(tab: tab, text: text)], tab: tab, answer: { [weak self] _, action, _ in
+            _ = self?.deliver(tab: tab, dialog: dialog, action == "start" ? .start : .notNow)
+        }) else {
             continuation.finish()
             _ = set([], tab: tab) { _, _, _ in }
             throw ActionFailure(message: CloudStartSessionStrings.noPage(asked))
         }
-        open[tab] = Open(token: token, asked: asked, dialog: Self.dialogID(token), text: text, caller: caller, answer: continuation)
+        open[tab] = Open(token: token, asked: asked, dialog: dialog, text: text, caller: caller, answer: continuation)
         linked.remove(tab)
-        shown(Self.dialogID(token))
+        shown(dialog)
         // task-owner: the card's one-shot deadline; cancelled below once the person answers.
         let deadline = Task {
             // wakeup-allow: one-shot deadline for the person's answer on the card
