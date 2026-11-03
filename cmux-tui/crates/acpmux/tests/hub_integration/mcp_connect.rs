@@ -372,3 +372,33 @@ async fn mcp_connect_oauth_server_asks_for_sign_in_and_holds_no_token() {
         "no credential is sent unasked"
     );
 }
+
+/// The end-to-end proof against the real servers, through the same card, person answer and first
+/// connect. Off unless `CMUX_MCP_CONNECT_LIVE=1` (`cmux-ci run --env CMUX_MCP_CONNECT_LIVE=1 --arg
+/// test --arg mcp_connect_live_`), so the workspace tests stay off the network.
+#[tokio::test]
+async fn mcp_connect_live_context7_lists_tools_and_linear_stops_at_sign_in() {
+    if std::env::var("CMUX_MCP_CONNECT_LIVE").as_deref() != Ok("1") {
+        eprintln!("skipped: set CMUX_MCP_CONNECT_LIVE=1 to connect to the real servers");
+        return;
+    }
+    let (got, record) = approve_and_connect("context7").await;
+    eprintln!("context7 -> {got}");
+    assert_eq!(got["status"], "approved", "{got}");
+    assert_eq!(got["connect"], "connected", "{got}");
+    let names: Vec<&str> =
+        got["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
+    assert!(names.contains(&"resolve-library-id") && names.contains(&"query-docs"), "{names:?}");
+    assert!(got["tools"].as_array().unwrap().iter().all(|t| t["policy"] == "always"), "{got}");
+    assert_eq!(record["connect"], "connected");
+
+    let (got, record) = approve_and_connect("linear").await;
+    eprintln!("linear -> {got}");
+    assert_eq!(got["connect"], "signInNeeded", "{got}");
+    assert_eq!(
+        got["resourceMetadata"],
+        "https://mcp.linear.app/.well-known/oauth-protected-resource/mcp"
+    );
+    assert_eq!(got["auth"], "oauth");
+    assert_eq!(record["connect"], "signInNeeded");
+}
