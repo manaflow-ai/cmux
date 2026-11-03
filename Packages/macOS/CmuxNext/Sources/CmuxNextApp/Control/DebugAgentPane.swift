@@ -49,7 +49,6 @@ import WebKit
 /// omitted toggles it and returns `inspector_open`). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
 /// be measured behind the user's windows.
-/// `mcp_connect_ask` (`server`, `reason`, `scope`) opens a real MCP connect card in the chat (`read: true` returns what the asks got back; AgentPaneView+DebugMcpConnect).
 /// `session_info_action` (`id`) sends a page-owned native Session Info action through the same
 /// bridge as a native row click (DEBUG capture tours only).
 @MainActor
@@ -215,15 +214,8 @@ enum DebugAgentPane {
         if action == "click" {
             return await DebugAgentPaneClick.click(params, pane: pane, view: view, services: services)
         }
-        if action == "mcp_connect_ask" {
-            if params["read"]?.boolValue == true { return .object(["pane": .string(pane), "replies": JSONValue(foundation: view.debugMcpConnectAnswers) ?? .null]) }
-            let environment = await AcpmuxEnvironment.resolvedApp(build: services.environment.build, mock: services.environment.showcase)
-            let asked = await view.debugMcpConnectAsk(server: params["server"]?.stringValue ?? "", reason: params["reason"]?.stringValue ?? "",
-                                                      scope: params["scope"]?.stringValue ?? "chat", environment: environment)
-            return .object(["pane": .string(pane), "result": JSONValue(foundation: asked) ?? .null])
-        }
-        if action == "set_files" {
-            return .object(["pane": .string(pane), "error": await view.debugSetFiles(selector: params["selector"]?.stringValue ?? ".acpmux-attach-input", paths: params["paths"]?.arrayValue?.compactMap(\.stringValue) ?? []).map(JSONValue.string) ?? .null]) }
+        if var native = await view.debugNativeAction(action, params: params.mapValues(\.foundationObject), environment: {
+            await AcpmuxEnvironment.resolvedApp(build: services.environment.build, mock: services.environment.showcase) }) { native["pane"] = pane; return JSONValue(foundation: native) ?? .null }
         if action == "hover" { return await DebugAgentPaneClick.hover(params, pane: pane, view: view) }
         if action == "pacer" { return .object(["pane": .string(pane), "pacer": JSONValue(foundation: view.debugPacerState) ?? .null]) }
         if action == "inspector" || action == "menu_item" { return action == "inspector" ? await view.debugToggleInspector(open: params["open"]?.boolValue, pane: pane) : view.debugRunMenuItem(title: params["title"]?.stringValue ?? "", pane: pane) }
