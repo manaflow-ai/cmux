@@ -43,13 +43,20 @@ public nonisolated extension LinkHintSession {
     })()
     """
 
-    /// ``collectScript``'s targets for a link-hint session, with the page's own answer to whether a text field has the
-    /// keyboard: `{"editing": Bool, "targets": [...]}`. The browser's editable-focus flag can be stale after an
-    /// address-bar load (#32573): then a letter typed into a field started link hints. Window hints keep the plain
-    /// list (``collectScript``). A focused same-origin frame is looked into; a focused cross-origin frame (an embedded
-    /// video, a payment form) counts as editing, as its focus cannot be read: hints start again once it loses focus.
-    public static let sessionCollectScript = """
+    /// The page's own answer to whether a text field has the keyboard, read from the focused element only:
+    /// `{"editing": Bool}`. The browser's editable-focus flag can be stale after an address-bar load (#32573): then a
+    /// letter typed into a field started link hints. A link-hint session asks this first and collects its targets only
+    /// when no field has the keyboard (lead on STATUS 7898: a heavy page's target walk never delays a field's keys).
+    /// A focused same-origin frame is looked into; a focused cross-origin frame (an embedded video, a payment form)
+    /// counts as editing, as its focus cannot be read: hints start again once it loses focus.
+    public static let focusScript = """
     (() => {
+\(editingCheck)      return JSON.stringify({ editing });
+    })()
+    """
+
+    /// The statements that set `editing` (``focusScript``).
+    private static let editingCheck = """
       let doc = document, active = document.activeElement, frame = false;
       for (;;) {
         while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
@@ -63,9 +70,7 @@ public nonisolated extension LinkHintSession {
       const tag = active?.tagName || '';
       const editing = frame || doc.designMode === 'on' || !!active?.isContentEditable || tag === 'TEXTAREA' || tag === 'SELECT' ||
         (tag === 'INPUT' && !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(active.type));
-      return JSON.stringify({ editing, targets: editing ? [] : JSON.parse(\(collectScript)) });
-    })()
-    """
+"""
 
     /// Draws `labels` (uppercase, monospace) at each target's top-left
     /// corner, replacing any earlier labels.
@@ -137,13 +142,13 @@ public nonisolated extension LinkHintSession {
         return String(array.dropFirst().dropLast())
     }
 
-    /// ``sessionCollectScript``'s answer: whether a text field has the keyboard, and the targets.
+    /// ``focusScript``'s answer (whether a text field has the keyboard), or targets.
     private struct Answer: Decodable {
         var editing: Bool?
-        var targets: [LinkHintTarget]
+        var targets: [LinkHintTarget]?
     }
 
-    /// The answer of ``sessionCollectScript``, or of ``collectScript`` (targets only: not editing).
+    /// The answer of ``focusScript``, or of ``collectScript`` (targets only: not editing).
     private static func answer(from value: BrowserJSValue) -> Answer? {
         guard case .string(let json) = value else { return nil }
         let data = Data(json.utf8)

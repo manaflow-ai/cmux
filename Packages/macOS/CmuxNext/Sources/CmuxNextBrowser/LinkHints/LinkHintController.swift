@@ -81,11 +81,29 @@ public final class LinkHintController {
         cancel()
         session = Session(keys: LinkHintSession(mode: mode), tab: tab, window: window, isFocused: isFocused,
                           openInSplit: openInSplit, noLinks: noLinks)
-        call(LinkHintSession.sessionCollectScript, on: tab) { [weak self] value in self?.collected(value, from: tab) }
+        askFocus(of: tab, began: ContinuousClock.now)
         bound?.schedule(after: .milliseconds(500)) { [weak self, weak tab] in
             if let tab { self?.collected(nil, from: tab) }
         }
     }
+
+    /// The page's answer: whether a text field has the keyboard (the focused element only, ``LinkHintSession/focusScript``),
+    /// then, only when none has, the targets (lead on STATUS 7898). The input journal gets each call's time.
+    private func askFocus(of tab: CEFTab, began: ContinuousClock.Instant) {
+        call(LinkHintSession.focusScript, on: tab) { [weak self] focus in
+            guard let self, let focus else { self?.collected(nil, from: tab); return }
+            let editing = LinkHintSession.editing(from: focus), checked = ContinuousClock.now
+            tab.host.lifecycleTrace.record(tab.id, "link-hints focus-check \(Self.ms(checked - began)) editing=\(editing)")
+            guard !editing else { return collected((true, []), from: tab) }
+            call(LinkHintSession.collectScript, on: tab) { [weak self] value in
+                let targets = value.map(LinkHintSession.targets(from:))
+                tab.host.lifecycleTrace.record(tab.id, "link-hints targets \(Self.ms(ContinuousClock.now - checked)) count=\(targets?.count ?? -1)")
+                self?.collected(targets.map { (false, $0) }, from: tab)
+            }
+        }
+    }
+
+    private static func ms(_ duration: Duration) -> String { String(format: "%.1fms", Double(duration.components.attoseconds) / 1e15 + Double(duration.components.seconds) * 1000) }
 
     /// Runs `script` in `tab`'s isolated world as the pending page call, replacing the one in flight, then `then` with
     /// its value (nil when it failed) unless a newer call or ``cancel()`` replaced it first.
@@ -155,11 +173,11 @@ public final class LinkHintController {
     }
 
     /// The page answered (nil: its call failed or took past its bound).
-    private func collected(_ value: BrowserJSValue?, from tab: CEFTab) {
+    private func collected(_ answer: (editing: Bool, targets: [LinkHintTarget])?, from tab: CEFTab) {
         guard var current = session, current.tab === tab, current.keys.hints == nil else { return }
         bound?.cancel()
-        guard let value else { return cancel() }
-        let resolved = current.pending.resolve(&current.keys, targets: LinkHintSession.targets(from: value), editing: LinkHintSession.editing(from: value))
+        guard let answer else { tab.host.lifecycleTrace.record(tab.id, "link-hints no answer: keys go to the page"); return cancel() }
+        let resolved = current.pending.resolve(&current.keys, targets: answer.targets, editing: answer.editing)
         session = current
         defer { deliver(resolved.page) }
         if resolved.noLinks { current.noLinks() }
