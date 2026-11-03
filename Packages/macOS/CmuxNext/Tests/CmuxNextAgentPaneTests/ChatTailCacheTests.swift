@@ -67,6 +67,34 @@ struct ChatTailCacheTests {
         }
     }
 
+    @Test func oldProviderCannotRepostAfterSignInButCanStillRead() async throws {
+        Self.resetCache()
+        defer { Self.resetCache() }
+        let old = AgentPageProvider { _ in nil }
+        let params: JSONValue = .object(["sessionId": .string("s-1"), "tail": JSONValue(foundation: Self.tail(3))!])
+        AgentPaneTailCache.shared.clear()
+        AgentPaneTailCache.shared.resume()
+        _ = try await old.call(AgentPageOps.namespace + "chat.tail", params: params, context: Self.context)
+        #expect(AgentPaneTailCache.shared.tail(for: "s-1") == nil)
+        let newer = AgentPageProvider { _ in nil }
+        _ = try await newer.call(AgentPageOps.namespace + "chat.tail", params: params, context: Self.context)
+        #expect(AgentPaneTailCache.shared.tail(for: "s-1") != nil)
+        // A stale page's forget/hover write must not erase or replace the new lifecycle's tail.
+        _ = try await old.call(AgentPageOps.namespace + "chat.tail",
+                              params: .object(["sessionId": .string("s-1")]), context: Self.context)
+        _ = try await old.call(AgentPageOps.namespace + "chat.tail",
+                              params: .object(["sessionId": .string("s-1"), "ifNewer": .bool(true),
+                                               "tail": JSONValue(foundation: Self.tail(5))!]), context: Self.context)
+        let read = try await old.call(AgentPageOps.namespace + "chat.tail.get",
+                                      params: .object(["sessionId": .string("s-1")]), context: Self.context)
+        #expect(Self.seqs(read.foundationObject) == [1, 2, 3])
+        let snapshot = Self.tail(2)
+        old.tailHost = SnapshotHost(try JSONSerialization.data(withJSONObject: snapshot))
+        let fresh = try await old.call(AgentPageOps.namespace + "chat.tail.get",
+                                       params: .object(["sessionId": .string("s-2")]), context: Self.context)
+        #expect(Self.seqs(fresh.foundationObject) == [1, 2])
+    }
+
     @Test func bothHostsForwardColdMissesBeforeHandshakeAndPreferMemory() async throws {
         Self.resetCache()
         defer { Self.resetCache() }
