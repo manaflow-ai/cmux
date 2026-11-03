@@ -159,7 +159,6 @@
     "backend/packages/protocol/src/team-ssh-ops.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "backend/packages/protocol/src/user-confirm-ops.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/acpmux_mcp_artifacts.rs": {"count": 2, "reason": "debt: 4 MiB metadata responses (cmux#33018); 200000-character text pages always include the complete local file reference"},
-    "cmux-tui/crates/acpmux/src/acpmux_mcp_send.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/adopt_replay.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/adopt_replay_page.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "cmux-tui/crates/acpmux/src/agent.rs": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
