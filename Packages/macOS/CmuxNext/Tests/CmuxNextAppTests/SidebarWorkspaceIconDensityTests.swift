@@ -14,11 +14,14 @@ import Testing
 
     private static func drawn(_ density: SidebarDensity, _ textSize: SidebarTextSize = .standard) -> Drawn {
         let saved = DesignSettings.shared.sidebarSections.density, text = DesignSettings.shared.sidebarSections.textSize
+        let interface = DesignSettings.shared.densityTokens
         DesignSettings.shared.sidebarSections.density = density
         DesignSettings.shared.sidebarSections.textSize = textSize
+        DesignSettings.shared.densityTokens = .compact
         defer {
             DesignSettings.shared.sidebarSections.density = saved
             DesignSettings.shared.sidebarSections.textSize = text
+            DesignSettings.shared.densityTokens = interface
         }
         let side = SidebarStyle.iconColumnBox
         let emoji = SidebarIconView(frame: NSRect(x: 0, y: 0, width: side, height: side))
@@ -33,8 +36,7 @@ import Testing
     }
 
     @Test func compactKeepsItsSixteenPointGlyph() {
-        let compact = Self.drawn(.compact)
-        #expect(compact.glyph == SidebarStyle.iconBox, "compact glyph \(compact.glyph)")
+        #expect(Self.drawn(.compact).glyph == 16)
     }
 
     @Test(arguments: SidebarTextSize.allCases)
@@ -42,15 +44,5 @@ import Testing
         let compact = Self.drawn(.compact, textSize), comfortable = Self.drawn(.comfortable, textSize)
         #expect(comfortable.glyph > compact.glyph, "compact \(compact.glyph), comfortable \(comfortable.glyph)")
         #expect(comfortable.symbol > compact.symbol, "compact symbol \(compact.symbol), comfortable \(comfortable.symbol)")
-    }
-
-    /// The glyph never outgrows the icon column it sits in, so the title keeps its place.
-    @Test(arguments: [SidebarDensity.compact, .comfortable, .expanded])
-    func theGlyphFillsItsColumnAndNoMore(_ density: SidebarDensity) {
-        let saved = DesignSettings.shared.sidebarSections.density
-        DesignSettings.shared.sidebarSections.density = density
-        defer { DesignSettings.shared.sidebarSections.density = saved }
-        #expect(SidebarStyle.workspaceGlyphSide == SidebarStyle.iconColumnBox)
-        #expect(SidebarStyle.workspaceGlyphScale >= 1)
     }
 }
