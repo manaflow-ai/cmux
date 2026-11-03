@@ -87,7 +87,8 @@ pub(crate) async fn prepare(
     // Generic controller jobs do not promise exit_code. A final wrapper-owned marker
     // in the verified complete log preserves the actual shell status and exact output.
     let body = format!(
-        "cd -- {} && /bin/sh -c {}; _cmux_workflow_status=$?; printf '\\ncmux-workflow-exit-{}:%s\\n' \"$_cmux_workflow_status\"; exit \"$_cmux_workflow_status\"",
+        "printf '\\ncmux-workflow-start-{}\\n'; cd -- {} && /bin/sh -c {}; _cmux_workflow_status=$?; printf '\\ncmux-workflow-exit-{}:%s\\n' \"$_cmux_workflow_status\"; exit \"$_cmux_workflow_status\"",
+        request_key,
         quote(if relative.is_empty() { "." } else { &relative }),
         quote(command),
         request_key
@@ -264,17 +265,24 @@ async fn finish_wait(
     let mut output =
         tokio::fs::read(log).await.map_err(|_| error("CI complete output unavailable"))?;
     let marker = format!("\ncmux-workflow-exit-{}:", intent.request_key);
-    let start = output
+    let end = output
         .windows(marker.len())
         .rposition(|v| v == marker.as_bytes())
         .ok_or_else(|| error("CI output has no final command status"))?;
     let status = output
-        .get(start + marker.len()..)
-        .and_then(|v| v.strip_suffix(b"\n"))
+        .get(end + marker.len()..)
+        .and_then(|v| v.iter().position(|b| *b == b'\n').map(|i| &v[..i]))
         .and_then(|v| std::str::from_utf8(v).ok())
         .and_then(|v| v.parse::<u8>().ok())
         .ok_or_else(|| error("CI output has an invalid final command status"))?;
-    output.truncate(start);
+    let beginning = format!("\ncmux-workflow-start-{}\n", intent.request_key);
+    let start = output
+        .windows(beginning.len())
+        .position(|v| v == beginning.as_bytes())
+        .map(|start| start + beginning.len())
+        .filter(|start| *start <= end)
+        .ok_or_else(|| error("CI output has no command start"))?;
+    output = output[start..end].to_vec();
     use base64::Engine;
     let view = json!({"jobId":job.get("id"),"state":"exited","exitCode":status,
         "text":String::from_utf8_lossy(&output),"data":base64::engine::general_purpose::STANDARD.encode(&output),
@@ -457,7 +465,7 @@ elif op == 'wait':
     result=subprocess.run(job['command'],shell=True,cwd=root,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
     job['state']='done' if result.returncode == 0 else 'failed'
     pathlib.Path(flag('--receipt')).write_text(json.dumps(job))
-    pathlib.Path(flag('--full-log')).write_bytes(result.stdout)
+    pathlib.Path(flag('--full-log')).write_bytes(b'worker checkout logs\njob: nofile report\n'+result.stdout+(b'command failed: exit status 23\n' if result.returncode else b''))
     print('human wait progress, deliberately not JSON')
     sys.exit(0 if result.returncode == 0 else 1)
 else: sys.exit(9)
