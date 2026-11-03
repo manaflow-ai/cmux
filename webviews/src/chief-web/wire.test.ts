@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../agent-session/acpmux/model";
-import { ChiefWire, ExpiredSession, type ChiefIdentity, type SocketLike } from "./wire";
+import { ChiefWire, ExpiredSession, type ChiefIdentity, type ChiefTicket, type SocketLike } from "./wire";
 
 class FakeSocket implements SocketLike {
   sent: Record<string, unknown>[] = [];
@@ -43,26 +43,20 @@ class FakeTimers {
 
 const identity: ChiefIdentity = {
   handle: "sam",
-  conversationId: "conv_chief",
-  userId: "user_sam",
-  wireUrl: "wss://api.test/v1/wire/conv/conv_chief",
+  mainConversationId: "conv_chief",
+  chiefId: "chief_sam",
 };
 const head = {
-  id: identity.conversationId,
+  id: identity.mainConversationId,
   participants: [
     { id: "user_sam", kind: "human", display_name: "Sam" },
     { id: "agent_chief", kind: "agent", agent_class: "mux", display_name: "Chief" },
   ],
 };
 const welcome = (user = "user_sam") => ({ t: "welcome", principal: { user } });
-const message = (
-  seq: number,
-  body: string,
-  author = "agent_chief",
-  clientId = `client_${seq}`,
-) => ({
+const message = (seq: number, body: string, author = "agent_chief", clientId = `client_${seq}`) => ({
   id: `msg_${seq}`,
-  conversation: identity.conversationId,
+  conversation: identity.mainConversationId,
   seq,
   author,
   client_msg_id: clientId,
@@ -71,14 +65,14 @@ const message = (
 });
 const snapshot = (seq: number, messages: ReturnType<typeof message>[] = []) => ({
   t: "snapshot",
-  stream: `conv:${identity.conversationId}`,
+  stream: `conv:${identity.mainConversationId}`,
   seq,
   state: head,
   rows: { table: "msg", rows: messages.map((row) => ({ key: row.id, n: row.seq, row })) },
 });
 const event = (seq: number, messages: ReturnType<typeof message>[] = []) => ({
   t: "event",
-  stream: `conv:${identity.conversationId}`,
+  stream: `conv:${identity.mainConversationId}`,
   seq,
   effects: {
     state: head,
@@ -87,7 +81,7 @@ const event = (seq: number, messages: ReturnType<typeof message>[] = []) => ({
 });
 const delta = (seq: number, body: string, fields: Record<string, unknown> = {}) => ({
   type: "step.delta",
-  conversation: identity.conversationId,
+  conversation: identity.mainConversationId,
   author: "agent_chief",
   run: "run_1",
   step: "talk:0",
@@ -98,11 +92,13 @@ const delta = (seq: number, body: string, fields: Record<string, unknown> = {}) 
 });
 const turn = (status: string, key = "reply-key") => ({
   t: "conversation-run-changed",
-  conversation: identity.conversationId,
+  conversation: identity.mainConversationId,
   run: { id: "run_1", agent: "agent_chief", turn: key, status },
 });
 
-function setup(ticket?: () => Promise<string>) {
+const ticketFor = (ticket: string): ChiefTicket => ({ ticket, websocketUrl: `wss://api.test/chief-wire/${ticket}` });
+
+function setup(ticket?: () => Promise<ChiefTicket>) {
   const sockets: FakeSocket[] = [];
   const dials: { url: string; protocols: string[] }[] = [];
   const timers = new FakeTimers();
@@ -114,7 +110,7 @@ function setup(ticket?: () => Promise<string>) {
     {
       identity,
       timers,
-      ticket: ticket ?? (async () => `secret-${++tickets}`),
+      ticket: ticket ?? (async () => ticketFor(`secret-${++tickets}`)),
       open: (url, protocols) => {
         dials.push({ url, protocols });
         const socket = new FakeSocket();
@@ -140,7 +136,7 @@ function setup(ticket?: () => Promise<string>) {
     const socket = await start();
     await socket.frame(welcome());
     await socket.frame(snapshot(5, messages));
-    await socket.frame({ type: "run.live", conversation: identity.conversationId, runs: [] });
+    await socket.frame({ type: "run.live", conversation: identity.mainConversationId, runs: [] });
     return socket;
   };
   return { client, sockets, dials, timers, states, accepted, last, start, ready, rows: () => rows };
@@ -150,16 +146,13 @@ test("the ticket stays in subprotocols; the shared cloud model renders human and
   const r = setup();
   const socket = await r.start();
   expect(r.dials).toEqual([
-    { url: identity.wireUrl, protocols: ["cmux.wire.v1", "ticket.secret-1"] },
+    { url: ticketFor("secret-1").websocketUrl, protocols: ["cmux.wire.v1", "ticket.secret-1"] },
   ]);
   await socket.frame(welcome());
   expect(socket.sent[0]).toEqual({ t: "subscribe" });
   expect(r.states).toEqual(["connecting"]);
   await socket.frame(
-    snapshot(5, [
-      message(1, "Build a hello page", "user_sam"),
-      message(2, "[Open it](https://preview.test)"),
-    ]),
+    snapshot(5, [message(1, "Build a hello page", "user_sam"), message(2, "[Open it](https://preview.test)")]),
   );
   expect(r.rows().map((row) => [row.kind, row.text])).toEqual([
     ["user", "Build a hello page"],
@@ -191,6 +184,7 @@ test("stream positions drop repeats, request one snapshot for a gap, and resume 
   await r.last().frame(welcome());
   expect(r.last().sent[0]).toEqual({ t: "subscribe", after_seq: 8 });
   expect(r.states.at(-1)).toBe("live");
+  expect(r.dials[1]!.url).toBe(ticketFor("secret-2").websocketUrl);
   expect(r.dials[1]!.protocols).toEqual(["cmux.wire.v1", "ticket.secret-2"]);
   r.client.stop();
   expect(r.timers.tasks.size).toBe(0);
@@ -240,7 +234,7 @@ test("streaming uses per-step ordering and holds its completed reply until the c
   expect(socket.sent.filter((frame) => frame.t === "run.live.get")).toHaveLength(2);
   await socket.frame({
     type: "run.live",
-    conversation: identity.conversationId,
+    conversation: identity.mainConversationId,
     runs: [
       {
         author: "agent_chief",
@@ -252,7 +246,7 @@ test("streaming uses per-step ordering and holds its completed reply until the c
   await socket.frame(delta(4, "", { final: true }));
   await socket.frame({
     type: "run.live",
-    conversation: identity.conversationId,
+    conversation: identity.mainConversationId,
     runs: [{ author: "agent_chief", run: "run_1", steps: [] }],
   });
   expect(r.rows().at(-1)?.text).toBe("Hello world!");
@@ -281,7 +275,7 @@ test("wrong-conversation frames and malformed live frames cannot change the tran
   const socket = await r.ready([message(1, "Kept")]);
   await socket.frame(delta(0, "Wrong", { conversation: "conv_other" }));
   await socket.frame(delta(-1, "Invalid"));
-  await socket.frame({ type: "run.activity", conversation: identity.conversationId, run: "run_2" });
+  await socket.frame({ type: "run.activity", conversation: identity.mainConversationId, run: "run_2" });
   await socket.frame({ ...snapshot(20, [message(2, "Wrong")]), stream: "conv:other" });
   expect(r.rows().map((row) => row.text)).toEqual(["Kept"]);
   r.client.stop();
@@ -326,7 +320,7 @@ test.each([4401, 4403])("authentication close %s stops reconnecting", async (cod
   const r = setup();
   const socket = await r.ready();
   socket.drop(code);
-  expect(r.states.at(-1)).toBe("expired");
+  expect(r.states.at(-1)).toBe(code === 4401 ? "expired" : "inaccessible");
   expect(r.timers.tasks.size).toBe(0);
   r.client.stop();
 });
@@ -340,37 +334,37 @@ test("an expired ticket terminates, and disposal ignores a ticket still in fligh
   expect(expired.timers.tasks.size).toBe(0);
   expired.client.stop();
 
-  let resolve!: (value: string) => void;
+  let resolve!: (value: ChiefTicket) => void;
   const r = setup(
     () =>
-      new Promise<string>((done) => {
+      new Promise<ChiefTicket>((done) => {
         resolve = done;
       }),
   );
   r.client.connect();
   r.client.stop();
-  resolve("late-ticket");
+  resolve(ticketFor("late-ticket"));
   await Promise.resolve();
   expect(r.sockets).toHaveLength(0);
   expect(r.timers.tasks.size).toBe(0);
 });
 
 test("a hung ticket attempt times out and its late answer cannot replace the retry", async () => {
-  let resolve!: (value: string) => void;
+  let resolve!: (value: ChiefTicket) => void;
   let calls = 0;
   const r = setup(() =>
     ++calls === 1
-      ? new Promise<string>((done) => {
+      ? new Promise<ChiefTicket>((done) => {
           resolve = done;
         })
-      : Promise.resolve("fresh"),
+      : Promise.resolve(ticketFor("fresh")),
   );
   r.client.connect();
   r.timers.fire(30_000);
   r.timers.fire(1_000);
   await Promise.resolve();
   expect(r.dials[0]?.protocols).toEqual(["cmux.wire.v1", "ticket.fresh"]);
-  resolve("stale");
+  resolve(ticketFor("stale"));
   await Promise.resolve();
   expect(r.sockets).toHaveLength(1);
   r.client.stop();

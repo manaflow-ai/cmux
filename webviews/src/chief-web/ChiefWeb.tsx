@@ -6,11 +6,20 @@ import { GuestActionsBoundary } from "../agent-session/acpmux/conversation/Guest
 import { Spinner } from "../agent-session/acpmux/conversation/icons";
 import { ArrowUpIcon } from "../agent-session/acpmux/ComposerPickers";
 import type { AcpmuxRow } from "../agent-session/acpmux/model";
+import { useT } from "../agent-session/acpmux/i18n";
 import { GuestComposer } from "../agent-session/guest/GuestComposer";
 import { GuestPrompts } from "../agent-session/guest/guestPrompts";
 import { GuestSendQueue } from "../agent-session/guest/guestSendQueue";
-import { chiefApi, SendRefused, type ChiefApi } from "./api";
-import { ChiefWire, ExpiredSession, type ChiefIdentity, type SocketLike } from "./wire";
+import { chiefApi, type ChiefApi } from "./api";
+import { sendWithRetry } from "./send";
+import {
+  ChiefWire,
+  ChiefAccessError,
+  ExpiredSession,
+  type ChiefConnection,
+  type ChiefIdentity,
+  type SocketLike,
+} from "./wire";
 
 export interface ChiefWebProps {
   api?: ChiefApi;
@@ -18,7 +27,7 @@ export interface ChiefWebProps {
   openSocket?: (url: string, protocols: string[]) => SocketLike;
 }
 
-const signIn = () => `/login?returnTo=${encodeURIComponent(location.pathname)}`;
+const signIn = () => location.assign(location.pathname);
 
 function browserStorage(): Storage {
   try {
@@ -43,8 +52,9 @@ function browserStorage(): Storage {
 }
 
 export function ChiefWeb({ api = chiefApi, storage, openSocket }: ChiefWebProps) {
+  const t = useT();
   const [identity, setIdentity] = useState<ChiefIdentity>();
-  const [failed, setFailed] = useState<"expired" | "offline">();
+  const [failed, setFailed] = useState<"expired" | "offline" | "inaccessible">();
   const [attempt, setAttempt] = useState(0);
   const saved = useMemo(() => storage ?? browserStorage(), [storage]);
   const frame = useRef<HTMLDivElement>(null);
@@ -54,10 +64,7 @@ export function ChiefWeb({ api = chiefApi, storage, openSocket }: ChiefWebProps)
   useLayoutEffect(() => {
     const viewport = window.visualViewport;
     const resize = () => {
-      frame.current?.style.setProperty(
-        "--chief-height",
-        `${viewport?.height ?? window.innerHeight}px`,
-      );
+      frame.current?.style.setProperty("--chief-height", `${viewport?.height ?? window.innerHeight}px`);
       frame.current?.style.setProperty("--chief-top", `${viewport?.offsetTop ?? 0}px`);
     };
     resize();
@@ -73,24 +80,37 @@ export function ChiefWeb({ api = chiefApi, storage, openSocket }: ChiefWebProps)
 
   useEffect(() => {
     const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let retries = 0;
     setFailed(undefined);
-    void api
-      .me(controller.signal)
-      .then((me) => {
-        if (!controller.signal.aborted) setIdentity(me);
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted)
-          setFailed(error instanceof ExpiredSession ? "expired" : "offline");
-      });
-    return () => controller.abort();
+    const load = () => {
+      void api
+        .me(controller.signal)
+        .then((me) => {
+          if (!controller.signal.aborted) setIdentity(me);
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return;
+          if (error instanceof ExpiredSession) setFailed("expired");
+          else if (error instanceof ChiefAccessError) setFailed("inaccessible");
+          else {
+            setFailed("offline");
+            timer = setTimeout(load, Math.min(30_000, 1_000 * 2 ** Math.min(retries++, 5)));
+          }
+        });
+    };
+    load();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
   }, [api, attempt]);
 
   return (
     <div ref={frame} className="chief-web" data-testid="chief-web">
       {identity ? (
         <ChiefChat
-          key={`${identity.userId}:${identity.conversationId}`}
+          key={`${identity.chiefId}:${identity.mainConversationId}`}
           identity={identity}
           api={api}
           storage={saved}
@@ -99,24 +119,23 @@ export function ChiefWeb({ api = chiefApi, storage, openSocket }: ChiefWebProps)
       ) : (
         <>
           <header className="chief-web__header">
-            <h1>Chief</h1>
+            <h1>{t("needsYou.chief")}</h1>
           </header>
           <main className="chief-web__empty">
             {failed === "expired" ? (
               <>
-                <h2>Sign in to your Chief</h2>
-                <a className="chief-web__action" href={signIn()}>
-                  Sign in
-                </a>
+                <h2>{t("harnesses.signedOut")}</h2>
+                <button className="chief-web__action" onClick={signIn}>
+                  {t("turn.signInAgain")}
+                </button>
               </>
+            ) : failed === "inaccessible" ? (
+              <p role="alert">{t("chiefWeb.notYours")}</p>
             ) : failed === "offline" ? (
               <>
-                <p>Offline</p>
-                <button
-                  className="chief-web__action"
-                  onClick={() => setAttempt((value) => value + 1)}
-                >
-                  Retry
+                <p>{t("chiefWeb.unavailable")}</p>
+                <button className="chief-web__action" onClick={() => setAttempt((value) => value + 1)}>
+                  {t("retry.action")}
                 </button>
               </>
             ) : (
@@ -140,12 +159,13 @@ function ChiefChat({
   storage: Storage;
   openSocket?: ChiefWebProps["openSocket"];
 }) {
+  const t = useT();
   const [rows, setRows] = useState<AcpmuxRow[]>([]);
-  const [connection, setConnection] = useState("connecting");
+  const [connection, setConnection] = useState<ChiefConnection>("connecting");
   const [expanded, setExpanded] = useState(() => new Set<string>());
   const [confirmed, setConfirmed] = useState(() => new Set<string>());
   const prompts = useMemo(
-    () => new GuestPrompts(`chief:${identity.userId}:${identity.conversationId}`, storage),
+    () => new GuestPrompts(`chief:${identity.chiefId}:${identity.mainConversationId}`, storage),
     [identity, storage],
   );
   const mine = useSyncExternalStore(prompts.subscribe, prompts.list);
@@ -159,11 +179,9 @@ function ChiefChat({
       // Preserve composer order even when the first HTTP send takes longer than the queue gap.
       sending = sending.then(() => {
         if (controller.signal.aborted) return;
-        return api
-          .send(prompt.text, prompt.clientId, controller.signal)
+        return sendWithRetry(api, prompt.text, prompt.clientId, controller.signal)
           .then(() => {
-            if (!controller.signal.aborted)
-              outbox.status({ client_id: prompt.clientId, state: "approved" });
+            if (!controller.signal.aborted) outbox.status({ client_id: prompt.clientId, state: "approved" });
           })
           .catch((error) => {
             if (controller.signal.aborted) return;
@@ -172,14 +190,13 @@ function ChiefChat({
               outbox.disconnected();
               controller.abort();
               setConnection("expired");
-            } else if (error instanceof SendRefused)
+            } else if (error instanceof ChiefAccessError) {
+              client.stop();
+              outbox.disconnected();
+              controller.abort();
+              setConnection("inaccessible");
               outbox.status({ client_id: prompt.clientId, state: "refused" });
-            else
-              outbox.status({
-                client_id: prompt.clientId,
-                state: "refused",
-                reason: "share.rate_limited",
-              });
+            } else outbox.status({ client_id: prompt.clientId, state: "refused" });
           });
       });
       return true;
@@ -196,7 +213,7 @@ function ChiefChat({
           setConnection(state);
           if (state === "live") outbox.snapshot([]);
           else outbox.disconnected();
-          if (state === "expired") controller.abort();
+          if (state === "expired" || state === "inaccessible") controller.abort();
         },
       },
     );
@@ -219,19 +236,24 @@ function ChiefChat({
   return (
     <GuestActionsBoundary>
       <header className="chief-web__header">
-        <h1>Chief</h1>
+        <h1>{t("needsYou.chief")}</h1>
         <output className="chief-web__connection">
           {connection === "expired" ? (
-            <a href={signIn()}>Sign in again</a>
+            <>
+              <span>{t("harnesses.signedOut")}</span>
+              <button onClick={signIn}>{t("turn.signInAgain")}</button>
+            </>
+          ) : connection === "inaccessible" ? (
+            <span role="alert">{t("chiefWeb.notYours")}</span>
           ) : connection === "offline" ? (
             <>
-              <span>Offline</span>
-              <button onClick={() => wire.current?.retry()}>Retry</button>
+              <span>{t("chiefWeb.offline")}</span>
+              <button onClick={() => wire.current?.retry()}>{t("retry.action")}</button>
             </>
           ) : connection !== "live" ? (
             <>
               <Spinner size={14} />
-              <span>{connection === "connecting" ? "Connecting…" : "Reconnecting…"}</span>
+              <span>{connection === "connecting" ? t("guest.live.connecting") : t("guest.live.reconnecting")}</span>
             </>
           ) : null}
         </output>
@@ -240,7 +262,7 @@ function ChiefChat({
         {rows.length ? (
           <VirtualTranscript
             rows={rows}
-            sessionId={`chief-web:${identity.conversationId}`}
+            sessionId={`chief-web:${identity.mainConversationId}`}
             expanded={expanded}
             onToggleActivity={(id) =>
               setExpanded((open) => {
@@ -254,7 +276,7 @@ function ChiefChat({
           />
         ) : (
           <div className="chief-web__empty">
-            <h2>Ask your Chief to build something</h2>
+            <h2>{t("chiefWeb.empty")}</h2>
           </div>
         )}
       </main>
@@ -266,10 +288,10 @@ function ChiefChat({
                 <p>{prompt.text}</p>
                 <span>
                   {prompt.state === "sending"
-                    ? "Sending…"
+                    ? t("guest.prompt.sending")
                     : prompt.state === "approved"
-                      ? "Sent"
-                      : "Message not sent"}
+                      ? t("message.sent")
+                      : t("chiefWeb.notSent")}
                 </span>
                 {prompt.state === "refused" && (
                   <button
@@ -278,7 +300,7 @@ function ChiefChat({
                       queue.current?.queued();
                     }}
                   >
-                    Retry
+                    {t("retry.action")}
                   </button>
                 )}
               </div>
@@ -292,9 +314,9 @@ function ChiefChat({
             queue.current?.queued();
           }}
           onDraft={() => undefined}
-          placeholder="Message your Chief"
+          placeholder={t("chiefWeb.placeholder")}
           sendIcon={<ArrowUpIcon />}
-          disabled={connection === "expired"}
+          disabled={connection === "expired" || connection === "inaccessible"}
           enterSends={false}
         />
       </div>

@@ -6,12 +6,11 @@ import { memoryStorage } from "../agent-session/guest/fixtures/liveChat";
 
 const identity: ChiefIdentity = {
   handle: "alex",
-  conversationId: "conv_chief",
-  userId: "user_alex",
-  wireUrl: "wss://api.invalid/v1/wire/conv/conv_chief",
+  mainConversationId: "conv_chief",
+  chiefId: "chief_alex",
 };
 const state = {
-  id: identity.conversationId,
+  id: identity.mainConversationId,
   title: "Chief",
   participants: [
     { id: "user_alex", kind: "person", display_name: "Alex" },
@@ -31,7 +30,11 @@ const message = (id: string, seq: number, author: string, text: string) => ({
 function fixture(mode: "reply" | "empty" | "streaming" | "reconnecting" = "reply"): ChiefWebProps {
   return {
     storage: memoryStorage(),
-    api: { me: async () => identity, ticket: async () => "gallery-ticket", send: async () => undefined },
+    api: {
+      me: async () => identity,
+      ticket: async () => ({ ticket: "gallery-ticket", websocketUrl: "wss://api.invalid/chief-wire" }),
+      send: async () => undefined,
+    },
     openSocket: () => {
       let alive = true;
       let greeted = false;
@@ -91,7 +94,7 @@ function fixture(mode: "reply" | "empty" | "streaming" | "reconnecting" = "reply
       };
       queueMicrotask(() => {
         if (alive)
-          void socket.onmessage?.({ data: JSON.stringify({ t: "welcome", principal: { user: identity.userId } }) });
+          void socket.onmessage?.({ data: JSON.stringify({ t: "welcome", principal: { user: "user_alex" } }) });
       });
       return socket;
     },
@@ -122,7 +125,7 @@ export default componentEntry<ChiefWebProps>({
           me: async () => {
             throw new ExpiredSession();
           },
-          ticket: async () => "",
+          ticket: async () => ({ ticket: "", websocketUrl: "" }),
           send: async () => undefined,
         },
       },

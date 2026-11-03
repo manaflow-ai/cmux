@@ -44,7 +44,7 @@ await requireBrowserLane("chief-web-gallery-browser.test.ts", async () => {
         await page.goto(base + galleryFrame("chief-web.mobile", { variant, width, height, colorScheme: scheme }));
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         await page.getByTestId("chief-web").waitFor();
-        if (variant === "expired") await page.getByRole("link", { name: "Sign in" }).waitFor();
+        if (variant === "expired") await page.getByRole("button", { name: "Sign in again" }).waitFor();
         else {
           const field = page.getByRole("textbox", { name: "Message your Chief" });
           await field.waitFor();

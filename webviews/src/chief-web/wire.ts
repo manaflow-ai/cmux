@@ -4,12 +4,13 @@ import type { AcpmuxRow } from "../agent-session/acpmux/model";
 
 export type ChiefIdentity = {
   handle: string;
-  conversationId: string;
-  userId: string;
-  wireUrl: string;
+  chiefId: string;
+  mainConversationId: string;
 };
+export type ChiefTicket = { ticket: string; websocketUrl: string };
 export class ExpiredSession extends Error {}
-export type ChiefConnection = "connecting" | "live" | "reconnecting" | "expired" | "offline";
+export class ChiefAccessError extends Error {}
+export type ChiefConnection = "connecting" | "live" | "reconnecting" | "expired" | "offline" | "inaccessible";
 export type SocketLike = {
   send(data: string): void;
   close(): void;
@@ -20,7 +21,7 @@ export type SocketLike = {
 type Timers = { set(run: () => void, ms: number): unknown; clear(timer: unknown): void };
 type Options = {
   identity: ChiefIdentity;
-  ticket(): Promise<string>;
+  ticket(): Promise<ChiefTicket>;
   open?(url: string, protocols: string[]): SocketLike;
   timers?: Timers;
 };
@@ -48,12 +49,9 @@ type LiveRun = {
   done: boolean;
 };
 
-const object = (value: unknown): value is Json =>
-  !!value && typeof value === "object" && !Array.isArray(value);
-const text = (value: unknown): string | undefined =>
-  typeof value === "string" && value ? value : undefined;
-const sequence = (value: unknown): value is number =>
-  Number.isSafeInteger(value) && (value as number) >= 0;
+const object = (value: unknown): value is Json => !!value && typeof value === "object" && !Array.isArray(value);
+const text = (value: unknown): string | undefined => (typeof value === "string" && value ? value : undefined);
+const sequence = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
 const date = (value: unknown) =>
   typeof value === "number" ? value : typeof value === "string" ? Date.parse(value) || 0 : 0;
 const clock: Timers = {
@@ -150,13 +148,10 @@ export class ChiefWire {
       this.reconnect();
     }, 30_000);
     try {
-      const ticket = await this.options.ticket();
+      const { ticket, websocketUrl } = await this.options.ticket();
       if (!this.current(epoch)) return;
-      if (!ticket) throw new ExpiredSession();
-      const socket = (this.options.open ?? browserSocket)(this.options.identity.wireUrl, [
-        "cmux.wire.v1",
-        `ticket.${ticket}`,
-      ]);
+      if (!ticket || !websocketUrl) throw new Error("Invalid Chief ticket");
+      const socket = (this.options.open ?? browserSocket)(websocketUrl, ["cmux.wire.v1", `ticket.${ticket}`]);
       this.socket = socket;
       this.subscribed = false;
       this.awaitingSnapshot = false;
@@ -168,11 +163,7 @@ export class ChiefWire {
           .then(async () => {
             if (!this.current(epoch, socket)) return;
             const raw =
-              typeof event.data === "string"
-                ? event.data
-                : event.data instanceof Blob
-                  ? await event.data.text()
-                  : "";
+              typeof event.data === "string" ? event.data : event.data instanceof Blob ? await event.data.text() : "";
             if (!this.current(epoch, socket)) return;
             let frame: unknown;
             try {
@@ -190,21 +181,21 @@ export class ChiefWire {
       socket.onclose = ({ code }) => {
         if (!this.current(epoch, socket)) return;
         this.closeSocket();
-        if (code === 4401 || code === 4403) this.expired();
+        if (code === 4401) this.expired();
+        else if (code === 4403) this.expired("inaccessible");
         else this.reconnect();
       };
     } catch (error) {
       if (!this.current(epoch)) return;
       this.closeSocket();
       if (error instanceof ExpiredSession) this.expired();
+      else if (error instanceof ChiefAccessError) this.expired("inaccessible");
       else this.reconnect();
     }
   }
 
   private current(epoch: number, socket?: SocketLike): boolean {
-    return (
-      this.active && !this.disposed && this.epoch === epoch && (!socket || this.socket === socket)
-    );
+    return this.active && !this.disposed && this.epoch === epoch && (!socket || this.socket === socket);
   }
 
   private closeSocket(): void {
@@ -240,11 +231,11 @@ export class ChiefWire {
     }, delay);
   }
 
-  private expired(): void {
+  private expired(state: "expired" | "inaccessible" = "expired"): void {
     this.active = false;
     this.cancelTimer();
     this.closeSocket();
-    this.connection("expired");
+    this.connection(state);
   }
 
   private send(frame: Json): boolean {
@@ -271,7 +262,7 @@ export class ChiefWire {
     this.send({
       t: "run.live.get",
       type: "run.live.get",
-      conversation: this.options.identity.conversationId,
+      conversation: this.options.identity.mainConversationId,
     });
   }
 
@@ -279,6 +270,7 @@ export class ChiefWire {
     const kind = frame.t ?? frame.type;
     if (kind === "welcome") {
       const user = object(frame.principal) ? text(frame.principal.user) : undefined;
+      const previousUser = this.user;
       if (!user || user !== this.user) {
         this.lastSeq = undefined;
         this.messages.clear();
@@ -289,12 +281,9 @@ export class ChiefWire {
         this.publish();
       }
       this.user = user;
-      // This page and its saved outbox were resolved for one signed-in account. A cookie/account
-      // change must reload that identity before any queued prompt can be sent as someone else.
-      if (
-        !user ||
-        (user !== this.options.identity.userId && user !== `user_${this.options.identity.userId}`)
-      ) {
+      // The gateway binds each ticket to this Chief. The welcome supplies the principal; /me
+      // deliberately exposes no user id. An account change during a reconnect needs a page reload.
+      if (!user || (previousUser !== undefined && user !== previousUser)) {
         this.expired();
         return;
       }
@@ -315,11 +304,10 @@ export class ChiefWire {
       }
       return;
     }
-    if (kind === "error" && frame.code === "auth.forbidden") return this.expired();
+    if (kind === "error" && frame.code === "auth.forbidden") return this.expired("inaccessible");
     if (!this.subscribed) return;
     if (kind === "snapshot" || kind === "event") {
-      if (frame.stream !== `conv:${this.options.identity.conversationId}` || !sequence(frame.seq))
-        return;
+      if (frame.stream !== `conv:${this.options.identity.mainConversationId}` || !sequence(frame.seq)) return;
       if (kind === "snapshot") this.applySnapshot(frame);
       else if (!this.awaitingSnapshot) {
         if (this.lastSeq !== undefined && frame.seq <= this.lastSeq) return;
@@ -329,14 +317,14 @@ export class ChiefWire {
       }
       return;
     }
-    if (frame.conversation !== this.options.identity.conversationId) return;
+    if (frame.conversation !== this.options.identity.mainConversationId) return;
     if (kind === "conversation-run-changed") this.runChanged(frame);
     else if (kind === "run.live") this.applyLiveSnapshot(frame);
     else if (kind === "step.delta" || kind === "run.activity") this.live(frame, kind);
   }
 
   private head(value: unknown): value is Json {
-    return object(value) && value.id === this.options.identity.conversationId;
+    return object(value) && value.id === this.options.identity.mainConversationId;
   }
 
   private participants(head: Json): void {
@@ -375,7 +363,7 @@ export class ChiefWire {
     if (
       !object(value) ||
       !text(value.id) ||
-      value.conversation !== this.options.identity.conversationId ||
+      value.conversation !== this.options.identity.mainConversationId ||
       !sequence(value.seq) ||
       !text(value.author) ||
       !Array.isArray(value.parts)
@@ -409,11 +397,7 @@ export class ChiefWire {
 
   private put(message: Message): void {
     const previous = this.messages.get(message.id);
-    if (
-      !previous &&
-      (message.author === this.options.identity.userId ||
-        message.author === `user_${this.options.identity.userId}`)
-    ) {
+    if (!previous && (message.author === this.user || message.author === `user_${this.user}`)) {
       this.callbacks.accepted?.(message.clientId);
     }
     if (message.retracted) this.messages.delete(message.id);
@@ -427,24 +411,15 @@ export class ChiefWire {
 
   private applySnapshot(frame: Json): void {
     this.awaitingSnapshot = false;
-    if (
-      !this.head(frame.state) ||
-      !object(frame.rows) ||
-      frame.rows.table !== "msg" ||
-      !Array.isArray(frame.rows.rows)
-    )
+    if (!this.head(frame.state) || !object(frame.rows) || frame.rows.table !== "msg" || !Array.isArray(frame.rows.rows))
       return this.snapshot();
     this.participants(frame.state);
-    const rows = frame.rows.rows.map((stored) =>
-      object(stored) ? this.message(stored.row) : undefined,
-    );
+    const rows = frame.rows.rows.map((stored) => (object(stored) ? this.message(stored.row) : undefined));
     if (rows.some((row) => !row)) return this.snapshot();
     // A snapshot is a tail window. Keep older history already held across a reconnect.
     const first = rows.reduce((lowest, row) => Math.min(lowest, row!.seq), Infinity);
     const old = this.messages;
-    this.messages = new Map(
-      [...old].filter(([, message]) => message.seq < first && rows.length > 0),
-    );
+    this.messages = new Map([...old].filter(([, message]) => message.seq < first && rows.length > 0));
     for (const row of rows) {
       if (row && old.has(row.id)) this.messages.set(row.id, old.get(row.id)!);
       if (row) this.put(row);
@@ -597,9 +572,7 @@ export class ChiefWire {
     run.turn = text(frame.run.turn) ?? run.turn;
     const status = frame.run.status;
     if (
-      [...this.messages.values()].some(
-        (message) => message.author === author && message.clientId === run.turn,
-      ) ||
+      [...this.messages.values()].some((message) => message.author === author && message.clientId === run.turn) ||
       (status !== "running" && status !== "done")
     )
       this.end(`${author}\0${run.id}`);
@@ -614,8 +587,7 @@ export class ChiefWire {
     const reply = [...run.steps]
       .filter(([, step]) => step.talk)
       .sort(([a], [b]) => {
-        const segment = (value: string) =>
-          Number(/^talk:(\d+)$/.exec(value)?.[1] ?? Number.MAX_SAFE_INTEGER);
+        const segment = (value: string) => Number(/^talk:(\d+)$/.exec(value)?.[1] ?? Number.MAX_SAFE_INTEGER);
         return segment(a) - segment(b);
       })
       .map(([, step]) => step.text)
@@ -624,14 +596,11 @@ export class ChiefWire {
   }
 
   private rebuild(): void {
-    this.committed = [...this.messages.values()]
-      .sort((a, b) => a.seq - b.seq)
-      .map((message) => message.row);
+    this.committed = [...this.messages.values()].sort((a, b) => a.seq - b.seq).map((message) => message.row);
     this.publish();
   }
 
   private publish(): void {
-    if (!this.disposed)
-      this.callbacks.rows([...this.committed, ...[...this.runs.values()].map((run) => run.row)]);
+    if (!this.disposed) this.callbacks.rows([...this.committed, ...[...this.runs.values()].map((run) => run.row)]);
   }
 }

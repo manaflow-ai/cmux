@@ -52,9 +52,7 @@ export function GuestMessages({
           <AuthorChip author={me} />
           <div className="ui-glass cv-user__bubble selectable">{prompt.text}</div>
           <span className="guest-mine__label">
-            {prompt.state === "sending"
-              ? t("guest.prompt.sending")
-              : t("guest.prompt.waiting", { owner })}
+            {prompt.state === "sending" ? t("guest.prompt.sending") : t("guest.prompt.waiting", { owner })}
           </span>
         </div>
       ))}
@@ -96,8 +94,7 @@ export function GuestComposer({
     setText("");
   };
   const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!enterSends || event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing)
-      return;
+    if (!enterSends || event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
     send();
   };
@@ -119,12 +116,7 @@ export function GuestComposer({
         onChange={(event) => change(event.target.value)}
         onKeyDown={keyDown}
       />
-      <button
-        className="guest-join__button"
-        type="submit"
-        disabled={!canSend}
-        aria-label={t("guest.composer.send")}
-      >
+      <button className="guest-join__button" type="submit" disabled={!canSend} aria-label={t("guest.composer.send")}>
         {sendIcon ?? t("guest.composer.send")}
       </button>
       {tooLong && (
