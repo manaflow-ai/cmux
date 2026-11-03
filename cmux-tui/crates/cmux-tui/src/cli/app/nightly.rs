@@ -48,7 +48,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     match rest.first().map(String::as_str) {
         Some("list") => {
             let mut limit = 10;
-            let mut words = rest[1..].iter();
+            let mut words = rest.iter().skip(1);
             while let Some(word) = words.next() {
                 let value = match word.as_str() {
                     "--limit" => words.next().map(String::as_str),
@@ -127,8 +127,9 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
                         .replace("{from}", &installed)
                 );
             }
-            let params = json!({ "build": build["build"].clone() });
-            let switching = || json!({ "switching_to": build["build"].clone() });
+            let number = build.get("build").cloned().unwrap_or(Value::Null);
+            let params = json!({ "build": number.clone() });
+            let switching = || json!({ "switching_to": number.clone() });
             match switch_build(&mut stream, params) {
                 Switched::Answer(Ok(value)) => match global.output {
                     OutputMode::Human => 0,
