@@ -1,17 +1,25 @@
 import "../agent-session/guest/guest.css";
 import "./chief-web.css";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { VirtualTranscript } from "../agent-session/acpmux/App";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { VirtualTranscript, readOnlyRegistry } from "../agent-session/acpmux/App";
 import { GuestActionsBoundary } from "../agent-session/acpmux/conversation/GuestActionsBoundary";
 import { Spinner } from "../agent-session/acpmux/conversation/icons";
 import { ArrowUpIcon } from "../agent-session/acpmux/ComposerPickers";
-import type { AcpmuxRow } from "../agent-session/acpmux/model";
 import { useT } from "../agent-session/acpmux/i18n";
 import { GuestComposer } from "../agent-session/guest/GuestComposer";
 import { GuestPrompts } from "../agent-session/guest/guestPrompts";
-import { GuestSendQueue } from "../agent-session/guest/guestSendQueue";
 import { chiefApi, type ChiefApi } from "./api";
-import { sendWithRetry } from "./send";
+import { ChiefOutbox } from "./outbox";
+import { ChiefTranscript } from "./transcript";
 import {
   ChiefWire,
   ChiefAccessError,
@@ -160,7 +168,8 @@ function ChiefChat({
   openSocket?: ChiefWebProps["openSocket"];
 }) {
   const t = useT();
-  const [rows, setRows] = useState<AcpmuxRow[]>([]);
+  const transcript = useMemo(() => new ChiefTranscript(), [identity]);
+  const { rows, working } = useSyncExternalStore(transcript.subscribe, transcript.snapshot);
   const [connection, setConnection] = useState<ChiefConnection>("connecting");
   const [expanded, setExpanded] = useState(() => new Set<string>());
   const [confirmed, setConfirmed] = useState(() => new Set<string>());
@@ -170,50 +179,31 @@ function ChiefChat({
   );
   const mine = useSyncExternalStore(prompts.subscribe, prompts.list);
   const wire = useRef<ChiefWire | undefined>(undefined);
-  const queue = useRef<GuestSendQueue | undefined>(undefined);
+  const queue = useRef<ChiefOutbox | undefined>(undefined);
 
   useEffect(() => {
     const controller = new AbortController();
-    let sending = Promise.resolve();
-    const outbox = new GuestSendQueue(prompts, (prompt) => {
-      // Preserve composer order even when the first HTTP send takes longer than the queue gap.
-      sending = sending.then(() => {
-        if (controller.signal.aborted) return;
-        return sendWithRetry(api, prompt.text, prompt.clientId, controller.signal)
-          .then(() => {
-            if (!controller.signal.aborted) outbox.status({ client_id: prompt.clientId, state: "approved" });
-          })
-          .catch((error) => {
-            if (controller.signal.aborted) return;
-            if (error instanceof ExpiredSession) {
-              client.stop();
-              outbox.disconnected();
-              controller.abort();
-              setConnection("expired");
-            } else if (error instanceof ChiefAccessError) {
-              client.stop();
-              outbox.disconnected();
-              controller.abort();
-              setConnection("inaccessible");
-              outbox.status({ client_id: prompt.clientId, state: "refused" });
-            } else outbox.status({ client_id: prompt.clientId, state: "refused" });
-          });
-      });
-      return true;
+    const outbox = new ChiefOutbox(prompts, api, (state) => {
+      client.stop();
+      controller.abort();
+      setConnection(state);
     });
     const client = new ChiefWire(
       { identity, ticket: () => api.ticket(controller.signal), open: openSocket },
       {
-        rows: setRows,
+        rows: transcript.update,
         accepted: (clientId) => {
-          outbox.status({ client_id: clientId, state: "approved" });
+          outbox.accepted(clientId);
           setConfirmed((previous) => new Set(previous).add(clientId));
         },
         connection: (state) => {
           setConnection(state);
-          if (state === "live") outbox.snapshot([]);
+          if (state === "live") outbox.connected();
           else outbox.disconnected();
-          if (state === "expired" || state === "inaccessible") controller.abort();
+          if (state === "expired" || state === "inaccessible") {
+            outbox.stop();
+            controller.abort();
+          }
         },
       },
     );
@@ -225,9 +215,8 @@ function ChiefChat({
       outbox.stop();
       client.stop();
     };
-  }, [api, identity, prompts, openSocket]);
+  }, [api, identity, prompts, openSocket, transcript]);
 
-  const working = rows.some((row) => row.streaming);
   const pending = mine.filter(
     (prompt) =>
       !confirmed.has(prompt.clientId) &&
@@ -260,20 +249,23 @@ function ChiefChat({
       </header>
       <main className="chief-web__transcript" data-read-only-transcript="">
         {rows.length ? (
-          <VirtualTranscript
-            rows={rows}
-            sessionId={`chief-web:${identity.mainConversationId}`}
-            expanded={expanded}
-            onToggleActivity={(id) =>
-              setExpanded((open) => {
-                const next = new Set(open);
-                if (!next.delete(id)) next.add(id);
-                return next;
-              })
-            }
-            working={working}
-            readOnly
-          />
+          <LiveTranscriptContext.Provider value={transcript}>
+            <VirtualTranscript
+              rows={rows}
+              sessionId={`chief-web:${identity.mainConversationId}`}
+              expanded={expanded}
+              onToggleActivity={(id) =>
+                setExpanded((open) => {
+                  const next = new Set(open);
+                  if (!next.delete(id)) next.add(id);
+                  return next;
+                })
+              }
+              working={working}
+              registry={chiefRegistry}
+              readOnly
+            />
+          </LiveTranscriptContext.Provider>
         ) : (
           <div className="chief-web__empty">
             <h2>{t("chiefWeb.empty")}</h2>
@@ -323,3 +315,16 @@ function ChiefChat({
     </GuestActionsBoundary>
   );
 }
+
+// The virtualizer holds stable row shells while each mounted reply subscribes to its tokens.
+const LiveTranscriptContext = createContext<ChiefTranscript | undefined>(undefined);
+const Assistant = readOnlyRegistry.assistant!;
+function LiveAssistant(props: React.ComponentProps<typeof Assistant>) {
+  const transcript = useContext(LiveTranscriptContext)!;
+  const row = useSyncExternalStore(
+    (listener) => transcript.subscribeRow(props.row.id, listener),
+    () => transcript.row(props.row.id) ?? props.row,
+  );
+  return <Assistant {...props} row={row} />;
+}
+const chiefRegistry = { ...readOnlyRegistry, assistant: LiveAssistant };

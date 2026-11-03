@@ -93,7 +93,7 @@ const delta = (seq: number, body: string, fields: Record<string, unknown> = {}) 
 const turn = (status: string, key = "reply-key") => ({
   t: "conversation-run-changed",
   conversation: identity.mainConversationId,
-  run: { id: "run_1", agent: "agent_chief", turn: key, status },
+  run: { id: "run_1", author: "agent_chief", turn: key, status },
 });
 
 const ticketFor = (ticket: string): ChiefTicket => ({ ticket, websocketUrl: `wss://api.test/chief-wire/${ticket}` });
@@ -104,7 +104,9 @@ function setup(ticket?: () => Promise<ChiefTicket>) {
   const timers = new FakeTimers();
   const states: string[] = [];
   const accepted: string[] = [];
-  let rows: AcpmuxRow[] = [];
+  let committed: AcpmuxRow[] = [];
+  let live: AcpmuxRow[] = [];
+  const publications: { committed: AcpmuxRow[]; live: AcpmuxRow[] }[] = [];
   let tickets = 0;
   const client = new ChiefWire(
     {
@@ -119,8 +121,10 @@ function setup(ticket?: () => Promise<ChiefTicket>) {
       },
     },
     {
-      rows: (value) => {
-        rows = value;
+      rows: (history, tail) => {
+        committed = history;
+        live = tail;
+        publications.push({ committed: history, live: tail });
       },
       connection: (state) => states.push(state),
       accepted: (key) => accepted.push(key),
@@ -139,7 +143,21 @@ function setup(ticket?: () => Promise<ChiefTicket>) {
     await socket.frame({ type: "run.live", conversation: identity.mainConversationId, runs: [] });
     return socket;
   };
-  return { client, sockets, dials, timers, states, accepted, last, start, ready, rows: () => rows };
+  return {
+    client,
+    sockets,
+    dials,
+    timers,
+    states,
+    accepted,
+    last,
+    start,
+    ready,
+    publications,
+    rows: () => [...committed, ...live],
+    committed: () => committed,
+    live: () => live,
+  };
 }
 
 test("the ticket stays in subprotocols; the shared cloud model renders human and Chief messages", async () => {
@@ -267,6 +285,130 @@ test("a posted reply arriving before its run record also settles the live text",
   await socket.frame(event(6, [message(1, "Answer", "agent_chief", "reply-key")]));
   await socket.frame(turn("done"));
   expect(r.rows().map((row) => row.text)).toEqual(["Answer"]);
+  r.client.stop();
+});
+
+test("authoritative completed talk rows replace a partial delta and survive an empty live snapshot", async () => {
+  const r = setup();
+  const socket = await r.ready();
+  await socket.frame(turn("running"));
+  await socket.frame(delta(0, "Incomplete draft"));
+  await socket.frame({
+    ...turn("done"),
+    steps: [
+      { id: "talk:0", kind: "talk", seq: 2, rev: 8, status: "done", text: "The complete answer." },
+      { id: "thought", kind: "thought", seq: 1, text: "Private reasoning" },
+    ],
+  });
+  expect(r.live().map((row) => [row.text, row.streaming])).toEqual([["The complete answer.", false]]);
+  await socket.frame({ type: "run.live", conversation: identity.mainConversationId, runs: [] });
+  expect(r.live().map((row) => row.text)).toEqual(["The complete answer."]);
+
+  // The same author's next message is not this run's receipt.
+  await socket.frame(event(6, [message(1, "Other reply", "agent_chief", "different-turn")]));
+  expect(r.live()).toHaveLength(1);
+  await socket.frame(event(7, [message(2, "The complete answer.", "agent_chief", "reply-key")]));
+  expect(r.live()).toEqual([]);
+  expect(r.committed().map((row) => row.text)).toEqual(["Other reply", "The complete answer."]);
+  await socket.frame({ ...turn("done"), steps: [{ id: "talk:0", kind: "talk", text: "Late row" }] });
+  expect(r.live()).toEqual([]);
+  r.client.stop();
+});
+
+test("a mid-run join uses authoritative step placement and resyncs before appending numbered deltas", async () => {
+  const r = setup();
+  const socket = await r.ready();
+  await socket.frame({
+    ...turn("running"),
+    steps: [
+      { id: "later-segment", kind: "talk", seq: 12, rev: 2, text: "Second segment" },
+      { id: "first-segment", kind: "talk", seq: 4, rev: 7, text: "First segment" },
+      { id: "cut-segment", kind: "talk", seq: 6, truncated: true, text: "Not a complete row" },
+    ],
+  });
+  expect(r.live().at(-1)?.text).toBe("First segment\n\nSecond segment");
+  await socket.frame({
+    type: "run.live",
+    conversation: identity.mainConversationId,
+    runs: [{ author: "agent_chief", run: "run_1", steps: [] }],
+  });
+  expect(r.live().at(-1)?.text).toBe("First segment\n\nSecond segment");
+  await socket.frame(delta(1, " unsafe append", { step: "later-segment" }));
+  expect(r.live().at(-1)?.text).toBe("First segment\n\nSecond segment");
+  expect(socket.sent.filter((frame) => frame.t === "run.live.get")).toHaveLength(2);
+  await socket.frame({
+    type: "run.live",
+    conversation: identity.mainConversationId,
+    runs: [
+      {
+        author: "agent_chief",
+        run: "run_1",
+        steps: [{ step: "later-segment", kind: "talk", seq: 3, text: "Second segment caught up" }],
+      },
+    ],
+  });
+  await socket.frame(delta(4, "!", { step: "later-segment" }));
+  expect(r.live().at(-1)?.text).toBe("First segment\n\nSecond segment caught up!");
+  r.client.stop();
+});
+
+test("a final talk delta stays visible when run.live no longer lists its run before the done record", async () => {
+  const r = setup();
+  const socket = await r.ready();
+  await socket.frame(turn("running"));
+  await socket.frame(delta(0, "Final text", { final: true }));
+  await socket.frame({ type: "run.live", conversation: identity.mainConversationId, runs: [] });
+  expect(r.live().map((row) => [row.text, row.streaming])).toEqual([["Final text", false]]);
+  await socket.frame(turn("done"));
+  await socket.frame(event(6, [message(1, "Final text", "agent_chief", "reply-key")]));
+  expect(r.live()).toEqual([]);
+  expect(r.committed().map((row) => row.text)).toEqual(["Final text"]);
+  r.client.stop();
+});
+
+test("concurrent completed replies hand off only to their matching author and turn", async () => {
+  const r = setup();
+  const socket = await r.ready();
+  for (const [id, author, turnId, text] of [
+    ["run_1", "agent_chief", "turn_one", "One"],
+    ["run_2", "agent_chief", "turn_two", "Two"],
+  ])
+    await socket.frame({
+      type: "conversation-run-changed",
+      conversation: identity.mainConversationId,
+      run: { id, author, turn: turnId, status: "done" },
+      steps: [{ id: "answer", kind: "talk", status: "done", seq: 0, text }],
+    });
+  await socket.frame(event(6, [message(1, "Wrong author", "agent_other", "turn_one")]));
+  expect(r.live().map((row) => row.text)).toEqual(["One", "Two"]);
+  await socket.frame(event(7, [message(2, "One", "agent_chief", "turn_one")]));
+  expect(r.live().map((row) => row.text)).toEqual(["Two"]);
+  await socket.frame(event(8, [message(3, "Two", "agent_chief", "turn_two")]));
+  expect(r.live()).toEqual([]);
+  r.client.stop();
+});
+
+test("streamed tokens publish a separate live tail without iterating or replacing committed history", async () => {
+  const r = setup();
+  const socket = await r.ready(Array.from({ length: 2_000 }, (_, index) => message(index + 1, `Earlier ${index}`)));
+  const history = r.committed();
+  const start = r.publications.length;
+  const iterate = history[Symbol.iterator];
+  let reads = 0;
+  Object.defineProperty(history, Symbol.iterator, {
+    configurable: true,
+    value: function* (this: AcpmuxRow[]) {
+      reads++;
+      yield* iterate.call(this);
+    },
+  });
+  for (let seq = 0; seq < 30; seq++) await socket.frame(delta(seq, "x"));
+  expect(r.live().at(-1)?.text).toBe("x".repeat(30));
+  expect(r.publications.slice(start).every((value) => value.committed === history)).toBe(true);
+  expect(reads).toBe(0);
+  expect(r.committed()).toBe(history);
+  expect(r.committed()).toHaveLength(2_000);
+  expect(r.live()).toHaveLength(1);
   r.client.stop();
 });
 

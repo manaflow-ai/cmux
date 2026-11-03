@@ -26,7 +26,8 @@ type Options = {
   timers?: Timers;
 };
 type Callbacks = {
-  rows(rows: AcpmuxRow[]): void;
+  /** History changes only on ordered-stream writes. Live updates must not copy or walk it. */
+  rows(committed: AcpmuxRow[], live: AcpmuxRow[]): void;
   connection(state: ChiefConnection): void;
   accepted?(clientId: string): void;
 };
@@ -39,7 +40,16 @@ type Message = {
   row: AcpmuxRow;
   retracted: boolean;
 };
-type LiveStep = { seq: number; text: string; talk: boolean; final: boolean };
+type LiveStep = {
+  seq: number;
+  text: string;
+  talk: boolean;
+  final: boolean;
+  /** Run-row seq is placement, not the live frame sequence. */
+  place?: number;
+  fromRow?: boolean;
+  revision?: number;
+};
 type LiveRun = {
   id: string;
   author: string;
@@ -504,12 +514,14 @@ export class ChiefWire {
       const step = run.steps.get(frame.step as string);
       const seq = frame.seq as number;
       if (step?.final || (seq > 0 && step && seq <= step.seq)) return;
+      if (step?.fromRow && seq > 0) return this.liveSnapshot();
       if (frame.seq !== 0 && (!step || frame.seq !== step.seq + 1)) return this.liveSnapshot();
       run.steps.set(frame.step as string, {
         seq: frame.seq,
         text: (frame.seq === 0 ? "" : (step?.text ?? "")) + frame.text,
         talk: frame.kind === "talk",
         final: frame.final === true,
+        place: step?.place,
       });
     }
     this.draw(run);
@@ -528,7 +540,10 @@ export class ChiefWire {
       if (!run) continue;
       const key = `${author}\0${run.id}`;
       kept.add(key);
-      const steps = new Map([...run.steps].filter(([, step]) => step.final && step.talk));
+      // The owner frees completed talk buffers. Their authoritative rows or final deltas keep
+      // their text here until the exact posted reply replaces it, including a mid-run join.
+      const listed = new Set(entry.steps.flatMap((step) => (object(step) && text(step.step) ? [step.step] : [])));
+      const steps = new Map([...run.steps].filter(([id, step]) => step.talk && (step.final || !listed.has(id))));
       for (const step of entry.steps) {
         if (
           !object(step) ||
@@ -539,22 +554,32 @@ export class ChiefWire {
         )
           continue;
         const old = run.steps.get(step.step as string);
+        if (old?.final && old.talk) continue;
         steps.set(
           step.step as string,
-          old && old.seq >= step.seq && old.text.startsWith(step.text)
+          old && !old.fromRow && old.seq >= step.seq && old.text.startsWith(step.text)
             ? old
             : {
                 seq: step.seq,
                 text: step.text,
                 talk: step.kind === "talk",
                 final: step.final === true,
+                place: old?.place,
               },
         );
       }
       run.steps = steps;
       this.draw(run);
     }
-    for (const [key, run] of this.runs) if (!kept.has(key) && !run.done) this.runs.delete(key);
+    for (const [key, run] of this.runs) {
+      if (kept.has(key) || run.done) continue;
+      if ([...run.steps.values()].some((step) => step.talk && step.text)) {
+        // An absent run has finished at the owner, but its committed reply may still be in
+        // flight. Keep its last text; an unrelated message by this Chief cannot settle it.
+        run.done = true;
+        this.draw(run);
+      } else this.runs.delete(key);
+    }
     this.publish();
   }
 
@@ -565,7 +590,7 @@ export class ChiefWire {
       !["running", "done", "failed", "cancelled"].includes(String(frame.run.status))
     )
       return;
-    const author = this.author(frame.run.agent ?? frame.run.author);
+    const author = this.author(frame.run.author ?? frame.run.agent);
     if (!author) return;
     const run = this.run(author, frame.run.id as string);
     if (!run) return;
@@ -577,7 +602,30 @@ export class ChiefWire {
     )
       this.end(`${author}\0${run.id}`);
     else {
-      run.done = status === "done";
+      // These are persisted run rows (`id`, `seq` placement, optional `rev`), not live
+      // snapshots (`step`, frame `seq`). A completed step may predate this connection or its
+      // final delta may have been missed; use its complete text rather than an empty bubble.
+      if (Array.isArray(frame.steps))
+        for (const value of frame.steps) {
+          if (!object(value) || !text(value.id) || value.kind !== "talk") continue;
+          const old = run.steps.get(value.id as string);
+          const place = sequence(value.seq) ? value.seq : old?.place;
+          if (value.truncated === true || typeof value.text !== "string") {
+            if (old && old.place !== place) run.steps.set(value.id as string, { ...old, place });
+            continue;
+          }
+          const revision = sequence(value.rev) ? value.rev : undefined;
+          if (old?.revision !== undefined && revision !== undefined && revision < old.revision) continue;
+          const complete = status === "done" || value.status === "done";
+          const held = !complete && old && !old.fromRow && old.text.startsWith(value.text);
+          run.steps.set(
+            value.id as string,
+            held
+              ? { ...old, place, revision }
+              : { seq: 0, text: value.text, talk: true, final: complete, fromRow: true, place, revision },
+          );
+        }
+      run.done = run.done || status === "done";
       this.draw(run);
     }
     this.publish();
@@ -586,9 +634,9 @@ export class ChiefWire {
   private draw(run: LiveRun): void {
     const reply = [...run.steps]
       .filter(([, step]) => step.talk)
-      .sort(([a], [b]) => {
+      .sort(([a, left], [b, right]) => {
         const segment = (value: string) => Number(/^talk:(\d+)$/.exec(value)?.[1] ?? Number.MAX_SAFE_INTEGER);
-        return segment(a) - segment(b);
+        return (left.place ?? segment(a)) - (right.place ?? segment(b));
       })
       .map(([, step]) => step.text)
       .join("\n\n");
@@ -601,6 +649,10 @@ export class ChiefWire {
   }
 
   private publish(): void {
-    if (!this.disposed) this.callbacks.rows([...this.committed, ...[...this.runs.values()].map((run) => run.row)]);
+    if (!this.disposed)
+      this.callbacks.rows(
+        this.committed,
+        [...this.runs.values()].map((run) => run.row),
+      );
   }
 }

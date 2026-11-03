@@ -80,7 +80,11 @@ await requireBrowserLane("chief-web-contract-browser.test.ts", async () => {
   });
 
   async function open(fixture: Fixture = {}, locale = "en-US") {
-    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale });
+    const page = await browser.newPage({
+      viewport: { width: 390, height: 844 },
+      deviceScaleFactor: 2,
+      locale,
+    });
     const messages: { body: MessageBody; at: number }[] = [];
     const tickets: { method: string; body: string | null }[] = [];
     const errors: string[] = [];
@@ -124,20 +128,33 @@ await requireBrowserLane("chief-web-contract-browser.test.ts", async () => {
       if (endpoint === "ticket") {
         tickets.push({ method: request.method(), body: request.postData() });
         if (status === 200)
-          body = { ticket: "single-use-ticket", websocketUrl: origin.replace("http:", "ws:") + "/v1/chief/wire" };
+          body = {
+            ticket: "single-use-ticket",
+            websocketUrl: origin.replace("http:", "ws:") + "/v1/chief/wire",
+          };
       }
       if (endpoint === "messages") {
         const sent = request.postDataJSON() as MessageBody;
         const result = fixture.messageResults?.[messages.length];
         messages.push({ body: sent, at: Date.now() });
         if (status === 200)
-          body = { ok: result?.ok ?? true, clientMessageId: sent.clientMessageId, receipt: { accepted: true } };
+          body = {
+            ok: result?.ok ?? true,
+            clientMessageId: sent.clientMessageId,
+            receipt: { accepted: true },
+          };
       }
       await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
       if (endpoint === "messages" && status === 200 && (body as { ok: boolean }).ok) {
         const sent = messages.at(-1)!.body;
         const rows = [
-          { id: "prompt", seq: 1, author: "user_alex", client_msg_id: sent.clientMessageId, text: sent.text },
+          {
+            id: "prompt",
+            seq: 1,
+            author: "user_alex",
+            client_msg_id: sent.clientMessageId,
+            text: sent.text,
+          },
           {
             id: "reply",
             seq: 2,
@@ -145,7 +162,11 @@ await requireBrowserLane("chief-web-contract-browser.test.ts", async () => {
             client_msg_id: "chief-reply",
             text: "Your hello page is ready. [Open your page](https://hello.preview-development.cmux.dev).",
           },
-        ].map(({ text, ...row }) => ({ ...row, conversation: conversation.id, parts: [{ type: "text", text }] }));
+        ].map(({ text, ...row }) => ({
+          ...row,
+          conversation: conversation.id,
+          parts: [{ type: "text", text }],
+        }));
         socket?.send(
           JSON.stringify({
             t: "event",
@@ -153,7 +174,13 @@ await requireBrowserLane("chief-web-contract-browser.test.ts", async () => {
             seq: 1,
             effects: {
               state: conversation,
-              writes: rows.map((row) => ({ op: "upsert", table: "msg", key: row.id, n: row.seq, row })),
+              writes: rows.map((row) => ({
+                op: "upsert",
+                table: "msg",
+                key: row.id,
+                n: row.seq,
+                row,
+              })),
             },
           }),
         );
@@ -161,13 +188,91 @@ await requireBrowserLane("chief-web-contract-browser.test.ts", async () => {
     });
     await page.goto(origin + "/c/alex");
     await page.getByTestId("chief-web").waitFor();
-    return { page, messages, tickets, errors };
+    return {
+      page,
+      messages,
+      tickets,
+      errors,
+      frame: (value: unknown) => socket?.send(JSON.stringify(value)),
+    };
   }
 
   async function send(page: Page) {
     await page.getByRole("textbox", { name: "Message your Chief" }).fill("Build me a hello page");
     await page.getByRole("button", { name: "Send", exact: true }).click();
   }
+
+  test("live reply tokens update their mounted row and survive resync until the exact committed reply", async () => {
+    const fixture = await open();
+    try {
+      await fixture.page.waitForFunction(() => document.querySelector(".chief-web__connection")?.textContent === "");
+      const live = { conversation: conversation.id, author: "agent_chief", run: "run_1" };
+      fixture.frame({
+        t: "step.delta",
+        ...live,
+        step: "talk:0",
+        kind: "talk",
+        seq: 0,
+        text: "Building",
+      });
+      await fixture.page.getByText("Building", { exact: true }).waitFor();
+      fixture.frame({
+        t: "step.delta",
+        ...live,
+        step: "talk:0",
+        kind: "talk",
+        seq: 1,
+        text: " your page",
+      });
+      await fixture.page.getByText("Building your page", { exact: true }).waitFor();
+      fixture.frame({
+        t: "conversation-run-changed",
+        conversation: conversation.id,
+        run: { id: "run_1", author: "agent_chief", turn: "reply-nonce", status: "done" },
+        steps: [
+          {
+            id: "talk:0",
+            kind: "talk",
+            text: "Your page is ready",
+            status: "done",
+            seq: 0,
+            rev: 2,
+          },
+        ],
+      });
+      await fixture.page.getByText("Your page is ready", { exact: true }).waitFor();
+      fixture.frame({ t: "run.live", conversation: conversation.id, runs: [] });
+      fixture.frame({
+        t: "event",
+        stream: `conv:${conversation.id}`,
+        seq: 1,
+        effects: {
+          state: conversation,
+          writes: [
+            {
+              op: "upsert",
+              table: "msg",
+              key: "reply",
+              n: 1,
+              row: {
+                id: "reply",
+                conversation: conversation.id,
+                seq: 1,
+                author: "agent_chief",
+                client_msg_id: "reply-nonce",
+                parts: [{ type: "text", text: "Your page is ready" }],
+              },
+            },
+          ],
+        },
+      });
+      await fixture.page.locator('[data-row-id="reply"]').waitFor();
+      expect(await fixture.page.getByText("Your page is ready", { exact: true }).count()).toBe(1);
+      expect(fixture.errors).toEqual([]);
+    } finally {
+      await fixture.page.close();
+    }
+  });
 
   test("HTTP-200 rejection stays failed, retry keeps its id, and the wire renders the reply link", async () => {
     const fixture = await open({
