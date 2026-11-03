@@ -14,6 +14,7 @@ import { isThought } from "./thoughts";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { EditCounts, useEditTotals } from "./EditCounts";
 import { ToolLabel } from "./ToolVerb";
+import { InStep } from "./ToolFailureCause";
 
 /// The summary's glyph: its one kind of work's, with searches and reads both as the magnifier, or the
 /// several-tools mark when it did more than one kind.
@@ -95,11 +96,14 @@ export function ToolRun({
         />
       </button>
       {fold.present && (
-        <div {...fold.bodyProps}>
-          <div className="cv-tool-run" id={list}>
-            {children}
+        // Every call under the opened line is a step: a failure reads as one plain line (InStep).
+        <InStep.Provider value>
+          <div {...fold.bodyProps}>
+            <div className="cv-tool-run" id={list}>
+              {children}
+            </div>
           </div>
-        </div>
+        </InStep.Provider>
       )}
     </>
   );

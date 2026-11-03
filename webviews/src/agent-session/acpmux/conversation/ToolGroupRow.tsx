@@ -23,7 +23,7 @@ import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
 import { toolFailure } from "./toolFailure";
-import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord, InlineFailureCause, InStep, ToolFailureCause } from "./ToolFailureCause";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -262,6 +262,8 @@ export function ToolGroupRow({
       <WrittenArtifactButtons tools={tools} />
       <ToolFailureCause failure={failure} />
       {fold.present && (
+        // Every call under the opened line is a step: a failure reads as one plain line (InStep).
+        <InStep.Provider value>
         <div {...fold.bodyProps}>
           {kind === "edits" ? (
             <div className="cv-tool-group" id={detailsId} data-tool-group-items={disclosureKey}>
@@ -293,6 +295,7 @@ export function ToolGroupRow({
             </div>
           )}
         </div>
+        </InStep.Provider>
       )}
     </>
   );

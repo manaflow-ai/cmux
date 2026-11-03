@@ -27,7 +27,7 @@ import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { RepoRecoveryCard, repoRecoveryFor } from "./RepoRecoveryCard";
-import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord, InlineFailureCause, ToolFailureCause, useInStep } from "./ToolFailureCause";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
 /// ACP tool kinds (`ToolKind`) to row glyphs.
@@ -58,6 +58,7 @@ export function toolIcon(kind?: string): ReactNode {
 // context changes (Find, language, cwd) still reach this component through React's subscriptions.
 export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
+  const step = useInStep();
   // Closed, or open in the Verbose transcript view.
   const [open, setOpen] = useRowDisclosure(item.tool?.id);
   // Find in Chat counts matches in the whole output, so a call it reveals shows all of it.
@@ -149,7 +150,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
         {failure && (
           <span className="cv-tool__failed" data-find-skip>
             {" "}
-            {failureWord(t, failure)}
+            {failureWord(t, failure, step)}
           </span>
         )}
         <InlineFailureCause failure={failure} />
