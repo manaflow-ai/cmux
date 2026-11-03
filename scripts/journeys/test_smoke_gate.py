@@ -1135,7 +1135,7 @@ class RealKeyHosts(unittest.TestCase):
             code, summary = gate(["pass"] * rounds, tmp, rounds=rounds,
                                  extra=("--hosts", "cmux20 cmux22 cmux23", "--whole-host", "cmux20", "--go-spec", "g",
                                         "--real-key-hosts", "cmux20", "--goldens", goldens, "--go-wait-hours", "0.04",
-                                        *extra),
+                                        *extra),  # a later --hosts / --real-key-hosts in EXTRA wins (argparse)
                                  env_extra={"SMOKE_GATE_SCHED_ROUNDS": rounds_dir, "SMOKE_GATE_CMUX_CI": ci,
                                             "SMOKE_GATE_GO_NONE_LEFT_GRACE": "0.2"})
         finally:
@@ -1159,6 +1159,21 @@ class RealKeyHosts(unittest.TestCase):
                 argv = json.load(open(os.path.join(tmp, "out", "round-%02d" % r["round"], "argv.json")))
                 self.assertEqual("key_path=real" in argv, r["key_path"] == "real_hid")
             self.assertEqual(summary["passed"], 10)
+
+    def test_a_mouse_golden_takes_only_mouse_hosts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write("update-restart-nf\nmwv-home-click-each-window-nf\n")
+            # GOs: cmux24 (real keys, no mouse) for the first case, then cmux24 again (given back for the mouse case),
+            # then cmux20
+            code, summary = self.run_gate(tmp, ["cmux24", "cmux24", "cmux20"], rounds=1, goldens="only",
+                                          extra=("--real-key-hosts", "cmux20 cmux24", "--mouse-hosts", "cmux20",
+                                                 "--hosts", "cmux20 cmux22 cmux23 cmux24"))
+            ran = {r["case"]: r for r in summary["video_goldens"]["run"]}
+            self.assertEqual(ran["update-restart-nf"]["host"] in ("cmux24", "cmux99"), True)
+            argv = json.load(open(os.path.join(tmp, "out", "golden-mwv-home-click-each-window-nf", "argv.json")))
+            self.assertEqual(argv[argv.index("--hosts") + 1], "cmux20")
+            argv0 = json.load(open(os.path.join(tmp, "out", "golden-update-restart-nf", "argv.json")))
+            self.assertEqual(argv0[argv0.index("--hosts") + 1], "cmux24")
 
     def test_too_few_real_key_rounds_is_no_gate_run(self):
         with tempfile.TemporaryDirectory() as tmp:

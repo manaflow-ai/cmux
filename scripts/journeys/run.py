@@ -73,6 +73,8 @@ JOURNEY_SECONDS = LEASE_SECONDS - SETUP_RESERVE - 40
 RESULT_FILE = re.compile(r"(?:\./)?((?:[a-z0-9][a-z0-9-]*/)?(?:result\.json|check-\d{2,3}\.png|clip/frame-\d{5}\.png"
                          r"|restore-trace\.json|diag-[a-z]+\.(?:json|png|txt)|diag-app-sample\.txt)|host\.json|summary\.json)")
 RESULT_MAX_BYTES = 64 << 20
+# Build jobs kept in each mini's ~/.cache/cmux-journeys/builds (the newest first; ported from feat-cmux-next run.py).
+BUILD_CACHE_KEEP = 3
 RESULT_TAR_MAX_BYTES = 768 << 20
 STEP_NAMES = {name[len("step_"):] for name in dir(driver.Journey) if name.startswith("step_")}
 # The files of a run in its OUT folder: a folder that holds one of them was used by an earlier run.
@@ -525,12 +527,24 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         # One compiled text reader per mini and source version, outside the slot (release removes the slot).
         digest = hashlib.sha256(OCR_SOURCE.read_bytes()).hexdigest()[:16]
         ocr = f"$HOME/.cache/cmux-journeys/ocr-{digest}"
-        log(f"downloading build {build['id']} on {host} (and the text reader, once per mini)")
-        app = remote(host, f"set -e; cd {q(work)}; mkdir -p $HOME/.cache/cmux-journeys; "
+        # The build, once per mini and job, outside the slot (cmux-ad 09:05Z: a lease is held only while journey steps
+        # run): ~/.cache/cmux-journeys/builds/<job>/, filled atomically by the first lease of that job on the mini and
+        # reused by every later round (the newest BUILD_CACHE_KEEP jobs are kept). capture-host launch clones it into
+        # the slot, so the slot never changes it.
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", str(build["id"])):
+            raise RuntimeError(f"build id {build['id']!r} is not a plain job id")
+        cache = f"$HOME/.cache/cmux-journeys/builds/{build['id']}"
+        log(f"build {build['id']} on {host}: cached there, else downloaded once (and the text reader, once per mini)")
+        app = remote(host, f"set -e; cd {q(work)}; mkdir -p $HOME/.cache/cmux-journeys/builds; "
                            f"( [ -x {ocr} ] || {{ swiftc -O kit/ocr.swift -o {ocr}.$$ && mv -f {ocr}.$$ {ocr}; }} ) >ocr.log 2>&1 & "
-                           f"cmux-ci artifact {q(build['id'])} app.zip >&2; ditto -x -k app.zip build; rm -f app.zip; wait || true; "
+                           f"c={cache}; find $HOME/.cache/cmux-journeys/builds -maxdepth 1 -name '*.tmp.*' -mmin +60 -exec rm -rf {{}} + 2>/dev/null || true; "
+                           f"if [ -f \"$c/ok\" ]; then echo 'journeys: build cache hit' >&2; touch \"$c\"; else "
+                           f"t=\"$c.tmp.$$\"; rm -rf \"$t\"; mkdir -p \"$t\"; cmux-ci artifact {q(build['id'])} \"$t/app.zip\" >&2; "
+                           f"ditto -x -k \"$t/app.zip\" \"$t/build\"; rm -f \"$t/app.zip\"; rm -rf \"$c\"; mv \"$t\" \"$c\"; touch \"$c/ok\" \"$c\"; "
+                           f"ls -1t $HOME/.cache/cmux-journeys/builds | grep -v '\\.tmp\\.' | tail -n +{BUILD_CACHE_KEEP + 1} | "
+                           f"while read -r old; do rm -rf \"$HOME/.cache/cmux-journeys/builds/$old\"; done; fi; wait || true; "
                            f"[ -x {ocr} ] || {{ cat ocr.log >&2; exit 3; }}; "
-                           f"a=$(find \"$PWD/build\" -maxdepth 2 -name '*.app' -type d | head -1); "
+                           f"a=$(find \"$c/build\" -maxdepth 2 -name '*.app' -type d | head -1); "
                            # The commit the build job names, beside the bundle unpacked from that job's artifact:
                            # capture-host launch --commit checks it (and the bundle's own CMUXCommit, if any, must agree).
                            f"[ -z \"$a\" ] || {{ [ {len(str(build.get('commit') or ''))} -ne 40 ] || "

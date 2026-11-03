@@ -559,6 +559,23 @@ def golden_blockers(job, listing=None):
 GOLDEN_JUDGE = HERE / "video_golden.py"
 
 
+MOUSE_STEPS = ("real_click", "real_drag", "smoke_click", "click", "drag", "mouse")
+
+
+def _uses_mouse(case):
+    """True when the journey CASE has a real mouse step (click or drag): such a golden runs only on --mouse-hosts.
+    A journey the gate cannot find is treated as a mouse journey (the safe side)."""
+    for path in (HERE / "journeys").rglob("*.json"):
+        try:
+            spec = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(spec, dict) and spec.get("id") == case:
+            steps = list(spec.get("steps") or []) + list(spec.get("finally") or [])
+            return any(isinstance(st, dict) and any(k in str(st.get("do", "")) for k in MOUSE_STEPS) for st in steps)
+    return True
+
+
 def golden_cases(opts, out, listing, env_base):
     """Runs each case of the golden list once on opts.build and appends its verdict to the golden ledger (VIDEO EXTRA
     item 9; lead STATUS 6806: the per-candidate golden run is part of this gate). One run.py per case, each on its own
@@ -578,8 +595,16 @@ def golden_cases(opts, out, listing, env_base):
         case_out = out / f"golden-{case}"
         go = None
         if opts.go_spec:
-            go, why = await_go(opts.go_spec, sorted(getattr(opts, "real_hosts", None) or opts.hosts.split()),
-                               opts.go_used, opts.go_deadline)
+            pool = getattr(opts, "real_hosts", None) or set(opts.hosts.split())
+            if _uses_mouse(case) and getattr(opts, "mouse_hosts", None):
+                pool = set(pool) & opts.mouse_hosts
+            if not pool:
+                case_out.mkdir(parents=True, exist_ok=True)
+                why = "no mini of --mouse-hosts is also a real-key mini of --hosts"
+                records.append({"case": case, "status": "not run", "reason": why, "host": None, "out": str(case_out)})
+                print(f"golden {case}: not run ({why})", flush=True)
+                continue
+            go, why = await_go(opts.go_spec, sorted(pool), opts.go_used, opts.go_deadline)
             if not go:
                 case_out.mkdir(parents=True, exist_ok=True)
                 records.append({"case": case, "status": "not run", "reason": why, "host": None, "out": str(case_out)})
@@ -701,6 +726,10 @@ def main(argv=None):
                          "run the round on the GO's mini (one of --hosts), take its lease within the GO's window, and "
                          "end the GO with NAME.done; all rounds stay one gate run")
     ap.add_argument("--go-wait-hours", type=float, default=4.0, help="how long the run waits for all its GOs")
+    ap.add_argument("--mouse-hosts", metavar="HOSTS",
+                    help="with --go-spec: the minis (spaces between) where real mouse clicks and drags reach the app. "
+                         "A golden case whose journey clicks or drags takes GOs only there (default: the real-key "
+                         "minis). RESIZE KEYS 2026-11-03: no mouse event reaches the app on cmux24, keys do")
     ap.add_argument("--real-key-hosts", metavar="HOSTS",
                     help="with --go-spec: the minis (spaces between) where real HID keys work (CuaDriver granted, no "
                          "host dialog). Real-key rounds and the golden cases take GOs only there; debug.key rounds take "
@@ -730,6 +759,7 @@ def main(argv=None):
     real_rounds = real_key_rounds(opts.rounds, opts.real_key_rounds) if opts.whole_host else []
     real_hosts = set((opts.real_key_hosts or "").split()) or set(opts.hosts.split())
     opts.real_hosts = real_hosts  # the golden cases press real keys too: only these minis
+    opts.mouse_hosts = set((opts.mouse_hosts or "").split()) or None
     # With --real-key-hosts and --go-spec the real-key rounds are placed where the GO lands (a mini with real keys)
     # at or after their planned slot; the planned slots are only the earliest places (lead 03:0xZ: the 8 debug.key
     # rounds and the goldens must not wait for the two minis with real keys).
