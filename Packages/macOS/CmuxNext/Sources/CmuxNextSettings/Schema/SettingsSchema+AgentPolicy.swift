@@ -269,6 +269,8 @@ extension SettingsSchema {
         "freeModel.enabled": .privacy,
         // The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.
         "cloud.newWorkspacesInCloud": .privacy, "cloud.newWorkspaceFolder": .privacy,
+        // Whether an agent starts Cloud machines and sessions with no Start card: only the person delegates it.
+        "cloud.agentsStartWithoutAsking": .userOnly,
         "agents.chats.roots": .privacy,
         "agents.chats.discovery": .privacy,
         "agentPane.scrollToBottomOnSend": .userOnly,

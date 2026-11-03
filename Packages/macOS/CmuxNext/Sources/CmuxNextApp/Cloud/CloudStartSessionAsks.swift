@@ -19,6 +19,11 @@ final class CloudStartSessionAsks {
     private struct Open {
         var token: UUID
         var asked: CloudStartSessionStrings.Asked
+        /// The ask as `cmux agents dialog list` names it (``dialogID(_:)``).
+        var dialog: String
+        /// The card's text, and the agent session of the chat that asked (nil: unknown).
+        var text: String
+        var caller: String?
         /// The ask's wait for the person's answer; nil once they clicked Start.
         var answer: AsyncStream<Answer>.Continuation?
         /// Its account ended (``endAll()``) while it asked: a Start already sent is void.
@@ -39,12 +44,43 @@ final class CloudStartSessionAsks {
     /// The ask that owns chat tab `tab`'s card, if any.
     func owner(of tab: String) -> UUID? { open[tab]?.token }
 
+    /// An ask's id in `cmux agents dialog list|answer`: its token, so a later ask in the same chat
+    /// is another dialog and an answer to an ended one finds nothing.
+    static func dialogID(_ token: UUID) -> String { "cloud-start-" + token.uuidString.lowercased() }
+
+    /// An ask still waiting for the person's answer, as `cmux agents dialog list` shows it.
+    struct Waiting: Equatable {
+        var dialog: String
+        var tab: String
+        var text: String
+        var caller: String?
+        var asked: CloudStartSessionStrings.Asked
+    }
+
+    /// The asks still waiting for an answer (their card asks), oldest chat first by tab id.
+    var waiting: [Waiting] {
+        open.compactMap { tab, ask in
+            ask.answer == nil ? nil : Waiting(dialog: ask.dialog, tab: tab, text: ask.text, caller: ask.caller, asked: ask.asked)
+        }.sorted { $0.tab < $1.tab }
+    }
+
+    /// Answers the waiting ask `dialog` as the card's Start (`start`) or Not now would; false when no
+    /// ask waits under that id (answered, ended, or never one). Who may answer is the caller's check
+    /// (``CloudAskDialogs``): this only delivers it.
+    func answer(dialog: String, start: Bool) -> Bool {
+        guard let ask = open.values.first(where: { $0.dialog == dialog }), let answer = ask.answer else { return false }
+        answer.yield(start ? .start : .notNow)
+        return true
+    }
+
     /// Shows the card in chat tab `tab` and returns its token once the person clicks Start. Throws
     /// when they choose Not now, when nobody answers within ``wait``, when the signed-in account
     /// stops being `account` (`now`, read on every change), or when the chat has no page; throws
     /// `CancellationError` when the run is cancelled. Every way out but Start removes the card.
+    /// `caller`: the asking chat's agent session; `shown` gets the ask's dialog id once its card shows.
     func ask(tab: String, text: String, asked: CloudStartSessionStrings.Asked, account: [String?],
-             now: @escaping @MainActor @Sendable () -> [String?]) async throws -> UUID {
+             now: @escaping @MainActor @Sendable () -> [String?], caller: String? = nil,
+             shown: @MainActor (String) -> Void = { _ in }) async throws -> UUID {
         guard open[tab] == nil else { throw ActionFailure(message: CloudStartSessionStrings.askOpen(asked)) }
         let token = UUID()
         let (answers, continuation) = AsyncStream<Answer>.makeStream(bufferingPolicy: .bufferingOldest(1))
@@ -53,8 +89,9 @@ final class CloudStartSessionAsks {
             _ = set([], tab: tab) { _, _, _ in }
             throw ActionFailure(message: CloudStartSessionStrings.noPage(asked))
         }
-        open[tab] = Open(token: token, asked: asked, answer: continuation)
+        open[tab] = Open(token: token, asked: asked, dialog: Self.dialogID(token), text: text, caller: caller, answer: continuation)
         linked.remove(tab)
+        shown(Self.dialogID(token))
         // task-owner: the card's one-shot deadline; cancelled below once the person answers.
         let deadline = Task {
             // wakeup-allow: one-shot deadline for the person's answer on the card
@@ -211,8 +248,9 @@ final class CloudStartSessionRuns {
     private final class Run {
         var task: Task<Outcome, Never>?
         /// Callers waiting for its end now: each is resumed when it ends, with the failure it
-        /// gets if the run is forgotten first, or removes itself at its own deadline.
-        var waiters: [UUID: (end: AsyncStream<Outcome?>.Continuation, forgotten: any Error)] = [:]
+        /// gets if the run is forgotten first, or removes itself at its own deadline. An `early`
+        /// one (the caller that started it) is also resumed when the run waits for the person.
+        var waiters: [UUID: (end: AsyncStream<Outcome?>.Continuation, forgotten: any Error, early: Bool)] = [:]
         var outcome: Outcome?
         /// Forgotten (``forgetAll()``): a caller whose deadline fired first gets its `forgotten`
         /// failure all the same, never `pending`.
@@ -262,15 +300,17 @@ final class CloudStartSessionRuns {
 
     /// The end of `key`'s run, or `pending` once `within` has passed (the run goes on): a kept
     /// run's end (handed out once), the one going on, else `work`, started now. If the runs are
-    /// forgotten while this caller waits (``forgetAll()``), it gets `forgotten`.
-    func answer(_ key: Key, within: Duration, pending: Fields, forgotten: any Error,
+    /// forgotten while this caller waits (``forgetAll()``), it gets `forgotten`. With `early`, the
+    /// caller that starts the run gets the run's ``asking(_:_:)`` answer as soon as the run waits
+    /// for the person, instead of waiting in silence; the same ask again waits for the person.
+    func answer(_ key: Key, within: Duration, pending: Fields, forgotten: any Error, early: Bool = false,
                 _ work: @escaping @MainActor () async throws -> Fields) async throws -> Fields {
-        let run = take(key, work)
+        let (run, started) = take(key, work)
         if let outcome = run.outcome { return try outcome.get() }
         let caller = UUID()
         let (ends, continuation) = AsyncStream<Outcome?>.makeStream(bufferingPolicy: .bufferingOldest(1))
-        // The run's end resumes it (``take``), or ``forgetAll()``; nothing else waits on the run.
-        run.waiters[caller] = (continuation, forgotten)
+        // The run's end resumes it (``take``), ``asking(_:_:)`` an early one, or ``forgetAll()``.
+        run.waiters[caller] = (continuation, forgotten, early && started)
         // task-owner: this caller's answer deadline; cancelled below once the run ends first.
         let deadline = Task { @MainActor [sleep] in
             // wakeup-allow: one-shot answer deadline of one caller; cancelled when its run ends first
@@ -297,6 +337,16 @@ final class CloudStartSessionRuns {
         return pending
     }
 
+    /// `key`'s run waits for the person (its card shows): the caller that started it with `early`
+    /// gets `fields` now, and the run goes on.
+    func asking(_ key: Key, _ fields: Fields) {
+        guard let run = runs[key], run.outcome == nil else { return }
+        for (id, waiter) in run.waiters where waiter.early {
+            waiter.end.yield(.success(fields))
+            run.waiters[id] = nil
+        }
+    }
+
     /// The account the runs were asked in ended: each waiting caller gets its `forgotten`
     /// failure now, every run and creation is cancelled, and none is kept or joined after.
     func forgetAll() {
@@ -312,15 +362,15 @@ final class CloudStartSessionRuns {
         creations = [:]
     }
 
-    /// The run of `key` to answer: a kept one (taken out, its end handed out once), the one going
-    /// on, else a new one.
-    private func take(_ key: Key, _ work: @escaping @MainActor () async throws -> Fields) -> Run {
+    /// The run of `key` to answer, and whether it starts now: a kept one (taken out, its end
+    /// handed out once), the one going on, else a new one.
+    private func take(_ key: Key, _ work: @escaping @MainActor () async throws -> Fields) -> (Run, Bool) {
         if let run = runs[key] {
             if let kept = run.kept {
                 runs[key] = nil
-                if now() - kept <= Self.kept { return run }
+                if now() - kept <= Self.kept { return (run, false) }
             } else {
-                return run
+                return (run, false)
             }
         }
         prune()
@@ -343,7 +393,7 @@ final class CloudStartSessionRuns {
             }
             return outcome
         }
-        return run
+        return (run, true)
     }
 
     /// Waits for `key`'s run to end (tests).
