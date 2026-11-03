@@ -411,11 +411,7 @@ impl Hub {
     pub(crate) async fn in_use(&self) -> Option<&'static str> {
         // Still loading: queued prompts and cut turns the last daemon left resume from the chat
         // logs, and adoption reattaches running agents.
-        if !self.store_loaded()
-            || !*self.startup_ready.borrow()
-            || !*self.adoption_ready.borrow()
-            || !*self.logs_ready.borrow()
-        {
+        if !self.startup_settled() {
             return Some("its startup");
         }
         // A link this daemon keeps to a peer may carry work for that peer's agents (the GitHub
@@ -471,6 +467,16 @@ impl Hub {
 }
 
 impl Hub {
+    /// Whether this daemon's startup has settled: the store and chat logs are loaded, startup
+    /// ran and adoption reattached the agents that outlived the last daemon. Until then a turn
+    /// a surviving agent host still runs, or a cut turn about to resume, is not counted yet.
+    pub(crate) fn startup_settled(&self) -> bool {
+        self.store_loaded()
+            && *self.startup_ready.borrow()
+            && *self.adoption_ready.borrow()
+            && *self.logs_ready.borrow()
+    }
+
     /// A turn or anything one waits on: running (by acpmux or by the harness), queued, a
     /// permission or question pending, an agent request on its way, or a continuation of a cut
     /// turn still due.
@@ -485,9 +491,11 @@ impl Hub {
     }
 
     /// This daemon's own sessions at work: a turn or anything one waits on, a background task
-    /// running, or a background subagent or sub-session at work. A Cloud machine counts them as open sessions in its activity report
-    /// (`daemon/cloud_activity.rs`), so it is never paused for idleness mid-turn. Reads each
-    /// chat's background-task records, so call it off the async workers.
+    /// running, a background process the harness started (a Claude background shell) still
+    /// running, or a background subagent or sub-session at work. A Cloud machine counts them as
+    /// open sessions in its activity report (`daemon/cloud_activity.rs`), so it is never paused
+    /// for idleness mid-turn or under a command a turn left running. Reads each chat's
+    /// background-task and process records, so call it off the async workers.
     pub(crate) fn sessions_at_work(&self) -> usize {
         self.sessions()
             .iter()
@@ -497,6 +505,7 @@ impl Hub {
                         > 0
                     || s.work_below_since.lock().map_or(true, |v| *v != 0)
                     || self.bg_running(s)
+                    || self.any_process_running(s)
             })
             .count()
     }
