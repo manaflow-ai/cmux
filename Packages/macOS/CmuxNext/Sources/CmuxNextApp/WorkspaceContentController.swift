@@ -140,6 +140,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         self.state = state
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
+        layoutModel.sendsNow = { [weak self] intent in self?.handles.sendsNow(intent) ?? false }
         _ = layoutView  // built here, then the bar and the content view, as before
         // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
         layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }

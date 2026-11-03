@@ -22,10 +22,12 @@ extension LayoutRootView {
         view.scrollState.keptColumn = column
     }
 
-    /// The press's own sync ran, or had nothing to show (its widths were refused at once): the column it kept in place
-    /// applies to no later sync.
+    /// The press's own sync ran, or had nothing to show (its values were refused while they went out): the column it
+    /// kept in place applies to no later sync, and with nothing moving its content hold ends too (a later structural
+    /// change must not start held).
     public func keyboardResizeDidChange(screenContaining pane: PaneID) {
         guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return }
         view.scrollState.keptColumn = nil
+        if !view.hasMotion { view.holdsContentForKeyResize = false }
     }
 }

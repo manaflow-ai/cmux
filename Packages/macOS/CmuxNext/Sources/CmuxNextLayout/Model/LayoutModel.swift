@@ -197,6 +197,8 @@ public final class LayoutModel {
     public var animatesReflow: Bool { ProcessInfo.processInfo.systemUptime < explicitReflowUntil }
     @ObservationIgnored var widthOverrides: [ColumnID: GestureOverride] = [:]
     @ObservationIgnored var replies = TransactionReplies()
+    /// Whether the app can send an ended value's command now (`EndedValues`); nil sends every one.
+    @ObservationIgnored public var sendsNow: (@MainActor (LayoutIntent) -> Bool)?
     /// A pane whose shown content the next structural change moves into the pane it adds, until an
     /// uptime (`handOffContent(of:)`).
     @ObservationIgnored var contentHandoff: (pane: PaneID, until: TimeInterval)?

@@ -144,6 +144,11 @@ struct DividerDrag {
         drag = phase == .ended ? drag : showingHint(drag)
         screen.activeDrag = drag
         model.restoreGestureValues(restored, transaction: drag.transaction)
+        // The release's values are one change, all or nothing (`EndedValues`): what the app cannot send takes the drag back.
+        if phase == .ended {
+            EndedValues(targets, transaction: drag.transaction).send(in: model)
+            return
+        }
         for target in targets {
             switch target {
             case let .ratio(split, ratio): model.setSplitRatio(split, ratio: ratio, transaction: drag.transaction, phase: phase)

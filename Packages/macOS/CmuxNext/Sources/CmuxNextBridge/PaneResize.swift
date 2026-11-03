@@ -94,28 +94,33 @@ public nonisolated enum PaneResize {
         guard let change = change(for: pane, direction: direction, in: screen.layout, shown: view.shownResizeRange(ofScreenContaining: pane)) else {
             return false
         }
+        // A split ratio, a width or a trade is one change, all or nothing (`EndedValues`): refused before anything moves
+        // when the app cannot send all of it now (a column the daemon has not made yet).
+        let values: EndedValues? = switch change {
+        case .splitRatio(let split, let ratio): EndedValues([.ratio(split, ratio)])
+        case .columnWidth(let column, let width): EndedValues([.width(column, width)])
+        case .columnTrade(let left, let leftWidth, let right, let rightWidth): EndedValues([.width(left, leftWidth), .width(right, rightWidth)])
+        case .rowHeights: nil
+        }
+        if let values, !values.canSend(in: model) { return false }
         // Every pane of the screen keeps its content's size through the spring and lays it out once at the landing; a
-        // trade keeps its left column (and the camera) in place, so only the divider between the two moves.
+        // trade keeps its left column (and the camera) in place, so only the divider between them moves.
         if case .columnTrade(let left, _, _, _) = change {
             view.keyboardResizeWillChange(screenContaining: pane, keeping: left)
         } else {
             view.keyboardResizeWillChange(screenContaining: pane)
         }
-        switch change {
-        case .splitRatio(let split, let ratio): model.setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
-        case .columnWidth(let column, let width): model.setColumnWidth(column, width: width, transaction: .make(), phase: .ended)
-        case .columnTrade(let left, let leftWidth, let right, let rightWidth):
-            // One press, one transaction: the daemon keeps one undo entry for both widths.
-            let transaction = LayoutTransactionID.make()
-            model.setColumnWidth(left, width: leftWidth, transaction: transaction, phase: .ended)
-            model.setColumnWidth(right, width: rightWidth, transaction: transaction, phase: .ended)
-        case .rowHeights(let column, let heights): model.setRowHeights(column, heights: heights, fit: heights.reduce(0) { $0 + $1.height } == 1000)
+        var sent = true
+        if let values {
+            sent = values.send(in: model)
+        } else if case .rowHeights(let column, let heights) = change {
+            model.setRowHeights(column, heights: heights, fit: heights.reduce(0) { $0 + $1.height } == 1000)
         }
         // The spring starts in the key's own turn (as a split's frame does, `LayoutRootView.syncWithModel`): the very
         // next display frame moves, never one that ran before the layout's observation turn.
         view.syncWithModel()
         view.keyboardResizeDidChange(screenContaining: pane)
-        return true
+        return sent
     }
 
     /// The column before (`forward == false`) or after the pane's column.
