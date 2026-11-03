@@ -164,6 +164,28 @@ pub fn side_text(it: &Item) -> String {
     )
 }
 
+/// Reads `side_text` back: (kind, date, text) of an imported note.
+pub fn parse_side_text(note: &str) -> Option<(&str, &str, &str)> {
+    let (header, text) = note.split_once('\n')?;
+    let inner = header.strip_prefix("[imported from ")?.strip_suffix(']')?;
+    let mut parts = inner.rsplitn(3, " · ");
+    let date = parts.next()?;
+    let kind = parts.next()?;
+    parts.next()?;
+    Some((kind, date, text))
+}
+
+/// Keys of the items a memory export holds as imported notes.
+fn keys_of_side_notes<'a>(lines: impl Iterator<Item = &'a str>) -> HashSet<String> {
+    lines
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter_map(|v| {
+            let (kind, date, text) = parse_side_text(v["text"].as_str()?)?;
+            Some(item_key(kind, date, text))
+        })
+        .collect()
+}
+
 fn keys_file(paths: &Paths) -> PathBuf {
     paths.root.join("import-keys.txt")
 }
@@ -174,6 +196,9 @@ pub fn local_known(paths: &Paths) -> Result<HashSet<String>, String> {
     if paths.memory_db.exists() {
         let (main, _) = crate::migrate_cloud::memory_lines(&paths.memory_db)?;
         known = keys_of_export_lines(main.iter().map(String::as_str));
+        // Imported notes carry their item's key in their header, so a write cut
+        // off before import-keys.txt was appended still counts as done.
+        known.extend(keys_of_side_notes(main.iter().map(String::as_str)));
     }
     if let Ok(text) = std::fs::read_to_string(keys_file(paths)) {
         known.extend(text.lines().map(str::to_owned));
@@ -270,6 +295,14 @@ pub fn items_from_claude_code(projects: &Path) -> Result<Vec<Item>, String> {
         .collect())
 }
 
+/// Codex chat transcripts (`codex_sessions_import`).
+pub fn items_from_codex_sessions(dir: &Path) -> Vec<Item> {
+    crate::codex_sessions_import::convert_sessions(dir)
+        .into_iter()
+        .map(|i| item(i.kind, &i.text, &i.date, "codex-sessions"))
+        .collect()
+}
+
 /// A claude.ai or ChatGPT export (`conversations.json` text).
 pub fn items_from_export_json(json_text: &str, source: &str) -> Result<Vec<Item>, String> {
     let v: Value = serde_json::from_str(json_text).map_err(|e| format!("{source}: {e}"))?;
@@ -363,6 +396,12 @@ pub fn read_source(source: &str, user_home: &Path, chief_db: &Path) -> Result<Ve
             user_home,
             std::env::var("CLAUDE_CONFIG_DIR").ok(),
         )),
+        "codex-sessions" => Ok(items_from_codex_sessions(
+            &crate::codex_sessions_import::default_sessions_dir(
+                user_home,
+                std::env::var("CODEX_HOME").ok(),
+            ),
+        )),
         "chief" => items_from_chief(chief_db),
         s => {
             if let Some(z) = s.strip_prefix("zip:") {
@@ -371,7 +410,7 @@ pub fn read_source(source: &str, user_home: &Path, chief_db: &Path) -> Result<Ve
                 items_from_chief(&Paths::new(Path::new(d)).memory_db)
             } else {
                 Err(format!(
-                    "unknown source {s}: chief, chief:MUX_HOME, claude-memory, claude-code, codex or zip:FILE"
+                    "unknown source {s}: chief, chief:MUX_HOME, claude-memory, claude-code, codex, codex-sessions or zip:FILE"
                 ))
             }
         }
@@ -452,7 +491,7 @@ pub const USAGE: &str = "optchat-chief memory import-from detect [--exports] [--
 optchat-chief memory import-from undo [--to local|cloud[:staging|:URL]] [--chief agent_ID] [--batch ID]   take the last write back
 optchat-chief memory import-from SOURCE dry-run|write [--to local|cloud[:staging|:URL]] [--chief agent_ID]
     [--stop-host] [--max-cost USD] [--max-items N] [--price-in USD --price-out USD] [--session-token-file F] [--mux-home DIR] [--json]
-  SOURCE: chief (this home's memory), chief:MUX_HOME, claude-memory, claude-code, codex, zip:FILE (claude.ai / ChatGPT export)
+  SOURCE: chief (this home's memory), chief:MUX_HOME, claude-memory, claude-code, codex (memories), codex-sessions (chat transcripts), zip:FILE (claude.ai / ChatGPT export)
   --to local (default) merges into this home's memory (host stopped); --to cloud appends to the Cloud Chief --chief names.
   Incremental: a key per item, so a re-run brings only what is new. Secrets are dropped. A write backs up first.";
 
@@ -588,8 +627,10 @@ pub fn run(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<Str
         .ok_or("--to cloud needs --chief agent_ID")?
         .to_owned();
     let base = crate::migrate_cloud::api_base(to)?;
-    let token =
-        crate::migrate_cloud::session_token(flags.value("session-token-file").map(Path::new))?;
+    let token = crate::migrate_cloud::session_token(
+        flags.value("session-token-file").map(Path::new),
+        Some(&base),
+    )?;
     let api = crate::migrate_cloud::Api::new(base, token);
     let conversation = crate::migrate_cloud::chief_main_conversation(&chief);
     let (mut plan, fresh) = make_plan(source, items, &HashSet::new());
@@ -677,8 +718,10 @@ fn undo(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<String
         })
         .ok_or("nothing to undo: no earlier import into this Cloud Chief")?;
     let base = crate::migrate_cloud::api_base(to)?;
-    let token =
-        crate::migrate_cloud::session_token(flags.value("session-token-file").map(Path::new))?;
+    let token = crate::migrate_cloud::session_token(
+        flags.value("session-token-file").map(Path::new),
+        Some(&base),
+    )?;
     let api = crate::migrate_cloud::Api::new(base, token);
     let conversation = crate::migrate_cloud::chief_main_conversation(chief);
     let (status, value) = api.put_memory(
@@ -734,6 +777,30 @@ mod tests {
     }
 
     #[test]
+    fn codex_sessions_become_items_with_stable_keys() {
+        let dir = std::env::temp_dir().join(format!("a-codex-items-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("2026/11/02")).unwrap();
+        std::fs::write(
+            dir.join("2026/11/02/rollout-a.jsonl"),
+            concat!(
+                r#"{"timestamp":"2026-11-02T10:00:00.000Z","type":"session_meta","payload":{"id":"s","cwd":"/w","source":"cli"}}"#,
+                "\n",
+                r#"{"timestamp":"2026-11-02T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+        let first = items_from_codex_sessions(&dir);
+        assert_eq!(first.len(), 2);
+        assert!(first.iter().all(|i| i.source == "codex-sessions"));
+        let known: HashSet<String> = first.iter().map(|i| i.key.clone()).collect();
+        let (plan, fresh) = make_plan("codex-sessions", items_from_codex_sessions(&dir), &known);
+        assert_eq!((plan.new, fresh.len()), (0, 0));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn known_keys_make_duplicates() {
         let list = items(&[("note", "a"), ("note", "b")]);
         let known: HashSet<String> = [list[0].key.clone()].into();
@@ -785,6 +852,29 @@ mod tests {
             crate::claude_import::existing_messages(&paths.chat, &paths.memory_db).unwrap(),
             4
         );
+    }
+
+    /// A write cut off after the items reached the memory but before their keys
+    /// reached import-keys.txt (a crash, a quit, a restart) resumes without
+    /// copying them twice: the imported notes themselves carry their keys.
+    #[test]
+    fn interrupted_write_resumes_without_duplicates() {
+        let paths = temp_paths("resume");
+        let list = items(&[("user", "first"), ("ai", "second"), ("user", "third")]);
+        // The first two reached the memory; the keys file never got them.
+        let done: Vec<Imported> = list[..2]
+            .iter()
+            .map(|i| Imported {
+                kind: optchat_core::Kind::Note,
+                text: side_text(i),
+                date: Some(i.date.clone()),
+            })
+            .collect();
+        crate::browse::import(&paths.chat, &paths.memory_db, &done).unwrap();
+        assert!(!keys_file(&paths).exists());
+        let (plan, fresh) = make_plan("t", list, &local_known(&paths).unwrap());
+        assert_eq!((plan.duplicate, plan.new), (2, 1));
+        assert_eq!(fresh[0].text, "third");
     }
 
     #[test]

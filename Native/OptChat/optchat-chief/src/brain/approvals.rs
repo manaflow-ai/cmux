@@ -236,7 +236,15 @@ impl Brain {
                     return true;
                 }
             }
-            "mcp__optchat__tell" => {}
+            "mcp__optchat__tell" => {
+                // A trusted agent's turn (`relay.trustedAgents`) may tell any
+                // of the Chief's own subagents; never a session or a Chief.
+                if self.turn_relay.is_some()
+                    && field("id").is_some_and(|id| self.state.sub(id).is_some())
+                {
+                    return true;
+                }
+            }
             // Another person's words never become the owner's preference.
             "mcp__optchat__remember" => return false,
             // Nor spend the owner's money on a Cloud machine.
@@ -248,6 +256,14 @@ impl Brain {
         let Some(id) = field("id") else {
             return false;
         };
+        // A reply to the other person's Chief whose request this turn runs
+        // (rights_gate.rs): the conversation's own talk, no local effect.
+        if tool == "mcp__optchat__tell"
+            && id.starts_with(crate::rights::CHIEF_PREFIX)
+            && self.turn_has_person(id)
+        {
+            return true;
+        }
         self.state
             .sub(id)
             .is_some_and(|(_, s)| s.policy.as_deref() == Some(crate::approval::ASK))
@@ -263,6 +279,7 @@ impl Brain {
             return Ok(());
         }
         (self.log)(&format!("refused {tool} ({REFUSED_BY})"));
+        self.audit_refusal(tool, Some(input), REFUSED_BY);
         // A model that calls it again and again is stopped, as for a
         // refused permission request.
         if self.turn_ask {
@@ -271,6 +288,14 @@ impl Brain {
         Err(format!(
             "refused: this turn carries another person's text, so {tool} may not run with these arguments"
         ))
+    }
+
+    /// The trusted agent session(s) that drove the running ask turn (or the
+    /// last one, for its calls that reach the host after it ended); None
+    /// for any other turn.
+    pub(super) fn relay_sender(&self) -> Option<String> {
+        let ask = self.turn_ask || (self.last_turn_ask && self.state.turn.is_none());
+        if ask { self.turn_relay.clone() } else { None }
     }
 
     /// A permission request of a child that runs with policy `ask` (spawned
@@ -312,9 +337,10 @@ impl Brain {
     /// subagent.
     pub fn spawn_policy(&self) -> Option<&'static str> {
         // The shared rule (cmux_chief::policy::spawn_floor).
+        // A trusted agent's turn spawns with the owner's policy.
         cmux_chief::policy::spawn_floor(
             false,
-            self.turn_ask,
+            self.turn_ask && self.turn_relay.is_none(),
             self.ask_child_live(),
             self.ask_subagent_live(),
         )
@@ -350,6 +376,11 @@ impl Brain {
         } else {
             self.forget_unanswered(&pending.session_id, &pending.permission_id);
         }
+        self.audit_refusal(
+            &pending.tool,
+            pending.request.pointer("/toolCall/rawInput"),
+            approver,
+        );
         if let Some(dir) = &self.settings.trace_dir {
             let fields = json!({
                 "turn": self.state.turn.as_ref().map(|t| t.key.clone()),
