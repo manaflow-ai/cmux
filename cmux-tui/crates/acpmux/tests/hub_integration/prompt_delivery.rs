@@ -6,7 +6,7 @@
 //! after a restart is a new prompt (`prompt_approval.rs`).
 
 use super::*;
-use acpmux::store::{EventRecord, Store as _};
+use acpmux::store::EventRecord;
 
 /// A daemon config on the fake agent whose log is on disk under `dir`, so a second `Hub` over
 /// the same `dir` is the daemon after a restart.
