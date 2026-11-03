@@ -454,10 +454,10 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         Ok(stdout) => stdout,
         Err(error) => return sent_failure(error, answer),
     };
-    let sections = sections(&sent);
-    let baseline = last_turn(sections.get("history")).map_or(0, |turn| turn.seq);
-    if sections.get("exit").map(String::as_str).map(str::trim) != Some("0") {
-        let output = sections.get("send").cloned().unwrap_or_default();
+    let reported = sections(&sent);
+    let baseline = last_turn(reported.get("history")).map_or(0, |turn| turn.seq);
+    if reported.get("exit").map(String::as_str).map(str::trim) != Some("0") {
+        let output = reported.get("send").cloned().unwrap_or_default();
         return failed(
             "chat.send_failed",
             format!("the chat started, but the prompt did not reach it: {}", output.trim()),
@@ -466,7 +466,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         );
     }
     answer["sent"] = json!(true);
-    if let Some(delivery) = sections.get("send").map(|text| text.trim()).filter(|t| !t.is_empty()) {
+    if let Some(delivery) = reported.get("send").map(|text| text.trim()).filter(|t| !t.is_empty()) {
         answer["delivery"] = json!(delivery);
     }
     if !request.wait {
@@ -486,10 +486,10 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
             Ok(stdout) => stdout,
             Err(error) => return sent_failure(error, answer),
         };
-        let sections = sections(&polled);
-        let turn = last_turn(sections.get("history")).filter(|turn| turn.seq > baseline);
+        let polled = sections(&polled);
+        let turn = last_turn(polled.get("history")).filter(|turn| turn.seq > baseline);
         if let Some(turn) = turn.as_ref().filter(|turn| turn.ended) {
-            answer["reply"] = json!(reply(sections.get("last")).unwrap_or_default());
+            answer["reply"] = json!(reply(polled.get("last")).unwrap_or_default());
             answer["turn"] = turn.value.clone();
             if turn.failed() {
                 return Outcome::Failed {
@@ -501,7 +501,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
             }
             return Outcome::Done(answer);
         }
-        if sections.get("wait").map(|code| code.trim()) == Some("2") {
+        if polled.get("wait").map(|code| code.trim()) == Some("2") {
             return failed(
                 "chat.permission_waiting",
                 "the agent asks for a permission: answer it in the chat's tab in the cmux app, \
