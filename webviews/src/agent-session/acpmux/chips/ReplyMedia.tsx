@@ -69,31 +69,31 @@ export function formatDuration(seconds: number): string | undefined {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
 }
 
-/// The host's answer per source, so a re-render or a second mention plays the same URL.
-const granted = new Map<string, string>();
-
 /// The URL the pane plays `source` (a path, a `file://` URL or a web link) by, as the host grants it
 /// (`media.load`): a `cmux-agent://pane/__media/` URL the pane's scheme handler serves in byte
 /// ranges, so a file of any size streams and is never read whole. Nil when the host refuses it.
+/// A local path is asked on every mount, never cached across them: it names a different file in
+/// another chat (a remote one names its own machine's), and only the host knows which chat the pane
+/// shows now. The host hands the same file the same URL, so asking again costs one round trip. A web
+/// link names the same media in every chat, so its copy is kept (`webGranted`).
 export async function loadPlayableMedia(source: string): Promise<string | undefined> {
-  const known = granted.get(source);
+  const web = webURL(source) !== undefined;
+  const known = web ? webGranted.get(source) : undefined;
   if (known) return known;
   const reply = await callChipHost("media.load", { src: source });
   const url = (reply as { src?: unknown } | undefined)?.src;
   // The gallery's fixture answers a data URL; the pane's CSP plays only its own media URLs.
   if (typeof url !== "string" || !/^(cmux-agent:\/\/pane\/__media\/|data:(video|audio)\/)/.test(url)) return undefined;
-  granted.set(source, url);
+  if (web) webGranted.set(source, url);
   return url;
 }
 
-/// Forgets the URL `source` played by, so the next play asks the host again (a grant it dropped).
-export function forgetPlayableMedia(source: string): void {
-  granted.delete(source);
-}
+/// The host's copy of each web link already fetched, so a remount plays it without Load again.
+const webGranted = new Map<string, string>();
 
 /// Asks the host for the URL `source` plays by: at once when `auto`, else on `load()`.
 function useMediaLoad(source: string, auto: boolean) {
-  const [src, setSrc] = useState(() => granted.get(source));
+  const [src, setSrc] = useState(() => (webURL(source) ? webGranted.get(source) : undefined));
   const [state, setState] = useState<"idle" | "loading" | "failed">("idle");
   const load = useCallback(() => {
     setState("loading");
@@ -108,7 +108,7 @@ function useMediaLoad(source: string, auto: boolean) {
     if (auto && !src && state === "idle") load();
   }, [auto, src, state, load]);
   const fail = useCallback(() => {
-    forgetPlayableMedia(source);
+    webGranted.delete(source);
     setSrc(undefined);
     setState("failed");
   }, [source]);

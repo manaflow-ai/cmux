@@ -10,7 +10,7 @@
 import { useContext, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "../chips/host";
-import { forgetPlayableMedia, loadPlayableMedia, MediaPlayer } from "../chips/ReplyMedia";
+import { loadPlayableMedia, MediaPlayer } from "../chips/ReplyMedia";
 import { PlayTriangle } from "./icons";
 import { useStableImage } from "./imageEntries";
 import { TurnActionsContext } from "./turnActions";
@@ -39,10 +39,7 @@ export function SentVideoTile({ video, width }: { video: SentVideo; width: numbe
           name={video.name}
           path={video.path}
           autoPlay
-          onError={() => {
-            forgetPlayableMedia(video.path);
-            setSrc(undefined);
-          }}
+          onError={() => setSrc(undefined)}
         />
       </span>
     );

@@ -12,7 +12,7 @@
 // rectangles anyway?").
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { callChipHost } from "../chips/host";
-import { forgetPlayableMedia, formatDuration, loadPlayableMedia, VideoViewer } from "../chips/ReplyMedia";
+import { formatDuration, loadPlayableMedia, VideoViewer } from "../chips/ReplyMedia";
 import { PlayTriangle, Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import type { VideoInfo } from "./videoAttachments";
@@ -101,16 +101,7 @@ export function useAttachedVideoPlayer(path: string | undefined, name: string) {
       onKeyDown={stop}
       onContextMenu={stop}
     >
-      <VideoViewer
-        src={src}
-        name={name}
-        autoPlay
-        onError={() => {
-          if (path) forgetPlayableMedia(path);
-          setSrc(undefined);
-        }}
-        onClose={() => setSrc(undefined)}
-      />
+      <VideoViewer src={src} name={name} autoPlay onError={() => setSrc(undefined)} onClose={() => setSrc(undefined)} />
     </span>
   ) : null;
   return { play, viewer };
