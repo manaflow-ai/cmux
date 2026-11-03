@@ -273,6 +273,8 @@ extension SettingsSchema {
         "agents.chats.discovery": .privacy,
         "agentPane.scrollToBottomOnSend": .userOnly,
         "agents.chats.enabled": .privacy,
+        // Each recap is an extra model call on the person's usage: theirs to turn on or off.
+        "agents.chats.sessionRecap": .userOnly,
         "picker.pinned": .userOnly,
         // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,

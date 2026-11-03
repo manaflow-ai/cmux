@@ -11,11 +11,14 @@ extension ChatSettings {
     /// `agents.chats.roots`.
     public nonisolated static let rootsPath = ["agents", "chats", "roots"]
     public nonisolated static let rootsDefault: [String] = []
+    /// `agents.chats.sessionRecap`.
+    public nonisolated static let sessionRecapPath = ["agents", "chats", "sessionRecap"]
+    public nonisolated static let sessionRecapDefault = true
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum ChatSettingsSchema {
-    /// Device-local chat indexing controls; all three keys are privacy decisions for the person.
+    /// Device-local chat indexing controls (enabled, discovery and roots are privacy decisions for the person) and the session recap, which spends the person's usage.
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.chats", "Chats")
         return [
@@ -49,6 +52,16 @@ nonisolated enum ChatSettingsSchema {
                 kind: .folderList,
                 default: .array(ChatSettings.rootsDefault.map { .string($0) }),
                 keywords: ["agents", "chats", "folders", "roots", "privacy"]
+            ),
+            SettingDescriptor(
+                ChatSettings.sessionRecapPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.chats.sessionRecap", "Session Recap"),
+                help: SettingsText.keyed("settings.chats.sessionRecap.help", "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage."),
+                kind: .toggle,
+                default: .bool(ChatSettings.sessionRecapDefault),
+                keywords: ["agents", "chats", "recap", "summary", "away", "claude"]
             ),
         ]
     }
