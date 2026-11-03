@@ -112,6 +112,11 @@ cmux-host.workspace = true
 # Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 # same-user checks); the detached start (CreateProcess with a handle list),
 # owner-only ACLs and agent job objects use windows-sys.
+[target.'cfg(target_os = "macos")'.dependencies]
+# MCP connection secrets (`hub/mcp_secrets.rs`): items this binary writes itself, so the
+# Keychain's access list names acpmux, not `/usr/bin/security`. Already in the tree via rustls.
+security-framework = { version = "3.7", default-features = false }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # The login-env watcher's change-only inotify (`login_env/watch.rs` `quiet`); `notify` asks for
 # every open. Already in the tree through `notify`, with its features.
@@ -135,3 +140,5 @@ rcgen = "0.14"
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
 tokio = { version = "1.52", features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
+# The MCP sign-in tests read and build OAuth URLs and forms (`tests/hub_integration/mcp_connections.rs`).
+url.workspace = true
