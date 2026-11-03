@@ -14,7 +14,7 @@ import Testing
     private func toolbarMore() throws -> (button: ChromeIconButton, centerInset: CGFloat) {
         let row = BrowserToolbarButtonsView()
         let button = try #require(row.button(.overflow) as? ChromeIconButton)
-        return (button, OmnibarStyle.toolbarInset + OmnibarStyle.buttonSize / 2)
+        return (button, OmnibarStyle.toolbarTrailingInset + OmnibarStyle.buttonSize / 2)
     }
 
     @Test func bothMoreButtonsDrawOneGlyphAtOneSize() throws {
