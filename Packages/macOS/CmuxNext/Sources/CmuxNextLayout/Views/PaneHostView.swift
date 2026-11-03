@@ -128,25 +128,25 @@ final class PaneHostView: NSView, RestingPlacement {
     /// structural spring as any spring does (live, or held with `motion.pane.holdContent`).
     func endKeyResizeHold() {
         guard holdsUntilAfterLanding else { return }
-        guard isOnLayoutSpring else {
-            releaseHeldContent()
-            return
-        }
-        holdsUntilAfterLanding = false
-        heldPin = nil
+        guard isOnLayoutSpring else { return releaseHeldContent() }
+        (holdsUntilAfterLanding, heldPin) = (false, nil)
+        // The held size, not the content's frame: with only its area held (FRAME OWNER S1) the content is already at the pane's size.
         heldContentSize = holdsContentInMotion() ? heldContentSize ?? content.frame.size : nil
-        layoutClip()
+        layOutLetGoContent() // the structural spring's start measures the content's live size (`announceRest`)
     }
 
     /// The one layout at the size the spring landed at, before the content hears it landed.
     private func releaseHeldContent() {
-        holdsUntilAfterLanding = false
-        heldPin = nil
-        heldContentSize = nil
-        heldAnchor = nil
-        layoutClip()
+        (holdsUntilAfterLanding, heldPin, heldContentSize, heldAnchor) = (false, nil, nil, nil)
+        layOutLetGoContent()
         content.notifyPaneMotionSettled()
         isContentHandoff = false
+    }
+
+    /// Let-go content lays out its whole subtree now (a terminal measures from its host: D1), at a real size in a window.
+    private func layOutLetGoContent() {
+        layoutClip()
+        if window != nil, bounds.width >= 1, bounds.height >= 1 { layoutSubtreeIfNeeded() }
     }
 
     /// A keyboard resize's hold (``ScreenContentView/holdsContentForKeyResize``): the content keeps its start size,

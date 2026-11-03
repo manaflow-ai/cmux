@@ -5,9 +5,13 @@ is reported as failed with its valid count, never as a median over the opens tha
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import sys
+import tempfile
 import types
 import unittest
+import uuid
 from pathlib import Path
 from unittest import mock
 
@@ -218,6 +222,111 @@ class ClickRowTests(unittest.TestCase):
 
         self.assertEqual(bench.shown_workspace(Run()), "ws_new")
         self.assertEqual(calls, ["workspace.newAtBottom"])
+
+
+class SeedCacheTests(unittest.TestCase):
+    """seed() writes each template once on the seeding daemon and caches it; a second run (another
+    arm) reads it back and starts no daemon, and still copies fresh ids into a fresh store."""
+
+    class Peer:
+        started = 0
+        sends = 0
+
+        def __init__(self, app, root, agent):
+            self.home = os.path.join(root, "peer")
+            self.chats = {}
+
+        def start(self):
+            type(self).started += 1
+
+        def stop(self):
+            pass
+
+        def _chat(self, texts):
+            sid = str(uuid.uuid4())
+            self.chats[sid] = {"id": sid, "meta": json.dumps({"id": sid}).encode(),
+                               "events": {"000000.ndjson": "".join(f'{{"sid": "{sid}", "t": "{t}"}}\n' for t in texts).encode()}}
+            return sid
+
+        def new_chat(self, text):
+            return self._chat([text])
+
+        def acpmux(self, *args, timeout=None):
+            type(self).sends += 1
+            chat = self.chats[args[1]]
+            chat["events"]["000000.ndjson"] += f'{{"sid": "{args[1]}", "t": "{args[2]}"}}\n'.encode()
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        def templates(self):
+            return self.chats[self._chat(["answered"])], self.chats[self._chat(["closed"])]
+
+    def fake_icl(self):
+        def private_write(path, data):
+            with open(path, "wb") as handle:
+                handle.write(data)
+
+        return types.SimpleNamespace(
+            PeerDaemon=self.Peer, bundled_acpmux=lambda app: __file__,
+            read_chat=lambda home, sid: dict(self.peer_chats()[sid]),
+            seed_store=lambda home, count, share, answered, closed: {"sessions": count},
+            private_dir=lambda path: os.makedirs(path, exist_ok=True), private_write=private_write)
+
+    def peer_chats(self):
+        return self.last_peer.chats
+
+    def run_seed(self, *flags):
+        bench = load_bench("--conditions", "idle", "--cases", "big", "--runs", "1", "--turns", "5", "--small-turns", "3", *flags)
+        bench.icl = self.fake_icl()
+        real = self.Peer.__init__
+        test = self
+
+        def init(peer, *args):
+            real(peer, *args)
+            test.last_peer = peer
+
+        root = tempfile.mkdtemp(dir=self.tmp.name)
+        with mock.patch.object(self.Peer, "__init__", init), \
+                mock.patch.dict(os.environ, {"CMUX_BENCH_SEED_CACHE": os.path.join(self.tmp.name, "cache")}):
+            home, per, seeded = bench.seed(root)
+        return home, per, seeded
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.Peer.started = self.Peer.sends = 0
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def big_events(self, home, per):
+        with open(os.path.join(home, "sessions", per["idle"]["big"][0], "events", "000000.ndjson"), "rb") as handle:
+            return handle.read()
+
+    def test_the_second_run_reads_the_cache_and_starts_no_daemon(self):
+        home, per, first = self.run_seed()
+        self.assertEqual(first["seed_cache"], {"small": "miss", "subagent": "miss", "big": "miss", "store": "miss"})
+        self.assertEqual(self.Peer.started, 1)
+        sends = self.Peer.sends
+        cold = self.big_events(home, per)
+        home2, per2, second = self.run_seed()
+        self.assertEqual(second["seed_cache"], {"small": "hit", "subagent": "hit", "big": "hit", "store": "hit"})
+        self.assertEqual((self.Peer.started, self.Peer.sends), (1, sends))
+        self.assertNotEqual(per["idle"]["big"], per2["idle"]["big"])  # fresh ids per run: every open stays cold
+        warm = self.big_events(home2, per2)
+        self.assertEqual(warm.replace(per2["idle"]["big"][0].encode(), b"ID"), cold.replace(per["idle"]["big"][0].encode(), b"ID"))
+        self.assertEqual(warm.count(b"turn: "), 5)
+
+    def test_no_seed_cache_seeds_again_and_writes_nothing(self):
+        _home, _per, seeded = self.run_seed("--no-seed-cache")
+        self.assertEqual(set(seeded["seed_cache"].values()), {"off"})
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "cache")))
+        self.run_seed("--no-seed-cache")
+        self.assertEqual(self.Peer.started, 2)
+
+    def test_a_new_turn_count_seeds_only_the_big_chat(self):
+        self.run_seed()
+        _home, _per, seeded = self.run_seed("--turns", "6")
+        self.assertEqual(seeded["seed_cache"], {"small": "hit", "subagent": "hit", "big": "miss", "store": "hit"})
+
 
 if __name__ == "__main__":
     unittest.main()
