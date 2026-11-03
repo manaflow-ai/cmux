@@ -677,18 +677,32 @@ public struct AgentChatBottomStack: View {
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
                 if let permission = store.pendingPermission, !surface.permissionBarHidden {
-                    PermissionActionBar(request: permission.request, approvingOptionID: store.approvingOptionID) { option in
-                        withAnimation(.cmuxMobileSmooth) { store.respond(to: permission.request, option: option) }
-                    } replyInstead: {
-                        withAnimation(.cmuxMobileSmooth) { surface.replyInsteadOfPermission = true }
-
+                    if store.canAnswerPendingRequests {
+                        PermissionActionBar(request: permission.request, approvingOptionID: store.approvingOptionID) { option in
+                            withAnimation(.cmuxMobileSmooth) { store.respond(to: permission.request, option: option) }
+                        } replyInstead: {
+                            withAnimation(.cmuxMobileSmooth) { surface.replyInsteadOfPermission = true }
+                        }
+                        .padding(12)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 28, style: .continuous))
+                        .padding(.horizontal, 12)
+                        .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
+                    } else {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("Cloud request pending", systemImage: "hand.raised")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Open this Cloud chat on your Mac to answer.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 28, style: .continuous))
+                        .padding(.horizontal, 12)
+                        .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
                     }
-                    .padding(12)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 28, style: .continuous))
-                    .padding(.horizontal, 12)
-                    .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
                 } else {
-                    let replying = store.pendingPermission != nil && surface.replyInsteadOfPermission
+                    let replying = store.canAnswerPendingRequests && store.pendingPermission != nil && surface.replyInsteadOfPermission
                     ChatComposer(store: store, text: $surface.text, attachments: $surface.attachments, focus: $composerFocused, collapsible: store.hasTurns,
                                  expandOnAppear: surface.replyInsteadOfPermission,
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
