@@ -169,7 +169,9 @@ impl Changes {
             libc::inotify_add_watch(
                 self.file.as_raw_fd(),
                 name.as_ptr(),
-                libc::IN_CREATE | libc::IN_MODIFY | libc::IN_CLOSE_WRITE | libc::IN_MOVED_TO,
+                // Store reads open the record lock for writing: CLOSE_WRITE would wake
+                // this condition on its own readback and turn it into a sampling loop.
+                libc::IN_CREATE | libc::IN_MODIFY | libc::IN_MOVED_TO,
             )
         };
         assert!(descriptor >= 0, "watch {}: {}", path.display(), std::io::Error::last_os_error());
