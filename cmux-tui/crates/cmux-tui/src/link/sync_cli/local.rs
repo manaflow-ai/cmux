@@ -3,7 +3,7 @@
 //!
 //! In a git working copy (its top folder; a subfolder is refused): the
 //! files `git ls-files --cached --others --exclude-standard` names (tracked,
-//! and untracked ones that are not ignored, minus untracked `.env*` files,
+//! and untracked ones that are not ignored, minus untracked secrets (the same rule as git-seed),
 //! which are shared only on purpose), plus the repository itself as
 //! `.git/`, so the branch, HEAD, index, stash and uncommitted changes
 //! arrive exactly. What goes of the repository is allow-listed
@@ -26,8 +26,7 @@
 //! machine ([`skips::heavy`]) and secrets (`.env*`, key files: [`skips::secret`]).
 //! Symlinks, special files and names the machine cannot hold (control
 //! characters, over 255 bytes, not UTF-8) are skipped too. Every skip is
-//! named with why ([`Skips`]), except the git path's untracked `.env*` and
-//! non-UTF-8 paths, which are counted.
+//! named with why ([`Skips`]), except non-UTF-8 git paths, which are counted.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::os::unix::ffi::OsStrExt as _;
@@ -161,8 +160,16 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
     };
     set.git = true;
     for (path, untracked) in working_files(folder, &mut set.skipped)? {
-        if untracked && path.rsplit('/').next().is_some_and(|name| name.starts_with(".env")) {
-            set.skipped += 1;
+        let name = path.rsplit('/').next().unwrap_or(path.as_str());
+        // A share uses its separate, explicit file admission policy. Preserve
+        // the existing .env exclusion there; apply Git seed's broader secret
+        // rules only to automatic project copies/fallbacks.
+        let skipped_secret = untracked
+            && (name.starts_with(".env")
+                || (rules == Rules::Copy
+                    && cmux_tui_core::git_seed::secrets::reason(folder, path.as_bytes()).is_some()));
+        if skipped_secret {
+            set.skips.note(&path, skips::secret(name).unwrap_or(Why::CredentialFile));
             continue;
         }
         add(&mut set, path.clone(), &folder.join(&path))?;
@@ -501,7 +508,12 @@ fn walk_plain(set: &mut LocalSet, rules: Rules, top: &Path, dir: &Path) -> anyho
             } else {
                 walk_plain(set, rules, top, &path)?;
             }
-        } else if let Some(why) = skips::secret(name).filter(|_| rules == Rules::Copy) {
+        } else if rules == Rules::Copy
+            && let Some(why) = skips::secret(name).or_else(|| {
+                cmux_tui_core::git_seed::secrets::reason(top, relative.as_bytes())
+                    .map(|_| Why::CredentialFile)
+            })
+        {
             set.skips.note(relative, why);
         } else {
             add(set, relative.to_string(), &path)?;
@@ -745,6 +757,33 @@ mod tests {
             assert!(!borrowed.contains(&stray), "{stray} went: {borrowed:?}");
         }
         assert!(set.skipped >= 3, "the stray files were not counted: {}", set.skipped);
+    }
+
+    #[test]
+    fn automatic_git_copy_excludes_credentials_without_changing_explicit_shares() {
+        let root = tempfile::tempdir().unwrap();
+        let repo = std::fs::canonicalize(root.path()).unwrap();
+        git(&repo, &["init", "-q"]);
+        std::fs::write(repo.join("README"), "tracked\n").unwrap();
+        git(&repo, &["add", "README"]);
+        git(&repo, &["commit", "-qm", "base"]);
+        std::fs::create_dir(repo.join("pkg")).unwrap();
+        std::fs::write(repo.join(".env.local"), "FAKE_ENV\n").unwrap();
+        std::fs::write(repo.join("keys.pem"), "FAKE_KEY\n").unwrap();
+        std::fs::write(repo.join("pkg/.npmrc"), "_authToken=FAKE\n").unwrap();
+        std::fs::write(repo.join("notes.txt"), "ordinary\n").unwrap();
+
+        let automatic = collect(&repo, Rules::Copy).unwrap();
+        let explicit = collect(&repo, Rules::Share).unwrap();
+        for omitted in [".env.local", "keys.pem", "pkg/.npmrc"] {
+            assert!(!automatic.files.contains_key(omitted), "{omitted} was copied");
+        }
+        assert!(automatic.files.contains_key("notes.txt"));
+        // The explicit access path still has its own keep policy.
+        assert!(!explicit.files.contains_key(".env.local"));
+        for eligible in ["keys.pem", "pkg/.npmrc", "notes.txt"] {
+            assert!(explicit.files.contains_key(eligible), "{eligible} changed share behavior");
+        }
     }
 
     #[test]
