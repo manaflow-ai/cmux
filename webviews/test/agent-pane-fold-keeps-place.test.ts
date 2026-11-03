@@ -82,7 +82,7 @@ await requireBrowserLane("agent-pane-fold-keeps-place.test.ts", async () => {
     return page;
   }
 
-  test("away from the bottom, opening a line grows its panel under it; the line does not move", async () => {
+  test("opening a line grows its panel under it; the line does not move", async () => {
     const page = await open();
     // Off the very bottom: there, opening a line pushes the text above it up instead (Leo,
     // 2026-11-02, transcript-expand-at-bottom.test.ts).
