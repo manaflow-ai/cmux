@@ -203,6 +203,77 @@ fn a_dirty_repo_arrives_with_its_git_state_and_without_ignored_files_or_secrets(
     assert_eq!(git(&remote, &status), git(&repo, &status));
 }
 
+#[test]
+fn a_git_copy_excludes_untracked_private_keys_and_registry_tokens() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let repo = dirty_repo(&root);
+
+    // Git's seed path already excludes these paths. The fs-v1 fallback
+    // must follow the same rule when GitHub clone/auth cannot be used.
+    let excluded = [
+        (".env.local", "FAKE_ENV=only_test\n"),
+        ("keys/id_ed25519", "FAKE_SSH_PRIVATE_KEY\n"),
+        ("keys/cert.pem", "FAKE_CERTIFICATE\n"),
+        ("keys/build.p12", "FAKE_STORE\n"),
+        (".netrc", "machine invalid.example login example password FAKE\n"),
+        ("pkg/.npmrc", "//registry.invalid/:_authToken=FAKE\n"),
+        ("pkg/.pypirc", "[pypi]\npassword=FAKE\n"),
+    ];
+    for &(path, contents) in &excluded {
+        let file = repo.join(path);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, contents).unwrap();
+    }
+    // A registry file without a token and a public key are useful work.
+    std::fs::write(repo.join("pkg/clean.npmrc"), "registry=https://registry.invalid/\n").unwrap();
+    std::fs::write(repo.join("keys/id_ed25519.pub"), "FAKE_PUBLIC_KEY\n").unwrap();
+    // Tracked files continue to follow the declared Git-copy contract.
+    std::fs::write(repo.join("tracked.pem"), "TRACKED_FIXTURE\n").unwrap();
+    git(&repo, &["add", "tracked.pem"]);
+    let prior_index = git(&repo, &["ls-files", "--stage"]);
+    let prior_status = git(&repo, &["status", "--porcelain=v2", "--untracked-files=all"]);
+
+    let home = root.join("home");
+    std::fs::create_dir_all(home.join("work")).unwrap();
+    let sockets = tempfile::Builder::new().prefix("cs").tempdir_in("/tmp").unwrap();
+    let socket = sockets.path().join("fs.sock");
+    serve_fs(&socket, &home);
+    let remote = home.join("work/app");
+    let first = push(&socket, &repo, &remote);
+    assert!(first["written"].as_u64().unwrap_or(0) > 0, "{first}");
+    assert_eq!(first["skipped_counts"]["secret"].as_u64(), Some(excluded.len() as u64));
+    let named = first["skipped_files"].as_array().unwrap();
+    for &(path, _) in &excluded {
+        assert!(!remote.join(path).exists(), "untracked credential {path} reached Cloud");
+        assert!(
+            named.iter().any(|item| item["path"] == path && item["kind"] == "secret"),
+            "missing skipped-file disclosure for {path}: {first}"
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(remote.join("pkg/clean.npmrc")).unwrap(),
+        "registry=https://registry.invalid/\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(remote.join("keys/id_ed25519.pub")).unwrap(),
+        "FAKE_PUBLIC_KEY\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(remote.join("tracked.pem")).unwrap(),
+        "TRACKED_FIXTURE\n"
+    );
+    assert_eq!(git(&repo, &["ls-files", "--stage"]), prior_index);
+    assert_eq!(
+        git(&repo, &["status", "--porcelain=v2", "--untracked-files=all"]),
+        prior_status
+    );
+    // A repeated push cannot introduce the same skipped files.
+    let again = push(&socket, &repo, &remote);
+    assert_eq!(again["written"].as_u64(), Some(0), "{again}");
+    assert!(excluded.iter().all(|(path, _)| !remote.join(path).exists()));
+}
+
 /// A working copy whose objects live in other repositories, the way
 /// `git clone --shared` and worktree mirrors leave it: `app` borrows from
 /// `mid`, which borrows from `base` (by a relative path), and only `app`'s
