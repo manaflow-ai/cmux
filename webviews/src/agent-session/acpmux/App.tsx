@@ -13033,7 +13033,6 @@ function AcpmuxPane() {
     permissionGroups: snapshot.permissionGroups?.supported ? snapshot.permissionGroups.groups : undefined,
     secret: Boolean(snapshot.secret),
     cards: toolCards,
-    silent: snapshot.silentTurn,
   });
   const transcriptContent = (
     <TranscriptChief.Provider value={chatChief}>
