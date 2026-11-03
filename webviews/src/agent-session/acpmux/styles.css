@@ -126,15 +126,15 @@
    it to the room the pane has). --popup-scroll-cap is that bound for popupHost.ts, so a list longer
    than it scrolls here rather than going past the window's edge as a flat native list. It draws
    outside the composer's glass (Picker overBackdrop), so its own glass frosts the pills behind it. */
-.acpmux-composer-plus .acpmux-menu{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,calc(100vh - 16px))}
+.acpmux-composer-plus .acpmux-menu,.acpmux-menu.acpmux-composer-plus{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,calc(100vh - 16px))}
 /* It opens over the project and machine pills above New Tab's box: a denser tint than a plain popup's
    60% (still glass, under the menus' 0.9 ceiling), so under the blur they read as frost, not text. */
-.acpmux-composer-plus .acpmux-menu.ui-glass{--glass-tint:color-mix(in srgb,var(--glass-surface) 86%,transparent)}
+.acpmux-composer-plus .acpmux-menu.ui-glass,.acpmux-menu.acpmux-composer-plus.ui-glass{--glass-tint:color-mix(in srgb,var(--glass-surface) 86%,transparent)}
 /* A row is one line: the icon, the title, a gap, then the muted description, which alone truncates. */
-.acpmux-composer-plus .acpmux-menu-text{flex-direction:row;align-items:baseline;gap:var(--ds-space-2,8px)}
-.acpmux-composer-plus .acpmux-menu-label{flex:0 1 auto;min-width:0}
-.acpmux-composer-plus .acpmux-menu-description{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-composer-plus .acpmux-menu-item>svg{flex:none}
+.acpmux-composer-plus .acpmux-menu-text,.acpmux-menu.acpmux-composer-plus .acpmux-menu-text{flex-direction:row;align-items:baseline;gap:var(--ds-space-2,8px)}
+.acpmux-composer-plus .acpmux-menu-label,.acpmux-menu.acpmux-composer-plus .acpmux-menu-label{flex:0 1 auto;min-width:0}
+.acpmux-composer-plus .acpmux-menu-description,.acpmux-menu.acpmux-composer-plus .acpmux-menu-description{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-composer-plus .acpmux-menu-item>svg,.acpmux-menu.acpmux-composer-plus .acpmux-menu-item>svg{flex:none}
 /* Custom picker rows use the same AppKit menu grid as Menu/ContextMenu. The old 8px inset put
    icon rows' labels at 36px (and plain rows at 12px); the shared leading line is 15px, with a
    14px icon and 6px label gap making the icon-row text line 35px from the popup edge. */
@@ -154,6 +154,7 @@
 .acpmux-slash-menu{--popup-scroll-cap:296px;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:3;max-height:min(296px,50vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);font-size:13px;transform-origin:bottom}
 .acpmux-slash-row{display:flex;align-items:center;gap:8px;height:31px;padding:0 8px;border-radius:8px;white-space:nowrap}
 .acpmux-slash-active{background:var(--acpmux-menu-hover)}
+.acpmux-slash-menu .ui-listbox-row[aria-selected="true"]{background:var(--acpmux-menu-hover)}
 .acpmux-slash-name{flex:none;color:var(--agent-text)}
 .acpmux-slash-name mark{background:none;color:inherit;font-weight:600}
 .acpmux-slash-hint{flex:none;color:var(--acpmux-composer-dim);font-style:italic}
@@ -943,7 +944,7 @@ fieldset.acpmux-question[hidden]{display:none}
 /* The groups are split by the shared menu separator (PaletteMenu.tsx), in the pane's menu hairline. */
 .acpmux-palette-menu .ui-separator{flex:none;height:0;margin:4px 8px;border:0;border-top:var(--cmux-hairline,.5px) solid var(--agent-border);background:none}
 /* The composer's + (Picker) splits its groups with the same hairline, on the group itself. */
-.acpmux-composer-plus .acpmux-menu-section+.acpmux-menu-section{margin-top:4px;padding-top:4px;box-shadow:none;border-top:var(--cmux-hairline,.5px) solid var(--agent-border)}
+.acpmux-composer-plus .acpmux-menu-section+.acpmux-menu-section,.acpmux-menu.acpmux-composer-plus .acpmux-menu-section+.acpmux-menu-section{margin-top:4px;padding-top:4px;box-shadow:none;border-top:var(--cmux-hairline,.5px) solid var(--agent-border)}
 .acpmux-palette-empty{padding:var(--ui-row-height) var(--ui-row-padding-inline);color:var(--agent-muted);text-align:center}
 
 /* Keep search rows on the same shared menu metrics. */

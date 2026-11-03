@@ -5,7 +5,7 @@ import { useComposerListBox } from "./backdropLayer";
 import { readFileSearch, type FileMatch, type FileSearchSource, type Run } from "./fileSearchModel";
 import { Icon } from "./icons/Icon";
 import type { MentionItem } from "./mentionItems";
-import { PickerOption, PickerOptionList } from "../../ui/PickerPrimitives";
+import { Listbox } from "../../ui/Listbox";
 import { useT } from "./i18n";
 import { FileSearchLoading } from "./FileSearchLoading";
 
@@ -20,9 +20,14 @@ const MENTION_DEBOUNCE_MS = 80;
 /// (backslash escapes undone), or undefined when the caret is not in one. An `@` inside a word (an
 /// email address) or inside an inline code span is not a mention. The prompt's markdown writes a
 /// space after an escaped character as an entity (`\_\_init\_\_.py&#x20;`), which ends the word too.
-export function mentionQuery(markdown: string, at: number): { start: number; query: string } | undefined {
+export function mentionQuery(
+  markdown: string,
+  at: number,
+): { start: number; query: string } | undefined {
   const before = markdown.slice(0, at);
-  const found = /(^|\s|&#x20;|&#32;|&nbsp;)@((?:\\.|(?!&#x20;|&#32;|&nbsp;)[^\s\\@])*)$/i.exec(before);
+  const found = /(^|\s|&#x20;|&#32;|&nbsp;)@((?:\\.|(?!&#x20;|&#32;|&nbsp;)[^\s\\@])*)$/i.exec(
+    before,
+  );
   if (!found) return undefined;
   const start = before.length - found[2]!.length - 1;
   // An odd number of backticks before it: inside a code span.
@@ -37,9 +42,10 @@ export function mentionQuery(markdown: string, at: number): { start: number; que
 export function markdownOffset(markdown: string, shown: number): number {
   let index = 0;
   for (let count = 0; count < shown && index < markdown.length; count++) {
-    const escape = /^(\\[!-/:-@[-`{-~]|&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);|\uFFFC[\w.~%-]+\uFFFC)/i.exec(
-      markdown.slice(index),
-    );
+    const escape =
+      /^(\\[!-/:-@[-`{-~]|&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);|\uFFFC[\w.~%-]+\uFFFC)/i.exec(
+        markdown.slice(index),
+      );
     index += escape ? escape[0].length : 1;
   }
   return index;
@@ -61,7 +67,10 @@ export type MentionState =
 
 /// The files matching `query` (undefined: the picker is closed), asked of `search` once typing
 /// settles; only the newest answer lands.
-export function useMentionSearch(search: FileSearchSource | undefined, query: string | undefined): MentionState {
+export function useMentionSearch(
+  search: FileSearchSource | undefined,
+  query: string | undefined,
+): MentionState {
   const [state, setState] = useState<MentionState>({ kind: "idle" });
   const generation = useRef(0);
   useEffect(() => {
@@ -141,50 +150,45 @@ export function MentionMenu({
           ? t(state.kind === "searching" ? "files.searching" : "files.none")
           : undefined;
   return (
-    <PickerOptionList
-      ref={attachList}
-      aria-label={t("files.search")}
-      aria-busy={state?.kind === "searching"}
-      className="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu ui-scroll-edge-fade"
-      id="acpmux-mention-menu"
-    >
+    <>
       {state?.kind === "searching" && items.length === 0 && <FileSearchLoading mention />}
-      {items.map((item, index) => (
-        <PickerOption
-          key={item.key}
-          id={`acpmux-mention-${index}`}
-          type="button"
-          // The prompt keeps focus (aria-activedescendant), so no row is a tab stop.
-          active={false}
-          selected={index === active}
-          className={
-            index === active
-              ? "acpmux-slash-row acpmux-mention-row acpmux-slash-active"
-              : "acpmux-slash-row acpmux-mention-row"
-          }
-          data-mention-kind={item.kind}
-          onPointerMove={() => onHover(index)}
-          // A mouse-down here would take focus from the prompt.
-          onMouseDown={(event) => {
-            event.preventDefault();
-            onPick(item);
-          }}
-        >
-          <span className="acpmux-mention-icon" data-mention-icon={item.kind}>
-            <Icon name={item.kind === "session" ? "agent.chat" : item.kind} size={14} />
-          </span>
-          <span className="acpmux-slash-name">{runs(item.name)}</span>
-          {item.kind === "session"
-            ? item.project && <span className="acpmux-slash-description">{item.project}</span>
-            : item.dir.length > 0 && <span className="acpmux-slash-description">{runs(item.dir)}</span>}
-        </PickerOption>
-      ))}
+      <Listbox
+        listRef={attachList}
+        items={items}
+        getKey={(item) => item.key}
+        textValue={(item) => item.name.map((part) => part.text).join("")}
+        label={t("files.search")}
+        autoFocus={false}
+        activeIndex={active < 0 ? 0 : active}
+        onActiveIndexChange={onHover}
+        onOpen={onPick}
+        getItemId={(_, index) => `acpmux-mention-${index}`}
+        itemAttributes={(item) => ({ "data-mention-kind": item.kind })}
+        className="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu"
+        id="acpmux-mention-menu"
+        rowClassName="acpmux-slash-row acpmux-mention-row"
+        renderItem={(item) => (
+          <>
+            <span className="acpmux-mention-icon" data-mention-icon={item.kind}>
+              <Icon name={item.kind === "session" ? "agent.chat" : item.kind} size={14} />
+            </span>
+            <span className="acpmux-slash-name">{runs(item.name)}</span>
+            {item.kind === "session"
+              ? item.project && <span className="acpmux-slash-description">{item.project}</span>
+              : item.dir.length > 0 && (
+                  <span className="acpmux-slash-description">{runs(item.dir)}</span>
+                )}
+          </>
+        )}
+      />
       {note && (
-        <output className={state?.kind === "searching" ? "acpmux-file-loading-note" : "acpmux-file-note"}>
+        <output
+          className={state?.kind === "searching" ? "acpmux-file-loading-note" : "acpmux-file-note"}
+        >
           {note}
         </output>
       )}
-    </PickerOptionList>
+    </>
   );
 }
 
