@@ -88,6 +88,14 @@ describe("a wrap-up in the transcript", () => {
     expect(nextSteps(drawn)[0]?.nextStep?.answer).toBeUndefined();
   });
 
+  test("another agent's notice after it keeps the recap and drops the question", () => {
+    const drawn = turnView(
+      [...turn(input), user("Report from a helper", 1, { incoming: { kind: "notice", text: "Done" } })],
+      new Set(),
+    );
+    expect(nextSteps(drawn)[0]?.nextStep?.ask).toMatchObject({ recap: RECAP, question: "" });
+  });
+
   test("a turn with no answer text still gets the box, after its last row", () => {
     const drawn = turnView(turn(input, { answer: false }), new Set());
     const kinds = drawn.map((row) => row.kind);

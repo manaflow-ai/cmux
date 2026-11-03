@@ -787,7 +787,13 @@ function shapeTurn(
   // once a prompt follows. A recap alone needs no reply to wait for.
   const tagged = !live && !wrapUp && summary.status === "completed" ? nextStepAsk(answer?.text) : undefined;
   const ask = live ? undefined : (wrapUp ?? tagged);
-  const nextStep = ask && (reply !== undefined || retryable || !ask.question) ? ask : undefined;
+  // Where nothing can answer it (another agent's message follows), a wrap-up keeps its recap alone.
+  const answerable = ask && (reply !== undefined || retryable || !ask.question);
+  const nextStep = answerable
+    ? ask
+    : wrapUp?.recap
+      ? { ...wrapUp, question: "", options: [] }
+      : undefined;
   const shaped: AcpmuxRow[] = [];
   // A derived row's version must change whenever what it draws does: the memoized rows and the
   // height cache compare versions only. Answer versions stay far below VERSION_SPAN.
