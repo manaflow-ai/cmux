@@ -112,12 +112,25 @@ impl Hub {
             self.save_meta_answered(session)?;
             if session.child.lock().await.is_none() {
                 "nextStart"
-            } else if let Ok(_turn) = session.turn_lock.try_lock() {
-                self.restart_on_route(session).await?;
-                "now"
             } else {
-                session.route_switch.store(true, Ordering::SeqCst);
-                "afterTurn"
+                // As `restart_harnesses`: a turn that ended before it saw the flag restarts nothing,
+                // so the lock is tried again once the flag is set.
+                let mut turn = session.turn_lock.try_lock().ok();
+                if turn.is_none() {
+                    session.route_switch.store(true, Ordering::SeqCst);
+                    turn = session
+                        .turn_lock
+                        .try_lock()
+                        .ok()
+                        .filter(|_| session.route_switch.load(Ordering::SeqCst));
+                }
+                match turn {
+                    Some(_turn) => {
+                        self.restart_on_route(session).await?;
+                        "now"
+                    }
+                    None => "afterTurn",
+                }
             }
         };
         Ok(json!({"sessionId": session.id, FIELD: dirs, "applied": applied}))

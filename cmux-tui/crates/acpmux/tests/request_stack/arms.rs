@@ -116,6 +116,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::SESSION_SET_MODEL, Run(json!({"sessionId": "$S", "modelId": "m1"}))),
         (method::MUX_SET_TOOLS, Run(json!({"sessionId": "$S", "id": "mcp:x", "enabled": true}))),
         (method::MUX_MCP_RECONNECT, Run(json!({"sessionId": "$S", "server": "x"}))),
+        (method::MUX_SET_DIRECTORIES, Run(json!({"sessionId": "$S", "additionalDirectories": []}))),
         (
             method::MUX_TAILNET_START,
             Skip("starts the embedded tailnet node (network, a real account)"),
