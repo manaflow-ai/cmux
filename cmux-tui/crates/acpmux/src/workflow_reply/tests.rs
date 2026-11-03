@@ -158,3 +158,69 @@ fn workflow_recovery_other_activity_cannot_advance_cursor_or_escalation() {
     );
     assert_eq!(state.observe(&key, 1, RecoveryEvent::Stalled), RecoveryAction::Nudge);
 }
+
+#[test]
+fn workflow_reply_local_references_work_without_external_schema_access() {
+    let schema = json!({
+        "$defs": {"result": {"type": "integer", "minimum": 1}},
+        "$ref": "#/$defs/result",
+    });
+    let key = AttemptKey::new("activity");
+    let mut policy = ReplyPolicy::new(&schema, ReplyState::new(key.clone())).unwrap();
+    assert_eq!(policy.observe(&key, 1, "5"), ReplyDecision::Accept(json!(5)));
+}
+
+#[test]
+fn workflow_reply_restart_preserves_correction_and_fences_the_old_reply() {
+    let old = AttemptKey::new("activity");
+    let mut policy = ReplyPolicy::new(&schema(), ReplyState::new(old.clone())).unwrap();
+    assert!(matches!(policy.observe(&old, 1, "{}"), ReplyDecision::Correct { .. }));
+    assert!(!policy.rebind(AttemptKey::new("other")));
+    assert!(!policy.rebind(old.clone()));
+    let next = AttemptKey { generation: 1, ..old.clone() };
+    assert!(policy.rebind(next.clone()));
+    assert_eq!(policy.observe(&old, 100, r#"{"passed": true}"#), ReplyDecision::Ignore);
+    assert!(matches!(policy.observe(&next, 1, "wrong"), ReplyDecision::Fail { .. }));
+    assert!(!policy.rebind(AttemptKey { generation: 2, ..old }));
+}
+
+#[test]
+fn workflow_reply_an_invalid_json_correction_is_the_last_attempt() {
+    let key = AttemptKey::new("activity");
+    let mut policy = ReplyPolicy::new(&schema(), ReplyState::new(key.clone())).unwrap();
+    assert!(matches!(policy.observe(&key, 1, "wrong"), ReplyDecision::Correct { .. }));
+    assert!(
+        matches!(policy.observe(&key, 2, "still wrong"), ReplyDecision::Fail { issues } if matches!(issues.as_slice(), [ReplyIssue::InvalidJson(_)]))
+    );
+}
+
+#[test]
+fn workflow_recovery_progress_does_not_reset_escalation_or_replay_old_events() {
+    let key = AttemptKey::new("activity");
+    let mut state = RecoveryState::new(key.clone());
+    assert_eq!(state.observe(&key, 1, RecoveryEvent::Stalled), RecoveryAction::Nudge);
+    assert_eq!(state.observe(&key, 3, RecoveryEvent::Progress), RecoveryAction::None);
+    assert_eq!(state.observe(&key, 2, RecoveryEvent::Stalled), RecoveryAction::None);
+    assert!(matches!(
+        state.observe(&key, 4, RecoveryEvent::Stalled),
+        RecoveryAction::Restart { .. }
+    ));
+}
+
+#[test]
+fn workflow_recovery_wait_state_survives_resume_and_completion_still_settles() {
+    let key = AttemptKey::new("activity");
+    let mut state = RecoveryState::new(key.clone());
+    let wait = WaitReason::UsageLimit { reset_at_ms: Some(42) };
+    assert_eq!(
+        state.observe(&key, 1, RecoveryEvent::Waiting(wait.clone())),
+        RecoveryAction::Wait(wait.clone())
+    );
+    let saved = serde_json::to_string(&state).unwrap();
+    let mut resumed: RecoveryState = serde_json::from_str(&saved).unwrap();
+    assert_eq!(resumed.observe(&key, 2, RecoveryEvent::Waiting(wait)), RecoveryAction::None);
+    assert_eq!(resumed.observe(&key, 3, RecoveryEvent::Stalled), RecoveryAction::None);
+    assert_eq!(resumed.observe(&key, 4, RecoveryEvent::Completed), RecoveryAction::None);
+    assert_eq!(resumed.stage, RecoveryStage::Completed);
+    assert_eq!(resumed.waiting, None);
+}
