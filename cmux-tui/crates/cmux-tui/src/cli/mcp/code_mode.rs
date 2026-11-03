@@ -121,6 +121,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
     // the one description every turn shows: in code mode a server's own instructions reach the
     // agent only through `cmux.docs`, and a Codex chat has no hook to steer its shell.
     let bg = if tools.iter().any(|t| t["name"] == BG_START) { BG_STEER } else { "" };
+    let github = if tools.iter().any(|t| t["name"] == GITHUB_STATUS) { GITHUB_STEER } else { "" };
     let grouped = families(tools);
     // A harness that shows one tool must still find computer use in it: a
     // chat asked to "open Calculator" used osascript (2026-10-27).
@@ -200,7 +201,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              inputSchema}}], more: [names]}}; a tool's exact name finds it first. \
              app_* tools are the app's menu actions. A failed call throws an Error whose `cmux` \
              field has the error, its state and its idempotency key; its message names the fix. \
-             A failed script reports the calls that already ran. Families: {families}.{bg}"
+             A failed script reports the calls that already ran. Families: {families}.{bg}{github}"
         ),
         "inputSchema": {
             "type": "object",
@@ -224,6 +225,14 @@ const BG_STEER: &str = " Long-running commands (a dev server, a watcher, a long 
     test run) go to `cmux.acpmux_bg_start({command, cwd})`, not a background shell or terminal \
     of your own: this chat's agent hibernates after 2 idle minutes and its own background shells \
     end with it, while that task keeps running; `cmux.acpmux_bg_output({id, fromByte})` reads it.";
+
+/// acpmux's `github_status` behind this server (acpmux `github_status.rs`).
+const GITHUB_STATUS: &str = "acpmux_github_status";
+const GITHUB_STEER: &str = " When the person asks about their GitHub (can you see my GitHub, \
+    which account), call `cmux.acpmux_github_status({})`: it lists the GitHub accounts cmux can \
+    see for this chat and how cmux checked each, with no token. Answer with those logins and say \
+    they are connected through cmux; an organization account is the one their cmux team \
+    connected, not the person.";
 
 /// Tool names grouped by their first word (`pane_split` is `pane`).
 fn families(tools: &[Value]) -> BTreeMap<String, Vec<String>> {
@@ -1086,6 +1095,22 @@ mod bg_steer_tests {
         assert!(text.contains("hibernates after 2 idle minutes"), "{text}");
         let without = descriptors(&[json!({"name": "pane_split"})]);
         assert!(!without[0]["description"].as_str().unwrap().contains("acpmux_bg_start"));
+    }
+}
+
+#[cfg(test)]
+mod github_steer_tests {
+    use super::*;
+
+    /// A chat with acpmux's `github_status` is told when to call it in `cmux_exec`'s own
+    /// description; one without it is not.
+    #[test]
+    fn the_exec_description_names_github_status_only_where_it_is() {
+        let with = descriptors(&[json!({"name": GITHUB_STATUS})]);
+        let text = with[0]["description"].as_str().unwrap();
+        assert!(text.contains("cmux.acpmux_github_status({})"), "{text}");
+        let without = descriptors(&[json!({"name": "pane_split"})]);
+        assert!(!without[0]["description"].as_str().unwrap().contains("github_status"));
     }
 }
 

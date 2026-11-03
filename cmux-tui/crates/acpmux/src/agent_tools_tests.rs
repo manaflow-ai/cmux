@@ -301,3 +301,37 @@ fn a_hook_binary_that_does_not_know_the_hook_lets_the_call_run() {
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), r#"{"deny":true}"#);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// `github_status` lives in the `acpmux` server, which every harness gets the same way: Claude
+/// Code in its `--mcp-config`, every ACP harness (Codex, OpenCode, Gemini, pi) in `mcpServers`,
+/// and, folded behind `cmux`, in its upstreams.
+#[test]
+fn the_github_status_server_reaches_every_harness_kind() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-gh-status-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let inputs = super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(
+            std::path::PathBuf::from("/usr/local/bin/acpmux"),
+            vec![],
+        )),
+        ..memory_inputs(&root, None)
+    };
+    let tools = super::resolve(&inputs).for_session("s1");
+    let acpmux = crate::acpmux_mcp::SERVER_NAME;
+    let acp = tools.acp_servers();
+    let entry = acp.as_array().unwrap().iter().find(|s| s["name"] == acpmux).unwrap();
+    assert_eq!(entry["args"], serde_json::json!(["acpmux-mcp"]));
+    let claude = tools.mcp_config().unwrap();
+    assert_eq!(claude["mcpServers"][acpmux]["args"], serde_json::json!(["acpmux-mcp"]));
+    // With the cmux server, the acpmux server is one of its upstreams.
+    let cmux = root.join("cmux");
+    std::fs::write(&cmux, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let folded = super::resolve(&inputs).for_session("s1").folded();
+    let upstreams =
+        &folded.servers[0].env.iter().find(|(k, _)| k == super::UPSTREAMS_ENV).unwrap().1;
+    let upstreams: serde_json::Value = serde_json::from_str(upstreams).unwrap();
+    assert!(upstreams.as_array().unwrap().iter().any(|s| s["name"] == acpmux), "{upstreams}");
+    let _ = std::fs::remove_dir_all(&root);
+}
