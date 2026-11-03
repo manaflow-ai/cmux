@@ -20,6 +20,19 @@ entry (`host_offset_s`), else 0 when the HID times already lie in the recording'
 the host clock), else from this run's journal (hid_clock_offset's docstring). When nothing places them for sure, the
 HID times are not used (a note says so). The report's `hid_clock` has the offset, its source and bound.
 
+Pacing classes (VIDEO JUDGE, STATUS 8048/8130): a refresh in motion with no new complete frame is a drop only when the
+app's main thread missed it. The trace (debug.motion) samples the main thread at each display frame, and a frame shown
+at t shows the sample of t - one refresh (committed_sample). With a trace, each such refresh is "main missed" (its
+vsync lies in a trace gap: no sample for it), "not shown" (the trace has its sample and that sample's pane or divider
+geometry moved: a committed change no frame showed, a drop), "content wait" (the trace runs with no geometry change:
+the app waited for content, e.g. the DevTools frontend drawing; a note, not a drop) or "unclassified" (outside the
+trace's span: counted as a drop, as before). The refreshes between a motion's input (the journal's key-down or
+mouse-down, else the HID t_sent) and its first changed frame whose vsync the main thread missed count as drops too
+("main thread missed refreshes before the first frame"); before, that was first-frame delay only. Without a trace every
+no-change refresh in motion is a drop, "unclassified", as before.
+The report's `pacing` has the counts; `dropped` = main missed + main missed before the first frame + not shown +
+unclassified.
+
 Standard library + numpy + imageio_ffmpeg (for the ffmpeg binary). No opencv.
 """
 from __future__ import annotations
@@ -41,6 +54,7 @@ import numpy as np
 # Thresholds. Device pixels unless the name says otherwise.
 # ---------------------------------------------------------------------------------------------------------------
 DROP_FACTOR = 1.5          # an interval > 1.5 refreshes between complete frames in motion = dropped frames
+FIRST_FRAME_INPUT_S = 0.5  # a motion's input is the last key-down / mouse-down at most this long before its first frame
 CAPTURE_STALL_S = 0.050    # frames.json silent for this long (no entry at all) = a recorder stall
 MOTION_JOIN_S = 0.050      # changed frames closer than this belong to one motion window
 HID_LEAD_S = 0.020         # a HID action's span starts this long before t_sent
@@ -132,6 +146,7 @@ class Case:
     notes: list = field(default_factory=list)
     input_t: list = field(default_factory=list)  # host s of each mouse event the app's journal kept
     hid_clock: dict = field(default_factory=dict)  # how the HID times came to the host clock (hid_clock_offset)
+    input_down_t: list = field(default_factory=list)  # host s of each input that can start a motion (_input_downs)
 
     @property
     def n(self):
@@ -223,7 +238,7 @@ def load_case(base):
                 col_px=np.zeros((len(complete_t), 0, 0, 4), np.uint8), has_scan=np.zeros(len(complete_t), bool),
                 scan_info={}, samples=samples, sample_t=[s.t for s in samples], hid=hid,
                 meta=meta, movie=Path(f"{base}.mov") if Path(f"{base}.mov").is_file() else None,
-                input_t=_input_times(events), hid_clock=clock)
+                input_t=_input_times(events), hid_clock=clock, input_down_t=_input_downs(events, hid))
     if clock.get("note"):
         case.notes.append(clock["note"])
     _attach_scan(case, Path(f"{base}.mov.scan"))
@@ -364,6 +379,29 @@ def _hid_on_host_clock(hid, journal, frame_t, meta=None):
                 h[key] = float(h[key]) + offset
         out.append(h)
     return out, clock
+
+
+def _input_downs(events, hid):
+    """Host s of each input that can start a motion, sorted: the journal's key-downs (not modifiers) and mouse-downs,
+    and each HID action's t_sent (already on the host clock) that has no journal down within its span (the journal
+    keeps only its last 400 entries)."""
+    downs = []
+    for e in events.get("journal") or []:
+        kind = e.get("kind") or {}
+        name = next((k for k in ("key", "mouse") if isinstance(kind, dict) and k in kind), None)
+        body = (kind.get(name) or {}).get("_0") if name else None
+        if isinstance(body, dict) and body.get("phase") == "down" and body.get("keyClass") != "modifier" \
+                and e.get("uptimeNanos"):
+            downs.append(float(e["uptimeNanos"]) / 1e9)
+    out = list(downs)
+    for h in hid:
+        try:
+            sent, returned = float(h["t_sent"]), float(h["t_returned"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not any(sent - HID_CLOCK_SLACK_S <= d <= returned + HID_CLOCK_SLACK_S for d in downs):
+            out.append(sent)
+    return sorted(out)
 
 
 def _input_times(events):
@@ -548,12 +586,75 @@ def motion_windows(case):
 # ---------------------------------------------------------------------------------------------------------------
 # A. Pacing
 # ---------------------------------------------------------------------------------------------------------------
+def trace_gaps(case):
+    """(start, end) host s of each interval between two trace samples longer than DROP_FACTOR refreshes: the main
+    thread missed the vsyncs inside it. Empty without a trace (fewer than 2 samples)."""
+    t, p = case.sample_t, case.period
+    return [(t[k - 1], t[k]) for k in range(1, len(t)) if t[k] - t[k - 1] > DROP_FACTOR * p]
+
+
+def main_thread_state(case, gaps, moved, d):
+    """What the main thread did for the frame that a refresh at host time d would show (its vsync is d - one refresh,
+    as committed_sample): "main missed" (that vsync lies in a trace gap, more than half a refresh from both of its
+    samples), "not shown" (the trace has a sample for it and that sample's geometry moved: the app committed a change
+    that no frame showed), "content wait" (the trace has a sample for it with no geometry change) or "unclassified"
+    (no trace, or outside its span). moved[k]: sample k's geometry differs from sample k-1's."""
+    t, p = case.sample_t, case.period
+    v = d - p
+    if len(t) < 2 or not (t[0] - p / 2 <= v <= t[-1] + p / 2):
+        return "unclassified"
+    k = bisect.bisect_right([g[0] for g in gaps], v) - 1
+    if k >= 0 and gaps[k][0] + p / 2 < v < gaps[k][1] - p / 2:
+        return "main missed"
+    j = _nearest(t, v, p / 2)
+    if j is not None and moved[j]:
+        return "not shown"
+    return "content wait"
+
+
+def _refresh_slots(t1, t2, missed):
+    """Host times of the `missed` refreshes between two frames shown at t1 and t2."""
+    return [t1 + (t2 - t1) * k / (missed + 1) for k in range(1, missed + 1)]
+
+
+def _window_input(case, inputs, w, prev_b):
+    """The input that started window w: the last one at most FIRST_FRAME_INPUT_S before its first changed frame and
+    after the window before it ended. None without one."""
+    t_a = case.complete_t[w.a]
+    lo = max(t_a - FIRST_FRAME_INPUT_S, case.complete_t[prev_b] if prev_b is not None else -np.inf)
+    k = bisect.bisect_left(inputs, t_a) - 1
+    return inputs[k] if k >= 0 and inputs[k] > lo else None
+
+
 def check_pacing(case, windows):
-    """Every refresh in motion should bring a new complete frame. Returns (findings, intervals_ms, dropped)."""
+    """Every refresh in motion should bring a new complete frame. Returns (findings, intervals_ms, dropped, pacing):
+    pacing has the counts of the module docstring's classes (main missed, not shown, content wait, unclassified, and
+    main missed before the first frame) and whether a trace classified them."""
     findings, intervals, dropped = [], [], 0
     all_t = [e[0] for e in case.entries]
     p = case.period
-    for w in windows:
+    gaps = trace_gaps(case)
+    keys = [_geometry_key(smp) for smp in case.samples]
+    moved = [False] + [keys[k] != keys[k - 1] for k in range(1, len(keys))]
+    traced = len(case.sample_t) >= 2
+    pacing = {"trace": traced, "main_missed": 0, "not_shown": 0, "content_wait": 0, "unclassified": 0,
+              "main_missed_before_first_frame": 0}
+    inputs = case.input_down_t
+    for n, w in enumerate(windows):
+        # Before the first changed frame: the refreshes after the input whose vsync the main thread missed.
+        t_in = _window_input(case, inputs, w, windows[n - 1].b if n else None) if traced else None
+        if t_in is not None:
+            t_a = case.complete_t[w.a]
+            slots = [d for d in (t_a - k * p for k in range(1, int((t_a - t_in) / p) + 2)) if d - p > t_in]
+            missed = [d for d in slots if main_thread_state(case, gaps, moved, d) == "main missed"]
+            if missed:
+                pacing["main_missed_before_first_frame"] += len(missed)
+                dropped += len(missed)
+                i = max(w.a - 1, 0)
+                findings.append(finding(case, "main thread missed refreshes before the first frame", i, w.a,
+                                        f"{len(missed)} of the {len(slots)} refreshes from the input to the first changed "
+                                        f"frame ({(t_a - t_in) * 1000:.1f} ms) had no main-thread frame (trace gaps): "
+                                        "dropped, not only first-frame delay"))
         flagged = set()
         for i in range(w.a, w.b):
             t1, t2 = case.complete_t[i], case.complete_t[i + 1]
@@ -579,17 +680,34 @@ def check_pacing(case, windows):
                                         f"{sparse:.0f} events/s (journal), under the refresh rate: a refresh may have had no "
                                         "new input, so this is not counted as a drop", "note"))
                 continue
-            dropped += missed
-            findings.append(finding(case, "dropped frames", i, i + 1,
-                                    f"{missed} refresh{'es' if missed > 1 else ''} without a new frame during motion "
-                                    f"({gap * 1000:.1f} ms between frames, {idle} idle)"))
+            states = [main_thread_state(case, gaps, moved, d) for d in _refresh_slots(t1, t2, missed)]
+            main, shown, wait = states.count("main missed"), states.count("not shown"), states.count("content wait")
+            other = len(states) - main - shown - wait
+            pacing["main_missed"] += main
+            pacing["not_shown"] += shown
+            pacing["content_wait"] += wait
+            pacing["unclassified"] += other
+            head = f"{gap * 1000:.1f} ms between frames, {idle} idle"
+            drops = main + shown + other
+            if drops:
+                dropped += drops
+                split = (f"main thread missed {main}, model moved but not shown {shown}, content wait {wait}"
+                         + (f", not in the trace {other}" if other else "") if traced else "unclassified: no frame trace")
+                findings.append(finding(case, "dropped frames", i, i + 1,
+                                        f"{drops} refresh{'es' if drops > 1 else ''} without a new frame "
+                                        f"during motion ({head}; {split})"))
+            if wait:
+                findings.append(finding(case, "content wait", i, i + 1,
+                                        f"{wait} refresh{'es' if wait > 1 else ''} without a new frame while the main "
+                                        f"thread drew a frame for its vsync ({head}): the app waited for content, not "
+                                        "a dropped refresh", "note"))
         t_a, t_b = case.complete_t[w.a], case.complete_t[w.b]
         for e in case.entries:
             if e[1] == "idle" and t_a < e[0] < t_b and id(e) not in flagged:
                 i = int(np.searchsorted(case.complete_t, e[0])) - 1
                 findings.append(finding(case, "idle refresh in motion", i, i + 1,
                                         "the window server composited nothing new for one refresh during motion"))
-    return findings, intervals, dropped
+    return findings, intervals, dropped, pacing
 
 
 def _sparse_input(case, t1, t2):
@@ -1408,9 +1526,11 @@ def judge(base, movie=True):
     if case.n == 0:
         return {"case": case.name, "build": case.build, "frames": 0, "refresh_ms": round(case.period * 1000, 3),
                 "motion": [], "intervals_ms": interval_stats([], case.period), "dropped": 0, "findings": grid,
+                "pacing": {"trace": len(case.sample_t) >= 2, "main_missed": 0, "not_shown": 0, "content_wait": 0,
+                           "unclassified": 0, "main_missed_before_first_frame": 0},
                 "recorder": {"complete": 0}, "notes": ["no complete frames: only the trace was judged"]}
     windows = motion_windows(case)
-    pacing, intervals, dropped = check_pacing(case, windows)
+    pacing, intervals, dropped, classes = check_pacing(case, windows)
     tracks = build_tracks(case, windows)
     findings = list(pacing) + grid
     findings += check_blends(case, windows, tracks)
@@ -1431,7 +1551,7 @@ def judge(base, movie=True):
     return {"case": case.name, "build": case.build, "frames": case.n, "refresh_ms": round(case.period * 1000, 3),
             "motion": [[round(case.rel(w.a), 4), round(case.rel(w.b), 4)] for w in windows],
             "motion_frames": [[w.a, w.b] for w in windows], "intervals_ms": interval_stats(intervals, case.period),
-            "dropped": dropped, "model_lag": lag, "tracked_dividers": len(tracks), "reflow": reflow,
+            "dropped": dropped, "pacing": classes, "model_lag": lag, "tracked_dividers": len(tracks), "reflow": reflow,
             "findings": findings, "recorder": recorder, "notes": case.notes, "base": str(case.base),
             "hid_clock": {k: v for k, v in case.hid_clock.items() if k != "note"}}
 
@@ -1496,6 +1616,13 @@ def summary(report):
     if iv["p50"] is not None:
         lines.append(f"  intervals in motion: p50 {iv['p50']:.2f} p95 {iv['p95']:.2f} p99 {iv['p99']:.2f} max "
                      f"{iv['max']:.2f} ms; refreshes per frame {iv['hist']}; dropped {report['dropped']}")
+    pc = report.get("pacing")
+    if pc:
+        lines.append("  no-change refreshes: " + (
+            f"main missed {pc['main_missed']} + {pc['main_missed_before_first_frame']} before the first frame, "
+            f"model moved but not shown {pc['not_shown']}, not in the trace {pc['unclassified']} (all drops); "
+            f"content wait {pc['content_wait']} (not drops)"
+            if pc["trace"] else f"unclassified {pc['unclassified']} (no frame trace: all counted as drops)"))
     lines.append(f"  model lag (samples): {report.get('model_lag') or {}}; findings: "
                  f"{counts.get('defect', 0)} defect, {counts.get('note', 0)} note, {counts.get('recorder', 0)} recorder")
     for f in report["findings"][:40]:
