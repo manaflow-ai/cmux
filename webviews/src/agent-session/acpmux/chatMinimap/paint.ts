@@ -93,11 +93,11 @@ export function firstChangedRow(
   before: { rows: readonly AcpmuxRow[]; layout: GeometrySource },
 ): number {
   const now = rowPlaces(layout);
-  const was = rowPlaces(before.layout);
+  const prior = rowPlaces(before.layout);
   const count = Math.min(rows.length, now.tops.length);
-  const kept = Math.min(count, before.rows.length, was.tops.length);
+  const kept = Math.min(count, before.rows.length, prior.tops.length);
   for (let index = 0; index < kept; index += 1) {
-    if (now.tops[index] !== was.tops[index] || now.heights[index] !== was.heights[index]) return index;
+    if (now.tops[index] !== prior.tops[index] || now.heights[index] !== prior.heights[index]) return index;
     const row = rows[index]!;
     const was = before.rows[index]!;
     if (row !== was && (row.id !== was.id || minimapKind(row) !== minimapKind(was))) return index;

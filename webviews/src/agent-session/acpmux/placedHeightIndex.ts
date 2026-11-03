@@ -133,18 +133,6 @@ function summarize(
   };
 }
 
-function makeTree(leaves: readonly Leaf[], low: number, high: number, between: GapBetween | undefined): Node | undefined {
-  if (low >= high || low >= leaves.length) return undefined;
-  if (high - low === 1) {
-    const leaf = leaves[low]!;
-    return { leaf, summary: leaf.summary };
-  }
-  const middle = low + ((high - low) >>> 1);
-  const left = makeTree(leaves, low, middle, between);
-  const right = makeTree(leaves, middle, high, between);
-  return { left, right, summary: join(summaryOf(left), summaryOf(right), between) };
-}
-
 function readLeaf(node: Node | undefined, low: number, high: number, leafIndex: number): Leaf | undefined {
   while (node && high - low > 1) {
     const middle = low + ((high - low) >>> 1);
