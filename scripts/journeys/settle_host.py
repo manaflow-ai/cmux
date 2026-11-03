@@ -12,7 +12,8 @@ The helpers register up to 30 s after launch, inside the first journeys (cmux22 
 1. Registers the clone's nested helper apps (CLONE/Contents/Frameworks/*.app) with lsregister now, the same
    registration their first launch does, so their burst comes during this wait and not in a journey.
 2. Waits until no BackgroundShortcutRunner runs and siriactionsd is under 2 % CPU for --quiet-seconds without a
-   break (and at least that long from the start), at most --max-seconds.
+   break (and at least that long from the start). --max-seconds bounds steps 1 and 2 together; a ps that fails is
+   never quiet.
 Prints one JSON line: {"registered", "register_errors", "waited_s", "quiet", "runners_seen", "siriactionsd_max_pcpu"}.
 --ps and --lsregister replace the tools (tests).
 """
@@ -30,8 +31,11 @@ DAEMON_BUSY_PCPU = 2.0
 
 
 def processes(ps):
-    """[(pid, pcpu, command)] of every process (ps -A)."""
-    out = subprocess.run(ps + ["-A", "-o", "pid=,pcpu=,comm="], capture_output=True, text=True, timeout=10).stdout
+    """[(pid, pcpu, command)] of every process (ps -A). OSError when ps fails (a failed read is never quiet)."""
+    done = subprocess.run(ps + ["-A", "-o", "pid=,pcpu=,comm="], capture_output=True, text=True, timeout=10)
+    if done.returncode != 0 or not done.stdout.strip():
+        raise OSError(f"ps exited {done.returncode}: {done.stderr.strip()[-120:]}")
+    out = done.stdout
     rows = []
     for line in out.splitlines():
         parts = line.split(None, 2)
@@ -43,11 +47,16 @@ def processes(ps):
     return rows
 
 
-def register_helpers(app, lsregister):
+def register_helpers(app, lsregister, deadline=None, clock=time.monotonic):
+    """lsregister -f for each nested helper app of APP, each bounded by what is left before DEADLINE (clock s)."""
     registered, errors = [], []
     for helper in sorted(glob.glob(os.path.join(app, "Contents", "Frameworks", "*.app"))):
+        left = 30.0 if deadline is None else min(30.0, deadline - clock())
+        if left < 1:
+            errors.append(f"{os.path.basename(helper)}: no time left")
+            continue
         try:
-            done = subprocess.run(lsregister + ["-f", helper], capture_output=True, text=True, timeout=30)
+            done = subprocess.run(lsregister + ["-f", helper], capture_output=True, text=True, timeout=left)
         except (OSError, subprocess.TimeoutExpired) as error:
             errors.append(f"{os.path.basename(helper)}: {error}"[:200])
             continue
@@ -95,8 +104,10 @@ def main():
     ap.add_argument("--ps", default="/bin/ps")
     ap.add_argument("--lsregister", default=LSREGISTER)
     o = ap.parse_args()
-    registered, errors = register_helpers(o.app, [o.lsregister])
-    result = settle([o.ps], o.max_seconds, o.quiet_seconds, o.interval)
+    start = time.monotonic()
+    # --max-seconds bounds the whole run: the registrations and the wait.
+    registered, errors = register_helpers(o.app, [o.lsregister], deadline=start + o.max_seconds)
+    result = settle([o.ps], max(0.0, o.max_seconds - (time.monotonic() - start)), o.quiet_seconds, o.interval)
     result.update({"registered": registered, "register_errors": errors})
     print(json.dumps(result), flush=True)
 

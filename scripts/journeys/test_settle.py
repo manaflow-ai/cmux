@@ -12,9 +12,11 @@ last ones (the app's CEF helpers) up to 30 s after the launch, inside the first 
   siriactionsd) in the middle starts the quiet time again; the gap inside a runner pair (10.5 s) does not end it;
 - the wait ends at max_seconds with quiet false when the load never stops, and a ps that fails is not quiet;
 - every nested helper app of the clone is registered with lsregister -f; an lsregister failure is recorded;
-- run.py packs settle_host.py, runs it on a whole-host lease after the launch and before the driver, writes
-  OUT/settle-<lease>.json, and never fails the lease when it fails; with --settle-seconds 0 or on a slot lease it
-  does not run.
+- run.py packs settle_host.py, runs it on a film lease (--whole-host --vdisplay) after the launch and before the
+  driver, writes OUT/settle-<lease>.json, and never fails the lease when it fails; it takes only lease time the
+  journeys do not need (skipped when there is none); with --settle-seconds 0, on a slot lease or with no --vdisplay
+  (the smoke gate) it does not run; a ps that fails or prints nothing is never quiet; the registrations are inside
+  the bound.
 """
 import json
 import os
@@ -99,6 +101,11 @@ class SettleTest(unittest.TestCase):
     def test_a_failing_ps_is_not_quiet(self):
         got = settle_host.settle(["/nonexistent/ps"], 5, 2, 0.5, clock=self.clock, sleep=self.clock.sleep)
         self.assertFalse(got["quiet"])
+        silent = Path(self.tmp.name) / "silent-ps"
+        silent.write_text("#!/bin/sh\nexit 1\n")
+        silent.chmod(0o755)
+        got = settle_host.settle([str(silent)], 5, 2, 0.5, clock=self.clock, sleep=self.clock.sleep)
+        self.assertFalse(got["quiet"])
 
 
 class RegisterTest(unittest.TestCase):
@@ -112,6 +119,7 @@ class RegisterTest(unittest.TestCase):
             lsreg = Path(tmp) / "lsregister"
             lsreg.write_text("#!/bin/sh\necho \"$@\" >> %s\ncase \"$2\" in *GPU*) echo nope >&2; exit 3;; esac\n" % log)
             lsreg.chmod(0o755)
+            self.assertEqual(settle_host.register_helpers(str(app), [str(lsreg)], deadline=0.0, clock=lambda: 0.0)[0], [])
             registered, errors = settle_host.register_helpers(str(app), [str(lsreg)])
             self.assertEqual(registered, ["cmux Helper (Renderer).app", "cmux Helper.app"])
             self.assertEqual(len(errors), 1)
@@ -170,11 +178,16 @@ class RunLeaseSettleTest(unittest.TestCase):
         os.environ.clear()
         os.environ.update(self.saved_env)
 
-    def lease(self, whole_host=True, settle_seconds=75):
+    def lease(self, whole_host=True, settle_seconds=75, vdisplay="120x2", budget=60):
         out = self.tmp / f"out-{len(self.calls)}"
-        self.run.run_lease([{"id": "smoke-dogfood", "budget_seconds": 60, "steps": []}],
-                           {"id": "JOB1", "commit": "a" * 40, "tag": "t"}, out, 1.0, whole_host=whole_host,
-                           settle_seconds=settle_seconds)
+        saved = self.run.start_vdisplay
+        self.run.start_vdisplay = lambda *a, **k: {"mode": "x"}
+        try:
+            self.run.run_lease([{"id": "smoke-dogfood", "budget_seconds": budget, "steps": []}],
+                               {"id": "JOB1", "commit": "a" * 40, "tag": "t"}, out, 1.0, whole_host=whole_host,
+                               settle_seconds=settle_seconds, vdisplay=vdisplay)
+        finally:
+            self.run.start_vdisplay = saved
         return out
 
     def test_whole_host_lease_settles_after_launch_and_before_the_driver(self):
@@ -191,11 +204,23 @@ class RunLeaseSettleTest(unittest.TestCase):
         [f] = list(out.glob("settle-*.json"))
         self.assertIn("error", json.loads(f.read_text()))
 
-    def test_no_settle_with_zero_seconds_or_on_a_slot(self):
+    def test_no_settle_with_zero_seconds_on_a_slot_or_without_a_film_display(self):
         self.lease(settle_seconds=0)
-        self.lease(whole_host=False)
+        self.lease(whole_host=False, vdisplay=None)
+        self.lease(vdisplay=None)  # a whole-host lease with no --vdisplay: the smoke gate's
         self.assertNotIn("settle", self.calls)
-        self.assertEqual(self.calls.count("driver"), 2)
+        self.assertEqual(self.calls.count("driver"), 3)
+
+    def test_the_wait_never_takes_the_journeys_time(self):
+        # 540 s lease, journeys of 260 s, 45 s reserve: at most 75 s; journeys of 470 s: no spare time, skipped.
+        self.assertEqual(self.run.settle_bound(75, 540, [{"budget_seconds": 260}]), 75)
+        self.assertEqual(self.run.settle_bound(75, 340, [{"budget_seconds": 250}]), 45)
+        self.assertEqual(self.run.settle_bound(75, 300, [{"budget_seconds": 250}]), 0)
+        out = self.lease(budget=480)
+        self.assertNotIn("settle", self.calls)
+        self.assertIn("driver", self.calls)
+        [f] = list(out.glob("settle-*.json"))
+        self.assertIn("skipped", json.loads(f.read_text())["error"])
 
     def test_the_kit_carries_settle_host(self):
         import io
@@ -206,6 +231,8 @@ class RunLeaseSettleTest(unittest.TestCase):
 
     def test_main_default_is_75_seconds(self):
         self.assertEqual(self.run.SETTLE_SECONDS, 75)
+        import inspect
+        self.assertIn("default=SETTLE_SECONDS", inspect.getsource(self.run.main))
 
 
 if __name__ == "__main__":
