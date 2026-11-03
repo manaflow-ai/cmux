@@ -357,7 +357,7 @@ async function round(browser: Browser, url: string): Promise<Round> {
       );
       await paint(page, 3);
     }
-    if (SCEN !== "end")
+    if (SCEN === "msg")
       emit("mux", "user_message", fromAgent("m-1", "The reviewer found one more retry loop in the upload queue."));
     await paint(page, 8);
     for (const part of SCEN === "end" ? [] : REPLY) {
