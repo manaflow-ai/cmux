@@ -2304,6 +2304,9 @@ jobs:
       - name: Build nightly app (Release)
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         env:
+          # The opt-in Cloud Tunnel ships only on a channel with a provisioning profile
+          # (plans/cmux-next/cloud-tunnel-DESIGN.md); cloud-tunnel-prepare.sh signs or removes it.
+          CMUX_CLOUD_TUNNEL: ${{ needs.decide.outputs.profile_channel != '' && needs.decide.outputs.notary_probe != 'true' && 'YES' || '' }}
           IMPORT_VARIANT: ${{ needs.decide.outputs.import_variant }}
           SWIFT_IMPORT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
           EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
@@ -3827,6 +3830,16 @@ jobs:
         run: bash -e scripts/ci/nightly-steps/embed-provisioning-profile.sh
 
 
+      # The opt-in Cloud Tunnel: channel identity, its own profile, the app's two tunnel
+      # entitlements; removed when the channel has no tunnel profile.
+      - name: Prepare the Cloud Tunnel extension
+        if: hashFiles('scripts/ci/nightly-steps/cloud-tunnel-prepare.sh') != ''
+        env:
+          PROFILE_CHANNEL: ${{ needs.decide.outputs.profile_channel }}
+          TUNNEL_PROVISIONING_PROFILE_BASE64: ${{ needs.decide.outputs.profile_channel != '' && secrets[format('APPLE_{0}_TUNNEL_PROVISIONING_PROFILE_BASE64', needs.decide.outputs.profile_channel)] || '' }}
+        run: bash scripts/ci/nightly-steps/cloud-tunnel-prepare.sh
+
+
       # The Computer Use helper has its own notarization ticket (a copy outside
       # the app stays Gatekeeper-valid). Its submission starts here, signed
       # with its final Developer ID signature, so Apple's wait overlaps the
@@ -3867,7 +3880,7 @@ jobs:
           fi
           CMUX_SIGN_MODE="$sign_mode" ./scripts/sign-cmux-bundle.sh \
             "$CHANNEL_APP_PATH" \
-            "$CHANNEL_ENTITLEMENTS" \
+            "${CMUX_APP_TUNNEL_ENTITLEMENTS:-$CHANNEL_ENTITLEMENTS}" \
             "$APPLE_SIGNING_IDENTITY"
 
 
@@ -4326,7 +4339,13 @@ jobs:
         if: env.TRACK == 'nightly-next'
         run: ./scripts/cmux-next/check-version-surfaces.sh "$CHANNEL_APP_PATH"
 
-      - *older-tree-step-scripts
+      # The same restore for a job with no prepare reuse step: only the tree's age decides.
+      - &older-tree-step-scripts-plain
+        name: Add the workflow commit's new step scripts to an older build tree
+        if: hashFiles('scripts/ci/nightly-steps/prepare-thin-bundle.sh') == ''
+        run: |
+          git fetch -q --no-tags --depth=1 origin "$GITHUB_SHA"
+          git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- scripts/ci/nightly-steps | while read -r f; do git checkout FETCH_HEAD -- "$f"; done
       - name: Verify bundled CLI commands run from the bundle alone
         if: env.TRACK == 'nightly-next' && hashFiles('scripts/cmux-next/check-bundled-cli-commands.sh') != ''
         run: bash scripts/ci/nightly-steps/verify-signed-bundled-cli-commands.sh
@@ -4726,25 +4745,30 @@ jobs:
       # took a p50 of 133 s for the 355 MB app (hosted Linux: 9 s) and ran out its 5 minutes in 4 of 26
       # runs; run 41478567483 ran out both tries and its tip never published. This reads it in parallel
       # ranges, asks again for a range that stalls, and checks the zip's upload digest. When it fails,
-      # download-artifact below takes over as before.
+      # download-artifact below takes over as before. The SSH daemon assets come down beside it: read
+      # after it in turn they cost 39 s on the feed's critical path (run 41665278171).
       - name: Download the signed app (parallel ranges)
         continue-on-error: true
         timeout-minutes: 5
         # A JavaScript step, so the script gets the job's runtime token for the artifact service in its
         # own environment (download-artifact's route, no GITHUB_TOKEN permission); nothing goes to $GITHUB_ENV
-        # but the flag.
+        # but the flags.
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           ARTIFACT: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           FETCH_DEST: signer-app
         with:
           script: |
-            const run = require('child_process').spawnSync('python3', ['-I', '.publish-tooling/scripts/ci/fetch_run_artifact.py', '--name', process.env.ARTIFACT, '--dest', process.env.FETCH_DEST], {stdio: 'inherit'})
-            if (run.status !== 0) core.setFailed(`fetch_run_artifact.py exited ${run.status ?? run.signal}`)
+            const fetch = (name, dest) => new Promise((done) => require('child_process')
+              .spawn('python3', ['-I', '.publish-tooling/scripts/ci/fetch_run_artifact.py', '--name', name, '--dest', dest], {stdio: 'inherit'})
+              .on('error', (error) => done(error.message)).on('close', (code, signal) => done(code === 0 ? 0 : code ?? signal)))
+            const [app, daemon] = await Promise.all([fetch(process.env.ARTIFACT, process.env.FETCH_DEST),
+              fetch('cmux-nightly-remote-daemon', 'remote-daemon-assets')])
+            if (daemon === 0) core.exportVariable('SIGNER_DAEMON_FETCHED', 'true')
+            if (app !== 0) core.setFailed(`fetch_run_artifact.py exited ${app}`)
             else core.exportVariable('SIGNER_APP_FETCHED', 'true')
       # An env flag, not a step outcome, so the ranged step's result decides.
-      - &signer-download-app
-        name: Download the signed app
+      - name: Download the signed app
         id: signer-download-app
         if: env.SIGNER_APP_FETCHED != 'true'
         continue-on-error: true
@@ -4753,16 +4777,14 @@ jobs:
         with:
           name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-app
-      - &signer-download-app-retry
-        name: Download the signed app (retry)
+      - name: Download the signed app (retry)
         if: steps.signer-download-app.outcome == 'failure'
         timeout-minutes: 5
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-app
-      - &signer-unpack-app
-        name: Unpack the signed app
+      - name: Unpack the signed app
         env:
           APP_SHA256: ${{ needs.signer-app.outputs.sha256 }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/signer-unpack-app.sh
@@ -4772,7 +4794,12 @@ jobs:
           PACKAGE_HANDOFF: "false"
           PACKAGE_UNNOTARIZED_ZIP: "false"
         run: bash scripts/ci/signed-app-checks.sh start "$SIGNER_WORK/$CHANNEL_APP_NAME.app"
-      - *download-ssh-daemon-assets-2
+      - name: Download SSH daemon assets
+        if: env.SIGNER_DAEMON_FETCHED != 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-remote-daemon
+          path: remote-daemon-assets
       - name: Start the verify-signed checks
         env:
           NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
@@ -7537,7 +7564,7 @@ jobs:
 
       - name: Fetch the published span
         run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next "$PUBLISHED_SHA"
-      - *older-tree-step-scripts
+      - *older-tree-step-scripts-plain
       - name: Comment the build on its PRs
         env:
           GH_TOKEN: ${{ github.token }}
@@ -7585,7 +7612,7 @@ jobs:
       # the next one (2026-10-12: 3821558930001 had no notes and its highlights were never shown).
       - *wait-through-github-api-rate-l
 
-      - *older-tree-step-scripts
+      - *older-tree-step-scripts-plain
       - name: Start the span at the newest published notes
         id: span
         run: bash scripts/ci/nightly-steps/release-notes-start-span.sh
@@ -7693,7 +7720,7 @@ jobs:
       - *wait-through-github-api-rate-l
 
       - *download-artifact-step
-      - *older-tree-step-scripts
+      - *older-tree-step-scripts-plain
       - name: Install ffmpeg
         timeout-minutes: 6
         env:
