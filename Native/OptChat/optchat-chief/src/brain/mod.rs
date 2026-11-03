@@ -500,6 +500,7 @@ pub enum EngineRequest {
         compactor_speed: Option<String>,
         compactor_harness: Option<String>,
         compactor_model: Option<String>,
+        turn_routing: Option<String>,
         /// The reaction classifier's fields (reaction_wake.rs).
         reactions: Box<ReactionFields>,
     },
@@ -761,6 +762,9 @@ pub struct Brain {
     /// their id, removed by name once acpmux is up.
     stale_sessions: Vec<String>,
     outbox_timer: Option<Instant>,
+    /// Pending attachment jobs of this process; persisted manifests resume
+    /// when this set is empty after a restart.
+    media_uploads: HashSet<String>,
     /// When the last agent message was taken by the owner (epoch ms): the next waits out the gap (G11).
     last_agent_send: Option<u64>,
     fatal: Option<String>,
@@ -880,6 +884,9 @@ pub struct Brain {
     turn_view: Option<String>,
     /// The running turn's engine (engine.rs), for the trace.
     turn_engine: Option<crate::engine::TurnEngine>,
+    turn_route: Option<crate::turn_route::RoutePick>,
+    /// The configured engine before own-turn routing; subagents keep their defaults.
+    turn_spawn_engine: Option<crate::engine::TurnEngine>,
     /// The per-Chief settings (`chief_settings`), owned by the host.
     chief: crate::chief_settings::ChiefSettings,
     /// The running turn carries another person's text: it runs with policy
@@ -1013,6 +1020,7 @@ impl Brain {
             sessions: HashMap::new(),
             stale_sessions,
             outbox_timer: None,
+            media_uploads: HashSet::new(),
             last_agent_send: None,
             fatal: None,
             stop_wanted: false,
@@ -1079,6 +1087,8 @@ impl Brain {
             turn_clock: None,
             turn_view: None,
             turn_engine: None,
+            turn_route: None,
+            turn_spawn_engine: None,
             describer: None,
             reaction_wake: reaction_wake::State::default(),
             describing: HashSet::new(),
@@ -2002,6 +2012,7 @@ fn op_entry(conversation: String, key: &str, op: Op) -> OutboxEntry {
         rate_attempts: 0,
         previews_until: None,
         plain_text: None,
+        pending_media: Vec::new(),
     }
 }
 
@@ -2049,6 +2060,7 @@ fn answer_entry(
         rate_attempts: 0,
         previews_until: None,
         plain_text: None,
+        pending_media: Vec::new(),
     }
 }
 

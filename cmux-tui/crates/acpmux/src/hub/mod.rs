@@ -5,6 +5,9 @@
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
 mod activity;
+// A foreground shell still running after a minute goes to the background (Claude Code).
+mod auto_background;
+pub use auto_background::AUTO_BACKGROUND_ENV;
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
 mod adopted_fences;
@@ -23,6 +26,7 @@ mod bounded;
 mod btw;
 // A turn ends when its agent ends it; the steers it runs on with are the next turn's.
 mod carried_turn;
+pub(crate) mod clone_boot;
 mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
@@ -583,6 +587,8 @@ pub struct Hub {
     pub(super) load_plan: StdMutex<log_load::LoadPlan>,
     /// `resume_queues` ran: a chat whose log is read later resumes its own queue (`log_load.rs`).
     pub(super) queues_resumed: AtomicBool,
+    /// This start is a copied machine's first: the machine it was copied from (`clone_boot.rs`).
+    pub(super) clone_boot: std::sync::OnceLock<String>,
     /// A chat closed: wakes the log retention worker (`retention.rs`).
     pub(super) retention_wake: Arc<Notify>,
     /// False from a deferred start with running agent hosts until adoption ends: prompts to
@@ -708,6 +714,11 @@ pub struct Hub {
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// How long Ctrl-B waits for Claude Code's answer (`processes.rs`).
     pub(super) background_timeout: StdMutex<std::time::Duration>,
+    /// How long a foreground shell runs before it goes to the background, None: never
+    /// (`auto_background.rs`).
+    pub(super) auto_background_after: StdMutex<Option<std::time::Duration>>,
+    /// The `<session>/<tool call>` shells a timer of `auto_background.rs` watches.
+    pub(super) auto_background_armed: StdMutex<std::collections::HashSet<String>>,
     /// Chats agents offered the person, still open (`offers.rs`).
     pub(super) offers: offers::Offers,
     /// Which session each lane reports its turns to (`lane_reports.rs`).
@@ -858,6 +869,7 @@ impl Hub {
             logs_ready: tokio::sync::watch::channel(true).0,
             load_plan: Default::default(),
             queues_resumed: AtomicBool::new(false),
+            clone_boot: std::sync::OnceLock::new(),
             retention_wake: Arc::new(Notify::new()),
             adoption_ready: tokio::sync::watch::channel(true).0,
             catalog_ready: tokio::sync::watch::channel(true).0,
@@ -925,6 +937,8 @@ impl Hub {
             workflow_index: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
+            auto_background_after: StdMutex::new(auto_background::auto_background_from_env()),
+            auto_background_armed: Default::default(),
             offers: Default::default(),
             lane_reports: Default::default(),
             lane_report_reads: Default::default(),
