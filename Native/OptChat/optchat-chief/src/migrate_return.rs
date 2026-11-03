@@ -555,3 +555,377 @@ pub fn move_out(
     report.moved = true;
     Ok(())
 }
+
+/// A teleport the Cloud Chief asked for (its `teleport` tool): the brain
+/// config's `teleport` field, `{to, id, at}`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Request {
+    pub to: String,
+    pub id: String,
+}
+
+/// The pending request in a `GET /v1/chiefs/<id>/brain` answer, if any.
+pub fn request_of(brain: &Value) -> Option<Request> {
+    let t = &brain["value"]["config"]["teleport"];
+    Some(Request {
+        to: t["to"].as_str()?.to_owned(),
+        id: t["id"].as_str()?.to_owned(),
+    })
+}
+
+/// The move target of a request: `home` is the home the Chief left.
+pub fn request_target(to: &str, home: &Path) -> Result<Target, String> {
+    match to {
+        "home" | "this-mac" | "laptop" => Ok(Target::Local(home.to_path_buf())),
+        t if t.starts_with("ssh:") || t.starts_with("local:") => Target::parse(t),
+        t => Err(format!(
+            "the Cloud Chief asked for {t:?}: use home or ssh:HOST"
+        )),
+    }
+}
+
+/// The file a Chief that moved in from another machine writes to ask that
+/// machine to move it (the MCP `move` tool there): `{to, id, at}`.
+pub const REQUEST_FILE: &str = "state/teleport-request.json";
+
+/// The home a Chief moved to over SSH: `ssh:HOST:PATH`.
+pub fn ssh_source(moved_to: &str) -> Option<(String, String)> {
+    let rest = moved_to.strip_prefix("ssh:")?;
+    let (host, path) = rest.split_once(':')?;
+    Some((host.to_owned(), path.to_owned()))
+}
+
+/// `optchat-chief move watch`: while `home` is moved away (to a Cloud Chief or
+/// over SSH), waits for that Chief's teleport request and carries it out. The
+/// Mac that holds the frozen copy runs every move out of it: it has the copy,
+/// the SSH keys and the app's sign-in. Returns when the home answers here again.
+/// One watcher per home.
+pub fn watch(home: &Path, template: &MoveOptions, every: Duration) -> Result<String, String> {
+    let lock_path = home.join("state").join("move-watch.lock");
+    let _lock = crate::lock::HostLock::take(&lock_path, migrate::now_millis() as u64)
+        .map_err(|e| format!("another watcher runs for {}: {e:?}", home.display()))?;
+    let mut done: Option<String> = None;
+    loop {
+        let Some(m) = migrate::moved(home) else {
+            return Ok(format!("{} answers here", home.display()));
+        };
+        match poll_once(home, template, &m.to, &mut done) {
+            Ok(Some(line)) => eprintln!("optchat-chief move watch: {line}"),
+            Ok(None) => {}
+            Err(e) => eprintln!("optchat-chief move watch: {e}"),
+        }
+        if migrate::moved(home).is_none() {
+            return Ok(format!("{} answers here again", home.display()));
+        }
+        // Bounded interval between looks at where the Chief is now; neither the
+        // cloud API nor SSH pushes to a process on this Mac.
+        std::thread::sleep(every);
+    }
+}
+
+/// The pending request of the Chief at `moved_to`, if any, and how to clear it.
+fn pending(
+    template: &MoveOptions,
+    moved_to: &str,
+) -> Result<Option<(Request, Box<dyn Fn()>)>, String> {
+    if let Some((base, chief)) = cloud_source(moved_to) {
+        let token = cloud::session_token(template.session_token_file.as_deref(), Some(&base))?;
+        let api = Api::new(base.clone(), token);
+        let (status, value) = api.call("GET", &format!("/v1/chiefs/{chief}/brain"), None)?;
+        if !(200..300).contains(&status) {
+            return Err(format!("reading the Cloud Chief: HTTP {status}"));
+        }
+        return Ok(request_of(&value).map(|r| {
+            let clear: Box<dyn Fn()> = Box::new(move || {
+                let _ = api.call(
+                    "PUT",
+                    &format!("/v1/chiefs/{chief}/brain"),
+                    Some(&json!({"teleport": null})),
+                );
+            });
+            (r, clear)
+        }));
+    }
+    if let Some((host, path)) = ssh_source(moved_to) {
+        let file = format!("{path}/{REQUEST_FILE}");
+        let out = migrate::ssh(
+            &host,
+            &format!("cat {} 2>/dev/null || true", migrate::sh_quote(&file)),
+            None,
+        )?;
+        let value: Value = serde_json::from_str(out.trim()).unwrap_or(Value::Null);
+        let request = match (value["to"].as_str(), value["id"].as_str()) {
+            (Some(to), Some(id)) => Request {
+                to: to.to_owned(),
+                id: id.to_owned(),
+            },
+            _ => return Ok(None),
+        };
+        let clear: Box<dyn Fn()> = Box::new(move || {
+            let _ = migrate::ssh(&host, &format!("rm -f {}", migrate::sh_quote(&file)), None);
+        });
+        return Ok(Some((request, clear)));
+    }
+    Ok(None)
+}
+
+/// One look at where the Chief is; a new request runs the move and is
+/// cleared (also when the move failed: `state/move.json` says why).
+fn poll_once(
+    home: &Path,
+    template: &MoveOptions,
+    moved_to: &str,
+    done: &mut Option<String>,
+) -> Result<Option<String>, String> {
+    let Some((request, clear)) = pending(template, moved_to)? else {
+        return Ok(None);
+    };
+    if done.as_deref() == Some(request.id.as_str()) {
+        return Ok(None);
+    }
+    *done = Some(request.id.clone());
+    let target = request_target(&request.to, home);
+    clear();
+    let mut options = template.clone();
+    options.home = home.to_path_buf();
+    options.dry_run = false;
+    options.stop_host = true;
+    let report = match target {
+        Err(e) => return Err(e),
+        Ok(target) => {
+            options.target = target;
+            teleport(&options)
+        }
+    };
+    let _ = migrate::write_private(
+        &home.join("state").join("move.json"),
+        serde_json::to_string(&report)
+            .unwrap_or_default()
+            .as_bytes(),
+    );
+    match report.error {
+        None => Ok(Some(format!(
+            "moved to {} (request {})",
+            report.to, request.id
+        ))),
+        Some(e) => Err(format!("teleport to {} failed: {e}", request.to)),
+    }
+}
+
+/// A move from wherever the Chief of `options.home` is now: out of the
+/// cloud directly; out of an SSH host by first bringing it back here, then on
+/// to the target when that is not this home.
+pub fn teleport(options: &MoveOptions) -> MoveReport {
+    let home = std::fs::canonicalize(&options.home).unwrap_or_else(|_| options.home.clone());
+    let moved_to = migrate::moved(&home).map(|m| m.to);
+    let Some((host, path)) = moved_to.as_deref().and_then(ssh_source) else {
+        return migrate::move_chief(options);
+    };
+    let mut back = options.clone();
+    back.target = Target::Local(home.clone());
+    let mut report = pull_back(&back, &home, &host, &path);
+    if report.error.is_some() || is_home(&options.target, &home) {
+        return report;
+    }
+    let onward = migrate::move_chief(options);
+    report.steps.extend(onward.steps);
+    report.to = onward.to;
+    report.moved = onward.moved;
+    report.error = onward.error;
+    report.memory = onward.memory;
+    report.conversations = onward.conversations;
+    report.cloud = onward.cloud;
+    report
+}
+
+/// Brings the Chief that moved to `host:path` back into `home` (the home it
+/// left): freeze it there (host stopped, start held), checkpoint, copy back,
+/// write over the frozen copy here, check, then retire the remote home.
+pub fn pull_back(options: &MoveOptions, home: &Path, host: &str, path: &str) -> MoveReport {
+    let mut report = MoveReport {
+        from: format!("ssh:{host}:{path}"),
+        to: format!("local:{}", home.display()),
+        moved: false,
+        dry_run: options.dry_run,
+        steps: Vec::new(),
+        memory: migrate::Counts::default(),
+        conversations: migrate::Counts::default(),
+        bytes: 0,
+        error: None,
+        cloud: None,
+    };
+    if let Err(e) = pull_back_steps(options, home, host, path, &mut report) {
+        report.error = Some(e);
+    }
+    report
+}
+
+fn pull_back_steps(
+    options: &MoveOptions,
+    home: &Path,
+    host: &str,
+    path: &str,
+    report: &mut MoveReport,
+) -> Result<(), String> {
+    let q = migrate::sh_quote;
+    let bin = migrate::timed(&mut report.steps, "preflight", || {
+        let bin = migrate::remote_mover(host, &options.remote_bin)?;
+        let detail = format!("{host} has {bin}");
+        Ok((bin, detail))
+    })?;
+    if options.dry_run {
+        return Ok(());
+    }
+    let stage = format!("{path}.return");
+    migrate::timed(&mut report.steps, "freeze", || {
+        let out = migrate::ssh(
+            host,
+            &format!("{} move freeze --home {}", q(&bin), q(path)),
+            None,
+        )?;
+        Ok(((), out.trim().to_owned()))
+    })?;
+    let thaw = |e: String| -> String {
+        let _ = migrate::ssh(
+            host,
+            &format!(
+                "{} move thaw --home {}; rm -rf {}",
+                q(&bin),
+                q(path),
+                q(&stage)
+            ),
+            None,
+        );
+        e
+    };
+    let parent = home.parent().unwrap_or(Path::new("/tmp"));
+    let tmp = parent.join(format!(".chief-pull-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let fetched = migrate::timed(&mut report.steps, "checkpoint+transfer", || {
+        migrate::ssh(
+            host,
+            &format!(
+                "rm -rf {s} && {b} move checkpoint --home {p} --out {s}",
+                s = q(&stage),
+                b = q(&bin),
+                p = q(path)
+            ),
+            None,
+        )?;
+        migrate::create_private_dir(&tmp)?;
+        ssh_tar_out(host, &stage, &tmp)?;
+        let m = migrate::verify_checkpoint(&tmp)?;
+        let detail = format!(
+            "{} memory messages, {} conversation messages",
+            m.memory.messages, m.conversations.messages
+        );
+        Ok((m, detail))
+    });
+    let manifest = match fetched {
+        Ok(m) => m,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&tmp);
+            return Err(thaw(e));
+        }
+    };
+    report.memory = manifest.memory.clone();
+    report.conversations = manifest.conversations.clone();
+    report.bytes = manifest.files.iter().map(|f| f.size).sum();
+    let restored = migrate::timed(&mut report.steps, "restore+verify", || {
+        let n = restore_over(&tmp, home)?;
+        let v = migrate::verify_home(home)?;
+        if v.memory.messages != manifest.memory.messages
+            || v.conversations != manifest.conversations
+        {
+            return Err(format!("this home reads different counts: {v:?}"));
+        }
+        Ok(((), format!("wrote {n} files over {}", home.display())))
+    });
+    let _ = std::fs::remove_dir_all(&tmp);
+    restored.map_err(thaw)?;
+    let here = format!("local:{}", home.display());
+    migrate::timed(&mut report.steps, "commit", || {
+        migrate::ssh(
+            host,
+            &format!(
+                "{b} move retire --home {p} --to {t}; rm -rf {s}",
+                b = q(&bin),
+                p = q(path),
+                t = q(&here),
+                s = q(&stage)
+            ),
+            None,
+        )?;
+        std::fs::remove_file(home.join(migrate::MOVED_FILE)).map_err(|e| e.to_string())?;
+        let _ = std::fs::remove_file(home.join(migrate::SHUTDOWN_FILE));
+        Ok((
+            (),
+            format!("{} answers again; {host}:{path} is retired", home.display()),
+        ))
+    })?;
+    report.moved = true;
+    Ok(())
+}
+
+/// Copies the remote directory `remote` into the empty local `local` (tar over SSH).
+fn ssh_tar_out(host: &str, remote: &str, local: &Path) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let ssh_bin = crate::cli::env("OPTCHAT_MOVE_SSH").unwrap_or_else(|| "ssh".into());
+    let mut sender = Command::new(ssh_bin)
+        .args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", host])
+        .arg(format!("tar -C {} -cf - .", migrate::sh_quote(remote)))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("ssh {host}: {e}"))?;
+    let pipe = sender.stdout.take().ok_or("ssh gave no output pipe")?;
+    let unpack = Command::new("tar")
+        .arg("-C")
+        .arg(local)
+        .args(["-xf", "-"])
+        .stdin(Stdio::from(pipe))
+        .output()
+        .map_err(|e| format!("tar: {e}"))?;
+    let sent = sender
+        .wait_with_output()
+        .map_err(|e| format!("ssh {host}: {e}"))?;
+    if !sent.status.success() {
+        return Err(format!(
+            "ssh {host} tar failed: {}",
+            String::from_utf8_lossy(&sent.stderr).trim()
+        ));
+    }
+    if !unpack.status.success() {
+        return Err(format!(
+            "tar: {}",
+            String::from_utf8_lossy(&unpack.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+/// The machine a Chief moved in from, when that is another machine: its
+/// `state/moved-in.json` host. None for a Chief that started here.
+pub fn origin(home: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(home.join(migrate::MOVED_IN_FILE)).ok()?;
+    let v: Value = serde_json::from_str(&text).ok()?;
+    let host = v["from_host"].as_str()?.to_owned();
+    (host != migrate::hostname() && !host.is_empty()).then_some(host)
+}
+
+/// Writes this home's teleport request for the machine it moved in from,
+/// whose watcher carries it out after this turn.
+pub fn ask_origin(home: &Path, origin: &str, to: &str) -> Result<String, String> {
+    let id = format!("tp-{}", migrate::now_millis());
+    let request = json!({"to": to, "id": id, "at": migrate::now_rfc3339()});
+    migrate::create_private_dir(&home.join("state"))?;
+    migrate::write_private(&home.join(REQUEST_FILE), request.to_string().as_bytes())?;
+    Ok(json!({
+        "scheduled": true,
+        "request": id,
+        "by": origin,
+        "note": format!("{origin} moves you to {to} within about a minute; answer the person now and say goodbye: your next answer comes from there"),
+    })
+    .to_string())
+}
