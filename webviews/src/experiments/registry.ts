@@ -23,6 +23,7 @@ import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
+import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTurn.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
 import { trayPanelLook, trayRowLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
@@ -58,6 +59,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   turnErrorCard,
   pausedMachineResume,
   codeRouterOffer,
+  stoppedTurnLook,
   chromiumGlassUnderlay,
   questionPreviewLayout,
   toolErrorLook,

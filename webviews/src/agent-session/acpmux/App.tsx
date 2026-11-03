@@ -7852,6 +7852,7 @@ function AcpmuxPane() {
   const queuedMessageActionsRef = useRef<QueuedMessageActionsValue | undefined>(undefined);
   // The chat's Codex skills, for its sent prompts' `/$name` (conversation/skillWords.ts).
   const skillWords = useSkillWords(snapshot.commands);
+  const queueRunsNext = snapshot.queue.some((entry) => !entry.heldByStop && !entry.held && !entry.awaitingOwner);
   const turnActions = useMemo<TurnActions>(
     () => ({
       queuedMessages: () => queuedMessageActionsRef.current,
@@ -7920,14 +7921,17 @@ function AcpmuxPane() {
       // reader's prompt and starts the next turn, or queues behind one already sent. Like Restart
       // (restart.ts), never to a View Only chat, a subagent's read-only pane or where the composer
       // cannot send, and only to the chat this pane still shows, never the next during a switch's hold.
-      ...(restartChat && {
-        resume: (
-          (owner: string) => () =>
-            restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
-              ? resumeThrough(callNative)()
-              : Promise.resolve()
-        )(restartChat),
-      }),
+      // A prompt that runs next anyway (a queued one no Stop or owner holds, such as a message acpmux
+      // queued again after the Stop) starts the next turn: no Continue beside it.
+      ...(restartChat &&
+        !queueRunsNext && {
+          resume: (
+            (owner: string) => () =>
+              restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
+                ? resumeThrough(callNative)()
+                : Promise.resolve()
+          )(restartChat),
+        }),
       // A context-full failure's Compact sends the agent's own /compact as Continue sends its prompt,
       // with the same reach: never to a View Only chat or a read-only pane, never the next chat.
       ...(restartChat &&
@@ -8066,6 +8070,7 @@ function AcpmuxPane() {
       catalog,
       restartChat,
       snapshot.commands,
+      queueRunsNext,
     ],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
