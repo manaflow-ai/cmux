@@ -10,7 +10,7 @@ import { acpmuxSendCalls, recordedMessageBodyChangesForTool, type AcpmuxSendCall
 import { agentMessage, type AgentMessage } from "./agentMessages";
 import { dispatchCall, type DispatchCall } from "./dispatchCalls";
 import { isCmuxExec } from "./cmuxExec";
-import { mcpCall, mcpIsObservational, mcpKey } from "./mcpCalls";
+import { mcpCall, mcpDescription, mcpIsObservational, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { isThought, mergeThoughts } from "./thoughts";
 import { finishedBackgroundPhrase, isFoldedRun } from "./toolRunSummary";
@@ -153,7 +153,8 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     const subsession = named && subsessionCall(tool!, named);
     const call = subsession ? undefined : named;
     // A cmux script is its own row even beside another: each says what it did (cmuxExec.ts).
-    const key = call && (isCmuxExec(call) ? `${mcpKey(call)}\u0000${tool!.id}` : mcpKey(call));
+    // So is a described call, as Claude Code desktop draws each with its own words (mcpDescription).
+    const key = call && (isCmuxExec(call) || mcpDescription(call) ? `${mcpKey(call)}\u0000${tool!.id}` : mcpKey(call));
     const rememberMessageFiles = () => {
       if (!tool) return;
       // A parsed MCP action must itself be observational: a generic ACP read/search/fetch kind

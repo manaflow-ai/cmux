@@ -244,7 +244,10 @@ def run(mode, url):
                 except OSError:
                     pass
         elif mode == "int":
-            os.killpg(app.pid, signal.SIGINT)
+            try:
+                os.killpg(app.pid, signal.SIGINT)
+            except OSError:
+                pass
         elif mode == "kill-app":
             os.kill(app.pid, signal.SIGKILL)
         else:

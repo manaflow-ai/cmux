@@ -12,6 +12,7 @@ import { commandFolder } from "./commandFolder";
 import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
+import { ReactionMark, ReactionReply } from "./ReactionMark";
 import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
 import { Check, ChevronRight, TerminalSquare } from "./icons";
@@ -132,6 +133,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
           </span>
         )}
         <span className="cv-command__meta">
+          <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
           {foreground || tag ? null : tool.background ? (
             <BackgroundMark background={tool.background} />
@@ -158,6 +160,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
             reveal={reveal}
             live={running}
           />
+          <ReactionReply reaction={tool.reaction} />
         </div>
       )}
     </>

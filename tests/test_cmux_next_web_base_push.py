@@ -31,7 +31,9 @@ def test_every_feat_cmux_next_push_runs_the_web_checks() -> None:
     assert "paths" not in push and "paths-ignore" not in push, push
     web = doc["jobs"]["web"]
     assert web["uses"] == "./.github/workflows/ci-web.yml"
-    assert web["with"].get("push_base") == "${{ github.event_name == 'push' && github.event.before || '' }}"
+    # Coalesced (scripts/ci/web_coalesce.py): from the commit the last run tested, else the push's own base.
+    assert web["needs"] == "coalesce"
+    assert web["with"].get("push_base") == "${{ github.event_name == 'push' && needs.coalesce.outputs.base || '' }}"
 
 
 def test_ci_web_routes_from_the_push_base() -> None:
