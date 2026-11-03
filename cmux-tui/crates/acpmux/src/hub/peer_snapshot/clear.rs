@@ -21,9 +21,7 @@ impl PeerSnapshots {
 
     fn begin_clear(&self) -> Option<mpsc::Receiver<bool>> {
         self.generation_floor.store(crate::peer::generation_boundary(), Ordering::Release);
-        if self.dir.is_none() {
-            return None;
-        }
+        self.dir.as_ref()?;
         let (done, rx) = mpsc::sync_channel(1);
         let mut dropped = self.dropped();
         // Like shutdown, this control op is bounded by its waiting caller, not the capture
