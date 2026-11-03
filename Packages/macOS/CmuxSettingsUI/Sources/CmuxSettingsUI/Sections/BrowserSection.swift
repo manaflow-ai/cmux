@@ -7,7 +7,7 @@ import SwiftUI
 /// row-for-row inside a single `SettingsCard`: Enable cmux Browser,
 /// Default Search Engine, conditional Custom Search Engine fields,
 /// Show Search Suggestions, Browser Memory Saver rows
-/// (``BrowserMemorySaverSettingsRows``), Open Terminal Links / Intercept open,
+/// (``BrowserMemorySaverSettingsRows``), Open Terminal Links, Terminal Link Placement, Intercept open,
 /// conditional Hosts editor and the External Patterns text editor, HTTP Hosts
 /// Allowed in Embedded Browser editor, URL Allowlist editor, Import Browser Data
 /// subsection, React Grab Version, Browsing History.
@@ -270,7 +270,7 @@ public struct BrowserSection: View {
                     .controlSize(.small)
             }
             SettingsCardDivider()
-
+            BrowserTerminalLinkPlacementSettingRow(controlWidth: Self.columnWidth)
             // Intercept open
             SettingsCardRow(
                 configurationReview: .json("browser.interceptTerminalOpenCommandInCmuxBrowser"),

@@ -1,6 +1,7 @@
 import Bonsplit
 import CmuxBrowser
 import CmuxPanes
+import CmuxSettings
 import Foundation
 
 /// Adapts the main workspace and Dock split trees to one browser-placement path.
@@ -75,9 +76,11 @@ enum BrowserSplitContainer {
         }
     }
 
-    /// Reuses the nearest pane on the right or creates a horizontal split.
-    func openBrowserToRight(
+    /// `.split` reuses the nearest pane on the right or creates a horizontal
+    /// split; `.samePane` adds a tab to the source surface's pane.
+    func openBrowser(
         of sourcePanelID: UUID,
+        placement: TerminalLinkBrowserPlacement = .split,
         request: BrowserSplitRequest
     ) -> BrowserSplitPlacement? {
         guard containsPanel(sourcePanelID),
@@ -85,12 +88,17 @@ enum BrowserSplitContainer {
             return nil
         }
 
+        if placement == .samePane {
+            return createBrowserSurface(in: sourcePane, request: request, selectWhenNotFocused: false).map {
+                BrowserSplitPlacement(panel: $0, strategy: .samePane)
+            }
+        }
         if let targetPane = preferredRightSidePane(from: sourcePane) {
             return createBrowserSurface(
                 in: targetPane,
                 request: request
             ).map {
-                BrowserSplitPlacement(panel: $0, createdSplit: false)
+                BrowserSplitPlacement(panel: $0, strategy: .reuseRightSibling)
             }
         }
 
@@ -98,7 +106,7 @@ enum BrowserSplitContainer {
             from: sourcePanelID,
             request: request
         ).map {
-            BrowserSplitPlacement(panel: $0, createdSplit: true)
+            BrowserSplitPlacement(panel: $0, strategy: .splitRight)
         }
     }
 
@@ -142,7 +150,8 @@ enum BrowserSplitContainer {
 
     private func createBrowserSurface(
         in paneID: PaneID,
-        request: BrowserSplitRequest
+        request: BrowserSplitRequest,
+        selectWhenNotFocused: Bool = true
     ) -> BrowserPanel? {
         switch self {
         case .workspace(let workspace):
@@ -150,7 +159,7 @@ enum BrowserSplitContainer {
                 inPane: paneID,
                 url: request.url,
                 focus: request.focus,
-                selectWhenNotFocused: true,
+                selectWhenNotFocused: selectWhenNotFocused,
                 preferredProfileID: request.preferredProfileID,
                 creationPolicy: .automationPreload,
                 chromeVisibility: request.chromeVisibility,

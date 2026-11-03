@@ -101,6 +101,12 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserInterceptTerminalOpenCommandInCmuxBrowser"
     )
 
+    public let terminalLinkBrowserPlacement = DefaultsKey<TerminalLinkBrowserPlacement>(
+        id: "browser.terminalLinkBrowserPlacement",
+        defaultValue: .split,
+        userDefaultsKey: "browserTerminalLinkBrowserPlacement"
+    )
+
     public let hostsToOpenInEmbeddedBrowser = DefaultsKey<String>(
         id: "browser.hostsToOpenInEmbeddedBrowser",
         defaultValue: "",

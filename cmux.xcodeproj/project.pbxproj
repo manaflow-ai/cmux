@@ -505,6 +505,7 @@
 		B1F0C0010000000000000001 /* BrowserInspectorFocusHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0010000000000000002 /* BrowserInspectorFocusHandoff.swift */; };
 		B1F0C0020000000000000001 /* BrowserInspectorFocusHandoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0020000000000000002 /* BrowserInspectorFocusHandoffTests.swift */; };
 		A8370B35D91F9C4FD6CE89FC /* BrowserLinkHoverURLSettingsFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FAAC7CDCF925D204828767C /* BrowserLinkHoverURLSettingsFileTests.swift */; };
+		40C7D51BA7ECDA474ABC5844 /* BrowserLinkOpenSettings+TerminalLinkPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BA32BE401AA263E21D644F2 /* BrowserLinkOpenSettings+TerminalLinkPlacement.swift */; };
 		C85390070000000000000001 /* BrowserLocalFileFinderMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85390070000000000000002 /* BrowserLocalFileFinderMenu.swift */; };
 		BCBC0A0E0000000000000F01 /* BrowserMediaActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000F02 /* BrowserMediaActivity.swift */; };
 		BCBC0A0E0000000000000E11 /* BrowserMediaActivityAggregationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000E12 /* BrowserMediaActivityAggregationTests.swift */; };
@@ -4124,6 +4125,7 @@
 		B88357000000000000000007 /* TerminalImageTransferPreparedContent+DebugDescription.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */; };
 		124760000000000000000008 /* TerminalImageTransferTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000008 /* TerminalImageTransferTarget.swift */; };
 		D12797000000000000000002 /* TerminalLightAppearanceUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12797000000000000000001 /* TerminalLightAppearanceUITests.swift */; };
+		A982B36702F3B4D72C99443A /* TerminalLinkBrowserPlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9DA86186ED9350E9A287470 /* TerminalLinkBrowserPlacementTests.swift */; };
 		ABD7206D9502012144363BA9 /* TerminalLinkHoverFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9BA974EDF5E16A75B25C387 /* TerminalLinkHoverFilter.swift */; };
 		C85390030000000000000001 /* TerminalLinkLocationAndDockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85390030000000000000002 /* TerminalLinkLocationAndDockTests.swift */; };
 		859110000000000000000005 /* TerminalLinkOpenContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859110000000000000000006 /* TerminalLinkOpenContainer.swift */; };
@@ -5370,6 +5372,7 @@
 		B1F0C0010000000000000002 /* BrowserInspectorFocusHandoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/BrowserInspectorFocusHandoff.swift; sourceTree = "<group>"; };
 		B1F0C0020000000000000002 /* BrowserInspectorFocusHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserInspectorFocusHandoffTests.swift; sourceTree = "<group>"; };
 		2FAAC7CDCF925D204828767C /* BrowserLinkHoverURLSettingsFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserLinkHoverURLSettingsFileTests.swift"; sourceTree = "<group>"; };
+		2BA32BE401AA263E21D644F2 /* BrowserLinkOpenSettings+TerminalLinkPlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserLinkOpenSettings+TerminalLinkPlacement.swift"; sourceTree = "<group>"; };
 		C85390070000000000000002 /* BrowserLocalFileFinderMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserLocalFileFinderMenu.swift; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000F02 /* BrowserMediaActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserMediaActivity.swift; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000E12 /* BrowserMediaActivityAggregationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserMediaActivityAggregationTests.swift; sourceTree = "<group>"; };
@@ -8791,6 +8794,7 @@
 		B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferPreparedContent+DebugDescription.swift"; sourceTree = "<group>"; };
 		124770000000000000000008 /* TerminalImageTransferTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TerminalImageTransferTarget.swift"; sourceTree = SOURCE_ROOT; };
 		D12797000000000000000001 /* TerminalLightAppearanceUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLightAppearanceUITests.swift; sourceTree = "<group>"; };
+		F9DA86186ED9350E9A287470 /* TerminalLinkBrowserPlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalLinkBrowserPlacementTests.swift"; sourceTree = "<group>"; };
 		A9BA974EDF5E16A75B25C387 /* TerminalLinkHoverFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkHoverFilter.swift; sourceTree = "<group>"; };
 		C85390030000000000000002 /* TerminalLinkLocationAndDockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkLocationAndDockTests.swift; sourceTree = "<group>"; };
 		859110000000000000000006 /* TerminalLinkOpenContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenContainer.swift; sourceTree = "<group>"; };
@@ -12476,6 +12480,7 @@
 				2386646FEDC148652D5C1AD7 /* BrowserHiddenWebViewMemoryBudgetCoordinator.swift */,
 				C365461AA42F333782E0AC29 /* BrowserPanel+HiddenMemoryBudget.swift */,
 				3839FAA58283A56315148323 /* KeyboardShortcutSettingsFileStore+BrowserMemorySaver.swift */,
+				2BA32BE401AA263E21D644F2 /* BrowserLinkOpenSettings+TerminalLinkPlacement.swift */,
 				6B6A1AD299FCFD50D958AE98 /* OwnWindowFrameCapture.swift */,
 				76A75B28CB3A1A80409F5CDC /* TerminalController+WindowScreenshotMethod.swift */,
 				5EF08DD705767A157DB4FC5C /* WindowCaptureOutputFile.swift */,
@@ -14320,6 +14325,7 @@
 				A6FA6CA3BD8C6FB44634D416 /* WorkspaceContentViewVisibilityTests+AgentIndex.swift */,
 				C978CC3C2D3FCCE66696C72C /* CLIKiroGlobalHooksTests.swift */,
 				B88325A2907EB7D69739349B /* ClaudeBackgroundWorkDrainTests.swift */,
+				F9DA86186ED9350E9A287470 /* TerminalLinkBrowserPlacementTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15496,6 +15502,7 @@
 				C12791C00000000000000002 /* BrowserImportAutomation.swift in Sources */,
 				C12791C00000000000000008 /* BrowserImportDestinationResolver.swift in Sources */,
 				B1F0C0010000000000000001 /* BrowserInspectorFocusHandoff.swift in Sources */,
+				40C7D51BA7ECDA474ABC5844 /* BrowserLinkOpenSettings+TerminalLinkPlacement.swift in Sources */,
 				C85390070000000000000001 /* BrowserLocalFileFinderMenu.swift in Sources */,
 				BCBC0A0E0000000000000F01 /* BrowserMediaActivity.swift in Sources */,
 				BABA25000000000000000009 /* BrowserNavigationDelegate.swift in Sources */,
@@ -19530,6 +19537,7 @@
 				B12715000000000000000005 /* TerminalImageTransferConcurrencyTests+RepeatedPastes.swift in Sources */,
 				B8835A000000000000000005 /* TerminalImageTransferConcurrencyTests+Timeouts.swift in Sources */,
 				B88350000000000000000001 /* TerminalImageTransferConcurrencyTests.swift in Sources */,
+				A982B36702F3B4D72C99443A /* TerminalLinkBrowserPlacementTests.swift in Sources */,
 				C85390030000000000000001 /* TerminalLinkLocationAndDockTests.swift in Sources */,
 				859100000000000000000001 /* TerminalLinkOpenCoordinatorTests.swift in Sources */,
 				C0DE1A6E0000000000000001 /* TerminalLocalImageTransferFileLifetimeTests.swift in Sources */,

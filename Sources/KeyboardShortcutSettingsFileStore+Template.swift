@@ -254,6 +254,7 @@ extension CmuxSettingsFileStore {
                     "showLinkHoverURL": SettingCatalog().browser.showLinkHoverURL.defaultValue,
                     "openTerminalLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser,
                     "interceptTerminalOpenCommandInCmuxBrowser": BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser,
+                    "terminalLinkBrowserPlacement": SettingCatalog().browser.terminalLinkBrowserPlacement.defaultValue.rawValue,
                     "hostsToOpenInEmbeddedBrowser": [String](),
                     "urlsToAlwaysOpenExternally": [String](),
                     "insecureHttpHostsAllowedInEmbeddedBrowser": BrowserInsecureHTTPSettings.defaultAllowlistPatterns,

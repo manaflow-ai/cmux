@@ -42,6 +42,7 @@ def run_wrapper(
     bash_bin: str = "/bin/bash",
     extra_env: dict[str, str | None] | None = None,
     locale_capture: dict[str, list[str]] | None = None,
+    terminal_link_markers: list[str] | None = None,
 ) -> tuple[list[str], list[str], int, str]:
     """Run Resources/bin/open with faked system_open/cmux/defaults and return its dispatch.
 
@@ -61,6 +62,7 @@ def run_wrapper(
         cmux_log = tmp / "cmux.log"
         open_locale_log = tmp / "open-locale.log"
         cmux_locale_log = tmp / "cmux-locale.log"
+        cmux_marker_log = tmp / "cmux-marker.log"
         system_open = tmp / "system-open"
         defaults = tmp / "defaults"
         cmux = tmp / "cmux"
@@ -131,6 +133,7 @@ esac
 set -euo pipefail
 printf '%s\\n' "$*" >> "$FAKE_CMUX_LOG"
 printf '%s\\n' "${LC_ALL-<unset>}" >> "$FAKE_CMUX_LOCALE_LOG"
+printf '%s\\n' "${CMUX_TERMINAL_LINK-<unset>}" >> "$FAKE_CMUX_MARKER_LOG"
 url=""
 for arg in "$@"; do
   url="$arg"
@@ -162,6 +165,7 @@ exit 0
         env["FAKE_CMUX_LOG"] = str(cmux_log)
         env["FAKE_OPEN_LOCALE_LOG"] = str(open_locale_log)
         env["FAKE_CMUX_LOCALE_LOG"] = str(cmux_locale_log)
+        env["FAKE_CMUX_MARKER_LOG"] = str(cmux_marker_log)
         if python_bin is None:
             env.pop("CMUX_OPEN_WRAPPER_PYTHON3", None)
         else:
@@ -216,6 +220,8 @@ exit 0
         if locale_capture is not None:
             locale_capture["open"] = read_log(open_locale_log)
             locale_capture["cmux"] = read_log(cmux_locale_log)
+        if terminal_link_markers is not None:
+            terminal_link_markers.extend(read_log(cmux_marker_log))
 
         return read_log(open_log), read_log(cmux_log), result.returncode, result.stderr.strip()
 
@@ -1049,6 +1055,20 @@ def test_punycode_whitelist_matches_unicode_url(failures: list[str]) -> None:
     expect(cmux_log == [f"browser open {url}"], f"punycode whitelist: unexpected cmux log {cmux_log}", failures)
 
 
+def test_cmux_open_marks_terminal_link_origin(failures: list[str]) -> None:
+    url = "https://example.com"
+    markers: list[str] = []
+    _, cmux_log, code, stderr = run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        whitelist="",
+        terminal_link_markers=markers,
+    )
+    expect(code == 0, f"terminal link marker: wrapper exited {code}: {stderr}", failures)
+    expect(cmux_log == [f"browser open {url}"], f"terminal link marker: unexpected cmux log {cmux_log}", failures)
+    expect(markers == ["1"], f"terminal link marker: expected CMUX_TERMINAL_LINK=1, got {markers}", failures)
+
+
 def main() -> int:
     """Run every open-wrapper regression test and report aggregate pass/fail."""
     failures: list[str] = []
@@ -1082,6 +1102,7 @@ def main() -> int:
     test_cmux_cli_observes_original_locale(failures)
     test_unicode_whitelist_matches_punycode_url(failures)
     test_punycode_whitelist_matches_unicode_url(failures)
+    test_cmux_open_marks_terminal_link_origin(failures)
 
     if failures:
         print("open wrapper regression tests failed:")

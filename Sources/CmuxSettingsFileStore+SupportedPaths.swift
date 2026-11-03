@@ -211,6 +211,7 @@ extension CmuxSettingsFileStore {
         "browser.showLinkHoverURL",
         "browser.openTerminalLinksInCmuxBrowser",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
+        "browser.terminalLinkBrowserPlacement",
         "browser.hostsToOpenInEmbeddedBrowser",
         "browser.urlsToAlwaysOpenExternally",
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",

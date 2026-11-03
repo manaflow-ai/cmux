@@ -494,7 +494,6 @@ extension Array where Element == CuratedSettingEntry {
             ),
             .init(section: .automation, id: "port-base", title: String(localized: "settings.automation.portBase", defaultValue: "Port Base"), synonyms: "Port Base automation.portBase cmux_port start first base env environment variable"),
             .init(section: .automation, id: "port-range", title: String(localized: "settings.automation.portRange", defaultValue: "Port Range Size"), synonyms: "Port Range Size automation.portRange cmux_port_end range size count env ports"),
-
             // Computer Use
             .init(
                 section: .computerUse,
@@ -536,6 +535,7 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: String(localized: "settings.search.alias.setting.browser.link-hover-url", defaultValue: "browser.showLinkHoverURL link hover url destination address status bar preview")
             ),
             .init(section: .browser, id: "terminal-links", title: String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"), synonyms: "Open Terminal Links in cmux Browser browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"),
+            .init(section: .browser, id: "terminal-link-placement", title: String(localized: "settings.browser.terminalLinkBrowserPlacement", defaultValue: "Terminal Link Placement"), synonyms: "Terminal Link Placement browser.terminalLinkBrowserPlacement terminal links open command split same pane tab"),
             .init(section: .browser, id: "intercept-open", title: String(localized: "settings.browser.interceptOpen", defaultValue: "Intercept open http(s) in Terminal"), synonyms: "Intercept open http(s) in Terminal browser.interceptTerminalOpenCommandInCmuxBrowser open command http https url terminal intercept"),
             .init(section: .browser, id: "host-whitelist", title: String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"), synonyms: "Hosts to Open in Embedded Browser browser.hostsToOpenInEmbeddedBrowser allowlist whitelist host wildcard domain embedded browser"),
             .init(section: .browser, id: "external-patterns", title: String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"), synonyms: "URLs to Always Open Externally browser.urlsToAlwaysOpenExternally denylist blocklist regex rules external default browser"),

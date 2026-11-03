@@ -2316,6 +2316,12 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Intercept terminal open http(s) commands and route them through the embedded browser."
         },
+        "terminalLinkBrowserPlacement": {
+          "type": "string",
+          "enum": ["split", "samePane"],
+          "default": "split",
+          "description": "Where clicked terminal links and intercepted open commands open in the embedded browser. split uses the pane to the right of the terminal or creates a new split. samePane adds a browser tab to the pane that holds the terminal."
+        },
         "hostsToOpenInEmbeddedBrowser": {
           "type": "array",
           "items": {

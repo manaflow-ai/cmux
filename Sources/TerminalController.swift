@@ -7926,8 +7926,9 @@ class TerminalController {
                 transparentBackground: transparentBackground,
                 bypassRemoteProxy: bypassRemoteProxy
             )
-            guard let placement = container.openBrowserToRight(
+            guard let placement = container.openBrowser(
                 of: sourceSurfaceId,
+                placement: v2Bool(params, "terminal_link") == true ? BrowserLinkOpenSettings.terminalLinkBrowserPlacement() : .split,
                 request: request
             ) else {
                 result = .err(code: "internal_error", message: "Failed to create browser", data: nil)
@@ -7970,9 +7971,7 @@ class TerminalController {
                         uuid: targetPaneUUID
                     ),
                     "created_split": placement.createdSplit,
-                    "placement_strategy": placement.createdSplit
-                        ? "split_right"
-                        : "reuse_right_sibling",
+                    "placement_strategy": placement.strategy.rawValue,
                     "show_omnibar": placement.panel.isOmnibarVisible,
                     "transparent_background": transparentBackground,
                     "bypass_remote_proxy": bypassRemoteProxy,
