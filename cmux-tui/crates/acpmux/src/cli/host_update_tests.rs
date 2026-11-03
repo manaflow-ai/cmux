@@ -239,6 +239,13 @@ struct FakePeer {
     /// Right after the next copy, the process that keeps the host's update
     /// lease ends: the connection that held the lock dropped.
     lease_ends_after_copy: std::cell::Cell<bool>,
+    /// Right after the next copy the host goes away (a GCP VM stopped while
+    /// idle): every later ssh fails with these words of ssh's.
+    gone_after_copy: std::cell::Cell<Option<&'static str>>,
+    /// The next copy drops part way, with these words of scp's.
+    copy_drops: std::cell::Cell<Option<&'static str>>,
+    /// Set once the host went away ([`FakePeer::gone_after_copy`]).
+    gone: std::cell::Cell<Option<&'static str>>,
 }
 
 #[cfg(unix)]
@@ -249,6 +256,9 @@ impl Remote for FakePeer {
 
     fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut> {
         assert!(stdin.is_none(), "host update feeds no stdin");
+        if let Some(why) = self.gone.get() {
+            return Ok(RemoteOut { ok: false, stdout: String::new(), stderr: why.to_owned() });
+        }
         let out = self.sh(script).output()?;
         Ok(RemoteOut {
             ok: out.status.success(),
@@ -267,8 +277,14 @@ impl Remote for FakePeer {
     fn push(&self, local: &Path, remote: &str) -> Result<()> {
         // As scp: a `~/` path is under the remote home. Written from a child
         // process (`test_exec`): the update runs the pushed binary next.
+        if let Some(why) = self.copy_drops.take() {
+            return Err(anyhow!("scp to fake failed: {why}"));
+        }
         let dest = self.home.join(remote.strip_prefix("~/").unwrap_or(remote));
         crate::test_exec::write_executable(dest, std::fs::read(local)?);
+        if let Some(why) = self.gone_after_copy.take() {
+            self.gone.set(Some(why));
+        }
         if let Some((rel, text)) = self.after_copy.borrow_mut().take() {
             self.write(rel, text);
         }
@@ -297,6 +313,9 @@ impl FakePeer {
             home,
             after_copy: Default::default(),
             lease_ends_after_copy: Default::default(),
+            gone_after_copy: Default::default(),
+            copy_drops: Default::default(),
+            gone: Default::default(),
         };
         for dir in ["fakebin", ".local/bin", UNITS, "proc/4242", "run", "binaries", ".acpmux"] {
             std::fs::create_dir_all(peer.home.join(dir)).unwrap();
@@ -578,6 +597,37 @@ fn a_pushed_binary_that_does_not_run_is_never_installed() {
     assert!(up.error.as_deref().unwrap_or_default().contains("does not run"), "{up:?}");
     // The old binary stays installed, and no copy of the new one is left.
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+}
+
+/// Leo, 2026-11-03, on a toast "Couldn't update gcp-codex-swarm-03: ssh gcp-codex-swarm-03 failed:
+/// Timeout, server gcp-codex-swarm-03...internal not responding.": the GCP pool stops idle VMs, so
+/// a host can go away while its binary is pushed. Nothing is installed or restarted before the
+/// push ends, so that is `unreachable` (the app's quiet "offline; it will update when it's
+/// back"), never a `pushFailed` the app shows as a failure.
+#[test]
+#[cfg(unix)]
+fn a_host_that_goes_away_during_the_push_is_unreachable() {
+    let drops = [
+        ("ssh", "Timeout, server fake.us-west1-c.c.example.internal not responding.\r\n"),
+        ("ssh", "Connection to 10.0.0.7 closed by remote host.\r\n"),
+        ("ssh", "ssh: connect to host 10.0.0.7 port 22: No route to host\r\n"),
+        ("scp", "client_loop: send disconnect: Broken pipe lost connection"),
+    ];
+    for (i, (how, why)) in drops.into_iter().enumerate() {
+        let peer = FakePeer::new(&format!("gone-during-push-{i}"));
+        peer.offer(NEW, Some(NEW));
+        match how {
+            "ssh" => peer.gone_after_copy.set(Some(why)),
+            _ => peer.copy_drops.set(Some(why)),
+        }
+        let up = peer.update(false);
+        assert_eq!(
+            (up.outcome, up.reason.as_deref()),
+            (Outcome::Failed, Some("unreachable")),
+            "{why}: {up:?}"
+        );
+        assert!(!peer.take_calls().iter().any(|c| c.contains("restart")), "{why}");
+    }
 }
 
 /// A cmux Cloud VM's daemon as cmux runs it: no `acpmux.service` of acpmux's
