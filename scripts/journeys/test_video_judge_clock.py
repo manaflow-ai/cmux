@@ -117,6 +117,48 @@ class VideoJudgeClockTests(unittest.TestCase):
         report = vj.judge(base, movie=False)
         self.assertEqual(tvj.find(report, "jump back")[0]["severity"], "defect")
 
+    @staticmethod
+    def key_round(offset, keep_from, n=12):
+        """n key presses about 2.1 s apart on the driver clock; the journal (host clock) keeps only the entries from
+        press keep_from on, as ext_video's last-400 journal does in a long round (review of 8a4f46eebd8: sf-* rounds)."""
+        sent = [3.0 + 2.1 * k + 0.013 * (k % 3) for k in range(n)]
+        hid = [{"kind": "key", "t_sent": s, "t_returned": s + 0.05} for s in sent]
+        journal = [{"uptimeNanos": int(round((sent[keep_from] + offset - 0.4) * 1e9)), "kind": {"focus": {}}}]
+        for s in sent[keep_from:]:
+            for dt, phase in ((0.004, "flags"), (0.012, "down"), (0.03, "up")):
+                journal.append({"uptimeNanos": int(round((s + dt + offset) * 1e9)), "kind": {"key": {"_0": {"phase": phase}}}})
+        frames = [sent[0] + offset - 0.2, sent[-1] + offset + 0.7]
+        return hid, journal, frames
+
+    def test_a_journal_without_the_first_actions_does_not_shift_the_offset(self):
+        # Review BLOCK of 8a4f46eebd8 (1): seeds from the first 5 actions only, whose events the journal no longer
+        # held, matched later presses to earlier sends and moved every HID by whole presses (+13 to +34 s).
+        offset = 163864.585
+        hid, journal, frames = self.key_round(offset, keep_from=6)
+        for extra in ((), ({"t_start": 2.7, "counts": {"first_t": frames[0]}},)):  # without and with meta's prior
+            got = vj.hid_clock_offset(hid, journal, frames, *extra)
+            self.assertEqual(got["source"], "journal", got)
+            self.assertAlmostEqual(got["offset_s"], offset + 0.004, delta=1e-6, msg=got)
+            self.assertEqual(got["matched"], [6, 12])
+
+    def test_hid_already_on_the_host_clock_stays_with_a_journal_too(self):
+        # Review BLOCK of 8a4f46eebd8 (2): sw-w1-light rounds have HID on the host clock and a cut journal; the journal
+        # search found a +16 to +20 s offset that matched one action more than 0 did.
+        hid, journal, frames = self.key_round(0.0, keep_from=8)
+        got = vj.hid_clock_offset([dict(h, t_sent=h["t_sent"] + 1027477.0, t_returned=h["t_returned"] + 1027477.0) for h in hid],
+                                  [dict(e, uptimeNanos=e["uptimeNanos"] + 1027477 * 10 ** 9) for e in journal],
+                                  [f + 1027477.0 for f in frames])
+        self.assertEqual((got["source"], got["offset_s"]), ("host", 0.0))
+
+    def test_an_ambiguous_journal_places_nothing(self):
+        # One key press, and the journal holds two equal presses (one not from the driver): no offset, a note.
+        hid = [{"kind": "key", "t_sent": 5.0, "t_returned": 5.05}]
+        journal = [{"uptimeNanos": int(round((t + 1000.0) * 1e9)), "kind": {"key": {"_0": {"phase": "down"}}}}
+                   for t in (5.01, 6.51)]
+        got = vj.hid_clock_offset(hid, journal, [1003.0, 1010.0])
+        self.assertIsNone(got["offset_s"])
+        self.assertIn("equally", got["note"])
+
     def test_ext_video_writes_the_drivers_offset_into_each_hid_entry(self):
         import time
         import types

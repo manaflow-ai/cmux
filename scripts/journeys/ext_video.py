@@ -11,13 +11,13 @@ Every file of one recording goes to <journey out>/video/<name>.*:
   <name>.mov              the movie (HEVC by default), one movie frame per complete ScreenCaptureKit frame,
                           presentation time = display time - the first frame's display time
   <name>.mov.frames.json  {"frames": [[t, status, in_movie], ...]}: every frame ScreenCaptureKit gave, t its display
-                          time in host seconds (mach_absolute_time, the clock of time.monotonic() on macOS and of
-                          CACurrentMediaTime), status complete | idle (nothing changed) | blank | ...
+                          time in host seconds (mach_absolute_time since boot, the clock of CACurrentMediaTime; not
+                          the driver's time.monotonic(), which python 3.9 counts from its start), status complete | idle (nothing changed) | blank | ...
   <name>.mov.scan         exact BGRA scanlines per complete frame (KIT.md: format)
   <name>.trace.json       debug.motion trace_stop: t0_s (host s of the first sample), samples [{t ms since t0_s,
                           window [w, h], panes [[id, x, y, w, h, alpha, z, fx, fy, fw, fh, cw, ch, header, cx, cy,
                           cw, ch]], dividers [[id, x, y, w, h, alpha, z]], zoom}] in window points, top-left origin
-  <name>.events.json      {"hid": [every HID action: kind, args, t_sent, t_returned (host s)], "journal": the app's
+  <name>.events.json      {"hid": [every HID action: kind, args, t_sent, t_returned (DRIVER s: time.monotonic of the driver; host s = t + host_offset_s)], "journal": the app's
                           input journal entries after the start}
   <name>.meta.json        the record_start reply (frame size, scale, rows, columns), the counts at the end, the
                           window frame and screen (debug.layers), the app pid, the clock note
@@ -237,7 +237,7 @@ def step_video_stop(j, step):
             "refresh_ms": rec.get("refresh_ms"), "display": _display_facts(),
             "bypass_dialog": {"start": rec.get("bypass_dialog"), "stop": _bypass_dialog(j)},
             "smoke_env": bool(rec.get("bypass_dialog") or _bypass_dialog(j)),
-            "clock": "host seconds: mach_absolute_time (time.monotonic, CACurrentMediaTime, ScreenCaptureKit display time)"}
+            "clock": "host seconds: mach_absolute_time (CACurrentMediaTime, ScreenCaptureKit display time, journal uptimeNanos); t_start, t_stop and HID t_sent/t_returned are the driver's time.monotonic (host = t + host_offset_s)"}
     (base.parent / f"{rec['name']}.meta.json").write_text(json.dumps(meta))
     if not counts.get("written"):
         raise D.StepError(f"video_stop {rec['name']}: the movie was not written within 30 s: {json.dumps(counts)[:300]}")
