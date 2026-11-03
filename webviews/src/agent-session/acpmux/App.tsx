@@ -12207,16 +12207,17 @@ function AcpmuxPane() {
     const rows = turnRowsRef.current;
     // The folder's diff is its repository's: a folder outside one, or a file the turn wrote outside
     // the repository, opens the tab on the turn's own patch (turnChanges/viewChanges.ts).
-    const root = await repositoryRoot(chatCwd, readFolderStatus);
+    // A remote or Cloud chat's turn always opens as its own patch, from the same checkpoint-or-edits
+    // choice the page's own view made (a checkpoint that is missing, partial or pruned falls back to
+    // the tool calls' edits), so the tab never shows less than the page did.
+    const root = localCwd ? await repositoryRoot(chatCwd, readFolderStatus) : undefined;
     let target: Record<string, unknown>;
-    const turn =
-      root && viewChangesBeside(rows, rowId, root) ? viewChangesTurn(rows, rowId, path, root, chatCwd) : undefined;
-    // The tab opens on the turn (its Last turn), at the row's file. A local chat's turn with no
-    // checkpoint pair opens the folder's diff, as before; a remote chat's showed that turn's own
-    // edits in the page, so it opens the turn's own patch instead of the machine's whole diff.
-    if (turn) target = { turn };
-    else if (root && localCwd && viewChangesBeside(rows, rowId, root)) target = {};
-    else {
+    if (root && viewChangesBeside(rows, rowId, root)) {
+      // The tab opens on the turn (its Last turn), at the row's file; a turn with no checkpoint pair
+      // opens the folder's diff.
+      const turn = viewChangesTurn(rows, rowId, path, root, chatCwd);
+      target = turn ? { turn } : {};
+    } else {
       // The turn's checkpoint diff with its edits outside the repository, as the page's own view
       // shows a mixed turn, so a repository change no tool call made still shows.
       const files = await viewChangesFiles(rows, rowId, checkpointDiff);

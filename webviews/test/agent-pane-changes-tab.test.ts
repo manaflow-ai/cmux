@@ -76,9 +76,9 @@ test("the chat opens Changes as a tab for remote chats and non-repository turns,
   expect(beside).not.toContain("quick || !localCwd");
   // Outside a repository, or a file outside it: the turn's own patch for the tab.
   expect(beside).toMatch(/viewChangesPatch\(rows, rowId, path, chatCwd, files\)[\s\S]*target = \{ patch \}/);
-  // A turn with no checkpoint pair opens the folder's diff only for a chat on this Mac; a remote
-  // chat's opens the turn's own patch, not the machine's whole diff.
-  expect(beside).toMatch(/else if \(root && localCwd && viewChangesBeside\(rows, rowId, root\)\) target = \{\};/);
+  // A remote chat's turn always opens as its own patch (the page's checkpoint-or-edits choice), so
+  // a missing, partial or pruned checkpoint never leaves the tab with less than the page showed.
+  expect(beside).toContain("const root = localCwd ? await repositoryRoot(chatCwd, readFolderStatus) : undefined;");
   // The header's Changes in a folder outside a repository asks for the tab first.
   const header = app.slice(app.indexOf("const toggleChanges = "), app.indexOf("const toggleChanges = ") + 900);
   expect(header).toContain("headerChangesInPlace(chatCwd");
