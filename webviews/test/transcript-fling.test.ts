@@ -44,10 +44,18 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
   /// offset from a frame callback, and counts the frames whose view the mounted rows leave partly
   /// empty. The step is fixed per frame, not per millisecond, so a slow runner scrolls the same path
   /// the bench's 60 fps fling does.
-  const steppedFling = async ({ steps, down }: { steps: number[]; down: boolean }) => {
+  const steppedFling = async ({
+    steps,
+    down,
+    middle = false,
+  }: {
+    steps: number[];
+    down: boolean;
+    middle?: boolean;
+  }) => {
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const end = () => scroller.scrollHeight - scroller.clientHeight;
-    scroller.scrollTop = down ? 0 : end();
+    scroller.scrollTop = middle ? end() / 2 : down ? 0 : end();
     await window.cmuxPaintFrame();
     await window.cmuxPaintFrame();
     let blank = 0;
@@ -87,6 +95,29 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
     }
     return { frames, blank, blanks };
   };
+
+  test("a fast fling can abruptly decelerate and reverse without blanking", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    try {
+      await installPaintedFrames(page);
+      await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
+      await page.waitForFunction(() => "__debug" in window);
+      await page.evaluate(`window.__debug.seedRows(3000)`);
+      // Signed steps exercise slowdown and reversal before the old directional lead expires.
+      // Starting in the middle avoids counting intentional end padding as missing rows.
+      const pattern = [6, 6, 2, 0.5, -0.5, -2, -6, -6, -2, -0.5, 0.5, 2];
+      const steps = Array.from({ length: 48 }, (_, frame) => pattern[frame % pattern.length]);
+      for (const down of [false, true]) {
+        const result = await page.evaluate(steppedFling, { steps, down, middle: true });
+        console.log(`transcript-fling reversal down=${down}: ${JSON.stringify(result)}`);
+        expect(result.frames).toBe(steps.length);
+        expect(result.blanks).toEqual([]);
+      }
+    } finally {
+      await page.close();
+    }
+  });
 
   test("fast flings and uneven drags keep the view covered", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
