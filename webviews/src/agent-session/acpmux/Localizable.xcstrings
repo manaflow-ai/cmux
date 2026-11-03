@@ -1,6 +1,8 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "turn.stoppedMark": {"comment":"Agent pane: one muted word in a stopped turn's footer (the person's Stop, or one cmux had to force); short","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"متوقف"}},"bs":{"stringUnit":{"state":"needs_review","value":"Zaustavljeno"}},"da":{"stringUnit":{"state":"needs_review","value":"Stoppet"}},"de":{"stringUnit":{"state":"needs_review","value":"Gestoppt"}},"en":{"stringUnit":{"state":"translated","value":"Stopped"}},"es":{"stringUnit":{"state":"needs_review","value":"Detenido"}},"fr":{"stringUnit":{"state":"needs_review","value":"Arrêté"}},"it":{"stringUnit":{"state":"needs_review","value":"Interrotto"}},"ja":{"stringUnit":{"state":"needs_review","value":"停止済み"}},"km":{"stringUnit":{"state":"needs_review","value":"បានឈប់"}},"ko":{"stringUnit":{"state":"needs_review","value":"중지됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"Stoppet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zatrzymano"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Interrompido"}},"ru":{"stringUnit":{"state":"needs_review","value":"Остановлено"}},"th":{"stringUnit":{"state":"needs_review","value":"หยุดแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Durduruldu"}},"uk":{"stringUnit":{"state":"needs_review","value":"Зупинено"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã dừng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已停止"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已停止"}}}},
+    "turn.continueHelp": {"comment":"Agent pane: tooltip of the Continue button on a stopped turn's footer; it sends the prompt “Continue” to the agent","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يرسل «متابعة» ليكمل الوكيل من حيث توقف"}},"bs":{"stringUnit":{"state":"needs_review","value":"Šalje „Nastavi“ da agent nastavi tamo gdje je stao"}},"da":{"stringUnit":{"state":"needs_review","value":"Sender “Fortsæt”, så agenten fortsætter, hvor den stoppede"}},"de":{"stringUnit":{"state":"needs_review","value":"Sendet „Fortfahren“, damit der Agent dort weitermacht, wo er aufgehört hat"}},"en":{"stringUnit":{"state":"translated","value":"Sends “Continue” so the agent picks up where it stopped"}},"es":{"stringUnit":{"state":"needs_review","value":"Envía «Continuar» para que el agente siga donde se detuvo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Envoie « Continuer » pour que l’agent reprenne là où il s’est arrêté"}},"it":{"stringUnit":{"state":"needs_review","value":"Invia «Continua» perché l’agente riprenda da dove si è fermato"}},"ja":{"stringUnit":{"state":"needs_review","value":"「続ける」を送信し、エージェントが停止したところから再開します"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្ញើ “បន្ត” ដើម្បីឱ្យភ្នាក់ងារបន្តពីកន្លែងដែលវាបានឈប់"}},"ko":{"stringUnit":{"state":"needs_review","value":"“계속”을 보내 에이전트가 멈춘 곳부터 이어서 하게 합니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sender «Fortsett» slik at agenten fortsetter der den stoppet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wysyła „Kontynuuj”, aby agent wznowił pracę tam, gdzie przerwał"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Envia “Continuar” para o agente retomar de onde parou"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отправляет «Продолжить», чтобы агент продолжил с места остановки"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่ง “ดำเนินการต่อ” เพื่อให้เอเจนต์ทำต่อจากจุดที่หยุด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ajanın kaldığı yerden devam etmesi için “Devam et” gönderir"}},"uk":{"stringUnit":{"state":"needs_review","value":"Надсилає «Продовжити», щоб агент продовжив з місця зупинки"}},"vi":{"stringUnit":{"state":"needs_review","value":"Gửi “Tiếp tục” để tác tử làm tiếp từ chỗ đã dừng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"发送“继续”，让智能体从停下的地方接着做"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"傳送「繼續」，讓代理程式從停下的地方接著做"}}}},
     "composer.heldForWake": {"comment":"Agent pane: heads the prompts sent in a Cloud chat whose machine was paused; the machine wakes and they go once the chat is back","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ تشغيل الجهاز…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Mašina se budi…"}},"da":{"stringUnit":{"state":"needs_review","value":"Vækker maskinen…"}},"de":{"stringUnit":{"state":"needs_review","value":"Maschine wird geweckt…"}},"en":{"stringUnit":{"state":"translated","value":"Waking the machine…"}},"es":{"stringUnit":{"state":"needs_review","value":"Activando la máquina…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Réveil de la machine…"}},"it":{"stringUnit":{"state":"needs_review","value":"Riattivazione della macchina…"}},"ja":{"stringUnit":{"state":"needs_review","value":"マシンを起動しています…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងដាស់ម៉ាស៊ីន…"}},"ko":{"stringUnit":{"state":"needs_review","value":"머신을 깨우는 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vekker maskinen…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wybudzanie maszyny…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ativando a máquina…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Пробуждение машины…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังปลุกเครื่อง…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makine uyandırılıyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Пробудження машини…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang đánh thức máy…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在唤醒机器…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在喚醒機器…"}}}},
     "tools.approved": {"comment":"Agent pane: at the end of a tool row whose permission ask the person approved (Allow once or Always allow); the approval reads on its row, never as a line of its own","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تمت الموافقة"}},"bs":{"stringUnit":{"state":"translated","value":"Odobreno"}},"da":{"stringUnit":{"state":"translated","value":"Godkendt"}},"de":{"stringUnit":{"state":"translated","value":"Genehmigt"}},"en":{"stringUnit":{"state":"translated","value":"Approved"}},"es":{"stringUnit":{"state":"translated","value":"Aprobado"}},"fr":{"stringUnit":{"state":"translated","value":"Approuvée"}},"it":{"stringUnit":{"state":"translated","value":"Approvata"}},"ja":{"stringUnit":{"state":"translated","value":"承認済み"}},"km":{"stringUnit":{"state":"translated","value":"បានយល់ព្រម"}},"ko":{"stringUnit":{"state":"translated","value":"승인됨"}},"nb":{"stringUnit":{"state":"translated","value":"Godkjent"}},"pl":{"stringUnit":{"state":"translated","value":"Zatwierdzono"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Aprovado"}},"ru":{"stringUnit":{"state":"translated","value":"Одобрено"}},"th":{"stringUnit":{"state":"translated","value":"อนุมัติแล้ว"}},"tr":{"stringUnit":{"state":"translated","value":"Onaylandı"}},"uk":{"stringUnit":{"state":"translated","value":"Схвалено"}},"vi":{"stringUnit":{"state":"translated","value":"Đã duyệt"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"已批准"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"已核准"}}}},
     "subagents.state.idle": {"comment":"Agent pane: a running subagent's state word when it has done nothing for minutes with no call open (it waits on background work of its own)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"خامل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Neaktivan"}},"da":{"stringUnit":{"state":"needs_review","value":"Inaktiv"}},"de":{"stringUnit":{"state":"needs_review","value":"Untätig"}},"en":{"stringUnit":{"state":"translated","value":"Idle"}},"es":{"stringUnit":{"state":"needs_review","value":"Inactivo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Inactif"}},"it":{"stringUnit":{"state":"needs_review","value":"Inattivo"}},"ja":{"stringUnit":{"state":"needs_review","value":"待機中"}},"km":{"stringUnit":{"state":"needs_review","value":"ទំនេរ"}},"ko":{"stringUnit":{"state":"needs_review","value":"유휴"}},"nb":{"stringUnit":{"state":"needs_review","value":"Inaktiv"}},"pl":{"stringUnit":{"state":"needs_review","value":"Bezczynny"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ocioso"}},"ru":{"stringUnit":{"state":"needs_review","value":"Простаивает"}},"th":{"stringUnit":{"state":"needs_review","value":"ว่าง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Boşta"}},"uk":{"stringUnit":{"state":"needs_review","value":"Простоює"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang rảnh"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"空闲"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"閒置"}}}},
@@ -8053,7 +8055,7 @@
       }
     },
     "stop.forced": {
-      "comment": "Agent pane: transcript note when the agent never answered Stop and cmux ended its turn itself",
+      "comment": "Agent pane: in the tooltips of a stopped turn's footer (never the transcript text) when the agent never answered Stop and cmux ended its turn itself",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -55905,6 +55907,702 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "已工作 {time}"
+          }
+        }
+      }
+    },
+    "turn.live.waitingOnSubagents": {
+      "comment": "Agent pane: the running turn's live line while the agent waits on subagents it started, {n} of them still running (Waiting on 2 subagents · 1h 24m total)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "في انتظار {n} وكيل فرعي"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "في انتظار {n} وكيل فرعي"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "في انتظار {n} وكيلين فرعيين"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "في انتظار {n} وكلاء فرعيين"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "في انتظار {n} وكيلًا فرعيًا"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "في انتظار {n} وكيل فرعي"
+                }
+              }
+            }
+          }
+        },
+        "bs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Čeka podagente: {n}"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Čeka podagente: {n}"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Čeka podagente: {n}"
+                }
+              }
+            }
+          }
+        },
+        "da": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Venter på {n} underagent"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Venter på {n} underagenter"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Wartet auf {n} Subagenten"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Wartet auf {n} Subagenten"
+                }
+              }
+            }
+          }
+        },
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Waiting on {n} subagent"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Waiting on {n} subagents"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Esperando a {n} subagente"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Esperando a {n} de subagentes"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Esperando a {n} subagentes"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "En attente de {n} sous-agent"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "En attente de {n} de sous-agents"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "En attente de {n} sous-agents"
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "In attesa di {n} subagente"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "In attesa di {n} di subagenti"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "In attesa di {n} subagenti"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "サブエージェント {n} 件を待機中"
+                }
+              }
+            }
+          }
+        },
+        "km": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "កំពុងរង់ចាំភ្នាក់ងាររង {n}"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "하위 에이전트 {n}개 대기 중"
+                }
+              }
+            }
+          }
+        },
+        "nb": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Venter på {n} underagent"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Venter på {n} underagenter"
+                }
+              }
+            }
+          }
+        },
+        "pl": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Czeka na podagentów: {n}"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Czeka na podagentów: {n}"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Czeka na podagentów: {n}"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Czeka na podagentów: {n}"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Aguardando {n} subagente"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Aguardando {n} de subagentes"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Aguardando {n} subagentes"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Ожидание субагентов: {n}"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Ожидание субагентов: {n}"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Ожидание субагентов: {n}"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Ожидание субагентов: {n}"
+                }
+              }
+            }
+          }
+        },
+        "th": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "กำลังรอเอเจนต์ย่อย {n} ตัว"
+                }
+              }
+            }
+          }
+        },
+        "tr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} alt ajan bekleniyor"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} alt ajan bekleniyor"
+                }
+              }
+            }
+          }
+        },
+        "uk": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Очікування субагентів: {n}"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Очікування субагентів: {n}"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Очікування субагентів: {n}"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Очікування субагентів: {n}"
+                }
+              }
+            }
+          }
+        },
+        "vi": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Đang chờ {n} tác tử phụ"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "正在等待 {n} 个子代理"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "正在等待 {n} 個子代理"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "turn.live.writing": {
+      "comment": "Agent pane: the running turn's live line while the agent writes its reply (Writing · 2m total)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يكتب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Piše"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriver"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schreibt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Writing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escribiendo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rédaction"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sta scrivendo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "書いています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងសរសេរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작성 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriver"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pisze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escrevendo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пишет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังเขียน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yazıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пише"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang viết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在撰写"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在撰寫"
+          }
+        }
+      }
+    },
+    "turn.live.total": {
+      "comment": "Agent pane: the running turn's whole time on its live line, after what the line names and a finished step's own time (Ran grep 2s · 4m 2s total). {time} is a duration (4m 2s)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} إجمالًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ukupno {time}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} i alt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} insgesamt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{time} total"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} en total"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} au total"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} in totale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "合計 {time}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សរុប {time}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "총 {time}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} totalt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "łącznie {time}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} no total"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "всего {time}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รวม {time}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "toplam {time}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "усього {time}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "tổng {time}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "共 {time}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "共 {time}"
           }
         }
       }
@@ -219900,6 +220598,12 @@
         }
       }
     },
+    "chiefWeb.offline": {"comment":"Chief web: connection is unavailable","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Offline"}},"de":{"stringUnit":{"state":"translated","value":"Nicht verbunden"}},"fr":{"stringUnit":{"state":"translated","value":"Hors ligne"}},"ar":{"stringUnit":{"state":"translated","value":"غير متصل"}},"es":{"stringUnit":{"state":"translated","value":"Sin conexión"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"離線"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"离线"}},"ko":{"stringUnit":{"state":"translated","value":"오프라인"}},"ja":{"stringUnit":{"state":"translated","value":"オフライン"}},"bs":{"stringUnit":{"state":"translated","value":"Van mreže"}},"da":{"stringUnit":{"state":"translated","value":"Ikke på nettet"}},"it":{"stringUnit":{"state":"translated","value":"Non in linea"}},"km":{"stringUnit":{"state":"translated","value":"ក្រៅបណ្ដាញ"}},"nb":{"stringUnit":{"state":"translated","value":"Frakoblet"}},"pl":{"stringUnit":{"state":"translated","value":"Brak połączenia"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Sem conexão"}},"ru":{"stringUnit":{"state":"translated","value":"Не в сети"}},"th":{"stringUnit":{"state":"translated","value":"ออฟไลน์"}},"tr":{"stringUnit":{"state":"translated","value":"Çevrimdışı"}},"uk":{"stringUnit":{"state":"translated","value":"Не в мережі"}},"vi":{"stringUnit":{"state":"translated","value":"Ngoại tuyến"}}}},
+    "chiefWeb.unavailable": {"comment":"Chief web: the service is temporarily unavailable","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chief is unavailable"}},"de":{"stringUnit":{"state":"translated","value":"Chief ist nicht verfügbar"}},"fr":{"stringUnit":{"state":"translated","value":"Chief est indisponible"}},"ar":{"stringUnit":{"state":"translated","value":"Chief غير متاح"}},"es":{"stringUnit":{"state":"translated","value":"Chief no está disponible"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Chief 無法使用"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Chief 暂时不可用"}},"ko":{"stringUnit":{"state":"translated","value":"Chief를 사용할 수 없습니다"}},"ja":{"stringUnit":{"state":"translated","value":"Chiefを利用できません"}},"bs":{"stringUnit":{"state":"translated","value":"Chief nije dostupan"}},"da":{"stringUnit":{"state":"translated","value":"Chief er ikke tilgængelig"}},"it":{"stringUnit":{"state":"translated","value":"Chief non è disponibile"}},"km":{"stringUnit":{"state":"translated","value":"មិនអាចប្រើ Chief បានទេ"}},"nb":{"stringUnit":{"state":"translated","value":"Chief er utilgjengelig"}},"pl":{"stringUnit":{"state":"translated","value":"Chief jest niedostępny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Chief está indisponível"}},"ru":{"stringUnit":{"state":"translated","value":"Chief недоступен"}},"th":{"stringUnit":{"state":"translated","value":"Chief ไม่พร้อมใช้งาน"}},"tr":{"stringUnit":{"state":"translated","value":"Chief kullanılamıyor"}},"uk":{"stringUnit":{"state":"translated","value":"Chief недоступний"}},"vi":{"stringUnit":{"state":"translated","value":"Chief hiện không khả dụng"}}}},
+    "chiefWeb.notYours": {"comment":"Chief web: this signed-in account cannot access the requested Chief","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This Chief is not available to this account"}},"de":{"stringUnit":{"state":"translated","value":"Dieser Chief ist für dieses Konto nicht verfügbar"}},"fr":{"stringUnit":{"state":"translated","value":"Ce Chief n’est pas accessible avec ce compte"}},"ar":{"stringUnit":{"state":"translated","value":"Chief هذا غير متاح لهذا الحساب"}},"es":{"stringUnit":{"state":"translated","value":"Este Chief no está disponible para esta cuenta"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"此帳號無法使用這個 Chief"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此帐户无法使用这个 Chief"}},"ko":{"stringUnit":{"state":"translated","value":"이 계정에서는 이 Chief를 사용할 수 없습니다"}},"ja":{"stringUnit":{"state":"translated","value":"このアカウントではこのChiefを利用できません"}},"bs":{"stringUnit":{"state":"translated","value":"Ovaj Chief nije dostupan ovom računu"}},"da":{"stringUnit":{"state":"translated","value":"Denne Chief er ikke tilgængelig for denne konto"}},"it":{"stringUnit":{"state":"translated","value":"Questo Chief non è disponibile per questo account"}},"km":{"stringUnit":{"state":"translated","value":"គណនីនេះមិនអាចប្រើ Chief នេះបានទេ"}},"nb":{"stringUnit":{"state":"translated","value":"Denne Chief er ikke tilgjengelig for denne kontoen"}},"pl":{"stringUnit":{"state":"translated","value":"Ten Chief nie jest dostępny dla tego konta"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Este Chief não está disponível para esta conta"}},"ru":{"stringUnit":{"state":"translated","value":"Этот Chief недоступен для этой учётной записи"}},"th":{"stringUnit":{"state":"translated","value":"บัญชีนี้ไม่สามารถใช้ Chief นี้ได้"}},"tr":{"stringUnit":{"state":"translated","value":"Bu Chief bu hesap için kullanılamıyor"}},"uk":{"stringUnit":{"state":"translated","value":"Цей Chief недоступний для цього облікового запису"}},"vi":{"stringUnit":{"state":"translated","value":"Tài khoản này không thể truy cập Chief này"}}}},
+    "chiefWeb.empty": {"comment":"Chief web: empty main conversation invitation","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Ask your Chief to build something"}},"de":{"stringUnit":{"state":"translated","value":"Bitte deinen Chief, etwas zu erstellen"}},"fr":{"stringUnit":{"state":"translated","value":"Demandez à votre Chief de créer quelque chose"}},"ar":{"stringUnit":{"state":"translated","value":"اطلب من Chief إنشاء شيء ما"}},"es":{"stringUnit":{"state":"translated","value":"Pídele a tu Chief que cree algo"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"請你的 Chief 打造一些東西"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"请你的 Chief 构建一些东西"}},"ko":{"stringUnit":{"state":"translated","value":"Chief에게 무언가 만들어 달라고 요청하세요"}},"ja":{"stringUnit":{"state":"translated","value":"Chiefに何か作ってもらいましょう"}},"bs":{"stringUnit":{"state":"translated","value":"Zatražite od svog Chiefa da nešto napravi"}},"da":{"stringUnit":{"state":"translated","value":"Bed din Chief om at bygge noget"}},"it":{"stringUnit":{"state":"translated","value":"Chiedi al tuo Chief di creare qualcosa"}},"km":{"stringUnit":{"state":"translated","value":"សុំឱ្យ Chief របស់អ្នកបង្កើតអ្វីមួយ"}},"nb":{"stringUnit":{"state":"translated","value":"Be din Chief om å bygge noe"}},"pl":{"stringUnit":{"state":"translated","value":"Poproś swojego Chiefa o stworzenie czegoś"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Peça ao seu Chief para criar algo"}},"ru":{"stringUnit":{"state":"translated","value":"Попросите своего Chief что-нибудь создать"}},"th":{"stringUnit":{"state":"translated","value":"ขอให้ Chief ของคุณสร้างอะไรสักอย่าง"}},"tr":{"stringUnit":{"state":"translated","value":"Chief’inizden bir şey oluşturmasını isteyin"}},"uk":{"stringUnit":{"state":"translated","value":"Попросіть свого Chief щось створити"}},"vi":{"stringUnit":{"state":"translated","value":"Yêu cầu Chief của bạn tạo thứ gì đó"}}}},
+    "chiefWeb.placeholder": {"comment":"Chief web: composer label and placeholder","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Message your Chief"}},"de":{"stringUnit":{"state":"translated","value":"Schreibe deinem Chief"}},"fr":{"stringUnit":{"state":"translated","value":"Envoyez un message à votre Chief"}},"ar":{"stringUnit":{"state":"translated","value":"راسل Chief"}},"es":{"stringUnit":{"state":"translated","value":"Escribe a tu Chief"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"傳送訊息給你的 Chief"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"向你的 Chief 发送消息"}},"ko":{"stringUnit":{"state":"translated","value":"Chief에게 메시지 보내기"}},"ja":{"stringUnit":{"state":"translated","value":"Chiefにメッセージを送信"}},"bs":{"stringUnit":{"state":"translated","value":"Pošaljite poruku svom Chiefu"}},"da":{"stringUnit":{"state":"translated","value":"Skriv til din Chief"}},"it":{"stringUnit":{"state":"translated","value":"Scrivi al tuo Chief"}},"km":{"stringUnit":{"state":"translated","value":"ផ្ញើសារទៅ Chief របស់អ្នក"}},"nb":{"stringUnit":{"state":"translated","value":"Skriv til din Chief"}},"pl":{"stringUnit":{"state":"translated","value":"Napisz do swojego Chiefa"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Envie uma mensagem ao seu Chief"}},"ru":{"stringUnit":{"state":"translated","value":"Напишите своему Chief"}},"th":{"stringUnit":{"state":"translated","value":"ส่งข้อความถึง Chief ของคุณ"}},"tr":{"stringUnit":{"state":"translated","value":"Chief’inize mesaj gönderin"}},"uk":{"stringUnit":{"state":"translated","value":"Напишіть своєму Chief"}},"vi":{"stringUnit":{"state":"translated","value":"Nhắn tin cho Chief của bạn"}}}},
+    "chiefWeb.notSent": {"comment":"Chief web: a message was rejected and can be retried","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Message not sent"}},"de":{"stringUnit":{"state":"translated","value":"Nachricht nicht gesendet"}},"fr":{"stringUnit":{"state":"translated","value":"Message non envoyé"}},"ar":{"stringUnit":{"state":"translated","value":"لم تُرسل الرسالة"}},"es":{"stringUnit":{"state":"translated","value":"Mensaje no enviado"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"訊息未傳送"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"消息未发送"}},"ko":{"stringUnit":{"state":"translated","value":"메시지를 보내지 못했습니다"}},"ja":{"stringUnit":{"state":"translated","value":"メッセージは送信されませんでした"}},"bs":{"stringUnit":{"state":"translated","value":"Poruka nije poslana"}},"da":{"stringUnit":{"state":"translated","value":"Beskeden blev ikke sendt"}},"it":{"stringUnit":{"state":"translated","value":"Messaggio non inviato"}},"km":{"stringUnit":{"state":"translated","value":"សារមិនត្រូវបានផ្ញើទេ"}},"nb":{"stringUnit":{"state":"translated","value":"Meldingen ble ikke sendt"}},"pl":{"stringUnit":{"state":"translated","value":"Wiadomość nie została wysłana"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Mensagem não enviada"}},"ru":{"stringUnit":{"state":"translated","value":"Сообщение не отправлено"}},"th":{"stringUnit":{"state":"translated","value":"ไม่ได้ส่งข้อความ"}},"tr":{"stringUnit":{"state":"translated","value":"Mesaj gönderilmedi"}},"uk":{"stringUnit":{"state":"translated","value":"Повідомлення не надіслано"}},"vi":{"stringUnit":{"state":"translated","value":"Tin nhắn chưa được gửi"}}}},
     "needsYou.chief": {
       "comment": "Agent pane: who asked, when the Chief agent asked",
       "extractionState": "manual",
