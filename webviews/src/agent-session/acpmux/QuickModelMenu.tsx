@@ -1618,8 +1618,11 @@ export function QuickModelMenu({
         out.action("add-harness", t("modelPicker.addHarness"), close(families.onAddHarness), { icon: "action.add" }),
       );
     const effortColumn = menu.inlineEffort === true;
+    const sized: readonly { name: string }[] = families
+      ? (shownTab?.routes ?? []).flatMap((route) => route.models)
+      : models;
     const width = quickMenuWidth(
-      (families ? (shownTab?.routes ?? []) : [{ models }]).flatMap((family) => family.models.map((model) => model.name)),
+      sized.map((model) => model.name),
       placement,
       { effortColumn, stars: !!families?.stars, railed: !!rail },
     );
