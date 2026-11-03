@@ -16,12 +16,13 @@ import {
   Submenu,
 } from "./Menu";
 
-type Props = { direction?: "ltr" | "rtl"; checked?: boolean; radio?: string };
+type Props = { direction?: "ltr" | "rtl"; checked?: boolean; radio?: string; overflowing?: boolean };
 
 function MenuGallery({
   direction = "ltr",
   checked: initialChecked = true,
   radio: initialRadio = "comfortable",
+  overflowing = false,
 }: Props) {
   const [checked, setChecked] = useState(initialChecked);
   const [radio, setRadio] = useState(initialRadio);
@@ -33,7 +34,10 @@ function MenuGallery({
           <MenuButton className="menu-gallery-trigger" label="Open demo menu" data-menu="gallery-menu">
             Menu
           </MenuButton>
-          <MenuPopup label="Demo menu" className="menu-gallery-popup">
+          <MenuPopup label="Demo menu" className={`menu-gallery-popup${overflowing ? " ui-select-popup" : ""}`}>
+            {overflowing && Array.from({ length: 40 }, (_, index) => (
+              <MenuItem key={index} onSelect={() => setAction(`Action ${index + 1}`)}>Action {index + 1}</MenuItem>
+            ))}
             <MenuGroup label="View">
               <MenuItem shortcut="⌘K" onSelect={() => setAction("Command palette")}>
                 Open command palette
@@ -159,6 +163,7 @@ export default componentEntry<Props>({
   variants: {
     closed: { props: {} },
     open: { props: {}, play: open },
+    overflowing: { props: { overflowing: true }, play: open },
     keyboard: { props: {}, play: keyboard },
     checkbox: { props: { checked: true }, checks: checkboxChecks, play: checkbox },
     submenu: { props: {}, play: submenu },
