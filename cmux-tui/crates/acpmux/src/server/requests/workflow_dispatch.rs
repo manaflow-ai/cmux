@@ -21,6 +21,14 @@ pub(super) fn requested(params: &Value) -> Result<bool, RpcError> {
         Some(Value::Bool(true))
             if params.get("briefId").and_then(Value::as_str).is_some_and(|id| !id.is_empty()) =>
         {
+            let token = params.get("receiptToken").and_then(Value::as_str).ok_or_else(|| {
+                RpcError::invalid_params("durable dispatch needs a private receiptToken")
+            })?;
+            if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(RpcError::invalid_params(
+                    "receiptToken must contain 256 random bits as hex",
+                ));
+            }
             Ok(true)
         }
         Some(Value::Bool(true)) => {
@@ -47,6 +55,7 @@ pub(super) fn identity(params: &Value, id: &str) -> Identity {
         "route",
         "cwd",
         "allowedTools",
+        "receiptToken",
     ] {
         pinned.insert(key, params.get(key).cloned().unwrap_or(Value::Null));
     }
@@ -73,6 +82,25 @@ pub(super) fn check(row: &Value, identity: &Identity) -> Result<(), RpcError> {
             "this durable brief id already pins different inputs",
         )
         .with_data(json!({"reason":"dispatch.identity_changed"})));
+    }
+    Ok(())
+}
+
+/// Legacy list/steer/report requests carry no receipt capability. A durable
+/// result is visible there only to its proven local initiating session.
+pub(super) fn visible(conn: &Conn, row: &Value) -> bool {
+    row.get("durable").and_then(Value::as_bool) != Some(true)
+        || (conn.origin != Origin::Peer
+            && conn.caller().is_some()
+            && row.get("fromSession").and_then(Value::as_str) == conn.caller())
+}
+
+pub(super) fn check_caller(conn: &Conn, row: &Value) -> Result<(), RpcError> {
+    if conn.origin != Origin::Peer
+        && row.get("fromSession").and_then(Value::as_str).is_some()
+        && row.get("fromSession").and_then(Value::as_str) != conn.caller()
+    {
+        return Err(RpcError::not_found("no durable brief for this caller"));
     }
     Ok(())
 }
@@ -118,6 +146,7 @@ fn flight(hub: &Arc<Hub>, id: &str) -> Arc<Flight> {
 /// auto picks may disagree, but only the first persisted destination can run.
 pub(super) async fn reserve_remote(
     hub: &Arc<Hub>,
+    caller: Option<&str>,
     params: &Value,
     id: &str,
     identity: &Identity,
@@ -126,6 +155,9 @@ pub(super) async fn reserve_remote(
     let flight = flight(hub, id);
     let _gate = flight.gate.lock().await;
     let row = if let Some(row) = hub.briefs.get(id) {
+        if row.get("fromSession").and_then(Value::as_str) != caller {
+            return Err(RpcError::not_found("no durable brief for this caller"));
+        }
         check(&row, identity)?;
         if row.get("host").and_then(Value::as_str) != Some(host) {
             return Err(RpcError::invalid_params(
@@ -134,7 +166,9 @@ pub(super) async fn reserve_remote(
         }
         row
     } else {
-        pending(params, id, identity, host)
+        let mut row = pending(params, id, identity, host);
+        row.set("fromSession", json!(caller));
+        row
     };
     hub.briefs.put_durable(row).map_err(|error| RpcError::internal(error.to_string()))?;
     Ok(())
@@ -157,6 +191,7 @@ pub(super) async fn cache_remote(
     }
     if let Some(previous) = hub.briefs.get(id) {
         check(&previous, identity)?;
+        row.set("fromSession", previous.get("fromSession").cloned().unwrap_or(Value::Null));
         if previous.get("outcome").is_some() {
             row = previous;
         }
@@ -177,13 +212,14 @@ pub(super) async fn cancel(
     let flight = flight(hub, id);
     let _gate = flight.gate.lock().await;
     if let Some(previous) = hub.briefs.get(id) {
+        check_caller(conn, &previous)?;
         check(&previous, &identity)?;
         if !local_reservation(&previous) {
             return Err(RpcError::invalid_params(
                 "durable dispatch destination is already pinned; retry to reattach",
             ));
         }
-        row = brief_for(hub, conn, previous)?;
+        row = brief_for(hub, conn, previous, Some(&identity))?;
     } else {
         row.set("sessionId", json!(identity.session_id));
         row.set("promptId", json!(identity.prompt_id));
@@ -227,13 +263,14 @@ pub(super) async fn local(
     let flight = flight(hub, id);
     let _gate = flight.gate.lock().await;
     if let Some(previous) = hub.briefs.get(id) {
+        check_caller(conn, &previous)?;
         check(&previous, &identity)?;
         if !local_reservation(&previous) {
             return Err(RpcError::invalid_params(
                 "durable dispatch destination is already pinned; retry to reattach",
             ));
         }
-        row = brief_for(hub, conn, previous)?;
+        row = brief_for(hub, conn, previous, Some(&identity))?;
     } else {
         row.set("sessionId", json!(identity.session_id));
         row.set("promptId", json!(identity.prompt_id));
@@ -400,8 +437,8 @@ mod tests {
         let params = json!({"brief":"effect","durable":true,"briefId":"placement"});
         let identity = identity(&params, "placement");
         let (one, two) = tokio::join!(
-            reserve_remote(&hub, &params, "placement", &identity, "one"),
-            reserve_remote(&hub, &params, "placement", &identity, "two"),
+            reserve_remote(&hub, None, &params, "placement", &identity, "one"),
+            reserve_remote(&hub, None, &params, "placement", &identity, "two"),
         );
         assert_ne!(one.is_ok(), two.is_ok(), "two destinations admitted one effect");
         let pending = hub.briefs.get("placement").unwrap();
@@ -423,8 +460,7 @@ mod tests {
 
     #[test]
     fn durable_dispatch_pins_execution_inputs_but_not_forwarding_metadata() {
-        let base =
-            json!({"durable":true,"briefId":"activity","brief":"original","harness":"codex"});
+        let base = json!({"durable":true,"receiptToken":"1111111111111111111111111111111111111111111111111111111111111111","briefId":"activity","brief":"original","harness":"codex"});
         assert!(requested(&base).unwrap());
         assert!(requested(&json!({"durable":true})).is_err());
         let identity = identity(&base, "activity");

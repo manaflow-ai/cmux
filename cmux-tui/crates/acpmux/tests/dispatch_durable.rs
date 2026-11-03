@@ -95,6 +95,10 @@ fn durable_peer_dispatch_replays_the_same_child_and_exact_reply() {
             stolen["receiptToken"] = json!("2222222222222222222222222222222222222222222222222222222222222222");
             assert!(call(&hub, Some(Origin::Peer), method::MUX_DISPATCH, stolen.clone()).await.is_err(),
                 "a different caller read a durable receipt by knowing its id");
+            let mut legacy = stolen.clone();
+            legacy.as_object_mut().unwrap().remove("durable");
+            assert!(call(&hub, Some(Origin::Peer), method::MUX_DISPATCH, legacy).await.is_err(),
+                "omitting durable bypassed receipt authorization");
             stolen["action"] = json!("cancel");
             assert!(call(&hub, Some(Origin::Peer), method::MUX_DISPATCH, stolen).await.is_err(),
                 "a different caller cancelled a durable dispatch by knowing its id");

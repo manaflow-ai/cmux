@@ -128,6 +128,11 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     }
     let prompt = text("prompt")?;
     let options = params.get("options").cloned().unwrap_or_else(|| json!({}));
+    if kind == "agent" && matches!(options.get("on").and_then(Value::as_str), Some("ci" | "auto")) {
+        return Err(RpcError::invalid_params(
+            "workflow agents require an explicit peer; ci and auto placement are unavailable",
+        ));
+    }
     // Command execution on peers remains denied by bg_tasks. A requested placement never
     // silently falls back to this daemon's machine.
     if let Some(host) = options.get("on").and_then(Value::as_str)

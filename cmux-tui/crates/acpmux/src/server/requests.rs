@@ -267,7 +267,18 @@ fn names_this_host(host: &str) -> bool {
 /// host ran (`Hub::brief_ran_here`), without `suggestedHost`, a peer of this host. A row a peer
 /// ran names that peer in `host`, `target` and `to`: its id or key is refused as taken, the
 /// answer whichever peer ran it.
-fn brief_for(hub: &Hub, conn: &Conn, mut row: Value) -> Result<Value, RpcError> {
+fn brief_for(
+    hub: &Hub,
+    conn: &Conn,
+    mut row: Value,
+    identity: Option<&workflow_dispatch::Identity>,
+) -> Result<Value, RpcError> {
+    if row.get("durable").and_then(Value::as_bool) == Some(true) {
+        let identity =
+            identity.ok_or_else(|| RpcError::not_found("no durable brief for this caller"))?;
+        workflow_dispatch::check_caller(conn, &row)?;
+        workflow_dispatch::check(&row, identity)?;
+    }
     if conn.origin != Origin::Peer {
         return Ok(row);
     }
@@ -314,6 +325,7 @@ async fn dispatch_brief(
     if let Some(identity) = &identity
         && let Some(previous) = hub.briefs.get(&id)
     {
+        workflow_dispatch::check_caller(conn, &previous)?;
         workflow_dispatch::check(&previous, identity)?;
     }
     let idempotency = params
@@ -353,7 +365,7 @@ async fn dispatch_brief(
         if durable && existing.get("outcome").is_none() {
             return None;
         }
-        Some(brief_for(hub, conn, existing).map(|existing| {
+        Some(brief_for(hub, conn, existing, identity.as_ref()).map(|existing| {
             json!({"brief":existing,"event":crate::hub::dispatch::event("dispatch", &existing),"replayed":true})
         }))
     };
@@ -402,12 +414,21 @@ async fn dispatch_brief(
             None
         };
         if !durable && let Some(existing) = hub.briefs.claim(&id, idempotency) {
+            let existing = brief_for(hub, conn, existing, None)?;
             return Ok(
                 json!({"brief":existing,"event":crate::hub::dispatch::event("dispatch", &existing),"replayed":true}),
             );
         }
         if let Some(identity) = &identity {
-            workflow_dispatch::reserve_remote(hub, &params, &id, identity, &peer_name).await?;
+            workflow_dispatch::reserve_remote(
+                hub,
+                conn.caller(),
+                &params,
+                &id,
+                identity,
+                &peer_name,
+            )
+            .await?;
         }
         let original = params.clone();
         params.set("forwarded", json!(true));
@@ -551,7 +572,7 @@ async fn dispatch_brief(
     .await?;
     super::trust_gate::check(hub, conn.origin, method::SESSION_NEW, &new_params, None).await?;
     if !durable && let Some(existing) = hub.briefs.claim(&id, idempotency) {
-        let existing = brief_for(hub, conn, existing)?;
+        let existing = brief_for(hub, conn, existing, None)?;
         return Ok(
             json!({"brief":existing,"event":crate::hub::dispatch::event("dispatch", &existing),"replayed":true}),
         );

@@ -15,7 +15,13 @@ fn remote_request(
     let brief_id = format!("{}-remote-g{epoch}-{}", activity.id, u8::from(corrected));
     let brief_id =
         format!("wf-{}", crate::workflow_runs::digest(&format!("{}:{brief_id}", run.id)));
-    let mut request = json!({"durable":true,"briefId":brief_id,"host":host,"brief":text,
+    // A domain-separated, per-brief capability cannot authorize another brief
+    // or recover the owner's general caller proof. Only its hash reaches the receipt.
+    let receipt_token = crate::workflow_runs::digest(&format!(
+        "workflow-dispatch-receipt-v1:{}:{brief_id}",
+        crate::hub::person::caller_token(&run.owner_session_id)
+    ));
+    let mut request = json!({"receiptToken":receipt_token,"durable":true,"briefId":brief_id,"host":host,"brief":text,
         "title":options.get("name").and_then(Value::as_str).unwrap_or(&run.name),
         "cwd":options.get("cwd").cloned().unwrap_or_else(||json!(run.cwd)),"policy":"ask","allowedTools":allowed,"wait":true});
     for field in ["harness", "preset", "model", "effort", "route", "policy"] {
@@ -318,6 +324,21 @@ mod tests {
             .store()
             .register_activity(&run.id, run.generation, &run.owner_session_id, activity.clone())
             .unwrap();
+        let runner = hub.workflow_runs.issue_runner(&run).unwrap().unwrap();
+        for host in ["ci", "auto"] {
+            let error = crate::server::workflow_owner_call(
+                &hub,
+                &run.owner_session_id,
+                "_acpmux/workflow_activity",
+                json!({"action":"start","runId":run.id,"activityId":format!("refused-{host}"),
+                    "generation":run.generation,"runnerToken":runner,"kind":"agent",
+                    "prompt":"task","options":{"on":host}}),
+            )
+            .await
+            .unwrap_err();
+            assert!(error.message.contains("explicit peer"), "{error:?}");
+        }
+        assert_eq!(hub.workflow_runs.store().get(&run.id).unwrap().activities.len(), 1);
         let options = json!({"harness":"fake","schema":{"type":"object","required":["ok"],"properties":{"ok":{"const":true}}}});
         let explicit_cwd = remote_request(
             &run,
