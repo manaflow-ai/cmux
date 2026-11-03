@@ -30,7 +30,8 @@ test("a future message stays just now until its first age boundary", () => {
   const next = nextRelativeTime(at, Math.floor(now / minute) * minute);
   expect(next).toBeGreaterThan(at);
   expect(relativeTime(at, next - minute, "en-US")).toBe("just now");
-  expect(relativeTime(at, next, "en-US")).toBe("1 minute ago");
+  // The shared minute samples this :23.813 timestamp at :02, already 96 seconds old.
+  expect(relativeTime(at, next, "en-US")).toBe("2 minutes ago");
 });
 
 test("exact reply labels stop after the year suffix is permanent", () => {
@@ -57,4 +58,12 @@ test("an invalid timestamp cannot poison the page's nearest deadline", () => {
   expect(nextReplyTime(NaN, at)).toBe(Infinity);
   expect(nextRelativeTime(NaN, at)).toBe(Infinity);
   expect(nextTimestampHover(NaN, at)).toBe(Infinity);
+});
+
+test("inline timestamps retain the rounded age update just before one raw minute", () => {
+  expect(nextTimestampHover(200, 0)).toBe(60_000);
+  expect(timestampHoverLabel(200, 0, "en-US")).toContain("just now");
+  expect(timestampHoverLabel(200, 60_000, "en-US")).toContain("1 minute ago");
+  expect(nextTimestampHover(200, 60_000)).toBe(120_000);
+  expect(timestampHoverLabel(200, 120_000, "en-US")).toContain("2 min ago");
 });
