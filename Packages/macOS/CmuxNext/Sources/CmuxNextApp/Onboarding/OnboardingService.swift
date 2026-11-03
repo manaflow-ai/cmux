@@ -153,12 +153,16 @@ final class OnboardingService {
 
     /// First-run routing only: remember the presentation per app channel, including existing
     /// installations, so an upgrade never turns an existing workspace into onboarding.
-    func showHistoryAtFirstRun(isFirstRun: Bool) {
-        let defaults = UserDefaults.standard
+    func showHistoryAtFirstRun(isFirstRun: Bool, defaults: UserDefaults = .standard) {
         let key = "home.firstRun.historyImportShown"
         guard !defaults.bool(forKey: key) else { return }
+        if isFirstRun {
+            // The first workspace can replace its Home pane while launch settles. Show on
+            // top so the offer never belongs to that temporary pane; consume it only
+            // after presentation succeeds.
+            guard TopPages.show(.page(.importHistory), services: services) != nil else { return }
+        }
         defaults.set(true, forKey: key)
-        if isFirstRun { show(step: .importData, history: true) }
     }
 
     func historyImportFinished() {

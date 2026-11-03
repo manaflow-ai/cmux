@@ -9,6 +9,24 @@ import Testing
         PageCallContext(page: "cmux.import-history", userGesture: true, gestureEvent: event)
     }
 
+    #if DEBUG
+    @Test func debugPickerFixtureCannotEscapeItsFreshHomeThroughASymlink() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("history-picker-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let inside = home.appendingPathComponent("export.zip")
+        let outside = root.appendingPathComponent("outside.zip")
+        try Data().write(to: inside)
+        try Data().write(to: outside)
+        #expect(try ImportHistoryPageProvider.debugFixtureZip(inside.path, home: home) == inside.resolvingSymlinksInPath())
+        let link = home.appendingPathComponent("escape.zip")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outside)
+        #expect(throws: PageError.self) { try ImportHistoryPageProvider.debugFixtureZip(link.path, home: home) }
+        #expect(throws: PageError.self) { try ImportHistoryPageProvider.debugFixtureZip(home.path, home: home) }
+    }
+    #endif
+
     @Test func detectionNeverScansExportFoldersAndOnlyAdmitsAgentSources() async throws {
         var arguments: [String] = []
         let provider = ImportHistoryPageProvider(muxHome: "/test/mux", personOnlyMessage: "Click Import") { args, _ in

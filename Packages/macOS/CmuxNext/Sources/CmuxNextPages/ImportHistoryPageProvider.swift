@@ -66,6 +66,14 @@ public final class ImportHistoryPageProvider: PageProvider {
         case "cmux.importHistory.pickZip":
             try requireGesture(context)
             guard !busy else { throw PageError.invalidParams("import is running") }
+            #if DEBUG
+            // A fleet journey may answer this picker with its own synthetic export.
+            // The native click and all later batch/source checks still apply.
+            if let fixture = ProcessInfo.processInfo.environment["CMUX_NEXT_IMPORT_HISTORY_TEST_ZIP"] {
+                let url = try Self.debugFixtureZip(fixture, home: FileManager.default.homeDirectoryForCurrentUser)
+                return admitZip(url)
+            }
+            #endif
             let panel = NSOpenPanel()
             panel.message = ChiefMemoryImportStrings.choosePrompt
             panel.allowedContentTypes = [.zip]
@@ -79,9 +87,7 @@ public final class ImportHistoryPageProvider: PageProvider {
                 }
             }
             guard response == .OK, let url = panel.url else { return .null }
-            let source = "zip:" + url.path
-            admitted[source] = ""
-            return ["source": .string(source), "name": .string(url.lastPathComponent)]
+            return admitZip(url)
         case "cmux.importHistory.prepareText":
             guard batch != nil, !busy, let text = params["text"]?.stringValue,
                   let origin = params["origin"]?.stringValue,
@@ -126,6 +132,24 @@ public final class ImportHistoryPageProvider: PageProvider {
             return [:]
         default: throw PageError.unknownOp(op)
         }
+    }
+
+    #if DEBUG
+    static func debugFixtureZip(_ path: String, home: URL) throws -> URL {
+        let home = home.resolvingSymlinksInPath().standardizedFileURL.path
+        let url = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL
+        guard url.path.hasPrefix(home + "/"), url.pathExtension.lowercased() == "zip",
+              try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
+            throw PageError.invalidParams("the test export must be a regular zip inside this HOME")
+        }
+        return url
+    }
+    #endif
+
+    private func admitZip(_ url: URL) -> JSONValue {
+        let source = "zip:" + url.path
+        admitted[source] = ""
+        return ["source": .string(source), "name": .string(url.lastPathComponent)]
     }
 
     private func completeTransaction(_ arguments: [String], timeout: Duration) async throws -> JSONValue {

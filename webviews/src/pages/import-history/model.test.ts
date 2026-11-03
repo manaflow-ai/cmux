@@ -24,9 +24,9 @@ function host(handle?: (call: Call) => unknown | Promise<unknown>) {
             sources: [{ source: "claude-code" }, { source: "codex" }, { source: "zip:/unasked.zip" }],
           } as R;
         case OPS.pickZip:
-          return { source: `zip:/selected/${call.params.kind}.zip`, name: "export.zip" } as R;
+          return { source: `zip:/selected/${String(call.params.kind)}.zip`, name: "export.zip" } as R;
         case OPS.prepareText:
-          return { source: `text:/private/${call.params.origin}.txt` } as R;
+          return { source: `text:/private/${String(call.params.origin)}.txt` } as R;
         case OPS.dryRun:
           return report() as R;
         case OPS.write:
