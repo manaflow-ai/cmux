@@ -98,6 +98,11 @@ import PackageDescription
 // break reads a compressed history row only when the pair was joined, and
 // a clear of rows (ED, DECALN) breaks the wrap across the cleared rows' edges.
 //
+// Since 34e73ba8b..dfd07de4a (release/cmux-9ce9b7d0-e2, fork PR #69): each
+// link regex is compiled once per process and shared by every surface and
+// renderer (it was compiled twice per new surface on the main thread,
+// 6.3 ms of onig_compile per HEAVY workspace switch).
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -121,8 +126,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-34e73ba8ba7cb8da0115caeb780065e3a12f2f62-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "32cb09bbc69510a099df9206a460cc8e7f2aba41a1a5489de98f185da07154a4"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-dfd07de4a2948f86a0a4d3032200f73ef003e787-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "a04d2fc3a1f937d27fc3e48bb828c55e88883f972ec0fc2343cf9165fc043033"
         ),
     ]
 )

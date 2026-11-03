@@ -12,9 +12,22 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### One compiled link regex per pattern for the whole process (ghostty-next)
+
+- Fork release branch `release/cmux-9ce9b7d0-e2` (ghostty-next `dfd07de4a`, fork PR #69 `perf/link-regex-once`): red
+  test `5410e5d44`, fix `dfd07de4a`. GhosttyNextKit `xcframework-dfd07de4a2948f86a0a4d3032200f73ef003e787-apple-v6`.
+- Why: each new surface compiled every configured link regex twice on the main thread (`Surface.DerivedConfig.init`
+  and the renderer's `link.Set.fromConfig`), 6.3 ms of `onig_compile` per HEAVY workspace switch (STATUS 8158).
+- `src/input/link_regex.zig` keeps one compiled `oni.Regex` per pattern, counted by its users; surfaces and renderer
+  link sets acquire on init and release on deinit; up to 16 unused patterns stay compiled. Oniguruma 6.9.9 search
+  never writes to a `regex_t`, so the app and renderer threads of every surface share it.
+- Conflict notes: an upstream change that builds link regexes elsewhere (for example a new `oniRegex()` caller that
+  keeps its regex) must acquire and release through `link_regex`; a `link.deinit` that calls `regex.deinit()`
+  directly frees a shared regex.
+
 ### A scroll region scroll breaks the soft wrap across its edges; the formatter carries blanks only across a joined wrap (ghostty-next)
 
-- Fork release branch `release/cmux-9ce9b7d0-e2` (ghostty-next `34e73ba8b`): the pin `9ce9b7d08` plus only fork PRs #66
+- Fork release branch `release/cmux-9ce9b7d0-e2` (ghostty-next `34e73ba8b`, now under `dfd07de4a`): the pin `9ce9b7d08` plus only fork PRs #66
   (`fix-formatter-blank-carry`) and #68 (`fix-wrap-edge-history-cost`) and the release workflow change of fork PR #67. GhosttyNextKit
   `xcframework-34e73ba8ba7cb8da0115caeb780065e3a12f2f62-apple-v6`.
 - Root fix (`771194607` red Zig tests, `3c717e511` fix): `cursorScrollRegionUp` (fast and slow paths),
