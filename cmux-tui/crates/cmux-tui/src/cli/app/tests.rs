@@ -632,10 +632,7 @@ fn catalog_and_dialog_reads_do_not_wait_for_the_daemon() {
     let dialogs = json!({ "pending_only": false });
     assert_eq!(with_read_barrier("feed.list", dialogs.clone()), dialogs);
     // A dialog answer changes the app: it keeps the barrier.
-    assert_eq!(
-        with_read_barrier("feed.permission.reply", json!({})),
-        json!({ "after": "sync" })
-    );
+    assert_eq!(with_read_barrier("feed.permission.reply", json!({})), json!({ "after": "sync" }));
 }
 
 #[test]
