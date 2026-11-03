@@ -663,7 +663,7 @@ class Excusing(unittest.TestCase):
                               text)
                 self.assertNotIn(f"repos/{REPO}/actions/runs/3000/jobs?filter=latest&per_page=100", self.gh.routes)
 
-    def coalesced_setup(self, newest_green: bool):
+    def coalesced_setup(self, newest_green: bool, yielded: bool = False):
         # cmux-next-web.yml runs its web checks at most once every 15 minutes (web_coalesce.py): a push whose
         # pending coalesce job a newer push replaced ends cancelled, its coalesce job cancelled and its web job
         # skipped. Such runs sit ahead of the run that covered them.
@@ -674,9 +674,10 @@ class Excusing(unittest.TestCase):
         for n in range(9):
             rid = 3000 + n
             runs.append({"id": rid, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
-                         "conclusion": "cancelled", "path": ".github/workflows/cmux-next-web.yml",
-                         "head_sha": f"{n}" * 40})
-            self.gh.jobs[100 + n] = dict(failed_job(100 + n, rid, f"{n}" * 40, name="coalesce"), conclusion="cancelled")
+                         "conclusion": "success" if yielded else "cancelled",
+                         "path": ".github/workflows/cmux-next-web.yml", "head_sha": f"{n}" * 40})
+            self.gh.jobs[100 + n] = dict(failed_job(100 + n, rid, f"{n}" * 40, name="coalesce"),
+                                         conclusion="success" if yielded else "cancelled")
             self.gh.jobs[200 + n] = dict(failed_job(200 + n, rid, f"{n}" * 40, name="web"), conclusion="skipped")
         if newest_green:
             # Cancelled by hand after its web tests passed: that green is the newest verdict.
@@ -690,6 +691,12 @@ class Excusing(unittest.TestCase):
 
     def test_coalesced_web_push_runs_leave_the_verdict_to_the_run_that_covered_them(self):
         name = self.coalesced_setup(newest_green=False)
+        self.assertIn(f"excused '{name}': feat-cmux-next run 20", "\n".join(self.judge()))
+
+    def test_yielded_web_push_runs_leave_the_verdict_to_the_run_that_covered_them(self):
+        # web_coalesce.py (#33872): a coalesce job that slept yields to a newer push; its run ends success with its
+        # web job skipped, which is no verdict.
+        name = self.coalesced_setup(newest_green=False, yielded=True)
         self.assertIn(f"excused '{name}': feat-cmux-next run 20", "\n".join(self.judge()))
 
     def test_a_cancelled_web_run_whose_job_passed_is_the_newest_verdict(self):
