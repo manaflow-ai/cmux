@@ -159,6 +159,8 @@ export type AcpmuxHostConfig = {
   draft?: string;
   /** A new chat's first prompt, sent once the client connects (onboarding's first task). */
   prompt?: string;
+  /** Attachments of the seeded prompt, with file references on this chat's machine. */
+  promptAttachments?: ComposerAttachment[];
   /** The model a new chat starts on before its first prompt. */
   model?: string;
   /** Explicit startup harness; omitted uses the existing daemon default. */
@@ -2912,6 +2914,21 @@ export class AcpmuxDirectClient {
     if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return;
     if (this.attachedGeneration !== this.selectionGeneration) return;
     const events = this.events.slice(-KEPT_EVENTS);
+    // The kept page may start inside a turn whose prompt was in the history we just cut off.
+    // Keep that prompt beside the page, as attach does: without it the first cached frame draws
+    // the turn's work unfolded, then the identical attach folds it once the prompt comes back.
+    const first = events[0];
+    let turnOpener: EventRecord | undefined;
+    if (first && !startsTurn(first)) {
+      turnOpener = this.turnOpener;
+      for (let index = this.events.length - events.length - 1; index >= 0; index -= 1) {
+        const event = this.events[index]!;
+        if (event.seq < first.seq && startsTurn(event)) {
+          turnOpener = event;
+          break;
+        }
+      }
+    }
     rememberTail(
       sessionId,
       {
@@ -2919,7 +2936,7 @@ export class AcpmuxDirectClient {
         // The machine and session its rows are of, which the attach's detail does not name
         // (`keptPeer`): a tail drawn later is told from another machine's journal by them (`attach`).
         summary: this.provenSummary(),
-        turnOpener: this.turnOpener,
+        turnOpener,
         // Only a whole transcript is exhausted: a tail cut at KEPT_EVENTS has older events to read.
         historyExhausted: this.historyExhausted && events.length === this.events.length,
         queue: this.queue,
@@ -8793,10 +8810,11 @@ export class AcpmuxDirectClient {
   }
 
   /// One read ahead: the chat's newest page, the same kinds and bound an attach reads, kept as a
-  /// tail. What it cannot know without an attach (what is pending, the turn's opener when it is
-  /// older than the page) the attach that follows a switch adds, as it does for any kept tail.
+  /// tail. Prepare the first partial turn's opener here, off the click path, so the cached frame
+  /// already has the same turn boundaries as attach. Pending asks still come from the attach.
   private async readAhead(sessionId: string): Promise<void> {
     if (this.socket?.readyState !== WebSocket.OPEN) return;
+    const connection = this.socket;
     this.readAheadAt.set(sessionId, Date.now());
     // The session and machine its row names when asked: a page read while the row changed is of
     // the session before, so it is not kept under the new one's row.
@@ -8810,16 +8828,20 @@ export class AcpmuxDirectClient {
       kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, BOOKMARKS_KIND, ...SECRET_KINDS],
     });
     // The chat was opened meanwhile: its attach holds the newer read.
-    if (this.closed || sessionId === this.selectedSessionId) return;
+    if (this.closed || this.socket !== connection || sessionId === this.selectedSessionId) return;
     const page = records(result?.events);
     if (page.length === 0) return;
     const oldest = Math.min(...page.map((event) => event.seq));
+    const turnOpener = await this.fetchTurnOpener(sessionId, page, result?.hasMore === true);
+    // The opener read may finish after an open or a machine/generation change. It cannot publish
+    // that older preparation over the newly selected chat or the new machine's journal.
+    if (this.closed || this.socket !== connection || sessionId === this.selectedSessionId) return;
     const listed = this.sessions.find((session) => session.sessionId === sessionId);
     if (listed?.peer !== asked?.peer || listed?.createdAt !== asked?.createdAt) return;
     rememberReadAhead(sessionId, {
       events: page,
       summary: listed ? { ...listed } : undefined,
-      turnOpener: undefined,
+      turnOpener,
       historyExhausted: result?.hasMore === false,
       queue: [],
       configSeq: 0,
