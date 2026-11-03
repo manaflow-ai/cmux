@@ -5976,18 +5976,3 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
 .cv-received > .cv-disclosure__line:not(:has(.cv-received__preview)) > .cv-received__sender {
   max-width: calc(100% - var(--cv-chevron-glyph, 12px) - var(--ds-space-4, 16px));
 }
-/* A send's live line ("Sending message to …", Thinking.tsx): the envelope sits in the icon column
-   left of the text column the live line's words start on, as on every message row, so the in-flight
-   send reads as one of them (Leo, 2026-11-02: "i also think this is quite weird looking"). */
-.cv-worked__icon {
-  position: absolute;
-  inset-inline-start: 0;
-  top: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--cv-row-icon);
-  height: var(--cv-glyph-line);
-  transform: translateY(-50%);
-  color: var(--cv-activity-text);
-}

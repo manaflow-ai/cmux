@@ -161,7 +161,8 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
       const toggle = row.locator(direction === "received" ? ".cv-disclosure__toggle" : ".cv-agentmsg__toggle");
       const text = row.locator(direction === "received" ? ".cv-received__text" : ".cv-message__text");
       if (direction === "sent") {
-        await toggle.click();
+        // Shut and stacked, the message's first line under its row is what the pointer opens.
+        await row.locator(".cv-agentmsg__below").click();
         await row.locator(".cv-codeblock button").first().waitFor({ state: "attached" });
         await page.waitForFunction(
           (selector) => document.querySelector<HTMLElement>(selector)?.style.maxHeight === "0px",
