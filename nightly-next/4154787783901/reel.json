@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4154787783901",
+  "notes": "notes/4154787783901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32646,
+      "title": "Session Info: section headers draw no background, and a row's hover ends when it leaves",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32642,
+      "title": "fix(cmux-tui, cmux-next daemon): a snapshot's barrier is the line the daemon had written when it read the tree (#32408)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32606,
+      "title": "test(web): isolate thread rail step timing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32647,
+      "title": "Sidebar: a slight gap beside each row and rounder row corners, as ChatGPT's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27850,
+      "title": "fix(transcript): use acknowledged dispatch lifecycle state",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32637,
+      "title": "Prompt rail: every tick shares one column at rest, other sessions' messages included",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
