@@ -7,10 +7,11 @@
 // the turn ends (its work folds under one "Worked for", its footer and final row chrome appear). The window runs from
 // the first of those updates to 1 s after the view settles past the turn's end. (A message from another agent
 // arriving mid-turn splits the turn's fold, which hid #33286's bug: the scenario has none.)
-// Rows (bench/perfRow.ts), median of the rounds, per engine (WebKit's carry .webkit):
+// Rows (bench/perfRow.ts), per engine (WebKit's carry .webkit), p50 the median round and p95 the worst:
 //   ui.transcript.turn_end.cls              Chromium: the Layout Instability API's layout-shift entries over the
-//                                           window (none follow input: the wheel ends 600 ms before). WebKit has no such
-//                                           entries: the visible rows' frame-by-frame box diff (src/gallery/shift.ts).
+//                                           window, without those after input (hadRecentInput; the wheel ends 600 ms
+//                                           before). WebKit has no such entries: the visible rows' frame-by-frame
+//                                           box diff (src/gallery/shift.ts).
 //   ui.transcript.turn_end.anchor_drift_px  how far the first row in sight at the window's start moved in the view
 //                                           at most; a row that left the view (folded away) counts the view height.
 //   ui.transcript.turn_end.rows_lost        rows in sight at the window's start that the view no longer draws at its
@@ -443,11 +444,19 @@ if (import.meta.main) {
       }
       if (!rounds.length) continue;
       const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor((values.length - 1) / 2)]!;
-      // Shifts under 0.0001 are layout rounding: the row reads 0 then.
-      const cls = Math.round(median(rounds.map((r) => r.cls)) * 1e4) / 1e4;
-      const drift = median(rounds.map((r) => r.drift));
-      const lost = median(rounds.map((r) => r.lost.length));
-      console.log(`turn-end-shift: ${engine}, median of ${rounds.length}`);
+      // p50 the median round, p95 the worst: a shift in any one round is a miss of the budget. Shifts under 0.0001
+      // are layout rounding: the row reads 0 then.
+      const stat = (values: number[], round4 = false) => {
+        const fix = (value: number) => (round4 ? Math.round(value * 1e4) / 1e4 : value);
+        return { p50: fix(median(values)), p95: fix(Math.max(...values)) };
+      };
+      const cls = stat(
+        rounds.map((r) => r.cls),
+        true,
+      );
+      const drift = stat(rounds.map((r) => r.drift));
+      const lost = stat(rounds.map((r) => r.lost.length));
+      console.log(`turn-end-shift: ${engine}, ${rounds.length} rounds (p50 median, p95 worst)`);
       console.log("round | cls | box cls | anchor | drift px | rows lost");
       for (const [index, r] of rounds.entries())
         console.log(
@@ -455,9 +464,9 @@ if (import.meta.main) {
         );
       for (const note of rounds.at(-1)!.notes.slice(0, 12)) console.log(`  ${note}`);
       const name = `ui.transcript.turn_end${isChromium ? "" : ".webkit"}`;
-      perfRow({ name: `${name}.cls`, p50: cls, p95: cls, unit: "score", target: TARGET.cls, floor: 0.001 });
-      perfRow({ name: `${name}.anchor_drift_px`, p50: drift, p95: drift, unit: "px", target: TARGET.drift, floor: 1 });
-      perfRow({ name: `${name}.rows_lost`, p50: lost, p95: lost, unit: "count", target: TARGET.lost, floor: 0.5 });
+      perfRow({ name: `${name}.cls`, ...cls, unit: "score", target: TARGET.cls, floor: 0.001 });
+      perfRow({ name: `${name}.anchor_drift_px`, ...drift, unit: "px", target: TARGET.drift, floor: 1 });
+      perfRow({ name: `${name}.rows_lost`, ...lost, unit: "count", target: TARGET.lost, floor: 0.5 });
     }
     if (failed) process.exitCode = 1;
   } finally {

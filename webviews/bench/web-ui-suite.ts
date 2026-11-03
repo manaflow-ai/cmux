@@ -43,8 +43,7 @@ export const BENCHES: readonly Bench[] = [
   {
     name: "transcript-turn-end-shift",
     file: "transcript-turn-end-shift.bench.ts",
-    // Three rounds, so a shift in one round of two cannot hide under the median.
-    args: ["3"],
+    args: ["2"],
     timeoutMs: 120_000,
   },
 ];
