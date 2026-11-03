@@ -176,7 +176,13 @@ struct TabStripFollowsPaneTickTests {
         let axis: SplitAxis
         let direction: LayoutDirection
         let anchor: PaneMotionAnchor
-        var testDescription: String { "\(axis.rawValue) split, \(direction), content rides the \(anchor == .bottom ? "bottom" : "top")" }
+        var testDescription: String {
+            let edge = switch anchor {
+            case .top: "top"
+            case .bottom: "bottom"
+            }
+            return "\(axis.rawValue) split, \(direction), content rides the \(edge)"
+        }
     }
 
     /// Ctrl-Shift-H and L on p1 | p2; Ctrl-Shift-K and J on p1 over p2, with terminals whose prompt is on the last row
