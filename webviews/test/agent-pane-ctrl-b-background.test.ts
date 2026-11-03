@@ -314,6 +314,24 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     await page.waitForFunction(
       () => getComputedStyle(document.querySelector(".cv-worked.is-below .cv-command__bg")!).opacity === "1",
     );
+    // It reads on the line as every trailing item does (Leo, 2026-11-03: "this isn't really centered
+    // with the tool call i think it should be or at least it looks weird?"): the line's size, so its
+    // words share the command's baseline and middle, never a smaller face centered beside it.
+    const marks = await line.evaluate((node) => {
+      const read = (selector: string) => {
+        const target = node.querySelector<HTMLElement>(selector)!;
+        // An empty inline-block's bottom edge sits on its line's baseline.
+        const probe = document.createElement("span");
+        probe.style.cssText = "display:inline-block;width:0;height:0";
+        target.append(probe);
+        const baseline = probe.getBoundingClientRect().bottom;
+        probe.remove();
+        return { baseline, size: getComputedStyle(target).fontSize };
+      };
+      return { hint: read(".cv-command__bg"), line: read(".cv-thinking") };
+    });
+    expect(marks.hint.size).toBe(marks.line.size);
+    expect(Math.abs(marks.hint.baseline - marks.line.baseline)).toBeLessThanOrEqual(0.5);
     await page.close();
   });
 
