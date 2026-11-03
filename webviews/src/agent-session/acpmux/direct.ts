@@ -5621,6 +5621,19 @@ export class AcpmuxDirectClient {
             failover: { from: msg.from, to: msg.to },
           });
         }
+      } else if (event.kind === "recap") {
+        // The person came back after 5+ minutes away (`hub/away_recap.rs`): Claude Code's recap
+        // of where the chat stands. A record without text is skipped; never a turn of its own.
+        if (typeof msg.text === "string" && msg.text.trim()) {
+          const id = `recap-${event.seq}`;
+          this.rows.set(id, {
+            id,
+            version: 1,
+            at: event.at,
+            kind: "recap",
+            recap: { text: msg.text.trim(), awayMs: typeof msg.awayMs === "number" ? msg.awayMs : undefined },
+          });
+        }
       } else if (event.kind === BACKGROUND_TURN_KIND) {
         this.reduceBackgroundTurn(event, msg);
       } else if (event.kind === "host_notice") {

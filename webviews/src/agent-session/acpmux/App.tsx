@@ -394,6 +394,7 @@ import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./
 import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMessageCard";
 import type { IncomingMessage } from "./conversation/incomingMessage";
 import { CompactionNote, FailoverNote, PolicyUnenforcedNote } from "./conversation/CompactionNote";
+import { RecapNote } from "./conversation/RecapNote";
 import { BackgroundTurnLine } from "./conversation/BackgroundTurnLine";
 import { TaskLines } from "./conversation/TaskLine";
 import { TASK_LINE } from "./conversation/taskLineKind";
@@ -1689,6 +1690,12 @@ const FailoverRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+const RecapRow = memo(
+  function RecapRow({ row }: RowProps) {
+    return row.recap ? <RecapNote id={`${row.id}-${row.at}`} recap={row.recap} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 const PolicyUnenforcedRow = memo(
   function PolicyUnenforcedRow({ row }: RowProps) {
     return row.policyUnenforced ? <PolicyUnenforcedNote note={row.policyUnenforced} /> : null;
@@ -1973,6 +1980,7 @@ const defaultRegistry: NativeRegistry = {
   backgroundTask: BackgroundTaskRow,
   compaction: CompactionRow,
   failover: FailoverRow,
+  recap: RecapRow,
   policyUnenforced: PolicyUnenforcedRow,
   agentPair: AgentPairRow,
   sessionStart: SessionStartRow,
