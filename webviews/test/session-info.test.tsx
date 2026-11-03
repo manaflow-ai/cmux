@@ -14,7 +14,7 @@ import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:t
 import { act, useMemo, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { transcriptColumn, type AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { SESSION_INFO_PLACEMENT_KEY, setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
@@ -27,8 +27,11 @@ import {
   sessionInfoTopOffset,
   sessionInfoOverChat,
   sessionInfoPushes,
+  sessionInfoStage,
+  pushedRoom,
   pushedWidth,
   PUSH_PANEL_MIN,
+  PUSH_MIN_CHAT,
   sessionInfoFits,
   FLOAT_MARGIN,
   pushes,
@@ -575,64 +578,115 @@ test("the running line's counts open a closed Session Info with Subagents or Bac
   expect(sessionInfoState().sections.subagents).toBe(true);
 });
 
-test("it floats while the right gutter holds it, and pushes the chat left where it cannot", async () => {
-  // Leo, 2026-10-31: "why is the session info thing still pushing my layout when it doesnt need to???";
-  // 2026-11-01: "why does the session info not push the layout left ever anymore".
+// Leo, 2026-11-03: "but you should still be able to have it be an overlay... we previously had all that
+// behaviour logic going from not affecting layout at all -> gradually pushing into the chat layout ->
+// overlay". #31423 made the default push wherever the gutter could not hold the panel, and #32591 pushed
+// it at a 200px floor however narrow the pane, so the overlay range was gone.
+const tall = (width: number) => ({ width, height: 700 });
+/// Where the transcript's column ends in a chat `chat` wide (model.ts transcriptColumn).
+const columnEnd = (chat: number) => chat - transcriptColumn(chat).inset;
+/// The first pane width, counting down from `from`, at which the 320px panel is in `stage`.
+const firstAt = (stage: string, from = 2400) => {
+  for (let width = from; width > 0; width--) if (sessionInfoStage("overlay", tall(width), 320) === stage) return width;
+  return 0;
+};
+
+test("three stages by the pane's width: in the gutter, pushing gradually, over the chat", () => {
   expect(pushes("overlay")).toBe(false);
   expect(pushes("push")).toBe(true);
-  const tall = (width: number) => ({ width, height: 700 });
-  // A 1600px pane's gutter holds it: nothing moves.
-  expect(sessionInfoPushes("overlay", tall(1600), 320)).toBe(false);
-  // A 1200px pane's or a split's gutter cannot: it takes its column and the chat moves left.
-  expect(sessionInfoPushes("overlay", tall(1200), 320)).toBe(true);
-  expect(sessionInfoPushes("overlay", tall(720), 320)).toBe(true);
+  // The gutter holds the panel and both margins down to `gutterFits`; one pixel narrower it pushes.
+  const gutterFits = firstAt("push") + 1;
+  expect(sessionInfoOverChat(gutterFits, 320)).toBe(false);
+  expect(sessionInfoOverChat(gutterFits - 1, 320)).toBe(true);
+  expect(transcriptColumn(gutterFits).inset).toBeGreaterThanOrEqual(320 + 2 * FLOAT_MARGIN);
+  expect(sessionInfoStage("overlay", tall(gutterFits), 320)).toBe("float");
+  expect(sessionInfoStage("overlay", tall(gutterFits + 1), 320)).toBe("float");
+  expect(sessionInfoStage("overlay", tall(gutterFits - 1), 320)).toBe("push");
+  expect(sessionInfoStage("overlay", tall(1600), 320)).toBe("float");
+  expect(sessionInfoStage("overlay", tall(1200), 320)).toBe("push");
+  expect(sessionInfoStage("overlay", tall(740), 320)).toBe("push");
+  // It pushes while the pane holds 440 + the panel's 200px floor + its margin; under that, over the chat.
+  const overlayBelow = PUSH_MIN_CHAT + PUSH_PANEL_MIN + FLOAT_MARGIN;
+  expect(overlayBelow).toBe(648);
+  expect(sessionInfoStage("overlay", tall(overlayBelow), 320)).toBe("push");
+  expect(sessionInfoStage("overlay", tall(overlayBelow + 1), 320)).toBe("push");
+  expect(sessionInfoStage("overlay", tall(overlayBelow - 1), 320)).toBe("overlay");
+  expect(sessionInfoStage("overlay", tall(528), 320)).toBe("overlay");
+  expect(sessionInfoStage("overlay", tall(370), 320)).toBe("overlay");
+  expect(sessionInfoFits(overlayBelow)).toBe(true);
+  expect(sessionInfoFits(overlayBelow - 1)).toBe(false);
   // A short pane keeps it a popover over the chat; a handoff review's form never pushes.
-  expect(sessionInfoPushes("overlay", { width: 720, height: 440 }, 320)).toBe(false);
-  expect(sessionInfoPushes("overlay", tall(1200), 320, undefined, true)).toBe(false);
-  // Unmeasured, it is nowhere yet.
-  expect(sessionInfoPushes("overlay", { width: 0, height: 0 }, 320)).toBe(false);
-  // Settings Push always: even in a wide pane.
-  expect(sessionInfoPushes("push", tall(1600), 320)).toBe(true);
+  expect(sessionInfoStage("overlay", { width: 720, height: 440 }, 320)).toBe("overlay");
+  expect(sessionInfoStage("overlay", tall(1200), 320, undefined, true)).toBe("overlay");
+  // Unmeasured, it is nowhere yet: in the gutter.
+  expect(sessionInfoStage("overlay", { width: 0, height: 0 }, 320)).toBe("float");
+  // Settings Push always: at every width, the narrow ones included.
+  for (const width of [1600, 740, 528, 370]) expect(sessionInfoStage("push", tall(width), 320)).toBe("push");
+  expect(sessionInfoPushes("overlay", tall(1200), 320)).toBe(true);
+  expect(sessionInfoPushes("overlay", tall(528), 320)).toBe(false);
+});
+
+test("pushing, the chat narrows gradually from the gutter's edge and never below 440px", () => {
+  const gutterFits = firstAt("push") + 1;
+  // Just inside the push range it takes almost nothing: the chat does not jump narrower.
+  expect(pushedRoom(gutterFits, 320)).toBe(0);
+  expect(pushedRoom(gutterFits - 1, 320)).toBeLessThanOrEqual(2);
+  // Each pixel the pane loses, the room grows by a few pixels at most, up to the panel and its margin.
+  let last = 0;
+  for (let pane = gutterFits - 1; pane >= 648; pane--) {
+    const panel = pushedWidth(pane, 320);
+    const room = pushedRoom(pane, panel);
+    const chat = pane - room;
+    expect(chat).toBeGreaterThanOrEqual(PUSH_MIN_CHAT);
+    expect(room).toBeLessThanOrEqual(panel + FLOAT_MARGIN);
+    // The column stays a margin clear of the panel (its left edge is the pane less the panel and margin).
+    expect(columnEnd(chat) + FLOAT_MARGIN).toBeLessThanOrEqual(pane - FLOAT_MARGIN - panel);
+    // Gradual while the panel keeps its width (a narrowing panel gives the room back).
+    if (panel === 320 && room < panel + FLOAT_MARGIN) expect(room - last).toBeLessThanOrEqual(4);
+    last = room;
+  }
+  // 1200px: it pushes by only part of its width, so the chat keeps most of the pane.
+  expect(pushedRoom(1200, 320)).toBeGreaterThan(0);
+  expect(pushedRoom(1200, 320)).toBeLessThan(320 + FLOAT_MARGIN);
+  // 740px: the whole room, the panel narrowed so the chat keeps exactly 440px.
+  expect(pushedWidth(740, 320)).toBe(292);
+  expect(740 - pushedRoom(740, 292)).toBe(PUSH_MIN_CHAT);
+  // 648px, the last pushing width: the panel at its 200px floor, the chat 440px.
+  expect(pushedWidth(648, 320)).toBe(PUSH_PANEL_MIN);
+  expect(648 - pushedRoom(648, PUSH_PANEL_MIN)).toBe(PUSH_MIN_CHAT);
+  // Content under where it would float, and Settings Push always, take the whole room.
+  expect(pushedRoom(1200, 320, undefined, 400)).toBe(320 + FLOAT_MARGIN);
+  expect(pushedRoom(1200, 320, undefined, 0, true)).toBe(320 + FLOAT_MARGIN);
   // Pushed, it narrows to keep a readable chat and its 8px margin, down to PUSH_PANEL_MIN.
   expect(pushedWidth(1200, 320)).toBe(320);
   expect(pushedWidth(720, 320)).toBe(272);
   expect(pushedWidth(500, 320)).toBe(PUSH_PANEL_MIN);
   expect(pushedWidth(0, 320)).toBe(320);
-  // cmuxterm-hq#6137: the panel and the chat sit side by side and sum to the pane, at any width; the
-  // panel's left edge is the chat's right edge (Leo, 2026-11-02: "THE FUCKING SESSION INFO NOT FUCKING
-  // PUSH THE LAYOUT LEFT"). At 370px the old 260px floor left the chat about 100px.
-  for (const pane of [180, 370, 528, 740, 1200]) {
-    for (const stored of [SESSION_INFO_WIDTH.min, SESSION_INFO_WIDTH.fallback, SESSION_INFO_WIDTH.max]) {
-      const panelWidth = pushedWidth(pane, stored);
-      const chat = pane - panelWidth - FLOAT_MARGIN;
-      expect(panelWidth).toBeGreaterThanOrEqual(0);
-      expect(chat).toBeGreaterThanOrEqual(FLOAT_MARGIN);
-      expect(chat + panelWidth + FLOAT_MARGIN).toBe(pane);
-    }
-  }
-  expect(pushedWidth(370, 320)).toBe(PUSH_PANEL_MIN);
-  expect(370 - pushedWidth(370, 320) - FLOAT_MARGIN).toBe(162);
-  expect(pushedWidth(528, 320)).toBe(PUSH_PANEL_MIN);
-  expect(pushedWidth(740, 320)).toBe(292);
   expect(PUSH_PANEL_MIN).toBeLessThan(SESSION_INFO_WIDTH.min);
-  // A pane that cannot hold a readable chat beside the panel at its narrowest does not open it unasked.
-  expect([370, 528, 647, 648, 740].map(sessionInfoFits)).toEqual([false, false, false, true, true]);
-  expect(sessionInfoFits(0)).toBe(true);
+});
 
+test("the panel takes each stage's place as the pane narrows and widens", async () => {
   const container = installDom(true);
   paneWidth = 1600;
   await render(container, localChat);
   // A wide pane: floating in the gutter, so opening it never reflows the chat.
   expect(panel(container)?.dataset.placement).toBe("overlay");
+  expect(panel(container)?.hasAttribute("data-over-chat")).toBe(false);
   expect(panel(container)?.style.width).toBe("320px");
-  // Narrower panes: it takes its column, so the chat moves left instead of lying under it.
+  // Narrower panes with a readable chat beside it: it pushes, by part of its width at 1200px (the rest
+  // a negative left margin over the chat's own gutter), by all of it at 720px.
   for (const width of [1200, 720]) {
     await act(async () => {
       paneWidth = width;
       for (const observer of observers) observer();
     });
+    const pushedPanel = pushedWidth(width, 320);
     expect(panel(container)?.dataset.placement).toBe("push");
-    expect(panel(container)?.style.width).toBe(`${pushedWidth(width, 320)}px`);
+    expect(panel(container)?.style.width).toBe(`${pushedPanel}px`);
+    const overlap = pushedPanel + FLOAT_MARGIN - pushedRoom(width, pushedPanel);
+    expect(panel(container)?.style.getPropertyValue("--acpmux-session-info-overlap")).toBe(
+      overlap > 0 ? `${overlap}px` : "",
+    );
   }
   // Back to a wide pane, it floats again.
   await act(async () => {
@@ -646,6 +700,17 @@ test("it floats while the right gutter holds it, and pushes the chat left where 
   // Back to the default.
   await act(async () => setChatDisplay({ [SESSION_INFO_PLACEMENT_KEY]: "overlay" }));
   expect(panel(container)?.dataset.placement).toBe("overlay");
+  // Narrowed under 648px while it shows: it stays, over the chat, stopping above the composer, at its
+  // own width, and the chat keeps the pane's width (no push marker).
+  await act(async () => {
+    paneWidth = 600;
+    for (const observer of observers) observer();
+  });
+  expect(panel(container)?.dataset.placement).toBe("overlay");
+  expect(container.querySelector<HTMLElement>(".acpmux-shell")!.dataset.sessionInfoChatPlacement).toBe("overlay");
+  expect(panel(container)?.hasAttribute("data-over-chat")).toBe(true);
+  expect(panel(container)?.hasAttribute("data-popover")).toBe(false);
+  expect(panel(container)?.style.width).toBe("320px");
   paneWidth = 0;
 });
 
@@ -745,12 +810,14 @@ test("by default, an output's diff split beside the chat leaves Session Info ope
     ...section(container, "outputs")!.querySelectorAll<HTMLButtonElement>("button.acpmux-session-info-row"),
   ];
   await click(files[0]!);
-  // The diff opens beside the chat and halves the pane: the panel stays, pushed at its narrowest.
+  // The diff opens beside the chat and halves the pane: the panel stays, over the chat above the
+  // composer, since pushing would leave the chat under 440px.
   await act(async () => {
     paneWidth = 600;
     for (const observer of observers) observer();
   });
-  expect(panel(container)?.dataset.placement).toBe("push");
+  expect(panel(container)?.dataset.placement).toBe("overlay");
+  expect(panel(container)?.hasAttribute("data-over-chat")).toBe(true);
   expect(toggle(container)?.getAttribute("aria-pressed")).toBe("true");
   paneWidth = 0;
 });
