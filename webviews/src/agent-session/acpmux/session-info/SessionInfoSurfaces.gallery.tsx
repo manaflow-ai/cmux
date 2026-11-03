@@ -77,7 +77,7 @@ const DOCUMENT = {
 type Surface = "transcript" | "diff" | "document";
 type Props = { surface: Surface };
 
-function GalleryPane({ surface: initial }: Props) {
+export function GalleryPane({ surface: initial }: Props) {
   const [surface, setSurface] = useState<Surface>(initial);
   const narrowPane = useArtifactCoversPane();
   const [shell, setShell] = useState<HTMLElement | null>(null);

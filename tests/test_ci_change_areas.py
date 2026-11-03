@@ -4790,7 +4790,7 @@ def test_web_workflow_parallelizes_typecheck_tests_and_browser_checks() -> None:
     assert './scripts/run-tests.sh --shard "${{ matrix.shard }}"' in tests
 
     assert "actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae" in instant
-    assert "bunx playwright install --with-deps chromium" in instant
+    assert "ensure-system-chrome.sh" in instant
     assert "CMUX_INSTANT_SKIP_TYPECHECK" in instant
 
 

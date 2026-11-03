@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 791,
-    "mcp": 707
+    "verbs": 793,
+    "mcp": 708
   },
   "nouns": [
     {
@@ -12,6 +12,13 @@
           "command": "cmux accounts connect",
           "title": "Connect Account to CodeRouter…",
           "id": "accounts.connect",
+          "mcp": false,
+          "mcpTool": null
+        },
+        {
+          "command": "cmux accounts github-connect",
+          "title": "Connect GitHub",
+          "id": "accounts.githubConnect",
           "mcp": false,
           "mcpTool": null
         },
@@ -2578,6 +2585,13 @@
           "id": "pane.toggleTabBar",
           "mcp": true,
           "mcpTool": "app_pane_toggle_tab_bar"
+        },
+        {
+          "command": "cmux pane toggle-vertical-tabs",
+          "title": "Turn On Vertical Tabs",
+          "id": "tabs.verticalTabs.toggle",
+          "mcp": true,
+          "mcpTool": "app_pane_toggle_vertical_tabs"
         }
       ]
     },
@@ -5774,7 +5788,7 @@
     }
   ],
   "mcpExempt": {
-    "credentials": 6,
+    "credentials": 7,
     "endsApp": 4,
     "systemChange": 74
   }

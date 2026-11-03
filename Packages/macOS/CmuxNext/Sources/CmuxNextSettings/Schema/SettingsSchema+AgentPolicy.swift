@@ -73,6 +73,7 @@ extension SettingsSchema {
         "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
         "app.showMenuBarIcon", // the menu bar item; looks only, ends no work
         "tabs.overflow",
+        "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover", // how tabs are listed (looks only)
         "tabs.swapCmdTAndCmdN",
         "tabs.commandDigits",
         "palette.scopes.tabs.prefix",
@@ -104,6 +105,7 @@ extension SettingsSchema {
         "appearance.accent",
         "appearance.highlightColor", // the app's one selected-text color (looks only)
         "appearance.themeEdits",
+        "appearance.favoriteThemes", "appearance.rotateFavoriteThemes", // starred themes and their rotation (looks only)
         "appearance.machineColors", // the color of each machine's marks (looks only)
         "appearance.backdropArt",
         "appearance.backgroundOpacity",

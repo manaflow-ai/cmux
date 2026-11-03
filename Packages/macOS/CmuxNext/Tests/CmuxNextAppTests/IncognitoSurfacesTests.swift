@@ -6,6 +6,7 @@ import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextControl
 @testable import CmuxNextDaemon
+@testable import CmuxNextNotifications
 import CmuxNextSettings
 import CmuxNextSidebar
 import Foundation

@@ -162,6 +162,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
 
+      - name: Validate push triggers name their branches
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_push_trigger_branches.py
+
       - name: Validate the CI timing readout
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_timing_readout.py
@@ -193,6 +197,12 @@ jobs:
       - name: Validate attachment admission caps
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_attachment_caps_guard.py
+
+      # No new size or count cap in the send path, as a shrink-only ratchet
+      # (tests/send-path-cap-allowlist.json).
+      - name: Validate send-path caps
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_send_path_caps.py
 
       - name: Validate the PR perf section check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -979,9 +989,9 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_runner_label_policy.py
 
-      - name: Validate no new job takes one Linux runner size
+      - name: Validate no job takes one runner size
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_linux_single_size.py
+        run: python3 tests/test_ci_linux_single_size.py && python3 tests/test_ci_no_single_size_pins.py
 
       - name: Validate stalled CI paths use the runner set
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1657,6 +1667,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_dev_ring.py
 
+      - name: Validate the nightly publishes no red webview tree and no known-bad commit
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_publish_guard.py
+
       - name: Validate the published feed read-back and the shipped app's channels
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_live_feed_check.py
@@ -1829,6 +1843,7 @@ jobs:
           python3 tests/test_release_signer_nightly.py
           python3 tests/test_dev_app_linux.py
           python3 tests/test_nightly_signer_jobs.py
+          python3 tests/test_fetch_run_artifact.py
           python3 tests/test_signer_parity_compare.py
 
       - name: Validate the release app signer

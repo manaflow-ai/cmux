@@ -235,7 +235,7 @@ export function SentMessageLine({
             row's is (MessageCard.tsx); its click never toggles the row. */}
         {text && (
           // oxlint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
-          <span onClick={(event) => event.stopPropagation()}>
+          <span className="cv-sent__actions" onClick={(event) => event.stopPropagation()}>
             <SentActions text={text} />
           </span>
         )}
@@ -278,11 +278,13 @@ export function SentMessageLine({
 /// "Raw" and the call under it while open: its own state, or the caller's (`open`, `onOpenChange`).
 export function RawToggle({
   children,
+  icon,
   startOpen = false,
   open: shown,
   onOpenChange,
 }: {
   children: ReactNode;
+  icon?: ReactNode;
   startOpen?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -301,6 +303,7 @@ export function RawToggle({
         aria-controls={open ? id : undefined}
         onClick={() => setOpen((value) => !value)}
       >
+        {icon}
         {t("subsession.raw")}
         <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
       </button>

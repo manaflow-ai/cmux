@@ -92,6 +92,7 @@ import { sessionEnforcement } from "./handoff/review";
 import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
+import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
@@ -100,6 +101,7 @@ import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage, startCancelled } from "./transportErrors";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
+import { isLostConnection, JOURNAL_PARAMS_BYTES, lostPrompt, type LostPrompt } from "./lostPrompt";
 import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isPlumbingCall, showsNothing } from "./hiddenTools";
@@ -114,6 +116,7 @@ import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
 import { pasteRanges } from "./conversation/promptCollapse";
 import { BACKGROUND_TURN, backgroundTurnRecord, backgroundTurnRowId } from "./conversation/backgroundTurns";
+import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
 import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks";
 import { chatTools, toolApplied, type ToolApplied } from "./summary/chatTools";
 import { taskGoal } from "./goal";
@@ -126,6 +129,7 @@ import {
   markTranscriptSummaryVersion,
   pullRequestRowKey,
 } from "./summary/transcriptPullRequests";
+import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, stallLine } from "./stallLog";
@@ -476,6 +480,10 @@ const READ_AHEAD_REFRESH_MS = 5_000;
 const READ_AHEAD_WAIT_MS = 150;
 /// The longest a connect keeps the pane's last snapshot on screen while it reads the chat.
 const OPEN_HOLD_MS = 1500;
+/// The chat whose last open drew its kept tail while connecting and then failed to connect: the
+/// page's retries draw it only once acpmux answers, so a daemon that is down does not make the
+/// rows come and go with every retry (`drawTailWhileConnecting`). Cleared by a connect that works.
+let connectFailedAfterEarlyTail: string | undefined;
 /// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
 const SECRET_KINDS = ["secret_request", "secret_decision"];
 /// The promptId acpmux gives a task result's prompt: `offer-result-<offerId>` (hub/offers.rs).
@@ -1351,6 +1359,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   private pullRequestActivityVersion = Symbol();
   private pullRequestCommandVersion = Symbol();
   private transcriptSummaryVersion = {};
+  private readonly artifactUpdates = new RowUpdates((id) => this.get(id));
   /// The turns the agent ran on its own (acpmux `background_turn`): each one's started record's
   /// sequence number and its ended record's, once heard. A row an event between them made is that
   /// turn's (`inBackground`). An ended record heard first (an older page's started record comes
@@ -1358,25 +1367,37 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   private backgroundSpans: { id: string; from: number; to?: number }[] = [];
   private readonly backgroundEnds = new Map<string, { seq: number; turn: AcpmuxBackgroundTurn }>();
 
-  /// A background turn's started record at `seq`; how it ended when its ended record came first.
-  openBackground(id: string, seq: number): AcpmuxBackgroundTurn | undefined {
-    if (this.backgroundSpans.some((span) => span.id === id)) return undefined;
+  /// A background turn's started record at `seq`: how it ended when its ended record came first,
+  /// and whether rows its events made before this record was heard draw something (`hasRows`).
+  openBackground(id: string, seq: number): { ended?: AcpmuxBackgroundTurn; hasRows: boolean } {
+    if (this.backgroundSpans.some((span) => span.id === id)) return { hasRows: false };
     const ended = this.backgroundEnds.get(id);
     this.backgroundSpans.push({ id, from: seq, to: ended?.seq });
     this.backgroundEnds.delete(id);
+    let hasRows = false;
     // An older page read later: rows its events made before this record was heard are the turn's too.
     for (const [rowId, order] of this.order) {
       if (this.local.has(rowId) || order <= seq || (ended !== undefined && order >= ended.seq)) continue;
       const row = this.get(rowId);
       if (!row || row.kind === BACKGROUND_TURN || row.kind === "user" || row.inBackground === id) continue;
       const tagged = { ...row, inBackground: id };
+      if (!isVisiblyEmptyMessage(tagged)) hasRows = true;
       super.set(rowId, tagged);
       const at = this.orderedIndex.get(rowId);
       if (this.ordered && at !== undefined) this.ordered[at] = tagged;
       this.snapshot = undefined;
       this.transcriptSummaryVersion = {};
     }
-    return ended?.turn;
+    return { ended: ended?.turn, hasRows };
+  }
+
+  /// A row of background turn `turn` that draws something: its line opens to it from now on.
+  private markBackgroundRows(turn: string, row: AcpmuxRow): void {
+    if (isVisiblyEmptyMessage(row)) return;
+    const id = backgroundTurnRowId(turn);
+    const line = this.get(id);
+    if (!line?.background || line.background.hasRows) return;
+    this.set(id, { ...line, version: line.version + 1, background: { ...line.background, hasRows: true } });
   }
 
   /// A background turn's ended record at `seq`, which says how it ended (`turn`).
@@ -1439,12 +1460,16 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     } else if (this.current !== undefined) this.latest = Math.max(this.latest, this.current);
     // A row an event of a background turn made is that turn's, whoever updates it later. A prompt
     // never is: it starts a turn of its own (acpmux ends the background turn before it).
+    let turn: string | undefined;
     if (this.backgroundSpans.length && row.kind !== BACKGROUND_TURN && row.kind !== "user" && !this.local.has(id)) {
-      const turn = this.backgroundAt(this.order.get(id)!);
+      turn = this.backgroundAt(this.order.get(id)!);
       if (turn !== undefined && row.inBackground !== turn) row = { ...row, inBackground: turn };
     }
     if (this.ordered && !unchanged) this.keepOrdered(id, row, known);
-    return super.set(id, row);
+    super.set(id, row);
+    if (!unchanged) this.artifactUpdates.note(row, this.current ?? this.order.get(id) ?? row.at);
+    if (turn !== undefined) this.markBackgroundRows(turn, row);
+    return this;
   }
 
   /// Updates the kept order for `row`: in its slot when only its content changed, at the end when it
@@ -1562,6 +1587,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     }
     if (!this.snapshot) {
       this.snapshot = this.ordered.slice();
+      this.artifactUpdates.publish(this.snapshot);
       markPullRequestActivityVersion(this.snapshot, this.pullRequestActivityVersion);
       markPullRequestCommandVersion(this.snapshot, this.pullRequestCommandVersion);
       markTranscriptSummaryVersion(this.snapshot, this.transcriptSummaryVersion);
@@ -1612,8 +1638,15 @@ export class AcpmuxDirectClient {
       resolve: (value: any) => void;
       reject: (error: Error) => void;
       timer?: ReturnType<typeof setTimeout>;
+      /// Puts the request on the wire again (a busy refusal's retry).
+      send: () => void;
+      /// Busy refusals it has had.
+      busy: number;
     }
   >();
+  /// The daemon's count of this connection's work requests: a page never sends past it
+  /// (requestBudget.ts). Reset with the connection.
+  private budget = new RequestBudget();
   private events: EventRecord[] = [];
   private rows = new OrderedRows();
   /// Each drawn offer's row (a suggested tasks card), by offer id (offer/SuggestedTasks.tsx).
@@ -1886,6 +1919,14 @@ export class AcpmuxDirectClient {
   /// any attach answered. The pane's host reads it in the first-paint report and shows such a chat
   /// in one frame instead of fading it in (tailCache.ts, AgentPaneView+Loading.swift).
   private drewKeptTail = false;
+  /// A kept tail a cold open drew while its socket was still connecting (`drawTailWhileConnecting`):
+  /// the chat, the selection it was drawn for and the newest seq drawn. The open's attach takes it
+  /// as the tail it lays its page over, as it does a tail it read itself; anything that clears the
+  /// rows (`resetSessionState`) clears it.
+  private earlyTail?: { sessionId: string; generation: number; through: number };
+  /// The selection an open in flight may still draw a tail for while it connects; cleared once
+  /// the open reaches its own draw, which then decides.
+  private earlyTailWindow?: number;
   /// The selected peer chat was drawn from the Mac's copy of it (peerCopy.ts): set from the draw
   /// until an attach reads the chat, and kept, `offline`, while its machine does not answer.
   private peerCopy?: PeerCopy;
@@ -2305,7 +2346,8 @@ export class AcpmuxDirectClient {
     // socket connects and acpmux lists the chats, so drawing it below costs this open no round
     // trip of its own (tailCache.ts). A page that read the chat itself has the newer tail.
     const cold = this.selectedSessionId;
-    if (cold && this.events.length === 0 && !keptTail(cold)) void readHostTail(cold).catch(() => undefined);
+    if (cold && this.events.length === 0 && this.lastSeq === 0 && this.peerCopy?.sessionId !== cold)
+      void this.drawTailWhileConnecting(cold, this.selectionGeneration);
     // Over the bridge the URL names nothing: the host knows its daemon.
     const url = new URL(this.host.endpoint ?? BRIDGE_URL);
     const protocols = this.host.token ? tokenProtocols(this.host.token) : undefined;
@@ -2316,6 +2358,8 @@ export class AcpmuxDirectClient {
     const openingSocket = await new Promise<WebSocket>((resolve, reject) => {
       const socket = this.openSocket(url, protocols);
       this.socket = socket;
+      // A new connection starts the daemon's count anew.
+      this.budget.reset();
       let opened = false;
       socket.onopen = () => {
         opened = true;
@@ -2368,6 +2412,7 @@ export class AcpmuxDirectClient {
         acpmuxPerf.timed("client.receive", () => this.receive(String(message.data), this.socket !== socket));
     }).catch((error: unknown) => {
       this.releaseCopyAttach(mine);
+      this.dropTailDrawnWhileConnecting();
       throw error;
     });
     // The pane keeps what it shows (the page's cached chat, or the chat before a reconnect) until
@@ -2520,7 +2565,21 @@ export class AcpmuxDirectClient {
         heldCopy.attaching = true;
         heldCopy.offline = false;
       }
-      const resumeAfter = heldCopy ? 0 : this.lastSeq;
+      // A tail this open drew while its socket connected is the open's tail, not a reconnect's
+      // events: the attach lays its page over it as over a tail read here. From here on the open
+      // draws any tail itself, so a host answer still in flight no longer does.
+      const earlyTail = this.earlyTail;
+      const drawnEarly =
+        sessionId !== undefined && earlyTail?.sessionId === sessionId && earlyTail.generation === generation
+          ? earlyTail
+          : undefined;
+      // Taken once: a later open on these rows (a reconnect) holds the chat's own events and
+      // resumes from them.
+      this.earlyTail = undefined;
+      this.earlyTailWindow = undefined;
+      // Its rows are on screen already: the pane draws the chat as it comes, as after any kept tail.
+      if (drawnEarly) this.releaseSnapshots(hold);
+      const resumeAfter = heldCopy || drawnEarly ? 0 : this.lastSeq;
       // The attach asked with the list is the open's only while it is of the chat opened now, on
       // this machine as the list names it: anything else (another chat chosen, a chat on another
       // machine, which may be down and draw the Mac's copy first) is attached as before.
@@ -2539,8 +2598,8 @@ export class AcpmuxDirectClient {
         // in flight: from this page when it read the chat before, else from the app host, which is
         // what makes a chat opened in a NEW TAB instant too (tailCache.ts). Only on a cold page: a
         // reconnect already holds the chat's own events, which are newer than any tail.
-        let keptThrough = heldCopy?.lastSeq ?? 0;
-        if (!heldCopy && resumeAfter === 0 && this.events.length === 0) {
+        let keptThrough = heldCopy?.lastSeq ?? drawnEarly?.through ?? 0;
+        if (!heldCopy && !drawnEarly && resumeAfter === 0 && this.events.length === 0) {
           const hostTail = readHostTail(sessionId).catch(() => undefined);
           // An attach that answered already is newer than any tail the host holds: the chat draws
           // from it rather than waiting out the host's read (at most `HOST_TAIL_READ_MS`).
@@ -2616,6 +2675,8 @@ export class AcpmuxDirectClient {
         throw new Error(translate("error.interrupted"));
       this.hasConnected = true;
       this.reconnectDelay = 250;
+      // acpmux answers again: the next cold open of any chat draws its kept tail early again.
+      connectFailedAfterEarlyTail = undefined;
       this.wire.lifecycle("connected", {
         sessionId: this.selectedSessionId,
         sessions: this.sessions.length,
@@ -2634,6 +2695,7 @@ export class AcpmuxDirectClient {
               : String(error),
       });
       this.releaseCopyAttach(mine);
+      this.dropTailDrawnWhileConnecting();
       this.socket?.close();
       throw error;
     } finally {
@@ -2670,6 +2732,7 @@ export class AcpmuxDirectClient {
     this.olderDelay.cancel();
     // Nothing is drawn, so nothing drawn came from a kept tail: the next open says for itself.
     this.drewKeptTail = false;
+    this.earlyTail = undefined;
     this.peerCopy = undefined;
     this.copyLive = undefined;
     this.drawnGeneration = undefined;
@@ -3054,6 +3117,65 @@ export class AcpmuxDirectClient {
     this.emit("failed");
   }
 
+  /// A cold open's kept tail, drawn as soon as the app host answers, while the socket still
+  /// connects (#32735). Before this the tail waited for the socket, `initialize` and the chat list:
+  /// each of those crosses the app's bridge, so on a loaded Mac a chat the app had read showed the
+  /// pane's loading mark for seconds while its rows sat in the host's memory. The open's attach
+  /// then lays acpmux's page over these rows (`attachWatched`), and a failed attach drops them,
+  /// as it does a tail drawn after the socket opened.
+  ///
+  /// Only the chat's past is drawn: the kept tail's status, retry and queue are what the chat was
+  /// doing when it was kept, so they wait for acpmux's list or attach (a chat that was running
+  /// then must not draw as working now). A connect that fails before the attach drops the rows
+  /// (`dropTailDrawnWhileConnecting`), and the page's retries of that connect draw nothing early.
+  private async drawTailWhileConnecting(sessionId: string, generation: number): Promise<void> {
+    if (connectFailedAfterEarlyTail === sessionId) return;
+    this.earlyTailWindow = generation;
+    const held = keptTail(sessionId) ?? (await readHostTail(sessionId).catch(() => undefined));
+    if (
+      !held ||
+      this.closed ||
+      this.earlyTailWindow !== generation ||
+      generation !== this.selectionGeneration ||
+      this.selectedSessionId !== sessionId ||
+      this.events.length > 0 ||
+      this.lastSeq > 0 ||
+      this.peerCopy !== undefined
+    )
+      return;
+    const { status: _status, retry: _retry, queue: _queue, ...past } = held.summary ?? {};
+    const through = this.drawKeptTail(sessionId, { ...held, summary: held.summary && past, queue: [] });
+    if (through === 0) return;
+    // The queue is not drawn, but a teammate's queued prompt keeps the author its row had when the
+    // tail was kept, for when acpmux's list or attach draws the queue (as `drawKeptTail` seeds it).
+    for (const entry of held.queue) {
+      const author = participant(entry?.author?.id, entry?.author?.name);
+      if (author && !this.queueAuthors.has(entry.id)) this.queueAuthors.set(entry.id, author);
+    }
+    this.earlyTail = { sessionId, generation, through };
+    this.drewKeptTail = true;
+    // Drawn now when the socket is still connecting. Once it is open the open holds its snapshots
+    // until the list confirms the chat (a chat the list lacks falls back or rebinds under that
+    // hold), and its own draw point releases them with these rows.
+    this.emit("selected");
+  }
+
+  /// The open failed before its attach read the chat: rows drawn while it connected are not this
+  /// page's reading of the chat, so they go, as after a failed attach (the host keeps its tail:
+  /// the chat itself was not refused).
+  private dropTailDrawnWhileConnecting(): void {
+    const early = this.earlyTail;
+    if (!early || early.sessionId !== this.selectedSessionId) return;
+    connectFailedAfterEarlyTail = early.sessionId;
+    this.earlyTail = undefined;
+    this.events = [];
+    this.queue = [];
+    this.copyLive = undefined;
+    this.drewKeptTail = false;
+    this.rebuild();
+    this.emit("disconnected");
+  }
+
   private drawKeptTail(sessionId: string, kept = keptTail(sessionId)): number {
     if (!kept) return 0;
     this.drawnGeneration = typeof kept.summary?.createdAt === "number" ? kept.summary.createdAt : undefined;
@@ -3115,6 +3237,15 @@ export class AcpmuxDirectClient {
     if (!message) return;
     if ("id" in message && (typeof message.id === "number" || typeof message.id === "string")) {
       const request = this.pending.get(message.id);
+      const busy = (message.error?.data as { reason?: unknown } | undefined)?.reason === "connection.busy";
+      if (request && busy && request.busy + 1 < BUSY_TRIES) {
+        // The daemon's count and this page's drifted: the request goes again later, never at once.
+        request.busy += 1;
+        this.wire.lifecycle("busy retry", { id: message.id, tries: request.busy });
+        this.budget.retryLater(message.id, request.send, busyDelay(request.busy));
+        return;
+      }
+      this.budget.settled(message.id);
       if (!request) return;
       this.pending.delete(message.id);
       if (request.timer) clearTimeout(request.timer);
@@ -3900,26 +4031,39 @@ export class AcpmuxDirectClient {
           origin: "native",
         }),
       );
+    const socket = this.socket;
     const id = this.nextRequest++;
-    const result = this.expectReply(id, method, deadline);
-    try {
-      const text = JSON.stringify({ jsonrpc: "2.0", id, method, params });
-      this.wire.sent(text, method, id);
-      this.socket!.send(text);
-    } catch (error) {
-      const request = this.pending.get(id);
-      this.pending.delete(id);
-      if (request?.timer) clearTimeout(request.timer);
-      request?.reject(error instanceof Error ? error : new Error(String(error)));
-    }
+    const text = JSON.stringify({ jsonrpc: "2.0", id, method, params });
+    // A request that waited goes only on the connection it was asked on: a closed one rejected it.
+    // A send that throws fails its own request and frees its slot, also when a reply freed it later.
+    const send = () => {
+      if (this.socket !== socket || socket.readyState !== WebSocket.OPEN) return;
+      try {
+        this.wire.sent(text, method, id);
+        socket.send(text);
+      } catch (error) {
+        const request = this.pending.get(id);
+        this.pending.delete(id);
+        if (request?.timer) clearTimeout(request.timer);
+        this.budget.settled(id);
+        request?.reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    };
+    const result = this.expectReply(id, method, deadline, waitsForSlot(method) ? send : undefined);
+    this.budget.admit(id, method, send);
     return result;
   }
 
-  private expectReply(id: number | string, method: string, deadline?: number): Promise<any> {
+  /// `send` puts the request on the wire again after a busy refusal; without one (a request the
+  /// native host sends, or any but a read) a busy refusal fails it like any other.
+  private expectReply(id: number | string, method: string, deadline?: number, send?: () => void): Promise<any> {
     return new Promise((resolve, reject) => {
       const timer = deadline
         ? setTimeout(() => {
             this.pending.delete(id);
+            // One on the wire holds the daemon's slot until its late answer (receive); one still
+            // waiting for a slot never goes.
+            if (!this.budget.onWire(id)) this.budget.settled(id);
             reject(
               Object.assign(new Error(translate("error.timedOut")), {
                 code: "native.timed_out",
@@ -3935,6 +4079,8 @@ export class AcpmuxDirectClient {
           reject(error);
         },
         timer,
+        send: send ?? (() => {}),
+        busy: send ? 0 : BUSY_TRIES,
       });
     });
   }
@@ -4039,7 +4185,17 @@ export class AcpmuxDirectClient {
   /// daemon lacks fails there, waking and marking nothing.
   private askEarly(): EarlyAttach | undefined {
     const sessionId = this.selectedSessionId;
-    if (!sessionId || this.events.length > 0 || this.lastSeq > 0 || this.peerCopy?.sessionId === sessionId)
+    // A kept tail this open drew while it connected is no reason to wait for the list: its attach
+    // lays the page over those rows as over any kept tail.
+    const drawnEarly =
+      sessionId !== undefined &&
+      this.earlyTail?.sessionId === sessionId &&
+      this.earlyTail.generation === this.selectionGeneration;
+    if (
+      !sessionId ||
+      (!drawnEarly && (this.events.length > 0 || this.lastSeq > 0)) ||
+      this.peerCopy?.sessionId === sessionId
+    )
       return undefined;
     const known = this.sessions.find((session) => session.sessionId === sessionId) ?? keptTail(sessionId)?.summary;
     if (typeof (known as { peer?: unknown } | undefined)?.peer === "string") return undefined;
@@ -5085,7 +5241,7 @@ export class AcpmuxDirectClient {
     this.subagents.closeBatch();
     if (state === "started") {
       // An older page's started record after its ended one: the line keeps how it ended.
-      const ended = this.rows.openBackground(turn.id, event.seq);
+      const { ended, hasRows } = this.rows.openBackground(turn.id, event.seq);
       if (existing) return;
       this.rows.set(id, {
         id,
@@ -5093,13 +5249,18 @@ export class AcpmuxDirectClient {
         at: event.at,
         seq: event.seq,
         kind: BACKGROUND_TURN,
-        background: ended ?? turn,
+        background: { ...(ended ?? turn), ...(hasRows && { hasRows: true as const }) },
       });
       return;
     }
     this.rows.closeBackground(event.seq, turn);
     if (!existing) return;
-    this.rows.set(id, { ...existing, version: existing.version + 1, background: turn });
+    const hasRows = existing.background?.hasRows;
+    this.rows.set(id, {
+      ...existing,
+      version: existing.version + 1,
+      background: { ...turn, ...(hasRows && { hasRows }) },
+    });
   }
 
   private turnStopCause(event: EventRecord): SubagentStopReason | undefined {
@@ -5364,6 +5525,10 @@ export class AcpmuxDirectClient {
       }
       if (Number.isFinite(used) && Number.isFinite(size) && size > 0) {
         const setup = usageSetup(update, used);
+        // A new model window (a model switch) makes the last /context's window stale until the
+        // next one arrives: the meter reads the model's own until then (compactingUsage).
+        if (this.usage && this.usage.size !== size && this.summary?.contextBreakdown)
+          this.summary = { ...this.summary, contextBreakdown: undefined };
         this.usage = setup === undefined ? { used, size } : { used, size, setup };
       }
       return;
@@ -6286,6 +6451,7 @@ export class AcpmuxDirectClient {
             contextBreakdown: contextBreakdownOf(summary.contextBreakdown),
             usageStats: (this.summaryUsage = sameUsageStats(summary.usageStats, this.summaryUsage)),
             host: text(summary.host),
+            machine: text(summary.machine),
             peer: text(summary.peer),
             hostKind: hostKind(summary.hostKind),
             // acpmux's session detail names the folder's branch `gitBranch` (when the session started).
@@ -6305,6 +6471,7 @@ export class AcpmuxDirectClient {
             route: text(summary.route),
             settingsSources: summary.settingsSources,
             usageLimits: usageLimitsOf(summary.usageLimits) ?? text(summary.usageLimits),
+            ...(summary.usageLimitsApply === false ? { usageLimitsApply: false } : {}),
             // acpmux reports `model: null` for a harness with no model (one known only from its config).
             model: text(summary.model),
             effort: effort?.currentValue,
@@ -6439,10 +6606,22 @@ export class AcpmuxDirectClient {
   /// A New Tab start suspended for Trust settles when its selection or client goes away.
   private cancelTrustStart?: () => void;
 
+  /// A permission mode picked in a chat that starts with its first send (a Cloud or other remote
+  /// machine's, `startsOnSend`) before that send started it: the session the send starts takes it
+  /// before the prompt goes (ensureSession), as a New Tab start's held pick does (harnessSwitch.ts).
+  /// `ticket`: the pick's gesture, taken at the click (pane-native transport). A failed start keeps
+  /// it for the next send; another chat selected before the send drops it.
+  private heldStartMode?: { modeId: string; ticket?: Promise<string | undefined>; generation: number };
+  holdStartMode(modeId: string, ticket?: Promise<string | undefined>): void {
+    this.heldStartMode = { modeId, ticket, generation: this.selectionGeneration };
+  }
+
   async ensureSession(): Promise<string | undefined> {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
     if (this.creating || !this.selectedSessionId) {
+      const generation = this.selectionGeneration;
+      if (this.heldStartMode?.generation !== generation) this.heldStartMode = undefined;
       // A rejected seeded peer start stays sessionless. The next Send retries that peer,
       // with its own folder, instead of silently falling back to a local session.
       const sessionId = await (this.creating ??
@@ -6450,6 +6629,28 @@ export class AcpmuxDirectClient {
       // The app also calls this before send(): an empty result must stop that preflight,
       // otherwise send() would ensure again after the failed creation has been cleared.
       if (!sessionId) throw new Error(translate("error.notOpen"));
+      // The newest pick for this chat, one made while the start was pending included. It goes to the
+      // session this start made, never the selected one: another chat picked while the ticket is
+      // pending must not take a held Bypass permissions.
+      // create() selects the new session, a new generation: a pick made after that, while this chat
+      // is still the one selected, is also this start's.
+      const pick = this.heldStartMode;
+      const held =
+        pick &&
+        (pick.generation === generation ||
+          (pick.generation === this.selectionGeneration && this.selectedSessionId === sessionId))
+          ? pick
+          : undefined;
+      if (held) {
+        this.heldStartMode = undefined;
+        const ticket = await held.ticket?.catch(() => undefined);
+        // A held mode the agent refuses says so, as the switch's does; the prompt still goes.
+        await this.request("session/set_mode", { sessionId, modeId: held.modeId, ...gestureMeta(ticket) }).catch(
+          (error: unknown) => {
+            this.notice(translate("switch.modeFailed", { mode: held.modeId, reason: errorMessage(error) || "?" }));
+          },
+        );
+      }
       return sessionId;
     }
     return this.selectedSessionId;
@@ -6859,6 +7060,11 @@ export class AcpmuxDirectClient {
       // a sender that holds its prompt (`accepted`) keeps every refused one: the prompt never
       // went, so it leaves no bubble, and the pane keeps it in (or puts it back in) the composer.
       const held = !released && accepted !== undefined;
+      // The connection went before acpmux took it, on a chat of this Mac's acpmux: the host's prompt
+      // journal sends it again, under its promptId, on the pane's next connection (lostPrompt.ts),
+      // so its sender waits for it to show there instead of saying "Not sent" at once.
+      if (!taken && isLostConnection(error) && this.journalsPrompts(blocks))
+        Object.assign(error as object, { lostPrompt: { sessionId, promptId } satisfies LostPrompt });
       // The folder's trust question (the one route); the pane's sender adds the re-send.
       if (here && trustCancellation === this.trustCancellation) this.routeTrustRefusal(error);
       if (held) {
@@ -6879,7 +7085,8 @@ export class AcpmuxDirectClient {
         // The prompt is still in the composer, so Enter sends it again (no Retry button). A refusal
         // for want of a real key or click (dictation's autoSend after a session ended by itself)
         // says just that, not the generic refusal's pick wording (cx-w2p8r).
-        if (held && !isTrustRefusal(error))
+        // A lost prompt the host sends again says nothing yet: its sender says it if it never shows.
+        if (held && !isTrustRefusal(error) && !lostPrompt(error))
           this.notice(
             code === "transport.gesture_required"
               ? translate("prompt.notSentAgain")
@@ -7340,6 +7547,13 @@ export class AcpmuxDirectClient {
     const sessionId = this.actingSessionId;
     if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
     return this.request("_acpmux/agent_pair_resume", { sessionId, peerSessionId: peer });
+  }
+  /// Take over (`held`) or Hand back the shown chat its manager runs (acpmux `hub/agent_hold.rs`):
+  /// while held, acpmux holds the manager's messages to it; Hand back delivers them in order.
+  agentHold(held: boolean): Promise<{ held?: boolean; delivered?: number }> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    return this.request("_acpmux/agent_hold", { sessionId, held });
   }
   /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
   /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).
@@ -8474,6 +8688,17 @@ export class AcpmuxDirectClient {
       )
     );
   }
+  /// Whether the host's prompt journal keeps a prompt of these blocks that this connection lost
+  /// (Swift `AgentPanePromptRelay`): only on a connection to this Mac's acpmux (a chat of another
+  /// Mac it relays included), and for a prompt within the journal's `maximumParamsBytes` (8 MiB).
+  private journalsPrompts(blocks: unknown): boolean {
+    if (!this.localOrigin) return false;
+    try {
+      return JSON.stringify(blocks).length < JOURNAL_PARAMS_BYTES;
+    } catch {
+      return false;
+    }
+  }
   /// The `awaitResent` waits, with their chat: each settles false once this connection closes or
   /// the pane shows another chat.
   private resendWaits = new Map<() => void, string>();
@@ -9326,6 +9551,8 @@ export class AcpmuxDirectClient {
     if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
   }
   private rejectPending(): void {
+    // The daemon's count went with the connection; busy retries waiting for their time stop here.
+    this.budget.reset();
     for (const request of this.pending.values()) {
       if (request.timer) clearTimeout(request.timer);
       // The timeout code stays (git writes, checkpoints and permissions read it); `reason` tells a

@@ -140,7 +140,9 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
   const toggle = (page: Page) => page.locator("button.acpmux-session-info-toggle");
   const close = async (page: Page) => {
     if ((await panel(page).count()) === 0) return;
-    await toggle(page).click({ force: true });
+    // Pressed while it shows; a pane that waits for the person (SessionInfo.tsx sessionInfoFits) has it
+    // closed already, its card leaving.
+    if ((await toggle(page).getAttribute("aria-pressed")) === "true") await toggle(page).click({ force: true });
     await panel(page).waitFor({ state: "detached", timeout: 5_000 });
   };
 
@@ -208,11 +210,13 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
             await close(page);
             await settle(page);
             const closing = await moved(page);
-            // Where the right gutter holds the panel (1600px) nothing else moves at all. Narrower, it
-            // pushes the chat left as it opens and back as it closes (Leo, 2026-11-01: "why does the
-            // session info not push the layout left ever anymore"), and its content changing still
-            // moves nothing.
-            if (width >= 1600) expect({ opening, content, closing }).toEqual({ opening: [], content: [], closing: [] });
+            // Where the right gutter holds the panel (1600px), and under 648px where it lies over the
+            // chat (SessionInfo.tsx sessionInfoStage; Leo, 2026-11-03: "not affecting layout at all ->
+            // gradually pushing into the chat layout -> overlay"), nothing else moves at all. Between,
+            // it pushes the chat left as it opens and back as it closes, and its content changing
+            // still moves nothing.
+            if (width >= 1600 || width < 648)
+              expect({ opening, content, closing }).toEqual({ opening: [], content: [], closing: [] });
             else expect({ pushed: opening.length > 0, content }).toEqual({ pushed: true, content: [] });
           } finally {
             await page.close();

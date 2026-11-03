@@ -77,6 +77,98 @@ import CmuxTabsKit
         #expect(red > 5000, "the card shows the 200x150 thumbnail, not its placeholder: \(red) red pixels")
     }
 
+    /// Review of #27664 (follow-up P2): the rasterizer drew a card only when every thumbnail it
+    /// shows was in the cache at once. A thumbnail evicted while the card waited for another one
+    /// to decode again was decoded again too (and, past the bound, the two evicted each other on
+    /// every frame). The rasterizer holds the card's thumbnails it already has while it waits and
+    /// draws: the evicted one is decoded once, and the card is drawn with both images.
+    @Test func anEvictedThumbnailIsDecodedOnceThenTheCardIsDrawn() async throws {
+        let png = try Self.redPNG()
+        var turn = AgentTurn(id: "t-held", prompt: "Look at these", promptAt: Date(timeIntervalSince1970: 0))
+        // Ids unique to this run: the thumbnail cache is shared and remembers settled keys.
+        let a = "held-a-\(UUID().uuidString)", b = "held-b-\(UUID().uuidString)"
+        turn.attachments = [AgentAttachment(id: a, kind: .image, name: "a.png", data: png),
+                            AgentAttachment(id: b, kind: .image, name: "b.png", data: png)]
+        turn.status = .completed
+        let feed = AgentCardFeed(store: AgentChatStore(source: Silent()))
+        var key = Self.key(feed, turns: [turn])
+        for _ in 0 ..< 200 where !key.isDrawable {
+            try await Task.sleep(for: .milliseconds(10))
+            key = Self.key(feed, turns: [turn])
+        }
+        try #require(key.isDrawable, "the thumbnails are decoded")
+        let cache = SentAttachmentThumbnails.shared
+        cache.evict(attachmentID: a)
+        let rasterizer = AgentCardRasterizer()
+        rasterizer.want(feed, key)
+        rasterizer.setIdle(true)
+        defer { rasterizer.setIdle(false) }
+        func decodes() -> Int { cache.decodes(attachmentID: a) + cache.decodes(attachmentID: b) }
+        let before = decodes()
+        // The card waits for its first image to decode again; meanwhile the cache lets the second go.
+        rasterizer.frame()
+        cache.evict(attachmentID: b)
+        for _ in 0 ..< 300 where feed.raster?.key != key {
+            try await Task.sleep(for: .milliseconds(10))
+            rasterizer.frame()
+        }
+        let picture = try #require(feed.raster, "the card is drawn")
+        #expect(picture.key == key)
+        // Counted for this card's attachments only: another suite drawing sent images through the
+        // shared cache at the same time cannot move it.
+        #expect(decodes() - before == 1, "only the evicted image is decoded again: \(decodes() - before) decodes")
+        let red = try Self.redPixels(picture.image)
+        #expect(red > 12_000, "both 96x96 thumbnails are drawn, not placeholders: \(red) red pixels")
+    }
+
+    /// Review of #30681 (P2): every waiting card held its thumbnails until drawn, beyond the cache's
+    /// bound and after the grid moved or hid (about 175 MB with 30 cards waiting). One card at a
+    /// time holds now: the card waiting stays first until its decode lands, and a moving grid or a
+    /// memory warning lets the hold go. Every card is still drawn.
+    @Test func onlyTheCardWaitingHoldsAndAMovingGridOrMemoryWarningLetsGo() async throws {
+        let png = try Self.redPNG()
+        let run = UUID().uuidString
+        func card(_ name: String) async throws -> (AgentCardFeed, AgentCardRasterKey) {
+            var turn = AgentTurn(id: "t-\(name)", prompt: "Look", promptAt: Date(timeIntervalSince1970: 0))
+            turn.attachments = [AgentAttachment(id: "bound-\(name)-\(run)", kind: .image, name: "\(name).png", data: png)]
+            turn.status = .completed
+            let feed = AgentCardFeed(store: AgentChatStore(source: Silent()))
+            var key = Self.key(feed, turns: [turn])
+            for _ in 0 ..< 200 where !key.isDrawable {
+                try await Task.sleep(for: .milliseconds(10))
+                key = Self.key(feed, turns: [turn])
+            }
+            try #require(key.isDrawable, "the thumbnail is decoded")
+            return (feed, key)
+        }
+        let first = try await card("a"), second = try await card("b")
+        let cache = SentAttachmentThumbnails.shared
+        cache.evict(attachmentID: "bound-a-\(run)")
+        cache.evict(attachmentID: "bound-b-\(run)")
+        let rasterizer = AgentCardRasterizer()
+        rasterizer.want(first.0, first.1)
+        rasterizer.want(second.0, second.1)
+        rasterizer.setIdle(true)
+        rasterizer.frame()
+        #expect(rasterizer.holdsThumbnails, "the first card waits for its decode, holding")
+        NotificationCenter.default.post(name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+        #expect(!rasterizer.holdsThumbnails, "a memory warning lets the hold go")
+        for _ in 0 ..< 300 where first.0.raster?.key != first.1 || second.0.raster?.key != second.1 {
+            try await Task.sleep(for: .milliseconds(10))
+            rasterizer.frame()
+        }
+        #expect(first.0.raster?.key == first.1 && second.0.raster?.key == second.1, "both cards are drawn")
+        #expect(!rasterizer.holdsThumbnails, "nothing is held once every card is drawn")
+
+        let third = try await card("c")
+        cache.evict(attachmentID: "bound-c-\(run)")
+        rasterizer.want(third.0, third.1)
+        rasterizer.frame()
+        #expect(rasterizer.holdsThumbnails)
+        rasterizer.setIdle(false)
+        #expect(!rasterizer.holdsThumbnails, "the grid moved: nothing is held for a card it is not drawing")
+    }
+
     /// Blocker 4: a card drawn while its edit's diff was still computing showed the loading
     /// snippet, and its key did not change when the diff landed, so the picture kept it. The
     /// key follows the chat's diffs: once they land, the picture is stale and drawn again.

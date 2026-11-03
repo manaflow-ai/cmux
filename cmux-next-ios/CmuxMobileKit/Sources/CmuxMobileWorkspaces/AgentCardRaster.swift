@@ -83,6 +83,14 @@ final class AgentCardRasterizer: NSObject {
     /// Most recently drawn last; the oldest picture goes past `limit`.
     private var drawn: [ObjectIdentifier] = []
     private var owners: [ObjectIdentifier: AgentCardFeed] = [:]
+    /// The thumbnails of the one card waiting for a picture (`AgentChatPreview.picturesResident(_:holding:)`):
+    /// held until its picture is drawn, so one let go by the cache's bound while the card waits for
+    /// another is not decoded again (two that do not fit the bound together evicted each other on
+    /// every frame). One card at a time: the card waiting stays first in the queue until its
+    /// decodes land, so held images never add up across cards beyond the cache's bound (one card
+    /// shows at most six cropped thumbnails), and the hold is let go when the grid moves or hides
+    /// and on a memory warning.
+    private var held: (id: ObjectIdentifier, hold: AgentChatPreview.PictureHold)?
     private var link: CADisplayLink?
     private(set) var idle = false
     /// How pictures are drawn now (scheme, size, resolution): the last key
@@ -99,21 +107,38 @@ final class AgentCardRasterizer: NSObject {
 
     init(limit: Int = 30) {
         self.limit = limit
+        super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(memoryWarning),
+                                               name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
     }
+
+    @objc private func memoryWarning() { held = nil }
+
+    /// Whether a waiting card holds thumbnails now (tests).
+    var holdsThumbnails: Bool { held != nil }
 
     /// The card wants its picture for `key` (it shows the live preview until then).
     func want(_ feed: AgentCardFeed, _ key: AgentCardRasterKey) {
         lastKey = key
         if feed.raster?.key == key { return }
         queue.removeAll { $0.feed === feed }
-        guard key.isDrawable else { return }
+        guard key.isDrawable else {
+            if held?.id == ObjectIdentifier(feed) { held = nil }
+            return
+        }
         queue.append((feed, key))
         startIfNeeded()
     }
 
     func setIdle(_ idle: Bool) {
         self.idle = idle
-        if idle { startIfNeeded() } else { stop() }
+        if idle {
+            startIfNeeded()
+        } else {
+            // The grid moves or hides: no card is drawn until it rests, so nothing is held for one.
+            held = nil
+            stop()
+        }
     }
 
     private func startIfNeeded() {
@@ -129,28 +154,48 @@ final class AgentCardRasterizer: NSObject {
         link = nil
     }
 
-    @objc private func frame() {
+    /// One display frame: draws the next card waiting (internal for tests).
+    @objc func frame() {
         guard idle else { return stop() }
         let next: (AgentCardFeed, AgentCardRasterKey)?
-        if !queue.isEmpty {
-            next = queue.removeFirst()
+        if let first = queue.first {
+            next = first
         } else if let template = lastKey {
             next = ahead?(template)
         } else {
             next = nil
         }
         guard let (feed, key) = next else { return stop() }
-        // A thumbnail the cache let go since the key was ready is decoded again first: this card
-        // waits at the end of the queue rather than being drawn with a placeholder.
-        if feed.raster?.key != key, key.isDrawable, !AgentChatPreview.picturesResident(key.turns) {
-            queue.append((feed, key))
+        let id = ObjectIdentifier(feed)
+        guard feed.raster?.key != key, key.isDrawable else {
+            dequeue(feed)
+            if held?.id == id { held = nil }
             return
         }
-        if feed.raster?.key != key, key.isDrawable, let image = Self.render(feed, key) {
+        // One card at a time holds its thumbnails: another card's are let go.
+        let hold = (held?.id == id ? held?.hold : nil) ?? AgentChatPreview.PictureHold()
+        held = (id, hold)
+        // A thumbnail the cache let go since the key was ready is decoded again first: this card
+        // stays first and waits for that decode (it lands in `hold`), holding the thumbnails it
+        // has, rather than being drawn with a placeholder.
+        guard AgentChatPreview.picturesResident(key.turns, holding: hold) else {
+            if queue.first?.feed !== feed {
+                dequeue(feed)
+                queue.insert((feed, key), at: 0)
+            }
+            return
+        }
+        dequeue(feed)
+        held = nil
+        if let image = AgentChatPreview.drawing(hold, { Self.render(feed, key) }) {
             feed.raster = (key, image)
             renders += 1
             remember(feed)
         }
+    }
+
+    private func dequeue(_ feed: AgentCardFeed) {
+        if queue.first?.feed === feed { queue.removeFirst() } else { queue.removeAll { $0.feed === feed } }
     }
 
     /// Whether `feed` has a picture for `key` (or never can: a running turn).
@@ -175,6 +220,7 @@ final class AgentCardRasterizer: NSObject {
         queue.removeAll { $0.feed === feed }
         drawn.removeAll { $0 == id }
         owners[id] = nil
+        if held?.id == id { held = nil }
     }
 
     /// The card's preview as the kit lays it out (full page, top aligned,

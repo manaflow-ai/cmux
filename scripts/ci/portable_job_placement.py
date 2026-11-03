@@ -252,7 +252,10 @@ def read(env: Mapping[str, str], now: dt.datetime, *, use_state: bool = True
     """The runners (routing App, then cmux-bot) and the janitor's pool snapshot; None when unread."""
     repo = env.get("GITHUB_REPOSITORY", "")
     runners = snapshot = None
-    if not repo or eligible(env):
+    # The all-nightly reservation is no side label: a nightly run that offers it reads capacity even with no
+    # side label to offer (decide's reservation-route placement), still only on an attempt that may move.
+    reserved = env.get("NIGHTLY") == "1" and bool((env.get("NIGHTLY_ONLY_LABEL") or "").strip())
+    if not repo or (eligible(env) and not (reserved and not attempt_refusal(env))):
         return runners, snapshot
     retries = pool.RetryBudget(1)
     for name in ("ROUTE_TOKEN", "ROUTE_TOKEN_FALLBACK"):
@@ -320,6 +323,11 @@ def main(env: Mapping[str, str] = os.environ) -> int:
             now = dt.datetime.now(dt.timezone.utc)
             runners, snapshot = read(env, now, use_state=False)
             placed = decide(env, runners, snapshot, now)
+            # A re-read that can no longer see capacity (a refused or rate-limited
+            # API, a stale snapshot) ends the wait, as an unread first read does:
+            # waiting out the rest of the three minutes cannot place anything.
+            if runners is None or pool.snapshot_problem(snapshot, now):
+                break
         signal.setitimer(signal.ITIMER_REAL, 0)
         write(placed, env)
     except Deadline:

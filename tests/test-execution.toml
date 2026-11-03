@@ -270,6 +270,15 @@ path = "tests/test_ci_runner_set.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_no_single_size_pins.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runner_pools_copy.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that every fromJSON(vars.RUNNER_POOLS).<pool> read names a pool declared in .github/runners.json and that the copy equals main's pools; run python3 tests/test_ci_runner_pools_copy.py yourself after changing a pool read or the pools (about 1 s, no build)."
+
+[[test]]
 path = "tests/test_ci_overflow_pick_reads_pool.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. #30878 registered it as linux-guard with no ci-guards.yml step, which reddened tooling-tests on every pull request. Checks that no Linux runs-on picks a fixed Blacksmith size where the live pool (RUNNER_POOLS.linux) would pick; run python3 tests/test_ci_overflow_pick_reads_pool.py yourself after changing a Linux runs-on or the pool picker (about 2 s, no build)."
@@ -284,6 +293,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_nightly_push_throttle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_push_trigger_branches.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1105,6 +1118,11 @@ path = "tests/test_webviews_tests_per_file.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_no_playwright_on_macs.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence, 2026-10-23): the author runs it, python3 -m unittest tests/test_no_playwright_on_macs.py; it needs only bash and a fake uname."
+
+[[test]]
 path = "tests/test_webviews_tests_new_reds.py"
 lane = "linux-guard"
 
@@ -1258,6 +1276,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_attachment_caps_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_send_path_caps.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2477,3 +2499,8 @@ reason = "Lawrence 2026-10-23: no new CI tests. Checks scripts/cmux-next/perf-bu
 path = "tests/test_cmux_tui_no_bundled_webpki_roots.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Checks that cmux-tui compiles in no webpki root list (#25452); run python3 tests/test_cmux_tui_no_bundled_webpki_roots.py yourself after changing a cmux-tui Cargo.toml, Cargo.lock or TLS setup (about 1 s, no build)."
+
+[[test]]
+path = "tests/test_playwright_system_chrome.py"
+lane = "manual"
+reason = "Static check run by the author on the fleet; no new CI tests (CLAUDE.md, 2026-10-23)."

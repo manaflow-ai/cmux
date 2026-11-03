@@ -377,5 +377,136 @@ class DedicatedBuilder(unittest.TestCase):
         self.assertIn("steps.release-derived-data.outputs.mode == ''", sanitize)
 
 
+class HostBuildRoot(unittest.TestCase):
+    """Both dedicated slots of a nightly Mac build in one root (app-host-build-root.sh), so the
+    compilation cache keys and the kept DerivedData are the same whichever slot builds."""
+    SCRIPTS = ('scripts/ci/nightly-steps/app-host-build-root.sh', 'scripts/ci/canonical-build-root.sh',
+               'scripts/ci/apfs_clone.py', 'scripts/cmux-next/host_build_lock.py', 'scripts/ci/nightly_build_state.py')
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.origin = self.root / 'origin'
+        self.origin.mkdir()
+        self.git(self.origin, 'init', '-q')
+        files = {name: (ROOT / name).read_text() for name in self.SCRIPTS}
+        files.update({'Sources/a.swift': 'let a = 1\n', 'Package.resolved': '{}\n',
+                      state.BUILD_WORKFLOW: DedicatedBuilder.WORKFLOW.format(flags='-DCMUX_A')})
+        self.commit(files)
+        for name in self.SCRIPTS:
+            (self.origin / name).chmod((ROOT / name).stat().st_mode & 0o777)
+        self.git(self.origin, 'add', '-A')
+        self.git(self.origin, 'commit', '-qm', 'modes')
+        self.home = self.root / 'home'
+        self.host = self.root / 'host'
+        self.slots = {}
+        for slot in ('1', '2'):
+            workspace = self.root / f'slot{slot}'
+            subprocess.run(['git', 'clone', '-q', str(self.origin), str(workspace)], check=True)
+            self.slots[slot] = workspace
+        bin_dir = self.root / 'bin'
+        bin_dir.mkdir()
+        for tool, text in (('xcodebuild', 'echo Xcode 26.6'), ('xcrun', 'echo 25G5')):
+            (bin_dir / tool).write_text(f'#!/bin/sh\n{text}\n')
+            (bin_dir / tool).chmod(0o755)
+        self.env = {**os.environ, 'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'HOME': str(self.home),
+                    'BUILD_TRACK': 'nightly-next', 'CMUX_NIGHTLY_HOST_BUILD_ROOT': '1',
+                    'CMUX_NIGHTLY_HOST_ROOT': str(self.host)}
+        for name in ('GITHUB_ENV', 'GITHUB_OUTPUT', 'RUNNER_ENVIRONMENT', 'CMUX_CI_CANONICAL_ROOT', *state.BUILD_SETTINGS):
+            self.env.pop(name, None)
+
+    def git(self, repo, *args):
+        return subprocess.run(['git', '-C', str(repo), '-c', 'user.name=t', '-c', 'user.email=t@t', *args],
+                              check=True, capture_output=True, text=True).stdout
+
+    def commit(self, files):
+        for name, text in files.items():
+            path = self.origin / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        self.git(self.origin, 'add', '-A')
+        self.git(self.origin, 'commit', '-qm', 'x')
+
+    def build(self, slot, succeed=True, hold=None):
+        """One Release build step on SLOT: take the root, 'compile', hand the products over."""
+        workspace = self.slots[slot]
+        self.git(workspace, 'pull', '-q', '--ff-only')
+        # The earlier step linked the slot's own kept state (nightly_build_state.py prepare).
+        slot_dd = self.home / 'Library/Caches/cmux-nightly-next' / f'runner-{slot}' / 'identity/DerivedData'
+        slot_dd.mkdir(parents=True, exist_ok=True)
+        (workspace / 'build-universal').unlink(missing_ok=True)
+        (workspace / 'build-universal').symlink_to(slot_dd)
+        packages = slot_dd.parent / 'SourcePackages/checkouts/pkg'
+        packages.mkdir(parents=True, exist_ok=True)
+        (workspace / '.spm-cache').unlink(missing_ok=True)
+        (workspace / '.spm-cache').symlink_to(slot_dd.parent / 'SourcePackages')
+        script = (
+            'set -euo pipefail\n'
+            'source scripts/ci/nightly-steps/app-host-build-root.sh\n'
+            'echo "root=$host_root"\n'
+            'kept=no; [[ -f "$derived_data/Build/Intermediates.noindex/a.o" ]] && kept=yes\n'
+            'echo "kept=$kept"\n'
+            'mkdir -p "$derived_data/Build/Intermediates.noindex" "$derived_data/Build/Products/Release/cmux.app"\n'
+            'echo compiled > "$derived_data/Build/Intermediates.noindex/a.o"\n'
+            'echo app > "$derived_data/Build/Products/Release/cmux.app/binary"\n'
+            + ('[[ -z "$host_root" ]] || python3 scripts/ci/nightly_build_state.py finish-host "$host_root"\n' if succeed else '')
+        )
+        env = {**self.env, 'GITHUB_WORKSPACE': str(workspace), 'RUNNER_NAME': f'runner-{slot}'}
+        if hold:
+            env['CMUX_NIGHTLY_HOST_ROOT'] = str(hold)
+        result = subprocess.run(['bash', '-c', script], cwd=workspace, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        return result.stdout + result.stderr
+
+    def test_both_slots_build_in_one_root_and_carry_its_derived_data(self):
+        first = self.build('1')
+        self.assertIn(f'root={self.host}', first)
+        self.assertIn('NEXT Release build: clean', first)
+        self.assertIn('kept=no', first)
+        # The workspace gets its own copy of the products; the slot's own DerivedData is gone.
+        products = self.slots['1'] / 'build-universal/Build/Products/Release/cmux.app/binary'
+        self.assertEqual(products.read_text(), 'app\n')
+        self.assertFalse((self.slots['1'] / 'build-universal').is_symlink())
+        self.assertFalse((self.home / 'Library/Caches/cmux-nightly-next/runner-1/identity/DerivedData').exists())
+        self.assertTrue((self.host / 'src/.spm-cache').is_symlink())
+        self.assertTrue((self.host / 'SourcePackages/checkouts/pkg').is_dir())
+
+        # The other slot builds the next tip incrementally on the same DerivedData, although its own
+        # checkout never held the commit the host built last.
+        self.commit({'Sources/a.swift': 'let a = 2\n'})
+        second = self.build('2')
+        self.assertIn('NEXT Release build: incremental', second)
+        self.assertIn('kept=yes', second)
+
+    def test_a_structure_change_since_the_hosts_last_build_is_clean(self):
+        self.build('1')
+        self.commit({'Package.swift': '// targets\n'})
+        self.assertIn('NEXT Release build: clean DerivedData (Package.swift changed', self.build('2'))
+
+    def test_an_unfinished_host_build_makes_the_next_one_clean(self):
+        self.build('1', succeed=False)
+        self.commit({'Sources/a.swift': 'let a = 3\n'})
+        self.assertIn('the last build did not finish', self.build('2'))
+
+    def test_a_held_root_builds_in_the_slots_own_tree(self):
+        self.host.mkdir()
+        holder = subprocess.Popen(['python3', '-c', 'import fcntl,sys,time\n'
+                                   f'f=open({str(self.host / "lock")!r},"a");fcntl.flock(f,fcntl.LOCK_EX);'
+                                   'print("held",flush=True);time.sleep(60)'], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(holder.wait)
+        self.addCleanup(holder.kill)
+        self.addCleanup(holder.stdout.close)
+        self.assertEqual(holder.stdout.readline().strip(), 'held')
+        out = self.build('1')
+        self.assertIn('root=\n', out)
+        self.assertTrue((self.slots['1'] / 'build-universal').is_symlink())
+
+    def test_off_unless_the_slot_keeps_build_state(self):
+        self.env['CMUX_NIGHTLY_HOST_BUILD_ROOT'] = ''
+        self.assertIn('root=\n', self.build('1'))
+        self.assertFalse(self.host.exists())
+
+
 if __name__ == '__main__':
     unittest.main()

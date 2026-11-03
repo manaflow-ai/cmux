@@ -247,6 +247,7 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
             include_loopback: true,
             exclude_cgnat: false,
             mailbox: None,
+            session_exposure: None,
         },
     ));
     let phone_id = uuid::Uuid::new_v4().to_string();
@@ -568,8 +569,9 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     }
 
     // acpmux: a message the link splits (over 256 KiB) arrives whole.
+    // Use a global request: a prompt without a session is rejected by exposure policy.
     let big = format!(
-        r#"{{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{{"data":"{}"}}}}"#,
+        r#"{{"jsonrpc":"2.0","id":2,"method":"initialize","params":{{"data":"{}"}}}}"#,
         "a".repeat(600_000)
     );
     acp.send(Bytes::from(big.clone())).await.unwrap();
@@ -582,6 +584,8 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     }
     let echoed: serde_json::Value = serde_json::from_slice(&echoed).unwrap();
     assert_eq!(echoed["echo"]["params"]["data"].as_str().map(str::len), Some(600_000));
+    let expected: serde_json::Value = serde_json::from_str(&big).unwrap();
+    assert!(echoed["echo"] == expected, "fragmented ACP payload changed");
 
     // daemon: a phone's agent tab gets this Mac's host.
     daemon

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextWakeups
 import Observation
@@ -60,6 +61,13 @@ final class PaneContentView: NSView, PaneContentChrome {
             needsLayout = true
         }
     }
+    /// Vertical tabs (`PaneContentView+VerticalTabs`): the pane's tabs as a list on its leading edge
+    /// instead of the strip; nil shows the strip.
+    var verticalTabs: PaneVerticalTabs? {
+        didSet { if verticalTabs != oldValue { applyVerticalTabs() } }
+    }
+    /// The vertical list, made the first time the pane shows vertical tabs.
+    var verticalList: VerticalTabListView?
     /// A browser's tab bar above or below its toolbar (`tabs.barOrder`, R109).
     var barOrder: TabBarOrder = .aboveToolbar {
         didSet { if barOrder != oldValue { updateBand() } }
@@ -156,7 +164,6 @@ final class PaneContentView: NSView, PaneContentChrome {
         }
     }
 
-
     nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
@@ -176,7 +183,9 @@ final class PaneContentView: NSView, PaneContentChrome {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
         }
-        let hostFrame = isBandActive || rowTools > 0 ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
+        var hostFrame = isBandActive || rowTools > 0 ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
+        let listWidth = layoutVerticalList()
+        if listWidth > 0 { (hostFrame.origin.x, hostFrame.size.width) = (hostFrame.minX + listWidth, max(0, hostFrame.width - listWidth)) }
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }
@@ -233,6 +242,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         if let agent = content as? AgentPaneView, !hostsContent, agent.superview == nil {
             // Reparenting invokes this refresh on the old pane before the new pane binds its callback.
             agent.onNativeToolOwnerChange = nil
+            agent.onNativeToolMenuRequested = nil
         }
         nativeToolOwner.model = displayedAgentPaneView?.model
         toolbar?.refresh()
@@ -352,9 +362,18 @@ final class PaneContentView: NSView, PaneContentChrome {
         if let previous, previous !== view, previous.superview == nil {
             (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
             (previous as? AgentPaneView)?.onNativeToolOwnerChange = nil
+            (previous as? AgentPaneView)?.onNativeToolMenuRequested = nil
         }
         if let agent = view as? AgentPaneView {
-            agent.onNativeToolOwnerChange = { [weak self] in self?.refreshNativeToolOwner() }
+            let ownerModel = agent.model
+            agent.onNativeToolOwnerChange = { [weak self, weak agent] in
+                guard let self, let agent, self.content === agent, self.nativeToolOwner.model === ownerModel else { return }
+                self.refreshNativeToolOwner()
+            }
+            agent.onNativeToolMenuRequested = { [weak self, weak agent] id, menuItemID in
+                guard let self, let agent, self.content === agent, self.nativeToolOwner.model === ownerModel else { return }
+                self.toolbar?.view.presentNativeMenu(toolID: id, menuItemID: menuItemID)
+            }
         }
         content = view
         refreshNativeToolOwner()
@@ -398,6 +417,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         let shown = hostsContent ? content : nil
         (shown as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         (shown as? AgentPaneView)?.onNativeToolOwnerChange = nil
+        (shown as? AgentPaneView)?.onNativeToolMenuRequested = nil
         content = nil
         refreshNativeToolOwner()
         if let shown { if parks { retire(shown) } else { shown.removeFromSuperview() } }
@@ -460,7 +480,6 @@ final class PaneContentView: NSView, PaneContentChrome {
         }
     }
 }
-
 // A terminal or page edge inside the titlebar band never moves the window;
 // the strip, hit before this view, answers for its own empty space.
 extension PaneContentView: TitlebarPressDeciding {

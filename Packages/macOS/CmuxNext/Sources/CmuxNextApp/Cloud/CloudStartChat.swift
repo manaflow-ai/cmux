@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
 import Foundation
 
 /// A new chat's first send with Cloud picked as where it runs (`cloud.startChat`,
@@ -56,6 +57,9 @@ struct CloudStartChat {
             let machine = try await run(start, from: origin, report: report)
             CloudMove.toast(services, toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
             return AgentPaneReply.success(["machine": machine])
+        } catch is CloudMachineCap.RunHere { // the cap card's Run on This Mac: the page sends it here (cloudRun.ts)
+            if let window = services.windows.active?.window { _ = CmuxToastCenter.shared.close(id: toastID, in: window) }
+            return AgentPaneReply.failure(code: CloudMachineCap.runHereCode, message: CloudMachineCap.runHereCode)
         } catch {
             let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message
                 ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error))
@@ -76,9 +80,8 @@ struct CloudStartChat {
                 signedIn: services.cloud.isSignedIn)
     }
 
-    nonisolated static func refusal(cloudDisabled: Bool, signedIn: Bool) -> String? {
-        if cloudDisabled { return "cloud_disabled" }
-        return signedIn ? nil : "not_signed_in"
+    nonisolated static func refusal(cloudDisabled: Bool, signedIn: Bool) -> String? { // the rule: cmux-cloud-start-core `start`
+        CloudStartCore().refusal(cloudDisabled: cloudDisabled, signedIn: signedIn)
     }
 
     /// Keep the stable refusal code for bridge callers, but give the Cloud

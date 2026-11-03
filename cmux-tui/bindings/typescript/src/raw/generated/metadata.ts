@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8. */
+/* cmux-tui mux protocol 12, IR cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8" as const;
+export const SDK_IR_SHA256 = "cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2711,6 +2711,17 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
       "include names optional result sections (resource_projection, write_path, locks, hook_queue); unknown names are ignored."
+    ]
+  },
+  "set-attach-visibility": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": "attach-visibility-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Applies to the caller's snapshot attaches (attach-surface with snapshot ghostsnp) of the surface on this connection; viewers is 0 when there is none.",
+      "A hidden viewer gets its output once per wall-clock second (every hidden viewer of the daemon on the same second), at once when its batch passes 256 KiB, before any snapshot, and at once when it is shown again; no byte is dropped."
     ]
   },
   "set-cell-pixels": {
@@ -25076,6 +25087,44 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ServerStatsResult"
+    }
+  },
+  "set-attach-visibility": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "visible": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "viewers": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "set-cell-pixels": {

@@ -9,6 +9,7 @@ import class CmuxNextDaemon.DaemonLaunchTimings
 import Darwin
 import os
 import CmuxNextCompat
+import struct CmuxNextControl.LaunchMarkSink
 
 /// `debug.timings`: main-thread spans of the paths the stall bench measures
 /// (scripts/cmux-next/bench-stalls.py): launch phases, each palette and icon

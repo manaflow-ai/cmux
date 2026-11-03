@@ -242,6 +242,10 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         needs = publish.get("needs") or []
         needs = [needs] if isinstance(needs, str) else needs
         for need in needs:
+            # launch-smoke-nightly is the pre-publish gate's parallel half (tests/test_nightly_signer_jobs.py
+            # ParallelLaunchSmoke), not this post-publish smoke.
+            if need == "launch-smoke-nightly":
+                continue
             self.assertNotRegex(need, r"smoke", f"publish-nightly needs {need}")
         self.assertNotIn("nightly-next-launch-smoke", self.nightly_text)
         self.assertNotIn("fresh_home_launch_smoke", self.nightly_text)
@@ -359,8 +363,8 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
                          "nightly-next-launch-smoke-${{ github.event_name == 'pull_request' && "
                          "format('pr-{0}', github.event.pull_request.number) || github.run_id }}")
         runs_on = self.jobs["smoke"]["runs-on"]
-        self.assertTrue(runs_on.rstrip(" }").endswith("'blacksmith-6vcpu-macos-26'"))
-        self.assertLess(runs_on.index("CI_SIDE_LANE_RUNNER"), runs_on.rindex("blacksmith-6vcpu-macos-26"))
+        self.assertTrue(runs_on.rstrip(" }").endswith("fromJSON(vars.RUNNER_POOLS).macos_26"))
+        self.assertLess(runs_on.index("CI_SIDE_LANE_RUNNER"), runs_on.rindex("fromJSON(vars.RUNNER_POOLS).macos_26"))
         for label in re.findall(r"'(macos-[^']+)'", runs_on):
             self.assertIn(f"github.repository_owner != 'manaflow-ai' && '{label}'", runs_on)
 

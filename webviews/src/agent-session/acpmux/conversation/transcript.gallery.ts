@@ -1242,7 +1242,7 @@ const backgroundTurnRows = [
   summary(8.9, { status: "completed", durationMs: 3_000 }),
   row(BACKGROUND_TURN, 7, {
     id: backgroundTurnRowId("gallery-bg-quiet"),
-    background: { id: "gallery-bg-quiet", trigger: "task_notification", running: false, quiet: true },
+    background: { id: "gallery-bg-quiet", trigger: "task_notification", running: false, quiet: true, hasRows: true },
   }),
   activity(
     [tool("tail -n 5 out.log", "execute", "completed", { command: "tail -n 5 out.log", output: "12 passed" })],
@@ -1259,6 +1259,28 @@ const backgroundTurnRows = [
     4.9,
     { inBackground: "gallery-bg-loud" },
   ),
+];
+
+/// Turns the agent ran on its own with no rows of their own (Leo, 2026-11-03: "these background
+/// updates don't really expand out to anything? idk what those are even for"): their events only
+/// updated a call an earlier turn started. One that ended quiet draws nothing; one still running is
+/// a plain spinner line with no chevron, and no button, until a row of its own comes.
+const backgroundTurnEmptyRows = [
+  user("Run the migration tests", 9),
+  activity(
+    [tool("bun test migrations", "execute", "completed", { command: "bun test migrations", output: "14 passed" })],
+    8.95,
+  ),
+  assistant("The migration tests pass.", 8.9),
+  summary(8.9, { status: "completed", durationMs: 3_000 }),
+  row(BACKGROUND_TURN, 7, {
+    id: backgroundTurnRowId("gallery-bg-empty"),
+    background: { id: "gallery-bg-empty", trigger: "system", running: false, quiet: true },
+  }),
+  row(BACKGROUND_TURN, 5, {
+    id: backgroundTurnRowId("gallery-bg-waiting"),
+    background: { id: "gallery-bg-waiting", trigger: "system", running: true },
+  }),
 ];
 
 /// A long turn among turns opened by what the person never typed (incomingMessage.ts): a background
@@ -1513,14 +1535,13 @@ export default agentPaneEntry({
     },
     "grid-rhythm-hover": {
       height: 900,
-      note: "The rhythm scene with the reply action row shown; glyphs overlay the existing block gap.",
+      note: "The rhythm scene with the pointer on the reply mid-turn: it draws no action row of its own (Copy once per turn, #29740), so the block gap does not move on hover.",
       snapshot: gridRhythmSnapshot,
       play: async (ctx) => {
         await ctx.hover({ selector: '[data-row-id="grid-message"] .cv-md' });
-        await ctx.waitFor(() => {
-          const actions = ctx.document.querySelector('[data-row-id="grid-message"] .cv-reply-actions');
-          return actions && ctx.document.defaultView!.getComputedStyle(actions).opacity === "1";
-        });
+        await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="grid-message"]')?.matches(":hover"));
+        if (ctx.document.querySelector('[data-row-id="grid-message"] .cv-reply-actions'))
+          throw new Error("A reply mid-turn drew its own action row");
       },
     },
     "activity-tone-secondary": {
@@ -2369,7 +2390,14 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
       play: async (ctx: PlayContext) => {
-        await ctx.click({ selector: ".cv-tool.is-toggle" });
+        // The run of sends and the shell call folds into one line ("Sent 3 messages, ran a command",
+        // MessageRunLine.tsx, #31398): open it, then the shell call under it.
+        const run = () => ctx.document.querySelector("button[data-message-run]");
+        if (run()?.getAttribute("aria-expanded") === "false") {
+          await ctx.click({ selector: "button[data-message-run]" });
+          await ctx.waitFor(() => run()?.getAttribute("aria-expanded") === "true");
+        }
+        await ctx.click({ selector: ".cv-tool.is-toggle:not([data-message-run])" });
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__folder")));
       },
     },
@@ -3685,6 +3713,18 @@ export default agentPaneEntry({
         const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-quiet")}"] .cv-background-turn` };
         await ctx.click(line);
         await ctx.waitFor(() => ctx.find(line).getAttribute("aria-expanded") === "true");
+      },
+    },
+    "background-turns-nothing-to-open": {
+      note: "Two turns the agent ran on its own whose events only updated rows that are not theirs. The quiet one that ended draws nothing (before: a Background update line whose chevron opened to nothing). The one still running is a plain spinner line, Background update, with no chevron and no button.",
+      snapshot: chat(backgroundTurnEmptyRows),
+      play: async (ctx) => {
+        if (ctx.document.querySelector(`[data-row-id="${backgroundTurnRowId("gallery-bg-empty")}"]`))
+          throw new Error("an ended background turn with nothing to open drew a line");
+        const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-waiting")}"] .cv-background-turn` };
+        if (ctx.find(line).tagName === "BUTTON") throw new Error("a background line with nothing to open is a button");
+        if (ctx.find(line).querySelector(".cv-agent-activity__chevron"))
+          throw new Error("a background line with nothing to open has a chevron");
       },
     },
     "fold-no-blank-collapsed": {

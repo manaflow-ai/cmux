@@ -204,6 +204,11 @@ pub type SteerWait = Box<dyn FnOnce() -> Result<(), String> + Send>;
 pub trait AgentPort: Send + Sync {
     /// Creates a session; returns its id.
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String>;
+    /// [`Self::new_session`] with no preset at all (not the port's turn
+    /// preset): a session on a harness of its own (brain/chief_inbox.rs).
+    fn new_plain_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        self.new_session(spec)
+    }
     /// Sends a prompt as a new turn; the session's signals and the answer go to `signals`.
     fn start_prompt(
         &self,
@@ -212,27 +217,6 @@ pub trait AgentPort: Send + Sync {
         prompt_id: &str,
         signals: Sender<TurnSignal>,
     ) -> Result<(), String>;
-    /// [`Self::start_prompt`] as agent `from`'s message
-    /// (`_meta.acpmux.fromAgent`): the Chief's tell to another acpmux
-    /// session (brain/session_tell.rs).
-    fn start_agent_prompt(
-        &self,
-        session: &str,
-        blocks: Vec<Value>,
-        prompt_id: &str,
-        from: &str,
-        signals: Sender<TurnSignal>,
-    ) -> Result<(), String> {
-        let _ = from;
-        self.start_prompt(session, blocks, prompt_id, signals)
-    }
-    /// Every acpmux session (`_acpmux/sessions`).
-    fn list_sessions(&self) -> Result<Vec<SessionSummary>, String> {
-        Err("listing sessions is not supported".into())
-    }
-    /// Stops routing `session`'s signals, leaving the session as it is (a
-    /// session the Chief only told, brain/session_tell.rs).
-    fn forget_route(&self, _session: &str) {}
     /// The session's recorded events after `after`, oldest first.
     fn events(&self, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String>;
     /// Stops routing the session's signals and removes the session.
@@ -1272,6 +1256,10 @@ impl AgentPort for Acpmux {
         new_session(&*self.client()?, spec, preset)
     }
 
+    fn new_plain_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        new_session(&*self.client()?, spec, None)
+    }
+
     fn start_prompt(
         &self,
         session: &str,
@@ -1280,29 +1268,6 @@ impl AgentPort for Acpmux {
         signals: Sender<TurnSignal>,
     ) -> Result<(), String> {
         self.prompt_with_meta(session, blocks, json!({"promptId": prompt_id}), signals)
-    }
-
-    fn start_agent_prompt(
-        &self,
-        session: &str,
-        blocks: Vec<Value>,
-        prompt_id: &str,
-        from: &str,
-        signals: Sender<TurnSignal>,
-    ) -> Result<(), String> {
-        let meta = json!({"promptId": prompt_id, "fromAgent": from, "class": "question"});
-        self.prompt_with_meta(session, blocks, meta, signals)
-    }
-
-    fn list_sessions(&self) -> Result<Vec<SessionSummary>, String> {
-        sessions(&*self.client()?)
-    }
-
-    fn forget_route(&self, session: &str) {
-        self.turns
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove(session);
     }
 
     fn events(&self, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String> {

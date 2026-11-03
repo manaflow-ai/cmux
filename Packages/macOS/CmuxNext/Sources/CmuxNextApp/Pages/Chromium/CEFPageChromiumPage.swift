@@ -31,6 +31,9 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         set { if tab.occlusionRects != newValue { tab.occlusionRects = newValue } }
     }
 
+    /// The tab's page window clip (`CEFTab.pageWindowClip`, window coordinates).
+    var windowClip: CGPath? { tab.pageWindowClip }
+
     var onEvent: ((PageChromiumEvent) -> Void)? {
         didSet { listen() }
     }

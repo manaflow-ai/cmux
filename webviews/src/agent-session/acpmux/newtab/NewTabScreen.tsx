@@ -87,7 +87,7 @@ import type { NewTabWeather } from "./ambient";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
-import { screenSections, type ScreenTemplate } from "./templates";
+import { DEFAULT_NEW_TAB_TEMPLATE, screenSections, screenTemplate, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
 import { composerPlusRegistry, composerPlusSearchExtensions } from "../composerPlusRegistry";
 import { ComposerPlusMenu } from "../ComposerPlusMenu";
@@ -125,6 +125,7 @@ import { useHarnessesListed } from "../catalog";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
+import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = NewTabCommandActions & {
@@ -277,7 +278,7 @@ type Props = NewTabScreenActions & {
   /// false: the field does not take the keyboard when the screen appears (Cmd-L gave it to the
   /// omnibar); Cmd-L on the page still focuses it when the page shows no omnibar.
   focusField?: boolean;
-  /// Which screen template draws the page (newtab/templates.ts); "default" when unset.
+  /// Which screen template draws the page (newtab/templates.ts); Minimal when unset.
   template?: ScreenTemplate;
   /// The widget view (Debug Settings `newTab.widgets`): the Projects and Needs you cards.
   widgets?: boolean;
@@ -330,7 +331,9 @@ export function NewTabScreen(props: Props) {
   // What the page shows or opens appears at once; exits keep their fades (noEntryMotion.ts).
   useNoEntryMotion();
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;
-  const template = props.template ?? "default";
+  // NewTabPage resolves the host's unset template too, but keep this component safe when mounted
+  // directly (gallery/tests and embedders): the written default is Minimal, not the retired stage.
+  const template: ScreenTemplate = props.template ?? screenTemplate(DEFAULT_NEW_TAB_TEMPLATE);
   const sections = screenSections(template);
   const widgets = props.pageWidgets ?? shownPageWidgets(template);
   // Claude Code desktop's new-session page (templates.ts stage, the Default template): the composer
@@ -541,7 +544,8 @@ export function NewTabScreen(props: Props) {
     const element = fieldElement();
     setDropHost(element ? (element.closest(".acpmux-main") ?? element.ownerDocument.body) : null);
   }, []);
-  const dropLandingTarget = useCallback(() => fieldElement()?.parentElement ?? null, []);
+  // The input card, which a file drag rings (composer/DropOverlay.tsx).
+  const dropLandingTarget = useCallback(() => fieldElement()?.closest(".nt-box") ?? null, []);
   const submitNow = useRef(() => {});
   const continueAfterSetup = useRef<(harness: string) => void>(() => {});
   const openSetup = () => {
@@ -913,6 +917,7 @@ export function NewTabScreen(props: Props) {
   const look = useComposerLook();
   const chatBox = props.chips !== undefined;
   const split = chatBox;
+  const trailingGap = newTabComposerTrailingGapArm();
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -1799,6 +1804,7 @@ export function NewTabScreen(props: Props) {
         ref={setComposer}
         className="nt-composer"
         data-composer-look={look === "codex" ? "codex" : undefined}
+        data-trailing-gap={trailingGap}
         data-attachment-view={attachmentView}
       >
         {authBlocksSend(targetAuth) ? (

@@ -535,7 +535,7 @@ export default agentPaneEntry({
       }),
     },
     "card-open-child": {
-      note: "A card row shows that subagent: its own view, its row marked current; nested ones indented.",
+      note: "With a host that opens no pane, a card row shows that subagent in the chat: its own view, its row marked current; nested ones indented. (The app opens it in a pane right of the chat.)",
       height: 640,
       snapshot: NESTED_MIXED,
       play: async (ctx) => {

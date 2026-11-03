@@ -8,6 +8,7 @@ mod activity;
 pub(crate) mod admission;
 mod adopted_fences;
 mod adoption;
+pub(crate) mod agent_hold;
 mod agent_pairs;
 mod message_events;
 pub use agent_pairs::PairGuard;
@@ -44,6 +45,8 @@ mod first_work_tests;
 mod fork;
 #[cfg(test)]
 mod host_notice_tests;
+#[cfg(test)]
+mod peer_notice_cost_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]
@@ -393,6 +396,9 @@ pub struct PromptOptions {
     pub resend: bool,
     /// The rules the prompt runs under, checked again at dispatch.
     pub control: Control,
+    /// A native Cloud mobile prompt: apply the phone's asking-mode policy,
+    /// including to a prompt that waited in the queue.
+    pub cloud_mobile: bool,
     /// Whether this prompt came from a gated app/Web path and must be checked
     /// again when a queued turn is dispatched.
     pub trust_gate: bool,

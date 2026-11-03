@@ -270,6 +270,7 @@ mod resource_tab_deltas;
 #[cfg(test)]
 mod resource_tab_deltas_tests;
 mod resource_topology;
+pub(crate) use resource_topology::with_group_join_notice;
 mod resource_workspace;
 mod rows;
 mod screen_changed;
@@ -392,7 +393,7 @@ use std::fmt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, RwLock, Weak};
 use std::time::{Duration, Instant};
 use topology_result::persist_public_topology_result;
 
@@ -599,6 +600,11 @@ pub struct Mux {
     resource_close_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in a state mutation after its apply step (inside its open
+    /// registry transaction) and in a terminal progress publish after its
+    /// session read: a test stands in for a slow write there.
+    #[cfg(test)]
+    state_commit_after_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     layout_undo_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -644,7 +650,7 @@ pub struct Mux {
     /// Child agents each terminal agent runs past its turn, memory only (`agent_hook_children.rs`).
     agent_hook_children: Mutex<HashMap<TerminalPublicId, agent_hook_children::HookChildren>>,
     agent_roster: Mutex<AgentRosterHost>,
-    agent_roster_fold: Mutex<()>,
+    agent_roster_fold: Mutex<agent_roster_fold::AgentRosterFold>,
     agent_message_pump: agent_message_pump::AgentMessagePump,
     #[cfg(unix)]
     agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
@@ -726,11 +732,22 @@ pub struct Mux {
     terminal_exit_state_queries: AtomicU64,
     /// Keeps a close from removing a just-created surface before legacy
     /// callers have resolved the committed public result back to its runtime.
-    resource_creation_handoff: Mutex<()>,
+    /// Creations share it (read) and closes take it alone (write): it orders
+    /// a close against creations, never one creation against another, so a
+    /// burst of splits does not wait here for each other (SPLIT BURST).
+    resource_creation_handoff: RwLock<()>,
     /// Serializes the check-and-create sequence used when an attached local
     /// frontend bootstraps an otherwise empty session.
     initial_bootstrap: Mutex<()>,
+    /// The creation fence: held from a creation's prepare through its
+    /// projection commit, so a close never sees half a creation. The
+    /// creations that wait for it at the same time share one hold
+    /// ([`resource_topology::CreationGroups`]).
     resource_creation_execution: Mutex<()>,
+    creation_groups: resource_topology::CreationGroups,
+    /// Test seams of a burst of creations (`CreationBurstSeams`).
+    #[cfg(test)]
+    creation_burst_seams: resource_topology::CreationBurstSeams,
     #[cfg(unix)]
     agent_cli_job_execution: Mutex<()>,
     resource_creation_active: AtomicBool,

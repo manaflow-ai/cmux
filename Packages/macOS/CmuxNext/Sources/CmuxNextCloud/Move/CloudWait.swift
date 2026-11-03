@@ -20,6 +20,19 @@ public struct CloudWait {
         }
     }
 
+    /// Whether `condition` holds within `tries` waits of `each`: `redial` runs before each wait, so a link
+    /// that ended while the condition did not hold yet is dialed again (a new machine's daemon may answer
+    /// a little after its record runs). The first wait that sees `condition` hold ends the tries.
+    public static func holds(tries: Int, each: Duration, redial: @MainActor () -> Void,
+                             until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
+        var up = false
+        for _ in 0..<tries where !up {
+            redial()
+            up = await holds(within: each, until: condition)
+        }
+        return up
+    }
+
     /// Waits within `limit` for a link to come up: nil once `connected`, else `failure`, or `deadline`
     /// when there is none. A failure already showing when the wait begins is the last link's: it ends
     /// the wait only once the new connect cleared it and failed again, or at the deadline.
@@ -37,40 +50,6 @@ public struct CloudWait {
             return seen.cleared
         }
         return connected() ? nil : failure() ?? deadline
-    }
-
-    /// The person's answer to `ask` (a sheet), unless `elsewhere` finds the same question answered somewhere
-    /// else first: then true, and `ask` is cancelled, which closes its sheet. Neither task outlives this call.
-    public static func firstAnswer(ask: @escaping @MainActor () async -> Bool, elsewhere: @escaping @MainActor () async -> Bool) async -> Bool {
-        let sheet = Task { @MainActor in await ask() }
-        let watch = Task { @MainActor in await elsewhere() }
-        // concurrency-allow: both children only await the two tasks above, which end on cancellation
-        return await withTaskCancellationHandler {
-            await withTaskGroup(of: Bool?.self) { group -> Bool in
-                group.addTask { await sheet.value }
-                group.addTask { await watch.value ? true : nil }
-                defer { sheet.cancel(); watch.cancel() }
-                for await answer in group {
-                    if let answer { return answer }
-                }
-                return false
-            }
-        } onCancel: {
-            sheet.cancel()
-            watch.cancel()
-        }
-    }
-
-    /// Calls `poll` after each `pause`, at most `limit` times, until it decides: true answered, false give
-    /// up, nil ask again. False when the pause throws (cancelled), the task is cancelled or `limit` runs out.
-    public static func untilAnswered(limit: Int = 600, pause: @MainActor (_ attempt: Int) async throws -> Void,
-                                     poll: @MainActor () async -> Bool?) async -> Bool {
-        for attempt in 1...max(limit, 1) {
-            do { try await pause(attempt) } catch { return false }
-            if Task.isCancelled { return false }
-            if let decided = await poll() { return decided }
-        }
-        return false
     }
 
     private static func observe(_ condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {

@@ -81,16 +81,6 @@
       "title" : "Model Picker Harness Placement",
       "type" : "string"
     },
-    "agentPane.display.inspector.placement" : {
-      "default" : "overlay",
-      "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
-      "enum" : [
-        "push",
-        "overlay"
-      ],
-      "title" : "Session Info",
-      "type" : "string"
-    },
     "agentPane.display.minimap" : {
       "default" : "compact",
       "description" : "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing.",
@@ -120,6 +110,16 @@
         "right"
       ],
       "title" : "Prompt Rail Side",
+      "type" : "string"
+    },
+    "agentPane.display.sessionInfo.placement" : {
+      "default" : "overlay",
+      "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+      "enum" : [
+        "push",
+        "overlay"
+      ],
+      "title" : "Session Info",
       "type" : "string"
     },
     "agentPane.display.transcriptView" : {
@@ -1000,6 +1000,17 @@
       "title" : "Experimental Appearance Controls",
       "type" : "boolean"
     },
+    "appearance.favoriteThemes" : {
+      "default" : [
+
+      ],
+      "description" : "Themes starred in a theme picker. The picker lists them first.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Starred Themes",
+      "type" : "array"
+    },
     "appearance.focusIndicator" : {
       "default" : "tabs",
       "description" : "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither.",
@@ -1151,6 +1162,17 @@
         "perPane"
       ],
       "title" : "Pane Backgrounds",
+      "type" : "string"
+    },
+    "appearance.rotateFavoriteThemes" : {
+      "default" : "off",
+      "description" : "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on.",
+      "enum" : [
+        "off",
+        "launch",
+        "daily"
+      ],
+      "title" : "Rotate Starred Themes",
       "type" : "string"
     },
     "appearance.saturation" : {
@@ -2437,8 +2459,8 @@
     },
     "feed.github.enabled" : {
       "default" : false,
-      "description" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first.",
-      "title" : "Connect GitHub",
+      "description" : "Inbox shows your GitHub notifications",
+      "title" : "GitHub Inbox",
       "type" : "boolean"
     },
     "feed.github.pollIntervalSeconds" : {
@@ -4834,6 +4856,18 @@
       },
       "title" : "Tab Bar Buttons",
       "type" : "array"
+    },
+    "tabs.verticalTabs" : {
+      "default" : false,
+      "description" : "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu.",
+      "title" : "Use Vertical Tabs for All Workspaces",
+      "type" : "boolean"
+    },
+    "tabs.verticalTabsExpandOnHover" : {
+      "default" : true,
+      "description" : "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it.",
+      "title" : "Expand Collapsed Vertical Tabs on Hover",
+      "type" : "boolean"
     },
     "tasks.layout" : {
       "default" : "inbox",

@@ -73,9 +73,9 @@ impl Mux {
         // neither writes an older snapshot over the other's. The write takes
         // the registry connection alone, never the workspace registry lock,
         // so state commits do not wait behind it (issue 23038).
-        let fold = self.agent_roster_fold.lock().unwrap();
+        let fold = self.agent_roster_fold.lock().unwrap_or_else(PoisonError::into_inner);
         let retired = {
-            let mut host = self.agent_roster.lock().unwrap();
+            let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
             let retired = host.roster.retire_terminal(terminal_id.as_str());
             retired.then(|| (host.cursor, host.roster.snapshot().to_string()))
         };
@@ -242,6 +242,27 @@ impl Mux {
         crate::host_exe::prepare_in_background();
         #[cfg(all(unix, not(test)))]
         crate::holder_runtime::prepare_in_background();
+    }
+
+    /// Debug seam (`CMUX_TUI_DEBUG_WEDGE_REGISTRY=1`, off by default): a
+    /// thread takes the workspace registry lock and never releases it, as the
+    /// lock-order deadlock of #32405 left an owner (#32621): `identify` still
+    /// answers, every workspace change waits forever. The replace tests use it
+    /// to prove that `server ensure` replaces such an owner.
+    pub fn wedge_registry_if_asked(self: &Arc<Self>) {
+        if std::env::var_os("CMUX_TUI_DEBUG_WEDGE_REGISTRY").is_none_or(|value| value != "1") {
+            return;
+        }
+        let mux = Arc::clone(self);
+        let (taken, wait) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _registry = mux.workspace_registry.lock();
+            let _ = taken.send(());
+            loop {
+                std::thread::park();
+            }
+        });
+        let _ = wait.recv();
     }
 
     pub fn server_lifecycle_ready(&self) -> bool {
