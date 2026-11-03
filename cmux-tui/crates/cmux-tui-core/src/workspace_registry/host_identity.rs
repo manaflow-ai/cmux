@@ -116,12 +116,13 @@ pub(super) fn machine_id_for_this_host(
 /// id other stores key this machine's session on. A registry with no stamp
 /// is stamped as it is.
 ///
-/// Every reference to the copied id is rewritten to the new one: `meta`,
-/// columns named `session_id` or `default_session_id` that hold exactly it
-/// (this daemon's own personal session row and its follows, pins and
-/// workspace rows), the sidebar's dirty marks, and in `*_json` columns the
-/// string values under a session key (the sidebar document's workspace
-/// refs, closed-history records). Free text that merely contains the id (a
+/// Every reference to the copied id is rewritten to the new one, in any
+/// column of a mutable table and in any string or key of a JSON value there:
+/// the id itself (`meta`, this daemon's own personal session row and its
+/// follows, pins and workspace rows, workspace refs) and the ids derived
+/// from it, whole (`sec_m_<id>`, the machine's sidebar section) or as a
+/// prefix (`itm_w_<id>_<workspace>` items, `<id>/<key>` placements,
+/// `<id>:<workspace>` layout refs). Free text that merely contains the id (a
 /// command, a path, a description) is left as it is.
 /// Append-only history (tables whose triggers refuse an update: the session
 /// journal, journal segments) keeps what it recorded. `session_public_id`
@@ -187,87 +188,94 @@ fn mutable_columns(connection: &Connection) -> anyhow::Result<Vec<(String, Vec<S
     Ok(out)
 }
 
-/// Columns that hold a session id as their whole value.
-const SESSION_ID_COLUMNS: [&str; 2] = ["session_id", "default_session_id"];
-/// Keys under which a JSON column holds a session id as a whole string.
-const SESSION_ID_JSON_KEYS: [&str; 4] = ["session_id", "sessionId", "session", "local_session"];
+/// `text` with a reference to `old` (see [`rehome_registry`]) moved to
+/// `new`, or `None` when it is not one.
+fn rehomed(text: &str, old: &str, new: &str) -> Option<String> {
+    use cmux_layout_reducer::sidebar_doc::MACHINE_SECTION_PREFIX;
+    if text == old {
+        return Some(new.to_string());
+    }
+    if text.strip_prefix(MACHINE_SECTION_PREFIX) == Some(old) {
+        return Some(format!("{MACHINE_SECTION_PREFIX}{new}"));
+    }
+    if let Some(workspace) =
+        text.strip_prefix("itm_w_").and_then(|rest| rest.strip_prefix(old)?.strip_prefix('_'))
+    {
+        return Some(format!("itm_w_{new}_{workspace}"));
+    }
+    let rest = text.strip_prefix(old)?;
+    (rest.starts_with('/') || rest.starts_with(':')).then(|| format!("{new}{rest}"))
+}
 
-/// Rewrites references to `old` (see [`rehome_registry`]) to `new`. Runs
-/// once per copied registry. Rows that key on the id and rows that refer to
-/// them change in one transaction, so foreign keys are checked at its
-/// commit, not after each statement.
+/// Rewrites references to `old` to `new`. Runs once per copied registry.
+/// Rows that key on the id and rows that refer to them change in one
+/// transaction, so foreign keys are checked at its commit, not after each
+/// statement.
 fn rewrite_text_everywhere(tx: &Transaction<'_>, old: &str, new: &str) -> anyhow::Result<()> {
     tx.execute_batch("PRAGMA defer_foreign_keys=ON;")?;
-    tx.execute("UPDATE meta SET value = ?2 WHERE key = 'registry_id' AND value = ?1", [old, new])?;
     for (table, columns) in mutable_columns(tx)? {
-        let quoted = quote_identifier(&table);
+        let table = quote_identifier(&table);
         for column in columns {
-            let name = quote_identifier(&column);
-            if SESSION_ID_COLUMNS.contains(&column.as_str()) {
-                tx.execute(
-                    &format!("UPDATE {quoted} SET {name} = ?2 WHERE {name} = ?1"),
-                    [old, new],
-                )?;
-            } else if table == "sidebar_doc_dirty" && column == "a" {
-                tx.execute(
-                    "UPDATE sidebar_doc_dirty SET a = ?2 WHERE kind = 'ws' AND a = ?1",
-                    [old, new],
-                )?;
-            } else if column.ends_with("_json") {
-                rewrite_json_column(tx, &quoted, &name, old, new)?;
+            let column = quote_identifier(&column);
+            let texts: Vec<String> = tx
+                .prepare(&format!(
+                    "SELECT DISTINCT {column} FROM {table}
+                     WHERE typeof({column}) = 'text' AND instr({column}, ?1) > 0"
+                ))?
+                .query_map([old], |row| row.get(0))?
+                .collect::<Result<_, _>>()?;
+            for text in texts {
+                let replacement =
+                    rehomed(&text, old, new).or_else(|| rehomed_json(&text, old, new));
+                if let Some(replacement) = replacement {
+                    tx.execute(
+                        &format!("UPDATE {table} SET {column} = ?2 WHERE {column} = ?1"),
+                        params![text, replacement],
+                    )?;
+                }
             }
         }
     }
     Ok(())
 }
 
-/// In `table.column`, the JSON texts that mention `old`, each with the
-/// session keys that hold exactly `old` set to `new`.
-fn rewrite_json_column(
-    tx: &Transaction<'_>,
-    table: &str,
-    column: &str,
-    old: &str,
-    new: &str,
-) -> anyhow::Result<()> {
-    let texts: Vec<String> = tx
-        .prepare(&format!(
-            "SELECT DISTINCT {column} FROM {table}
-             WHERE typeof({column}) = 'text' AND instr({column}, ?1) > 0"
-        ))?
-        .query_map([old], |row| row.get(0))?
-        .collect::<Result<_, _>>()?;
-    for text in texts {
-        let Ok(mut value) = serde_json::from_str::<Value>(&text) else {
-            continue;
-        };
-        if rewrite_session_keys(&mut value, old, new) {
-            tx.execute(
-                &format!("UPDATE {table} SET {column} = ?2 WHERE {column} = ?1"),
-                params![text, serde_json::to_string(&value)?],
-            )?;
-        }
+/// A JSON object or array `text` with its references moved, when it has any.
+fn rehomed_json(text: &str, old: &str, new: &str) -> Option<String> {
+    if !text.starts_with(['{', '[']) {
+        return None;
     }
-    Ok(())
+    let mut value = serde_json::from_str::<Value>(text).ok()?;
+    rehome_value(&mut value, old, new).then(|| value.to_string())
 }
 
-fn rewrite_session_keys(value: &mut Value, old: &str, new: &str) -> bool {
+fn rehome_value(value: &mut Value, old: &str, new: &str) -> bool {
     match value {
+        Value::String(text) => match rehomed(text, old, new) {
+            Some(replacement) => {
+                *text = replacement;
+                true
+            }
+            None => false,
+        },
         Value::Object(map) => {
             let mut changed = false;
-            for (key, child) in map.iter_mut() {
-                if SESSION_ID_JSON_KEYS.contains(&key.as_str()) && child.as_str() == Some(old) {
-                    *child = Value::String(new.to_string());
+            let keys: Vec<String> = map.keys().cloned().collect();
+            for key in keys {
+                if let Some(renamed) = rehomed(&key, old, new)
+                    && let Some(child) = map.remove(&key)
+                {
+                    map.insert(renamed, child);
                     changed = true;
-                } else {
-                    changed |= rewrite_session_keys(child, old, new);
                 }
+            }
+            for child in map.values_mut() {
+                changed |= rehome_value(child, old, new);
             }
             changed
         }
-        Value::Array(items) => items
-            .iter_mut()
-            .fold(false, |changed, item| rewrite_session_keys(item, old, new) | changed),
+        Value::Array(items) => {
+            items.iter_mut().fold(false, |changed, item| rehome_value(item, old, new) | changed)
+        }
         _ => false,
     }
 }
