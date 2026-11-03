@@ -91,7 +91,7 @@ export default componentEntry<Props>({
       props: { typed: "Why does the sidebar jump when I open this?", screenshot: true },
     },
     "video-playing": {
-      note: 'Leo, 2026-11-02: "this i can\'t play a video preview inside cmux next? i feel like i should be able to". A click on the poster\'s ▶ plays the recording in place: the tile becomes the reply\'s player, playing with sound and its scrub, mute and pause, with Expand and Open in tab, on the URL the host streams the file by in byte ranges (`media.load`). Held still at 1 s for the capture.',
+      note: "Leo, 2026-11-02: \"this i can't play a video preview inside cmux next? i feel like i should be able to\". A click on the poster's ▶ plays the recording in place: the tile becomes the reply's player, playing with sound and its scrub, mute and pause, with Expand and Open in tab, on the URL the host streams the file by in byte ranges (`media.load`). Held still at 1 s for the capture.",
       props: { typed: "Why does the sidebar jump when I open this?", screenshot: true },
       chipHost: { media: { [PATH]: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` } },
       play: async (ctx) => {

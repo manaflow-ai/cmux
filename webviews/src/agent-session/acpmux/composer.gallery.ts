@@ -1202,7 +1202,7 @@ export default agentPaneEntry({
       },
     },
     "video-playing": {
-      note: 'Leo, 2026-11-02: "this i can\'t play a video preview inside cmux next? i feel like i should be able to". A click on the dropped recording\'s ▶ plays it in the pane: the composer\'s tile is too small for a player\'s controls, so the player opens large over the pane, playing with sound and its scrub, mute and pause, on the URL the host streams the file by in byte ranges (`media.load`). Held still at 1 s for the capture. Before, a click handed it to Quick Look.',
+      note: "Leo, 2026-11-02: \"this i can't play a video preview inside cmux next? i feel like i should be able to\". A click on the dropped recording's ▶ plays it in the pane: the composer's tile is too small for a player's controls, so the player opens large over the pane, playing with sound and its scrub, mute and pause, on the URL the host streams the file by in byte ranges (`media.load`). Held still at 1 s for the capture. Before, a click handed it to Quick Look.",
       snapshot: chat(finished),
       native: {
         "chat.attach.dropped": {

@@ -92,7 +92,15 @@ export function useAttachedVideoPlayer(path: string | undefined, name: string) {
   // The player is portaled over the pane, but React still bubbles its events to the chip's parents
   // (the strip's drag reorder, the prompt's editor): they stop at this hidden span.
   const viewer = src ? (
-    <span hidden onPointerDown={stop} onMouseDown={stop} onClick={stop} onKeyDown={stop} onContextMenu={stop}>
+    <span
+      hidden
+      role="presentation"
+      onPointerDown={stop}
+      onMouseDown={stop}
+      onClick={stop}
+      onKeyDown={stop}
+      onContextMenu={stop}
+    >
       <VideoViewer
         src={src}
         name={name}
