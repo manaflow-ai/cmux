@@ -27,8 +27,10 @@ export type SessionInfoSectionId =
   | "servers"
   | "subagents"
   | "tasks"
-  | "outputs";
-export type SessionInfoSections = Readonly<Record<SessionInfoSectionId, boolean>>;
+  | "outputs"
+  | `app:${string}#${string}`;
+export type BuiltInSessionInfoSectionId = Exclude<SessionInfoSectionId, `app:${string}#${string}`>;
+export type SessionInfoSections = Readonly<Record<BuiltInSessionInfoSectionId, boolean>> & Partial<Record<SessionInfoSectionId, boolean>>;
 
 /// The width a drag can give it, in px, and the width it opens at the first time.
 export const SESSION_INFO_WIDTH = { min: 260, max: 560, fallback: 320 } as const;
@@ -106,7 +108,7 @@ const SECTIONS_VERSION = 2;
 
 function sectionsOf(value: unknown): SessionInfoSections {
   if (!value || typeof value !== "object") return DEFAULT_SECTIONS;
-  const stored = value as Partial<Record<SessionInfoSectionId | "v", unknown>>;
+  const stored = value as Partial<Record<BuiltInSessionInfoSectionId | "v", unknown>>;
   const sections = { ...DEFAULT_SECTIONS };
   for (const id of Object.keys(DEFAULT_SECTIONS) as SessionInfoSectionId[])
     if (typeof stored[id] === "boolean" && (id !== "context" || stored.v === SECTIONS_VERSION))

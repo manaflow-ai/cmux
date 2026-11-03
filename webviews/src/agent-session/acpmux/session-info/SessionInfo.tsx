@@ -110,6 +110,7 @@ import { SubagentsSection, subagentCounts } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
 import { UsageSection, usageMeta, type UsageOwnRowLayout } from "./UsageSection";
+import { AppPanelSection, useAppPanelSections } from "../../../apps/scene/panels";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
@@ -1597,6 +1598,21 @@ export function SessionInfo({
   const limitSet =
     limits !== undefined && limits.maxRunningSource !== undefined && limits.maxRunningSource !== "default";
   const chatId = summary?.sessionId;
+  const appPanels = useAppPanelSections(
+    chatId ? { session_id: chatId, cwd: summary?.cwd, harness: summary?.harness } : undefined,
+  );
+  const [appOpen, setAppOpen] = useState<Record<string, boolean>>({});
+  const appNodes = Object.fromEntries(
+    appPanels.map((section) => [
+      section.id,
+      <AppPanelSection
+        key={section.id}
+        section={section}
+        open={appOpen[section.id] ?? true}
+        onOpenChange={(open) => setAppOpen((current) => ({ ...current, [section.id]: open }))}
+      />,
+    ]),
+  );
   // A chat on another machine: its sub-sessions live on that machine's acpmux, which takes the
   // limit only from its own person, so the line only reads.
   const setRunningLimit =
@@ -1829,6 +1845,7 @@ export function SessionInfo({
           outputs: outputsSection,
           subagents: subagentsSection,
           tasks,
+          ...appNodes,
         }}
       />
       {gallery && (
