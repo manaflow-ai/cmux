@@ -690,6 +690,26 @@ moved=$(git -C "$src" rev-parse HEAD)
 request --sha "$moved" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$moved" || fail "a move out of an app path must be promoted:" "$out" "$(cat "$TMP/gh.log")"
 git_q -C "$src" tag -f nightly-next "$head"
+# A revert of a promotion still building is promoted at once: its app matches the published
+# one but not the one nightly-next is about to publish.
+git_q -C "$src" checkout -q --detach "$same"
+git_q -C "$src" tag -f nightly-next "$same"
+echo pending-app > "$src/App.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "app change still building"
+building=$(git -C "$src" rev-parse HEAD)
+git_q -C "$src" update-ref refs/heads/nightly-next "$building"
+git_q -C "$src" revert --no-edit HEAD
+reverted=$(git -C "$src" rev-parse HEAD)
+request --sha "$reverted" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$reverted" || fail "a revert of an outstanding promotion must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+# A docs-only commit on top of that promotion is still promoted: the published app differs from it.
+git_q -C "$src" checkout -q --detach "$building"
+echo more > "$src/NOTES.md"; git_q -C "$src" add -A; git_q -C "$src" commit -m "notes on the building app"
+notes_on_building=$(git -C "$src" rev-parse HEAD)
+request --sha "$notes_on_building" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$notes_on_building" || fail "a commit whose app differs from the published one must be promoted:" "$out"
+git_q -C "$src" update-ref -d refs/heads/nightly-next
+git_q -C "$src" tag -f nightly-next "$head"
+git_q -C "$src" checkout -q --detach "$same"
 # A classifier that cannot answer, or no published commit, promotes as before.
 git_q -C "$src" checkout -q --detach "$same"
 echo 'raise SystemExit(3)' > "$src/scripts/ci/nightly_build_inputs.py"
