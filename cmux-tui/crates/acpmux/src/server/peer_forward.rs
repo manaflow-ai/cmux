@@ -295,6 +295,16 @@ async fn forward_inner(
         && hub.resolve(key).is_err()
         && let Some((peer, id, row)) = hub.resolve_remote(key)
     {
+        // A link that is down lists no features (`link_ended`), so every feature check below (the
+        // trust gate, attachments, a prompt that waits for the owner) would call a prompt
+        // unsupported: final for the outbox, and the peer never asked to wake. The prompt is
+        // refused as unreachable instead, which `forward` turns into a wake and the outbox tries
+        // again; the checks run on that try, once the link is back.
+        if m == method::SESSION_PROMPT && !peer.ready() {
+            crate::author::of_prompt(params)?;
+            crate::prompt_provenance::notice_checked(params)?;
+            return Err(peer.unreachable_error());
+        }
         if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
             return Err(super::trust_gate::peer_unsupported(&peer.name));
         }
@@ -340,13 +350,6 @@ async fn forward_inner(
         if m == method::SESSION_PROMPT {
             crate::author::of_prompt(params)?;
             crate::prompt_provenance::notice_checked(params)?;
-            // A link that is down lists no features (`link_ended`), so the checks below would call
-            // a prompt with attachments, or one that waits for the owner, unsupported: final for
-            // the outbox, and the peer never asked to wake. The prompt is refused as unreachable
-            // instead, which `forward` turns into a wake and the outbox tries again.
-            if !peer.ready() {
-                return Err(peer.unreachable_error());
-            }
         }
         // A prompt that waits for the owner, and the owner's answer to one, go only to a peer
         // that holds it (`hub/queue_approve.rs`): an older one would run it unapproved.
