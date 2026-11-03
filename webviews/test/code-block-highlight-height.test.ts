@@ -58,8 +58,10 @@ await requireBrowserLane("code-block-highlight-height.test.ts", async () => {
     // Hold only the highlight worker, not the text or its lazy renderer. Observe the handoff
     // before releasing it so a fast worker cannot hide a blank intermediate frame.
     let releaseWorker!: () => void;
+    let heldWorkers = 0;
     const workerGate = new Promise<void>((resolve) => (releaseWorker = resolve));
     await page.route(/worker\.js(?:\?|$)/, async (route) => {
+      heldWorkers += 1;
       await workerGate;
       await route.continue();
     });
@@ -90,6 +92,7 @@ await requireBrowserLane("code-block-highlight-height.test.ts", async () => {
       await page.goto(stageURL());
       await page.waitForFunction(() => document.querySelectorAll("diffs-container.cv-codeblock__body").length === 3);
       await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
+      expect(heldWorkers).toBeGreaterThan(0);
     } finally {
       releaseWorker();
     }
