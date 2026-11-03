@@ -1525,3 +1525,28 @@ test("a folder pick that is a saved folder-only environment still picks the fold
   expect(calls).toEqual([["project", "/Users/you/src/cmux", undefined]]);
   expect(picks).toEqual(["f1"]);
 });
+
+test("a saved folder-only environment picked after another machine shows This Mac, where it starts", async () => {
+  const folderOnly = {
+    environments: [{ id: "f1", name: "cmux", kind: "local", folder: "/Users/you/src/cmux", updatedAt: 1 }],
+    onPick: () => undefined,
+    onClear: () => undefined,
+    onCreate: () => undefined,
+    onEdit: () => undefined,
+  };
+  await mount(true, { saved: folderOnly });
+  await openMachines();
+  await act(async () =>
+    machineRows()
+      .find((row) => rowText(row).startsWith("gpu-box"))!
+      .click(),
+  );
+  expect(computerButton()!.getAttribute("aria-label")).toBe(`${t("composer.environment")}: gpu-box`);
+  // Create environment saved (or the list picked) the folder-only one: it starts on This Mac.
+  await updateProps({ saved: { ...folderOnly, current: "f1" } });
+  expect(computerButton()!.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ${t("composer.thisMac")}`);
+  const folder = host.querySelector<HTMLButtonElement>(
+    `.acpmux-composer-context button[aria-label="${t("composer.folder")}"]`,
+  );
+  expect(folder?.textContent).toContain("cmux");
+});
