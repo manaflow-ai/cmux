@@ -212,7 +212,7 @@ extension PaneBrowserTabOpener {
         let intent = controller.workspace?.beginFocusIntent(), command = BrowserTabSplitCommand(pane: model.handle, direction: split.direction, url: address)
         let send = BenchSpans.measure("split.intend") { command.intendNow(on: controller.daemon, layout: controller.workspace?.layoutModel, shown: controller.layoutPaneID) }
         BenchSpans.measure("split.layout") { controller.workspace?.applyCurrent() } // the split draws in the click's frame
-        controller.services.registry.track(Task {
+        controller.services.registry.trackOrRefuse(Task { // a key press nobody awaits still shows a refused open
             do {
                 let made = try await send { try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice, split: $0) }
                 if let made { controller.workspace?.expectFocus(on: made, target: focusesAddressBar ? .addressBar : .content, generation: intent) }

@@ -151,9 +151,9 @@ enum BrowserHandlers {
     /// cx-yihq), as Split Right does: refused without room, and from the docked
     /// chat a person's browser is a tab in the strip.
     ///
-    /// Returns what the caller hands the registry (``ActionRegistry/settle(_:of:_:)``, or a bound handler's
-    /// return): the tab open and the split are one waiting effect (`daemonEcho`: nothing shows until the daemon
-    /// answers, debt until a provisional browser split exists), and its failure is reported, not only logged.
+    /// Returns what the caller hands the registry (``ActionRegistry/settle(_:of:_:)``, or a bound handler's return).
+    /// Where the daemon serves it the split and its tab show in the key's turn (BrowserTabSplitCommand); else one
+    /// waiting effect (`daemonEcho`) opens the tab and moves it. Either failure is reported, not only logged.
     static func splitBrowser(from pane: PaneController, direction: SplitDirection, url: URL? = nil, profile: String? = nil,
                              byPerson: Bool, context: AppActionContext) throws -> ActionEffect {
         let handle = pane.pane.handle, model = pane.pane
@@ -174,6 +174,10 @@ enum BrowserHandlers {
             return .done
         }
         if let refusal = browserTabs.refusal(in: model) { throw ActionFailure(message: refusal) }
+        if PaneBrowserTabOpener(controller: pane).opensInSplit { // as a link opened to the right (Leo 2026-11-03)
+            _ = pane.newBrowserTab(url: url, profile: profile, split: BrowserTabSplitRequest(direction: direction) { _ in })
+            return .done
+        }
         // The split goes to the pane's own machine (cx-2cob); `refusal` named a disconnected one.
         let daemon = context.services.daemon(for: model)
         let connection = try daemon.isLocal ? context.requireConnection() : daemon.connection ?? context.requireConnection()
@@ -181,7 +185,7 @@ enum BrowserHandlers {
         guard case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else { return .done }
         let intent = pane.workspace?.beginFocusIntent()
         let address = url?.absoluteString ?? context.services.newTabAddress(for: choice)
-        // action-wait-allow: no provisional browser split exists yet (a tab opened in the source pane, then moved by the daemon's split); its failure is now reported.
+        // action-wait-allow: an older daemon (no frontend-browser-tab-split-v1) has no provisional browser split; the tab is made, then moved.
         return .waiting(.daemonEcho) {
             do {
                 let surface = try await browserTabs.open(choice, in: model, url: address, profile: profile)
