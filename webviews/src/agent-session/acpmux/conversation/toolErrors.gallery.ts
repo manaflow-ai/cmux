@@ -178,7 +178,7 @@ const failedStep = chat(
       ],
       5.8,
     ),
-    assistant("One lane is paused on its queue: huge-blue/cx4-land24470. Nothing else is stuck.", 5),
+    assistant("One lane is paused on its queue: studio-mac/land-queue. Nothing else is stuck.", 5),
   ],
   { harness: "claude", model: "claude-opus-5-5" },
 );
