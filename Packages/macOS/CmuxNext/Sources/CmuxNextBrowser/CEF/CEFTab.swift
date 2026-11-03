@@ -286,6 +286,13 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var hasDocument = false
     /// The current document is a real page that finished loading, or an error page (not an aborted load).
     @ObservationIgnored var documentLoaded = false
+    /// The current document painted content (its first contentful paint, `CEFFirstPaintBridge`). Chromium drops input to
+    /// a new document before its first paint (lead on STATUS 8055: 11 keys sent 4 ms after loading stopped were lost).
+    @ObservationIgnored var documentPainted = false
+    /// Chromium stopped loading (its last `.loadingState`).
+    @ObservationIgnored var loadingStopped = false
+    /// The current document is Chromium's error page for a failed load.
+    @ObservationIgnored var committedIsErrorPage = false
     /// The document the tab was asked to show is blank (a New Tab page): its blank document counts as loaded.
     @ObservationIgnored var blankIsDocument = false
 
@@ -294,7 +301,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // A page asked to show something (an address, a saved navigation, an agent's load) waits for that document; a
         // page with nothing to load takes keys now (lead on STATUS 7916: a reopen by address is no saved navigation).
         let navigates = pendingURL != nil || pendingRestore != nil || loadAfterAttach != nil
-        (hasDocument, documentLoaded, blankIsDocument) = (false, false, pendingURL.map { !PageBackground.isRealPage($0) } ?? false)
+        (hasDocument, documentLoaded, documentPainted, loadingStopped) = (false, false, false, false)
+        blankIsDocument = pendingURL.map { !PageBackground.isRealPage($0) } ?? false
         isCreationPending = false
         CEFAgentURLGuard.applyShimGuard(self)
         if let url = loadAfterAttach {
@@ -341,7 +349,15 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         if !navigates { documentArrived() }
     }
 
-    /// The page takes keys now: Chromium created it, and (a page asked to show something) stopped loading on that document.
+    /// The page asked to show something may take keys: its document loaded (or is an error page), Chromium stopped
+    /// loading, and the document painted content, in any order of the last two. A blank document or an error page
+    /// paints nothing of its own, so for those the stop is enough.
+    func documentMayTakeKeys() {
+        guard documentLoaded, loadingStopped, documentPainted || blankIsDocument || committedIsErrorPage else { return }
+        documentArrived()
+    }
+
+    /// The page takes keys now: Chromium created it, and (a page asked to show something) its document can take them.
     func documentArrived() {
         guard !hasDocument else { return }
         hasDocument = true

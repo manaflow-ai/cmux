@@ -73,6 +73,8 @@ final class CEFFirstPaintBridge {
         ChatOpenTrace.shared.mark(.firstContentfulPaint, chromiumPane: tab?.host.key.pane.rawValue)
         if let tab { tab.runtime.benchMarks.firstPaint(tab.id.rawValue) }
         #endif
+        tab?.documentPainted = true
+        tab?.documentMayTakeKeys()
         tab?.documentDidPaint()
     }
 

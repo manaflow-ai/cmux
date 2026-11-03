@@ -28,8 +28,9 @@ extension CEFTab {
             } else if !loading, state.isLoading, let navigation {
                 machine.apply(.finished(navigation))
             }
+            loadingStopped = !loading
             if !loading {
-                if documentLoaded { documentArrived() } // CEF reports this after every load end and error of the load
+                documentMayTakeKeys() // CEF reports this after every load end and error of the load
                 clearTitleBeforeCommit()
                 // A load that ends without OnLoadEnd (stopped, aborted) also leaves the page area to its document,
                 // through its background read like a load end (`documentDidPaint`; bounded wait).
@@ -47,7 +48,7 @@ extension CEFTab {
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
             clearTitleBeforeCommit()
             committedURL = URL(string: url)
-            documentLoaded = false // a new document: the one that loaded before is gone
+            (documentLoaded, documentPainted, committedIsErrorPage) = (false, false, false) // a new document: the one before is gone
             pageInfoDocumentCommitted(URL(string: url))
             resetPageBackdrop()
             // The document that just committed is the only one that can hear
@@ -70,7 +71,7 @@ extension CEFTab {
         case .loadError(_, let code, let text, let url, let chromiumInterstitial):
             clearTitleBeforeCommit()
             let error = Self.loadError(code: code, text: text, url: url, chromiumInterstitial: chromiumInterstitial)
-            if !error.isBenignInterruption { documentLoaded = true } // an error page; an aborted load (replaced) is none
+            if !error.isBenignInterruption { (documentLoaded, committedIsErrorPage) = (true, true) } // an error page; an aborted load (replaced) is none
             guard let navigation else { return }
             machine.apply(.failed(navigation, error))
             if !error.isBenignInterruption, let failing = error.failingURL, PageBackground.isRealPage(failing) {
