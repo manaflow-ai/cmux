@@ -17,7 +17,7 @@ extension ScreenContentView {
         guard hasMotion || reportScrollOnSettle else {
             scrollRidesFrames = false
             // At rest (a user pan holds the camera, so hasMotion leaves it out): what a close retired goes now.
-            context.releaseRetired(of: screenID)
+            releaseClosing()
             return false
         }
         var moving = false
@@ -64,7 +64,7 @@ extension ScreenContentView {
         // resizes content live again unless another key press holds it.
         if !moving { holdsContentForKeyResize = false }
         // The motion landed: the hosts a close retired are torn down in this frame, not in its first.
-        if !moving { context.releaseRetired(of: screenID) }
+        if !moving { releaseClosing() }
         return moving
     }
     /// A close's first frame of the pane, divider and (riding them) camera springs, the strip's and
@@ -211,6 +211,10 @@ extension ScreenContentView {
             zoomMotion.track(pane, frame)
             clips.append((host, scrolls && pane != zoomMotion.pane))
         }
+        // The panes a close took out, each with its own ground on what its neighbours have not covered (FRAME OWNER S3c).
+        let closing = presentClosingPanes(strip: strip, scale: scale)
+        clips += closing.hosts
+        if closing.changed { changed = true }
         // A zoom that landed gives its pane back its place in the stacking order (`rank`).
         if zoomMotion.pane != zooming {
             ensureStacking()

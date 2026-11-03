@@ -34,14 +34,26 @@ const image = {
   alt: "Retry report with a deliberately long image title",
 };
 
-/// A Cloud chat's sign-in with synthetic replies: Claude's page gives a code to paste back, Codex's
-/// asks for the device code the card shows. Nothing leaves the gallery.
-function gallerySignIn(agent: LoginAgent): CloudSignIn {
+/// A Cloud chat's sign-in with synthetic replies: Claude's page gives a code to paste back, or with
+/// `approve` its automatic page opens on the chat's machine and signs in on the approve (a code to
+/// paste stays one link away); Codex's asks for the device code the card shows. Nothing leaves the
+/// gallery.
+function gallerySignIn(agent: LoginAgent, approve: boolean): CloudSignIn {
   return {
     agent,
     start: async () =>
       agent === "claude"
-        ? { loginId: "gallery-login", url: "https://claude.ai/oauth/authorize", needsCode: true }
+        ? {
+            loginId: "gallery-login",
+            url: "https://claude.ai/oauth/authorize",
+            needsCode: true,
+            ...(approve
+              ? {
+                  autoUrl: "https://claude.ai/oauth/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback",
+                  callbackPort: 54545,
+                }
+              : {}),
+          }
         : {
             loginId: "gallery-login",
             url: "https://auth.openai.com/codex/device",
@@ -49,6 +61,7 @@ function gallerySignIn(agent: LoginAgent): CloudSignIn {
             needsCode: false,
           },
     open: () => {},
+    openOnMachine: async () => true,
     finish: () => new Promise<boolean>(() => {}),
     apiKey: async () => true,
     cancel: () => {},
@@ -58,13 +71,13 @@ function gallerySignIn(agent: LoginAgent): CloudSignIn {
 }
 
 /// Only a Cloud chat's sign-in card, for its states.
-function CloudSignInStates({ agent }: { agent: LoginAgent }) {
+function CloudSignInStates({ agent, approve }: { agent: LoginAgent; approve: boolean }) {
   return (
     <main className="acpmux-scroll" style={{ padding: 18, overflow: "auto", height: "100%", boxSizing: "border-box" }}>
       <TurnActionsContext.Provider
         value={{
           switchModel: () => {},
-          cloudSignIn: gallerySignIn(agent),
+          cloudSignIn: gallerySignIn(agent, approve),
           route: { name: agent === "claude" ? "Claude Code" : "Codex", harness: agent, hostKind: "cloud" },
         }}
       >
@@ -85,8 +98,8 @@ function CloudSignInStates({ agent }: { agent: LoginAgent }) {
   );
 }
 
-function TranscriptType({ signIn }: { signIn?: LoginAgent }) {
-  if (signIn) return <CloudSignInStates agent={signIn} />;
+function TranscriptType({ signIn, approve = false }: { signIn?: LoginAgent; approve?: boolean }) {
+  if (signIn) return <CloudSignInStates agent={signIn} approve={approve} />;
   const [viewer, setViewer] = useState(false);
   return (
     <main className="acpmux-scroll" style={{ padding: 18, overflow: "auto", height: "100%", boxSizing: "border-box" }}>
@@ -195,6 +208,14 @@ export default componentEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__input"));
+      },
+    },
+    "claude-approve": {
+      props: { signIn: "claude", approve: true },
+      note: "After the one Sign in to Claude click on a machine whose acpmux names Claude's automatic page: that page opens in a tab bound to the machine, and the card waits for the approve, with no code field and Paste a code instead as a quiet link.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__primary" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin .cv-turn-error__offer-link"));
       },
     },
     "codex-code": {

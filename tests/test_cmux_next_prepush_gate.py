@@ -255,6 +255,25 @@ class PrePushGateTests(unittest.TestCase):
         return subprocess.run(["git", "-C", str(self.repo), "push", *flags, "origin", ref],
                               env={**self.env, **env}, text=True, capture_output=True)
 
+    def test_a_push_that_changes_the_perf_cron_never_runs_its_tests_in_the_hook(self):
+        # The hook never runs code the push controls (docs/contributor-verification.md, trust boundary). The perf
+        # cron's unit tests are the pushed head's own code, so the hook names them and the command to run them on
+        # code the person trusts; it never runs them, whatever they hold.
+        marker = self.root / "pushed-code-ran"
+        self.write("scripts/cmux-next/perf-cron.py", "VALUE = 1\n")
+        self.write("scripts/cmux-next/tests/test_perf_cron.py",
+                   f"import unittest\nopen({str(marker)!r}, 'w').close()\n"
+                   "class T(unittest.TestCase):\n    def test_ok(self):\n        pass\n")
+        self.commit("change the perf cron")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(marker.exists(), "the hook ran the pushed head's perf cron tests")
+        self.assertIn("perf cron", result.stderr)
+        self.assertIn("python3 -I -m unittest discover -s scripts/cmux-next/tests -p 'test_perf_cron*.py'",
+                      result.stderr, "must say how to run them")
+
     def kit(self, name, text):
         self.write(f"{PKG}/Sources/CmuxNextKit/{name}.swift", text)
 

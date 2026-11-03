@@ -134,6 +134,7 @@ extension TabHandlers {
             guard let (pane, id) = ctx.tab(invocation) else { return }
             pane.toggleFullWidthTab(showing: id)
         })
+        ActionTargetTitles.setPaletteState("palette.toggleFullWidthTab", in: registry) { ctx.services.windows.active?.focusedPane.map { ctx.services.paneFullWidthTabs.contains($0.paneKey) } ?? false }
         bindAudio(registry, ctx)
     }
 

@@ -23,6 +23,7 @@ mod agent_tools;
 mod agent_wait_tool;
 mod browser_tools;
 mod caller_scope;
+mod chat_tools;
 mod cloud_repo_tools;
 mod code_mode;
 mod computer_use_gate;
@@ -710,6 +711,7 @@ impl<B: Backend> Server<B> {
         let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
         let result = match method {
             "initialize" => {
+                chat_tools::remember_client(&params);
                 Ok(initialize(&params, self.list_changed, self.code_mode && self.allowed.is_none()))
             }
             "ping" => Ok(json!({})),
@@ -770,6 +772,7 @@ impl<B: Backend> Server<B> {
         tools.extend(agent_dispatch_tools::descriptors());
         tools.push(workflow_tools::descriptor());
         tools.extend(cloud_repo_tools::descriptors());
+        tools.extend(chat_tools::descriptors());
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
         tools.push(agent_events_tool::descriptor());
@@ -892,6 +895,9 @@ impl<B: Backend> Server<B> {
         }
         if let Some(job) = self.proxied_tool(name, &arguments) {
             return Ok(job.run(self.call_cap));
+        }
+        if let Some(result) = chat_tools::call(name, &arguments) {
+            return Ok(result);
         }
         if let Some(result) = cloud_repo_tools::call(&self.backend, name, &arguments) {
             return Ok(result);

@@ -141,6 +141,8 @@ final class SidebarListView: NSView {
     internal(set) var selectedRowKey: SidebarRowKey?
     /// The anchor step moves the offset; rows wait for the new layout.
     var isShiftingViewport = false
+    /// The clip has had a height (`revealFirstViewport`): the first one goes to the selection before any row is realized.
+    var hasViewport = false
     /// The rect a list outside a scroll view shows (a space page, `SidebarSpacePaging`): rows are
     /// realized for it only. Nil realizes the list's bounds, every row (space-switch-fast: a page
     /// made every row view of its space, so a switch cost grew with the space's workspaces).
