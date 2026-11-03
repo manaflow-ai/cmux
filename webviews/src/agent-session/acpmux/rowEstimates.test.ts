@@ -589,3 +589,77 @@ test("an unlabeled card's first line keeps room for its corner actions (cmux#306
   // A labeled card's actions sit in its header row, so its first line has the full width.
   expect(scrollbar(`${line}\nshort`, "python")).toBe(0);
 });
+
+const permissionAsk = (overrides: Partial<NonNullable<AcpmuxRow["permission"]>> = {}): AcpmuxRow => ({
+  id: "permission",
+  version: 1,
+  at: 0,
+  kind: "permission",
+  permission: {
+    permissionId: "ask",
+    pending: true,
+    title: "Read project files",
+    kind: "read",
+    options: [{ id: "allow_once", kind: "allow_once", name: "Allow once", allow: true }],
+    ...overrides,
+  },
+});
+const questionAsk = (count: number, description?: string): AcpmuxRow =>
+  permissionAsk({
+    question: {
+      id: "question",
+      source: { harness: "claude", session: "fixture" },
+      state: { kind: "pending" },
+      items: [
+        {
+          id: "item",
+          prompt: "Choose a format",
+          multiSelect: false,
+          allowsOther: false,
+          options: Array.from({ length: count }, (_, index) => ({
+            id: String(index),
+            label: `Format ${index}`,
+            detail: description,
+          })),
+        },
+      ],
+    },
+  });
+
+test("permission estimates use the grid frame and reserve a command preview only when drawn", () => {
+  const plain = heightsOf([permissionAsk()])[0]!;
+  // 12px edges, 13px/1.35 title, 12px button gap, 4px edges around 13px/1.25 action text.
+  expect(plain).toBeCloseTo(24 + 13 * 1.35 + 12 + 8 + 13 * 1.25);
+  const command = heightsOf([permissionAsk({ command: "pwd" })])[0]!;
+  expect(command - plain).toBeCloseTo(8 + 16 + 12 * 1.5);
+  const scope = heightsOf([permissionAsk({ scope: { kind: "directory", value: "/project" } })])[0]!;
+  expect(scope - plain).toBeCloseTo(8 + 11 * 1.3);
+});
+
+test("the first layout reserves every question option before placing the reply below", () => {
+  const two = layoutConversation([questionAsk(2), reply("after", "Next")] as AcpmuxRow[], 720);
+  const five = layoutConversation([questionAsk(5), reply("after", "Next")] as AcpmuxRow[], 720);
+  expect(two.heights[0]).toBeCloseTo(32 + 1 + 24 + 18 + 0.5 + 8 + 2 * 36 + 44);
+  expect(five.heights[0]! - two.heights[0]!).toBe(3 * 36);
+  expect(five.tops[1]! - two.tops[1]!).toBe(3 * 36);
+});
+
+test("question estimates follow description wrapping at the actual column width", () => {
+  const row = questionAsk(3, "The format retains the original metadata and supports every project export.");
+  const wide = layoutConversation([row], 720);
+  const narrow = layoutConversation([row], 220);
+  expect(narrow.heights[0]!).toBeGreaterThan(wide.heights[0]!);
+  expect(heightsOf([questionAsk(3)])[0]!).toBeLessThan(wide.heights[0]!);
+});
+
+test("narrow permission action rows and two-line commands reserve their extra height", () => {
+  const row = permissionAsk({
+    command: "printf '%s' ".repeat(12),
+    options: [
+      { id: "allow_once", kind: "allow_once", name: "Allow once", allow: true },
+      { id: "allow_always", kind: "allow_always", name: "Always allow", allow: true },
+      { id: "deny", kind: "reject_once", name: "Deny", allow: false },
+    ],
+  });
+  expect(layoutConversation([row], 180).heights[0]!).toBeGreaterThan(layoutConversation([row], 720).heights[0]!);
+});
