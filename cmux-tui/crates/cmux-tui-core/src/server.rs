@@ -2981,6 +2981,10 @@ mod browser_profile_tests;
 mod creation_burst_tests;
 
 #[cfg(test)]
+#[path = "server/hpa_state_probe_tests.rs"]
+mod hpa_state_probe_tests;
+
+#[cfg(test)]
 mod tests;
 
 #[cfg(unix)]
