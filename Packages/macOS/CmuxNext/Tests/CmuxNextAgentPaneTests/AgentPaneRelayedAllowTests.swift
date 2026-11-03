@@ -344,6 +344,59 @@ struct AgentPaneRelayedAllowTests {
         #expect(gestures.redeem(reserved[last], connection: 1, method: method, params: frame("q\(last)")))
     }
 
+    /// A connection can display multiple sessions; a permission id is identified within its
+    /// session. Reusing that id across sessions must keep both clicks redeemable, while re-answering
+    /// the same ask still revokes its older ticket. The session prefix is collision-safe.
+    @Test func answerTicketsDistinguishSessionsWithTheSamePermissionID() throws {
+        let clock = AgentPaneSlowStartPromptTests.Clock()
+        let gestures = AgentPaneUserGestures(now: { clock.now })
+        let method = "_acpmux/permission_respond"
+        func intent(_ session: String, _ permission: String, option: String = "yes") -> AgentPaneGestureIntent? {
+            AgentPaneGestureIntent(gestureParams: ["intent": ["method": method, "params": [
+                "sessionId": session, "permissionId": permission, "optionId": option]]])
+        }
+        func frame(_ session: String, _ permission: String, option: String = "yes") -> [String: Any] {
+            ["sessionId": session, "permissionId": permission, "optionId": option]
+        }
+
+        let firstIntent = try #require(intent("session-a", "p1"))
+        let secondIntent = try #require(intent("session-b", "p1"))
+        #expect(firstIntent.slot != secondIntent.slot)
+        gestures.record(click: true)
+        let first = try #require(gestures.reserve(connection: 1, intent: firstIntent))
+        gestures.record(click: true)
+        let second = try #require(gestures.reserve(connection: 1, intent: secondIntent))
+        #expect(gestures.redeem(first, connection: 1, method: method, params: frame("session-a", "p1")),
+                "the second session revoked the first session's pending answer")
+        #expect(gestures.redeem(second, connection: 1, method: method, params: frame("session-b", "p1")))
+
+        // Still fail closed if a ticket from one session is supplied to another.
+        gestures.record(click: true)
+        let misrouted = try #require(gestures.reserve(connection: 1, intent: firstIntent))
+        #expect(!gestures.redeem(misrouted, connection: 1, method: method, params: frame("session-b", "p1")))
+
+        // Re-answering the *same* ask supersedes its previous answer.
+        gestures.record(click: true)
+        let older = try #require(gestures.reserve(connection: 1, intent: firstIntent))
+        gestures.record(click: true)
+        let newerIntent = try #require(intent("session-a", "p1", option: "no"))
+        let newer = try #require(gestures.reserve(connection: 1, intent: newerIntent))
+        #expect(!gestures.redeem(older, connection: 1, method: method, params: frame("session-a", "p1")))
+        #expect(gestures.redeem(newer, connection: 1, method: method,
+                                params: frame("session-a", "p1", option: "no")))
+
+        // A naive "session#permission" slot would collide for these two distinct pairs.
+        let delimitedA = try #require(intent("a#b", "c"))
+        let delimitedB = try #require(intent("a", "b#c"))
+        #expect(delimitedA.slot != delimitedB.slot)
+        gestures.record(click: true)
+        let a = try #require(gestures.reserve(connection: 1, intent: delimitedA))
+        gestures.record(click: true)
+        let b = try #require(gestures.reserve(connection: 1, intent: delimitedB))
+        #expect(gestures.redeem(a, connection: 1, method: method, params: frame("a#b", "c")))
+        #expect(gestures.redeem(b, connection: 1, method: method, params: frame("a", "b#c")))
+    }
+
     /// The same review, through the transport: a ticket the page took for answer B does not let
     /// it send answer A to another machine (the gesture is refused, so nothing is signed).
     @Test func aTicketForOneAnswerIsRefusedForAnother() async throws {
