@@ -94,13 +94,18 @@ on the machine>` picks the folder; `--timeout <seconds>` bounds the wait
 nothing starts until they click Start, and a refusal says so.
 
 The answer's `.follow_up` holds the `cloud exec` commands for that chat:
-`send` (the next prompt, in place of `PROMPT`), `wait` (20 s at a time; run
-it again until it exits 0) and `last` (the newest reply). On an error, read
+`send` (the next prompt, in place of `PROMPT`), `wait` (20 s at a time) and
+`last` (the newest reply). Run them with `cmux --json` and read the remote
+command's `exit_code` in the answer, since `cloud exec` itself succeeds
+either way: for `wait`, 0 means the turn ended (then run `last`), 2 means
+the agent asks the user for a permission, and 3 means still working (run it
+again). On an error, read
 `.code`: `cloud.signed_out` (tell the user to sign in to cmux),
 `cloud.start_pending` (the machine is still starting: run
 `.details.again` later), `chat.permission_waiting` (the agent asks the user
 for a permission in the chat's tab: tell them), `chat.wait_timeout` (still
-working: wait on with `.follow_up.wait`).
+working: wait on with `.details.answer.follow_up.wait`, the
+answer so far).
 
 ## 2. Run commands
 
