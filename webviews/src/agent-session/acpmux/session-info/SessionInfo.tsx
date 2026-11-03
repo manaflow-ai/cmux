@@ -107,7 +107,7 @@ import { OutputsSection, outputArtifacts, outputLinks, type OutputArtifact, type
 import { sessionInfoLists, type SessionInfoProcess, type ProcessRegistry } from "./processes";
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
-import { SubagentsSection, subagentCounts } from "./SubagentsSection";
+import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
 import { UsageSection, usageMeta, type UsageOwnRowLayout } from "./UsageSection";
@@ -117,6 +117,7 @@ import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { useUnderSessionInfo } from "./underSessionInfo";
 import { useNativeSessionInfoHost } from "./native/host";
+import { useSameValue } from "./sameValue";
 import { NativeSessionInfo } from "./native/NativeSessionInfo";
 import "./sessionInfo.css";
 
@@ -882,7 +883,10 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const [gallery, setGallery] = useState(false);
   const display = useChatDisplay();
   const sizing = useChatSizing();
-  const column = chatColumnOf(sizing.width, display, sizing.scale);
+  // A column the display owns (its own width) or a zoomed page's is a new object on every call: kept
+  // while its numbers are the same, so the placement effect below (the shell's column pin and its
+  // CHAT_LAYOUT_EVENT) runs only when the column changes, never once per streamed token.
+  const column = useSameValue(chatColumnOf(sizing.width, display, sizing.scale));
   // It slides in from the pane's right edge and back out (ui/presence.ts), keeping its sections
   // while it leaves.
   const presence = usePresence(shown && !native, "right");
@@ -1018,39 +1022,84 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     setOverflow((current) => (next > current ? next : current));
   }, [shell, drawn, reading, wide, paneWidth, room, side, width, column, rows.length]);
   const scopedAgent = scope?.agent;
-  const summary = useMemo(
-    () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
-    [drawn, scopedAgent, snapshot.summary, rows],
+  // What the sections list keeps its identity while it holds the same things (sameValue.ts): a snapshot
+  // is new objects on every streamed token, and the sections (SessionInfoSections, memoized) then skip it.
+  const summary = useSameValue(
+    useMemo(
+      () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
+      [drawn, scopedAgent, snapshot.summary, rows],
+    ),
   );
   // After `summary`: read before its declaration, it threw on every render (a temporal dead zone).
   const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
-  const made = useMemo(
-    () => (drawn ? sessionSummary(rows, repository ?? null, summary?.cwd) : undefined),
-    [drawn, rows, repository, summary?.cwd],
+  const made = useSameValue(
+    useMemo(
+      () => (drawn ? sessionSummary(rows, repository ?? null, summary?.cwd) : undefined),
+      [drawn, rows, repository, summary?.cwd],
+    ),
   );
-  const links = useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]);
+  const links = useSameValue(useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]));
   const artifacts = useMemo(() => (drawn ? chatGallery(rows).length : 0), [drawn, rows]);
-  const documents = useMemo(() => (drawn ? outputArtifacts(rows) : []), [drawn, rows]);
+  const documents = useSameValue(useMemo(() => (drawn ? outputArtifacts(rows) : []), [drawn, rows]));
   const views = subagents?.views;
   const asks = subagents?.asks;
   const scopedAgents = scope?.agents;
-  const agents = useMemo(
-    () => (drawn ? (scopedAgents ?? [...subagentsIn(rows, views).values()]) : []),
-    [drawn, scopedAgents, rows, views],
+  const agents = useSameValue(
+    useMemo(
+      () => (drawn ? (scopedAgents ?? [...subagentsIn(rows, views).values()]) : []),
+      [drawn, scopedAgents, rows, views],
+    ),
   );
   const chatRows = snapshot.rows;
-  const transcriptTasks = useMemo(
-    () => (scope && made ? withChatEnds(made.backgroundTasks, chatRows) : made?.backgroundTasks),
-    [scope, made, chatRows],
+  const transcriptTasks = useSameValue(
+    useMemo(
+      () => (scope && made ? withChatEnds(made.backgroundTasks, chatRows) : made?.backgroundTasks),
+      [scope, made, chatRows],
+    ),
   );
   const allProcesses = registry?.processes;
-  const processes = useMemo(
-    () => (drawn && scope && allProcesses ? subagentProcesses(allProcesses, rows) : allProcesses),
-    [drawn, scope, allProcesses, rows],
+  const processes = useSameValue(
+    useMemo(
+      () => (drawn && scope && allProcesses ? subagentProcesses(allProcesses, rows) : allProcesses),
+      [drawn, scope, allProcesses, rows],
+    ),
   );
-  const waiting = useMemo(
-    () => (drawn && asks ? waitingSubagents(asks, views) : new Set<string>()),
-    [drawn, asks, views],
+  const waiting = useSameValue(
+    useMemo(() => (drawn && asks ? waitingSubagents(asks, views) : new Set<string>()), [drawn, asks, views]),
+  );
+  // The rest of what the sections take from the snapshot and the App, kept the same way.
+  const allSessions = useSameValue(scope ? undefined : snapshot.sessions);
+  const peerKinds = useSameValue(snapshot.peerKinds);
+  const sameGrants = useSameValue(scope ? undefined : grants);
+  const startedList = useSameValue(scope ? undefined : sessions?.list);
+  const workflowList = useSameValue(scope ? undefined : workflows?.list);
+  const onOpenSubagent = useStableCallback(subagents?.onOpen);
+  const onOpenSession = useStableCallback(sessions?.onOpen);
+  const onStopWorkflow = useStableCallback(workflows?.onStop);
+  const onOpenWorkflowAgent = useStableCallback(workflows?.onOpenAgent);
+  const setRunningLimit = useStableCallback(onSetRunningLimit);
+  // The tool calls the loaded transcript holds, for a task row's Show call in a chat whose terminal
+  // cannot open here: read here, so a call added to an existing row reaches the sections, and kept while
+  // it is the same set. A chat on this Mac opens the terminal instead and reads none.
+  const readsCalls = !!onShowCall && !opensProcessTerminal(summary);
+  const toolCalls = useSameValue(
+    useMemo(() => (drawn && readsCalls ? toolCallIds(rows) : undefined), [drawn, readsCalls, rows]),
+  );
+  // The rows the sections read for the chat's gallery: the same rows until one is added, the gallery
+  // changes or the panel lists another agent, not each streamed token's copy.
+  const listing = scope?.agent.id;
+  const galleryRows = useRef({ rows, length: rows.length, artifacts, listing });
+  if (
+    galleryRows.current.length !== rows.length ||
+    galleryRows.current.artifacts !== artifacts ||
+    galleryRows.current.listing !== listing
+  )
+    galleryRows.current = { rows, length: rows.length, artifacts, listing };
+  const sectionRows = galleryRows.current.rows;
+  const banner = useMemo(
+    () =>
+      scope && SUBAGENT_HEADER !== "title" ? <SubagentBanner scope={scope} variant={SUBAGENT_HEADER} /> : undefined,
+    [scope],
   );
   // Every pull request's title, state, lines and checks from the App's cache, the folder's live
   // read over it (changesStatus.ts); asked for only while Changes is unfolded.
@@ -1187,42 +1236,41 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
       presence={presence}
     >
       {/* Another chat's sections start drawn with what that chat has: none of its rows drops in. */}
-      <SessionInfo
+      <SessionInfoSections
         key={scope ? `${snapshot.sessionId}:subagent:${scope.agent.id}` : snapshot.sessionId}
-        banner={
-          scope && SUBAGENT_HEADER !== "title" ? <SubagentBanner scope={scope} variant={SUBAGENT_HEADER} /> : undefined
-        }
+        banner={banner}
         agent={scope?.agent}
         summary={summary}
         machineName={machineName}
-        peerKinds={snapshot.peerKinds}
+        peerKinds={peerKinds}
         repository={repository}
         // A subagent's view lists its own things: the grants are the chat's.
-        grants={scope ? undefined : grants}
+        grants={sameGrants}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         made={made}
         links={links}
         artifacts={artifacts}
         documents={documents}
-        rows={rows}
+        rows={sectionRows}
+        toolCalls={toolCalls}
         agents={agents}
         waiting={waiting}
-        onOpenSubagent={subagents?.onOpen}
+        onOpenSubagent={onOpenSubagent}
         statuses={statuses}
         processes={processes}
         listed={registry?.listed}
         transcriptTasks={transcriptTasks}
         // The chats the chat's agent started are the chat's.
-        sessions={scope ? undefined : sessions?.list}
-        workflows={scope ? undefined : workflows?.list}
-        onStopWorkflow={workflows?.onStop}
-        onOpenWorkflowAgent={workflows?.onOpenAgent}
-        onOpenSession={sessions?.onOpen}
+        sessions={startedList}
+        workflows={workflowList}
+        onStopWorkflow={onStopWorkflow}
+        onOpenWorkflowAgent={onOpenWorkflowAgent}
+        onOpenSession={onOpenSession}
         // Usage lists every chat acpmux lists; a subagent's own panel has no Usage.
-        allSessions={scope ? undefined : snapshot.sessions}
+        allSessions={allSessions}
         onOpenChat={onOpenChat}
         onShowUsage={scope ? undefined : onShowUsage}
-        onSetRunningLimit={onSetRunningLimit}
+        onSetRunningLimit={setRunningLimit}
         revealed={revealed}
         onRevealed={onRevealed}
         onStopProcess={onStopProcess}
@@ -1436,6 +1484,17 @@ export function SessionInfoPanel({
 export type RailLayout = "glance" | "rules" | "groups";
 export const RAIL_LAYOUT: RailLayout = "glance";
 
+/// The tool calls in `rows`, by id.
+const toolCallIds = (rows: readonly AcpmuxRow[]): ReadonlySet<string> =>
+  new Set(rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool?.id ? [item.tool.id] : []))));
+
+/// The sections for one chat, drawn again only when a prop changes: SessionInfoPresence hands it the
+/// same lists while they hold the same things, so a streamed token, a tool call that makes nothing or a
+/// usage tick draws nothing here.
+const SessionInfoSections = memo(function SessionInfoSections(props: Parameters<typeof SessionInfo>[0]) {
+  return <SessionInfo {...props} />;
+});
+
 /// The sections for one chat.
 export function SessionInfo({
   summary,
@@ -1449,6 +1508,7 @@ export function SessionInfo({
   artifacts = 0,
   documents = [],
   rows = [],
+  toolCalls,
   agents = [],
   waiting = new Set(),
   onOpenSubagent,
@@ -1510,6 +1570,9 @@ export function SessionInfo({
   onOpenDocument?: (artifact: Artifact) => void;
   /// The chat's rows, for its gallery.
   rows?: readonly AcpmuxRow[];
+  /// The tool calls the loaded transcript holds (toolCallIds), where the caller reads them; else read
+  /// from `rows`.
+  toolCalls?: ReadonlySet<string>;
   agents?: readonly Subagent[];
   waiting?: ReadonlySet<string>;
   onOpenSubagent?: (id: string) => void;
@@ -1606,11 +1669,8 @@ export function SessionInfo({
   const local = opensProcessTerminal(summary);
   const showsCalls = !local && !!onShowCall && commands.some((command) => command.toolCallId);
   const calls = useMemo(
-    () =>
-      showsCalls
-        ? new Set(rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool?.id ? [item.tool.id] : []))))
-        : undefined,
-    [showsCalls, rows],
+    () => (showsCalls ? (toolCalls ?? toolCallIds(rows)) : undefined),
+    [showsCalls, toolCalls, rows],
   );
   const body = useRef<HTMLDivElement>(null);
   // Rows scrolled past the body's top or bottom fade at that edge (scrollEdges.ts, sessionInfo.css)
@@ -1818,7 +1878,7 @@ export function SessionInfo({
       title={t("summary.subagents")}
       open={state.subagents}
       onOpenChange={fold("subagents")}
-      meta={value(subagentCounts(t, listedAgents, waiting, sessions))}
+      meta={<SubagentCountsMeta agents={listedAgents} waiting={waiting} sessions={sessions} />}
     >
       <SubagentLimitStepper chatId={chatId} limits={limits} sessions={sessions} onSet={setRunningLimit} />
       {listedAgents.length + sessions.length > 0 && (

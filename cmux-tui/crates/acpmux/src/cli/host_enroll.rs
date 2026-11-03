@@ -41,6 +41,8 @@ pub(crate) struct Plan {
     /// `host enroll` (Add Machine): this Mac lends the machine its GitHub login
     /// (`github_broker.rs`). `host doctor` never changes what a peer is lent.
     pub lends_github: bool,
+    /// Only an explicit enroll may record an unknown key during its first reach check.
+    pub accept_new_host_key: bool,
 }
 
 impl Plan {
@@ -51,6 +53,7 @@ impl Plan {
         harnesses: Vec<String>,
         remote_binary: String,
         reverse: bool,
+        accept_new_host_key: bool,
     ) -> Self {
         Self {
             name: name.unwrap_or_else(|| hosts::short_name(&host)),
@@ -60,6 +63,7 @@ impl Plan {
             remote_binary,
             reverse,
             lends_github: true,
+            accept_new_host_key,
         }
     }
 }
@@ -214,7 +218,7 @@ fn machine_steps(
         let result = match (step, update, gate(step, &done)) {
             (Step::Update, None, _) => continue,
             (_, _, Some(skip)) => skip,
-            (Step::Reach, ..) => reach(r),
+            (Step::Reach, ..) => reach(r, plan.accept_new_host_key),
             (Step::Install, ..) => install(r, &plan.name, &plan.remote_binary, fix),
             (Step::Daemon, ..) => {
                 let (result, listening) = daemon(r, &plan.name, plan.port, fix);
@@ -318,6 +322,7 @@ enum SshFailure {
     SshOff,
     KeyRejected,
     HostKeyChanged,
+    HostKeyUntrusted,
     Other,
 }
 
@@ -326,8 +331,10 @@ impl SshFailure {
         let s = stderr.to_ascii_lowercase();
         let any = |needles: &[&str]| needles.iter().any(|n| s.contains(n));
         // ssh prints the host key warning before anything else it reports.
-        if any(&["remote host identification has changed", "host key verification failed"]) {
+        if any(&["remote host identification has changed"]) {
             Self::HostKeyChanged
+        } else if any(&["host key verification failed"]) {
+            Self::HostKeyUntrusted
         } else if any(&["connection refused"]) {
             Self::SshOff
         } else if any(&["permission denied", "too many authentication failures"]) {
@@ -353,7 +360,8 @@ impl SshFailure {
             Self::NoRoute => "no route to the host",
             Self::SshOff => "ssh is off (connection refused)",
             Self::KeyRejected => "the ssh key was rejected",
-            Self::HostKeyChanged => "the host key does not match or is not known yet",
+            Self::HostKeyChanged => "the host key has changed",
+            Self::HostKeyUntrusted => "the host key is not trusted",
             Self::Other => "ssh failed",
         }
     }
@@ -373,7 +381,10 @@ impl SshFailure {
                 "Add this machine's public key to ~/.ssh/authorized_keys on {bare} (for example `ssh-copy-id {host}`), then check again."
             ),
             Self::HostKeyChanged => format!(
-                "If {bare} was reinstalled, remove its old key with `ssh-keygen -R {bare}`; then (or if it is new to this machine) run `ssh {host}` once and accept its key."
+                "Verify {bare}'s new fingerprint with its owner before removing the old key with `ssh-keygen -R {bare}` and reconnecting."
+            ),
+            Self::HostKeyUntrusted => format!(
+                "Run `ssh {host}` to inspect the host key. For a new machine, Add Machine or `acpmux machine enroll {host} --accept-new-host-key` records its first key; changed keys are still refused."
             ),
             Self::Other => format!("Run `ssh {host}` in a terminal to see why it fails."),
         }
@@ -390,9 +401,9 @@ fn tailnet_acl_hint(host: &str) -> Option<String> {
     ))
 }
 
-fn reach(r: &dyn Remote) -> StepResult {
+fn reach(r: &dyn Remote, accept_new_host_key: bool) -> StepResult {
     let host = r.host();
-    match r.exec("true", None) {
+    match r.first_contact(accept_new_host_key) {
         Ok(out) if out.ok => {
             StepResult::new(Step::Reach, StepState::Ok, format!("ssh {host} works"))
         }

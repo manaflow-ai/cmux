@@ -19,7 +19,8 @@ import Foundation
 /// - `cloudMachine.pause {id}` -> `{}`: Pause Machine, for a running machine only (the chat menu
 ///   of a chat on that machine, cmuxterm-hq#4755).
 ///
-/// Open, Resume, Attach and Pause change a machine: each takes the person's own click (one gesture).
+/// Open, Resume, Attach and Pause change a machine: each takes the person's own click (one gesture;
+/// Attach its scope-add credit, so the Enter of a prompt that wakes the machine still sends it).
 public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
     case list
     case recoveryList
@@ -186,7 +187,10 @@ extension AgentPaneCloudMachineRequest {
         case .resume(let id): return run(machines?.resume, on: id, gestures: gestures)
         case .attach(let id):
             guard let attach = machines?.attach else { return AgentPaneModel.unsupported(method) }
-            guard gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+            // The gesture's scope-add credit, not its grant: a send in a chat whose machine is
+            // paused wakes it with the Enter that sent the prompt, and the prompt then goes with
+            // that Enter's grant once the chat is back (webviews cloudWake.ts).
+            guard gestures.consumeScope() else { return AgentPaneModel.transportFailure(.gestureRequired) }
             guard await attach(id) else { return Self.notRun(method) }
             return AgentPaneReply.success()
         case .pause(let id): return run(machines?.pause, on: id, gestures: gestures)
