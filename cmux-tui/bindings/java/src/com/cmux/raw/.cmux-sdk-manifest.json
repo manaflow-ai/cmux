@@ -331,6 +331,36 @@
       "size": 3161
     },
     {
+      "path": "ChiefWorkAgent.java",
+      "sha256": "691058b10d63dbc68981782c60b38c80315c948e92c0c00ccbacb371c5570fb2",
+      "size": 5240
+    },
+    {
+      "path": "ChiefWorkAgentState.java",
+      "sha256": "a71057b6a02404ef76555ec7a6febca47a2d1a005a0e30a278913aec18b70694",
+      "size": 963
+    },
+    {
+      "path": "ChiefWorkRequest.java",
+      "sha256": "333813b3eee8dfb5edb67dd14b1be47464847aa46fee84a9e87e90eef0c82c2d",
+      "size": 1972
+    },
+    {
+      "path": "ChiefWorkResult.java",
+      "sha256": "6f3db22cfc07b069ce72f9025fc43aca5890882099824b805d1cd729a6ca8794",
+      "size": 4371
+    },
+    {
+      "path": "ChiefWorkTask.java",
+      "sha256": "b69834a36be0649eb4d4518a9c3fd00572c97c405997a4e0bb00a53e4c07c538",
+      "size": 6702
+    },
+    {
+      "path": "ChiefWorkTaskStatus.java",
+      "sha256": "695f256fc131117ae06cc7942c44d2ae89a53eef60fd288b98c2cf51184a8b2b",
+      "size": 991
+    },
+    {
       "path": "ClearHistoryRequest.java",
       "sha256": "ffc80cfcdf28e7c70a8caf1416776000f2dcb237635c9d163101d65868dd9c8f",
       "size": 2798
@@ -732,8 +762,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "751d4958d56455405d46f2aaa0d18e3f15e42fc0dc1c37ff35fdf9ccef84574e",
-      "size": 79424
+      "sha256": "bdc99e220a85d9a2cb8c15099d06c4e8ac93d665f2a1ccfdc84538a63bafebaa",
+      "size": 79636
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1382,8 +1412,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "8cdc3109c481a01a38626d1eeac7f3e5f4d3b840112c4b6d138b017fb84bf01d",
-      "size": 68574
+      "sha256": "b4f8f1a23f370ab57a6c74df4c923c582683058d5dcfc2eed0f695fb1b55b28a",
+      "size": 68794
     },
     {
       "path": "GetBlobRequest.java",
@@ -2137,7 +2167,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "874090b54a4019a4ce570fdaab09210332943329af67db5cbae4be666e7c50b1",
+      "sha256": "d203409d63f9bba692be5f561f7003c0424f329163bcec0929f5807f5456a43f",
       "size": 7767
     },
     {
@@ -3487,7 +3517,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976",
+  "ir_sha256": "bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

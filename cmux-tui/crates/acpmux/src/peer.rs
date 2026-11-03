@@ -959,6 +959,11 @@ impl Peer {
         }
     }
 
+    /// This link's deadlines (`peer_link.rs`).
+    pub fn timings(&self) -> LinkTimings {
+        self.timings
+    }
+
     /// How many requests wait for the peer's answer now.
     pub async fn pending_requests(&self) -> usize {
         self.pending.lock().await.len()

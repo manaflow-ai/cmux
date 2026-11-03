@@ -37,6 +37,9 @@ public actor CloudCodexBroker {
     private var targetLocks: Set<String> = []
     private var targetWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var refreshTask: Task<Void, Never>?
+    /// Machines taken back after a relaunch whose catch-up delivery failed, each with the task that tries
+    /// it again until its access ends (``retryCatchUp(_:generation:until:)``).
+    private var catchUps: [String: (token: UUID, task: Task<Void, Never>)] = [:]
     private var refreshCycle = 0
     /// The first wait before a failed renewal tries again; each failure after it doubles the wait, up
     /// to ``renewalRetryCap``.
@@ -64,7 +67,10 @@ public actor CloudCodexBroker {
         self.record = CloudCodexDeliveryRecord(home: home)
     }
 
-    deinit { refreshTask?.cancel() }
+    deinit {
+        refreshTask?.cancel()
+        for entry in catchUps.values { entry.task.cancel() }
+    }
 
     /// Starts the browser device-code flow. The caller displays this prompt in
     /// cmux and then calls `waitForLogin` without opening a VM terminal.
@@ -161,6 +167,7 @@ public actor CloudCodexBroker {
     public func revoke(target: CloudCodexBrokerTarget, signOut: Bool = false) async throws {
         let registered = targets.removeValue(forKey: target.machineID) != nil || pendingRevocations.contains(target.machineID)
         targetGenerations[target.machineID, default: 0] += 1
+        cancelCatchUp(target.machineID)
         guard registered else { return }
         pendingRevocations.insert(target.machineID)
         revocationTargets[target.machineID] = target
@@ -226,7 +233,7 @@ public actor CloudCodexBroker {
 
     private func stopRenewalIfEmpty() {
         guard targets.isEmpty else { return }
-        cached = nil; refreshTask?.cancel(); refreshTask = nil
+        cached = nil; refreshTask?.cancel(); refreshTask = nil; cancelCatchUps()
     }
 
     /// The server has confirmed deletion; there is no VM file left to restore.
@@ -234,6 +241,7 @@ public actor CloudCodexBroker {
     public func discardDeletedTarget(_ machineID: String) {
         targetGenerations[machineID, default: 0] += 1
         targets.removeValue(forKey: machineID)
+        cancelCatchUp(machineID)
         revocationTargets.removeValue(forKey: machineID)
         pendingRevocations.remove(machineID)
         previousModeByMachine.removeValue(forKey: machineID)
@@ -479,19 +487,95 @@ public actor CloudCodexBroker {
             try? await revoke(target: target)
             return
         }
-        let renewBy = Self.grant(in: left).expiresAt.addingTimeInterval(-120)
-        if let cached, cached.expiresAt > Date().addingTimeInterval(120) {
-            // Renewal already runs for this holder: the machine joins it with the current grant.
-            try? await deliver(cached, target: target, expectedGeneration: generation)
-        } else if refreshTask != nil, let nextRenewalAt, renewBy < nextRenewalAt {
-            // The scheduled renewal comes after this machine's access ends: it gets fresh access now.
-            if let fresh = try? await refreshAccess(schedule: true) {
-                try? await deliver(fresh, target: target, expectedGeneration: generation)
-            }
+        let leftExpiry = Self.grant(in: left).expiresAt
+        let renewBy = leftExpiry.addingTimeInterval(-120)
+        let cachedIsCurrent = cached.map { $0.expiresAt > Date().addingTimeInterval(120) } ?? false
+        if cachedIsCurrent || (refreshTask != nil && nextRenewalAt.map { renewBy < $0 } == true) {
+            // Renewal already runs for this holder and the machine joins it with the current grant, or
+            // the scheduled renewal comes after this machine's access ends and it gets fresh access now.
+            // A failure tries again until that access ends (cmux#34010).
+            do { try await catchUp(target, generation: generation) }
+            catch where Self.catchUpRetries(error) { retryCatchUp(target, generation: generation, until: leftExpiry) }
+            catch {}
         } else {
             scheduleRefresh(grant: Self.grant(in: left))
         }
     }
+
+    /// One catch-up delivery for a machine taken back after a relaunch: the cached grant while it is
+    /// current, else a fresh one.
+    private func catchUp(_ target: CloudCodexBrokerTarget, generation: Int) async throws {
+        let grant: CloudCodexAccessGrant
+        if let cached, cached.expiresAt > Date().addingTimeInterval(120) { grant = cached }
+        else { grant = try await refreshAccess(schedule: true) }
+        try await deliver(grant, target: target, expectedGeneration: generation)
+    }
+
+    /// Whether a failed catch-up tries again: what a renewal retries, and a machine paused for now.
+    static func catchUpRetries(_ error: any Error) -> Bool {
+        retriesLater(error) || error as? CloudCodexBrokerError == .targetOffline
+    }
+
+    /// Tries a failed catch-up again, after the renewal backoff (``renewalRetryDelay(_:)``), until the
+    /// access the machine holds runs out at `expiry`; the last wait ends at `expiry`. Before cmux#34010 a
+    /// failed catch-up was not tried again, and the machine's access could expire before the scheduled
+    /// renewal reached it. Stops: a delivery lands, `expiry` passes, the machine's access already outlasts
+    /// `expiry` (the scheduled renewal reached it), an error a renewal would not retry, or the machine is
+    /// no longer this run's at `generation` (erased, signed out, deleted), the account or team changed,
+    /// or the broker stopped. Cleanup: ``revoke(target:signOut:)``, ``discardDeletedTarget(_:)``,
+    /// ``shutdown()``, ``detach()`` and an emptied target list cancel the task, and it removes its own
+    /// entry in ``catchUps`` when it ends.
+    private func retryCatchUp(_ target: CloudCodexBrokerTarget, generation: Int, until expiry: Date) {
+        let id = target.machineID
+        catchUps.removeValue(forKey: id)?.task.cancel()
+        let token = UUID()
+        let task = Task { [weak self] in
+            var failures = 0
+            // wakeup-allow: each pass sleeps a backoff first and the loop ends at the machine's access expiry.
+            while !Task.isCancelled {
+                failures += 1
+                guard let delay = await self?.catchUpDelay(failures, until: expiry) else { break }
+                // wakeup-allow: bounded catch-up retries, backed off, that end when the machine's access expires.
+                do { try await Task.sleep(for: delay) } catch { break }
+                guard let self, await self.catchUpWanted(id, generation: generation, until: expiry) else { break }
+                do { try await self.catchUp(target, generation: generation); break }
+                catch { if !Self.catchUpRetries(error) { break } }
+            }
+            await self?.catchUpEnded(id, token: token)
+        }
+        catchUps[id] = (token, task)
+    }
+
+    /// The wait before catch-up try `failures`, never past `expiry`; nil once `expiry` has passed.
+    private func catchUpDelay(_ failures: Int, until expiry: Date) -> Duration? {
+        let remaining = expiry.timeIntervalSinceNow
+        guard remaining > 0 else { return nil }
+        return min(renewalRetryDelay(failures), .seconds(remaining))
+    }
+
+    private func catchUpWanted(_ id: String, generation: Int, until expiry: Date) async -> Bool {
+        guard !stopped, targets[id] != nil, !pendingRevocations.contains(id),
+              targetGenerations[id, default: 0] == generation, Date() < expiry,
+              Self.grant(in: installedAccess[id] ?? Data()).expiresAt <= expiry else { return false }
+        return await currentScope() == scope
+    }
+
+    private func catchUpEnded(_ id: String, token: UUID) {
+        if catchUps[id]?.token == token { catchUps.removeValue(forKey: id) }
+    }
+
+    private func cancelCatchUp(_ id: String) { catchUps.removeValue(forKey: id)?.task.cancel() }
+
+    private func cancelCatchUps() {
+        for entry in catchUps.values { entry.task.cancel() }
+        catchUps.removeAll()
+    }
+
+    /// The machines a failed catch-up still tries again for.
+    func catchUpMachineIDs() -> Set<String> { Set(catchUps.keys) }
+
+    /// The catch-up retry for `id`, if one runs, so a test can wait for it to end.
+    func catchUpTask(_ id: String) -> Task<Void, Never>? { catchUps[id]?.task }
 
     /// The access file this holder's delivery left on `target` under the `own` marker, or nil when the
     /// machine holds none of it (the person signed Codex in some other way since, another Mac or
@@ -551,6 +635,7 @@ public actor CloudCodexBroker {
     public func shutdown() async -> Set<String> {
         stopped = true
         refreshTask?.cancel()
+        cancelCatchUps()
         refreshInFlight?.cancel()
         let endingTargets = Array(targets.merging(revocationTargets) { _, pending in pending }.values)
         if let session { await invalidate(session) }
@@ -572,6 +657,7 @@ public actor CloudCodexBroker {
         detached = true
         refreshTask?.cancel()
         refreshTask = nil
+        cancelCatchUps()
         refreshInFlight?.cancel()
         if let session { await invalidate(session) }
         let failed = await revokeWithinQuitBudget(asked, failed: pending)

@@ -2101,6 +2101,8 @@ pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
 mod mcp_connect;
 mod routes;
 mod secrets;
+mod vault;
+pub(crate) use vault::reply as vault_reply;
 mod session_auth;
 mod session_files;
 mod stream;

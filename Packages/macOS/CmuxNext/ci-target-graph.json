@@ -277,6 +277,7 @@
         "CmuxNextChromiumWarmup",
         "CmuxNextCloud",
         "CmuxNextCloudCredentials",
+        "CmuxNextCloudTunnel",
         "CmuxNextCloudUI",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
@@ -798,6 +799,23 @@
       "targets": [
         "CmuxNextCloud",
         "CmuxNextDaemon"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextCloudTunnel": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCloudTunnel",
+      "targets": [
+        "CmuxNextCompat"
+      ],
+      "packages": []
+    },
+    "CmuxNextCloudTunnelTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCloudTunnelTests",
+      "targets": [
+        "CmuxNextCloudTunnel"
       ],
       "packages": [],
       "reads": []
@@ -1498,6 +1516,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPages",
       "targets": [
         "CmuxNextBrowserCore",
+        "CmuxNextChiefMemory",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextErrorJournal",

@@ -115,7 +115,93 @@ class WaitTests(unittest.TestCase):
                 del os.environ["GITHUB_OUTPUT"]
             self.assertEqual(slept, [800.0])
             self.assertEqual(json.loads(out.read_text()), {"sha": A, "started": 1900.0, "covered": {A: B}})
-            self.assertEqual(output.read_text(), f"base={B}\n")
+            self.assertEqual(output.read_text(), f"base={B}\nrun=true\n")
+
+    def run_wait(self, last, sha, before, now, end, tip):
+        """One `wait` call: (the outputs it wrote, the marker it wrote, slept seconds)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            marker, out, output = Path(tmp, "last.json"), Path(tmp, "new.json"), Path(tmp, "output")
+            marker.write_text(json.dumps(last))
+            output.write_text("")
+            slept = []
+            clock = iter([now, end])
+            args = SimpleNamespace(off=False, hold_minutes=15, last=str(marker), sha=sha, before=before, out=str(out),
+                                   attempt=1, ref="refs/heads/feat-cmux-next")
+            with unittest.mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), redirect_stdout(io.StringIO()):
+                coalesce.wait(args, sleep=slept.append, clock=lambda: next(clock), tip=lambda ref: tip)
+            got = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            return got, json.loads(out.read_text()), slept
+
+    def test_a_job_that_slept_yields_when_the_branch_moved_on(self):
+        last = {"sha": A, "started": 0.0, "covered": {A: D}}
+        got, marker, slept = self.run_wait(last, B, A, 60.0, 900.0, tip=C)
+        self.assertEqual((got["run"], got["base"], slept), ("false", "", [840.0]))
+        self.assertEqual(marker, last)  # nothing recorded: the newer push's run covers B
+        # Still the tip: it runs.
+        got, marker, _ = self.run_wait(last, B, A, 60.0, 900.0, tip=B)
+        self.assertEqual((got["run"], got["base"], marker["sha"]), ("true", A, B))
+        # The tip unreadable: it runs, as before.
+        got, _, _ = self.run_wait(last, B, A, 60.0, 900.0, tip=None)
+        self.assertEqual(got["run"], "true")
+
+    def test_a_job_that_did_not_sleep_never_yields(self):
+        # Past the deadline it runs at once whatever landed since, so a window always ends in a run.
+        last = {"sha": A, "started": 0.0, "covered": {A: D}}
+        got, marker, slept = self.run_wait(last, C, B, 905.0, 905.0, tip="e" * 40)
+        self.assertEqual((got["run"], got["base"], slept, marker["sha"]), ("true", A, [], C))
+
+    def simulate(self, arrivals, marker, hold=900.0, startup=10.0):
+        """The coalesce group as GitHub runs it (cancel-in-progress false): one job runs at a time, and a push's job
+        waits pending behind it, replacing the pending one before it; a job out of pending is never cancelled. It
+        starts STARTUP after the group frees, reads the newest marker, sleeps to the deadline, then yields when the
+        branch moved past its push, else runs and records. ARRIVALS: (time, sha, push base), ascending. Returns the runs:
+        (start time, sha, the base they route from)."""
+        runs, saved, free, pending = [], marker, 0.0, None
+        events = list(arrivals)
+        i = 0
+        while i < len(events) or pending:
+            if pending is None:
+                pending, i = events[i], i + 1
+            # Pushes landing while the group is busy replace this job while it is still pending. Once the group is
+            # free it leaves pending (queued for a runner), and nothing replaces it; STARTUP is that runner's pickup.
+            while i < len(events) and events[i][0] < free:
+                pending, i = events[i], i + 1
+            at, sha, before = pending
+            start = max(at, free) + startup
+            pending = None
+            seconds, _ = coalesce.plan_wait(saved, sha, before, start, hold)
+            end = start + seconds
+            tip = max((e for e in events if e[0] <= end), key=lambda e: e[0])[1]
+            got, record, _ = self.run_wait(saved, sha, before, start, end, tip)
+            free = end
+            if got["run"] == "true":
+                runs.append((end, sha, got["base"]))
+                saved = record
+        return runs
+
+    def test_a_push_arriving_while_a_coalesce_job_sleeps_runs_when_the_window_ends(self):
+        # #33872: A ran at 0; B lands at 60 and C at 120. B's job sleeps; C's waits pending. At 900 B yields, and C runs
+        # at once from A: one run, every landing since A, and no push waits a second window (before: B at 900, C at
+        # 1800).
+        marker = {"sha": A, "started": 0.0, "covered": {A: D}}
+        runs = self.simulate([(60.0, B, A), (120.0, C, B)], marker)
+        self.assertEqual([(sha, base) for _, sha, base in runs], [(C, A)])
+        self.assertLess(runs[0][0], 900.0 + 60)
+
+    def test_pushes_without_pause_never_starve_the_checks(self):
+        # Reviews of #34028: whatever the job startup (10 s, 70 s), a push a minute still gets a run every window,
+        # each from the run before, and the last push is checked.
+        shas = [f"{n:040x}" for n in range(1, 62)]
+        arrivals = [(60.0 * n, shas[n], shas[n - 1]) for n in range(1, 61)]
+        for startup in (10.0, 70.0):
+            with self.subTest(startup=startup):
+                runs = self.simulate(arrivals, {"sha": shas[0], "started": 0.0, "covered": {shas[0]: D}},
+                                     startup=startup)
+                gaps = [b[0] - a[0] for a, b in zip(runs, runs[1:])]
+                self.assertTrue(all(gap <= 900.0 + 2 * startup for gap in gaps), gaps)
+                self.assertGreaterEqual(len(runs), 4)
+                self.assertEqual([base for _, _, base in runs[1:]], [sha for _, sha, _ in runs[:-1]])
+                self.assertEqual(runs[-1][1], shas[60])
 
     def test_the_off_switch_never_waits(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -444,10 +530,29 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
                       job["concurrency"]["group"])
         self.assertIn("vars.NEXT_WEB_COALESCE", job["concurrency"]["group"])
+        # #34158: a re-run's own group, so a newer push's pending job never replaces it.
+        shared, own = job["concurrency"]["group"].split("||", 1)
+        self.assertIn("github.run_attempt == '1'", shared)
+        self.assertIn("github.run_attempt", own)
+        # ... and it never saves a marker, so a late save cannot roll the newest one back.
+        save = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/cache/save@"))
+        self.assertIn("github.run_attempt == '1'", save["if"])
         self.assertIn("--hold-minutes 15", next(s for s in job["steps"] if s.get("id") == "wait")["run"])
         self.assertLessEqual(job["timeout-minutes"], 20)
         self.assertIs(self.web["concurrency"]["cancel-in-progress"], False)
         self.assertNotIn("cancel-in-progress: true", WEB.read_text())
+
+    def test_a_yielded_job_runs_no_checks_and_records_nothing(self):
+        # #33872: the job that slept yields to a newer push (run=false): no web checks, no marker.
+        job = self.web["jobs"]["coalesce"]
+        wait = next(s for s in job["steps"] if s.get("id") == "wait")
+        self.assertIn('--ref "$GITHUB_REF"', wait["run"])
+        self.assertEqual(job["outputs"]["run"], "${{ steps.wait.outputs.run }}")
+        save = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/cache/save@"))
+        self.assertIn("steps.wait.outputs.run == 'true'", save["if"])
+        self.assertIn("needs.coalesce.outputs.run != 'false'", self.web["jobs"]["web"]["if"])
+        # The bisect needs a failed web job, so a skipped one never starts it.
+        self.assertIn("needs.web.result == 'failure'", self.web["jobs"]["web-bisect"]["if"])
 
     def test_the_bisect_copies_its_scripts_in_the_layout_they_resolve(self):
         # web_subareas.py finds the bundle key at parents[1]/cmux-next/web-bundle-key.py: a flat copy loses it, and
