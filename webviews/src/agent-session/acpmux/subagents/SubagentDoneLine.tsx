@@ -22,6 +22,7 @@ import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRo
 import { formatDuration } from "../conversation/turns";
 import { ChevronRight, Retry } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
+import { ReactionMark } from "../conversation/ReactionMark";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { AgentIdentity, SUBAGENT_FALLBACK } from "./AgentIdentity";
@@ -154,8 +155,12 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
               fallback={SUBAGENT_FALLBACK}
             />
           </span>
-          {/* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */}
-          <span className="cv-tool__text cv-agent-activity__sentence" title={whole}>
+          {/* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included,
+              and the chat's quiet reply to its end (ReactionMark.tsx), which its view opens to */}
+          <span
+            className="cv-tool__text cv-agent-activity__sentence"
+            title={agent.reaction?.text ? `${whole}\n\n${agent.reaction.text}` : whole}
+          >
             {!waiting && before}
             <AgentTag name={name} />
             {!waiting && after}
@@ -201,6 +206,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
           </span>
         )}
         <span className="cv-tool__trail cv-subagent-done__trail cv-agent-activity__trail">
+          <ReactionMark reaction={agent.reaction} />
           {!waiting && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
         </span>
         {/* The chevron only marks that the line opens; the line's button is the one control. Its
