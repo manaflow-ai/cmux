@@ -42,6 +42,18 @@ enum SidebarStyle {
     /// every leading glyph (a band row's, a pinned row's pin, a workspace row's icon) centers its ink here, one
     /// `iconBox` wide, so glyphs of different shapes and margins share one center x at every density.
     static func iconColumnCenterX(leading: CGFloat) -> CGFloat { leading + iconColumnBox / 2 }
+    /// The Debug `sidebar.leadingColumn` look: where a glyph's ink sits in the icon column.
+    static var leadingColumnLook: SidebarLeadingColumnLook { SidebarLeadingColumnLook.tunable.value }
+    /// A text-only row keeps the icon column empty, so its title starts at the text x (the `slotted` look only).
+    static var textOnlyKeepsIconSlot: Bool { leadingColumnLook == .slotted }
+    /// The one rule every leading glyph takes (Lawrence msg 19643, "left alignment here is bad"): the x of a glyph
+    /// drawn with `ink` (its drawn extent, in the glyph's own coordinates) in the icon column whose box starts at
+    /// `leading`. The ink starts on the box's leading edge, the row inset, so a pin, Home's house, a favicon, an emoji
+    /// and a symbol start on the left edge text-only titles start on; the `centered` look centers it instead. Callers
+    /// snap the result to their pixel grid.
+    static func iconColumnGlyphX(leading: CGFloat, ink: CGRect) -> CGFloat {
+        leadingColumnLook == .centered ? iconColumnCenterX(leading: leading) - ink.midX : leading - ink.minX
+    }
     /// The leading icon column's box (grid.md 3: 16 compact, 20 comfortable, wider when the text size grows the
     /// glyph). Leading icon frames take this box and draw their glyph, at its own `iconBox` size, centered in it,
     /// so the text column is one 8 pt gap after the frame at both densities.
@@ -56,7 +68,8 @@ enum SidebarStyle {
     /// Workspace title geometry shared by realized rows and virtualized parents of tab rows. A left-rail row with no
     /// symbol, emoji or favicon keeps the swatch's slot (#25705), so its title sits where the dot style draws it.
     static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int, reservesColorRail: Bool = false) -> CGFloat {
-        columns(rowWidth: 0, depth: treeDepth).text(hasLeadingMark: icon != nil || reservesColorRail) - WorkspaceRowView.labelInset
+        columns(rowWidth: 0, depth: treeDepth).text(hasLeadingMark: icon != nil || reservesColorRail || textOnlyKeepsIconSlot)
+            - WorkspaceRowView.labelInset
     }
     static func titleXAfterLeadingMark(_ x: CGFloat) -> CGFloat {
         x + WorkspaceRowView.labelInset + indicatorSize + Metrics.space1

@@ -13,6 +13,8 @@
 // Long tasks (count, total) and the layout-shift sum cover the whole load; the transcript's scroll drift
 // after `latest` says how much the page still moved after the newest messages appeared.
 //   [LATENCY=ms] [HOST_LATENCY=ms] bun bench/chat-open.bench.ts [rounds=7] [turns=300]
+// REVEAL=1 also opens an offscreen message after the chat settles, then records scroll drift
+// from its first visible frame, delayed scrollIntoView calls and transcript-wide row scans.
 // PROFILE=1 adds a CPU profile of one load and prints the functions with the most self time between
 // navigation and the newest message plus 500 ms. The build is then unminified (so functions keep their
 // names) and every timed round runs on it, so the stage times are not the production build's.
@@ -32,10 +34,19 @@ const LATENCY = Number(process.env.LATENCY ?? 0);
 /// HOST_LATENCY=ms answers the app host's read of where the chat opens (`chat.scrollAnchor.get`)
 /// that late, as the app's host does over its bridge (the browser dev host refuses it at once).
 const HOST_LATENCY = Number(process.env.HOST_LATENCY ?? 0);
+const REVEAL = process.env.REVEAL === "1";
+const REVEAL_MESSAGE = "bench-reveal";
+const REVEAL_TURN = Math.max(1, TURNS - 40);
+const REVEAL_ROW = `assistant-${(REVEAL_TURN - 1) * 4 + 3}`;
 const webviews = path.resolve(import.meta.dir, "..");
 const LATEST = `Answer ${TURNS}:`;
 
 const { events, session } = papercutEvents({ turns: TURNS, running: false });
+if (REVEAL) {
+  const event = events.find((event) => event.seq === (REVEAL_TURN - 1) * 4 + 3)!;
+  const update = (event.msg.params as { update: Record<string, unknown> }).update;
+  update.messageId = REVEAL_MESSAGE;
+}
 let attachedAt = 0;
 let attachBytes = 0;
 let attachEvents = 0;
@@ -194,10 +205,17 @@ try {
   });
   releases.push(["static server", () => statics.stop(true)]);
   const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    ...(process.env.CMUX_CHROME_HEADLESS_SHELL
+      ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
+      : { channel: "chrome" }),
+    headless: true,
+  });
   releases.push(["browser", () => browser.close()]);
 
+  type Reveal = { first: number; settled: number; drift: number; driftPx: number; centers: number; scans: number };
   type Round = {
+    reveal: Reveal;
     attach: number;
     firstRow: number;
     latest: number;
@@ -222,7 +240,7 @@ try {
     };
   };
   const open = async (rail = "compact"): Promise<Round> => {
-    const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+    const page = await browser.newPage({ viewport: { width: 1200, height: 800 }, deviceScaleFactor: REVEAL ? 2 : 1 });
     await page.addInitScript((rail) => {
       localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
     }, rail);
@@ -389,6 +407,74 @@ try {
           .sort((a, b) => Number(b.split(" ").at(-2)) - Number(a.split(" ").at(-2))),
       };
     });
+    const reveal = REVEAL
+      ? await page.evaluate(
+          async ({ message, rowId }): Promise<Reveal> => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            const result: Reveal = { first: 0, settled: 0, drift: 0, driftPx: 0, centers: 0, scans: 0 };
+            const intoView = Element.prototype.scrollIntoView;
+            const query = Document.prototype.querySelectorAll;
+            const elementQuery = Element.prototype.querySelectorAll;
+            Element.prototype.scrollIntoView = function (options) {
+              result.centers += 1;
+              return intoView.call(this, options);
+            };
+            Document.prototype.querySelectorAll = function (this: Document, selector: string) {
+              if (selector === "[data-row-id]") result.scans += 1;
+              return query.call(this, selector);
+            } as typeof query;
+            Element.prototype.querySelectorAll = function (this: Element, selector: string) {
+              if (selector === "[data-row-id]") result.scans += 1;
+              return elementQuery.call(this, selector);
+            } as typeof elementQuery;
+            const started = performance.now();
+            let top = scroller.scrollTop;
+            let firstTop = top;
+            let activity = started;
+            try {
+              window.cmuxAcpmuxBridge!.revealTurn!(`message:${message}`);
+              await new Promise<void>((resolve, reject) => {
+                const tick = () => {
+                  const now = performance.now();
+                  const row = document.querySelector<HTMLElement>(`[data-row-id="${rowId}"]`);
+                  const box = row?.getBoundingClientRect();
+                  const view = scroller.getBoundingClientRect();
+                  if (!result.first && box && box.bottom > view.top && box.top < view.bottom) {
+                    result.first = now - started;
+                    firstTop = scroller.scrollTop;
+                    activity = now;
+                  }
+                  if (scroller.scrollTop !== top) {
+                    if (result.first && now - started > result.first) result.drift += 1;
+                    top = scroller.scrollTop;
+                    activity = now;
+                  }
+                  if (result.first) result.driftPx = Math.max(result.driftPx, Math.abs(top - firstTop));
+                  // A quiet 500 ms includes the old marker's 100 ms poll, rather than stopping at
+                  // the virtual layout's first scroll and missing its delayed DOM recenter.
+                  if (result.first && now - activity > 500) {
+                    result.settled = activity - started;
+                    resolve();
+                  } else if (now - started > 5000)
+                    reject(new Error("message reveal did not become visible and settle"));
+                  else requestAnimationFrame(tick);
+                };
+                requestAnimationFrame(tick);
+              });
+              return result;
+            } finally {
+              Element.prototype.scrollIntoView = intoView;
+              Document.prototype.querySelectorAll = query;
+              Element.prototype.querySelectorAll = elementQuery;
+            }
+          },
+          { message: REVEAL_MESSAGE, rowId: REVEAL_ROW },
+        )
+      : { first: 0, settled: 0, drift: 0, driftPx: 0, centers: 0, scans: 0 };
+    if (REVEAL && process.env.FAST_CHECKS_OUT)
+      await page
+        .locator(".acpmux-scroll")
+        .screenshot({ path: path.join(process.env.FAST_CHECKS_OUT, `reveal-${rail}.png`) });
     await page.close();
     const attach = attachedAt ? attachedAt - got.origin : 0;
     if (process.env.TRACE === "1") {
@@ -403,6 +489,7 @@ try {
     const at = (when: number | undefined) => (when ? when - got.origin : 0);
     void started;
     return {
+      reveal,
       attach,
       firstRow: got.firstRow,
       latest: got.latest,
@@ -550,6 +637,30 @@ try {
         median((r) => r.drift).toFixed(0),
       ].join(" | "),
     );
+    if (REVEAL) {
+      console.log(
+        "reveal: first visible ms | settled ms | moves after visible | max drift px | scrollIntoView calls | row scans",
+      );
+      console.log(
+        (["first", "settled", "drift", "driftPx", "centers", "scans"] as const)
+          .map((key) => median((r) => r.reveal[key]).toFixed(1))
+          .join(" | "),
+      );
+      for (const [metric, unit] of [
+        ["first", "ms"],
+        ["settled", "ms"],
+        ["drift", "count"],
+        ["driftPx", "px"],
+        ["centers", "count"],
+        ["scans", "count"],
+      ] as const)
+        perfRow({
+          name: `chat_open.${arm}.reveal_${metric.toLowerCase()}`,
+          p50: median((r) => r.reveal[metric]),
+          p95: median((r) => r.reveal[metric]),
+          unit,
+        });
+    }
     // The median of rounds, as both p50 and p95 (perfRow.ts); stages from navigation start.
     for (const [stage, pick, target] of [
       ["attach", (r: Round) => r.attach, undefined],

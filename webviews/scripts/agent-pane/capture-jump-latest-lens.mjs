@@ -1,6 +1,8 @@
 // Capture Jump to latest's fisheye lens from the real gallery entry (agent-pane.jump-latest-lens), in
 // Chromium, cropped round the button: each strength, and the shared glass without the lens (before).
-// Usage: bun capture-jump-latest-lens.mjs OUT_DIR [dark|light]
+// Usage: bun capture-jump-latest-lens.mjs OUT_DIR [dark|light] [VARIANT,...]
+// With variants, it captures those (the glass levels: level-clear,level-composer,...) instead of the
+// strengths; the first is compared with the rest.
 // Writes each PNG to OUT_DIR, prints one JPEG sheet of the four discs as SHEET lines (a fleet log's
 // tail carries it back) and, per variant, whether its disc differs from the before capture (same
 // means the lens drew nothing).
@@ -29,14 +31,17 @@ const server = await preview({
 const address = server.httpServer.address();
 if (!address || typeof address === "string") throw new Error("gallery preview did not bind a TCP port");
 const baseUrl = `http://127.0.0.1:${address.port}`;
-const shots = [
-  ["before", "medium"],
-  ["soft", "soft"],
-  ["medium", "medium"],
-  ["strong", "strong"],
-];
+const picked = process.argv[4]?.split(",").filter(Boolean);
+const shots = picked?.length
+  ? picked.map((variant) => [variant, variant])
+  : [
+      ["before", "medium"],
+      ["soft", "soft"],
+      ["medium", "medium"],
+      ["strong", "strong"],
+    ];
 try {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ channel: "chrome" });
   try {
     const context = await browser.newContext({
       viewport: { width: 900, height: 720 },
@@ -88,9 +93,10 @@ try {
       console.log(JSON.stringify({ scheme, name, box, info }).slice(0, 300));
       await page.close();
     }
-    for (const name of ["soft", "medium", "strong"])
+    const first = shots[0][0];
+    for (const [name] of shots.slice(1))
       console.log(
-        `LENS_DIFF ${scheme} ${name} ${Buffer.compare(discs.before, discs[name]) === 0 ? "same" : "differs"}`,
+        `LENS_DIFF ${scheme} ${name} ${Buffer.compare(discs[first], discs[name]) === 0 ? "same" : "differs"}`,
       );
     // One JPEG of the four discs side by side (before, soft, medium, strong), short lines so a
     // fleet log's tail carries it whole: SHEET <scheme> <offset> <base64>.

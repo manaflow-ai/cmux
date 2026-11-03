@@ -35,6 +35,7 @@ mod classic;
 mod events;
 mod group_create;
 mod keybinding;
+mod nightly;
 mod open;
 mod open_link;
 mod page;
@@ -166,6 +167,8 @@ pub(super) enum AppCommand {
     /// `cmux version`: the CLI, the app behind the socket, its updater and
     /// bundled helpers in one report (app/version.rs).
     Version,
+    /// `cmux nightly list|install`: another recent nightly build (app/nightly.rs).
+    Nightly(nightly::Command),
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
@@ -200,6 +203,10 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             return Err(UsageError::new(messages.unexpected_argument.replace("{value}", extra)));
         }
         return Ok(Some(AppCommand::Version));
+    }
+    if scope == "nightly" {
+        return nightly::parse(args.get(1..).unwrap_or_default())
+            .map(|command| Some(AppCommand::Nightly(command)));
     }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
@@ -674,6 +681,9 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     if matches!(command, AppCommand::Version) {
         return Ran::Done(version::run(global));
     }
+    if let AppCommand::Nightly(command) = &command {
+        return Ran::Done(nightly::run(global, command));
+    }
     let mut stream = match connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return Ran::Done(super::wire::print_local_error(&error, global.output, 3)),
@@ -766,6 +776,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Settings(command) => return Ran::Done(command.run_on(global, stream)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
+        AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
@@ -1051,12 +1062,11 @@ fn connect_for_uid(socket: &Path, expected_uid: u32) -> std::io::Result<UnixStre
 /// Every app request first lets the app catch up with the daemon
 /// (`after: "sync"`, one daemon round trip), so it sees what an earlier
 /// `cmux` call wrote to the daemon (plans/cmux-next/state-ownership.md 4).
-/// The liveness probes skip it: they read no session state, and a busy
-/// daemon must not make a live app look dead. A caller that passes its own
+/// [`NO_DAEMON_STATE`] skips it. A caller that passes its own
 /// `after` keeps it (the `focused` overlay reads the window with `after: 0`,
 /// app_focus.rs).
 fn with_read_barrier(method: &str, mut params: Value) -> Value {
-    if matches!(method, "system.ping" | "system.capabilities") {
+    if NO_DAEMON_STATE.contains(&method) {
         return params;
     }
     if let Some(object) = params.as_object_mut() {
@@ -1064,6 +1074,19 @@ fn with_read_barrier(method: &str, mut params: Value) -> Value {
     }
     params
 }
+
+/// The app methods that read nothing a `cmux` call writes to the daemon, so
+/// they skip the read barrier: the liveness probes (a busy daemon must not
+/// make a live app look dead), the action catalog (`action.list`,
+/// `action.describe`, built from the app's own registry), and the agent
+/// dialogs (`feed.list`, read from acpmux). The barrier is a round trip on
+/// the app's daemon connection and then a wait for the main actor to publish,
+/// inside the app's 2 s deadline; on a loaded app (2026-11-02, a Cloud
+/// `start-session` waiting on the person) it timed out `action describe` and
+/// `agents dialog list` ("timed out: identify (no reply within 2.0
+/// seconds)"), and the CLI's one retry doubled the wait.
+const NO_DAEMON_STATE: [&str; 5] =
+    ["system.ping", "system.capabilities", "action.list", "action.describe", "feed.list"];
 
 /// The app methods that place a new tab or report where the caller is: the
 /// app opens an agent's tabs in the column right of its chat

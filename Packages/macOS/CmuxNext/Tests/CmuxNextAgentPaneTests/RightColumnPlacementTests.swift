@@ -127,6 +127,17 @@ struct RightColumnPlacementTests {
         #expect(Rule.decide(browser) == .splitBelow("web"))
     }
 
+    /// Leo 2026-11-03, of the Changes viewer: "just put it in a tab???". A diff is a tab in the lowest
+    /// pane on the right whatever it holds, never a lower split; with nothing there a split right, even narrow.
+    @Test func aDiffIsATabInThePaneOnTheRight() {
+        let browser = Rule.Column(sourceWidth: 1400, panes: ["web"], widths: ["web": 700], kinds: ["web": [.browser]])
+        #expect(Rule.decide(browser, opening: .document) == .tab("web"))
+        #expect(Rule.decide(.init(sourceWidth: 1400, panes: ["web", "shell"]), opening: .document) == .tab("shell"))
+        #expect(Rule.decide(.init(sourceWidth: 479, panes: ["web"]), opening: .document) == .tab("web"))
+        #expect(Rule.decide(.init(sourceWidth: 1400), opening: .document) == .splitRight)
+        #expect(Rule.decide(.init(sourceWidth: 959), opening: .document) == .splitRight, "never a tab beside the chat")
+    }
+
     @MainActor @Test func closingTheLowerPaneCollapsesTheSplitAndTheNextOpenSplitsAgain() {
         let window = RightColumnWindow()
         window.occupy("diff")

@@ -6,6 +6,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import vm from "node:vm";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -246,10 +247,10 @@ test("the old host's close script parses, reaches the page and turns the toggle 
   const script = oldHostActionScript("close");
   // `?.action?(…)` (before #32673) is a syntax error: the close never reached the page.
   expect(script).toContain("?.action?.(");
-  expect(() => new Function("window", script.replace("?.action?.(", "?.action?("))).toThrow(SyntaxError);
+  expect(() => new vm.Script(script.replace("?.action?.(", "?.action?("))).toThrow(SyntaxError);
   const bridge = { host: setNativeSessionInfoHost, action: runNativeSessionInfoAction };
-  const run = new Function("window", script);
-  await act(async () => run({ cmuxAcpmuxSessionInfo: bridge }));
+  const compiled = new vm.Script(script);
+  await act(async () => compiled.runInNewContext({ window: { cmuxAcpmuxSessionInfo: bridge } }));
   await flushFrames();
   expect(nativeOpen()).toBe(false);
   expect(pressed(toggle())).toBe(false);

@@ -160,6 +160,7 @@
         "CmuxNextDesignTokens",
         "CmuxNextDictation",
         "CmuxNextErrorJournal",
+        "CmuxNextIcons",
         "CmuxNextPages",
         "CmuxNextPalette",
         "CmuxNextRemoteFetch",
@@ -1492,6 +1493,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPages",
       "targets": [
+        "CmuxNextBrowserCore",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextErrorJournal",
