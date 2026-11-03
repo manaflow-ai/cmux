@@ -57,7 +57,11 @@ await requireBrowserLane("agent-pane-tool-group-overlap.test.ts", async () => {
         const bottom = row.getBoundingClientRect().bottom;
         const inset = /^inset\(([^)]*)\)/.exec(getComputedStyle(row).clipPath);
         if (!inset) return bottom;
-        const sides = inset[1]!.split(/\s+round\s+/)[0]!.trim().split(/\s+/).map(parseFloat);
+        const sides = inset[1]!
+          .split(/\s+round\s+/)[0]!
+          .trim()
+          .split(/\s+/)
+          .map(parseFloat);
         return bottom - (sides.length >= 3 ? sides[2]! : sides[0]!);
       };
       window.cmuxAfterPaint(() => {
