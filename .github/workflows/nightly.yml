@@ -93,6 +93,11 @@ on:
           - safe-storage
           - history
           - registry
+      notary_probe_nightly_identity:
+        description: nightly-next only. The production probe's run (one app notary submission, nothing published, text receipts only), signed as cmux NIGHTLY (com.cmuxterm.app.nightly, cmux.nightly.entitlements, NIGHTLY profile). The dogfood of shipping nightly-next as cmux NIGHTLY (a979).
+        required: false
+        default: false
+        type: boolean
       notary_probe_production_identity:
         description: nightly-next only. One app notary submission (plus the Computer Use helper's) of this build as the production identity (com.cmuxterm.app, cmux.release.entitlements, release profile) with the browser-data import compiled out. There is no Sparkle key or feed, no DMG or app artifact, and no recovery artifact. Only text receipts are uploaded and nothing is published.
         required: false
@@ -311,7 +316,8 @@ jobs:
           NOTARY_TEST_PASSWORDS: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_password_import && 'true' || 'false' }}
           NOTARY_TEST_BROWSER_DATA: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_browser_data_import && 'true' || 'false' }}
           NOTARY_IMPORT_PART: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_import_part || 'none' }}
-          NOTARY_PROBE: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_probe_production_identity && 'true' || 'false' }}
+          NOTARY_PROBE: ${{ github.event_name == 'workflow_dispatch' && (inputs.notary_probe_production_identity || inputs.notary_probe_nightly_identity) && 'true' || 'false' }}
+          NOTARY_PROBE_IDENTITY: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_probe_nightly_identity && (inputs.notary_probe_production_identity && 'both' || 'nightly') || 'production' }}
           UNSIGNED_RUN: ${{ inputs.nightly_next_unsigned_run }}
           UNSIGNED_ATTEMPT: ${{ inputs.nightly_next_unsigned_attempt }}
           CONTINUE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && 'true' || 'false' }}
@@ -447,7 +453,23 @@ jobs:
             // signed and notarized as the stable app. It never gets a feed, a
             // Sparkle key, a release or a DMG artifact (see notary_probe below).
             const notaryProbe = track === 'nightly-next' && process.env.NOTARY_PROBE === 'true';
-            if (notaryProbe) {
+            // The cmux NIGHTLY-identity probe (a979): the same no-publish run, signed as cmux NIGHTLY.
+            const nightlyProbe = notaryProbe && process.env.NOTARY_PROBE_IDENTITY === 'nightly';
+            if (process.env.NOTARY_PROBE_IDENTITY === 'both') {
+              core.setFailed('choose one notary probe identity per run (production or nightly)');
+            }
+            if (nightlyProbe) {
+              Object.assign(channelIdentity, {
+                bundleId: 'com.cmuxterm.app.nightly',
+                appName: 'cmux NIGHTLY',
+                urlScheme: 'cmux-nightly',
+                dmgPrefix: 'cmux-next-nightlyprobe-macos',
+                releaseName: 'cmux NIGHTLY-identity notary probe',
+                feedBase: '',
+                entitlements: 'cmux.nightly.entitlements',
+                iconName: 'AppIcon-Nightly',
+              });
+            } else if (notaryProbe) {
               Object.assign(channelIdentity, {
                 bundleId: 'com.cmuxterm.app',
                 appName: 'cmux',
@@ -462,9 +484,9 @@ jobs:
               });
             }
             core.setOutput('notary_probe', notaryProbe ? 'true' : 'false');
-            core.setOutput('sign_channel', notaryProbe ? 'stable' : track === 'nightly-next' ? 'next' : channel);
+            core.setOutput('sign_channel', nightlyProbe ? 'nightly' : notaryProbe ? 'stable' : track === 'nightly-next' ? 'next' : channel);
             // cmux NEXT embeds no provisioning profile.
-            core.setOutput('profile_channel', notaryProbe ? 'RELEASE' : track === 'nightly-next' ? '' : channel.toUpperCase());
+            core.setOutput('profile_channel', nightlyProbe ? 'NIGHTLY' : notaryProbe ? 'RELEASE' : track === 'nightly-next' ? '' : channel.toUpperCase());
             core.setOutput('channel', channel);
             core.setOutput('track', track);
             core.setOutput('environment', isNextRef ? 'release-next' : 'release');
