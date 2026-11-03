@@ -83,7 +83,7 @@ import Testing
     @Test(.enabled("the editor bubble is a window on screen") { await GroupPaletteDefaultTests.hasDisplay() })
     func unpinningFromTheHeaderClosesAnOpenGroupEditor() throws {
         let harness = try Harness(pinned: true)
-        defer { harness.sidebar.list.groupEditor.hide(); harness.window.close() }
+        defer { SidebarMenuAnchorTests.close(harness.sidebar, harness.window) } // the editor's bubble is a window too
         harness.window.orderFrontRegardless() // the editor's bubble opens from a window on a screen
         harness.sidebar.list.groupEditing.open(harness.id, from: .moreButton)
         try #require(harness.sidebar.list.groupEditor.isVisible)
