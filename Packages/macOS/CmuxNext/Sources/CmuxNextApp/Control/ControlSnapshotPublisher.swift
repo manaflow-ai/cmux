@@ -11,11 +11,9 @@ import os
 /// went stale (``ControlWorkspaceInfoCache``), so there is no interval between
 /// publishes to hide its cost.
 ///
-/// The build runs inside Observation tracking, so any daemon record,
-/// window state, focus, or settings property it read schedules the next
-/// publish; key-window changes (not observable) and every main-actor work
-/// queue frame invalidate explicitly. Readers never touch main-actor state:
-/// they get the last published value.
+/// The build runs inside Observation tracking (one armed at a time, `SingleArmedTracking`), so any daemon record, window
+/// state, focus, or settings property it read schedules the next publish; key-window changes (not observable) and every
+/// main-actor work queue frame invalidate explicitly. Readers never touch main-actor state: they get the last published value.
 ///
 /// The daemon sequences (read-your-writes barriers) are tracked apart from the build: a daemon batch
 /// that changes nothing the topology shows (busy terminals' activity, a status tick elsewhere) only
@@ -39,6 +37,7 @@ final class ControlSnapshotPublisher {
     /// synchronously inside the mutation, so a sequence change that follows in the same batch sees it.
     /// An atomic flag: the callback is not main-actor isolated.
     nonisolated private let topologyDirty = Atomic<Bool>(false)
+    private let tracking = SingleArmedTracking() // each stale CLI read armed another one (cmuxterm-hq#6338, stack 2)
     /// Topology builds and sequence-only publishes since start (tests, debug).
     private(set) var builds = 0
     private(set) var sequencePublishes = 0
@@ -111,7 +110,7 @@ final class ControlSnapshotPublisher {
         let started = ContinuousClock.now
         builds += 1
         topologyDirty.store(false, ordering: .releasing)
-        let (built, settings, tabSearch) = withObservationTracking {
+        let (built, settings, tabSearch) = tracking.track(shape: services.windows.controllers.map { ObjectIdentifier($0) }) {
             (Self.topology(services, cache: workspaceInfos, sequences: false), services.settings?.snapshot.root,
              TabSearchFactsBuilder.facts(services, cache: workspaceInfos))
         } onChange: { [weak self] in
