@@ -2827,7 +2827,7 @@ mod tree_json;
 pub(crate) use tree_json::panes_built_for_test;
 pub(crate) use tree_json::tree_entity_json;
 pub(crate) use tree_json::workspaces_json;
-use tree_json::{pane_json, tree_delta_json};
+use tree_json::{ShortIds, pane_json, tree_delta_json};
 
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
     mux.surface(id)
