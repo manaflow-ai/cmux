@@ -311,3 +311,26 @@ test("every motion-off and Reduce Motion rule outranks the depth layer's drift a
   for (const move of moving.filter((selector) => selector.includes("drift")))
     expect(move).toContain('[data-motion="full"]');
 });
+
+test("a parallax layer mounted while the page is hidden starts leaning when the page shows", async () => {
+  const mount = installDom();
+  const doc = mount.ownerDocument;
+  let state: DocumentVisibilityState = "hidden";
+  Object.defineProperty(doc, "visibilityState", { configurable: true, get: () => state });
+  mount.dataset.box = "0,0,200,100";
+  await act(async () => {
+    root = createRoot(mount);
+    root.render(<DepthLayer look="parallax" />);
+  });
+  const layer = mount.querySelector<HTMLElement>(".ui-depth")!;
+  const move = () =>
+    mount.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientX: 200, clientY: 100, bubbles: true }));
+  move();
+  expect(layer.style.getPropertyValue("--ui-depth-x")).toBe("");
+  state = "visible";
+  await act(async () => void doc.dispatchEvent(new dom!.window.Event("visibilitychange")));
+  expect(layer.dataset.motion).toBe("full");
+  move();
+  expect(layer.style.getPropertyValue("--ui-depth-x")).toBe("1.000");
+  expect(layer.style.getPropertyValue("--ui-depth-y")).toBe("1.000");
+});

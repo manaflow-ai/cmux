@@ -14,13 +14,15 @@
 // Stop conditions: no timer and no frame loop. The drift ends after DRIFT_S and is paused while the
 // page is hidden (one visibilitychange listener). The parallax runs only on pointer events over the
 // surface and settles within 240 ms of the last one. Both listeners are removed on unmount. Motion off
-// or Reduce Motion: still, and no pointer listener. The drift runs only while the layer's
-// `data-motion` reads "full": `motionMode()`, the one reading every primitive here shares (so a zero
-// `--agent-motion-in` stills it too), taken at mount and each time the page shows; the root's motion
-// attributes and `prefers-reduced-motion` also still it in CSS, as they change.
-import { type RefObject, useEffect, useRef } from "react";
+// or Reduce Motion: still, and no pointer listener; the pointer listener is added when the reading
+// turns full (a layer that mounted while the page was hidden, once it shows) and removed, with the
+// washes back at rest, when it leaves. The drift runs only while the layer's `data-motion` reads
+// "full": `motionMode()`, the one reading every primitive here shares (so a zero `--agent-motion-in`
+// stills it too), taken at mount and each time the page shows; the root's motion attributes and
+// `prefers-reduced-motion` also still it in CSS, as they change.
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { cx } from "../cx";
-import { motionMode } from "./motionMode";
+import { type MotionMode, motionMode } from "./motionMode";
 import "./motion.css";
 
 export type DepthLook = "still" | "drift" | "parallax" | "drift-parallax";
@@ -40,11 +42,13 @@ export type DepthLayerProps = {
 export function DepthLayer({ look = "parallax", surface, className }: DepthLayerProps) {
   const layer = useRef<HTMLDivElement>(null);
 
-  // Let the drift run only when motion is full, and pause it while the page is hidden. A layer that
-  // mounts hidden gets its reading when the page shows, so its drift starts then.
+  // The shared motion reading, taken at mount and each time the page shows (null until the layer has
+  // been shown once). The drift runs and the parallax listens only while it is "full"; while the page
+  // is hidden the drift is paused. A layer that mounts hidden starts both when the page shows.
+  const [mode, setMode] = useState<MotionMode | null>(null);
   useEffect(() => {
     const element = layer.current;
-    if (!element || (look !== "drift" && look !== "drift-parallax")) return;
+    if (!element || look === "still") return;
     const doc = element.ownerDocument;
     const sync = () => {
       if (doc.visibilityState === "hidden") {
@@ -52,7 +56,7 @@ export function DepthLayer({ look = "parallax", surface, className }: DepthLayer
         return;
       }
       delete element.dataset.paused;
-      element.dataset.motion = motionMode(doc);
+      setMode(motionMode(doc));
     };
     sync();
     doc.addEventListener("visibilitychange", sync);
@@ -64,7 +68,7 @@ export function DepthLayer({ look = "parallax", surface, className }: DepthLayer
     const element = layer.current;
     const target = surface?.current ?? element?.parentElement;
     if (!element || !target || (look !== "parallax" && look !== "drift-parallax")) return;
-    if (motionMode(element.ownerDocument) !== "full") return;
+    if (mode !== "full") return;
     const lean = (event: PointerEvent) => {
       const box = target.getBoundingClientRect();
       if (box.width <= 0 || box.height <= 0) return;
@@ -82,14 +86,16 @@ export function DepthLayer({ look = "parallax", surface, className }: DepthLayer
     return () => {
       target.removeEventListener("pointermove", lean);
       target.removeEventListener("pointerleave", rest);
+      rest();
     };
-  }, [look, surface]);
+  }, [look, surface, mode]);
 
   return (
     <div
       ref={layer}
       className={cx("ui-depth", className)}
       data-look={look}
+      data-motion={mode ?? undefined}
       style={{ ["--ui-depth-drift" as string]: `${DRIFT_S}s`, ["--ui-depth-lean" as string]: `${PARALLAX_PX}px` }}
       aria-hidden="true"
     >
