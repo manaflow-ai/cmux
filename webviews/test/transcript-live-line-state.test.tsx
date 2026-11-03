@@ -61,6 +61,7 @@ const drawn = (line: AcpmuxRow, now: number) =>
         turnTotal={line.turnTotal}
         untimed={line.untimed}
         quietKey={line.quietKey}
+        quietAt={line.quietAt}
       />,
     ),
   );
@@ -175,13 +176,22 @@ test("a finished step reads its own time, not the turn's", () => {
 
 test("an answer paused mid-stream reads Writing, not Thinking", () => {
   const user = row("u", "user");
-  const line = codex([
-    user,
-    row("run", "activity", { items: [call("git log")] }),
-    row("a", "assistant", { text: "So" }),
-  ]).at(-1)!;
-  expect(line).toMatchObject({ liveState: "writing", turnTotal: true });
-  expect(drawn(line, user.at + 30_000)).toBe("Writing · 30s total");
+  const run = row("run", "activity", { items: [call("git log")] });
+  const reply = row("a", "assistant", { text: "So" });
+  const line = codex([user, run, reply]).at(-1)!;
+  expect(line).toMatchObject({ liveState: "writing", turnTotal: true, quietAt: reply.at });
+  expect(drawn(line, reply.at + 2_000)).toBe(`Writing · ${(reply.at + 2_000 - user.at) / 1_000}s total`);
+});
+
+// A chat opened (or the gallery's stage mounted) long after its reply paused: the line reads
+// Thinking from its first frame, not Writing for WRITING_MS from the open (agent-pane.transcript
+// #working-tokens waited 5 s for its Thinking line on feat-cmux-next).
+test("an answer that paused long before the line mounted reads Thinking at once", () => {
+  const user = row("u", "user");
+  const run = row("run", "activity", { items: [call("git log")] });
+  const reply = row("a", "assistant", { text: "So" });
+  const line = codex([user, run, reply]).at(-1)!;
+  expect(drawn(line, reply.at + 60_000)).toStartWith("Thinking");
 });
 
 test("before the turn's first output it still reads Thinking with the turn's time", () => {
