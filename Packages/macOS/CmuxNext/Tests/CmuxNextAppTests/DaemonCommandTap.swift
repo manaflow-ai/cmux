@@ -93,6 +93,9 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
     private nonisolated final class Connection: @unchecked Sendable {  // touched only by its one request pump
         var pendingTreeRead = false
         var snapshots = 0
+        /// The store pipelines `list-saved-tab-groups` with its snapshot's `list-workspaces` (where the
+        /// daemon serves it); then a `list-personal` after a `list-workspaces` is the run's own refetch.
+        var pipelinesSavedGroups = false
     }
 
     /// Copies `source` to `sink` until either ends; with `counting`, counts each request line's command.
@@ -138,7 +141,8 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
         lock.withLock {
             if connection.pendingTreeRead {
                 connection.pendingTreeRead = false
-                let snapshot = command == "list-personal" || command == "list-saved-tab-groups"
+                if command == "list-saved-tab-groups" { connection.pipelinesSavedGroups = true }
+                let snapshot = command == "list-saved-tab-groups" || (command == "list-personal" && !connection.pipelinesSavedGroups)
                 if snapshot { connection.snapshots += 1 }
                 let name = !snapshot ? "list-workspaces" : connection.snapshots == 1 ? Self.firstSnapshotRead : Self.snapshotRead
                 counts[name, default: 0] += 1
