@@ -228,7 +228,7 @@ pub(super) async fn forward(
     if let Some(Err(e)) = &reply
         && let Some(peer) = unreachable_peer(hub, e)
     {
-        ask_back(&peer, m, conn.origin);
+        ask_back(&peer, m, params, conn.origin);
     }
     if conn.origin == Origin::Peer {
         return reply.map(|r| r.map_err(super::redact::hide_unreachable_peer));
@@ -237,13 +237,33 @@ pub(super) async fn forward(
 }
 
 /// What a request refused because `peer`'s link is down asks of the peer: a message (from any
-/// connection) wakes it (`Peer::wake`), a client's other request wants it back (`Peer::want`),
-/// and a peer daemon's other request asks nothing.
-fn ask_back(peer: &crate::peer::Peer, m: &str, origin: Origin) {
-    if m == method::SESSION_PROMPT {
+/// connection) wakes it (`Peer::wake`), and so does a client's sign that a person is writing one
+/// ([`composing`]), a client's other request wants it back (`Peer::want`), and a peer daemon's
+/// other request asks nothing.
+///
+/// Waking on the first keystroke instead of on Send starts the paused machine's resume while the
+/// person types, so it is mostly done when the message goes (HQ#6694: Freestyle's resume through
+/// the app is seconds, typing a message is longer). A draft that is never sent costs one resume,
+/// which the machine's idle pause takes back.
+fn ask_back(peer: &crate::peer::Peer, m: &str, params: &Value, origin: Origin) {
+    if m == method::SESSION_PROMPT || (origin != Origin::Peer && composing(m, params)) {
         peer.wake();
     } else if origin != Origin::Peer {
         peer.want();
+    }
+}
+
+/// Whether request `m` says a person is writing to the chat: typing turned on
+/// (`_acpmux/typing`), or a draft or a surface's unsent text that is not blank
+/// (`_acpmux/draft_set`, `_acpmux/composer_set`). Clearing a draft or stopping typing is not.
+fn composing(m: &str, params: &Value) -> bool {
+    match m {
+        method::MUX_TYPING => params.get("on").and_then(Value::as_bool) == Some(true),
+        method::MUX_DRAFT_SET | method::MUX_COMPOSER_SET => params
+            .get("text")
+            .and_then(Value::as_str)
+            .is_some_and(|text| !text.trim().is_empty()),
+        _ => false,
     }
 }
 
@@ -955,17 +975,54 @@ mod tests {
             let (notices, _receiver) = tokio::sync::mpsc::channel(1);
             crate::peer::Peer::new("fs-lane-3", "ssh://fs-lane-3", None, None, notices)
         };
+        let none = json!({});
         for origin in [Origin::Peer, Origin::Local, Origin::Web] {
             let p = peer();
-            ask_back(&p, method::SESSION_PROMPT, origin);
+            ask_back(&p, method::SESSION_PROMPT, &none, origin);
             assert!(p.waking() && p.is_wanted(), "{origin:?}");
         }
         let p = peer();
-        ask_back(&p, method::MUX_ATTACH, Origin::Peer);
+        ask_back(&p, method::MUX_ATTACH, &none, Origin::Peer);
         assert!(!p.waking() && !p.is_wanted());
         let p = peer();
-        ask_back(&p, method::MUX_ATTACH, Origin::Local);
+        ask_back(&p, method::MUX_ATTACH, &none, Origin::Local);
         assert!(!p.waking() && p.is_wanted());
+    }
+
+    /// A person starting to write to a down peer's chat wakes the peer before they send: typing
+    /// on, or a draft or surface text that is not blank. Typing off and a cleared draft only
+    /// want the link back, and a peer daemon's forward of any of them asks nothing.
+    #[test]
+    fn typing_to_a_down_peers_chat_wakes_it_before_the_send() {
+        let peer = || {
+            let (notices, _receiver) = tokio::sync::mpsc::channel(1);
+            crate::peer::Peer::new("fs-lane-3", "ssh://fs-lane-3", None, None, notices)
+        };
+        let writing = [
+            (method::MUX_TYPING, json!({"sessionId": "s", "on": true})),
+            (method::MUX_DRAFT_SET, json!({"sessionId": "s", "text": "fix the"})),
+            (method::MUX_COMPOSER_SET, json!({"sessionId": "s", "surface": "pane", "text": "h"})),
+        ];
+        for (m, params) in &writing {
+            for origin in [Origin::Local, Origin::Web] {
+                let p = peer();
+                ask_back(&p, m, params, origin);
+                assert!(p.waking() && p.is_wanted(), "{m} from {origin:?}");
+            }
+            let p = peer();
+            ask_back(&p, m, params, Origin::Peer);
+            assert!(!p.waking() && !p.is_wanted(), "{m} forwarded by a peer daemon");
+        }
+        let idle = [
+            (method::MUX_TYPING, json!({"sessionId": "s", "on": false})),
+            (method::MUX_DRAFT_SET, json!({"sessionId": "s", "text": "  \n"})),
+            (method::MUX_COMPOSER_SET, json!({"sessionId": "s", "surface": "pane", "text": ""})),
+        ];
+        for (m, params) in &idle {
+            let p = peer();
+            ask_back(&p, m, params, Origin::Local);
+            assert!(!p.waking() && p.is_wanted(), "{m} with nothing written");
+        }
     }
 
     /// A refused answer for a peer's prompt names that peer, so the app can say where to
