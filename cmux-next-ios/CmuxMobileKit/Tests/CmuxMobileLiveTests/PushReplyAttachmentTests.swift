@@ -9,7 +9,6 @@ import Testing
 import UniformTypeIdentifiers
 @testable import CmuxMobileLive
 
-@MainActor
 @Suite struct PushReplyAttachmentTests {
     /// Receiver retains a digest and counters, never the uploaded original.
     actor Receiver: LinkChannel {
