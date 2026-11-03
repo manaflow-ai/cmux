@@ -378,6 +378,27 @@
   white-space: pre-line;
   overflow-wrap: anywhere;
 }
+/* A prompt not loaded yet (a pending tick): a blank line where its words go, at the line's height, so
+   the card is its usual size and nothing moves when they arrive. */
+.acpmux-minimap__prompt[data-pending] {
+  display: block;
+  flex: none;
+  width: 60%;
+  height: 0.75em;
+  margin-top: 0.375em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-muted) 24%, transparent);
+}
+/* Its words arriving under the open card fade in where the line was: opacity only, no slide. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-minimap__card[data-arrived] :where(.acpmux-minimap__prompt, .acpmux-minimap__reply) {
+    animation: acpmux-minimap-in var(--cmux-motion-micro) ease-out;
+  }
+}
+:root[data-cmux-motion="off"] .acpmux-minimap__card[data-arrived] :where(.acpmux-minimap__prompt, .acpmux-minimap__reply),
+:root[data-cmux-motion="reduced"] .acpmux-minimap__card[data-arrived] :where(.acpmux-minimap__prompt, .acpmux-minimap__reply) {
+  animation: none;
+}
 .acpmux-minimap__bookmark {
   flex: none;
   display: inline-flex;

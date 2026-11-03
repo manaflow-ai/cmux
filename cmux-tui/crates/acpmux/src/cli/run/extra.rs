@@ -760,6 +760,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .into())
             }
         }
+        Command::Host(PeerCmd::Vault { cmd }) => match cmd {
+            crate::cli::command_host::VaultCmd::Pull => {
+                crate::cli::host_vault::pull_cmd(json_out).await
+            }
+            crate::cli::command_host::VaultCmd::Status => {
+                crate::cli::host_vault::status_cmd(json_out).await
+            }
+            crate::cli::command_host::VaultCmd::Forget => {
+                crate::cli::host_vault::forget_cmd(json_out).await
+            }
+        },
         Command::Host(PeerCmd::Consent { cmd }) => {
             let (screen, control, granted) = match cmd {
                 crate::cli::command_host::ConsentCmd::Grant { screen, control } => {
@@ -1017,9 +1028,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Ticket(cmd) => {
                     return crate::cli::pairing::ticket(client, cmd, json_out).await;
                 }
-                PeerCmd::Join { .. } | PeerCmd::Consent { .. } => {
+                PeerCmd::Join { .. } | PeerCmd::Consent { .. } | PeerCmd::Vault { .. } => {
                     return Err(anyhow!(
-                        "host join and consent are handled before daemon connection"
+                        "host join, consent and vault are handled before daemon connection"
                     ));
                 }
             };
