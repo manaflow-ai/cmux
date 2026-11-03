@@ -1062,16 +1062,13 @@ minutes its `probe` jobs ask for each member of the linux pool
 its `watch` job waits for them. Never one label: on 2026-10-28 the 4 vCPU
 label alone stalled four times while the other sizes started jobs, and each
 stall flipped the whole fleet. The watch never runs on GitHub-hosted Ubuntu
-or on a size the probes ask for: it reads `CI_TRUSTED_RUNNER` through its own
-bounded selector, which yields only `blacksmith-2vcpu-ubuntu-2404` or
-`blacksmith-8vcpu-ubuntu-2404` and takes 2 vCPU for any other value, unset
-included. The bound is in the expression: the watch holds the
-`GLAEDA_ROUTE_APP_KEY` token that writes repository variables, so no variable
-(not `CI_CONTROL_RUNNER`) may move it to a reused machine, where the key could
-outlive the job. Until 2026-11-03 it named the literal `blacksmith-6vcpu-macos-26`,
-which had no fallback: that label went dead and the watch queued 19 minutes, and
-the hosted light rescue it carries with it (cmuxterm-hq#6671). When all of
-Blacksmith Linux stops the watch waits, and an operator points the variables at their failovers by hand,
+or on a size the probes ask for: it takes `blacksmith-6vcpu-macos-26`, so it
+can put overflow back while Blacksmith macOS serves. That label is literal:
+the watch holds the `GLAEDA_ROUTE_APP_KEY` token that writes repository
+variables, so no variable (not `CI_CONTROL_RUNNER`) may move it to a reused
+machine, where the key could outlive the job, and it may not write its own
+runner. GitHub-hosted runners are refused, so when all of Blacksmith stops the
+watch waits, and an operator points the variables at their failovers by hand,
 as on 2026-09-29. On
 2026-10-27 a watch on hosted Ubuntu queued 94 minutes behind the switch's own
 failover and held the workflow's concurrency group, so every later run was
