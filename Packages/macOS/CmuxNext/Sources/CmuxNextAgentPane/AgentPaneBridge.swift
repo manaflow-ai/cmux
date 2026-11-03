@@ -45,7 +45,11 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // chat's text).
         if let body = message.body as? [String: Any], let method = body["method"] as? String,
            AgentPaneTailCache.handles(method: method) {
-            return replyHandler(AgentPaneTailCache.reply(to: method, params: body["params"] as? [String: Any]), nil)
+            let params = body["params"] as? [String: Any]
+            let host = view?.model.host
+            // task-owner: one trusted page request, completed by its reply handler
+            Task { replyHandler(await AgentPaneTailCache.reply(to: method, params: params, host: host), nil) }
+            return
         }
         let request = AgentPaneRequest(body: message.body)
         if case .uiPointerReport(let text) = request, let value = try? JSONSerialization.jsonObject(with: Data(text.utf8)),

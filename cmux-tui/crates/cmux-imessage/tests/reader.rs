@@ -357,3 +357,50 @@ fn messages_serialize_with_snake_case_keys() {
     assert_eq!(wire[0]["text"], "hey");
     assert_eq!(wire[0]["is_from_me"], false);
 }
+
+#[test]
+fn thread_preview_is_the_newest_by_date_not_by_rowid() {
+    let fx = Fixture::new();
+    let alice = fx.handle("+15550001111");
+    let chat = fx.chat("iMessage;-;+15550001111", 45, None, &[alice]);
+    fx.message(chat, alice, false, 10, Some("newest"));
+    // iCloud backfill: an older message arrives later and gets a higher rowid.
+    fx.message(chat, alice, false, 1, Some("backfilled"));
+    let threads = fx.reader().threads(10).unwrap();
+    assert_eq!(threads[0].last_message.as_ref().unwrap().text.as_deref(), Some("newest"));
+}
+
+#[test]
+fn null_item_and_association_columns_count_as_visible() {
+    let fx = Fixture::new();
+    let alice = fx.handle("+15550001111");
+    let chat = fx.chat("iMessage;-;+15550001111", 45, None, &[alice]);
+    let rowid = fx.message(chat, alice, false, 1, Some("old row"));
+    fx.db
+        .execute(
+            "UPDATE message SET item_type = NULL, associated_message_type = NULL WHERE ROWID = ?1",
+            params![rowid],
+        )
+        .unwrap();
+    let reader = fx.reader();
+    assert_eq!(reader.messages(chat, None, 10).unwrap().len(), 1);
+    assert_eq!(reader.threads(10).unwrap().len(), 1);
+    assert_eq!(reader.since(0, 10).unwrap().len(), 1);
+}
+
+#[test]
+fn since_returns_a_message_once_even_when_joined_to_two_chats() {
+    let fx = Fixture::new();
+    let alice = fx.handle("+15550001111");
+    let a = fx.chat("iMessage;-;+15550001111", 45, None, &[alice]);
+    let b = fx.chat("SMS;-;+15550001111", 45, None, &[alice]);
+    let rowid = fx.message(a, alice, false, 1, Some("both"));
+    fx.db
+        .execute(
+            "INSERT INTO chat_message_join (chat_id, message_id) VALUES (?1, ?2)",
+            params![b, rowid],
+        )
+        .unwrap();
+    let fresh = fx.reader().since(0, 10).unwrap();
+    assert_eq!(fresh.iter().map(|m| m.rowid).collect::<Vec<_>>(), vec![rowid]);
+}
