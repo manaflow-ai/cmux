@@ -92,7 +92,9 @@ export function guestKernelBuildScript(lock: GuestKernelLock): string {
     `test "$(stat -c %s ${tarball})" = ${lock.size}`,
     `printf '%s  %s\\n' ${lock.sha256} ${tarball} | sha256sum -c --quiet -`,
     // kernel.org's signed list must name the same digest (a second, independent source for it).
-    `curl -fsSL --retry 3 ${sq(lock.checksumsUrl)} | grep -qx '${lock.sha256}  ${tarball}'`,
+    // To a file, not a pipe: grep -q stops reading at the match and curl would fail on the closed pipe.
+    `curl -fsSL --retry 3 -o sha256sums.asc ${sq(lock.checksumsUrl)}`,
+    `grep -qx '${lock.sha256}  ${tarball}' sha256sums.asc`,
     `test "$(zcat /proc/config.gz | sha256sum | cut -d' ' -f1)" = ${lock.baseConfigSha256}`,
     `tar -xf ${tarball} && cd linux-${lock.version}`,
     "zcat /proc/config.gz > .config",
