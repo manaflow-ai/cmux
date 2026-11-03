@@ -1520,12 +1520,12 @@ mod effective_tests {
             ("ANTHROPIC_SMALL_FAST_MODEL".to_owned(), "login".to_owned()),
         ]);
         let mut restored = pairs(&[("ANTHROPIC_SMALL_FAST_MODEL", "login")]);
-        restored.extend(nested_local(vault.clone(), machine.clone()));
+        restored.extend(super::nested_local(vault.clone(), machine.clone()));
         let profile = BTreeMap::from([("ANTHROPIC_MODEL".to_owned(), "session".to_owned())]);
         let env = layered(
             pairs(&[("CLAUDECODE", "1"), ("ANTHROPIC_BASE_URL", "daemon"), ("HOME", "/u")]),
             true,
-            overlay(login, vault, machine.clone()),
+            super::overlay(login, vault, machine.clone()),
             restored,
             &profile,
         );
@@ -1536,7 +1536,7 @@ mod effective_tests {
             pairs(&[("CLAUDECODE", "1")]),
             true,
             Vec::new(),
-            nested_local(pairs(&[("ANTHROPIC_MODEL", "vault")]), machine),
+            super::nested_local(pairs(&[("ANTHROPIC_MODEL", "vault")]), machine),
             &BTreeMap::new(),
         );
         assert_eq!(env["ANTHROPIC_MODEL"], "machine");
