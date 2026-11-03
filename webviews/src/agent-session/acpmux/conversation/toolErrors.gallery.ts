@@ -6,7 +6,7 @@
 // person declined, a `<tool_use_error>`, a timeout; Codex's `{"status":"declined"}` and exit code;
 // an MCP server's JSON error. Compare arms shows the `tool-error-look` experiment's three looks.
 import { agentPaneEntry } from "../../../gallery/format";
-import { activity, assistant, chat, tool, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { AcpmuxActivity } from "../model";
 import type { PlayContext } from "../../../gallery/play";
@@ -179,6 +179,10 @@ const failedStep = chat(
       5.8,
     ),
     assistant("One lane is paused on its queue: studio-mac/land-queue. Nothing else is stuck.", 5),
+    // The turn's end, as a finished turn has one: without it the turn draws as it came, the group
+    // starts open and the play's click closed it (its steps then left the DOM before the wait in
+    // slow renders, and the reply under it rose as it shut).
+    summary(4.9, { status: "completed", toolCount: 4 }),
   ],
   { harness: "claude", model: "claude-opus-5-5" },
 );
