@@ -8,7 +8,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("chief-web-contract-browser.test.ts", async () => {
-  const identity = { chiefId: "chief_alex", mainConversationId: "conv_chief", handle: "alex" };
+  const identity = { chiefId: "agent_chief", mainConversationId: "conv_chief", handle: "alex" };
   const conversation = {
     id: identity.mainConversationId,
     participants: [
@@ -18,6 +18,14 @@ await requireBrowserLane("chief-web-contract-browser.test.ts", async () => {
   };
   type MessageBody = { text: string; clientMessageId: string };
   type Fixture = {
+    login?: {
+      harness?: "claude" | "codex";
+      existing?: boolean;
+      resumed?: boolean;
+      status?: number;
+      finishResults?: number[];
+      finishWait?: Promise<void>;
+    };
     meStatus?: number;
     ticketStatus?: number;
     messageResults?: { status: number; ok?: boolean }[];
@@ -85,9 +93,26 @@ await requireBrowserLane("chief-web-contract-browser.test.ts", async () => {
       deviceScaleFactor: 2,
       locale,
     });
+    // Exercise the normal browser fallback when asynchronous start cannot open a popup.
+    await page.addInitScript(() => {
+      window.open = () => null;
+    });
     const messages: { body: MessageBody; at: number }[] = [];
     const tickets: { method: string; body: string | null }[] = [];
     const errors: string[] = [];
+    const loginCalls: { method: string; body: Record<string, unknown> | null }[] = [];
+    let resumed = fixture.login?.resumed ?? false;
+    const login = {
+      loginId: "login_test",
+      url: "https://claude.ai/oauth/authorize",
+      needsCode: fixture.login?.harness !== "codex",
+      ...(fixture.login?.harness === "codex" ? { userCode: "ABCD-1234" } : {}),
+    };
+    let finishes = 0;
+    let finishHandled!: () => void;
+    const finishProcessed = new Promise<void>((resolve) => {
+      finishHandled = resolve;
+    });
     let socket: WebSocketRoute | undefined;
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("response", (response) => {
@@ -106,13 +131,73 @@ await requireBrowserLane("chief-web-contract-browser.test.ts", async () => {
               stream: `conv:${conversation.id}`,
               seq: 0,
               state: conversation,
-              rows: { table: "msg", rows: [] },
+              rows: {
+                table: "msg",
+                rows: fixture.login
+                  ? [
+                      {
+                        key: "auth",
+                        n: 1,
+                        row: {
+                          id: "auth",
+                          seq: 1,
+                          author: identity.chiefId,
+                          conversation: conversation.id,
+                          client_msg_id: `chief-machine-auth:${identity.chiefId}:run_42`,
+                          parts: [{ type: "text", text: "Sign in to continue." }],
+                        },
+                      },
+                    ]
+                  : [],
+              },
             }),
           );
         if (frame.t === "run.live.get")
           wire.send(JSON.stringify({ t: "run.live", conversation: conversation.id, runs: [] }));
       });
       wire.send(JSON.stringify({ t: "welcome", principal: { user: "user_alex" } }));
+    });
+    await page.route("**/v1/chief/machine-login/*", async (route) => {
+      const request = route.request();
+      const body = request.method() === "POST" ? (request.postDataJSON() as Record<string, unknown>) : null;
+      loginCalls.push({ method: request.method(), body });
+      let value: unknown = resumed
+        ? { signedIn: true, resumed: true }
+        : {
+            waiting: true,
+            harness: fixture.login?.harness ?? "claude",
+            login: fixture.login?.existing ? login : null,
+          };
+      let status = fixture.login?.status ?? 200;
+      if (body?.action === "start") value = login;
+      if (body?.action === "cancel") value = { cancelled: true };
+      if (body?.action === "finish") {
+        await fixture.login?.finishWait;
+        status = fixture.login?.finishResults?.[finishes++] ?? 200;
+        if (status === 200) {
+          resumed = true;
+          value = { signedIn: true, resumed: true };
+        }
+      }
+      try {
+        await route.fulfill({
+          status,
+          contentType: "application/json",
+          body: JSON.stringify(
+            status === 200
+              ? { ok: true, value }
+              : {
+                  ok: false,
+                  error: { code: "chief.machine.login_unavailable", message: "synthetic-provider-secret" },
+                },
+          ),
+        });
+      } catch (error) {
+        // A deliberately held finish can be aborted by the run replacement under test.
+        if (!fixture.login?.finishWait) throw error;
+      } finally {
+        if (body?.action === "finish") finishHandled();
+      }
     });
     await page.route("**/v1/chief/*", async (route) => {
       const request = route.request();
@@ -192,10 +277,144 @@ await requireBrowserLane("chief-web-contract-browser.test.ts", async () => {
       page,
       messages,
       tickets,
+      loginCalls,
+      finishProcessed,
       errors,
       frame: (value: unknown) => socket?.send(JSON.stringify(value)),
     };
   }
+
+  test("machine login reload recovery offers an explicit provider page and resumes the same run", async () => {
+    const fixture = await open({ login: {} });
+    try {
+      const card = fixture.page.getByTestId("chief-machine-login");
+      await card.getByRole("button", { name: "Sign in to Claude", exact: true }).click();
+      const link = card.getByRole("link", { name: "Open sign-in page" });
+      expect(await link.getAttribute("href")).toBe("https://claude.ai/oauth/authorize");
+      expect(await link.getAttribute("rel")).toContain("noreferrer");
+      await card.getByRole("textbox", { name: "Sign-in code" }).fill("synthetic-code");
+      await card.getByRole("button", { name: "Continue", exact: true }).click();
+      await card.waitFor({ state: "hidden" });
+      expect(fixture.loginCalls.map((call) => call.body?.action ?? call.method)).toEqual(["GET", "start", "finish"]);
+      expect(fixture.loginCalls.at(-1)?.body).toEqual({
+        action: "finish",
+        loginId: "login_test",
+        code: "synthetic-code",
+      });
+      expect(fixture.messages).toEqual([]);
+      await fixture.page.reload();
+      await fixture.page.waitForFunction(() => document.querySelector(".chief-web__connection")?.textContent === "");
+      await fixture.page.waitForFunction(() => !document.querySelector("[data-testid=chief-machine-login]"));
+      expect(fixture.messages).toEqual([]);
+      expect(fixture.errors).toEqual([]);
+    } finally {
+      await fixture.page.close();
+    }
+  });
+
+  test("ambiguous finish clears the code and retries without replaying it", async () => {
+    const fixture = await open({ login: { existing: true, finishResults: [503, 200] } });
+    try {
+      const card = fixture.page.getByTestId("chief-machine-login");
+      await card.getByRole("textbox", { name: "Sign-in code" }).fill("synthetic-single-use-code");
+      await card.getByRole("button", { name: "Continue", exact: true }).click();
+      await card.getByRole("alert").waitFor();
+      expect(await card.getByRole("textbox").count()).toBe(0);
+      expect(await card.textContent()).not.toContain("synthetic-provider-secret");
+      await card.getByRole("button", { name: "Continue", exact: true }).click();
+      await card.waitFor({ state: "hidden" });
+      const attempts = fixture.loginCalls.filter((call) => call.body?.action === "finish");
+      expect(attempts.map((call) => call.body)).toEqual([
+        { action: "finish", loginId: "login_test", code: "synthetic-single-use-code" },
+        { action: "finish", loginId: "login_test" },
+      ]);
+      expect(fixture.messages).toEqual([]);
+    } finally {
+      await fixture.page.close();
+    }
+  });
+
+  test("Codex device approval uses GET's harness and never requires a pasted code", async () => {
+    const fixture = await open({ login: { harness: "codex", existing: true } });
+    try {
+      const card = fixture.page.getByTestId("chief-machine-login");
+      await card.getByText("Sign in to Codex", { exact: true }).waitFor();
+      await card.getByText("ABCD-1234", { exact: true }).waitFor();
+      expect(await card.getByRole("textbox").count()).toBe(0);
+      expect(fixture.loginCalls).toEqual([{ method: "GET", body: null }]);
+      await card.getByRole("button", { name: "Continue", exact: true }).click();
+      await card.waitFor({ state: "hidden" });
+      expect(fixture.loginCalls.at(-1)?.body).toEqual({ action: "finish", loginId: "login_test" });
+    } finally {
+      await fixture.page.close();
+    }
+  });
+
+  test("cancel leaves the run waiting and allows an explicit new sign-in", async () => {
+    const fixture = await open({ login: { existing: true } });
+    try {
+      const card = fixture.page.getByTestId("chief-machine-login");
+      await card.getByRole("textbox", { name: "Sign-in code" }).fill("discarded-code");
+      await card.getByRole("button", { name: "Cancel", exact: true }).click();
+      await card.getByRole("button", { name: "Sign in to Claude", exact: true }).waitFor();
+      expect(fixture.loginCalls.at(-1)?.body).toEqual({ action: "cancel", loginId: "login_test" });
+      expect(await card.getByRole("textbox").count()).toBe(0);
+      expect(fixture.messages).toEqual([]);
+    } finally {
+      await fixture.page.close();
+    }
+  });
+
+  test("replacing a run aborts finish and ignores its late reply", async () => {
+    let release!: () => void;
+    const wait = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fixture = await open({ login: { existing: true, finishWait: wait } });
+    try {
+      const card = fixture.page.getByTestId("chief-machine-login");
+      await card.getByRole("textbox", { name: "Sign-in code" }).fill("synthetic-code");
+      const finish = fixture.page.waitForRequest(
+        (request) => request.method() === "POST" && request.postDataJSON()?.action === "finish",
+      );
+      await card.getByRole("button", { name: "Continue", exact: true }).click();
+      await finish;
+      const replacement = fixture.page.waitForRequest(
+        (request) => request.method() === "GET" && request.url().endsWith("/machine-login/run_43"),
+      );
+      fixture.frame({
+        t: "conversation-run-changed",
+        conversation: conversation.id,
+        run: { id: "run_43", author: identity.chiefId, harness: "pi-durable", status: "running" },
+        steps: [{ id: "machine:sign-in", kind: "note", text: "Waiting" }],
+      });
+      await replacement;
+      await card.getByRole("textbox", { name: "Sign-in code" }).waitFor();
+      release();
+      await fixture.finishProcessed;
+      expect(await card.getByRole("textbox", { name: "Sign-in code" }).inputValue()).toBe("");
+      expect(await card.isVisible()).toBe(true);
+      expect(fixture.messages).toEqual([]);
+    } finally {
+      release();
+      await fixture.page.close();
+    }
+  });
+
+  test("machine-login 401 signs out the page and 404 removes stale persisted notes", async () => {
+    const expired = await open({ login: { status: 401 } });
+    const stale = await open({ login: { status: 404 } });
+    try {
+      await expired.page.getByRole("button", { name: "Sign in again", exact: true }).waitFor();
+      expect(await expired.page.getByRole("textbox", { name: "Message your Chief" }).isDisabled()).toBe(true);
+      await stale.page.waitForFunction(() => document.querySelector(".chief-web__connection")?.textContent === "");
+      await stale.page.waitForFunction(() => !document.querySelector("[data-testid=chief-machine-login]"));
+      expect(stale.loginCalls).toEqual([{ method: "GET", body: null }]);
+    } finally {
+      await expired.page.close();
+      await stale.page.close();
+    }
+  });
 
   async function send(page: Page) {
     await page.getByRole("textbox", { name: "Message your Chief" }).fill("Build me a hello page");
