@@ -274,6 +274,13 @@
   the chevron hides first and the + takes the trailing slot alone (the 2026-10-30 titlebar minimum is unchanged).
   Regression: `SidebarNewWorkspaceSplitButtonTests`.
 
+- 2026-11-03: a started session named like its parent reads "Subagent of <parent>". Leo, 2026-10-30, of a
+  subagent row titled "claude-sr2-coord" under "claude-sr2-coord": "the sidebar tab shouldn't just be named claude
+  sr2 coord if you can just say it's SUbagent of sr2 coord". With the session tree on, a row whose title is its tree
+  parent's title (trimmed, case-insensitive) draws "Subagent of <parent title>"; a child with a name of its own keeps
+  it, and the hover card and tooltip keep the workspace's name. Only the row's title text changes; heights, indent
+  and rails do not. Regression: `SidebarSubagentTitleTests`.
+
 - 2026-10-30: a workspace row has no second line of its own. Leo, of a row titled "claude-sr2-coord"
   over "local · claude-sr2-coord": "and yes ofc remove the second line". The compact and comfortable
   row's second line used to lead with the computer (another machine in the one-list sidebar), its

@@ -224,4 +224,13 @@ struct DockMenuTests {
         #expect(!controller.isWaiting)
         controller.stop()
     }
+
+    /// #33727: a terminal harness opens a terminal, not a chat, so New Chat in ▸ leaves it out.
+    @Test func newChatInLeavesTerminalHarnessesOut() {
+        let rows = [AcpmuxHarnessRow(id: "codex", kind: "acp", source: "path"),
+                    AcpmuxHarnessRow(id: "shell", kind: "terminal", source: "user-file"),
+                    AcpmuxHarnessRow(id: "claude", name: "Claude", kind: "claude-stdio", source: "path")]
+        let choices = DockMenuChoices.make(harnesses: rows, machines: [AgentChatDestinations.local(title: "This Mac")])
+        #expect(choices.harnesses.map(\.id) == ["claude", "codex"])
+    }
 }

@@ -729,7 +729,7 @@ impl Hub {
         if stopped.is_none() {
             let mut roots = HashSet::new();
             self.store
-                .scan_kinds_strict(&session.id, &["prompt_stop_requested"], &mut |event| {
+                .scan_kinds(&session.id, &["prompt_stop_requested"], &mut |event| {
                     if event.dir == "mux"
                         && event.kind == "prompt_stop_requested"
                         && let Some(prompt) = event.msg.get("promptId").and_then(Value::as_str)
@@ -746,6 +746,20 @@ impl Hub {
         Ok(stopped)
     }
 
+    fn prompt_stop_recorded(&self, session: &Session, root: &str) -> Result<bool, RpcError> {
+        let mut found = false;
+        self.store
+            .scan_kinds(&session.id, &["prompt_stop_requested"], &mut |event| {
+                found = event.dir == "mux"
+                    && event.msg.get("promptId").and_then(Value::as_str) == Some(root);
+                !found
+            })
+            .map_err(|error| {
+                RpcError::internal(format!("cannot read back prompt stop boundary: {error}"))
+            })?;
+        Ok(found)
+    }
+
     /// Fence only the automatic continuation chain belonging to this accepted prompt.
     /// Lock order matches retry admission: retry state, append, then turn identity. An
     /// unrelated person's next turn and its retry mark are never replaced or stopped.
@@ -760,17 +774,30 @@ impl Hub {
         {
             let mut stopped = self.prompt_stop_set(session)?;
             if !stopped.as_ref().is_some_and(|roots| roots.contains(root)) {
-                if !self.append_stored(
-                    session,
-                    "mux",
-                    "prompt_stop_requested",
-                    json!({"promptId":root}),
-                ) {
-                    return Err(RpcError::internal("cannot persist prompt stop boundary"));
+                let mut recorded = false;
+                for _ in 0..2 {
+                    if !self.append_stored(
+                        session,
+                        "mux",
+                        "prompt_stop_requested",
+                        json!({"promptId":root}),
+                    ) {
+                        return Err(RpcError::internal("cannot persist prompt stop boundary"));
+                    }
+                    self.store.flush_session(&session.id).map_err(|error| {
+                        RpcError::internal(format!("cannot flush prompt stop boundary: {error}"))
+                    })?;
+                    if self.prompt_stop_recorded(session, root)? {
+                        recorded = true;
+                        break;
+                    }
+                    // A pre-existing unterminated line can swallow the first record.
+                    // That append ends the line; one more marker is independently readable.
+                    // Never alter history or acknowledge an unverified cancellation.
                 }
-                self.store.flush_session(&session.id).map_err(|error| {
-                    RpcError::internal(format!("cannot flush prompt stop boundary: {error}"))
-                })?;
+                if !recorded {
+                    return Err(RpcError::internal("prompt stop boundary is not readable"));
+                }
                 // Never cache or acknowledge a boundary until it is on stable storage:
                 // a failed write must be retried, including by this same daemon.
                 stopped.get_or_insert_with(HashSet::new).insert(root.to_owned());
@@ -778,7 +805,7 @@ impl Hub {
         }
         let mut turns = std::collections::BTreeSet::new();
         let mut latest = None;
-        let scanned = self.store.scan_kinds_strict(
+        let scanned = self.store.scan_kinds(
             &session.id,
             &["queued", "user_message", "turn_started", "turn_result", "auto_resume_scheduled"],
             &mut |event| {
@@ -975,7 +1002,12 @@ impl Hub {
     /// Tests: whether a Stop holds for the chat's turn `turn` (`Mark::Stopped`).
     #[cfg(test)]
     pub(super) fn clear_prompt_stop_cache_for_test(&self, session: &Session) {
-        session.auto_resume.stopped_prompts.lock().unwrap().take();
+        session
+            .auto_resume
+            .stopped_prompts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
     }
 
     #[cfg(test)]

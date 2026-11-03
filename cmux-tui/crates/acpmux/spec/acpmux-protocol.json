@@ -4541,6 +4541,13 @@
             "null"
           ]
         },
+        "transcriptSeq": {
+          "default": 0,
+          "description": "The seq of its newest transcript record (`hub/paging.rs` `is_transcript`): unlike\n`updatedAt` and `lastSeq`, bookkeeping (an agent start's `agent_start_waiting`, usage,\ngit, process counts) never moves it, so a client that keeps a chat's newest page reads it\nagain only when this passes the value it read at. An upper bound after a hard stop.\nAbsent from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "turn": {
           "anyOf": [
             {
@@ -5079,6 +5086,13 @@
             "boolean",
             "null"
           ]
+        },
+        "transcriptSeq": {
+          "default": 0,
+          "description": "The seq of its newest transcript record (`hub/paging.rs` `is_transcript`): unlike\n`updatedAt` and `lastSeq`, bookkeeping (an agent start's `agent_start_waiting`, usage,\ngit, process counts) never moves it, so a client that keeps a chat's newest page reads it\nagain only when this passes the value it read at. An upper bound after a hard stop.\nAbsent from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "turn": {
           "anyOf": [
