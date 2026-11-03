@@ -23,7 +23,7 @@ public final class OmniboxOpenTabFeed {
     public func follow(_ page: any BrowserTab, key: String, engineFor: @escaping @MainActor (any BrowserTab) -> OmniboxSuggestionEngine?) {
         follows.removeValue(forKey: key)?.cancel()
         follows[key] = Task { [weak self, weak page] in
-            for await facts in ObservationStream({ [weak page] in page.map { Facts(url: $0.state.url, title: $0.state.title) } }) {
+            for await facts in ObservationStream({ [weak page] in page.map { let state = $0.state; return Facts(url: state.url, title: state.title) } }) {
                 guard let self, let page, let facts else { return }
                 self.place(key, facts: facts, engine: engineFor(page))
             }

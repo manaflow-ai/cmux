@@ -66,10 +66,12 @@ public actor OmniboxLocalIndex {
         reindex(dedupe, url: row.url, now: now)
     }
 
-    /// The index row of URL `dedupe`: the first tab still on it, or none.
+    /// The index row of URL `dedupe`: the first tab still on it, or none. An open tab is open now: its row takes the
+    /// most recency (a `lastVisit` in the future clamps to an age of 0), the same for every tab, so tab rows rank by
+    /// their match alone and never by when a tab last changed (the list rebuild gave them all one time, too).
     private func reindex(_ dedupe: String, url: URL, now: Date) {
         if let first = tabKeys[dedupe]?.first, let row = openTabs[first] {
-            tabIndex.upsert(OmniboxHistoryRow(url: row.url, title: row.title, visitCount: 1, lastVisit: now), now: now)
+            tabIndex.upsert(OmniboxHistoryRow(url: row.url, title: row.title, visitCount: 1, lastVisit: .distantFuture), now: now)
         } else {
             tabIndex.remove(url)
         }
