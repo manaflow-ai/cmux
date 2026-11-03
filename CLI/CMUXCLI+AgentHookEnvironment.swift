@@ -12,7 +12,8 @@ extension CMUXCLI {
         socketPassword: String? = nil,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         resolvesProcessRoute: Bool = true,
-        runsInHookProcess: Bool = true
+        runsInHookProcess: Bool = true,
+        recordedInvokerPublishedAt: Date? = nil
     ) -> [String: String] {
         var environment = AgentLaunchEnvironmentPolicy().selectedEnvironment(
             from: processEnvironment,
@@ -31,10 +32,39 @@ extension CMUXCLI {
         }
         let pidEnvironmentKey = Self.agentHookPIDEnvironmentVariable(agentName: agent)
         // A spool record names the process that ran its hook; a CLI hook is
-        // that process's descendant.
-        let recordedInvokerPID = environment.removeValue(
+        // that process's descendant. A PID whose process started after the
+        // record was published was reused: it cannot be the producer, and
+        // routing through it could misattribute the event.
+        var recordedInvokerPID = environment.removeValue(
             forKey: AgentHookDeliveryPolicy.invokerPIDEnvironmentKey
         ).flatMap(Int.init)
+        if let invokerPID = recordedInvokerPID {
+            guard let identity = ClaudeViewerProcessIdentity(pid: invokerPID),
+                  recordedInvokerPublishedAt.map({
+                      AgentHookDeliveryPolicy().recordedInvokerIsTrustworthy(
+                          startSeconds: identity.seconds,
+                          startMicroseconds: identity.microseconds,
+                          publishedAt: $0.timeIntervalSince1970
+                      )
+                  }) ?? true else {
+                recordedInvokerPID = nil
+                if !client.isRelayBacked, runsInHookProcess || recordedInvokerPublishedAt != nil {
+                    // Never fall back to the dead/reused recorded PID.
+                    environment.removeValue(forKey: pidEnvironmentKey)
+                }
+                // Continue with the normal invocation-derived identity below.
+                let invocationPID = runsInHookProcess ? inferredAgentPID() : nil
+                if let agentPID = AgentHookDeliveryPolicy().hookAgentPID(
+                    environmentPID: nil,
+                    invocationAgentPID: invocationPID,
+                    controllingTerminal: controllingTerminalDevice(of:),
+                    processIsAlive: { ClaudeViewerProcessIdentity(pid: $0) != nil }
+                ) {
+                    environment[pidEnvironmentKey] = String(agentPID)
+                }
+                return environment
+            }
+        }
         if !client.isRelayBacked, runsInHookProcess || recordedInvokerPID != nil {
             // The exported PID can be inherited from an agent in another pane
             // (#20186); the agent that ran this hook names the hook's pane.

@@ -50,7 +50,16 @@ function installObserver({ report, acceptsPath }) {
   net.Socket.prototype.emit = function (event, ...args) {
     const state = states.get(this);
     if (state && event === 'data') firstLine(state, 'reply', args[0], reply => {
-      if (active.size < 32 && state.attachment && reply.ok === true && reply.op === 'attach') {
+      if (state.attachment && reply.ok === true && reply.op === 'attach') {
+        // Keep the store bounded without dropping the newest attachment: evict
+        // the oldest acknowledged lease and publish its detach so its record
+        // does not outlive the observation.
+        if (active.size >= 32) {
+          const oldest = active.keys().next().value;
+          const displaced = active.get(oldest);
+          if (displaced) publish(displaced, 'detached');
+          active.delete(oldest);
+        }
         state.acknowledged = true;
         active.set(this, state);
         publish(state, 'attached');
@@ -96,13 +105,40 @@ if (process.env.CMUX_CLAUDE_ATTACH_CONTEXT) {
       // Complete each mutation before processing the next native socket event.
       // In particular, a close must not overtake an async subscription write.
       // This runs once per attach/close, with a 500 ms ceiling, never per frame.
+      // A detach that misses the 500 ms budget is retained here and retried on
+      // the next connection event, one entry per event. No timer and no
+      // unbounded blocking are added; after three attempts the entry is
+      // dropped and the CLI's live process-generation checks remain the
+      // backstop.
+      const pending = new Map();
+      const deliver = value => {
+        try {
+          execFileSync(context.cli, ['__claude-viewer', value.action],
+            { env: environment, input: JSON.stringify(value), timeout: 500, stdio: ['pipe', 'ignore', 'ignore'] });
+          return true;
+        } catch { return false; }
+      };
+      const flushOnePending = () => {
+        for (const [key, entry] of [...pending]) {
+          if (deliver(entry.value)) { pending.delete(key); return; }
+          entry.attempts += 1;
+          if (entry.attempts >= 3) pending.delete(key);
+          return;
+        }
+      };
       const observer = installObserver({
         acceptsPath: path => new RegExp('^/(?:private/)?tmp/cc-daemon-' + process.getuid() + '/[^/]+/control\\.sock$').test(path),
         report: value => {
           // A synchronous removal also survives Claude's immediate process.exit
           // path. SIGKILL is covered by kernel process-generation validation.
-          try { execFileSync(context.cli, ['__claude-viewer', value.action],
-            { env: environment, input: JSON.stringify(value), timeout: 500, stdio: ['pipe', 'ignore', 'ignore'] }); } catch {}
+          flushOnePending();
+          if (deliver(value)) return;
+          const key = value.attach_id + ':' + value.action;
+          const entry = pending.get(key) ?? { value, attempts: 0 };
+          entry.value = value;
+          entry.attempts += 1;
+          if (entry.attempts >= 3 || (pending.size >= 32 && !pending.has(key))) pending.delete(key);
+          else pending.set(key, entry);
         }
       });
       process.once('exit', () => observer.detachAll());

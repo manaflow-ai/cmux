@@ -20,23 +20,23 @@ let policy = AgentHookDeliveryPolicy()
 // Snapshot from admission wins over a lagging, still-listed record.
 precondition(!policy.recordedSurfaceVetoes(
     invocationSurfaceId: "viewer", recordedSurfaceId: "launcher",
-    recordedSurfaceIsListed: true, routeWasSnapshotted: true))
+    recordedSurfaceIsListed: true, viewerSnapshot: true))
 // Without a snapshot the original fail-closed rule keeps rejecting.
 precondition(policy.recordedSurfaceVetoes(
     invocationSurfaceId: "viewer", recordedSurfaceId: "launcher",
-    recordedSurfaceIsListed: true, routeWasSnapshotted: false))
+    recordedSurfaceIsListed: true, viewerSnapshot: false))
 // Equal surfaces never veto.
 precondition(!policy.recordedSurfaceVetoes(
     invocationSurfaceId: "viewer", recordedSurfaceId: "viewer",
-    recordedSurfaceIsListed: true, routeWasSnapshotted: false))
+    recordedSurfaceIsListed: true, viewerSnapshot: false))
 // A record the app no longer lists does not veto.
 precondition(!policy.recordedSurfaceVetoes(
     invocationSurfaceId: "viewer", recordedSurfaceId: "launcher",
-    recordedSurfaceIsListed: false, routeWasSnapshotted: false))
+    recordedSurfaceIsListed: false, viewerSnapshot: false))
 // A missing invocation surface cannot form a veto.
 precondition(!policy.recordedSurfaceVetoes(
     invocationSurfaceId: nil, recordedSurfaceId: "launcher",
-    recordedSurfaceIsListed: true, routeWasSnapshotted: false))
+    recordedSurfaceIsListed: true, viewerSnapshot: false))
 print("PASS: snapshot bypasses a listed stale record; non-snapshot veto preserved")
 '''
 

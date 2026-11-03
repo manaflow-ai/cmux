@@ -35,11 +35,12 @@ extension CMUXCLI {
                 _ = admitPublishedAgentHookRecords(
                     in: spool,
                     claimGuard: AgentHookEnqueueWallClock.shared
-                ) { record in
+                ) { record, publishedAt in
                     // Everything in a retired spool was published before the
                     // agent exited, and is drained after it.
                     try admitAgentHookSpoolRecord(
                         record,
+                        publishedAt: publishedAt,
                         agentExited: spool.url == live.retiredLocation.url,
                         client: client,
                         socketPassword: socketPassword
@@ -157,9 +158,10 @@ extension CMUXCLI {
                     client.close()
                 }
                 try connectAgentHookForwarder(client, socketPassword: socketPassword)
-            }) { record in
+            }) { record, publishedAt in
                 try admitAgentHookSpoolRecord(
-                    record, agentExited: agentExited, client: client, socketPassword: socketPassword
+                    record, publishedAt: publishedAt, agentExited: agentExited,
+                    client: client, socketPassword: socketPassword
                 )
             }
         }
@@ -190,7 +192,7 @@ extension CMUXCLI {
         in spool: AgentHookSpoolDirectory,
         beforeClaim: () throws -> Void = {},
         claimGuard: AgentHookEnqueueWallClock? = nil,
-        admit: (AgentHookSpoolRecord) throws -> Void
+        admit: (AgentHookSpoolRecord, TimeInterval?) throws -> Void
     ) -> Bool {
         for name in spool.publishedRecordNames() {
             // Connection/authentication has not submitted this event. Preserve
@@ -204,8 +206,11 @@ extension CMUXCLI {
             guard claimGuard?.beginClaim() ?? true else { return false }
             defer { claimGuard?.endClaim() }
             guard let record = spool.claim(name: name) else { continue }
+            let publishedAt = AgentHookSpoolRecordName(name).map {
+                Double($0.seconds) + Double($0.nanoseconds) / 1_000_000_000
+            }
             do {
-                try admit(record)
+                try admit(record, publishedAt)
             } catch let error as CLIError where error.isStructuredProtocolResponse {
                 continue
             } catch {
@@ -217,6 +222,7 @@ extension CMUXCLI {
 
     private func admitAgentHookSpoolRecord(
         _ record: AgentHookSpoolRecord,
+        publishedAt: TimeInterval?,
         agentExited: Bool,
         client: SocketClient,
         socketPassword: String?
@@ -241,7 +247,8 @@ extension CMUXCLI {
             client: client,
             socketPassword: socketPassword,
             resolvesProcessRoute: !agentExited,
-            runsInHookProcess: false
+            runsInHookProcess: false,
+            recordedInvokerPublishedAt: publishedAt.map(Date.init(timeIntervalSince1970:))
         )
     }
 }

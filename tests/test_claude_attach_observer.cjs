@@ -62,6 +62,58 @@ test('unrelated socket is never observed', async t => {
 test('oversized protocol line fails closed without modifying transport', async t => {
   assert.deepEqual(await exchange(t, '{"ok":true,"op":"attach"}\n', { oversized: true }), []);
 });
+test('two overlapping attachments keep independent leases', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cmux-attach-concurrent-'));
+  const socketPath = path.join(root, 'control.sock');
+  const events = [];
+  const restore = install({ report: value => events.push(value), acceptsPath: p => p === socketPath });
+  const server = net.createServer(socket => {
+    socket.on('data', data => {
+      if (data.toString().includes('\n')) socket.write('{"ok":true,"op":"attach"}\n');
+    });
+  });
+  t.after(() => { restore(); server.close(); fs.rmSync(root, { recursive: true, force: true }); });
+  server.listen(socketPath); await once(server, 'listening');
+  const idA = '11111111-1111-4111-8111-111111111111';
+  const idB = '22222222-2222-4222-8222-222222222222';
+  const clientA = net.createConnection(socketPath);
+  const clientB = net.createConnection(socketPath);
+  clientA.on('data', () => {}); clientB.on('data', () => {});
+  await once(clientA, 'connect'); await once(clientB, 'connect');
+  clientA.write(JSON.stringify({ proto: 1, op: 'attach', short: 'aaaaaaaa', attachId: idA }) + '\n');
+  clientB.write(JSON.stringify({ proto: 1, op: 'attach', short: 'bbbbbbbb', attachId: idB }) + '\n');
+  const waitFor = async predicate => {
+    for (let i = 0; i < 100; i++) {
+      if (predicate()) return;
+      await new Promise(resolve => setImmediate(resolve));
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    throw new Error('observer event did not arrive');
+  };
+  await waitFor(() => events.filter(e => e.action === 'attached').length === 2);
+  assert.deepEqual(events.filter(e => e.action === 'attached').map(e => e.attach_id).sort(), [idA, idB].sort());
+  const closedA = once(clientA, 'close');
+  clientA.destroy(); await closedA;
+  await waitFor(() => events.some(e => e.action === 'detached' && e.attach_id === idA));
+  assert.ok(!events.some(e => e.action === 'detached' && e.attach_id === idB),
+    'the remaining attachment keeps its lease');
+  const closedB = once(clientB, 'close');
+  clientB.destroy(); await closedB;
+  await waitFor(() => events.some(e => e.action === 'detached' && e.attach_id === idB));
+});
+
+test('generated preload loads under Bun when the lane provides it', t => {
+  const bun = spawnSync('bun', ['--version'], { encoding: 'utf8' });
+  if (bun.error || bun.status !== 0) {
+    t.skip('Bun is not installed; automated checks do not load the preload');
+    return;
+  }
+  const result = spawnSync('bun', ['--preload', modulePath, '-e',
+    'process.stdout.write("preload-ok")'], { encoding: 'utf8', timeout: 15000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, 'preload-ok');
+});
+
 test('preload restores Bun options and removes private context before children', () => {
   const result = spawnSync(process.execPath, ['--require', modulePath, '-e', `
     const assert=require('node:assert/strict');

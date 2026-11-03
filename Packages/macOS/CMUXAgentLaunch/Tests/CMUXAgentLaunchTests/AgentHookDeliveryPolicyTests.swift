@@ -136,26 +136,36 @@ struct AgentHookDeliveryPolicyTests {
             invocationSurfaceId: "viewer",
             recordedSurfaceId: "launcher",
             recordedSurfaceIsListed: true,
-            routeWasSnapshotted: true
+            viewerSnapshot: true
         ))
         #expect(policy.recordedSurfaceVetoes(
             invocationSurfaceId: "viewer",
             recordedSurfaceId: "launcher",
             recordedSurfaceIsListed: true,
-            routeWasSnapshotted: false
+            viewerSnapshot: false
         ))
         #expect(!policy.recordedSurfaceVetoes(
             invocationSurfaceId: "viewer",
             recordedSurfaceId: "launcher",
             recordedSurfaceIsListed: false,
-            routeWasSnapshotted: false
+            viewerSnapshot: false
         ))
         #expect(!policy.recordedSurfaceVetoes(
             invocationSurfaceId: "viewer",
             recordedSurfaceId: "viewer",
             recordedSurfaceIsListed: true,
-            routeWasSnapshotted: false
+            viewerSnapshot: false
         ))
+    }
+
+    @Test("A spool invoker started after publication is not trusted")
+    func recordedInvokerMustPredatePublication() {
+        // A reused PID starts after the record was published; it cannot be
+        // the hook's producer even though it is alive.
+        #expect(policy.recordedInvokerIsTrustworthy(
+            startSeconds: 100, startMicroseconds: 0, publishedAt: 100.5))
+        #expect(!policy.recordedInvokerIsTrustworthy(
+            startSeconds: 101, startMicroseconds: 500_000, publishedAt: 100.5))
     }
 
     @Test("Agent names produce stable ASCII PID environment keys")

@@ -7,8 +7,20 @@ import Foundation
 /// events remain explicitly scoped to the wrappers that own their contracts.
 public struct AgentHookDeliveryPolicy: Sendable {
     /// Marks local hook routing that was resolved before queue admission.
+    ///
+    /// The value `viewer` additionally records that admission matched the live
+    /// worker to an acknowledged viewer lease. It is the only value that may
+    /// bypass a lagging session-record surface.
     public static let routeSnapshotEnvironmentKey =
         "CMUX_AGENT_HOOK_ROUTE_SNAPSHOT"
+
+    /// The route-snapshot value written only after a viewer lease matched.
+    public static let viewerSnapshotValue = "viewer"
+
+    /// Whether a route-snapshot environment value came from a viewer lease.
+    public static func isViewerSnapshot(_ value: String?) -> Bool {
+        value == viewerSnapshotValue
+    }
 
     /// The PID of the process that ran a spooled hook, recorded by the spool
     /// producer so a later forwarder can apply ``hookAgentPID(environmentPID:invocationAgentPID:controllingTerminal:)``.
@@ -132,15 +144,30 @@ public struct AgentHookDeliveryPolicy: Sendable {
         invocationSurfaceId: String?,
         recordedSurfaceId: String?,
         recordedSurfaceIsListed: Bool,
-        routeWasSnapshotted: Bool
+        viewerSnapshot: Bool
     ) -> Bool {
         guard let invocationSurfaceId, !invocationSurfaceId.isEmpty,
               let recordedSurfaceId, !recordedSurfaceId.isEmpty,
               recordedSurfaceId != invocationSurfaceId else {
             return false
         }
-        guard !routeWasSnapshotted else { return false }
+        guard !viewerSnapshot else { return false }
         return recordedSurfaceIsListed
+    }
+
+    /// Whether a spool-recorded invoker PID still names the process that
+    /// published the record.
+    ///
+    /// A process that started after the record was published cannot be its
+    /// producer; the PID was reused. The one-second tolerance only covers
+    /// whole-second start times and ordinary clock resolution.
+    public func recordedInvokerIsTrustworthy(
+        startSeconds: UInt64,
+        startMicroseconds: UInt64,
+        publishedAt: TimeInterval
+    ) -> Bool {
+        let started = Double(startSeconds) + Double(startMicroseconds) / 1_000_000
+        return started <= publishedAt + 1
     }
 
     /// Chooses the agent process that owns one hook invocation.

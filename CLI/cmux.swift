@@ -31212,8 +31212,10 @@ struct CMUXCLI {
         let hookSurfaceFlag = optionValue(hookArgs, name: "--surface")
         let preferCallerTTYRouting = hookWsFlag == nil && hookSurfaceFlag == nil
         let relayOrigin = env[agentHookRelayOriginEnvironmentKey] == "1"
+        let routeSnapshotValue = env[Self.agentHookRouteSnapshotEnvironmentKey]
         let routeWasSnapshotted =
-            env[Self.agentHookRouteSnapshotEnvironmentKey] == "1"
+            routeSnapshotValue == "1" || AgentHookDeliveryPolicy.isViewerSnapshot(routeSnapshotValue)
+        let viewerSnapshot = AgentHookDeliveryPolicy.isViewerSnapshot(routeSnapshotValue)
         let snapshottedRoute = routeWasSnapshotted
             ? admittedAgentHookRouteSnapshot(
                 environment: env,
@@ -31235,6 +31237,17 @@ struct CMUXCLI {
         let liveProcessIdentityAllowed = !relayOrigin && !routeWasSnapshotted
         let observedHookAgentPID = claudeAgentPID(from: env)
         let liveHookAgentPID = liveProcessIdentityAllowed ? observedHookAgentPID : nil
+        // Direct hooks can inherit a dead exported PID from a detached worker.
+        // Resolve the live invoking agent before the viewer lookup, while the
+        // exported identity still drives caller-TTY routing below.
+        let viewerLookupPID = liveProcessIdentityAllowed
+            ? AgentHookDeliveryPolicy().hookAgentPID(
+                environmentPID: observedHookAgentPID,
+                invocationAgentPID: inferredAgentPID(),
+                controllingTerminal: controllingTerminalDevice(of:),
+                processIsAlive: { ClaudeViewerProcessIdentity(pid: $0) != nil }
+            )
+            : nil
         var callerTTYBindingCache: CallerTerminalBinding?
         var didResolveCallerTTYBinding = false
         func callerTTYBinding() -> CallerTerminalBinding? {
@@ -31277,15 +31290,15 @@ struct CMUXCLI {
             preferCallerTTYRouting: preferCallerTTYRouting,
             callerTerminalBinding: callerTTYBindingProvider,
             agentPid: liveHookAgentPID,
-            routeWasSnapshotted: routeWasSnapshotted
+            viewerSnapshot: viewerSnapshot
         )
         hookRouting.allowsPidProbe = liveProcessIdentityAllowed
         let rawInput = rawInputOverride
             ?? String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         if preferCallerTTYRouting, liveProcessIdentityAllowed,
-           let sessionID = parsedInput.sessionId, let workerPID = liveHookAgentPID,
-           let viewerTarget = try liveClaudeViewerTarget(sessionID: sessionID, workerPID: workerPID, client: client) {
+           let sessionID = parsedInput.sessionId, let workerPID = viewerLookupPID,
+           let viewerTarget = try? liveClaudeViewerTarget(sessionID: sessionID, workerPID: workerPID, client: client) {
             try runClaudeHook(
                 commandArgs: commandArgs + ["--workspace", viewerTarget.workspaceId, "--surface", viewerTarget.surfaceId],
                 client: client, telemetry: telemetry, socketPassword: socketPassword,

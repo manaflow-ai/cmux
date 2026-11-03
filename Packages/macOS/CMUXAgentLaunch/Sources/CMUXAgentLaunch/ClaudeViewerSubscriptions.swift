@@ -32,13 +32,17 @@ public struct ClaudeViewerSubscriptions: Sendable {
         })
     }
 
-    /// Selects up to four live candidates, newest first, for the existing single-target notification path.
+    /// Selects up to four live candidates, newest admission first, for the existing single-target notification path.
+    ///
+    /// Leases are stored in admission order under the store lock, so array
+    /// position is the ordering signal. Wall-clock timestamps are only
+    /// metadata: a clock step between two attachments must not reorder them.
     /// - Parameters:
     ///   - workerPID: The live hook invocation PID.
     ///   - socketPath: The cmux instance receiving the hook.
     /// - Returns: Candidates whose current pane must still be corroborated by the app.
     public func candidates(workerPID: Int, socketPath: String) -> [ClaudeAttachedViewer] {
-        Array(viewers.filter { $0.admits(workerPID: workerPID, socketPath: socketPath) }
-            .sorted { $0.attachedAt > $1.attachedAt }.prefix(4))
+        Array(viewers.reversed().filter { $0.admits(workerPID: workerPID, socketPath: socketPath) }
+            .prefix(4))
     }
 }

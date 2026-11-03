@@ -964,11 +964,41 @@ clear_cmux_claude_passthrough_env() {
     fi
 }
 
+# Returns the first non-option command word, skipping values that the
+# preceding option consumes. Mirrors should_inject_claude_hooks so passthrough
+# and hook-injection launches agree on what the command is.
+cmux_claude_first_command_word() {
+    local skip_next=false arg
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --)
+                return 1
+                ;;
+            -*)
+                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                ;;
+            *)
+                printf '%s' "$arg"
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
 exec_real_claude_passthrough() {
     # Passthrough launches get no hooks; drop any speculative settings job.
     cmux_claude_discard_hook_settings
     clear_cmux_claude_passthrough_env
-    case "${1:-}" in attach|agents) activate_native_attach_observer ;; esac
+    local cmux_claude_command_word
+    cmux_claude_command_word="$(cmux_claude_first_command_word "$@")"
+    case "$cmux_claude_command_word" in attach|agents) activate_native_attach_observer ;; esac
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 }
 
@@ -989,8 +1019,20 @@ prepare_native_attach_observer() {
           my @s=lstat $p; exit 1 unless @s && S_ISDIR($s[2]) && $s[4]==$< && ($s[2]&0077)==0;
         }
         my $file="$dir/".sha256_hex($content).".cjs";
-        if (sysopen my $out,$file,O_WRONLY|O_CREAT|O_EXCL,0600) { print $out $content; close $out or exit 1; }
-        my @s=lstat $file; exit 1 unless @s && S_ISREG($s[2]) && $s[4]==$< && ($s[2]&0077)==0;
+        # Publish atomically: a concurrent launch must never load a partial
+        # file. A stale empty file from an interrupted older writer is replaced.
+        if (-e $file) {
+          my @s=lstat $file;
+          unlink $file unless @s && S_ISREG($s[2]) && $s[7] > 0;
+        }
+        unless (-e $file) {
+          my $tmp="$file.tmp.$$";
+          my $ok=sysopen(my $out,$tmp,O_WRONLY|O_CREAT|O_EXCL,0600);
+          if ($ok) { $ok=print $out $content; $ok=close($out) && $ok; }
+          if (!$ok) { unlink $tmp; exit 1; }
+          if (!rename($tmp,$file)) { unlink $tmp; exit 1 unless -e $file && -s $file; }
+        }
+        my @s=lstat $file; exit 1 unless @s && S_ISREG($s[2]) && $s[4]==$< && ($s[2]&0077)==0 && $s[7] > 0;
         print $file;
     ' "$source" "$HOME" 2>/dev/null)" || return 0
     case "$cmux_attach_module" in *[[:space:]]*) cmux_attach_module=""; return 0 ;; esac
