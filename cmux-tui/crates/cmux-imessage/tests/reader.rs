@@ -77,7 +77,9 @@ impl Fixture {
     }
 
     fn handle(&self, id: &str) -> i64 {
-        self.db.execute("INSERT INTO handle (id, service) VALUES (?1, 'iMessage')", params![id]).unwrap();
+        self.db
+            .execute("INSERT INTO handle (id, service) VALUES (?1, 'iMessage')", params![id])
+            .unwrap();
         self.db.last_insert_rowid()
     }
 
@@ -92,14 +94,24 @@ impl Fixture {
         let chat = self.db.last_insert_rowid();
         for handle in handles {
             self.db
-                .execute("INSERT INTO chat_handle_join (chat_id, handle_id) VALUES (?1, ?2)", params![chat, handle])
+                .execute(
+                    "INSERT INTO chat_handle_join (chat_id, handle_id) VALUES (?1, ?2)",
+                    params![chat, handle],
+                )
                 .unwrap();
         }
         chat
     }
 
     /// Adds a message; `minutes` after the base date. Returns its rowid.
-    fn message(&self, chat: i64, handle: i64, from_me: bool, minutes: i64, text: Option<&str>) -> i64 {
+    fn message(
+        &self,
+        chat: i64,
+        handle: i64,
+        from_me: bool,
+        minutes: i64,
+        text: Option<&str>,
+    ) -> i64 {
         self.message_with(chat, handle, from_me, minutes, text, None, 0, 0)
     }
 
@@ -122,7 +134,16 @@ impl Fixture {
                 "INSERT INTO message (guid, text, handle_id, date, is_from_me, attributedBody,
                      item_type, associated_message_type)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![guid, text, if from_me { 0 } else { handle }, date, from_me as i64, body, item_type, associated],
+                params![
+                    guid,
+                    text,
+                    if from_me { 0 } else { handle },
+                    date,
+                    from_me as i64,
+                    body,
+                    item_type,
+                    associated
+                ],
             )
             .unwrap();
         let rowid = self.db.last_insert_rowid();
@@ -149,7 +170,12 @@ impl Fixture {
                 params![message, attachment],
             )
             .unwrap();
-        self.db.execute("UPDATE message SET cache_has_attachments = 1 WHERE ROWID = ?1", params![message]).unwrap();
+        self.db
+            .execute(
+                "UPDATE message SET cache_has_attachments = 1 WHERE ROWID = ?1",
+                params![message],
+            )
+            .unwrap();
     }
 
     fn reader(&self) -> Reader {
@@ -205,7 +231,10 @@ fn threads_list_one_to_one_and_group_chats_newest_first() {
     assert_eq!(preview.sender.as_deref(), Some("bob@example.com"));
     assert_eq!(preview.date_ms, Some(BASE_UNIX_MS + 5 * 60_000));
 
-    assert_eq!(threads[1].title, "+15550001111, bob@example.com", "empty group name falls back to members");
+    assert_eq!(
+        threads[1].title, "+15550001111, bob@example.com",
+        "empty group name falls back to members"
+    );
     assert!(threads[1].last_message.as_ref().unwrap().is_from_me);
     assert_eq!(threads[1].last_message.as_ref().unwrap().sender, None);
 
@@ -239,7 +268,8 @@ fn messages_page_oldest_first_with_attributed_text_and_attachments() {
     let first = fx.message(chat, alice, false, 1, Some("one"));
     let second = fx.message_with(chat, alice, true, 2, None, Some(attributed_body("two")), 0, 0);
     fx.message_with(chat, alice, false, 3, Some("Liked “two”"), None, 0, 2001);
-    let third = fx.message_with(chat, alice, false, 4, None, Some(attributed_body("\u{FFFC}")), 0, 0);
+    let third =
+        fx.message_with(chat, alice, false, 4, None, Some(attributed_body("\u{FFFC}")), 0, 0);
     fx.attach(third, "IMG_0001.HEIC", "image/heic");
 
     let reader = fx.reader();
@@ -278,7 +308,10 @@ fn since_returns_new_messages_across_chats_after_the_watermark() {
     let new_b = fx.message(b, bob, false, 4, Some("new in b"));
 
     let fresh = reader.since(watermark, 100).unwrap();
-    assert_eq!(fresh.iter().map(|m| (m.rowid, m.chat_id)).collect::<Vec<_>>(), vec![(new_a, a), (new_b, b)]);
+    assert_eq!(
+        fresh.iter().map(|m| (m.rowid, m.chat_id)).collect::<Vec<_>>(),
+        vec![(new_a, a), (new_b, b)]
+    );
     assert_eq!(reader.latest_rowid().unwrap(), new_b);
     assert!(reader.since(new_b, 100).unwrap().is_empty());
 }

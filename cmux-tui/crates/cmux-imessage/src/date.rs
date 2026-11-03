@@ -10,10 +10,7 @@ pub fn apple_to_unix_ms(value: i64) -> Option<i64> {
     if value == 0 {
         return None;
     }
-    let since_apple_ms = if value.abs() > 100_000_000_000 {
-        value / 1_000_000
-    } else {
-        value.saturating_mul(1_000)
-    };
+    let since_apple_ms =
+        if value.abs() > 100_000_000_000 { value / 1_000_000 } else { value.saturating_mul(1_000) };
     Some(since_apple_ms.saturating_add(APPLE_EPOCH_UNIX_MS))
 }

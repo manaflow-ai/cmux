@@ -12,7 +12,8 @@ use crate::typedstream::decode_attributed_body;
 /// `chat.style` of a group chat (1:1 chats are 45).
 const GROUP_STYLE: i64 = 43;
 /// Tables every Messages database this reader supports has.
-const REQUIRED_TABLES: [&str; 5] = ["chat", "message", "handle", "chat_message_join", "chat_handle_join"];
+const REQUIRED_TABLES: [&str; 5] =
+    ["chat", "message", "handle", "chat_message_join", "chat_handle_join"];
 /// Tables for attachment metadata; older or trimmed databases may lack them.
 const ATTACHMENT_TABLES: [&str; 2] = ["attachment", "message_attachment_join"];
 /// The most rows one call returns, whatever the caller asks for.
@@ -129,7 +130,8 @@ impl Reader {
              ORDER BY m.ROWID DESC
              LIMIT ?3"
         );
-        let mut messages = self.query_messages(&sql, params![chat_id, before_rowid, clamp(limit)])?;
+        let mut messages =
+            self.query_messages(&sql, params![chat_id, before_rowid, clamp(limit)])?;
         messages.reverse();
         Ok(messages)
     }
@@ -151,7 +153,9 @@ impl Reader {
 
     /// The highest message rowid, the watermark live updates start from (0 when empty).
     pub fn latest_rowid(&self) -> Result<i64, MirrorError> {
-        Ok(self.connection.query_row("SELECT IFNULL(MAX(ROWID), 0) FROM message", [], |row| row.get(0))?)
+        Ok(self
+            .connection
+            .query_row("SELECT IFNULL(MAX(ROWID), 0) FROM message", [], |row| row.get(0))?)
     }
 
     fn participants(&self, chat_id: i64) -> Result<Vec<String>, MirrorError> {
@@ -193,7 +197,8 @@ impl Reader {
         params: impl rusqlite::Params,
     ) -> Result<Vec<Message>, MirrorError> {
         let mut statement = self.connection.prepare(sql)?;
-        let mut messages = statement.query_map(params, message_row)?.collect::<Result<Vec<_>, _>>()?;
+        let mut messages =
+            statement.query_map(params, message_row)?.collect::<Result<Vec<_>, _>>()?;
         if self.has_attachments {
             for message in &mut messages {
                 message.attachments = self.attachments(message.rowid)?;
