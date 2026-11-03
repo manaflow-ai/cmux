@@ -123,6 +123,7 @@ struct PaletteSearchCenteringTests {
         let typed = try Self.draw(query: Self.placeholder, appearance: appearance)
         let bearing = empty.textMinX - empty.caretX
         #expect(bearing >= -0.25 && bearing <= 1.5, "placeholder S at \(empty.textMinX), caret at \(empty.caretX)")
-        #expect(abs(empty.textMinX - typed.textMinX) <= 0.5, "placeholder S at \(empty.textMinX), typed S at \(typed.textMinX)")
+        // One pixel at 1x: the tertiary placeholder's faint first column can fall under the ink threshold.
+        #expect(abs(empty.textMinX - typed.textMinX) <= 1, "placeholder S at \(empty.textMinX), typed S at \(typed.textMinX)")
     }
 }
