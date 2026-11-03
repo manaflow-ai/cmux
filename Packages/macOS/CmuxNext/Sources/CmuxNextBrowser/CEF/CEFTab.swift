@@ -286,15 +286,15 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var hasDocument = false
     /// The current document is a real page that finished loading, or an error page (not an aborted load).
     @ObservationIgnored var documentLoaded = false
-    /// The tab comes back from the session (a reopen, a hibernation wake): keys wait for its first document. Another page
-    /// takes keys once Chromium created it (a New Tab page's document is blank and needs no wait).
-    @ObservationIgnored public var awaitsFirstDocument = false
-    /// The document the tab shows is blank (a restored New Tab page): its blank document counts as loaded.
+    /// The document the tab was asked to show is blank (a New Tab page): its blank document counts as loaded.
     @ObservationIgnored var blankIsDocument = false
 
     func attach(browser: Int32) {
         browserID = browser
-        (hasDocument, documentLoaded, blankIsDocument) = (false, false, !PageBackground.isRealPage(pendingURL))
+        // A page asked to show something (an address, a saved navigation, an agent's load) waits for that document; a
+        // page with nothing to load takes keys now (lead on STATUS 7916: a reopen by address is no saved navigation).
+        let navigates = pendingURL != nil || pendingRestore != nil || loadAfterAttach != nil
+        (hasDocument, documentLoaded, blankIsDocument) = (false, false, pendingURL.map { !PageBackground.isRealPage($0) } ?? false)
         isCreationPending = false
         CEFAgentURLGuard.applyShimGuard(self)
         if let url = loadAfterAttach {
@@ -338,10 +338,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             if code != 1, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
         }
         refreshExtensionActions()
-        if !awaitsFirstDocument { documentArrived() }
+        if !navigates { documentArrived() }
     }
 
-    /// The page takes keys now: Chromium created it, and (a tab back from the session) stopped loading on its document.
+    /// The page takes keys now: Chromium created it, and (a page asked to show something) stopped loading on that document.
     func documentArrived() {
         guard !hasDocument else { return }
         hasDocument = true
