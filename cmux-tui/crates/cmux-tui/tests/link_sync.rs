@@ -204,6 +204,47 @@ fn a_dirty_repo_arrives_with_its_git_state_and_without_ignored_files_or_secrets(
 }
 
 #[test]
+fn a_plain_folder_copy_excludes_registry_tokens_and_netrc() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let plain = root.join("plain");
+    std::fs::create_dir_all(plain.join("pkg")).unwrap();
+    std::fs::write(plain.join("notes.txt"), "project notes\n").unwrap();
+    std::fs::write(plain.join(".npmrc"), "registry=https://registry.invalid/\n").unwrap();
+    std::fs::write(plain.join(".netrc"), "machine invalid.example password FAKE\n").unwrap();
+    std::fs::write(plain.join("pkg/.npmrc"), "//registry.invalid/:_authToken=FAKE\n").unwrap();
+    std::fs::write(plain.join("pkg/.pypirc"), "[pypi]\npassword=FAKE\n").unwrap();
+
+    let home = root.join("home");
+    std::fs::create_dir_all(home.join("work")).unwrap();
+    let sockets = tempfile::Builder::new().prefix("cs").tempdir_in("/tmp").unwrap();
+    let socket = sockets.path().join("fs.sock");
+    serve_fs(&socket, &home);
+    let remote = home.join("work/plain");
+    let pushed = push(&socket, &plain, &remote);
+    assert_eq!(pushed["skipped_counts"]["secret"], 3, "{pushed}");
+    for path in [".netrc", "pkg/.npmrc", "pkg/.pypirc"] {
+        assert!(!remote.join(path).exists(), "plain copy leaked {path}");
+        assert!(
+            pushed["skipped_files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["path"] == path && entry["kind"] == "secret"),
+            "skipped credential missing from summary: {pushed}"
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(remote.join(".npmrc")).unwrap(),
+        "registry=https://registry.invalid/\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(remote.join("notes.txt")).unwrap(),
+        "project notes\n"
+    );
+}
+
+#[test]
 fn a_git_copy_excludes_untracked_private_keys_and_registry_tokens() {
     let root = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(root.path()).unwrap();
