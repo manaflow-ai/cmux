@@ -1325,6 +1325,41 @@ class OpenP0(unittest.TestCase):
             self.assertIn("FAILED on J", blockers([fail, misread, passed, record(fail), again])[0][1])
             # The record line is no result row: with no pass the journey has not passed.
             self.assertIn("has not passed on J", blockers([fail, misread, record(fail)])[0][1])
+            # No reader, no rule: the .pass is refused (never "no fails found").
+            reader, mod.P0_LEDGER_READER = mod.P0_LEDGER_READER, Path(tmp) / "missing-ledger.py"
+            try:
+                self.assertIn("cannot be loaded", blockers([passed])[0][1])
+            finally:
+                mod.P0_LEDGER_READER = reader
+
+    def test_the_gate_reads_each_real_ledger_with_the_runners_own_reader(self):
+        # One rule in one place (lead 2026-11-03): the gate's rows are exactly the runner's live_rows on the judged
+        # ledgers (e543e68d, 64ef2a21, 634398d4, ecf26eee, 8e149f2e; STATUS 9567).
+        mod = load_gate()
+        live_rows, why = mod.p0_ledger_reader()
+        if live_rows is None:
+            self.skipTest(why)
+        folder = Path("/Users/lawrence/fun/wt/handoff/open-p0-results")
+        jobs = [p.stem for p in folder.glob("*.jsonl") if p.stem[:8] in ("e543e68d", "64ef2a21", "634398d4", "ecf26eee",
+                                                                           "8e149f2e")]
+        if not jobs:
+            self.skipTest("no judged ledgers on this machine")
+        old = mod.P0_LEDGER
+        try:
+            mod.P0_LEDGER = folder
+            for job in jobs:
+                want = [r for r in live_rows(str(folder / f"{job}.jsonl")) if r.get("build_job") == job]
+                seen = []
+                real = mod.p0_ledger_reader
+                mod.p0_ledger_reader = lambda: ((lambda path: seen.append(path) or live_rows(path)), None)
+                try:
+                    mod.open_p0_blockers(job)
+                finally:
+                    mod.p0_ledger_reader = real
+                self.assertEqual(seen, [str(folder / f"{job}.jsonl")], job)
+                self.assertTrue(all(r.get("record") != "supersede" for r in want), job)
+        finally:
+            mod.P0_LEDGER = old
 
     def test_run_py_appends_each_result_to_the_ledger(self):
         sys.path.insert(0, str(HERE))

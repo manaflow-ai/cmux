@@ -44,6 +44,7 @@ Never run it on a person's Mac: the hog fills the memory up to swap.
 """
 import argparse
 import calendar
+import importlib.util
 import json
 import re
 import shutil
@@ -455,28 +456,37 @@ def p0_waivers():
         return {}
 
 
+# The open-P0 ledger has ONE reader (lead 2026-11-03, STATUS 9567): the P0 JOURNEY RUNNER's ledger.py live_rows(path),
+# imported, never copied (a copy can drift). The ledger is append-only: a {"record": "supersede"} line names ONE fail
+# row of a reader misread exactly (id, run_at, out, status fail) and only that row is dropped; every other FAIL counts,
+# also with a later PASS. The gate runs on the orchestrator VM beside the runner; with no reader the .pass is refused.
+P0_LEDGER_READER = Path(os.environ.get("SMOKE_GATE_P0_LEDGER_READER",
+                                       "/work/wt/chrome-parity-design/p0-journey-runner/ledger.py"))
+
+
+def p0_ledger_reader():
+    """(live_rows, None) of the runner's ledger module, or (None, why) when it cannot be loaded."""
+    try:
+        spec = importlib.util.spec_from_file_location("p0_journey_runner_ledger", P0_LEDGER_READER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.live_rows, None
+    except (OSError, ImportError, SyntaxError, AttributeError) as error:
+        return None, f"the open-P0 ledger reader {P0_LEDGER_READER} cannot be loaded ({error}): no .pass"
+
+
 def open_p0_blockers(job, waived=None):
     """[(list line, why)] of the open P0 journeys that block a .pass for JOB: no PASS on JOB in the ledger, or any FAIL.
-    Only rows without "superseded_by" are read: the P0 JOURNEY RUNNER marks a journey's older rows when it appends a
-    new one (a reader-misread fail retried on another mini), so the gate reads the same final state as the runner.
-    An unreadable list blocks too (the rule cannot be checked)."""
+    The ledger's rows are the runner's live_rows (P0_LEDGER_READER): only a misread fail a supersede record names is
+    dropped. An unreadable list or reader blocks too (the rule cannot be checked)."""
     try:
         listed = [l.split() for l in OPEN_P0.read_text().splitlines() if l.strip() and not l.lstrip().startswith("#")]
     except OSError as error:
         return [(str(OPEN_P0), f"the open-P0 list cannot be read ({error}): no .pass")]
-    rows = []
-    try:
-        for text in (P0_LEDGER / f"{job}.jsonl").read_text().splitlines():
-            try:
-                row = json.loads(text)
-            except ValueError:
-                continue
-            # One rule, the runner's (mark_superseded): a row with "superseded_by" was replaced by a later row of the
-            # same journey, so it is not read. Rows without the mark (run.py's own) all stay.
-            if isinstance(row, dict) and row.get("build_job") == job and not row.get("superseded_by"):
-                rows.append(row)
-    except OSError:
-        pass
+    live_rows, why = p0_ledger_reader()
+    if live_rows is None:
+        return [(str(P0_LEDGER_READER), why)]
+    rows = [r for r in live_rows(str(P0_LEDGER / f"{job}.jsonl")) if isinstance(r, dict) and r.get("build_job") == job]
     blockers, waivers = [], p0_waivers()
     for fields in listed:
         ids = set(fields[0].split("|"))
