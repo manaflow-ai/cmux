@@ -6,6 +6,7 @@
 
 mod key_router {
     mod fuzz;
+    mod lifetimes;
     mod model;
     mod mutants;
     mod scenarios;

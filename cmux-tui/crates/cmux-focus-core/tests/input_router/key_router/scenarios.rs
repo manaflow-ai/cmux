@@ -38,7 +38,10 @@ fn p0_1193_cmd_d_twice_each_line_reaches_its_own_terminal() {
     s.open("w1", topology("ws", vec![pane("p1", vec![terminal_tab("t1", "T1")])]), "p1");
     s.reaches(Some(terminal("T1")));
     let split = s.press(chord("w1", D, "newSplit", Tier::Navigation, Some(terminal("T1"))));
-    assert!(matches!(s.last(split), Some(InputEffect::Run { .. })));
+    assert_eq!(
+        s.last(split),
+        Some(&InputEffect::Run { id: split, action: arc("newSplit"), tab: Some(arc("t1")) })
+    );
     // The first split's stand-in shows in the key's turn and takes the focus.
     s.create("w1", "s1", terminal("T2"));
     let two = vec![
@@ -48,8 +51,13 @@ fn p0_1193_cmd_d_twice_each_line_reaches_its_own_terminal() {
     s.focus("w1", FocusEvent::Topology { topology: topology("ws", two.clone()) });
     let a = s.press(key("w1", A, Some(terminal("T1"))));
     let b = s.press(key("w1", B, Some(terminal("T1"))));
-    // The second split's stand-in shows a frame later than its keys.
-    s.press(chord("w1", D, "newSplit", Tier::Navigation, Some(terminal("T1"))));
+    // The second split splits the new terminal, and its stand-in shows a
+    // frame later than its keys.
+    let second = s.press(chord("w1", D, "newSplit", Tier::Navigation, Some(terminal("T1"))));
+    assert_eq!(
+        s.last(second),
+        Some(&InputEffect::Run { id: second, action: arc("newSplit"), tab: Some(arc("s1")) })
+    );
     s.create("w1", "s2", terminal("T3"));
     let c = s.press(key("w1", C, Some(terminal("T1"))));
     let d = s.press(key("w1", E, Some(terminal("T1"))));
