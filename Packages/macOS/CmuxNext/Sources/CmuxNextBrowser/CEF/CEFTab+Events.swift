@@ -30,6 +30,7 @@ extension CEFTab {
                 machine.apply(.finished(navigation))
             }
             (loadingStopped, chromiumLoading) = (!loading, loading)
+            if !hasDocument { host.lifecycleTrace.record(id, "cef-loading \(loading)") } // the ready-for-keys signals (lead on STATUS 8457)
             if !loading {
                 documentMayTakeKeys() // CEF reports this after every load end and error of the load
                 clearTitleBeforeCommit()
@@ -52,6 +53,7 @@ extension CEFTab {
             // A new document: the one before is gone. Its own first paint may have come first, if this is the load's first commit.
             (documentLoaded, documentPainted, committedIsErrorPage) = (false, paintBeforeCommit && !committedThisLoad, false)
             (paintBeforeCommit, committedThisLoad) = (false, true)
+            if !hasDocument { host.lifecycleTrace.record(id, "cef-commit real=\(PageBackground.isRealPage(committedURL)) painted=\(documentPainted)") }
             pageInfoDocumentCommitted(URL(string: url))
             resetPageBackdrop()
             // The document that just committed is the only one that can hear
@@ -62,6 +64,7 @@ extension CEFTab {
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
         case .loadEnd:
             if PageBackground.isRealPage(committedURL) || blankIsDocument { documentLoaded = true } // its script ran: a focused field and listeners exist
+            if !hasDocument { host.lifecycleTrace.record(id, "cef-load-end loaded=\(documentLoaded) painted=\(documentPainted) loading=\(chromiumLoading)") }
             documentMayTakeKeys() // loading may have stopped before this load end
             if let navigation { machine.apply(.finished(navigation)) }
             // Read-then-settle, as at the first paint (one read per document), and a fresh read after it.
@@ -76,6 +79,7 @@ extension CEFTab {
             clearTitleBeforeCommit()
             let error = Self.loadError(code: code, text: text, url: url, chromiumInterstitial: chromiumInterstitial)
             if !error.isBenignInterruption { (documentLoaded, committedIsErrorPage) = (true, true) } // an error page; an aborted load (replaced) is none
+            if !hasDocument { host.lifecycleTrace.record(id, "cef-load-error code=\(code) page=\(!error.isBenignInterruption)") }
             documentMayTakeKeys()
             guard let navigation else { return }
             machine.apply(.failed(navigation, error))

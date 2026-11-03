@@ -308,6 +308,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // Chromium's own load (its `.loadingState(true)`), not the app's: a load the app asked for before Chromium began
         // it is no load yet, and a paint then is the document before it.
         if !committedThisLoad { paintBeforeCommit = chromiumLoading } else { documentPainted = true }
+        if !hasDocument { host.lifecycleTrace.record(id, "cef-first-paint committed=\(committedThisLoad) loading=\(chromiumLoading)") }
         documentMayTakeKeys()
     }
     /// The document the tab was asked to show is blank (a New Tab page): its blank document counts as loaded.
@@ -318,6 +319,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // A page asked to show something (an address, a saved navigation, an agent's load) waits for that document; a
         // page with nothing to load takes keys now (lead on STATUS 7916: a reopen by address is no saved navigation).
         let navigates = pendingURL != nil || pendingRestore != nil || loadAfterAttach != nil
+        host.lifecycleTrace.record(id, "ready-wait navigates=\(navigates) url=\(pendingURL != nil) restore=\(pendingRestore != nil) agent=\(loadAfterAttach != nil)")
         (hasDocument, documentLoaded, documentPainted, loadingStopped) = (false, false, false, false)
         (paintBeforeCommit, committedThisLoad, chromiumLoading) = (false, false, false)
         blankIsDocument = pendingURL.map { !PageBackground.isRealPage($0) } ?? false
