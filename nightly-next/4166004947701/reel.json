@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4166004947701",
+  "notes": "notes/4166004947701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 33544,
+      "title": "ci(nightly): take the web bundles and the pending-tree cmux-tui download off build-nightly-app's critical path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33938,
+      "title": "base red: Chief Home's pinned Needs you is CmuxNextFeed's FeedNeedsYouPin (arch app_lines +86 from #33817)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33950,
+      "title": "ci(signing): trust glaeda runner hook fd14548d",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33961,
+      "title": "ci: unsigned nightly resume accepts the daemon from its own build job",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
