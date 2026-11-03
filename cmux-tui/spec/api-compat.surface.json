@@ -18469,6 +18469,10 @@
       }
     },
     "response:new-pane": {
+      "/data/pane": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/data/pane_id": {
         "ty": "string",
         "nullable": true
@@ -18495,6 +18499,10 @@
       }
     },
     "response:new-pane-right": {
+      "/data/pane": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/data/pane_id": {
         "ty": "string",
         "nullable": true
@@ -18554,6 +18562,14 @@
       }
     },
     "response:new-screen": {
+      "/data/pane": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/screen": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
@@ -20879,6 +20895,10 @@
       }
     },
     "response:split": {
+      "/data/pane": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/data/pane_id": {
         "ty": "string",
         "nullable": true
