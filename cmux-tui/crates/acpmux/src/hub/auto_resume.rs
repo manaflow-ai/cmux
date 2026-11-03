@@ -1002,7 +1002,12 @@ impl Hub {
     /// Tests: whether a Stop holds for the chat's turn `turn` (`Mark::Stopped`).
     #[cfg(test)]
     pub(super) fn clear_prompt_stop_cache_for_test(&self, session: &Session) {
-        session.auto_resume.stopped_prompts.lock().unwrap().take();
+        session
+            .auto_resume
+            .stopped_prompts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
     }
 
     #[cfg(test)]
