@@ -57,6 +57,7 @@ import re
 import selectors
 import shutil
 import signal
+import struct
 import subprocess
 import sys
 import tempfile
@@ -491,27 +492,53 @@ def _load_judges(judges_dir):
         _MODULES[name] = module
 
 
-def _python(*args):
-    """This interpreter, isolated, with bytecode written only under a fresh prefix (never a stale __pycache__)."""
-    return [sys.executable, "-I", "-X", f"pycache_prefix={_PYCACHE[0]}", *args]
+def _python(*args, prefix=None):
+    """This interpreter, isolated, with bytecode read and written only under PREFIX (default _PYCACHE[0]): a run gives
+    its film processes a prefix of its own (judge_all), so no run reads bytecode another run or an older judge wrote
+    (a same-size edit in the same second keeps a bytecode cache's key: review 2 of #33930, finding A)."""
+    return [sys.executable, "-I", "-X", f"pycache_prefix={prefix or _PYCACHE[0]}", *args]
 
 
 _PYCACHE = [tempfile.gettempdir()]
+_RUN_ROOT = [None]  # a film process's run root (judge_all removes it): judge_scan's scratch goes there
+# judge_scan runs as its own process, through this launcher: an error of the machine inside it (MemoryError, an
+# OSError of TRANSIENT_ERRNOS) exits HOST_ERROR_EXIT, a Fault, as it is for the judges run in the film process.
+HOST_ERROR_EXIT = 97
+_SCAN_LAUNCHER = (
+    "import runpy, sys\n"
+    "TRANSIENT = set(%r)\n"
+    "script = sys.argv[1]\n"
+    "sys.argv = sys.argv[1:]\n"
+    "try:\n"
+    "    runpy.run_path(script, run_name='__main__')\n"
+    "except MemoryError:\n"
+    "    sys.stderr.write('host error: MemoryError\\n')\n"
+    "    sys.exit(%d)\n"
+    "except OSError as error:\n"
+    "    if error.errno not in TRANSIENT:\n"
+    "        raise\n"
+    "    sys.stderr.write('host error: %%s\\n' %% error)\n"
+    "    sys.exit(%d)\n"
+)
 
 
 def _judge_scan(base):
     """judge_scan.py as its own process (it has a command line only): its exit code and the report it wrote."""
     script = os.path.join(_JUDGES_DIR[0], "video-cases", "judge_scan.py")
-    with tempfile.TemporaryDirectory(prefix="judge-scan-") as tmp:
+    launcher = _SCAN_LAUNCHER % (sorted(TRANSIENT_ERRNOS), HOST_ERROR_EXIT, HOST_ERROR_EXIT)
+    with tempfile.TemporaryDirectory(prefix="judge-scan-", dir=_RUN_ROOT[0]) as tmp:
         out = os.path.join(tmp, "report.json")
         try:
-            done = subprocess.run(_python(script, f"{base}.mov.scan", "--trace", f"{base}.trace.json",
+            done = subprocess.run(_python("-c", launcher, script, f"{base}.mov.scan", "--trace", f"{base}.trace.json",
                                           "--scale", str(_scale_of(base)), "--json", out),
                                   capture_output=True, text=True, timeout=JUDGE_SCAN_TIMEOUT_S, cwd=tmp)
         except subprocess.TimeoutExpired:
             raise Fault(f"judge_scan did not finish in {JUDGE_SCAN_TIMEOUT_S} s")
         if done.returncode < 0:
             raise Fault(f"judge_scan was ended by signal {-done.returncode}")
+        if done.returncode == HOST_ERROR_EXIT:
+            said = [line for line in done.stderr.splitlines() if line.startswith("host error:")][-1:]
+            raise Fault(f"judge_scan: {said[0] if said else 'host error'} (the machine, not the judge)")
         report = read_json(out)
     result = {"exit": done.returncode, "report": report}
     if report is None:
@@ -593,7 +620,7 @@ def _film_main(argv):
     """`judge_goldens.py _judge-film STORE TABLE_SHA JUDGES_DIR ROOT FILM JUDGE...`: one film. On stdout, one JSON
     line {"start": judge} as each judge starts, then one JSON object ({"results": ...} or {"fault": ...})."""
     store, table_sha, judges_dir, root, film, judges = argv[0], argv[1], argv[2], argv[3], argv[4], argv[5:]
-    _PYCACHE[0] = root
+    _PYCACHE[0], _RUN_ROOT[0] = os.path.join(root, "pycache"), root  # the run's own prefix, as this process has
 
     def started(judge):
         sys.stdout.write(canonical({"start": judge}) + "\n")
@@ -672,9 +699,11 @@ def judge_all(store, films_doc, films, judges_dir, jobs, deadline_s=None, film_s
     table_sha = films_doc["files_table"]
     queue = list(films)
     running = {}  # pid -> (Popen, film, started, chunks)
+    closed = {}   # pid -> its pidfd (or None) once its output ended: it counts against its budget until it exits
     results, slowest = {}, (0.0, None)
     selector = selectors.DefaultSelector()
     started_run = time.monotonic()
+    pycache = str(run_root / "pycache")  # this run's own bytecode (finding A of review 2)
 
     def end(proc):
         try:
@@ -683,43 +712,65 @@ def judge_all(store, films_doc, films, judges_dir, jobs, deadline_s=None, film_s
             pass
         proc.wait()
 
+    def finish(pid):
+        """A film whose output ended and whose process exited: its result, or a Fault."""
+        nonlocal slowest
+        proc, film, started, chunks = running.pop(pid)
+        code = proc.wait()
+        slowest = max(slowest, (time.monotonic() - started, film))
+        lines = b"".join(chunks).split(b"\n")
+        try:
+            payload = json.loads(lines[-1] or b"null")
+        except ValueError:
+            payload = None
+        if not isinstance(payload, dict) or code != 0:
+            raise Fault(f"{film}: the film's process ended with code {code} and "
+                        f"{'no result' if not isinstance(payload, dict) else 'a result'}")
+        if "fault" in payload:
+            raise Fault(f"{film}: {payload['fault']}")
+        results[film] = payload["results"]
+
     try:
         while queue or running:
             while queue and len(running) < max(1, jobs):
                 film = queue.pop(0)
                 proc = subprocess.Popen(_python(str(Path(__file__).resolve()), "_judge-film", str(store), table_sha,
                                                 str(Path(judges_dir).resolve()), str(run_root), film,
-                                                *films_doc["films"][film]["judges"]),
+                                                *films_doc["films"][film]["judges"], prefix=pycache),
                                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
                 running[proc.pid] = (proc, film, time.monotonic(), [])
-                selector.register(proc.stdout, selectors.EVENT_READ, proc.pid)
+                selector.register(proc.stdout, selectors.EVENT_READ, ("out", proc.pid))
             now_t = time.monotonic()
             budget_left = min(started + film_s for _, _, started, _ in running.values()) - now_t
             if deadline_s is not None:
                 budget_left = min(budget_left, started_run + deadline_s - now_t)
+            if any(fd is None for fd in closed.values()):  # no pidfd on this system: look again soon
+                budget_left = min(budget_left, 0.05)
             for key, _ in selector.select(timeout=max(0.0, budget_left)):
-                proc, film, started, chunks = running[key.data]
-                block = os.read(key.fileobj.fileno(), 1 << 20)
-                if block:
-                    chunks.append(block)
+                kind, pid = key.data
+                if kind == "out":
+                    block = os.read(key.fileobj.fileno(), 1 << 20)
+                    if block:
+                        running[pid][3].append(block)
+                        continue
+                    # The output ended; the process has not necessarily (a judge can close its stdout and go on).
+                    # It stays in `running`, so its budget still holds; its exit is an event of its own.
+                    selector.unregister(key.fileobj)
+                    key.fileobj.close()
+                    try:
+                        fd = os.pidfd_open(pid)
+                    except (AttributeError, OSError):
+                        fd = None
+                    closed[pid] = fd
+                    if fd is not None:
+                        selector.register(fd, selectors.EVENT_READ, ("exit", pid))
                     continue
                 selector.unregister(key.fileobj)
-                key.fileobj.close()
-                code = proc.wait()
-                del running[key.data]
-                elapsed = time.monotonic() - started
-                slowest = max(slowest, (elapsed, film))
-                lines = b"".join(chunks).split(b"\n")
-                try:
-                    payload = json.loads(lines[-1] or b"null")
-                except ValueError:
-                    payload = None
-                if not isinstance(payload, dict) or code != 0:
-                    raise Fault(f"{film}: the film's process ended with code {code} and "
-                                f"{'no result' if not isinstance(payload, dict) else 'a result'}")
-                if "fault" in payload:
-                    raise Fault(f"{film}: {payload['fault']}")
-                results[film] = payload["results"]
+                os.close(closed.pop(pid))
+                finish(pid)
+            for pid in [p for p, fd in closed.items() if fd is None and running[p][0].poll() is not None]:
+                del closed[pid]
+                finish(pid)
             now_t = time.monotonic()
             late = [(film, chunks) for proc, film, started, chunks in running.values() if now_t - started >= film_s]
             if late:
@@ -734,6 +785,9 @@ def judge_all(store, films_doc, films, judges_dir, jobs, deadline_s=None, film_s
         for proc, _, _, _ in list(running.values()):
             end(proc)
             proc.stdout.close()
+        for fd in closed.values():
+            if fd is not None:
+                os.close(fd)
         selector.close()
         shutil.rmtree(run_root, ignore_errors=True)
     return results, slowest
@@ -843,12 +897,31 @@ def _class_runs(pixels, want):
     return out
 
 
+def _same_frames_as_the_judge(base, data, record, count):
+    """The ruler counts scan records; video_judge counts the complete frames of frames.json and matches each record
+    to one by its time (within 1 ms). A fact compares the two counts, so they must be one frame each, in order:
+    else ValueError (NO VERDICT; review 2 of #33930, note D)."""
+    doc = read_json(f"{base}.mov.frames.json", {}) or {}
+    complete = sorted(float(e[0]) for e in doc.get("frames") or [] if len(e) > 1 and str(e[1]) == "complete")
+    if len(data) != count * record:
+        raise ValueError(f"the scan has {len(data) - count * record} bytes after its last whole record")
+    if count != len(complete):
+        raise ValueError(f"the scan has {count} records and frames.json {len(complete)} complete frames: the ruler's "
+                         "frame numbers would not be the judge's")
+    for k, t in enumerate(complete):
+        (r,) = struct.unpack_from("<d", data, k * record)
+        if not abs(r - t) <= 0.001:
+            raise ValueError(f"scan record {k} is at {r:.6f} s, complete frame {k} at {t:.6f} s: the ruler's frame "
+                             "numbers would not be the judge's (complete frames)")
+
+
 def ruler_check(base, fact):
     """Whether the film at BASE shows FACT, read from its exact scan lines with no judge code: on scan line
     fact["line"] ("row" or "col") at fact["at"] (device px), a run of fact["class"] (a fixture color: each channel
     on, >= 160, or off, <= 96) of at least fact["min_run_px"] px starts inside fact["x"] in every complete frame of
     fact["frames"] (inclusive), and in none of the RULER_EDGE_FRAMES frames before and after them."""
     head, data, record, count = _scan_layout(f"{base}.mov.scan")
+    _same_frames_as_the_judge(base, data, record, count)
     want, (lo, hi), (first, last) = _color_class(fact["class"]), fact["x"], fact["frames"]
     need = int(fact.get("min_run_px", 4))
 
@@ -904,6 +977,67 @@ def load_truth(manifest):
     return read_json(Path(manifest) / "truth.json", {"v": 1, "facts": []}) or {"v": 1, "facts": []}
 
 
+EXPECT_KINDS = ("check", "defect_frames", "absent_check", "kind", "absent_kind")
+EXPECT_KEYS = {"judge", "check", "frames", "defect_frames", "absent_check", "kind", "count", "absent_kind"}
+RULER_KEYS = {"line", "at", "class", "x", "frames", "min_run_px"}
+
+
+def _span_problem(span):
+    ok = (isinstance(span, (list, tuple)) and len(span) == 2 and all(type(v) is int for v in span)
+          and span[0] <= span[1])
+    return None if ok else f"{json.dumps(span)} is not a span [first, last] with first <= last"
+
+
+def truth_problems(manifest, films_doc):
+    """Why a TRUTH fact cannot be checked (each names the fact): a film not in films.json, no check at all, a
+    ruler or an expectation of an unknown form, an empty or reversed span. Such a fact is NO VERDICT in run and in
+    bless, never a pass (review 2 of #33930, finding C: run skipped a fact of an unknown film; some shapes were met
+    by any result)."""
+    problems, seen = [], set()
+    films = set((films_doc or {}).get("films") or {})
+    for fact in load_truth(manifest).get("facts") or []:
+        fid = fact.get("id") if isinstance(fact, dict) else None
+        if not isinstance(fact, dict) or not fid:
+            problems.append(f"a fact with no id: {json.dumps(fact)[:120]}")
+            continue
+        if fid in seen:
+            problems.append(f"{fid}: two facts have this id")
+        seen.add(fid)
+        if fact.get("film") not in films:
+            problems.append(f"{fid}: its film {fact.get('film')!r} is not in films.json")
+        ruler, expects = fact.get("ruler"), fact.get("expect") or []
+        if not ruler and not expects:
+            problems.append(f"{fid}: no ruler fact and no expectation: it checks nothing")
+        if ruler:
+            unknown = set(ruler) - RULER_KEYS
+            missing = {"line", "at", "class", "x", "frames"} - set(ruler)
+            if unknown or missing or ruler.get("line") not in ("row", "col"):
+                problems.append(f"{fid}: a ruler of an unknown form (unknown {sorted(unknown)}, missing {sorted(missing)})")
+            for field in ("x", "frames"):
+                why = _span_problem(ruler.get(field))
+                if field in ruler and why:
+                    problems.append(f"{fid}: ruler {field}: {why}")
+        for expect in expects:
+            kinds = [k for k in EXPECT_KINDS if k in expect] if isinstance(expect, dict) else []
+            unknown = set(expect) - EXPECT_KEYS if isinstance(expect, dict) else {"(not an object)"}
+            if unknown or len(kinds) != 1 or not expect.get("judge") or expect.get("judge") not in JUDGES:
+                problems.append(f"{fid}: an expectation of an unknown form {json.dumps(expect)[:160]} (one of "
+                                f"{', '.join(EXPECT_KINDS)}, a judge of {', '.join(JUDGES)}"
+                                + (f"; unknown {sorted(unknown)}" if unknown else "") + ")")
+                continue
+            if "frames" in expect and (kinds != ["check"] or _span_problem(expect["frames"])):
+                problems.append(f"{fid}: frames belongs to a check expectation and is a span: {json.dumps(expect)[:160]}")
+            if "count" in expect and (kinds != ["kind"] or type(expect["count"]) is not int or expect["count"] < 1):
+                problems.append(f"{fid}: count belongs to a kind expectation and is at least 1: {json.dumps(expect)[:160]}")
+            if kinds == ["defect_frames"]:
+                spans = expect["defect_frames"]
+                if not isinstance(spans, list) or not spans:
+                    problems.append(f"{fid}: defect_frames is empty: it checks nothing")
+                else:
+                    problems += [f"{fid}: defect_frames {why}" for why in map(_span_problem, spans) if why]
+    return problems
+
+
 def check_truth(store, manifest, results, films=None):
     """(passed, total, failures, no_verdict) of the truth facts on RESULTS (per film and judge, as judge_all gives),
     for the facts of FILMS (default: every fact). A ruler fact the film does not show is NO VERDICT (the film or the
@@ -949,18 +1083,31 @@ def unit_tests(judges_dir):
         return None
     ran = failed = skipped = 0
     for path in files:
+        name = str(path.relative_to(judges_dir))
         with tempfile.TemporaryDirectory(prefix="judge-unit-") as pycache:
-            done = subprocess.run([sys.executable, "-I", "-X", f"pycache_prefix={pycache}", str(path)], capture_output=True,
-                                  text=True, cwd=str(path.parent), timeout=UNIT_TEST_TIMEOUT_S)
+            try:
+                done = subprocess.run([sys.executable, "-I", "-X", f"pycache_prefix={pycache}", str(path)],
+                                      capture_output=True, text=True, cwd=str(path.parent), timeout=UNIT_TEST_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                raise Fault(f"the judges' unit tests in {name} did not finish in {UNIT_TEST_TIMEOUT_S} s")
+        if done.returncode < 0:
+            raise Fault(f"the judges' unit tests in {name} were ended by signal {-done.returncode} (the machine, "
+                        "not a test)")
         text = done.stdout + done.stderr
         m = re.search(r"^Ran (\d+) tests?", text, re.M)
-        n = int(m.group(1)) if m else 0
+        if not m:
+            tail = [line for line in text.splitlines() if line.strip()][-1:]
+            raise Fault(f"the judges' unit tests in {name} reported no count (exit {done.returncode}: "
+                        f"{tail[0][:200] if tail else 'no output'})")
+        n = int(m.group(1))
         ran += n
         skipped += sum(int(x) for x in re.findall(r"skipped=(\d+)", text))
-        if done.returncode != 0 or not m:
+        if done.returncode != 0:
             bad = re.search(r"FAILED \(([^)]*)\)", text)
             counts = [int(x) for x in re.findall(r"(?:failures|errors)=(\d+)", bad.group(1))] if bad else []
-            failed += sum(counts) or max(1, n)
+            if not counts:
+                raise Fault(f"the judges' unit tests in {name} exited {done.returncode} with no failure count")
+            failed += sum(counts)
     return ran, failed, skipped, [str(p.relative_to(judges_dir)) for p in files]
 
 
@@ -987,6 +1134,11 @@ def cmd_bless(opts):
                   f"inputs and normalizes their results):\n{judges_state['runner']['dirty']}", file=sys.stderr)
             return 2
     films = select(films_doc, None)
+    truth_bad = truth_problems(manifest, films_doc)
+    if truth_bad:
+        print("REFUSED (NO VERDICT): truth.json has facts that cannot be checked:\n  " + "\n  ".join(truth_bad[:40]),
+              file=sys.stderr)
+        return 2
     problems = verify_store(store, films_doc, films, opts.jobs)
     if problems:
         print("REFUSED (NO VERDICT): the store is not the one films.json records:\n  " + "\n  ".join(problems[:40]),
@@ -1002,7 +1154,11 @@ def cmd_bless(opts):
     if no_verdict:
         print("REFUSED (NO VERDICT): a TRUTH ruler fact does not hold:\n  " + "\n  ".join(no_verdict), file=sys.stderr)
         return 2
-    unit = unit_tests(opts.judges)
+    try:
+        unit = unit_tests(opts.judges)
+    except Fault as fault:
+        print(f"REFUSED (NO VERDICT): {fault}", file=sys.stderr)
+        return 2
     if unit is None or unit[1]:
         failures.append("unit tests: " + ("none in the judges folder" if unit is None else
                                           f"{unit[1]} of {unit[0]} failed in {', '.join(unit[3])}"))
@@ -1055,6 +1211,11 @@ def cmd_run(opts):
         print(f"NO VERDICT: no film matches {opts.only or 'the manifest'}: a run that judges nothing proves nothing",
               file=sys.stderr)
         return 2
+    truth_bad = truth_problems(manifest, films_doc)
+    if truth_bad:
+        print("NO VERDICT: truth.json has facts that cannot be checked:\n  " + "\n  ".join(truth_bad[:40]),
+              file=sys.stderr)
+        return 2
     missing = [f for f in select({"films": expected.get("films") or {}}, opts.only) if f not in films_doc["films"]]
     problems = verify_store(store, films_doc, films, opts.jobs) + [f"{f}: in expected.json, not in films.json" for f in missing]
     for film in films:
@@ -1103,7 +1264,11 @@ def cmd_run(opts):
     t_passed, t_total, t_failures, t_no_verdict = check_truth(store, manifest, results, set(films))
     for line in t_failures:
         print(line)
-    unit = None if opts.no_unit_tests else unit_tests(opts.judges)
+    try:
+        unit = None if opts.no_unit_tests else unit_tests(opts.judges)
+    except Fault as fault:
+        print(f"NO VERDICT: {fault}", file=sys.stderr)
+        return 2
     unit_line, unit_failed = "unit tests: NOT RUN (--no-unit-tests)", False
     if not opts.no_unit_tests:
         if unit is None:
