@@ -622,6 +622,7 @@ impl AttachTap {
         false
     }
 
+    // perf-hot: 0.5us/chunk terminal-output (daemon: per view and chunk)
     pub(super) fn try_send(&self, mut frame: AttachFrame) -> bool {
         if self.lifecycle.is_canceled() {
             return false;

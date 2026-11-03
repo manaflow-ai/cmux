@@ -678,6 +678,7 @@ impl OutputStore {
     /// no terminal). When the history grew by a step since the terminal's
     /// last measurement, the writer is asked to measure it
     /// (`memory_budget.rs`); this path never walks its pages.
+    // perf-hot: 0.5us/chunk terminal-output (daemon: every chunk of every journaled terminal; global logs lock)
     pub(crate) fn append(
         &self,
         terminal_id: &TerminalPublicId,

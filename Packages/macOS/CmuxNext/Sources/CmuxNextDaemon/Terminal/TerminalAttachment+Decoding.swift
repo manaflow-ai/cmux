@@ -122,6 +122,7 @@ extension TerminalAttachment {
 
     /// ``decodeAttachEvent(name:line:surface:)`` plus the generation an
     /// `output` carries, for ``TerminalSnapshotSequencer``.
+    // perf-hot: 1us/KiB terminal-output (every attach line: JSON and base64 decode of the output)
     static func decodeAttachLine(name: String, line: Data, surface: SurfaceID) -> DecodedAttachLine? {
         let decoder = WireCoding.decoder()
         func scoped(_ id: SurfaceID?) -> Bool { id == nil || id == surface }

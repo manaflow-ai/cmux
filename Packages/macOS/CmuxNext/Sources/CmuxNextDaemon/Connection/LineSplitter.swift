@@ -18,6 +18,7 @@ nonisolated struct LineSplitter {
 
     /// Appends `bytes` and passes each complete, nonempty line (without its
     /// newline) to `line`, in order.
+    // perf-hot: 0.2us/KiB terminal-output (every read: two copies and a newline scan)
     mutating func append(_ bytes: some Collection<UInt8>, line: (Data) -> Void) {
         let scanFrom = pending.count
         pending.append(contentsOf: bytes)

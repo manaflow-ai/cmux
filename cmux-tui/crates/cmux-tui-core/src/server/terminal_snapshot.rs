@@ -528,6 +528,7 @@ fn digest_json(surface: SurfaceId, digest: &TerminalSnapshotDigest) -> Value {
 
 /// The `output`/`colors-changed` event of a snapshot viewer, or `None` for a
 /// frame a snapshot viewer never receives (grid changes become snapshots).
+// perf-hot: 1us/KiB terminal-output (daemon: base64 and JSON of every output chunk to the app)
 fn frame_json(
     surface: SurfaceId,
     frame: &AttachFrame,

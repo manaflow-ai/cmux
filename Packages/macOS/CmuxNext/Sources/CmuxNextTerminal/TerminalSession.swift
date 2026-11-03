@@ -446,6 +446,7 @@ public final class TerminalSession {
     /// may use (nil while the surface still waits for its first content, or none is live). Only
     /// ``handle(_:)`` swaps surfaces, so that lane stays current until the next main-actor event.
     /// `probeSource` names the IO's terminal to the typing probe (``TerminalIO/typingProbeSource``).
+    // perf-hot: 2us terminal-output (every IO event of a terminal; output goes to its lane off the main actor)
     private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>, probeSource: TypingLatencyProbe.Source?,
                                             changes: TerminalFrameChanges, for session: TerminalSession) -> Task<Void, Never> {
         Task.detached(priority: .high) { [weak session] in

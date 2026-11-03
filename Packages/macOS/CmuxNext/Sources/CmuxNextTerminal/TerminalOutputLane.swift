@@ -54,6 +54,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// Bytes queued but not parsed yet.
     var pendingBytes: Int { backlog.withLock { $0.bytes } }
 
+    // perf-hot: 2us/KiB terminal-output (every output chunk: Ghostty's parse under its renderer lock)
     func processOutput(_ data: Data) {
         guard !data.isEmpty else { return }
         backlog.withLock { $0.bytes += data.count }

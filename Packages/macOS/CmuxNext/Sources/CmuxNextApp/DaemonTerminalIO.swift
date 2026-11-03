@@ -276,7 +276,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// The surface applies Kitty image replays (S3k).
     static let attachImages = TerminalSession.appliesKittyReplay
 
-    static func event(for step: TerminalStreamPlan.Step) -> TerminalIOEvent {
+    static func event(for step: TerminalStreamPlan.Step) -> TerminalIOEvent { // perf-hot: 0.2us terminal-output (every output chunk of every terminal)
         switch step {
         case .replay, .output, .snapshot: DebugTimings.markLaunch("first_terminal_content")
         default: break

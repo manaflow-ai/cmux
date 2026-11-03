@@ -251,6 +251,7 @@ fn resolves_early(frame: &Frame, protocol_version: u16, early: EarlyResponses) -
         && frame.sequence == 0
 }
 
+// perf-hot: 1us/frame terminal-output (daemon: every host Output frame; zeroed Vec per frame today)
 fn read_stream(
     mut stream: impl Read,
     control_responses: &ControlResponses,

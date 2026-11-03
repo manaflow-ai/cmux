@@ -589,6 +589,7 @@ impl BoundedOutbound {
     }
 }
 
+// perf-hot: 1 write/frame terminal-output (daemon: every line to every client, terminal output included)
 pub(super) fn write_line_outbound_item<W: Write + ?Sized>(
     writer: &mut W,
     item: OutboundItem,

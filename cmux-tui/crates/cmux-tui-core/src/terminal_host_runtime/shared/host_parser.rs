@@ -119,6 +119,7 @@ impl HostShared {
     }
 }
 
+// perf-hot: 1us/KiB terminal-output (__terminal-host: VT parse #1 of every byte)
 pub(crate) fn run_host_parser(
     parser_host: Arc<HostShared>,
     parser_command_receiver: Receiver<ParserCommand>,

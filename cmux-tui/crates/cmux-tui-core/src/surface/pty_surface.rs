@@ -120,6 +120,7 @@ impl PtySurface {
         self.host_identity.as_ref().map_or("", |id| id.terminal_id.as_str())
     }
 
+    // perf-hot: 0.5us/chunk terminal-output (daemon: one copy per attached view today)
     pub(super) fn broadcast_attach_output(&self, bytes: &[u8]) -> bool {
         cmux_flow_trace::hop("daemon.output.attach", 0, self.flow_terminal_id());
         self.snapshot_position.add_output(bytes.len());

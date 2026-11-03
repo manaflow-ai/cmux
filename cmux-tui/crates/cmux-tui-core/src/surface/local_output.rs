@@ -69,6 +69,7 @@ impl LocalOutput {
 
     /// Reserve journal capture before reading and retain parser state across
     /// chunks, whether the reader or a geometry transaction supplies them.
+    // perf-hot: 1us/KiB terminal-output (daemon, holder and local PTYs: VT parse #2 of every byte)
     pub(super) fn read(
         &mut self,
         pty: &PtySurface,

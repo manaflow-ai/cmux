@@ -277,6 +277,7 @@ pub(crate) fn publish_pty_output(host: &HostShared, bytes: &[u8]) -> bool {
     bytes.chunks(PTY_READ_BYTES).all(|piece| publish_pty_frame(host, piece.to_vec()))
 }
 
+// perf-hot: 2us/chunk terminal-output (__terminal-host: every PTY read; 4 payload copies today)
 fn publish_pty_frame(host: &HostShared, bytes: Vec<u8>) -> bool {
     let count = bytes.len();
     let _source_order = host.source_order_lock.lock().recover_poison();

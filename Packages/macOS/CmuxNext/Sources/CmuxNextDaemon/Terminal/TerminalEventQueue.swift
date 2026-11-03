@@ -44,6 +44,7 @@ final class TerminalEventQueue: @unchecked Sendable {
     }
 
     /// Reader thread. May block while the consumer is behind.
+    // perf-hot: 1us terminal-output (every output chunk, reader thread)
     func push(_ event: TerminalChannelEvent) {
         condition.lock()
         guard !finished else {
