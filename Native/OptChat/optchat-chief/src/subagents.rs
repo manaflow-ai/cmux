@@ -1002,6 +1002,7 @@ impl Spawner {
             id: id.to_owned(),
             session_id: session.clone(),
             policy: Some(spec.policy.clone()),
+            harness: Some(s.harness.clone()),
         })?;
         let (tx, rx) = channel();
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());
