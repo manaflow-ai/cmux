@@ -98,7 +98,7 @@ export function MessageGroupHead({
           {inline && <span className="cv-message-group__senders">{inline}</span>}
         </span>
         <span className="cv-tool__chevron" aria-hidden="true">
-          <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
+          <ChevronRight size={12} className={`cv-rotor${open ? " is-open" : ""}`} />
         </span>
       </button>
       {below && (

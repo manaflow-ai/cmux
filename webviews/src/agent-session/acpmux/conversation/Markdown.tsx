@@ -490,7 +490,7 @@ export const linkIcon = (href: string) => {
   if (kind === "github") return <GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />;
   if (kind === "citation") return <ArxivMark size={16} className="cv-link__icon" />;
   if (kind === "file") return <FileKindIcon path={href} className="cv-link__icon" />;
-  return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
+  return <Globe size={16} className="cv-link__icon" />;
 };
 
 /// `src/app.ts:12` keeps its line in the chip's label (the chip opens the file).

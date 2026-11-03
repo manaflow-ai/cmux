@@ -208,6 +208,19 @@
         "webviews/src/agent-session/acpmux/conversation/RenderCard.tsx",
         "webviews/src/agent-session/acpmux/conversation/renderCall.ts"
       ]
+    },
+    "icons": {
+      "spec": "leo-workspace design/icons.md",
+      "aliases": [
+        "icon set",
+        "icon system",
+        "icon stroke"
+      ],
+      "paths": [
+        "design/icons/source/",
+        "webviews/src/agent-session/acpmux/icons/",
+        "webviews/src/agent-session/acpmux/conversation/icons.tsx"
+      ]
     }
   }
 }

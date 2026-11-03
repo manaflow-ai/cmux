@@ -211,7 +211,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
           className={`cv-tool__chevron cv-subagent-done__chevron cv-agent-activity__chevron${open ? "" : " is-idle"}`}
           aria-hidden
         >
-          <ChevronRight size={14} strokeWidth={1.2} />
+          <ChevronRight size={14} />
         </span>
       </TranscriptActivityRowShell>
       {/* The chat's quiet reply to its end (ReactionMark.tsx), under the line as text Find reads,
