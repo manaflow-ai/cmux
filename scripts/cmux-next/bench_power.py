@@ -653,9 +653,9 @@ def run_loaded(args):
         time.sleep(args.settle)  # test script: let the app settle
         pages = (rpc(sock, "debug.cef_pages") or {}).get("pages")
         roles = renderer_roles(pages or [], bm.owned(pid, args.app))
-        # IDLE_PROFILE_BEFORE=1: profile the shown pages for 10 s just before the window too, so work
+        # DIAGNOSTIC (drop before landing): profile the shown pages for 10 s just before the window too, so work
         # that stops by the end of the window (post-load GC, compiles) still has a name.
-        before_profile = idle_profile(sock, pages or [], 10) if label == "idle-chats" and os.environ.get("IDLE_PROFILE_BEFORE") else None
+        before_profile = idle_profile(sock, pages or [], 10) if label == "idle-chats" else None
         time.sleep(5)  # test script: the debug read's own work ends before the window
         result = measure_processes(pid, args.app, label, args.measure, roles, peer.pids())
         if before_profile is not None:
