@@ -1,0 +1,24 @@
+/* Gallery-only Return brief: reuse Session Info scroll/panel, styling entirely inside this scope. */
+.acpmux-return-brief { display: grid; gap: 14px; padding: 8px 0 20px; color: var(--text-primary, inherit); }
+.acpmux-return-brief__heading h2 { margin: 0; font-size: 15px; font-weight: 650; }
+.acpmux-return-brief__heading p, .acpmux-return-brief__risks p { margin: 4px 0 0; font-size: 12px; line-height: 1.5; opacity: 0.76; }
+.acpmux-return-brief__source { display: grid; gap: 4px; font-size: 11px; opacity: 0.8; overflow-wrap: anywhere; }
+.acpmux-return-brief__source code { font-size: 11px; font-variant-numeric: tabular-nums; }
+.acpmux-return-brief__items { list-style: none; padding: 0; margin: 0; display: grid; gap: 0; }
+.acpmux-return-brief__item { border-top: 1px solid var(--border-subtle, rgba(127,127,127,.2)); padding: 10px 0; }
+.acpmux-return-brief__row-head, .acpmux-return-brief__row-body { display: flex; align-items: baseline; gap: 8px; }
+.acpmux-return-brief__row-head { justify-content: space-between; }
+.acpmux-return-brief__row-body { align-items: flex-start; margin-top: 5px; }
+.acpmux-return-brief__item-title { font-size: 12px; font-weight: 600; }
+.acpmux-return-brief__level { font-size: 10px; white-space: nowrap; color: var(--text-secondary, inherit); opacity: 0.82; }
+.acpmux-return-brief__level[data-level="verified"] { color: var(--color-success, #15805c); opacity: 1; }
+.acpmux-return-brief__level[data-level="failed"], .acpmux-return-brief__level[data-level="unknown"],
+.acpmux-return-brief__level[data-level="inaccessible"] { color: var(--color-danger, #b64d52); opacity: 1; }
+.acpmux-return-brief__detail { min-width: 0; flex: 1; font-size: 11px; line-height: 1.45; opacity: .76; overflow-wrap: anywhere; }
+.acpmux-return-brief__go { appearance: none; background: none; border: 0; padding: 3px 2px; font: inherit; font-size: 11px; font-weight: 600; color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.acpmux-return-brief__go:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }
+.acpmux-return-brief__risks { border-top: 1px solid var(--border-subtle, rgba(127,127,127,.2)); padding-top: 10px; }
+.acpmux-return-brief__risks h3 { margin: 0; font-size: 12px; font-weight: 600; }
+.acpmux-return-brief__risks ul { margin: 7px 0; padding-left: 17px; font-size: 11px; line-height: 1.5; }
+.acpmux-return-brief__disclaimer { font-size: 10px !important; opacity: .65 !important; }
+.acpmux-return-brief__fixture { margin: 6px 0 10px; font-size: 10px; letter-spacing: .04em; opacity: .72; }
