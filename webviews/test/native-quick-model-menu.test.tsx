@@ -176,11 +176,11 @@ test("the symbols row is the default placement: marks only, a monogram for a har
   const popup = h.latest();
   expect(popup.railPlacement).toBe("symbols");
   expect(popup.railWidth).toBeUndefined();
-  expect(rail(popup).map((row) => row.label)).toEqual(["Claude Code", "Codex", "Quill Agent", "Add harness"]);
+  expect(rail(popup).map((row) => row.label)).toEqual(["Claude Code", "Codex", "Quill Agent", "Add harness…"]);
   expect(byLabel(rail(popup), "Claude Code").mark).toBe("claude");
   expect(byLabel(rail(popup), "Claude Code").checked).toBe(true);
   expect(byLabel(rail(popup), "Quill Agent").monogram).toBe("Q");
-  expect(byLabel(rail(popup), "Add harness").icon).toBe("action.add");
+  expect(byLabel(rail(popup), "Add harness…").icon).toBe("action.add");
   // The symbols layout keys its rows ⌘N; the running row is checked instead.
   const rows = popup.rows.filter((row) => row.kind === "action");
   expect(rows[0]?.label).toBe("Opus 5.5");
@@ -220,10 +220,10 @@ test("a rail tab switches the list, and Left and Right step the rail through Add
   h.send({ type: "navigate", value: "next" });
   expect(byLabel(rail(h.latest()), "Quill Agent").checked).toBe(true);
   h.send({ type: "navigate", value: "next" });
-  expect(h.latest().highlighted).toBe(byLabel(rail(h.latest()), "Add harness").id);
+  expect(h.latest().highlighted).toBe(byLabel(rail(h.latest()), "Add harness…").id);
   h.send({ type: "navigate", value: "next" });
   expect(byLabel(rail(h.latest()), "Claude Code").checked).toBe(true);
-  h.send({ type: "pick", id: byLabel(rail(h.latest()), "Add harness").id });
+  h.send({ type: "pick", id: byLabel(rail(h.latest()), "Add harness…").id });
   expect(h.added()).toBe(1);
 });
 
