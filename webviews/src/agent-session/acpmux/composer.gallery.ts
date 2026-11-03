@@ -305,6 +305,38 @@ const steering = (steers: boolean) => {
   return { ...running, summary: { ...running.summary!, steering: steers } };
 };
 
+// Leo, 2026-11-03: "this looks kinda weird when i send now and there was a previously steered
+// message". An earlier steer Claude has not read, and a prompt queued after it; Send now on the
+// queued prompt makes it a steer under the same promptId, and the agent reads both at its next step.
+const steerThenQueued = (sentNow: boolean) => {
+  const rows = [
+    user("Add retries", 6),
+    assistant("Adding retries to the fetch loop…", 3, { streaming: true }),
+    user("Use the cache dir, not tmp", 1, {
+      id: "user-steer-earlier",
+      steer: "waiting",
+      steerPromptId: "p-steer-earlier",
+    }),
+  ];
+  const queued = "Then add a test for the 429 path";
+  const running = sentNow
+    ? chat([...rows, user(queued, 0.2, { id: "user-steer-now", steer: "waiting", steerPromptId: "p-queued-now" })], {
+        isWorking: true,
+        newestOwnSteer: "user-steer-now",
+      })
+    : chat(rows, { isWorking: true, queue: [{ id: "p-queued-now", prompt: queued }] });
+  return {
+    ...running,
+    summary: {
+      ...running.summary!,
+      harness: "claude-sr2",
+      family: "claude-sr2",
+      steering: true,
+      backgroundsWork: true,
+    },
+  };
+};
+
 // A new chat in CWD beside a recent chat there with a PR (the suggested prompt's source).
 const suggesting = (pr: Pick<SessionPullRequest, "state" | "checks">) =>
   noChat(
@@ -1857,6 +1889,20 @@ export default agentPaneEntry({
         const after = actions?.getBoundingClientRect();
         if (!before || !after || before.top !== after.top || before.height !== after.height)
           throw new Error("the steer's action row moved when Send now left");
+      },
+    },
+    "steer-send-now-queued-after-steer": {
+      note: "Play: an earlier steer Claude has not read, and a prompt queued after it. Send now on the queued prompt makes it a steer the agent reads with the earlier one at its next step: neither offers Send now or the X again, and both show their normal hover actions.",
+      snapshot: steerThenQueued(false),
+      native: { "chat.queue.edit": { ok: true } },
+      afterCall: { "chat.queue.edit": steerThenQueued(true) },
+      play: async (ctx) => {
+        await ctx.hover({ text: "Then add a test for the 429 path" });
+        await ctx.click({ selector: ".acpmux-queued-steer" });
+        // The queued prompt is now a steer in the transcript, under the earlier one.
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".cv-user")].some((n) => n.textContent?.includes("Then add a test")),
+        );
       },
     },
     "steer-marks": {

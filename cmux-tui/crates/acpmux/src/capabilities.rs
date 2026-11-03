@@ -81,6 +81,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // Server-side local/non-closed session-list filters used by native quit
     // census callers. Older daemons keep serving the unfiltered list.
     Capability { id: "session-list-filters-v1", wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
+    // list's pace (the app's dialog list). Older daemons would answer the whole list.
+    Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     Capability {
         id: "machine-consent-v1",

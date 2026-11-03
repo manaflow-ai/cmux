@@ -113,7 +113,8 @@ impl Request {
         }
         if self.op == Op::Exec {
             let command = self.command.as_deref().unwrap_or_default();
-            return !command.trim().is_empty() && command.len() <= direct::COMMAND_MAX_BYTES;
+            // Any length: a long command is staged on the machine first.
+            return !command.trim().is_empty();
         }
         let Some(path) = self.path.as_deref() else { return false };
         let path_ok = path.trim() == path

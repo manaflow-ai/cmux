@@ -23,13 +23,13 @@ struct AgentPaneNativeSessionInfoTests {
         TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, .bool(true))
     }
 
-    @Test func nativeSessionInfoShipsOnByDefault() {
+    @Test func pageDrawsSessionInfoByDefault() {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register([AgentPaneTunables.nativeSessionInfo.descriptor])
         TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, nil)
         defer { TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, nil) }
-        #expect(AgentPaneTunables.nativeSessionInfo.descriptor.defaultValue == .bool(true))
-        #expect(AgentPaneTunables.nativeSessionInfo.value)
+        #expect(AgentPaneTunables.nativeSessionInfo.descriptor.defaultValue == .bool(false))
+        #expect(!AgentPaneTunables.nativeSessionInfo.value)
     }
 
     private static func info(open: Bool = true, width: Double = 320, top: Double = 28, side: Double = 0,
@@ -278,6 +278,28 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(!all(panel).contains { $0 is OverlaySurfaceView })
     }
 
+    /// Leo (2026-11-03): "maybe it's ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a
+    /// border for it might be better". The panel paints no fill of its own and draws a hairline edge in the
+    /// separator color on its rounded corners, over the gutter and over the chat's glass alike.
+    @Test func panelHasAHairlineEdgeAndNoFill() throws {
+        let store = AgentPaneSessionInfoStore()
+        let panel = AgentPaneSessionInfoPanel(store: store)
+        panel.frame = CGRect(x: 0, y: 0, width: 320, height: 300)
+        var colors = AgentPaneSessionInfoColors()
+        colors.separator = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 0.5)
+        store.colors = colors
+        for foot in [nil, 120.0] as [Double?] {
+            store.update(try Self.model(Self.info(foot: foot)))
+            panel.layoutSubtreeIfNeeded()
+            let layer = try #require(panel.layer)
+            #expect(layer.backgroundColor == nil, "the panel paints a fill of its own")
+            #expect(layer.borderWidth > 0 && layer.borderWidth <= 1, "no hairline edge (width \(layer.borderWidth))")
+            #expect(layer.cornerRadius > 0)
+            let edge = try #require(layer.borderColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) })
+            #expect(abs(edge.blueComponent - 0.6) < 0.01 && abs(edge.alphaComponent - 0.5) < 0.01)
+        }
+    }
+
     /// cmuxterm-hq#6137: pushed in a narrow pane, the page narrows the panel below 260px and keeps that
     /// room beside the chat (SessionInfo.tsx pushedWidth, `.acpmux-session-info-room`). The App draws
     /// the panel in exactly that room: its left edge is the chat's right edge, so nothing floats over it.
@@ -287,9 +309,11 @@ struct AgentPaneNativeSessionInfoTests {
             let frame = AgentPaneView.sessionInfoFrame(page: page, info: try Self.model(Self.info(width: pushed)),
                                                        width: pushed, zoom: 1, flipped: true)
             let chatRight = pane - pushed - 8
-            #expect(frame.minX == chatRight)
-            #expect(frame.width == pushed)
-            #expect(frame.maxX == pane - 8)
+            // Within half a point: the frame is pixel-aligned (`.integral`), so exact equality on
+            // CGFloat is brittle across hosts.
+            #expect(abs(Double(frame.minX) - chatRight) < 0.5, "minX \(frame.minX) vs \(chatRight)")
+            #expect(abs(Double(frame.width) - pushed) < 0.5, "width \(frame.width) vs \(pushed)")
+            #expect(abs(Double(frame.maxX) - (pane - 8)) < 0.5, "maxX \(frame.maxX) vs \(pane - 8)")
         }
     }
 
@@ -935,5 +959,19 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(toggle.controlSize == .small || toggle.controlSize == .mini)
         #expect(toggle.frame.height <= remote.frame.height - 2 * LayoutGrid.pillInset)
         #expect(abs(remote.frame.minX + toggle.frame.maxX - right) < 0.5)
+    }
+
+    /// Changes' rows name cmux pack icons (`cmux:git.pullrequest.merged`, native/changes.ts): the panel draws the pack's template
+    /// glyph for them, at 1.2 x the label, and keeps SF Symbols for every other name.
+    @Test func changesGlyphsDrawFromTheIconPack() throws {
+        for name in ["cmux:git.pullrequest", "cmux:git.pullrequest.merged", "cmux:git.pullrequest.draft", "cmux:git.pullrequest.closed"] {
+            let image = try #require(SessionInfoLineView.packIcon(name, font: Typography.body))
+            #expect(image.isTemplate)
+            #expect(image.size.width == (Typography.body.pointSize * 1.2).rounded())
+        }
+        #expect(SessionInfoLineView.packIcon("arrow.triangle.merge", font: Typography.body) == nil)
+        // A bare name stays an SF Symbol even where the pack has one (Environment's `folder`).
+        #expect(SessionInfoLineView.packIcon("folder", font: Typography.body) == nil)
+        #expect(SessionInfoLineView.packIcon("cmux:no.such.icon", font: Typography.body) == nil)
     }
 }

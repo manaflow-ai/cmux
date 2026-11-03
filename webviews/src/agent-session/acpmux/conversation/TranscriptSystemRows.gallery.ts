@@ -47,7 +47,7 @@ const rows = () => [
   summary(11.9, { status: "completed", durationMs: 2_000 }),
   row(BACKGROUND_TURN, 8, {
     id: backgroundTurnRowId("system-rows-scheduled"),
-    background: { id: "system-rows-scheduled", trigger: "scheduled", running: false, quiet: true },
+    background: { id: "system-rows-scheduled", trigger: "scheduled", running: false, quiet: true, hasRows: true },
   }),
   activity([run("Read the lane's last run", "gh run list -w backend.yml -L 1")], 7.9, {
     inBackground: "system-rows-scheduled",

@@ -142,10 +142,14 @@ export function promptSeq(rowId: string): number | undefined {
 }
 
 /// The seq a row's pin is kept under: a prompt's (`user-<seq>`) or an answer's, its turn's
-/// `turn_result` record (`summary-<seq>`); undefined for a row acpmux has not logged.
+/// `turn_result` record (`summary-<seq>`); undefined for a row acpmux has not logged. A message
+/// another chat sent through acpmux's inbox draws as its delivery (`user-<seq>:inbox:<thread>:<n>`,
+/// conversation/laneNoticeBatches.ts `inboxChildren`): it is marked under its notice prompt's seq,
+/// so its rail tick and row carry a bookmark like every other prompt (Leo, 2026-11-03: "it's also
+/// sometimes a bit weird how there's no bookmarks available").
 export function markSeq(rowId: string): number | undefined {
-  const match = /^(?:user|summary)-(\d+)$/.exec(rowId);
-  const seq = match ? Number(match[1]) : NaN;
+  const match = /^(?:user-(\d+)(?::inbox:.+)?|summary-(\d+))$/.exec(rowId);
+  const seq = match ? Number(match[1] ?? match[2]) : NaN;
   return Number.isSafeInteger(seq) && seq > 0 ? seq : undefined;
 }
 
