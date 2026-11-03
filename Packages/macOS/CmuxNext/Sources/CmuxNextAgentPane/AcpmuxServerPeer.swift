@@ -291,7 +291,7 @@ nonisolated enum AcpmuxServerPeer {
 
         init?(path: String, team: String) {
             var info = Darwin.stat()
-            guard Darwin.stat(path, &info) == 0 else { return nil }
+            guard fstatat(AT_FDCWD, path, &info, 0) == 0 else { return nil }
             self.path = path
             self.team = team
             device = Int64(info.st_dev)
