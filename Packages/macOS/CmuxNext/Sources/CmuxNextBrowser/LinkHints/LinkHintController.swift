@@ -50,16 +50,25 @@ public final class LinkHintController {
                           openInSplit: openInSplit, noLinks: noLinks)
         work = Task { [weak self] in
             guard let self else { return }
-            let answer = await answer(of: tab)
+            let editing = await focusAnswer(tab)
             guard !Task.isCancelled else { return }
-            collected(answer, from: tab)
+            guard let editing, !editing else { return collected(editing.map { ($0, []) }, from: tab) }
+            // No text field has the keyboard: the keys typed now are hint keys, the session's whatever the targets
+            // take (a heavy page), and never a page's (review 6594559342: a page shortcut on a hint letter would run).
+            bound.cancel()
+            let targets = await targetsAnswer(tab)
+            guard !Task.isCancelled else { return }
+            collected((false, targets ?? []), from: tab)
         }
         bound.schedule(after: .milliseconds(500)) { @MainActor [weak self] in self?.answerTimedOut() }
     }
 
-    /// The page did not answer within the bound.
+    /// The page did not say within the bound whether a text field has the keyboard (a hung renderer, a closed tab): the
+    /// keys typed meanwhile go to the page, in order.
     func answerTimedOut() {
-        if let tab = session?.tab { collected(nil, from: tab) }
+        guard let current = session, current.keys.hints == nil else { return }
+        if let tab = current.tab { tab.host.lifecycleTrace.record(tab.id, "link-hints no answer: keys go to the page") }
+        cancel()
     }
 
     /// Every key-down of the process, first (``KeyRouter``): whether the app dispatched it before. Chromium sends a key
@@ -67,12 +76,11 @@ public final class LinkHintController {
     /// Only a Chromium page window's keys can start a session or be sent back: any other key returns at once (lead on
     /// STATUS 8037: no work per key for a person who never uses link hints).
     public func noteKeyDown(_ event: NSEvent, in window: NSWindow?) { // perf-hot: 0.05ms key-dispatch (every key-down of the process; 0 allocations)
-        guard let pageWindowClass = Self.pageWindowClass, window?.isKind(of: pageWindowClass) == true else { return noted = nil }
+        // A page window is a child window; its class exists only once Chromium loaded, which can be after the first key
+        // (review 6594559342): looked up each time (a C string, no allocation), never remembered as missing.
+        guard let window, window.parent != nil, let pageClass = objc_lookUpClass("CefNSWindow"), window.isKind(of: pageClass) else { return noted = nil }
         noted = (event, seen.note(event, time: event.timestamp, code: event.keyCode))
     }
-
-    /// Chromium's page window class (`CefNSWindow`), looked up once.
-    private static let pageWindowClass: AnyClass? = NSClassFromString("CefNSWindow")
 
     /// A key-up or a click before the app dispatches it, while the page answers: a key-up whose key-down waits waits
     /// behind it (the page never gets an up before its down); a click gives the keys typed before it to the page first.
@@ -131,15 +139,6 @@ public final class LinkHintController {
         Task { _ = try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated, gesture: .cmux) }
     }
 
-    /// The page's answer: whether a text field has the keyboard (``focusAnswer``), then, only when none has, the targets
-    /// (``targetsAnswer``). Nil when a call failed.
-    private func answer(of tab: CEFTab) async -> (editing: Bool, targets: [LinkHintTarget])? {
-        guard let editing = await focusAnswer(tab) else { return nil }
-        guard !editing else { return (true, []) }
-        guard let targets = await targetsAnswer(tab) else { return nil }
-        return (false, targets)
-    }
-
     /// Whether a text field of `tab`'s page has the keyboard: the focused element only (``LinkHintSession/focusScript``).
     /// The input journal gets the call's time.
     private static func pageFocus(_ tab: CEFTab) async -> Bool? {
@@ -161,7 +160,7 @@ public final class LinkHintController {
 
     private static func ms(_ duration: Duration) -> String { String(format: "%.1fms", Double(duration.components.attoseconds) / 1e15 + Double(duration.components.seconds) * 1000) }
 
-    /// The page answered (nil: its call failed or took past its bound).
+    /// The page answered (nil: its focus check failed: the keys go to the page). With no text field, failed targets are none.
     private func collected(_ answer: (editing: Bool, targets: [LinkHintTarget])?, from tab: CEFTab) {
         guard var current = session, current.tab === tab, current.keys.hints == nil else { return }
         bound.cancel()
