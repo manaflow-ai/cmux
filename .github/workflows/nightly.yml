@@ -2339,9 +2339,6 @@ jobs:
       - name: Build nightly app (Release)
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         env:
-          # The opt-in Cloud Tunnel ships only on a channel with a provisioning profile
-          # (plans/cmux-next/cloud-tunnel-DESIGN.md); cloud-tunnel-prepare.sh signs or removes it.
-          CMUX_CLOUD_TUNNEL: ${{ needs.decide.outputs.profile_channel != '' && needs.decide.outputs.notary_probe != 'true' && 'YES' || '' }}
           IMPORT_VARIANT: ${{ needs.decide.outputs.import_variant }}
           SWIFT_IMPORT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
           EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
@@ -3883,16 +3880,6 @@ jobs:
         run: bash -e scripts/ci/nightly-steps/embed-provisioning-profile.sh
 
 
-      # The opt-in Cloud Tunnel: channel identity, its own profile, the app's two tunnel
-      # entitlements; removed when the channel has no tunnel profile.
-      - name: Prepare the Cloud Tunnel extension
-        if: hashFiles('scripts/ci/nightly-steps/cloud-tunnel-prepare.sh') != ''
-        env:
-          PROFILE_CHANNEL: ${{ needs.decide.outputs.profile_channel }}
-          TUNNEL_PROVISIONING_PROFILE_BASE64: ${{ needs.decide.outputs.profile_channel != '' && secrets[format('APPLE_{0}_TUNNEL_PROVISIONING_PROFILE_BASE64', needs.decide.outputs.profile_channel)] || '' }}
-        run: bash scripts/ci/nightly-steps/cloud-tunnel-prepare.sh
-
-
       # The Computer Use helper has its own notarization ticket (a copy outside
       # the app stays Gatekeeper-valid). Its submission starts here, signed
       # with its final Developer ID signature, so Apple's wait overlaps the
@@ -3933,7 +3920,7 @@ jobs:
           fi
           CMUX_SIGN_MODE="$sign_mode" ./scripts/sign-cmux-bundle.sh \
             "$CHANNEL_APP_PATH" \
-            "${CMUX_APP_TUNNEL_ENTITLEMENTS:-$CHANNEL_ENTITLEMENTS}" \
+            "$CHANNEL_ENTITLEMENTS" \
             "$APPLE_SIGNING_IDENTITY"
 
 
