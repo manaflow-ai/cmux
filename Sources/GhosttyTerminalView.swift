@@ -448,6 +448,17 @@ class GhosttyApp {
     private var pendingAppearanceSynchronization: PendingAppearanceSynchronization?
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
+
+    /// Whether Ghostty's `right-click-action` leaves a right press to the
+    /// context menu. Defaults to true, Ghostty's own default, when unread.
+    var rightClickActionOpensContextMenu: Bool {
+        guard let config else { return true }
+        var value: UnsafePointer<Int8>?
+        let key = "right-click-action"
+        guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))),
+              let value else { return true }
+        return String(cString: value) == "context-menu"
+    }
     private(set) var hasUserGhosttyCommand = false
     private(set) var resolvedUserShell: String?
 
@@ -10104,6 +10115,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
     func debugHasPendingLeftMouseReleaseForTesting() -> Bool {
         hasPendingLeftMouseRelease
+    }
+
+    func debugHasPendingRightMouseReleaseForTesting() -> Bool {
+        ghosttyMouseSessionLedger.hasSession(
+            for: .right,
+            on: currentGhosttyMouseSurfaceIdentity
+        )
     }
 #endif
 
