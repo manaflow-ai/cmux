@@ -136,9 +136,9 @@
 /* One row on top (header/tabRow.ts, the chrome.tabs.rowTools Debug setting): the App draws the pane's
    tabs over the header's left part, so the header is the tab row's height, takes no clicks there and
    shows only its tools, left of the pane's own "…"; the transcript fades out under the row. */
-/* The tools in the row sit on the row's own surface, as the tabs beside them do: the shell paints the page's color
-   only below the row, never a band of it behind the tools (Leo, 2026-11-02, above). */
-.acpmux-shell[data-tab-row]{background:linear-gradient(transparent var(--acpmux-tab-row-height),var(--agent-page-bg) var(--acpmux-tab-row-height))}
+/* The shell paints the page's color under the row as below it: painting it only below the row drew a hard dark band
+   across the top instead of the transcript's soft top edge (Leo, 2026-11-03: "WHY IS THERE NOW A BLACK BAR ON
+   EVERYTHING AT THE TOP ROW INSTEAD OF A TINY BLUR AT THE TOP"). The tools keep no plate of their own (above). */
 .acpmux-header[data-tab-row]{position:relative;z-index:var(--layer-sticky);flex:0 0 var(--acpmux-tab-row-height);height:var(--acpmux-tab-row-height);padding:0 var(--acpmux-tab-row-inset) 0 0;background:transparent;pointer-events:none}
 .acpmux-header[data-tab-row] .acpmux-header-status-slot{visibility:hidden}
 /* In the tab row the warning leads the tools (ChatHeaderInlineStatus): the slot is under the tabs. */

@@ -171,10 +171,8 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     }
   }
 
-  // The tools in the tab row sit on the row's own surface, as the tabs do: the shell paints no band of the page's
-  // color behind them, only below the row (Leo, 2026-11-02: "FOR THE FUCKING STUPID BACKGROUND ON THE FUCKING TOP
-  // RIGHT ICONS TO BE REMOVED").
-  test("the tab row shell paints nothing behind the tools", async () => {
+  // The tab row is no band of its own: the page's one color runs under it, and the transcript's top edge is a fade.
+  test("the tab row shell paints one page color over the row and under it: no band at the top", async () => {
     const shellCss = [
       read("styles.css"),
       read("agent-session/shared/styles.css"),
@@ -183,7 +181,7 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     ].join("\n");
     const page = await browser.newPage({ viewport: { width: 320, height: 120 } });
     try {
-      // The native row under the page is green; the page's own color is red.
+      // What is under the page is green; the page's own color is red.
       await page.setContent(`<!doctype html><html style="background:rgb(0,255,0)"><head><style>
         ${shellCss}
         :root { --agent-page-bg: rgb(255, 0, 0); --agent-muted: rgb(150, 160, 170); }
@@ -205,10 +203,63 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
         const i = (png.width * y + x) * 4;
         return [png.data[i], png.data[i + 1], png.data[i + 2]];
       };
-      // Behind the tools (inside the 40px row): the row's green. Below the row: the page's red.
-      expect(at(300, 10)).toEqual([0, 255, 0]);
-      expect(at(10, 20)).toEqual([0, 255, 0]);
+      // Leo, 2026-11-03, on the page's color painted only below the row (#32687): "WHY IS THERE NOW A
+      // BLACK BAR ON EVERYTHING AT THE TOP ROW INSTEAD OF A TINY BLUR AT THE TOP". The page's color
+      // runs under the row as below it, so the transcript's soft top edge is the only edge there.
+      expect(at(300, 10)).toEqual([255, 0, 0]);
+      expect(at(10, 20)).toEqual([255, 0, 0]);
       expect(at(10, 80)).toEqual([255, 0, 0]);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // The transcript's top edge under the row is a fade (a gradient mask), never an opaque band: black rows
+  // scrolled under the row read as the page's color at the edge, half-faded inside the fade, full ink below it.
+  test("the transcript's top edge under the tab row is a soft fade, not a band", async () => {
+    const shellCss = [
+      read("styles.css"),
+      read("agent-session/shared/styles.css"),
+      read("agent-session/acpmux/styles.css"),
+      read("agent-session/acpmux/header/header.css"),
+      read("agent-session/acpmux/conversation/conversation.css"),
+    ].join("\n");
+    const page = await browser.newPage({ viewport: { width: 320, height: 200 } });
+    try {
+      await page.setContent(`<!doctype html><html><head><style>
+        ${shellCss}
+        :root { --agent-page-bg: rgb(255, 0, 0); }
+        html, html:has(.acpmux-shell[data-tab-row]) { background: rgb(255, 0, 0) !important; }
+        body { margin: 0; height: 200px; }
+      </style></head><body>
+        <section class="acpmux-shell" data-tab-row style="--acpmux-tab-row-height:40px;height:200px">
+          <div class="acpmux-stage" style="flex:1;display:flex;flex-direction:column;min-height:0">
+            <header class="acpmux-header" data-tab-row></header>
+            <div class="acpmux-scroll" data-fade-top style="flex:1;min-height:0;overflow:hidden">
+              <div style="height:400px;background:rgb(0,0,0)"></div>
+            </div>
+          </div>
+        </section>
+      </body></html>`);
+      const top = await page.locator(".acpmux-scroll").evaluate((node) => Math.round(node.getBoundingClientRect().top));
+      const mask = await page
+        .locator(".acpmux-scroll")
+        .evaluate(
+          (node) => getComputedStyle(node).getPropertyValue("mask-image") || getComputedStyle(node).webkitMaskImage,
+        );
+      expect(mask).toContain("linear-gradient");
+      const shot = await page.screenshot({ type: "png" });
+      const { PNG } = await import("pngjs");
+      const png = PNG.sync.read(shot);
+      const red = (x: number, y: number) => png.data[(png.width * y + x) * 4]!;
+      // Above the scroller (the row) and at its very edge: the page's color, no dark band.
+      expect(red(150, top - 4)).toBe(255);
+      expect(red(150, top)).toBeGreaterThan(200);
+      // Inside the 18px fade: between the two. Below it: full ink.
+      const mid = red(150, top + 9);
+      expect(mid).toBeGreaterThan(40);
+      expect(mid).toBeLessThan(220);
+      expect(red(150, top + 40)).toBe(0);
     } finally {
       await page.close();
     }
