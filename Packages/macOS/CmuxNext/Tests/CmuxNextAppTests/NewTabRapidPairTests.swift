@@ -17,21 +17,24 @@ struct NewTabRapidPairTests {
         var made: [AgentPaneView] = []
     }
 
-    /// `painted(n)`: the n-th page made counts as drawn; `framed(n)`: its frames in a pane are reported (else never).
+    /// The pool keeps two spares, which it fills only after one served an open: the rig hands out the launch's spare
+    /// first. `painted(n)` / `framed(n)`: the n-th spare parked after that counts as drawn / reports its frames in a pane.
     static func filledPool(_ services: AppServices, window: NSWindow, folder: URL, painted: @escaping (Int) -> Bool = { _ in true },
                            framed: @escaping (Int) -> Bool = { _ in true }) async throws -> Rig {
         let html = folder.appending(path: "index.html")
         try Data("<html><body>New Tab spare fixture</body></html>".utf8).write(to: html)
         let pool = services.newTabSpares, rig = Rig()
         pool.dropAll()
+        pool.capacity = 2
         pool.makeSpare = { page in
             let model = AgentPaneModel(host: services.agentTabs.host, newTab: page)
             guard let view = AgentPaneView(model: model, source: .bundled(html)) else { return nil }
-            if painted(rig.made.count) {
+            let parked = rig.made.count - 1 // made[0] is the launch's spare, handed out below
+            if parked < 0 || painted(parked) {
                 model.hasHandshake = true
                 model.markPainted()
             }
-            let reports = framed(rig.made.count)
+            let reports = parked < 0 || framed(parked)
             view.redraw.nextFrameOverride = { body in if reports { body() } }
             rig.made.append(view)
             return view
@@ -39,7 +42,10 @@ struct NewTabRapidPairTests {
         pool.retarget(window)
         pool.prewarm()
         pool.start()
-        try await PasswordManagerRouteTests.until({ rig.made.count == 2 && pool.spare != nil }, within: .seconds(5), report: { "\(rig.made.count) spares made" })
+        try await PasswordManagerRouteTests.until({ rig.made.count == 1 && pool.spare != nil }, within: .seconds(5), report: { "\(rig.made.count) spares made" })
+        let launch = try #require(pool.take(for: window, size: nil)?.view)
+        launch.removeFromSuperview()
+        try await PasswordManagerRouteTests.until({ rig.made.count == 3 && pool.spare != nil }, within: .seconds(5), report: { "\(rig.made.count - 1) spares made after the handout" })
         return rig
     }
 
@@ -128,7 +134,7 @@ struct NewTabRapidPairTests {
             rig = try await Self.filledPool(services, window: window, folder: folder, painted: { $0 == 0 })
             let pool = services.newTabSpares
             let first = try #require(pool.spare?.view)
-            #expect(first === rig?.made.first)
+            #expect(first === rig?.made.dropFirst().first)
             let workspace = try await services.windows.createWorkspace(WorkspaceSpawn(cwd: folder.path, name: "rapid-pair", command: "/bin/sh"),
                                                                        into: controller.state.id)
             services.windows.show(workspaceID: workspace, in: controller.state)
@@ -146,6 +152,41 @@ struct NewTabRapidPairTests {
             try await PasswordManagerRouteTests.until({
                 NewTabSpareContextTests.screen(first.model.newTab) == NewTabSpareContextTests.screen(want) && first.model.newTabPrepared
             }, within: .seconds(3), report: { "the first spare draws cwd \(first.model.newTab?.cwd ?? "nil"), Cmd-T gives \(want.cwd ?? "nil")" })
+        }
+    }
+
+    /// A launch loads one page, as before two spares: the second is made only after a spare served an open, so its load
+    /// never meets the session's first open.
+    @Test func aLaunchMakesOneSpareUntilOneServedAnOpen() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-rapid-pair-launch")
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
+            let (window, pane) = try await NewTabOpenFramesTests.focusedPane(services)
+            let folder = try Self.folder()
+            let rig = Rig()
+            defer { Self.cleanUp(services, rig, folder) }
+            let html = folder.appending(path: "index.html")
+            try Data("<html><body>New Tab spare fixture</body></html>".utf8).write(to: html)
+            let pool = services.newTabSpares
+            pool.dropAll()
+            pool.capacity = 2
+            pool.makeSpare = { page in
+                let model = AgentPaneModel(host: services.agentTabs.host, newTab: page)
+                guard let view = AgentPaneView(model: model, source: .bundled(html)) else { return nil }
+                model.hasHandshake = true
+                model.markPainted()
+                rig.made.append(view)
+                return view
+            }
+            pool.retarget(window)
+            pool.prewarm()
+            pool.start()
+            try await PasswordManagerRouteTests.until({ !rig.made.isEmpty }, within: .seconds(5), report: { "no spare was made" })
+            // Past the quiet-input warm (750 ms) with no input: still one page.
+            try await Task.sleep(for: .seconds(2))
+            #expect(rig.made.count == 1, "the launch made \(rig.made.count) spares before any open")
+            NewTabPage.open(in: pane, seed: nil)
+            try await PasswordManagerRouteTests.until({ rig.made.count >= 3 }, within: .seconds(5), report: { "\(rig.made.count - 1) spares after the first open" })
         }
     }
 }
