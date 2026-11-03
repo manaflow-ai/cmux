@@ -1267,6 +1267,10 @@ export function transcriptColumn(paneWidth: number, { min, max, share }: ChatCol
   const insetEnd = Math.max(inset, endReserve);
   return { inset, insetEnd, width: paneWidth - inset - insetEnd };
 }
+/// The narrowest pane that draws `column` at its full cap, page edges included; Infinity for a
+/// column with no cap (Full Width).
+export const columnRoom = ({ max, share }: ChatColumn = chatColumn()) =>
+  Number.isFinite(max) ? Math.max(max / share, max + 2 * PAGE_EDGE * gridScale()) : Infinity;
 export const transcriptRowWidth = (paneWidth: number, column?: ChatColumn, endReserve = 0) =>
   Math.max(120, transcriptColumn(paneWidth, column, endReserve).width);
 

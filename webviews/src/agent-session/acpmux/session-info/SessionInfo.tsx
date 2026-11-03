@@ -54,7 +54,7 @@ import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
+import { columnRoom, transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { registerPicker } from "../pickerOpeners";
 import { opensProcessTerminal } from "../processTerminal";
 import { tooltipProps } from "../shortcuts";
@@ -118,10 +118,17 @@ const SPLIT_SETTLE_MS = 2000;
 /// Whether Settings Push always is on: Session Info then always takes a column.
 export const pushes = (placement: SessionInfoPlacement) => placement === "push";
 
-/// A pushed panel's width: its own, narrowed so the chat keeps PUSH_MIN_CHAT beside it and its
-/// right margin, down to the panel's narrowest.
-export const pushedWidth = (paneWidth: number, width: number) =>
-  paneWidth <= 0 ? width : Math.min(width, Math.max(SESSION_INFO_WIDTH.min, paneWidth - PUSH_MIN_CHAT - FLOAT_MARGIN));
+/// A pushed panel's width: its own, narrowed so the chat keeps the room its column needs at the
+/// chat's text width (`column`, Settings Chat Text Width) beside it and its right margin, down to
+/// the panel's narrowest. Only then does the chat's column narrow, so a chat with Session Info open
+/// is the width it is without it unless the pane truly lacks room. A column with no cap (Full
+/// Width) asks for PUSH_MIN_CHAT.
+export const pushedWidth = (paneWidth: number, width: number, column?: ChatColumn) => {
+  if (paneWidth <= 0) return width;
+  const room = columnRoom(column);
+  const chat = Number.isFinite(room) ? Math.max(PUSH_MIN_CHAT, room) : PUSH_MIN_CHAT;
+  return Math.min(width, Math.max(SESSION_INFO_WIDTH.min, paneWidth - chat - FLOAT_MARGIN));
+};
 
 /// A handoff review's form (handoff/styles.css: 760px, 18px from each edge) takes the transcript's
 /// place and is wider than the column.
@@ -824,7 +831,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const roomy =
     !pushes(display.sessionInfo) ||
     paneWidth <= 0 ||
-    paneWidth - pushedWidth(paneWidth, width) - FLOAT_MARGIN >= PUSH_MIN_CHAT;
+    paneWidth - pushedWidth(paneWidth, width, column) - FLOAT_MARGIN >= PUSH_MIN_CHAT;
   const roomyRef = useRef(roomy);
   // Environment's project opens in Files as a tab right of the chat (App.tsx `onOpenFolder`). The panel
   // then steps aside when it lies over the chat, at the click or once the tab's split narrows the pane,
@@ -854,7 +861,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   return (
     <SessionInfoPanel
       title={scope && SUBAGENT_HEADER === "title" ? <SubagentTitle scope={scope} /> : undefined}
-      width={push ? pushedWidth(paneWidth, width) : width}
+      width={push ? pushedWidth(paneWidth, width, column) : width}
       placement={push ? "push" : "overlay"}
       // Floating or pushing, it starts under the chat header (styles.css --acpmux-header-height; in the
       // pane's tab row, the row's height), so the header's tools, its own toggle among them, stay in reach.
