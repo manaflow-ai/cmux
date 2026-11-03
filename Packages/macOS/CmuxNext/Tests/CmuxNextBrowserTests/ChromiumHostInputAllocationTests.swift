@@ -28,7 +28,9 @@ struct ChromiumHostInputAllocationTests {
         defer { wire.close() }
         let connection = wire.connection
         let view = ChromiumHostPageView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        view.sink = { frame in _ = connection.send(frame) }
+        // Frames the view handed on and the connection wrote: proves each counted event reached the wire.
+        let written = FrameCount()
+        view.sink = { frame in if connection.send(frame) { written.value += 1 } }
         let frames = (0..<Self.events).map { _ in ChromiumHostFrame(.mouse, v: [1, 2, 0, 0, 0, 0], flags: 256, t0: 42) }
         let moves = try Self.moves(), keys = try Self.keys(), wheels = try Self.wheels()
 
@@ -39,11 +41,18 @@ struct ChromiumHostInputAllocationTests {
         view.scrollWheel(with: try Self.wheels()[0])
 
         var send = 0, mouse = 0, key = 0, wheel = 0
-        for frame in frames { send += probe.count { _ = connection.send(frame) } }
-        for event in moves { mouse += probe.count { view.mouseMoved(with: event) } }
-        for event in keys { key += probe.count { view.keyDown(with: event) } }
-        for event in wheels { wheel += probe.count { view.scrollWheel(with: event) } }
+        // Each counted call in its own autorelease pool, outside the window, as AppKit handles each event in a fresh
+        // pool: a pool page that one call's autoreleased objects fill is never charged to a later call.
+        var sent = 0
+        for frame in frames { autoreleasepool { send += probe.count { if connection.send(frame) { sent += 1 } } } }
+        written.value = 0
+        for event in moves { autoreleasepool { mouse += probe.count { view.mouseMoved(with: event) } } }
+        for event in keys { autoreleasepool { key += probe.count { view.keyDown(with: event) } } }
+        for event in wheels { autoreleasepool { wheel += probe.count { view.scrollWheel(with: event) } } }
         try #require(connection.endedByProtocolError == false, "the wire ended: the counts are not of sent frames")
+        // A handler that returned early would count 0 and prove nothing: every counted event must have been written.
+        try #require(sent == Self.events, "\(sent) of \(Self.events) sends were written")
+        try #require(written.value == 3 * Self.events, "\(written.value) of \(3 * Self.events) events reached the wire")
 
         let counts: [(String, Int)] = [("send", send), ("mouse move", mouse), ("key", key), ("scroll", wheel)]
         func per(_ count: Int) -> String { String(format: "%.2f", Double(count) / Double(Self.events)) }
@@ -88,10 +97,14 @@ struct ChromiumHostInputAllocationTests {
     }
 }
 
+/// The frames a view handed on, counted by its sink (a class: the sink is an escaping closure).
+private final class FrameCount {
+    var value = 0
+}
+
 /// A connection whose host end is drained by a thread of its own, so every frame of the count is written.
 private final class HostWire {
     let connection: ChromiumHostConnection
-    private let hostEnd: Int32
     private let hostWriteEnd: Int32
 
     init() throws {
@@ -104,13 +117,12 @@ private final class HostWire {
             throw POSIXError(.EIO)
         }
         connection = ChromiumHostConnection(readFD: fromHost[0], writeFD: toHost[0])
-        hostEnd = toHost[1]
         hostWriteEnd = fromHost[1]
-        let drained = hostEnd
+        let drained = toHost[1]
         let thread = Thread {
             var buffer = [UInt8](repeating: 0, count: 64 * 1024)
             while buffer.withUnsafeMutableBytes({ Darwin.read(drained, $0.baseAddress, $0.count) }) > 0 {}
-            Darwin.close(drained)  // EOF: `close()` shut the descriptor down; the drain owns it
+            Darwin.close(drained)  // EOF (the connection closed its end): the drain owns this descriptor and closes it
         }
         thread.start()
     }
@@ -118,7 +130,6 @@ private final class HostWire {
     func close() {
         connection.close()
         Darwin.close(hostWriteEnd)
-        Darwin.shutdown(hostEnd, SHUT_RDWR)
     }
 }
 
