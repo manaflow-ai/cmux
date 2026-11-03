@@ -5709,7 +5709,12 @@ export function VirtualTranscript({
     restingDock.current.space = dockSpace;
   // A stack not measured since it came (the latch's 0) reads as it is now.
   // Below a floating tab row (`topInset`): the rail centers in the view the row leaves (threadMinimap.css).
-  const railBox = { height: height - topInset, foot: height - topInset - (restingDock.current.space || dockSpace) };
+  // `live` is the stack's top now: the rail's foot and its card stay above it (ThreadMinimap `railBox`).
+  const railBox = {
+    height: height - topInset,
+    foot: height - topInset - (restingDock.current.space || dockSpace),
+    live: height - topInset - dockSpace,
+  };
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
