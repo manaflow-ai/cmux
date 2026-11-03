@@ -211,7 +211,7 @@ fn instructions_in_both_modes_tell_the_agent_never_to_ask_for_permission() {
         assert!(rule.contains(phrase), "{phrase}: {rule}");
     }
     for code_mode in [false, true] {
-        let init = initialize(&json!({}), false, code_mode, false);
+        let init = initialize(&json!({}), false, code_mode);
         let text = init["instructions"].as_str().unwrap();
         assert!(text.ends_with(rule), "code mode {code_mode}: {text}");
         // Claude Code may cut server instructions past 2048 characters, which would drop the rule.

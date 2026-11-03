@@ -206,8 +206,8 @@ pub(super) trait Backend {
     fn caller_terminal(&self) -> Option<String> {
         std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty())
     }
-    /// A Chief turn (`CMUX_CALLER_HOME_CHAT=1`, set by the Chief host): its instructions
-    /// add [`CHIEF_RULE`].
+    /// A Chief turn (`CMUX_CALLER_HOME_CHAT=1`, set by the Chief host): its `open` and
+    /// `cmux_exec` descriptions add [`CHIEF_RULE`].
     fn home_chat(&self) -> bool {
         std::env::var("CMUX_CALLER_HOME_CHAT").as_deref() == Ok("1")
     }
@@ -683,18 +683,18 @@ impl<B: Backend> Server<B> {
         let id = id?;
         let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
         let result = match method {
-            "initialize" => Ok(initialize(
-                &params,
-                self.list_changed,
-                self.code_mode && self.allowed.is_none(),
-                self.backend.home_chat(),
-            )),
+            "initialize" => {
+                Ok(initialize(&params, self.list_changed, self.code_mode && self.allowed.is_none()))
+            }
             "ping" => Ok(json!({})),
             "tools/list" if self.code_mode && self.allowed.is_none() => {
                 let tools = self.list();
-                Ok(json!({ "tools": code_mode::descriptors(&tools) }))
+                Ok(json!({ "tools": self.chief_rule(code_mode::descriptors(&tools)) }))
             }
-            "tools/list" => Ok(json!({ "tools": self.list() })),
+            "tools/list" => {
+                let tools = self.list();
+                Ok(json!({ "tools": self.chief_rule(tools) }))
+            }
             "tools/call" => {
                 // A proxied server's call runs on its own thread, so one that
                 // waits (a secret card) never holds up the other tools.
@@ -1001,11 +1001,11 @@ impl<B: Backend> Server<B> {
         let Some(tool) = self.actions.iter().find(|tool| tool.name == name) else {
             return Err((-32602, self.unknown_tool(name)));
         };
-        // A viewer an agent opens with no target goes beside its chat, in its own workspace,
-        // not where the person looks ([`open_tool::untargeted`]); a call outside a chat keeps
-        // the app's own placement.
+        // A viewer an agent opens with no target goes beside its caller (its chat or terminal),
+        // in its own workspace, not where the person looks ([`open_tool::untargeted`]). A caller
+        // the app cannot place in a pane keeps the app's own placement.
         if let Some(open) = open_tool::untargeted(&tool.cli_name, &arguments)
-            && matches!(self.backend.identity(), Ok(Some(_)))
+            && self.caller_has_pane()
         {
             return Ok(self.call_open(&open));
         }
@@ -1400,26 +1400,50 @@ impl<B: Backend> Server<B> {
             Err(failure) => failure_result(failure),
         }
     }
+
+    /// Whether the app places this server's caller in a pane of a workspace: only then does
+    /// `open`'s `current` mean the caller's own pane, not the daemon's active one.
+    fn caller_has_pane(&self) -> bool {
+        let Ok(Some(identity)) = self.backend.identity() else { return false };
+        identity.get("caller").is_some_and(|caller| {
+            caller_scope::is_placed(caller) && caller.get("pane").and_then(Value::as_str).is_some()
+        })
+    }
+
+    /// `tools` with [`CHIEF_RULE`] added to the descriptions of `open` and `cmux_exec` in a
+    /// Chief turn.
+    fn chief_rule(&self, mut tools: Vec<Value>) -> Vec<Value> {
+        if !self.backend.home_chat() {
+            return tools;
+        }
+        for tool in &mut tools {
+            if !matches!(tool["name"].as_str(), Some(open_tool::NAME | code_mode::EXEC)) {
+                continue;
+            }
+            if let Some(description) = tool["description"].as_str() {
+                tool["description"] = json!(format!("{description} {CHIEF_RULE}"));
+            }
+        }
+        tools
+    }
 }
 
 /// Chief works for many workspaces from its own: what it opens for a workspace's work goes
 /// there, or every turn piles tabs into the column right of Chief (Lawrence 2026-11-02:
-/// "Workspace of the task").
+/// "Workspace of the task"). It rides on the tools that open things, not the instructions:
+/// those are near the 2048 characters past which Claude Code may cut them.
 const CHIEF_RULE: &str = "You are Chief: you work for many workspaces from your own. A \
     terminal, file, diff or page for a workspace's work (its project, agent, server or files) \
     opens in that workspace, in the background (workspace: its name or id; open with where: \
     {workspace}), and you tell the person which workspace. Only a request with no workspace in \
     it or in the conversation opens beside you.";
 
-fn initialize(params: &Value, list_changed: bool, code_mode: bool, chief: bool) -> Value {
-    let mut instructions = format!(
+fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
+    let instructions = format!(
         "{} {}",
         if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
         acpmux::agent_tools::ASKING_RULE
     );
-    if chief {
-        instructions = format!("{instructions} {CHIEF_RULE}");
-    }
     json!({
         "protocolVersion": acpmux::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": list_changed}},

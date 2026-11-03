@@ -71,11 +71,21 @@ pub(super) fn untargeted(
         _ => return None,
     };
     let plain = |key: &String| matches!(key.as_str(), "path" | "url" | "focus" | "idempotency_key");
-    if !arguments.keys().all(plain) || needs.is_some_and(|key| text(arguments, key).is_none()) {
+    let given = |key: &str| arguments.get(key).is_none() || text(arguments, key).is_some();
+    if !arguments.keys().all(plain)
+        || !given("path")
+        || !given("url")
+        || needs.is_some_and(|key| text(arguments, key).is_none())
+    {
         return None;
     }
     let mut open = arguments.clone();
     open.insert("kind".into(), json!(kind));
+    // With no path the app diffs the target pane's folder; beside the chat that pane is a new
+    // split or a page, so the diff names the chat's own folder.
+    if kind == "diff" && !open.contains_key("path") {
+        open.insert("path".into(), json!("."));
+    }
     Some(open)
 }
 
@@ -222,6 +232,9 @@ impl<B: Backend> Server<B> {
                 record.insert("created_pane".into(), json!(pane));
             }
             record.insert("open_idempotency_key".into(), json!(open_id));
+            // A retry "with the key from the error" must be the open's own key: the app
+            // stage's key would start a new open, a second split and a second viewer.
+            record.insert("idempotency_key".into(), json!(open_id));
             record.insert(
                 "recovery".into(),
                 json!("The app may already have opened the viewer. Inspect created_pane and the app tabs; retry open with the same open_idempotency_key to reconcile the split and app action."),
