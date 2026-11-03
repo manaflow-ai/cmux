@@ -53,8 +53,11 @@ pub(super) enum Admit {
     Answered,
 }
 
-/// The id prefix of a person no message named (fail closed in `decide`).
+/// The id of a person no message named (fail closed in `decide`).
 const UNKNOWN: &str = "unknown-person";
+/// The person of another agent's words sent through the owner's CLI: no
+/// table entry can name it, so it holds no grants.
+const AGENT_SENT: &str = "agent-via-owner-cli";
 
 impl RightsCtx {
     pub fn new(root: PathBuf, detected: Option<AuthKind>, host: String, cwd: Option<String>) -> RightsCtx {
@@ -144,7 +147,11 @@ impl Brain {
             }
         }
         let detected = self.rights.as_ref().and_then(|c| c.detected);
-        if !owner_msg {
+        // The owner's own CLI carrying another agent's words (`[from NAME]`,
+        // README "Remote-origin messages"): not another person, but still
+        // under the floor with no grants, as before.
+        let agent_sent = !owner_msg && person == owner;
+        if !owner_msg && !agent_sent {
             if let Err(why) = rights.may_prompt(&owner, &person, detected) {
                 let name = display_name(summary, &message.author);
                 self.audit(Entry {
@@ -176,6 +183,12 @@ impl Brain {
             });
             self.answer_message(target, message, "cap", &format!("Not run: {why}."));
             return Admit::Answered;
+        }
+        if agent_sent {
+            if let Some(ctx) = self.rights.as_mut() {
+                ctx.authors.insert(message.id.clone(), AGENT_SENT.to_owned());
+            }
+            return Admit::Queue { lifts_floor: false };
         }
         if let Some(ctx) = self.rights.as_mut() {
             ctx.authors.insert(message.id.clone(), person.clone());
