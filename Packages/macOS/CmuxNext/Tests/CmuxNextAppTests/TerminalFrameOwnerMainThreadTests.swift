@@ -45,14 +45,24 @@ struct TerminalFrameOwnerMainThreadTests {
         let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
         try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
         let offMainBefore = fixture.offMainPresents
-        // Three resizes, each followed by output, with the reader in every main commit.
+        // Three resizes, each followed by 2 s of wall-clock time with output every few milliseconds (frames at the
+        // shown size, which go off main once the presenter reported the landing's commit), and the reader in every
+        // main commit. The hang came in the films within a second of the first resize.
         for (index, width) in [CGFloat(520), 560, 500].enumerated() {
             fixture.container.terminalWidth = width
             fixture.container.needsLayout = true
-            for turn in 0..<180 {
-                if turn % 6 == 0 { fixture.io.send(.output(Data("resize \(index) line \(turn)\r\n".utf8))) }
+            let until = ContinuousClock.now.advanced(by: .seconds(2))
+            var line = 0, toggle = false
+            var lastOutput = ContinuousClock.now
+            while ContinuousClock.now < until {
+                if lastOutput.duration(to: .now) >= .milliseconds(4) {
+                    fixture.io.send(.output(Data("resize \(index) line \(line)\r\n".utf8)))
+                    line += 1
+                    lastOutput = .now
+                }
+                toggle.toggle()
                 reader.setNeedsDisplay()
-                reader.opacity = turn % 2 == 0 ? 1 : 0.99
+                reader.opacity = toggle ? 1 : 0.99
                 await fixture.commits(1)
             }
         }
