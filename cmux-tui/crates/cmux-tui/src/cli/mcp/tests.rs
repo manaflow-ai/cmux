@@ -2304,15 +2304,13 @@ fn an_untargeted_viewer_from_a_chat_opens_beside_it() {
 /// the app would diff the folder of the pane it opens in, a new split or a page.
 #[test]
 fn an_untargeted_diff_names_the_chat_folder() {
-    let diff =
-        super::open_tool::untargeted("browser open-diff-viewer", &Map::new()).expect("placed");
+    let diff = open_tool::untargeted("browser open-diff-viewer", &Map::new()).expect("placed");
     assert_eq!(diff["path"], ".", "{diff:?}");
     let empty = json!({"path": ""});
-    assert!(super::open_tool::untargeted("file open", empty.as_object().unwrap()).is_none());
+    assert!(open_tool::untargeted("file open", empty.as_object().unwrap()).is_none());
     let number = json!({"path": 3});
     assert!(
-        super::open_tool::untargeted("browser open-diff-viewer", number.as_object().unwrap())
-            .is_none()
+        open_tool::untargeted("browser open-diff-viewer", number.as_object().unwrap()).is_none()
     );
 }
 

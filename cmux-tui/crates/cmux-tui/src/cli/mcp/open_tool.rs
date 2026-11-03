@@ -232,9 +232,6 @@ impl<B: Backend> Server<B> {
                 record.insert("created_pane".into(), json!(pane));
             }
             record.insert("open_idempotency_key".into(), json!(open_id));
-            // A retry "with the key from the error" must be the open's own key: the app
-            // stage's key would start a new open, a second split and a second viewer.
-            record.insert("idempotency_key".into(), json!(open_id));
             record.insert(
                 "recovery".into(),
                 json!("The app may already have opened the viewer. Inspect created_pane and the app tabs; retry open with the same open_idempotency_key to reconcile the split and app action."),
