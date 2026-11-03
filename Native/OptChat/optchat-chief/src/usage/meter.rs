@@ -120,7 +120,13 @@ impl Meter {
             self.remember(
                 format!("sub:{id}"),
                 Attribution {
-                    person: line.person.clone(),
+                    // A legacy row has no evidence of its initiator. Keep that
+                    // unresolved across restarts instead of inheriting today's owner.
+                    person: Some(
+                        account_id(line.person.as_deref())
+                            .unwrap_or("unknown")
+                            .to_owned(),
+                    ),
                     team: line.team.clone(),
                     chief: line.chief.clone(),
                     harness: line.harness.clone(),
