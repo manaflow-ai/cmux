@@ -105,7 +105,7 @@ impl Tracker {
             activity.set("last_agent_action_at", json!(at));
         }
         if !self.daemon.is_empty() {
-            activity["daemon"] = json!(self.daemon);
+            activity.set("daemon", json!(self.daemon));
         }
         Some(json!({"acp_activity": activity}))
     }
