@@ -9,6 +9,12 @@ import CmuxNextTestSupport
 /// 4 ms of the profiled window build before the first frame (`SidebarIconButton.renderIcon`). A hidden button
 /// needs no image; it makes it when it first shows.
 @MainActor @Suite(.closesItsWindows, .serialized) struct SidebarIconButtonLazyImageTests {
+    /// The button's icon image: AppKit answers a button with no image of its own with a shared 1 x 1
+    /// placeholder, so "no icon yet" is no image at least 2 points wide.
+    private static func icon(of button: SidebarIconButton) -> NSImage? {
+        button.image.flatMap { $0.size.width > 1 ? $0 : nil }
+    }
+
     private static func window() -> NSWindow {
         NSWindow(contentRect: NSRect(x: 200, y: 400, width: 300, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
     }
@@ -21,9 +27,9 @@ import CmuxNextTestSupport
         let content = try #require(window.contentView)
         content.addSubview(button)
         content.layoutSubtreeIfNeeded()
-        #expect(button.image == nil, "a hidden button made its icon image")
+        #expect(Self.icon(of: button) == nil, "a hidden button made its icon image")
         button.isHidden = false
-        let image = try #require(button.image, "a shown button has no icon image")
+        let image = try #require(Self.icon(of: button), "a shown button has no icon image")
         #expect(image.isTemplate)
         #expect(image.size.width > 0)
     }
@@ -38,20 +44,20 @@ import CmuxNextTestSupport
         let content = try #require(window.contentView)
         content.addSubview(row)
         content.layoutSubtreeIfNeeded()
-        #expect(button.image == nil, "a button in a hidden row made its icon image")
+        #expect(Self.icon(of: button) == nil, "a button in a hidden row made its icon image")
         row.isHidden = false
-        #expect(button.image != nil, "the button of a shown row has no icon image")
+        #expect(Self.icon(of: button) != nil, "the button of a shown row has no icon image")
     }
 
     @Test func aShownButtonHasItsImageInAWindowAndWithoutOne() throws {
         let window = Self.window()
         let shown = SidebarIconButton(icon: .actionClose, label: "Close Workspace")
         try #require(window.contentView).addSubview(shown)
-        #expect(shown.image != nil, "a button shown in a window has no icon image")
+        #expect(Self.icon(of: shown) != nil, "a button shown in a window has no icon image")
         // Sized by its image outside a window too (a stack or constraints read its intrinsic size).
         let loose = SidebarIconButton(icon: .actionClose, label: "Close Workspace")
         #expect(loose.intrinsicContentSize.width > 0)
-        #expect(loose.image != nil)
+        #expect(Self.icon(of: loose) != nil)
     }
 
     @Test func aNewIconOnAHiddenButtonWaitsToo() throws {
@@ -60,8 +66,8 @@ import CmuxNextTestSupport
         button.isHidden = true
         try #require(window.contentView).addSubview(button)
         button.icon = .disclosureCollapsed
-        #expect(button.image == nil)
+        #expect(Self.icon(of: button) == nil)
         button.isHidden = false
-        #expect(button.image != nil)
+        #expect(Self.icon(of: button) != nil)
     }
 }
