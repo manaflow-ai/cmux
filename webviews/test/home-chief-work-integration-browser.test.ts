@@ -33,18 +33,27 @@ await requireBrowserLane("home-chief-work-integration-browser.test.ts", async ()
     await page.getByRole("menuitem", { name: "Reply in Thread", exact: true }).click();
     await page.locator(".lg-sheet .hc-composer").waitFor();
   };
-  for (const [width, colorScheme] of [
-    [390, "dark"],
-    [1600, "light"],
+  // Gallery rewrites media queries at mount, so each preference needs a fresh frame.
+  for (const [width, colorScheme, reducedMotion] of [
+    [390, "dark", false],
+    [1600, "light", false],
+    [390, "dark", true],
+    [1600, "light", true],
   ] as const) {
-    test(`${width}px: the real Chief header opens work and Escape closes it`, async () => {
+    test(`${width}px ${reducedMotion ? "reduced" : "normal"} motion: the real Chief header opens work and Escape closes it`, async () => {
       const variant = width === 390 ? "run-phone" : "run";
-      const page = await browser.newPage({ viewport: { width, height: 844 }, deviceScaleFactor: 2 });
+      const page = await browser.newPage({
+        viewport: { width, height: 844 },
+        deviceScaleFactor: 2,
+        reducedMotion: reducedMotion ? "reduce" : "no-preference",
+      });
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
       try {
         const port = (vite.httpServer!.address() as { port: number }).port;
-        await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant, width, height: 844, colorScheme })}`);
+        await page.goto(
+          `http://127.0.0.1:${port}${galleryFrame(entry, { variant, width, height: 844, colorScheme, reducedMotion: String(reducedMotion) })}`,
+        );
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         const chief = page.locator('[data-list-row="c-chief"]');
         if (await chief.isVisible()) await chief.click();
@@ -61,13 +70,17 @@ await requireBrowserLane("home-chief-work-integration-browser.test.ts", async ()
         await panel.getByText("Review the finished preview", { exact: true }).waitFor();
         await panel.getByText("Background commands", { exact: true }).waitFor();
         const spinner = panel.locator(".cv-spinner").first();
-        expect(await spinner.evaluate((element) => getComputedStyle(element).animationName)).toBe("cmux-spin");
-        await page.emulateMedia({ reducedMotion: "reduce" });
-        expect(await spinner.evaluate((element) => getComputedStyle(element).animationName)).toBe("none");
-        await page.emulateMedia({ reducedMotion: "no-preference" });
+        expect(await spinner.evaluate((element) => getComputedStyle(element).animationName)).toBe(
+          reducedMotion ? "none" : "cmux-spin",
+        );
         expect(await toggle.getAttribute("aria-pressed")).toBe("true");
         expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
         if (width === 1600) {
+          await page.waitForFunction(() => {
+            const composer = document.querySelector(".lg-main-compose")?.getBoundingClientRect();
+            const sheet = document.querySelector(".hc-chief-work")?.getBoundingClientRect();
+            return composer && sheet && composer.right <= sheet.left + 1;
+          });
           const composer = (await page.locator(".lg-main-compose").boundingBox())!;
           const sheet = (await panel.boundingBox())!;
           expect(composer.x + composer.width).toBeLessThanOrEqual(sheet.x + 1);
@@ -75,7 +88,10 @@ await requireBrowserLane("home-chief-work-integration-browser.test.ts", async ()
         if (process.env.FAST_CHECKS_OUT) {
           await mkdir(process.env.FAST_CHECKS_OUT, { recursive: true });
           await page.screenshot({
-            path: path.join(process.env.FAST_CHECKS_OUT, `chief-work-home-${width}-${colorScheme}.png`),
+            path: path.join(
+              process.env.FAST_CHECKS_OUT,
+              `chief-work-home-${width}-${colorScheme}${reducedMotion ? "-reduced" : ""}.png`,
+            ),
           });
         }
         // The header keeps focus when its button opens Work. Escape must close the sheet
@@ -95,6 +111,17 @@ await requireBrowserLane("home-chief-work-integration-browser.test.ts", async ()
           expect(await page.locator(".lg-sheet").count()).toBe(1);
         }
         expect(errors).toEqual([]);
+      } catch (error) {
+        if (process.env.FAST_CHECKS_OUT) {
+          await mkdir(process.env.FAST_CHECKS_OUT, { recursive: true });
+          await page.screenshot({
+            path: path.join(
+              process.env.FAST_CHECKS_OUT,
+              `chief-work-home-${width}-${colorScheme}${reducedMotion ? "-reduced" : ""}-failure.png`,
+            ),
+          });
+        }
+        throw error;
       } finally {
         await page.close();
       }
