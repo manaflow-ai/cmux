@@ -96,6 +96,7 @@ import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBud
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
+import { noticeRowText } from "./conversation/agentNotice";
 import { inboxText, type InboxMessage } from "./conversation/inboxNotice";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
@@ -5791,7 +5792,15 @@ export class AcpmuxDirectClient {
             : incomingPrompt(raw, msg, this.incomingContext());
         const shown =
           incoming?.kind === "message"
-            ? { text: incoming.message.text, incoming, resend: raw }
+            ? {
+                // A tool's notice keeps its title in the row's text, so Find, Copy and export read it
+                // and a notice of a title alone is no empty row.
+                text: incoming.message.notice
+                  ? noticeRowText(incoming.message.notice, incoming.message.text)
+                  : incoming.message.text,
+                incoming,
+                resend: raw,
+              }
             : incoming?.kind === "notice"
               ? { text: incoming.text, incoming }
               : incoming?.kind === "inbox"
