@@ -361,11 +361,13 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         if !navigates { documentArrived() }
     }
 
-    /// The page asked to show something may take keys: its document loaded (or is an error page), Chromium stopped
-    /// loading, and the document painted content, in any order of the last two. A blank document or an error page
-    /// paints nothing of its own, so for those the stop is enough.
+    /// The page asked to show something may take keys: its main frame's document loaded (or is an error page) and
+    /// painted content, in either order.
     func documentMayTakeKeys() {
-        guard documentLoaded, loadingStopped, documentPainted || blankIsDocument || committedIsErrorPage else { return }
+        // The main frame's document loaded and painted (Chrome's own readiness: subframes such as ads may load for
+        // seconds after the page shows and takes clicks, review 6594624994). A blank target or an error page paints
+        // nothing of its own.
+        guard documentLoaded, documentPainted || blankIsDocument || committedIsErrorPage else { return }
         documentArrived()
     }
 

@@ -56,6 +56,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     /// Set once by `AppServices`: a mouse-down after AppKit dispatched it
     /// (focus has moved to the clicked pane), with its window.
     var mouseDownObserver: ((NSEvent) -> Void)?
+    /// A mouse-down before AppKit dispatches it (a creation hold's keys go before a click that may move the keyboard).
+    var mouseDownWillDispatch: ((NSEvent) -> Void)?
     /// Set once by `AppServices`: a left mouse-up, or a left-button drag, after AppKit dispatched it.
     var leftButtonObserver: ((NSEvent) -> Void)?
     /// Set once by `AppServices`: a key-down, before anything handles it.
@@ -132,11 +134,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
         }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         if event.type == .keyDown, FindPillView.forwardArrowKeyDown(event, in: keyWindow ?? event.window) { return }
+        if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { mouseDownWillDispatch?(event) }
         if event.type == .leftMouseDown || event.type == .leftMouseUp {
             BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) }
-        } else {
-            super.sendEvent(event)
-        }
+        } else { super.sendEvent(event) }
         if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { BenchSpans.measure("app.mouseDownObserver") { mouseDownObserver?(event) } }
         if event.type == .leftMouseUp || event.type == .leftMouseDragged { leftButtonObserver?(event) }
         // After AppKit handled the move: a browser toolbar under the pointer in a window that is
@@ -178,13 +179,9 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
 
     /// AppKit reports the key window, or with none the frontmost ordered
     /// window, which is a Chromium page window when a page is in front.
-    override func accessibilityFocusedWindow() -> Any? {
-        Self.redirect(super.accessibilityFocusedWindow())
-    }
+    override func accessibilityFocusedWindow() -> Any? { Self.redirect(super.accessibilityFocusedWindow()) }
 
-    override func accessibilityMainWindow() -> Any? {
-        Self.redirect(super.accessibilityMainWindow())
-    }
+    override func accessibilityMainWindow() -> Any? { Self.redirect(super.accessibilityMainWindow()) }
 
     private static func redirect(_ value: Any?) -> Any? {
         guard let window = value as? NSWindow else { return value }

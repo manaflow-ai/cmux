@@ -76,6 +76,7 @@ extension CEFTab {
             clearTitleBeforeCommit()
             let error = Self.loadError(code: code, text: text, url: url, chromiumInterstitial: chromiumInterstitial)
             if !error.isBenignInterruption { (documentLoaded, committedIsErrorPage) = (true, true) } // an error page; an aborted load (replaced) is none
+            documentMayTakeKeys()
             guard let navigation else { return }
             machine.apply(.failed(navigation, error))
             if !error.isBenignInterruption, let failing = error.failingURL, PageBackground.isRealPage(failing) {

@@ -332,8 +332,10 @@ public final class CreationInputBuffer {
     /// waits, with no terminal lane, and runs again as typed once it shows (REOPEN-F4 browser case).
     public private(set) var awaitsPage = false
 
-    /// A click ends this hold first (red stub).
-    public var keysGoBeforeClick: Bool { false }
+    /// A click ends this hold first: a page hold's keys were typed for the page, so they go before AppKit dispatches
+    /// the click, which may move the keyboard (review 6594624994). A hold with a terminal lane keeps its keys for that
+    /// terminal; an empty hold has nothing to give.
+    public var keysGoBeforeClick: Bool { awaitsPage && !isEmpty }
 
     /// The hold waits for `content` (``AwaitedContent``): a terminal by its lane on `machine`, a page with no lane.
     public func awaitContent(_ content: AwaitedContent, machine: String?) {

@@ -66,6 +66,9 @@ final class CreationInputCoordinator {
 
     /// The person acted in `window` (a click, one of their actions), answering input `event`: their claim there ends, and the
     /// keys typed after it are no longer their new workspace's (``CreationInputBuffer/personMovedOn()``).
+    /// A mouse-down before AppKit dispatches it: a page hold gives its keys to the page first (a click may move the keyboard).
+    func clickWillDispatch(in window: NSWindow?) { if let window, case let shell = router?.focus(for: window).0?.window ?? window, buffers[shell.windowNumber]?.keysGoBeforeClick == true { flush(in: shell, force: true, end: .focusLeft) } }
+
     func personActed(in window: NSWindow?, event: NSEvent?) {
         guard let window, !claims.isEmpty, case let number = (router?.focus(for: window).0?.window ?? window).windowNumber else { return }
         if claims.personActed(inWindow: number, input: event?.timestamp) { buffers[number]?.personMovedOn() }
