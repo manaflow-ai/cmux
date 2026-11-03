@@ -1,0 +1,696 @@
+{
+ "id": "sf-newtab-rapid-pair-warm-idle-dark-anim-off-cap1",
+ "priority": "P0",
+ "title": "NEWTAB DEVTOOLS FRAMES (refill): rapid pairs of cmd+t 150 ms apart (warm-idle-dark-anim-off), real HID keys, recorded every frame (one spare: debug.new_tab capacity 1)",
+ "why": "Lead decision on #32979 (STATUS 8392): a rapid second Cmd-T must not load cold; measure 10 pairs of Cmd-T 150 ms apart, drops per press and whether each opening adopted a spare (debug.new_tab openings).",
+ "source": "handoff/resize-videos/SHORTCUT-FRAMES.md (SHORTCUT FRAMES P0)",
+ "budget_seconds": 120,
+ "options": {
+  "key_path": "real"
+ },
+ "cases": [
+  {
+   "name": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip",
+   "stroke": "cmd+t",
+   "action": "newTab.default",
+   "effect": "new-tab",
+   "context": "any",
+   "arm": "warm",
+   "load": "idle",
+   "theme": "dark",
+   "animations": "off",
+   "build": "feat-tip"
+  }
+ ],
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "socket",
+   "name": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "settings_file",
+   "title": "set-up: theme Builtin Dark, animations off, no close warning",
+   "set": {
+    "appearance": {
+     "theme": "Builtin Dark",
+     "appTheme": "followTerminal"
+    },
+    "app": {
+     "warnBeforeClosingTab": false
+    },
+    "ui": {
+     "animations": {
+      "enabled": false
+     }
+    }
+   }
+  },
+  {
+   "do": "rpc",
+   "method": "debug.new_tab",
+   "params": {
+    "action": "capacity",
+    "count": 1
+   },
+   "title": "the pool keeps one spare (A/B of the spare count on one build)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.new_tab",
+   "params": {
+    "action": "state"
+   },
+   "title": "the pool before the pairs"
+  },
+  {
+   "do": "video_start",
+   "name": "sf-newtab-rapid-pair-warm-idle-dark-anim-off-cap1",
+   "seconds": 40.0,
+   "lead": 1.5,
+   "title": "start the recording (sf-newtab-rapid-pair-warm-idle-dark-anim-off)"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/1",
+   "title": "pair 1, press 1 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.15,
+   "title": "the second press of the pair comes 150 ms after the first"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/2",
+   "title": "pair 1, press 2 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the pair's action runs"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the undo and the pool's refill settle before the next pair"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/3",
+   "title": "pair 2, press 1 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.15,
+   "title": "the second press of the pair comes 150 ms after the first"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/4",
+   "title": "pair 2, press 2 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the pair's action runs"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the undo and the pool's refill settle before the next pair"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/5",
+   "title": "pair 3, press 1 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.15,
+   "title": "the second press of the pair comes 150 ms after the first"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/6",
+   "title": "pair 3, press 2 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the pair's action runs"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the undo and the pool's refill settle before the next pair"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/7",
+   "title": "pair 4, press 1 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.15,
+   "title": "the second press of the pair comes 150 ms after the first"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/8",
+   "title": "pair 4, press 2 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the pair's action runs"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the undo and the pool's refill settle before the next pair"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/9",
+   "title": "pair 5, press 1 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.15,
+   "title": "the second press of the pair comes 150 ms after the first"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/10",
+   "title": "pair 5, press 2 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the pair's action runs"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the undo and the pool's refill settle before the next pair"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/11",
+   "title": "pair 6, press 1 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.15,
+   "title": "the second press of the pair comes 150 ms after the first"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/12",
+   "title": "pair 6, press 2 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the pair's action runs"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the undo and the pool's refill settle before the next pair"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/13",
+   "title": "pair 7, press 1 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.15,
+   "title": "the second press of the pair comes 150 ms after the first"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/14",
+   "title": "pair 7, press 2 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the pair's action runs"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the undo and the pool's refill settle before the next pair"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/15",
+   "title": "pair 8, press 1 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.15,
+   "title": "the second press of the pair comes 150 ms after the first"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/16",
+   "title": "pair 8, press 2 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the pair's action runs"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the undo and the pool's refill settle before the next pair"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/17",
+   "title": "pair 9, press 1 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.15,
+   "title": "the second press of the pair comes 150 ms after the first"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/18",
+   "title": "pair 9, press 2 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the pair's action runs"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the undo and the pool's refill settle before the next pair"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/19",
+   "title": "pair 10, press 1 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.15,
+   "title": "the second press of the pair comes 150 ms after the first"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/20",
+   "title": "pair 10, press 2 (cmd+t)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the pair's action runs"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the undo and the pool's refill settle before the next pair"
+  },
+  {
+   "do": "video_stop",
+   "name": "sf-newtab-rapid-pair-warm-idle-dark-anim-off-cap1",
+   "tail": 0.6,
+   "title": "stop the recording (sf-newtab-rapid-pair-warm-idle-dark-anim-off)"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.new_tab",
+   "params": {
+    "action": "state"
+   },
+   "title": "the openings: spare or cold, per press"
+  },
+  {
+   "do": "type",
+   "text": "echo sf-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "since": "done",
+   "timeout": 15,
+   "title": "after the presses the app still answers: the line shows in the app, the daemon and the frame",
+   "all": [
+    {
+     "app_text_contains": "sf-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "sf-done-${nonce}"
+    }
+   ]
+  }
+ ]
+}
