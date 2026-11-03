@@ -28,7 +28,8 @@ export type MachineOutcome = { ok: true; text: string } | { ok: false; reason: s
 export type LoginStart = { loginId: string; url: string; userCode?: string; needsCode: boolean; expiresAtMs?: number }
 const SIGN_IN_HOSTS = new Set(["claude.com", "claude.ai", "platform.claude.com", "console.anthropic.com", "auth.anthropic.com", "auth.openai.com"])
 const MACHINE_STATE = (id: string) => `machine:${id}`
-const transportRetry = (error: unknown): boolean => !(error instanceof Error) || error.message === "chief.machine.transport_unavailable" || !/^(chief\.machine\.|hand\.|disabled$|other_chief$|chief_archived$|chief_placed$)/.test(error.message)
+const TRANSIENT = new Set(["chief.machine.transport_unavailable", "chief.machine.owner_unavailable", "chief.machine.hand_offline", "chief.machine.carrier_unavailable", "chief.machine.start_unavailable", "chief.machine.not_running", "chief.hand.offline", "owner.unreachable", "provisioning_pending"])
+export const machineRetryable = (error: unknown): boolean => !(error instanceof Error) || TRANSIENT.has(error.message) || !/^(chief\.machine\.|hand\.|revoked$|disabled$|other_chief$|chief_archived$|chief_placed$)/.test(error.message)
 export const authorizeMachineHand = async (env: Env, scope: DefaultHandScope, cwd?: string): Promise<void> => {
   const hand = handStub(env, defaultHandId(scope)) as unknown as { info(c: { kind: "chief"; user: string; agent: string }): Promise<HandReply<HandSummary & { hello: { profile?: string; roots?: Array<string> } | null }>> }
   const info = await hand.info({ kind: "chief", user: scope.owner, agent: scope.chief })
@@ -36,7 +37,8 @@ export const authorizeMachineHand = async (env: Env, scope: DefaultHandScope, cw
   // info() also returns a revoked hand for owner UI display. Its success is not authorization.
   if (info.value.revoked_at !== null || info.value.paired_at === null) throw new Error("hand.revoked")
   if (info.value.level !== "full") throw new Error("chief.machine.permission_required")
-  if (!info.value.online || info.value.profile !== "sandbox" || info.value.hello?.profile !== "sandbox") throw new Error("chief.machine.hand_offline")
+  if (!info.value.online) throw new Error("chief.machine.hand_offline")
+  if (info.value.profile !== "sandbox" || info.value.hello?.profile !== "sandbox") throw new Error("chief.machine.permission_required")
   if (cwd && !info.value.hello.roots?.includes(cwd)) throw new Error("chief.machine.cwd_changed")
 }
 export const machineSignInURL = (raw: unknown, harness: MachineHarness): string | null => {
@@ -139,8 +141,9 @@ export const machineLoginStart = async (env: Env, scope: DefaultHandScope, harne
   return { loginId: value.loginId, url, needsCode: value.needsCode === true, ...(typeof value.userCode === "string" ? { userCode: value.userCode } : {}), ...(typeof value.expiresAtMs === "number" ? { expiresAtMs: value.expiresAtMs } : {}) }
 }
 export const machineLoginFinish = async (env: Env, scope: DefaultHandScope, loginId: string, code?: string): Promise<boolean> => {
-  // Codex's device flow waits until its 15-minute expiry; keep this request live until it ends.
-  const value = await rpc(env, scope, "_acpmux/agent_login/finish", { loginId, ...(code ? { code } : {}) }, 16 * 60_000, "agent_login") as { signedIn?: boolean }
+  // Stay within every carrier's five-minute exec limit. The daemon owns the longer device
+  // flow; a later explicit finish checks fresh auth before retrying, without replaying a code.
+  const value = await rpc(env, scope, "_acpmux/agent_login/finish", { loginId, ...(code ? { code } : {}) }, 240_000, "agent_login") as { signedIn?: boolean }
   return value.signedIn === true
 }
 export const machineLoginCancel = async (env: Env, scope: DefaultHandScope, loginId: string): Promise<void> => {
@@ -235,7 +238,8 @@ export const runMachineAgent = async (ports: MachineAgentPorts, hand: string, cw
   if (state?.phase === "failed") return { ok: false, reason: state.reason ?? "chief.machine.failed" }
   if (state && state.operation !== operation) return { ok: false, reason: "chief.machine.operation_changed" }
   if (state?.phase === "waiting_auth") return { pending: "auth" }
-  await ports.authorize()
+  const authorized = async () => ports.authorize().then(() => true).catch((error: unknown) => { if (!machineRetryable(error)) throw error; return false })
+  if (!await authorized()) return { pending: "provisioning" }
   if (ports.now() >= deadline) {
     if (state?.session) await ports.stop(state.session).catch(() => undefined)
     if (state) { state.phase = "failed"; state.reason = "chief.machine.timeout"; ports.save(state) }
@@ -245,12 +249,12 @@ export const runMachineAgent = async (ports: MachineAgentPorts, hand: string, cw
     state = { phase: "waiting_auth", operation, hand, cwd, after: 0, text: "" }
     if (await ports.auth() === "signed_out") { ports.save(state); return { pending: "auth" } }
     // A revocation may have committed while the provider auth probe was in flight.
-    await ports.authorize()
+    if (!await authorized()) return { pending: "provisioning" }
     state.phase = "dispatching"
     ports.save(state)
   }
   if (state.phase === "dispatching") {
-    const started = await ports.start({ operation: state.operation, harness, cwd, prompt }).catch((error: unknown) => { if (!transportRetry(error)) throw error; return null })
+    const started = await ports.start({ operation: state.operation, harness, cwd, prompt }).catch((error: unknown) => { if (!machineRetryable(error)) throw error; return null })
     // The guest's durable send queue owns the outcome. A lost reply retries the same operation.
     if (!started) return { pending: "provisioning" }
     if (!started.ok) {
@@ -267,8 +271,8 @@ export const runMachineAgent = async (ports: MachineAgentPorts, hand: string, cw
   }
   if (!state.session) return { ok: false, reason: "chief.machine.missing_session" }
   while (ports.now() < deadline) {
-    await ports.authorize()
-    const page = await ports.events(state.session, state.after, Math.min(30_000, deadline - ports.now())).catch((error: unknown) => { if (!transportRetry(error)) throw error; return null })
+    if (!await authorized()) return { pending: "provisioning" }
+    const page = await ports.events(state.session, state.after, Math.min(30_000, deadline - ports.now())).catch((error: unknown) => { if (!machineRetryable(error)) throw error; return null })
     if (!page) return { pending: "provisioning" }
     if (!page.ok) return { ok: false, reason: page.error.code }
     for (const stored of page.value.events) {

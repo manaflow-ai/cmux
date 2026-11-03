@@ -37,7 +37,7 @@ describe("default Chief machine turn", () => {
 
   it("keeps the request pending while signed out and executes nothing on repeated wakes", async () => {
     const f = fixture()
-    f.ports.auth = vi.fn(async () => "signed_out")
+    f.ports.auth = vi.fn(async () => "signed_out" as const)
     expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "codex", "build me X", "scoped-run", 1000)).toEqual({ pending: "auth" })
     expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "codex", "build me X", "scoped-run", 1000)).toEqual({ pending: "auth" })
     expect(f.ports.start).not.toHaveBeenCalled()
@@ -81,13 +81,25 @@ describe("default Chief machine turn", () => {
     expect(f.ports.stop).toHaveBeenCalledWith("machine-session")
   })
 
+  it("keeps the same session and cursor across a temporary Hand or authority-read outage", async () => {
+    for (const reason of ["chief.machine.hand_offline", "chief.machine.owner_unavailable", "owner.unreachable"]) {
+      const f = fixture({ phase: "running", operation: "scoped-run", hand: "hand_a", cwd: "/home/cmux/proj", session: "machine-session", after: 1, text: "The original result" })
+      f.ports.authorize = vi.fn<MachineAgentPorts["authorize"]>().mockRejectedValueOnce(new Error(reason)).mockResolvedValue(undefined)
+      expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "claude", "build me X", "scoped-run", 1000)).toEqual({ pending: "provisioning" })
+      expect(f.state()).toMatchObject({ phase: "running", after: 1, text: "The original result" })
+      expect(f.ports.events).not.toHaveBeenCalled()
+      expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "claude", "build me X", "scoped-run", 1000)).toEqual({ ok: true, text: "The original result" })
+      expect(f.ports.start).not.toHaveBeenCalled()
+    }
+  })
+
   it("rejects revoked authority before execution and does not confuse unknown with signed out", async () => {
     const refused = fixture()
     refused.ports.authorize = vi.fn(async () => { throw new Error("revoked") })
     await expect(runMachineAgent(refused.ports, "hand_a", "/home/cmux/proj", "claude", "build me X", "scoped-run", 1000)).rejects.toThrow("revoked")
     expect(refused.ports.start).not.toHaveBeenCalled()
     const unknown = fixture()
-    unknown.ports.auth = vi.fn(async () => "unknown")
+    unknown.ports.auth = vi.fn(async () => "unknown" as const)
     expect(await runMachineAgent(unknown.ports, "hand_a", "/home/cmux/proj", "claude", "build me X", "scoped-run", 1000)).toMatchObject({ ok: true })
   })
 
@@ -103,7 +115,7 @@ describe("default Chief machine turn", () => {
 
   it("fails explicitly on permission requests and preserves the owner's restrictions", async () => {
     const f = fixture()
-    f.ports.events = vi.fn(async () => ({ ok: true, value: { events: [{ seq: 1, session: "machine-session", at: 1, event: { kind: "permission" as const, permission_id: "p1" } }], last_seq: 1, head_seq: 1 } }))
+    f.ports.events = vi.fn(async () => ({ ok: true as const, value: { events: [{ seq: 1, session: "machine-session", at: 1, event: { kind: "permission" as const, permission_id: "p1" } }], last_seq: 1, head_seq: 1 } }))
     expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "claude", "build me X", "scoped-run", 1000)).toEqual({ ok: false, reason: "chief.machine.permission_required" })
     expect(f.ports.stop).toHaveBeenCalledWith("machine-session")
   })
@@ -111,7 +123,7 @@ describe("default Chief machine turn", () => {
   it("does not discard a long build reply or the URL it contains", async () => {
     const f = fixture()
     const text = "x".repeat(100_000) + "\nhttps://hello.example.test"
-    f.ports.events = vi.fn(async () => ({ ok: true, value: { events: [{ seq: 1, session: "machine-session", at: 1, event: { kind: "text" as const, text } }, { seq: 2, session: "machine-session", at: 2, event: { kind: "turn_end" as const } }], last_seq: 2, head_seq: 2 } }))
+    f.ports.events = vi.fn(async () => ({ ok: true as const, value: { events: [{ seq: 1, session: "machine-session", at: 1, event: { kind: "text" as const, text } }, { seq: 2, session: "machine-session", at: 2, event: { kind: "turn_end" as const } }], last_seq: 2, head_seq: 2 } }))
     expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "claude", "build me X", "scoped-run", 1000)).toEqual({ ok: true, text })
   })
 
@@ -202,7 +214,7 @@ describe("default Chief activation", () => {
 
 describe("default machine sign-in recovery", () => {
   const recovery = async (suffix: string, check: (b: ChiefBrainDO, f: {
-    owner: string; run: string; calls: Array<string>; kick: ReturnType<typeof vi.fn>;
+    owner: string; run: string; calls: Array<string>; timeouts: Array<number>; kick: ReturnType<typeof vi.fn>;
     auth: "ready" | "signedOut"; revoked: boolean; enabled: boolean; revokeDuringAuth: boolean;
   }) => Promise<void>) => {
     const testEnv = env as unknown as Env
@@ -210,16 +222,17 @@ describe("default machine sign-in recovery", () => {
     const binding = { workspace: `chief-default-${owner}`, team: personalTeamIdFor(owner), machine: "machine_default", provider: "freestyle", connection_machine: "vm_abcdefghijklmnopqrst", install: "inst_default" }
     const scope = { ...binding, owner, chief }, hand = defaultHandId(scope), cwd = "/home/cmux/proj"
     const route = { binding, harness: "claude" as const }
-    const f = { owner, run, calls: [] as Array<string>, kick: vi.fn(), auth: "signedOut" as "ready" | "signedOut", revoked: false, enabled: true, revokeDuringAuth: false }
+    const f = { owner, run, calls: [] as Array<string>, timeouts: [] as Array<number>, kick: vi.fn(), auth: "signedOut" as "ready" | "signedOut", revoked: false, enabled: true, revokeDuringAuth: false }
     const fake = {
       ...testEnv,
       USER_DO: { idFromName: (x: string) => x, get: () => ({ readOp: async (_e: string, _p: unknown, op: string) => ({ ok: true, revision: "user:1", value: op === "chief.list" ? { chiefs: [{ id: chief, owner_user: owner, archived_at: null, brain_place: null, cloud_machine: binding }] } : { installs: [{ id: binding.install, kind: "vm", grant: "grant_default", revoked_at: null, bound_team: binding.team, bound_machine: binding.connection_machine }], grants: [{ id: "grant_default", grantee: binding.install, revoked_at: null, expires_at: null, op_classes: ["vm-self"] }] } }) }) },
       HAND_DO: { idFromName: (x: string) => x, get: () => ({ info: async () => ({ ok: true, value: { revoked_at: f.revoked ? 1 : null, paired_at: 1, level: "full", profile: "sandbox", online: true, hello: { profile: "sandbox", roots: [cwd] } } }) }) },
       CLOUD_DO: { idFromName: (x: string) => x, get: () => ({
         readOp: async () => ({ ok: true, revision: "cloud:1", value: { machine: { creator: owner, status: "running" } } }),
-        automationExec: async (_e: string, _owner: string, _machine: string, _command: string, stdin: Uint8Array) => {
+        automationExec: async (_e: string, _owner: string, _machine: string, _command: string, stdin: Uint8Array, timeout: number) => {
           const request = JSON.parse(new TextDecoder().decode(stdin).trim().split("\n")[1]!) as { method: string }
           f.calls.push(request.method)
+          f.timeouts.push(timeout)
           if (request.method === "_acpmux/agent_login/finish") {
             f.auth = "ready" // The guest saved credentials, but its successful reply was lost.
             return { ok: false, refusal: "provider_failed" }
@@ -249,6 +262,7 @@ describe("default machine sign-in recovery", () => {
       expect(await machineLogin(b, f.owner, f.run, "finish", { loginId: "consumed-guest-login" })).toEqual({ signedIn: true, resumed: true })
       expect(await machineLogin(b, f.owner, f.run, "finish", { loginId: "consumed-guest-login" })).toEqual({ signedIn: true, resumed: true })
       expect(f.calls).toEqual(["_acpmux/session/auth", "_acpmux/agent_login/finish", "_acpmux/session/auth"])
+      expect(f.timeouts.every((timeout) => timeout <= 300_000)).toBe(true)
       expect(f.kick).toHaveBeenCalledOnce()
       expect(readMachineState(b.sql, f.run)).toBeNull()
       expect(b.sql.exec<{ input: string }>(`SELECT input FROM cb_turn WHERE id = ?`, f.run).one().input).toBe('["build me the original hello page"]')
