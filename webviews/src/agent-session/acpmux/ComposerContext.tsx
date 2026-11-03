@@ -9,6 +9,8 @@ import {
   AnotherMachineIcon,
   EnvironmentIcon,
   EnvironmentPicker,
+  ServerIcon,
+  type RunRowDetails,
   type EnvironmentFaceStyle,
   SECTION_LABELS,
   environmentStateLabel,
@@ -148,6 +150,7 @@ export function ComposerContext({
   showMachineLoadWarnings,
   environmentFace,
   stripLayout = "where-machine",
+  runDetails,
   cloudSignedIn: cloudSignedInSeam,
 }: {
   summary?: Summary;
@@ -230,6 +233,9 @@ export function ComposerContext({
   environmentFace?: EnvironmentFaceStyle;
   /// Gallery seam: how a new chat's strip asks where it runs (StripLayout); `where-machine` ships.
   stripLayout?: StripLayout;
+  /// Gallery seam: the cloud toggle's rows' second lines, as ChatGPT Work has them (`cloud-toggle`
+  /// only; the shipped picker has no second lines, design/environment-picker.md rule 0).
+  runDetails?: RunRowDetails;
   /// Gallery seam; the app's Cloud account state (cloudMachines.ts) is used when omitted.
   cloudSignedIn?: boolean;
 }) {
@@ -529,62 +535,92 @@ export function ComposerContext({
     closeOnTrustAsk,
     ...(environmentFace ? { faceStyle: environmentFace } : {}),
   };
-  // Where it runs: Cloud (or Sandboxed), another machine, or this Mac.
-  const offMac = !cloudPicked && !sandboxPicked && (selectedComputer !== "local" || waiting !== undefined || savedPick !== undefined);
+  // Where it runs: Cloud (a new machine, or one of the account's Cloud machines), Sandboxed, another
+  // machine (the person's own, SSH), or this Mac. Each machine sits under where it runs, so the Where
+  // chip never contradicts the chip beside it.
+  const pickedOff = selectedComputer !== "local" && !savedPick;
+  const cloudSide =
+    cloudPicked || (!sandboxPicked && (waiting !== undefined || (pickedOff && currentComputer?.kind === "cloud")));
+  const offMac = !cloudSide && !sandboxPicked && (pickedOff || savedPick !== undefined);
   const whereName = sandboxPicked
     ? t("composer.sandboxed")
-    : cloudPicked
+    : cloudSide
       ? t("composer.cloud")
       : offMac
         ? t("composer.anotherMachine")
         : t("composer.thisMac");
+  // The Where control's accessible name and tooltip also name the machine, which a narrow strip shows
+  // only as an icon.
+  const whereValue = (offMac || (cloudSide && !cloudPicked)) && placeName ? `${whereName} · ${placeName}` : whereName;
   const whereIcon =
-    sandboxPicked || cloudPicked ? <EnvironmentIcon kind="cloud" /> : offMac ? <AnotherMachineIcon /> : <EnvironmentIcon kind="local" />;
-  // Which machine: shown in `where-machine` only while the pick is another machine (or Another
-  // machine was just picked), always in the other split layouts.
-  const machineShown = layout === "where-machine" ? offMac || (machineAsked && !cloudPicked && !sandboxPicked) : true;
+    sandboxPicked || cloudSide ? (
+      <EnvironmentIcon kind="cloud" />
+    ) : offMac ? (
+      <AnotherMachineIcon />
+    ) : (
+      <EnvironmentIcon kind="local" />
+    );
+  // The third chip: which Cloud machine while Cloud is the pick; which machine while another machine
+  // is (or Another machine was just picked); in `where-machine-always` the machine chip on this Mac too.
+  const cloudChipShown = layout !== "combined" && layout !== "cloud-toggle" && cloudSide;
+  const machineShown =
+    layout === "where-machine"
+      ? offMac || (machineAsked && !cloudSide && !sandboxPicked)
+      : layout === "where-machine-always"
+        ? !cloudSide && !sandboxPicked
+        : true;
   const runToggle = environmentsShown && layout === "cloud-toggle";
-  // The machine control's face: the machine and its live dot. This Mac, where the machine control
-  // shows it, is this Mac's own name; Cloud is the new machine it makes; Another machine with none
-  // picked yet asks for one.
-  const localMachine = currentComputer?.kind === "local";
+  // The machine and Cloud chips' face: a server, the machine's name and its live dot (Codex desktop's
+  // machine chip). This Mac, where the machine chip shows it, is this Mac's own name; Cloud with no
+  // machine picked is the workspace's own New machine; Another machine with none picked asks for one.
+  const localMachine = currentComputer?.kind === "local" && !savedPick && !waiting;
   const machineValue =
     cloudPicked || sandboxPicked
       ? t("composer.newMachine")
-      : layout === "where-machine" && localMachine && !savedPick && !waiting
+      : layout === "where-machine" && localMachine
         ? t(CONTEXT_LABELS.chooseMachine)
-        : layout !== "combined" && localMachine && !savedPick && !waiting
+        : localMachine
           ? (localName ?? t("composer.thisMac"))
           : placeName;
   const machineLive =
-    cloudPicked || sandboxPicked || savedPick || waiting || layout === "combined" || (layout === "where-machine" && localMachine)
+    cloudPicked || sandboxPicked || savedPick || waiting || (layout === "where-machine" && localMachine)
       ? undefined
       : currentComputer
         ? environmentReady(currentComputer)
         : undefined;
   const machineFace =
-    cloudPicked || sandboxPicked ? (
-      <LocationFace icon={<EnvironmentIcon kind="cloud" />} value={machineValue} chevron />
-    ) : waiting && waitingName ? (
-      <LocationFace icon={<EnvironmentIcon kind="cloud" name={waiting.name} />} value={waitingName} chevron />
+    waiting && waitingName && !cloudPicked ? (
+      <LocationFace icon={<ServerIcon />} value={waitingName} chevron />
     ) : (
       <LocationFace
-        icon={
-          <EnvironmentIcon
-            kind={savedPick?.kind ?? currentComputer?.kind ?? "local"}
-            name={savedPick ? undefined : currentComputer?.label}
-          />
-        }
+        icon={layout === "cloud-toggle" ? <EnvironmentIcon kind={cloudPicked ? "cloud" : (currentComputer?.kind ?? "local")} name={currentComputer?.label} /> : <ServerIcon />}
         value={machineValue}
         chevron
         {...(machineLive !== undefined ? { live: machineLive } : {})}
       />
     );
-  // Another machine: the first machine a chat can start on is the pick (so the strip always says
-  // where the chat starts), and the machine control opens to change it; with no machine listed,
-  // Add Machine….
+  // The one combined control's face (a started chat, and the `combined` arm): as before.
+  const combinedFace = waiting && waitingName ? (
+    <LocationFace icon={<EnvironmentIcon kind="cloud" name={waiting.name} />} value={waitingName} chevron />
+  ) : (
+    <LocationFace
+      icon={
+        <EnvironmentIcon
+          kind={savedPick?.kind ?? currentComputer?.kind ?? "local"}
+          name={savedPick ? undefined : currentComputer?.label}
+        />
+      }
+      value={placeName}
+      chevron
+    />
+  );
+  // Another machine: the first of the person's own machines a chat can start on is the pick (so the
+  // strip always says where the chat starts), and the machine chip opens to change it; with none of
+  // them listed, Add Machine….
   const anotherMachine = () => {
-    const others = orderEnvironments(pickerComputers).filter((computer) => computer.kind !== "local");
+    const others = orderEnvironments(pickerComputers).filter(
+      (computer) => computer.kind !== "local" && computer.kind !== "cloud",
+    );
     if (others.length === 0) {
       onConnect?.("addMachine");
       return;
@@ -621,6 +657,7 @@ export function ComposerContext({
                   }
                   chevron
                   middle={currentFolder !== undefined}
+                  dim={!currentName && !noProject}
                 />
               }
               folders={folders}
@@ -685,7 +722,7 @@ export function ComposerContext({
                       chevron
                     />
                   ) : (
-                    machineFace
+                    combinedFace
                   )
                 }
                 environments={offload && currentPickerComputer ? [currentPickerComputer] : pickerComputers}
@@ -707,7 +744,7 @@ export function ComposerContext({
                   {...pickerProps}
                   label={t(CONTEXT_LABELS.environment)}
                   menu="Computer"
-                  value={whereName}
+                  value={whereValue}
                   face={<LocationFace icon={whereIcon} value={whereName} chevron />}
                   rows="where"
                   onAnother={anotherMachine}
@@ -725,9 +762,22 @@ export function ComposerContext({
                     face={machineFace}
                     rows="machines"
                     includeLocal={layout === "where-machine-always"}
+                    ownOnly
                     digits={false}
                     setupMenu={false}
                     {...(machineRequest !== undefined ? { openRequest: machineRequest } : {})}
+                  />
+                )}
+                {cloudChipShown && (
+                  <EnvironmentPicker
+                    {...pickerProps}
+                    label={t(CONTEXT_LABELS.machine)}
+                    menu="Machine"
+                    value={machineValue}
+                    face={machineFace}
+                    rows="cloud"
+                    digits={false}
+                    setupMenu={false}
                   />
                 )}
               </>
@@ -810,6 +860,7 @@ export function ComposerContext({
             face={<LocationFace icon={whereIcon} value={whereName} chevron={false} />}
             faceStyle="icon"
             rows="run"
+            {...(runDetails ? { runDetails } : {})}
             digits={false}
             setupMenu={false}
           />
@@ -930,6 +981,7 @@ function LocationFace({
   chevron,
   middle = false,
   live,
+  dim = false,
 }: {
   icon?: React.ReactNode;
   value: string;
@@ -937,6 +989,8 @@ function LocationFace({
   middle?: boolean;
   /// A machine's live dot (the machine control): filled while a chat can start there, a ring when not.
   live?: boolean;
+  /// An empty choice ("Choose project"): dimmed until something is picked.
+  dim?: boolean;
 }) {
   const [head, tail] = middle ? splitForMiddleTruncation(value) : [value, ""];
   return (
@@ -948,7 +1002,9 @@ function LocationFace({
           <span className="acpmux-location-tail">{tail}</span>
         </span>
       ) : (
-        <span className="acpmux-location-label">{value}</span>
+        <span className="acpmux-location-label" data-dim={dim ? "" : undefined}>
+          {value}
+        </span>
       )}
       {live !== undefined && (
         <span className="acpmux-env-live" data-connected={String(live)}>

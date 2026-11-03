@@ -108,6 +108,9 @@ async function mount(environments: boolean, extra: Record<string, unknown> = {})
     onConnect: () => undefined,
     onCloudMachine: (machine: CloudMachine) => picks.push(["cloud", machine.id]),
     cloudMachines: account,
+    // The one combined control's Machines… list; the shipped strip's Cloud chip is
+    // environment-picker.test.tsx's "three chips" tests.
+    stripLayout: "combined",
     ...extra,
   } as unknown as Parameters<typeof ComposerContext>[0];
   root = createRoot(host);

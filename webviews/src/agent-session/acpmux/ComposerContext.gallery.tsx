@@ -384,8 +384,21 @@ const STRIP_NOTES: Record<StripArm, string> = {
     'Arm 3 of 4 (ChatGPT Work): Project | Machine, and a cloud toggle at the strip\'s end whose menu asks "Where should this chat run?".',
   combined: "Arm 4 of 4, the baseline before this: one control, This Mac and Cloud, the machines behind its right-click Machines….",
 };
+/// ChatGPT Work's two rows' second lines, copied for the cloud-toggle arm only (rule 0 ships none).
+const chatgptRunDetails = {
+  local: "This chat stays on this computer",
+  cloud: "Available on any device and can access your computer",
+};
+const openCloudChip: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Machine/ });
+  await waitRows("cloud")(ctx);
+};
 function stripVariants(arm: StripArm) {
-  const props = { ...stripMachines, stripLayout: arm };
+  const props = {
+    ...stripMachines,
+    stripLayout: arm,
+    ...(arm === "cloud-toggle" ? { runDetails: chatgptRunDetails } : {}),
+  };
   const note = (what: string) => `${STRIP_NOTES[arm]} ${what}`;
   const whereOpen = arm === "cloud-toggle" ? openRunToggle : openWhere;
   const machineOpen =
@@ -404,11 +417,27 @@ function stripVariants(arm: StripArm) {
       play: machineOpen,
     },
     [`strip-${arm}-cloud`]: {
-      note: note("Cloud picked: Cloud gives the workspace its own new machine; its project is picked in the same Project chip."),
+      note: note(
+        arm === "where-machine" || arm === "where-machine-always"
+          ? "Cloud picked: the third chip is which Cloud machine, New machine by default (the workspace's own new machine); its project is picked in the same Project chip."
+          : "Cloud picked: Cloud gives the workspace its own new machine; its project is picked in the same Project chip.",
+      ),
       props: { ...props, runMode: { mode: "cloud" as const, onMode: () => undefined } },
     },
+    ...(arm === "where-machine" || arm === "where-machine-always"
+      ? {
+          [`strip-${arm}-cloud-machines`]: {
+            height: 320,
+            note: note(
+              "Cloud's chip open: New machine checked, the account's Cloud machines, then New Cloud Machine… and Open Cloud… under a hairline (Codex's Create and Manage environments).",
+            ),
+            props: { ...props, runMode: { mode: "cloud" as const, onMode: () => undefined } },
+            play: openCloudChip,
+          },
+        }
+      : {}),
     [`strip-${arm}-machine-picked`]: {
-      note: note("A machine picked (gpu-box): the chips name it, with its live dot where a machine chip shows."),
+      note: note("One of the person's machines picked (gpu-box): the machine chip names it, a server and a green live dot."),
       props: { ...props, ...onMachine("gpu-box") },
     },
   };

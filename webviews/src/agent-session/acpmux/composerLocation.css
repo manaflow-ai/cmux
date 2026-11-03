@@ -1489,8 +1489,27 @@
   line-height: 16px;
   letter-spacing: var(--text-caption--letter-spacing);
 }
-.acpmux-env-popover .acpmux-env-icon[data-kind="add"],
-.acpmux-env-popover .acpmux-env-icon[data-kind="another"] { color: var(--agent-muted); }
+.acpmux-env-popover .acpmux-env-icon:is([data-kind="add"], [data-kind="another"], [data-kind="server"], [data-kind="gear"]) { color: var(--agent-muted); }
+/* The Cloud chip's hairline over its setup rows (New Cloud Machine…, Open Cloud…). */
+.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-divider]) { position: relative; margin-top: 9px; }
+.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-divider])::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: -5px;
+  border-top: .5px solid color-mix(in srgb, var(--agent-text) 14%, transparent);
+  pointer-events: none;
+}
+/* An empty project chip ("Choose project") reads dimmed, as Codex's strip, until a project is picked. */
+.acpmux-location-button .acpmux-location-label[data-dim] { color: var(--agent-muted); }
+/* The cloud toggle (ChatGPT Work) is a round icon button. */
+.acpmux-composer-context > .acpmux-location-picker[data-kind="computer"] .acpmux-location-button {
+  border-radius: 999px;
+  aspect-ratio: 1;
+  justify-content: center;
+  padding-inline: 0;
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+}
 /* The plain Computer menu (ComposerContext LocationPicker) heads its machines' sections. */
 .acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-section]) { position: relative; margin-top: 20px; }
 .acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-first-section]) { margin-top: 18px; }
