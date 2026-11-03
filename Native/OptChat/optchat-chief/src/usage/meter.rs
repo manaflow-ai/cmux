@@ -5,12 +5,23 @@ use super::*;
 pub fn payer_provider(harness: &str, base_url: Option<&str>) -> (&'static str, &'static str) {
     let url = base_url.and_then(|s| url::Url::parse(s).ok());
     let host = url.as_ref().and_then(url::Url::host_str).unwrap_or("");
-    let platform = matches!(host, "coderouter.dev" | "coderouter.cmux.internal")
+    let declared_proxy = url.as_ref().is_some_and(|actual| {
+        crate::harness_gate::TEAM_SUBROUTER_URLS.iter().any(|base| {
+            url::Url::parse(base).is_ok_and(|declared| actual.origin() == declared.origin())
+        })
+    });
+    let platform = declared_proxy
+        || matches!(host, "coderouter.dev" | "coderouter.cmux.internal")
         || host == "cmux.dev"
         || host.ends_with(".cmux.dev")
         || host == "cmux.com"
         || host.ends_with(".cmux.com");
-    if platform || matches!(harness, "cmux" | "cmux-router") {
+    if platform
+        || matches!(
+            harness,
+            "cmux" | "cmux-router" | "claude-cr" | "codex-cr" | "claude-sr" | "claude-sr2"
+        )
+    {
         return ("platform", "cmux-router");
     }
     let provider = match host {
@@ -81,6 +92,23 @@ pub(super) struct Meter {
 }
 
 impl Meter {
+    pub fn seed(&mut self, line: &Line) {
+        if let Some(id) = &line.agent {
+            self.remember(
+                format!("sub:{id}"),
+                Attribution {
+                    person: line.person.clone(),
+                    team: line.team.clone(),
+                    chief: line.chief.clone(),
+                    harness: line.harness.clone(),
+                    payer: line.payer.clone(),
+                    provider: line.provider.clone(),
+                    machine: line.machine.clone(),
+                },
+            );
+        }
+    }
+
     fn remember(&mut self, key: String, context: Attribution) {
         if self.contexts.len() >= MAX_REMEMBERED && !self.contexts.contains_key(&key) {
             self.contexts.clear();
@@ -230,7 +258,7 @@ pub(super) fn backfill_people(root: &Path) -> Result<u64, String> {
     let Some(person) = identity.person else {
         return Ok(0);
     };
-    let _lock = ledger_lock(&ledger)?;
+    let _migration = take_lock(&ledger.join("identity-backfill.lock"))?;
     let mut count = 0;
     for (_, file) in month_files(&ledger) {
         let text = std::fs::read_to_string(&file).map_err(|e| e.to_string())?;
@@ -257,6 +285,23 @@ pub(super) fn backfill_people(root: &Path) -> Result<u64, String> {
                     .mode(0o600)
                     .open(&temp)?;
                 f.write_all(out.as_bytes())?;
+                // Most of the rewrite is prepared without blocking live turns.
+                // Copy any append made since our snapshot while committing.
+                let _lock = ledger_lock(&ledger).map_err(std::io::Error::other)?;
+                use std::io::{Seek, SeekFrom};
+                let mut source = std::fs::File::open(&file)?;
+                source.seek(SeekFrom::Start(text.len() as u64))?;
+                for tail in std::io::BufReader::new(source).lines() {
+                    let tail = tail?;
+                    let mut value: Value = serde_json::from_str(&tail).unwrap_or(Value::Null);
+                    if value.is_object() && value["person"].is_null() {
+                        value["person"] = json!(person);
+                        count += 1;
+                        writeln!(f, "{value}")?;
+                    } else {
+                        writeln!(f, "{tail}")?;
+                    }
+                }
                 f.sync_all()?;
                 std::fs::rename(&temp, &file)
             })();
@@ -276,6 +321,14 @@ mod tests {
     fn payer_is_pure_and_does_not_match_url_substrings() {
         assert_eq!(payer_provider("claude", None), ("own", "anthropic"));
         assert_eq!(payer_provider("cmux", None), ("platform", "cmux-router"));
+        assert_eq!(
+            payer_provider("claude-cr", None),
+            ("platform", "cmux-router")
+        );
+        assert_eq!(
+            payer_provider("native", Some(optchat_host::DEFAULT_BASE_URL)),
+            ("platform", "cmux-router")
+        );
         assert_eq!(
             payer_provider("native", Some("https://coderouter.dev/v1")),
             ("platform", "cmux-router")

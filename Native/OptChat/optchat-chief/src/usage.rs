@@ -291,6 +291,7 @@ struct Writer {
 
 impl Writer {
     fn append(&self, line: &Line) -> std::io::Result<()> {
+        let _lock = meter::ledger_lock(&self.dir).map_err(std::io::Error::other)?;
         let month = local_month(line.ts);
         let file = self.dir.join(format!("{month}.jsonl"));
         let new_month = !file.exists();
@@ -347,10 +348,6 @@ impl Ledger {
         if !billable(ev) {
             return;
         }
-        let _file_lock = match meter::ledger_lock(&self.writer.dir) {
-            Ok(lock) => lock,
-            Err(_) => return,
-        };
         if ev == "usage.identity" {
             let identity = meter::Attribution::event(event);
             if let Ok(bytes) = serde_json::to_vec(&identity) {
@@ -372,9 +369,12 @@ impl Ledger {
         if ev == "subagent.answer"
             && let Some(id) = event.get("id").and_then(Value::as_str)
             && !state.fold.knows_cost(id)
-            && let Some(cum) = last_cost(&self.writer.dir, id)
+            && let Some(line) = last_subagent_line(&self.writer.dir, id)
         {
-            state.fold.seed_cost(id, cum);
+            if let Some(cum) = line.usd_cum {
+                state.fold.seed_cost(id, cum);
+            }
+            state.fold.meter.seed(&line);
         }
         let Some(line) = state.fold.observe(event, "live") else {
             return;
@@ -419,7 +419,7 @@ fn month_files(dir: &Path) -> Vec<(String, PathBuf)> {
 }
 
 /// The last running cost the ledger holds for subagent `id`.
-fn last_cost(dir: &Path, id: &str) -> Option<f64> {
+fn last_subagent_line(dir: &Path, id: &str) -> Option<Line> {
     let needle = format!("\"agent\":{}", Value::String(id.to_owned()));
     for (_, file) in month_files(dir).into_iter().rev().take(2) {
         let Ok(f) = std::fs::File::open(&file) else {
@@ -430,10 +430,10 @@ fn last_cost(dir: &Path, id: &str) -> Option<f64> {
             .map_while(Result::ok)
             .filter(|l| l.contains(&needle))
             .filter_map(|l| serde_json::from_str::<Line>(&l).ok())
-            .filter(|l| l.kind == "subagent" && l.usd_cum.is_some())
+            .filter(|l| l.kind == "subagent")
             .max_by_key(|l| l.ts);
         if let Some(line) = best {
-            return line.usd_cum;
+            return Some(line);
         }
     }
     None
@@ -553,7 +553,6 @@ pub fn backfill(root: &Path, force: bool) -> Result<Backfill, String> {
         identity["ev"] = json!("usage.identity");
         fold.observe(&identity, "trace");
     }
-    let _month_lock = meter::ledger_lock(&ledger)?;
     let mut report = Backfill::default();
     let mut through = after;
     // Months retention would delete at once are not written.

@@ -717,3 +717,44 @@ fn credit_meter_native_route_does_not_change_harness_subscriptions() {
     assert_eq!(serde_json::to_value(&rows[0]).unwrap()["payer"], "platform");
     assert_eq!(serde_json::to_value(&rows[1]).unwrap()["payer"], "own");
 }
+
+#[test]
+fn credit_meter_cli_backfill_never_copies_credential_environment() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("optchat");
+    let ts = chrono::Utc::now().timestamp_millis() as u64;
+    write_trace(
+        &root.join("traces"),
+        "2026-11-03",
+        &[json!({"ev":"turn.end", "ts":ts, "turn":"t", "harness":"claude", "usage":{"input":1}})],
+    );
+    let secret = "sk-test-env-token-not-for-the-ledger";
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_optchat-chief"))
+        .args([
+            "usage",
+            "backfill",
+            "--mux-home",
+            tmp.path().to_str().unwrap(),
+        ])
+        .env("ANTHROPIC_API_KEY", secret)
+        .env("OPENAI_API_KEY", secret)
+        .env("CMUX_CLOUD_SESSION_TOKEN", secret)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let lines = usage::read(&usage::dir(&root), 0, u64::MAX).unwrap();
+    assert_eq!(lines.len(), 1);
+    for entry in std::fs::read_dir(usage::dir(&root)).unwrap().flatten() {
+        if entry.path().extension().is_some_and(|s| s == "jsonl") {
+            assert!(
+                !std::fs::read_to_string(entry.path())
+                    .unwrap()
+                    .contains(secret)
+            );
+        }
+    }
+}
