@@ -15,9 +15,12 @@ const row = (kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
 const received = (text: string) =>
   row("user", { text, incoming: { kind: "message", message: { name: "lane", text, raw: text } } });
 
-test("an agent's empty, blank or lone-period words are bare", () => {
-  for (const text of [undefined, "", "  \n", ".", " . ", "​"]) expect(isBareAgentText(text)).toBe(true);
-  for (const text of ["..", "Done.", "ok", "…"]) expect(isBareAgentText(text)).toBe(false);
+// Widened from a lone period to any punctuation (Leo, 2026-11-02, on a column of lone "·" replies:
+// "why do you still do these").
+test("an agent's empty, blank or punctuation-only words are bare", () => {
+  for (const text of [undefined, "", "  \n", ".", " . ", "​", "..", "·", "…", "—"])
+    expect(isBareAgentText(text)).toBe(true);
+  for (const text of ["Done.", "ok", "1", ". done", "👍", "+"]) expect(isBareAgentText(text)).toBe(false);
 });
 
 test("a reply of one period draws nothing; a real reply draws", () => {

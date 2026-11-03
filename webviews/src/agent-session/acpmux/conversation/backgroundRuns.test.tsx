@@ -148,3 +148,15 @@ test("rows without a run come back as they were, and the run line keeps its obje
     first.version,
   );
 });
+
+test("closing a run hides its last member's opened rows with it", () => {
+  const rows = [...prompt(), line("a"), line("b"), row("b-work", "activity", { inBackground: "b", items: [] })];
+  const run = backgroundRunRowId(backgroundTurnRowId("a"));
+  expect(ids(turnView(rows, new Set([backgroundTurnRowId("b")]))).slice(3)).toEqual([run]);
+  expect(ids(turnView(rows, new Set([run, backgroundTurnRowId("b")]))).slice(3)).toEqual([
+    run,
+    backgroundTurnRowId("a"),
+    backgroundTurnRowId("b"),
+    "b-work",
+  ]);
+});

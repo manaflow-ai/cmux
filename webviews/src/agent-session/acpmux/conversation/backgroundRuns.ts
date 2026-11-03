@@ -42,12 +42,13 @@ function memberKind(row: AcpmuxRow): "finished" | "stopped" | "scheduled" | "oth
   return undefined;
 }
 
-/// A row that goes with the run it sits in without counting: a reply that draws nothing, or a row
-/// of a member line the reader opened (`lines` holds the members' background turn ids).
-function rides(row: AcpmuxRow, lines: ReadonlySet<string>): boolean {
-  if (row.inBackground !== undefined && lines.has(row.inBackground)) return true;
-  return row.kind === "assistant" && !row.streaming && isVisiblyEmptyMessage(row);
-}
+/// A row of a member line the reader opened (`lines` holds the members' background turn ids): it
+/// goes with the run, also after its last member, so closing the run hides it with its line.
+const ownedBy = (row: AcpmuxRow, lines: ReadonlySet<string>) =>
+  row.inBackground !== undefined && lines.has(row.inBackground);
+
+/// A reply between members that draws nothing goes with the run without counting.
+const bareReply = (row: AcpmuxRow) => row.kind === "assistant" && !row.streaming && isVisiblyEmptyMessage(row);
 
 /// `rows` with each run of two or more background-task notifications folded under one line: the
 /// line alone while closed, the line and the run's rows while open (`expanded` holds the line's
@@ -73,9 +74,10 @@ export function foldBackgroundRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRo
         counts[kind] += 1;
         if (row.background) lines.add(row.background.id);
         last = end;
-      } else if (!rides(row, lines)) break;
+      } else if (ownedBy(row, lines)) last = end;
+      else if (!bareReply(row)) break;
     }
-    // Rows that ride after the run's last member are not the run's: they draw as before.
+    // Bare replies after the run's last member are not the run's: they draw (nothing) as before.
     end = last + 1;
     const members = counts.finished + counts.stopped + counts.scheduled + counts.other;
     if (members < 2) {
