@@ -62,10 +62,11 @@ async fn deaf_turn_with(
     (hub, c, id, turn)
 }
 
-async fn stop(c: &mut TestClient, id: &str) {
-    c.tx.send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line())
-        .await
-        .unwrap();
+/// A Stop that is not the person's (another agent's `acpmux session cancel`): it holds nothing,
+/// so what it sends back starts the next turn at once. The person's holds the other agents'
+/// messages ([`a_message_the_persons_stop_sent_back_waits_for_the_person`]).
+async fn stop(hub: &Arc<Hub>, id: &str) {
+    hub.cancel(&hub.resolve(id).unwrap()).await.expect("the Stop is refused");
 }
 
 /// Waits for the stopped turn's forced end.
@@ -126,7 +127,7 @@ async fn starts_the_next_turn(hub: &Arc<Hub>, id: &str, stopped: &str, prompt_id
 async fn a_message_sent_while_stop_cancels_starts_the_next_turn() {
     let step = fifo();
     let (hub, mut c, id, stopped) = deaf_turn(&step).await;
-    stop(&mut c, &id).await;
+    stop(&hub, &id).await;
     let mut state = Value::Null;
     for _ in 0..200 {
         state = hub.session_summary(&hub.resolve(&id).unwrap())["state"].clone();
@@ -157,7 +158,7 @@ async fn a_message_the_agent_never_read_before_a_forced_stop_starts_the_next_tur
         assert!(tokio::time::Instant::now() < deadline, "the notice never steered in");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    stop(&mut c, &id).await;
+    stop(&hub, &id).await;
     forced_end(&mut c).await;
     starts_the_next_turn(&hub, &id, &stopped, "m-1").await;
     let records = hub.events(&id, 0, 1_000_000).unwrap();
@@ -178,7 +179,7 @@ async fn a_message_its_agent_cannot_take_back_is_not_sent_twice() {
         assert!(tokio::time::Instant::now() < deadline, "the notice never steered in");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    stop(&mut c, &id).await;
+    stop(&hub, &id).await;
     forced_end(&mut c).await;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     loop {
@@ -194,5 +195,36 @@ async fn a_message_its_agent_cannot_take_back_is_not_sent_twice() {
     let again =
         notices(&hub, &id).into_iter().any(|n| carries(&n, "m-1") && n["turnId"] != stopped);
     assert!(!again, "a second copy went in: {:?}", notices(&hub, &id));
+    let _ = std::fs::remove_file(step);
+}
+
+/// The person's Stop holds the other agents' messages (`cancel.rs` `hold_agent_messages`): one it
+/// sent back waits too, starts no turn and releases nothing, and goes in once the person resumes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_message_the_persons_stop_sent_back_waits_for_the_person() {
+    let step = fifo();
+    let (hub, mut c, id, stopped) = deaf_turn(&step).await;
+    c.send(method::SESSION_PROMPT, from_agent(&id, "m-1", "please rebase #42", true)).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while !notices(&hub, &id).iter().any(|n| n["steer"] == true && carries(n, "m-1")) {
+        assert!(tokio::time::Instant::now() < deadline, "the notice never steered in");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let session = hub.resolve(&id).unwrap();
+    hub.person_stop(&session).await.expect("the Stop is refused");
+    forced_end(&mut c).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while !hub.events(&id, 0, 1_000_000).unwrap().iter().any(|r| r.kind == "steer_returned") {
+        assert!(tokio::time::Instant::now() < deadline, "it never came back");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    let early =
+        notices(&hub, &id).into_iter().any(|n| carries(&n, "m-1") && n["turnId"] != stopped);
+    assert!(!early, "it went in under the Stop's hold: {:?}", notices(&hub, &id));
+    assert!(session.turn().is_none(), "a turn started under the Stop's hold");
+    let resume = json!({"sessionId": id, "op": "resume"});
+    c.request(method::MUX_QUEUE_EDIT, resume).await.expect("the resume is refused");
+    starts_the_next_turn(&hub, &id, &stopped, "m-1").await;
     let _ = std::fs::remove_file(step);
 }

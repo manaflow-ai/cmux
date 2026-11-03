@@ -1086,6 +1086,12 @@ impl Hub {
                         None if inbox.first.is_some() || first_work_waits(session) => {
                             Next::WakeAt(now.saturating_add(WAKE_DEBOUNCE_MS))
                         }
+                        // While the person's Stop holds the other agents' messages (`cancel.rs`
+                        // `hold_agent_messages`), none starts a turn: they wait until the
+                        // person's next turn or a resume of the queue ends the hold, which
+                        // reviews the inbox again (`release_held_agent_messages`,
+                        // `queue_edit.rs` `resume`). A message a Stop sent back included.
+                        None if session.stop_hold.load(Ordering::SeqCst) != 0 => Next::Nothing,
                         None => {
                             // A waking message after the debounce; anything after the flush, so no
                             // message is stranded in an idle chat.

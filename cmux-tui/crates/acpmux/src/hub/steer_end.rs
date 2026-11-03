@@ -18,9 +18,6 @@ fn ends_turn(answer: &Value) -> bool {
     answer.get("stopReason").and_then(Value::as_str).is_some_and(|reason| reason != "steered")
 }
 
-/// How long a stopped turn's unread steer waits for its agent to say it dropped it.
-const STEER_TAKE_BACK_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
-
 /// The refusal [`agent_prompt_hook`] gives a steer a Stop ended the turn of before the agent
 /// read it (its `data.answer` is the turn's answer).
 const STEER_STOPPED_UNREAD: &str = "steer: the turn was stopped before the agent read it";
@@ -483,8 +480,10 @@ impl Hub {
 
     /// Whether the agent dropped steer `prompt_id` unread when asked (`MUX_STEER_WITHDRAW`,
     /// Claude Code's `cancel_async_message`). False when it read it, holds it batched with other
-    /// messages, cannot take one back (codex-acp), or does not answer within
-    /// [`STEER_TAKE_BACK_WAIT`] (a stopped agent may never answer).
+    /// messages, cannot take one back (codex-acp), or its process ends first. No timeout, as for
+    /// the person's take-back (`queue_edit.rs` `withdraw_steer`): the drop is on its way once
+    /// asked, so only the agent's answer, or its end, says whether the message left it; one
+    /// given up on early could still be dropped after, and be in neither place.
     async fn steer_taken_back(
         &self,
         session: &Arc<Session>,
@@ -493,11 +492,8 @@ impl Hub {
     ) -> bool {
         let Some(sid) = session.meta().agent_session_id else { return false };
         let params = json!({"sessionId": sid, "promptId": prompt_id});
-        let ask = child.request(method::MUX_STEER_WITHDRAW, params);
-        matches!(
-            tokio::time::timeout(STEER_TAKE_BACK_WAIT, ask).await,
-            Ok(Ok(v)) if v["withdrawn"] == true
-        )
+        let answer = child.request(method::MUX_STEER_WITHDRAW, params).await;
+        matches!(&answer, Ok(v) if v["withdrawn"] == true)
     }
 }
 
