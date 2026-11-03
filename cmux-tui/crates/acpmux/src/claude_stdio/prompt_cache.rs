@@ -20,6 +20,7 @@
 //! own) moves none; a compaction clears it (the next call writes a new cache).
 
 use super::Translator;
+use crate::no_panic::JsonExt;
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -122,7 +123,7 @@ impl Translator {
             self.context_used.store(used, Ordering::SeqCst);
             self.context_from_compaction.store(false, Ordering::SeqCst);
             if let Some(at) = self.cache.call(u) {
-                acpmux["cacheExpiresAt"] = at.into();
+                acpmux.set("cacheExpiresAt", json!(at));
             }
         }
         let size = self.context_window.load(Ordering::SeqCst);
