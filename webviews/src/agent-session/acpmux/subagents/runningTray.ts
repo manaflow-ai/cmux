@@ -54,6 +54,12 @@ export type TrayItem =
 /// commands still running, then the started chats whose turn runs or that wait on the person.
 /// What ended is shown as bounded status cards after the live rows (``finishedTrayItems``).
 ///
+/// Only the chat's own work: its subagents, its commands and the sub-sessions its agent started with
+/// its `start_session` tool (``StartedSession.subsession``). A lane a coordinator dispatched with
+/// `sessions new` or `acpmux new` from its shell is its own chat, in the sidebar, never a running line
+/// here (Leo, 2026-11-03, on a dispatched lane's line: "like why is this even in the "running" in the
+/// first place?"). Session Info still lists every chat it started.
+///
 /// Between turns only work that outlives its turn shows. A foreground subagent a cancel or a
 /// reconnect left "running" pins nothing. A command shows whenever acpmux's process registry says
 /// it runs (session-info/processes.ts `backgroundCommands` merged it in, `processId`); one only the
@@ -80,7 +86,7 @@ export function trayItems(
     if (command.state === "running" && (working || command.processId !== undefined))
       items.push({ kind: "command", id: command.id, command });
   for (const session of sessions)
-    if (liveSession(session)) items.push({ kind: "session", id: session.sessionId, session });
+    if (session.subsession && liveSession(session)) items.push({ kind: "session", id: session.sessionId, session });
   return items;
 }
 
@@ -134,7 +140,7 @@ export function finishedTrayItems(agents: readonly Subagent[], sessions: readonl
     depth,
   }));
   const chats = sessions
-    .filter((session) => !liveSession(session))
+    .filter((session) => session.subsession && !liveSession(session))
     .sort((a, b) =>
       a.createdAt === undefined || b.createdAt === undefined
         ? Number(a.createdAt === undefined) - Number(b.createdAt === undefined)
