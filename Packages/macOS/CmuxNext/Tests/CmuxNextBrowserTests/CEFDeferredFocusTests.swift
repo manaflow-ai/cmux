@@ -230,12 +230,45 @@ import Testing
         return (tab, { count.value })
     }
 
-    /// One whole load of `url` in CEF's order.
+    /// One whole load of `url` in CEF's order, with its document's first contentful paint before its load end.
     private static func load(_ runtime: CEFRuntime, _ browser: Int32, _ url: String) {
         runtime.handle(.loadingState(browser: browser, loading: true, canGoBack: false, canGoForward: false))
         runtime.handle(.loadStart(browser: browser, url: url, fromPost: false))
+        paint(runtime, browser)
         runtime.handle(.loadEnd(browser: browser, httpStatus: 200))
         runtime.handle(.loadingState(browser: browser, loading: false, canGoBack: false, canGoForward: false))
+    }
+
+    /// The main frame's document first painted content (fork API 29's first paint channel, `BrowserFirstPaintScript`).
+    private static func paint(_ runtime: CEFRuntime, _ browser: Int32) {
+        runtime.handle(.pageMessage(browser: browser, mainFrame: true, channel: BrowserFirstPaintScript.channel, payload: "{}"))
+    }
+
+    /// Lead on STATUS 8055 (cycle B round a3 of cycleb-v9: the page had focus but got none of the 11 keys sent 4 ms
+    /// after ready-for-keys, 62 ms after its navigation began): Chromium drops input to a new document before its
+    /// first paint, so "stopped loading on a document" is not yet "the document takes keys". The page is ready once
+    /// it stopped loading AND its document painted content, in either order; a paint of the document before the
+    /// navigation does not count.
+    @Test func aReopenedPageIsReadyForKeysOnlyOnceItsDocumentPainted() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, reported) = try Self.readyTab(runtime, browser: 23, restored: "http://127.0.0.1:8080/?c=1")
+        Self.paint(runtime, 23) // the empty document before the restore navigation painted
+        runtime.handle(.loadingState(browser: 23, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadStart(browser: 23, url: "http://127.0.0.1:8080/?c=1", fromPost: false))
+        runtime.handle(.loadEnd(browser: 23, httpStatus: 200))
+        runtime.handle(.loadingState(browser: 23, loading: false, canGoBack: false, canGoForward: false))
+        #expect(!tab.pageReady && reported() == 0, "ready before the restored document painted: Chromium drops the keys sent now")
+        Self.paint(runtime, 23)
+        #expect(tab.pageReady && reported() == 1, "the restored document painted after it stopped loading, and the page is not ready")
+        let (early, earlyReported) = try Self.readyTab(runtime, browser: 24, restored: "http://127.0.0.1:8080/?c=2")
+        runtime.handle(.loadingState(browser: 24, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadStart(browser: 24, url: "http://127.0.0.1:8080/?c=2", fromPost: false))
+        Self.paint(runtime, 24)
+        #expect(!early.pageReady, "ready at the first paint, before loading stopped")
+        runtime.handle(.loadEnd(browser: 24, httpStatus: 200))
+        runtime.handle(.loadingState(browser: 24, loading: false, canGoBack: false, canGoForward: false))
+        #expect(early.pageReady && earlyReported() == 1, "painted, then stopped loading, and the page is not ready")
     }
 
     /// A tab whose browser Chromium made (`afterCreated`), its view in no window yet.
