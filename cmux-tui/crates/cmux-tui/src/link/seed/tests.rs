@@ -33,6 +33,20 @@ fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim_end().to_string()
 }
 
+/// Whether a blob is present in this local Git object store.
+fn git_has_blob(work: &Path, oid: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(work)
+        .args(["cat-file", "-e", &format!("{oid}^{{blob}}")])
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .stderr(std::process::Stdio::null())
+        .status()
+        .expect("git cat-file runs")
+        .success()
+}
+
 fn write(path: &Path, text: impl AsRef<[u8]>) {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).unwrap();
@@ -237,14 +251,19 @@ fn the_same_tree_gives_the_same_commits() {
 fn a_secret_with_a_non_utf8_name_is_left_out() {
     use std::os::unix::ffi::OsStrExt as _;
     let f = Fixture::new();
-    std::fs::write(f.work.join(std::ffi::OsStr::from_bytes(b".env-\xff")), "SECRET=1\n").unwrap();
+    let secret = std::ffi::OsStr::from_bytes(b".env-\xff");
+    std::fs::write(f.work.join(secret), "SECRET=1\n").unwrap();
+    let hashed = Command::new("git").arg("-C").arg(&f.work).arg("hash-object").arg(secret).output().unwrap();
+    assert!(hashed.status.success());
+    let secret_oid = String::from_utf8_lossy(&hashed.stdout).trim().to_string();
+    assert!(!git_has_blob(&f.work, &secret_oid));
     write(&f.work.join("README.md"), "changed\n");
     let planned = plan(&f.work, &f.path("one.bundle")).unwrap();
     assert_eq!(planned.skipped.len(), 1, "{:?}", planned.skipped);
     let names = git(&f.work, &["ls-tree", "-r", "--name-only", &planned.params.work]);
     assert!(!names.contains(".env"), "{names}");
+    assert!(!git_has_blob(&f.work, &secret_oid), "non-UTF8 secret blob was written locally");
 }
-
 
 #[test]
 fn a_seed_plan_never_writes_skipped_secret_blobs_into_local_git_objects() {
@@ -268,21 +287,14 @@ fn a_seed_plan_never_writes_skipped_secret_blobs_into_local_git_objects() {
     for (path, contents) in excluded {
         write(&work.join(path), contents);
     }
-    let secret_ids: Vec<String> =
-        excluded.iter().map(|(path, _)| git(work, &["hash-object", path])).collect();
-    let object_exists = |id: &str| {
-        Command::new("git")
-            .arg("-C")
-            .arg(work)
-            .args(["cat-file", "-e", &format!("{id}^{{blob}}")])
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .stderr(std::process::Stdio::null())
-            .status()
-            .unwrap()
-            .success()
-    };
-    assert!(secret_ids.iter().all(|id| !object_exists(id)), "fixture blobs already existed");
+    let secret_ids: Vec<String> = excluded
+        .iter()
+        .map(|(path, _)| git(work, &["hash-object", path]))
+        .collect();
+    assert!(
+        secret_ids.iter().all(|id| !git_has_blob(work, id)),
+        "fixture blobs already existed"
+    );
     let before = snapshot(work);
     let bundle = f.path("seed.bundle");
     let planned = plan(work, &bundle).unwrap();
@@ -301,8 +313,14 @@ fn a_seed_plan_never_writes_skipped_secret_blobs_into_local_git_objects() {
 
     let machine = f.machine(&planned, &bundle, "machine");
     git(&machine, &["checkout", "-q", "--detach", &planned.params.work]);
-    assert_eq!(std::fs::read_to_string(machine.join("notes.txt")).unwrap(), "ordinary untracked work\n");
-    assert_eq!(std::fs::read_to_string(machine.join("README.md")).unwrap(), "unstaged README\n");
+    assert_eq!(
+        std::fs::read_to_string(machine.join("notes.txt")).unwrap(),
+        "ordinary untracked work\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(machine.join("README.md")).unwrap(),
+        "unstaged README\n"
+    );
     assert!(excluded.iter().all(|(path, _)| !machine.join(path).exists()));
 }
 
