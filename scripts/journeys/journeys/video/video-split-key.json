@@ -118,5 +118,11 @@
     }
    ]
   }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
  ]
 }

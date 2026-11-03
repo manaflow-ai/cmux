@@ -8,6 +8,8 @@ On the M6 minis a main thread that wakes from idle starts on the Efficiency core
 sampler writes: [uptime_ns, cpu_ms per tier..., cycles per tier...], cumulative):
 - the sampler's default period is 10 ms (half the CPU of 1 ms; no measured cost with the order balanced), and
   10 ms rows still name the start tier;
+- turn_tiers counts only sample intervals that start at or after the key (work just before it does not name the
+  tier);
 - turn_tiers names the start tier, the wall ms to the first Super interval and the E CPU ms before it; a turn that
   starts on Super has 0 ms to Super; a time the sampler does not cover says so;
 - start/stop protocol (stand-in samplers): the stop file ends the sampler; no first reading in time is an OSError and
@@ -87,6 +89,17 @@ class TurnTiersTest(unittest.TestCase):
         [turn] = ext_tiers.turn_tiers(data, [(T0 + 100_000_000) / 1e9])
         self.assertEqual(turn["start_tier"], "Efficiency")
         self.assertEqual(turn["ms_to_super"], 20.0)
+
+    def test_work_just_before_the_key_does_not_name_the_tier(self):
+        # Review of #32640 (10 ms rows): 2 ms of Super work 3 ms before a key that then runs 28 ms on Efficiency
+        # was "Super, 0 ms". The interval that holds the key is not counted.
+        plan = "." * 95 + "SS" + "." + "E" * 28 + "S" * 12 + "." * 100
+        data = rows(plan)
+        data["rows"] = data["rows"][::10]
+        [turn] = ext_tiers.turn_tiers(data, [(T0 + 98_000_000) / 1e9])
+        self.assertEqual(turn["start_tier"], "Efficiency")
+        self.assertEqual(turn["first_ms"], 2.0)
+        self.assertEqual(turn["ms_to_super"], 22.0)  # a lower bound of the 28 ms: one 10 ms interval of resolution
 
     def test_idle_and_uncovered(self):
         data = rows("." * 200)

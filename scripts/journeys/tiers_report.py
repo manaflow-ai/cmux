@@ -11,7 +11,8 @@ Per key-down in the app's input journal:
   first motion: the first trace tick at or after the key whose pane rects changed (before the next key);
   landing: the last such tick + 1 refresh; refreshes lost: each interval of the motion counts round(interval /
   refresh) - 1 (as xtp_align.py);
-  start tier, ms to Super and E/P CPU ms before Super: ext_tiers.turn_tiers (the first 100 ms after the key);
+  start tier, ms to Super and E/P CPU ms before Super: ext_tiers.turn_tiers (the first 100 ms after the key, from the
+  first sampler interval that starts after it: resolution one sampler period, 10 ms by default);
   key turn CPU ms per tier: from the key to the first motion tick.
 Then per arm (the last dash-separated part of the case folder name, e.g. xtp / noxtp; one arm when names do not
 differ) and per start tier: p50 / p95 / max of key to first motion and of the refreshes lost. A key the sampler does

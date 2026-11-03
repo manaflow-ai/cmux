@@ -174,24 +174,30 @@ BUSY_MS = 0.3  # CPU ms in one sample interval that counts as running there
 
 
 def turn_tiers(data, times_s, window_ms=100.0):
-    """For each host time T (seconds, CLOCK_UPTIME_RAW): where the main thread ran in the WINDOW_MS after T.
-    start_tier: the tier of the first sample interval with BUSY_MS of main-thread CPU (None: idle);
+    """For each host time T (seconds, CLOCK_UPTIME_RAW): where the main thread ran in the WINDOW_MS after T, from the
+    sample intervals that START at or after T. The interval that holds T is left out: it also holds work from before T
+    (at 10 ms, a layout_note or a trace tick just before a key), which would name the wrong tier (review of #32640).
+    So the resolution is one sampler period (INTERVAL_MS): the first interval starts 0-10 ms after T.
+    start_tier: the tier of the first such interval with BUSY_MS of main-thread CPU (None: idle);
+    first_ms: wall ms from T to that first interval's start (the uncounted part of the turn);
     ms_to_super: wall ms from T to the first interval with BUSY_MS on the fastest tier (levels[0]; None: none);
-    e_cpu_ms_before_super: CPU ms on the other tiers before that; cpu_ms: CPU ms per tier in the window."""
+    e_cpu_ms_before_super: CPU ms on the other tiers before that; cpu_ms: CPU ms per tier in the counted intervals."""
     rows, levels = data["rows"], data["levels"]
     n = len(levels)
     out = []
     for t in times_s:
         a, b = int(t * 1e9), int((t + window_ms / 1000) * 1e9)
-        turn = {"t": round(t, 6), "start_tier": None, "ms_to_super": None, "e_cpu_ms_before_super": 0.0,
+        turn = {"t": round(t, 6), "start_tier": None, "first_ms": None, "ms_to_super": None, "e_cpu_ms_before_super": 0.0,
                 "cpu_ms": {name: 0.0 for name in levels}}
         if not rows or rows[0][0] > a or rows[-1][0] < a:
             turn["error"] = "the sampler does not cover this time"
             out.append(turn)
             continue
         for r0, r1 in zip(rows, rows[1:]):
-            if r1[0] <= a or r0[0] >= b:
+            if r0[0] < a or r0[0] >= b:
                 continue
+            if turn["first_ms"] is None:
+                turn["first_ms"] = round((r0[0] - a) / 1e6, 2)
             d = [r1[1 + i] - r0[1 + i] for i in range(n)]
             for i in range(n):
                 turn["cpu_ms"][levels[i]] = round(turn["cpu_ms"][levels[i]] + d[i], 3)
@@ -199,7 +205,7 @@ def turn_tiers(data, times_s, window_ms=100.0):
                 turn["start_tier"] = levels[d.index(max(d))]
             if turn["ms_to_super"] is None:
                 if d[0] >= BUSY_MS:
-                    turn["ms_to_super"] = round(max(0, r0[0] - a) / 1e6, 2)
+                    turn["ms_to_super"] = round((r0[0] - a) / 1e6, 2)
                 else:
                     turn["e_cpu_ms_before_super"] = round(turn["e_cpu_ms_before_super"] + sum(d[1:]), 3)
         out.append(turn)
