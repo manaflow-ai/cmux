@@ -291,27 +291,47 @@ press) and `video-cases/judge_scan.py` (repeated pictures in motion). They run o
 (`/work/tmp/bv-venv/bin/python -I`, numpy and imageio_ffmpeg), never on a mini. This folder holds the one copy;
 the kit branches' copies are older (REWRITE R-HARNESS, handoff/rewrites/R-HARNESS/DESIGN.md).
 
-Every change to a judge reproduces the judge goldens: every gallery film, frozen read-only in
-`/work/goldens/judge-films` (sha256-pinned by `judge-goldens/films.json`), with the judges' results on it
-(`judge-goldens/expected.json`, one line per film).
+Every change to a judge reproduces the judge goldens. They have two tiers:
+
+- BASELINE: every gallery film, frozen read-only in `/work/goldens/judge-films` (sha256-pinned by
+  `judge-goldens/films.json`), with the judges' results on it (`judge-goldens/expected.json`, one line per film).
+  A change here is a difference to explain, then bless.
+- TRUTH: answers known without the judges (`judge-goldens/truth.json`). A ruler fact is read by a judge-free pixel
+  ruler from the stored film's exact scan lines (a run of one fixture color on one scan line in exactly these
+  frames, and not in the 6 frames either side); an expectation says what a judge must or must not report on that
+  film. The judges' own unit tests (`test_video_judge*.py`, `video-cases/test_judge_*.py`) are TRUTH too. A TRUTH
+  failure fails `run` and refuses `bless`: it cannot be blessed away. Add a fact only with its evidence (who proved
+  it, how) in its `why`.
 
 ```bash
 PY=/work/tmp/bv-venv/bin/python
-$PY -I scripts/journeys/judge_goldens.py run                    # every result reproduced: exit 0
-$PY -I scripts/journeys/judge_goldens.py run --only 'feat-5851715-120x2/*'
-$PY -I scripts/journeys/judge_goldens.py bless --reason "TEXT"  # after a reviewed judge change: new results
-$PY -I scripts/journeys/judge_goldens.py snapshot --source /Users/lawrence/fun/wt/handoff/resize-videos
-$PY -I scripts/journeys/test_judge_goldens.py                   # the runner's own tests
+agent-sandbox $PY -I scripts/journeys/judge_goldens.py run                    # all reproduced, TRUTH holds: exit 0
+agent-sandbox $PY -I scripts/journeys/judge_goldens.py run --only 'feat-5851715-120x2/*'
+agent-sandbox $PY -I scripts/journeys/judge_goldens.py bless --reason "TEXT"  # after a reviewed judge change
+agent-sandbox $PY -I scripts/journeys/judge_goldens.py snapshot --source /Users/lawrence/fun/wt/handoff/resize-videos
+$PY -I scripts/journeys/test_judge_goldens.py          # the runner's own tests (also _truth.py and _review.py)
 ```
 
-- `run` exits 1 and prints each film and judge whose result changed (the summary that moved and the first JSON
-  paths); it exits 2 (NO VERDICT) when a store file changed or is missing, or the toolchain (python, numpy, the
-  ffmpeg binary) is not the blessed one.
+- Exit 0: every result reproduced and every TRUTH fact and unit test holds. Exit 1: a judge's result changed, a
+  TRUTH expectation failed or a unit test failed; each film and judge is printed with the summary that moved and the first JSON paths.
+  Exit 2 (NO VERDICT, never a pass): the run cannot say. A film's judges over `--film-seconds` (default 300 s; the
+  slowest of the 834 films takes about 50 s, and each run prints its slowest film), the run over
+  `--deadline-minutes`, a judge process that dies, `judge_scan` timed out or ended by a signal, out of memory, an
+  operating-system error of the machine, a result with no stable JSON form, a changed, missing or unpinned store
+  file, a blessed result that is gone or changed, another toolchain (python, numpy, the ffmpeg binary), a TRUTH
+  ruler fact the film does not show, or no film selected.
+- Each film is judged in its own process (its process group is ended at the budget), in a sealed view that holds
+  only the film's pinned files (reflinks under `<store>/.scratch`), with fresh bytecode: a result cannot depend on
+  `--jobs`, film order, or a file the table does not pin. The runner starts and signals processes: run it under
+  `agent-sandbox`.
 - A judge PR runs `run` on its head, names the changed films and why each change is right, then `bless` with that
-  reason in the same PR (the bless needs the judge files committed and records their commit). A change on no film
-  needs a new film that shows it: a new film in the gallery, `snapshot`, `bless`.
-- `snapshot` takes a gallery folder only when no file in it changed for 10 minutes, never replaces a stored file
-  (the store is immutable: a changed film needs a new folder name) and copies with reflink, so it needs no space.
+  reason in the same PR. A bless needs the judge files and `judge_goldens.py` committed and records both (the
+  runner makes the judges' inputs and normalizes their results). A change on no film needs a film that shows it: a
+  new gallery film (`snapshot`, `bless`) or a TRUTH fact.
+- `snapshot` takes a gallery folder only when no file in it changed for 10 minutes (`--settled-minutes`), decides
+  the whole folder before it copies a file, never replaces a stored file, and refuses a new input of a recorded film
+  or folder (`display.json`, `diag-tiers.json`, `<film>.*`): a changed film needs a new folder name. It copies
+  with reflink, so it needs no space.
 
 ## Gate a dogfood build
 
