@@ -638,9 +638,10 @@ test("three stages by the pane's width: in the gutter, pushing gradually, over t
 
 test("pushing, the column moves left and keeps its width at every pushing pane width", () => {
   const gutterFits = firstAt("push") + 1;
-  // Just inside the push range it takes almost nothing: the chat does not jump.
+  // Just inside the push range it takes almost nothing: the chat does not jump. The room comes in 8s,
+  // so the column's 4-grid inset moves a step of 4 (design/grid.md 5.5).
   expect(pushedRoom(gutterFits, 320)).toBe(0);
-  expect(pushedRoom(gutterFits - 1, 320)).toBeLessThanOrEqual(2);
+  expect(pushedRoom(gutterFits - 1, 320)).toBeLessThanOrEqual(8);
   let pushed = 0;
   for (let pane = 2400; pane >= 300; pane--) {
     if (sessionInfoStage("overlay", tall(pane), 320) !== "push") continue;
@@ -648,7 +649,7 @@ test("pushing, the column moves left and keeps its width at every pushing pane w
     const panel = pushedWidth(pane, 320);
     const room = pushedRoom(pane, panel);
     const chat = pane - room;
-    expect(room % 2).toBe(0);
+    expect(room % 8).toBe(0);
     expect(pushKeepsColumn(pane, room)).toBe(true);
     expect(transcriptColumn(chat).width).toBe(transcriptColumn(pane).width);
     // The column stays a margin clear of the panel (its left edge is the pane less the panel and margin).
@@ -661,8 +662,9 @@ test("pushing, the column moves left and keeps its width at every pushing pane w
   // Content under where it would float, and Settings Push always, take the whole room.
   expect(pushedRoom(1200, 320, undefined, 400)).toBe(320 + FLOAT_MARGIN);
   expect(pushedRoom(1200, 320, undefined, 0, true)).toBe(320 + FLOAT_MARGIN);
-  // An odd room is one pixel more, so the column keeps its width to the pixel.
-  expect(pushedRoom(1200, 321, undefined, 0, true)).toBe(330);
+  // A room off the 8s rounds up to the next 8 (the column's inset is on the 4 grid), so the column
+  // keeps its width to the pixel.
+  expect(pushedRoom(1200, 321, undefined, 0, true)).toBe(336);
   // Pushed, it narrows to keep a readable chat and its 8px margin, down to PUSH_PANEL_MIN.
   expect(pushedWidth(1200, 320)).toBe(320);
   expect(pushedWidth(720, 320)).toBe(272);
