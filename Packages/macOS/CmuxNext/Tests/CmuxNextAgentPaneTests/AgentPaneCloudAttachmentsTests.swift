@@ -58,4 +58,37 @@ import Testing
         #expect(AgentPaneCloudStart(params: ["task": "", "key": UUID().uuidString]) == nil)
         #expect(AgentPaneCloudStart(params: ["task": "look", "key": UUID().uuidString, "attachments": "wrong"]) == nil)
     }
+
+    @MainActor @Test func theUploadFinishesBeforeTheChatOpensAndFailedOpenRollsItBack() async throws {
+        let carry = try #require(AgentPaneCloudAttachments([image, image]))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-attachments-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var events: [String] = []
+        enum Failed: Error { case opening }
+        await #expect(throws: Failed.self) {
+            try await carry.withUploaded(in: root, upload: { paths in
+                #expect(paths.count == 2 && paths[0] != paths[1])
+                for path in paths {
+                    #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == Data("abc".utf8))
+                    let mode = try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber
+                    #expect(mode?.intValue == 0o600)
+                }
+                events.append("uploaded")
+                return .init(paths: ["/work/0/screen.png", "/work/1/screen.png"], undo: { events.append("removed") })
+            }) { chips -> String in
+                events.append("opened")
+                #expect(chips[0]["originalPath"] == .string("/work/0/screen.png"))
+                #expect(chips[1]["originalPath"] == .string("/work/1/screen.png"))
+                throw Failed.opening
+            }
+        }
+        #expect(events == ["uploaded", "opened", "removed"])
+    }
+
+    @MainActor @Test func attachmentSeedIsTakenOnlyOnce() async {
+        let seed = AgentPaneSeedSource(.init(prompt: "", promptAttachments: [image], promptBy: .person))
+        #expect(!seed.holdsOnlyFolder)
+        #expect(await seed.take()?.promptAttachments == [image])
+        #expect(await seed.take()?.promptAttachments == nil)
+    }
 }

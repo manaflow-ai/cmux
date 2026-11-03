@@ -307,6 +307,11 @@ public actor AgentSessionAttachClient {
         try await call("agent-session-prompt", ["prompt_id": id, "text": text])
     }
 
+    /// Ordered ACP blocks; the owning daemon pins their session and validates their shape.
+    public func prompt(id: String, content: Data) async throws -> Data {
+        try await call("agent-session-prompt", ["prompt_id": id], json: ["content": content])
+    }
+
     public func cancel() async throws {
         _ = try await call("agent-session-cancel", [:])
     }
