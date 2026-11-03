@@ -361,9 +361,15 @@ export function ThreadMinimap({
   const inUse = railRevealed || hovered !== undefined || domFocus !== undefined || cardFocus || scrubbing;
   const widens = (placement.overlapsText && railVisible) || (inUse && placement.width < TICK_BOX + 4);
   const railWidth = widens ? ROW_WIDTH : placement.width;
-  // The occluded rail's hover strip reaches the text edge and no further, so clicks, links and
-  // selection drags on the text stay the text's; it keeps at least the pane-edge inset at any width.
-  const stripWidth = Math.max(placement.left, Math.min(placement.left + placement.width, placement.gutter));
+  // The occluded rail's hover strip reaches the text edge, so clicks, links and selection drags on the
+  // text stay the text's, and at least over the resting ticks it draws there: a chat column narrower
+  // than its pane (Session Info beside it) leaves the dimmed rail past the text edge, and hovering what
+  // is drawn must reveal it (Leo, 2026-11-03: "when the scroll rail resizes i can no longer hover on
+  // it :(" then "*when the pane gets real small horizontally").
+  const stripWidth = Math.max(
+    placement.left + Math.ceil(tickLength(0)),
+    Math.min(placement.left + placement.width, placement.gutter),
+  );
   // A view with no room for a single row (the transcript is at least 96 px tall) draws no rail. At
   // narrow widths the pane-edge strip stays live even while the visual rail is occluded by text.
   const shown = arm === "compact" && known >= MIN_PROMPTS && turns.length > 0 && height >= ROW_PITCH;
