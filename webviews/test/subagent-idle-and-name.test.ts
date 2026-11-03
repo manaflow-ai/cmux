@@ -63,3 +63,14 @@ test("a running subagent with an open call stays Running; quiet past the window 
   expect(agent(fold, id).quietSince).toBe(3_000);
   expect(subagentStatus(agent(fold, id), new Set([id]), 10 * IDLE_AFTER_MS)).toBe("waiting");
 });
+
+test("a call opened before the subagent's identity arrives keeps it Running", () => {
+  const fold = new SubagentFold();
+  const id = "acp-1/toolu_d";
+  // A paged log: its open build is read before the progress that names it.
+  feed(fold, 0, update({ sessionUpdate: "tool_call", toolCallId: "b1", title: "make", status: "in_progress" }, { subagent: id }));
+  feed(fold, 1_000, update({ sessionUpdate: "subagent_progress" }, { subagents: [{ id, parent: null, name: "Build", state: "running" }] }));
+  expect(subagentStatus(agent(fold, id), none, 10 * IDLE_AFTER_MS)).toBe("running");
+  feed(fold, 2_000, update({ sessionUpdate: "tool_call_update", toolCallId: "b1", status: "completed" }, { subagent: id }));
+  expect(subagentStatus(agent(fold, id), none, 2_000 + IDLE_AFTER_MS)).toBe("idle");
+});

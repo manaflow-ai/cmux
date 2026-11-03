@@ -240,13 +240,21 @@ impl SubagentTree {
     /// when it carries neither a name nor a task.
     fn name_event(&mut self, id: String, event: &mut Value) {
         let text = |key: &str| event.get(key).and_then(Value::as_str).filter(|v| !v.trim().is_empty());
+        // Secrets are masked before the cut, as `note_running`'s labels are: a token across the cut
+        // would no longer match the scanner.
+        let label = |t: &str| {
+            truncate_label(&crate::secret_scan::mask(t).split_whitespace().collect::<Vec<_>>().join(" "))
+        };
         if let Some(name) = text("name") {
             // The newest name wins: a workflow's launch renames the run it started as "Workflow".
-            let name = truncate_label(name.trim());
-            self.names.insert(id, name);
+            self.names.insert(id, label(name));
             return;
         }
-        if text("task").is_some() {
+        if let Some(task) = text("task") {
+            // A task names one that has no name (a Codex legacy spawn says only its prompt).
+            if !self.names.contains_key(&id) {
+                self.names.insert(id, label(task));
+            }
             return;
         }
         if let (Some(name), Some(object)) = (self.names.get(&id), event.as_object_mut()) {
@@ -1389,6 +1397,37 @@ mod codex_tests {
             json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_a", "tokens": 11}),
         );
         assert_eq!(next[0]["name"], json!("Renamed"));
+        // A task-only spawn names it too.
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/toolu_t", "task": "Check the rail"}),
+        );
+        let later = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_t", "tokens": 1}),
+        );
+        assert_eq!(later[0]["name"], json!("Check the rail"));
+    }
+
+    /// A name holding a secret across the label's cut is masked before the cut, so the cached name a
+    /// later nameless event carries holds none of it.
+    #[test]
+    fn a_cached_name_is_masked_before_its_cut() {
+        let body: String = "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS".chars().cycle().take(36).collect();
+        let token = format!("gh{}_{body}", "p");
+        assert_eq!(crate::secret_scan::mask(&token), "[GitHub Personal Access Token]");
+        let name = format!("{} {token}", "x".repeat(50));
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/toolu_s", "name": name}),
+        );
+        let later = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_s", "tokens": 1}),
+        );
+        let cached = later[0]["name"].as_str().unwrap();
+        assert!(!cached.contains("aZ3kQ9"), "{cached}");
     }
 }
 

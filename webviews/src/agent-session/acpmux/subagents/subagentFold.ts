@@ -332,6 +332,8 @@ export class SubagentFold {
     // out of the parent transcript; retain that work for its own view without inventing a
     // lifecycle row. Later progress/spawn metadata supplies the child's identity as usual.
     if (tag !== undefined && !this.isChat(tag) && !owner) {
+      // Its calls still open count once its identity arrives (``noteActivity``).
+      if (call && (kind === "tool_call" || kind === "tool_call_update")) this.noteCall(tag, call, kind, update.status);
       const spawnCall = call !== undefined && this.spawnCalls.has(call);
       if (kind !== "subagent_spawned" && kind !== "subagent_state_update" && !spawnCall)
         this.record(tag, { event, update });
@@ -370,11 +372,7 @@ export class SubagentFold {
       const spawnCall = typeof update?.toolCallId === "string" && this.spawnCalls.has(update.toolCallId);
       if (kind !== "subagent_spawned" && kind !== "subagent_state_update" && !spawnCall)
         this.record(owner.id, { event, update });
-      if (tool && call) {
-        const key = `${owner.id}\u0000${call}`;
-        if (isTerminal(update.status)) this.openCalls.delete(key);
-        else this.openCalls.add(key);
-      }
+      if (tool && call) this.noteCall(owner.id, call, update.sessionUpdate, update.status);
       this.noteActivity(owner, event.at);
       this.touch(owner);
       return true;
@@ -1034,9 +1032,9 @@ export class SubagentFold {
         prompt: text(change.prompt),
         state: "running",
         startedAt: event.at,
-        quietSince: event.at,
       };
       this.agents.set(agent.id, agent);
+      this.noteActivity(agent, event.at);
       this.startedSeq.set(agent.id, event.seq);
       if (spawn) this.turn.add(agent.id);
       if (typeof change.toolCallId === "string") this.called.add(agent.id);
@@ -1167,6 +1165,14 @@ export class SubagentFold {
       }
     }
     if (changed) this.touch(agent);
+  }
+
+  /// Call `call` of subagent `id` opened or, at a terminal status, closed.
+  /// An update that says no status leaves a call as it was, unless it is the call's start.
+  private noteCall(id: string, call: string, kind: unknown, status: unknown): void {
+    const key = `${id}\u0000${call}`;
+    if (isTerminal(status)) this.openCalls.delete(key);
+    else if (kind === "tool_call" || status !== undefined) this.openCalls.add(key);
   }
 
   /// `agent` did something at `at`: it is quiet from then, unless one of its calls is open.
