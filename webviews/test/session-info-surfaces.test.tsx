@@ -17,7 +17,6 @@ import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTo
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import {
   FLOAT_MARGIN,
-  PUSH_MIN_CHAT,
   SessionInfoPanel,
   pushedWidth,
   pushedRoom,

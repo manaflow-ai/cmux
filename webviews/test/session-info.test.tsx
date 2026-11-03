@@ -745,12 +745,28 @@ test("a floating panel that would lie over the chat's text pushes the chat left,
   const main = container.querySelector(".acpmux-main")!;
   const row = document.createElement("div");
   row.className = "acpmux-row";
-  const reach = (right: number) =>
-    (row.getBoundingClientRect = () =>
-      ({ left: right - 720, right, width: 720, top: 100, bottom: 140, height: 40, x: right - 720, y: 100 }) as DOMRect);
+  // A row reaching `past` beyond the 1600px pane's column end, moving left with the column as a push
+  // moves it (the room a pushed panel takes: its width and margin less its overlap).
+  const reach = (past: number) =>
+    (row.getBoundingClientRect = () => {
+      const pushed = container.querySelector<HTMLElement>('aside.acpmux-session-info[data-placement="push"]');
+      const overlap = parseFloat(pushed?.style.getPropertyValue("--acpmux-session-info-overlap") || "0");
+      const chat = pushed ? 1600 - (parseFloat(pushed.style.width) + FLOAT_MARGIN - overlap) : 1600;
+      const right = columnEnd(chat) + past;
+      return {
+        left: right - 720,
+        right,
+        width: 720,
+        top: 100,
+        bottom: 140,
+        height: 40,
+        x: right - 720,
+        y: 100,
+      } as DOMRect;
+    });
   main.append(row);
   // Text that stays inside the column (1600px: 400px each side): it keeps floating.
-  reach(1200);
+  reach(0);
   await act(async () => {
     paneWidth = 1601;
     for (const observer of observers) observer();
@@ -758,7 +774,7 @@ test("a floating panel that would lie over the chat's text pushes the chat left,
   expect(panel(container)?.dataset.placement).toBe("overlay");
   // Text reaching into the right gutter, under where the panel floats (1272 to 1592): the chat moves left,
   // its column at its own width.
-  reach(1300);
+  reach(100);
   await act(async () => {
     paneWidth = 1600;
     for (const observer of observers) observer();

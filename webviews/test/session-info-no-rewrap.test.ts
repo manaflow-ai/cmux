@@ -17,16 +17,15 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
 
-const LONG =
-  "Long reply: " +
-  Array.from(
-    { length: 24 },
-    (_, n) => `step ${n + 1} rebuilt the column, measured each wrapped line and compared it with the last frame`,
-  ).join(", ") +
-  ".";
-
 await requireBrowserLane("session-info-no-rewrap.test.ts", async () => {
   setDefaultTimeout(300_000);
+  const LONG =
+    "Long reply: " +
+    Array.from(
+      { length: 24 },
+      (_, n) => `step ${n + 1} rebuilt the column, measured each wrapped line and compared it with the last frame`,
+    ).join(", ") +
+    ".";
   const browsers = new Map<string, Browser>();
   for (const [name, engine] of [
     ["chromium", chromium],
@@ -100,8 +99,9 @@ await requireBrowserLane("session-info-no-rewrap.test.ts", async () => {
       const first = read();
       const worst = { width: 0, height: 0, lines: 0, rows: first.rows.length, firstLines: first.lines };
       probe.__rewrap = { stop: false, worst };
-      const frame = () => {
-        if (probe.__rewrap!.stop) return;
+      // Read after each painted frame (support/paintedFrames.ts), until stopSampling.
+      window.cmuxAfterPaint(() => {
+        if (probe.__rewrap!.stop) return false;
         const now = read();
         now.rows.forEach((row, index) => {
           const was = first.rows[index];
@@ -110,9 +110,8 @@ await requireBrowserLane("session-info-no-rewrap.test.ts", async () => {
           worst.height = Math.max(worst.height, Math.abs(row.height - was.height));
         });
         worst.lines = Math.max(worst.lines, Math.abs(now.lines - first.lines));
-        requestAnimationFrame(frame);
-      };
-      requestAnimationFrame(frame);
+        return true;
+      });
     });
   const stopSampling = (page: Page) =>
     page.evaluate(() => {
