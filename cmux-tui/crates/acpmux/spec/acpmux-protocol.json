@@ -748,6 +748,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/session_search",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/complete",
       "params": true,
       "result": true
@@ -1125,6 +1131,18 @@
     {
       "kind": "request",
       "name": "_acpmux/secret_run",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mcp_connect_request",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mcp_connect_answer",
       "params": true,
       "result": true
     },
@@ -1666,6 +1684,18 @@
     {
       "kind": "request",
       "name": "_acpmux/pair_redeem",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/vault_pull",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/vault_forget",
       "params": true,
       "result": true
     },

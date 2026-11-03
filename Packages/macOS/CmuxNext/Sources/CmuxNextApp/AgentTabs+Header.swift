@@ -71,6 +71,7 @@ extension AgentTabStore {
             if toggle { toggles.toggle(id, cwd: cwd, extra: extra, chat: chat, store: store, actions: actions) }
             else { toggles.open(id, cwd: cwd, extra: extra, chat: chat, store: store, actions: actions) }
         }
+        model.header?.shown = { watch.current } // the palette's switches: the page's last state, no watch armed
         model.chatMenuItems = actions.menuItems
         model.onSearchWeb = actions.searchWeb
     }

@@ -78,6 +78,9 @@ impl Hub {
                     model,
                     effort,
                     fast: current_option(draft, "fast-mode").as_deref() == Some("on"),
+                    prompt_suggestions: crate::claude_stdio::prompt_suggestions::chat_pick(
+                        current_option(draft, crate::claude_stdio::prompt_suggestions::OPTION),
+                    ),
                     recap: current_option(draft, crate::claude_stdio::RECAP_OPTION),
                     claude_session_id: Some(fresh_id),
                 }),

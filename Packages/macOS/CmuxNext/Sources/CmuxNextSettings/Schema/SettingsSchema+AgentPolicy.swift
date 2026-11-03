@@ -272,8 +272,13 @@ extension SettingsSchema {
         "freeModel.enabled": .privacy,
         // The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.
         "cloud.newWorkspacesInCloud": .privacy, "cloud.newWorkspaceFolder": .privacy,
+        // Whether an agent starts Cloud machines and sessions with no Start card: only the person delegates it.
+        "cloud.agentsStartWithoutAsking": .userOnly,
         // The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.
         "cloud.useMyClaudeLoginOnMyCloudMachines": .privacy,
+        // The Cloud Tunnel opens the person's Cloud network to every app on this Mac: theirs to set
+        // (an agent turns it on only through `cloud tunnel on`, and macOS still asks the person).
+        "cloud.tunnel.enabled": .network,
         "agents.chats.roots": .privacy,
         "agents.chats.discovery": .privacy,
         "agentPane.scrollToBottomOnSend": .userOnly,
@@ -321,6 +326,10 @@ extension SettingsSchema {
         "browser.enabled": .userOnly,
         // On, agents can ask to read another browser's cookies and data again (`browser.importCookies`, `import.suggest`).
         "browser.import.enabled": .privacy,
+        // Only the person's Connect click opts in to reading Messages.
+        "imessage.enabled": .privacy,
+        // A walkthrough choice, never permission to read Messages or send a reply.
+        "imessage.automationSkipped": .userOnly,
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
         // The app that opens your files from a menu: an agent must not pick what runs them.
         "files.textEditor": .userOnly,

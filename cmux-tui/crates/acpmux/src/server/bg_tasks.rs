@@ -1,5 +1,5 @@
 //! The background-task methods (`hub/bg_tasks.rs`, docs/hibernation.md):
-//! `_acpmux/bg/start {sessionId, command, cwd?}`, `_acpmux/bg/list {sessionId}`,
+//! `_acpmux/bg/start {sessionId, command, cwd?, description?, notify?}`, `_acpmux/bg/list {sessionId}`,
 //! `_acpmux/bg/output {sessionId, id, fromByte?, maxBytes?}` and `_acpmux/bg/stop {sessionId, id}`.
 //!
 //! Like the process methods (`processes.rs`) they are local: a task's command line, output and
@@ -55,7 +55,17 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<
             let command = str_param(params, "command")
                 .ok_or_else(|| RpcError::invalid_params("command is required"))?;
             let cwd = str_param(params, "cwd").filter(|c| !c.is_empty()).map(Into::into);
-            hub.bg_start(&session, command, cwd).await
+            let description = str_param(params, "description").map(str::to_owned);
+            // Off unless asked: the `acpmux` MCP server's `bg_start` asks by default.
+            let notify = match params.get("notify").filter(|v| !v.is_null()) {
+                None => false,
+                Some(v) => v
+                    .as_bool()
+                    .ok_or_else(|| RpcError::invalid_params("notify must be true or false"))?,
+            };
+            // The task prints its outcome last (`run_wait`): its summary line once it ended.
+            let result_line = params.get("resultLine").and_then(Value::as_bool).unwrap_or(false);
+            hub.bg_start(&session, command, cwd, description, notify, result_line).await
         }
         method::MUX_BG_LIST => Ok(hub.bg_list(&session)),
         method::MUX_BG_OUTPUT => {

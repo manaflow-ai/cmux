@@ -23,6 +23,11 @@ import os
 /// the field.
 @MainActor
 final class HomeProjection: @preconcurrency ChatIntents {
+    var approvals: (any HomeApprovalDeciding)?
+    var approvalWrites: [HomeApprovalWriteGate] = []
+    var approvalCards: [String: HomeApprovalDisplay] = [:]
+    var approvalLatestEvent: TimeInterval = -1
+    var isPersonApprovalEvent: (NSEvent) -> Bool = { _ in false }
     let homeStore: HomeStore
     let conversation: ConversationID
     let me: ParticipantID
@@ -121,6 +126,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private(set) var appliedUpdates = 0
     /// Store reads of this conversation (`refresh`), changed or not (tests: traffic for other conversations costs none).
     private(set) var refreshPasses = 0
+    /// Store observation wakes (HomeProjection+Observe.swift), for tests: a talk token wakes no whole-message view.
+    var observedWakes = 0
     /// Bench: main-thread ms of each step of the projection passes since it was set to `[:]`,
     /// summed per step name (`passStep`, HomeStateChangePerfTests); nil, the default, records nothing.
     var passLog: [String: Double]?
@@ -156,22 +163,27 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     func start() {
+        controller.approvalDecision = { [weak self] ref, allow in _ = self?.decideApproval(ref, allow: allow) }
         refresh()
         noteObservedInputs()
         observe()
     }
 
     func stop() {
+        approvalWrites.forEach { $0.cancel() }
+        approvalWrites.removeAll()
         stopped = true
         homeStore.stopTyping(in: conversation)
         liveLine.stop()
         turnPopover?.close()
         controller.intents = nil
+        controller.approvalDecision = nil
     }
 
     // MARK: HomeStore -> projection
 
     func refresh() {
+        defer { refreshApprovalStates() }
         refreshPasses += 1
         if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
             sendWhenConfirmed = false

@@ -1928,6 +1928,12 @@
       "title" : "Reactions Can Wake the Chief",
       "type" : "boolean"
     },
+    "cloud.agentsStartWithoutAsking" : {
+      "default" : false,
+      "description" : "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
+      "title" : "Let Agents Start Cloud Sessions Without Asking",
+      "type" : "boolean"
+    },
     "cloud.newWorkspaceFolder" : {
       "default" : "inherit",
       "description" : "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
@@ -2708,6 +2714,18 @@
       ],
       "title" : "Server",
       "type" : "string"
+    },
+    "imessage.automationSkipped" : {
+      "default" : false,
+      "description" : "Remember skipping the Messages Automation step. This does not grant access or authorize sending.",
+      "title" : "Skip Messages Automation",
+      "type" : "boolean"
+    },
+    "imessage.enabled" : {
+      "default" : false,
+      "description" : "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click.",
+      "title" : "Connect iMessage",
+      "type" : "boolean"
     },
     "labs.classicHome" : {
       "default" : false,

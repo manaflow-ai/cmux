@@ -1,13 +1,52 @@
 import { describe, expect, it, vi } from "vitest"
-import { authorizeMachineHand, machineAuthState, machineHarness, machineLogin, machinePrompt, machineSignInURL, readMachineState, runMachineAgent, type MachineAgentPorts, type MachineState } from "../src/chief-brain/brain-machine.ts"
+import { authorizeMachineHand, machineAuthState, machineHarness, machineLogin, machinePrompt, machineSignInURL, readMachineState, runMachineAgent, wakeDefaultMachine, type MachineAgentPorts, type MachineState } from "../src/chief-brain/brain-machine.ts"
 import type { StoredEvent } from "../src/hand-wire.ts"
 import { env } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
 import type { ChiefBrainDO } from "../src/chief-brain/brain-do.ts"
 import type { Env } from "../src/env.ts"
 import { personalTeamIdFor } from "../src/domains/user.ts"
-import { defaultHandId, type DefaultChiefMachine } from "../src/chief-default-hand.ts"
+import { defaultHandId, type DefaultChiefMachine, type DefaultHandScope } from "../src/chief-default-hand.ts"
 import { writeConfig } from "../src/chief-brain/brain-store.ts"
+import { createdAndBound, frame, person, reply } from "./cloud-bind-support.ts"
+import type { Principal } from "@cmux/ownership"
+
+describe("default machine wake against CloudDO", { timeout: 60_000 }, () => {
+  const carrier = async () => {
+    const x = person()
+    const { machine, install } = await createdAndBound(x)
+    const chief = `agent_machine_wake_${x.user}`
+    const scope: DefaultHandScope = { owner: x.user, chief, workspace: `chief-default-${x.user}`, team: x.team, machine, provider: "fake", connection_machine: machine, install: install.id }
+    const testEnv = env as unknown as Env
+    const user = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(x.user))
+    const fake = {
+      ...testEnv,
+      // The Chief binding is the only fixture. VM installs, authorization, reads and power
+      // admission use the real UserDO and CloudDO, including their different read shapes.
+      USER_DO: { idFromName: (name: string) => name, get: () => ({
+        readOp: async (entity: string, principal: Principal, op: string, params: unknown) => op === "chief.list"
+          ? { ok: true, value: { chiefs: [{ id: chief, owner_user: x.user, archived_at: null, brain_place: null, cloud_machine: scope }] } }
+          : user.readOp(entity, principal, op, params),
+      }) },
+    } as unknown as Env
+    return { x, scope, brain: { doEnv: fake } as ChiefBrainDO }
+  }
+
+  it("continues provisioning when the actual machine read is already running", async () => {
+    const f = await carrier()
+    expect(await f.x.stub.readOp(f.x.team, f.x.p, "cloud.machine.get", { machine: f.scope.connection_machine })).toMatchObject({ ok: true, value: { status: "running" } })
+    await expect(wakeDefaultMachine(f.brain, f.scope)).resolves.toBe(true)
+  })
+
+  it("starts a paused carrier through CloudDO admission and observes it running", async () => {
+    const f = await carrier()
+    expect(reply(await f.x.stub.submit(f.x.team, f.x.p, frame("cloud.machine.pause", { machine: f.scope.connection_machine })))).toMatchObject({ t: "result" })
+    expect(await f.x.stub.readOp(f.x.team, f.x.p, "cloud.machine.get", { machine: f.scope.connection_machine })).toMatchObject({ value: { status: "paused" } })
+    await expect(wakeDefaultMachine(f.brain, f.scope)).resolves.toBe(false)
+    await expect(wakeDefaultMachine(f.brain, f.scope)).resolves.toBe(true)
+    expect(await f.x.stub.fakeControl({})).toMatchObject({ starts: 1, pauses: 1 })
+  })
+})
 
 const fixture = (initial: MachineState | null = null) => {
   let state = initial
@@ -52,6 +91,42 @@ describe("default Chief machine turn", () => {
     expect(f.state()).toMatchObject({ operation: "scoped-run", phase: "waiting_auth" })
     expect(f.ports.start).toHaveBeenCalledOnce()
     expect(f.ports.events).not.toHaveBeenCalled()
+  })
+
+  it("keeps an accepted original request pending when its first turn proves signed out", async () => {
+    for (const error_kind of ["auth.signed_out", "auth.expired"] as const) {
+      const f = fixture()
+      f.ports.auth = vi.fn(async () => "unknown" as const)
+      f.ports.events = vi.fn(async () => ({ ok: true as const, value: { events: [{ seq: 46, session: "machine-session", at: 1, event: { kind: "error" as const, code: -32603, error_kind } }], last_seq: 46, head_seq: 46 } }))
+      expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "claude", "build me original X", "scoped-run", 1000)).toEqual({ pending: "auth" })
+      expect(f.state()).toMatchObject({ phase: "waiting_auth", operation: "scoped-run", session: "machine-session", after: 46, authRetrySafe: true })
+      expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "claude", "build me original X", "scoped-run", 1000)).toEqual({ pending: "auth" })
+      expect(f.ports.start).toHaveBeenCalledOnce()
+      expect(f.ports.events).toHaveBeenCalledOnce()
+      expect(f.ports.stop).toHaveBeenCalledWith("machine-session")
+    }
+  })
+
+  it("never replays partial work, legacy uncertain work or generic errors as a sign-in retry", async () => {
+    const prior: Array<MachineState | null> = [
+      null,
+      { phase: "running", operation: "scoped-run", hand: "hand_a", cwd: "/home/cmux/proj", session: "machine-session", after: 1, text: "" },
+      { phase: "running", operation: "scoped-run", hand: "hand_a", cwd: "/home/cmux/proj", session: "machine-session", after: 1, text: "", authRetrySafe: false },
+    ]
+    for (const initial of prior) {
+      const f = fixture(initial)
+      f.ports.events = vi.fn(async () => ({ ok: true as const, value: { events: [{ seq: 2, session: "machine-session", at: 2, event: { kind: "error" as const, error_kind: initial ? "auth.expired" as const : undefined, message: "Not logged in" } }], last_seq: 2, head_seq: 2 } }))
+      expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "claude", "build me X", "scoped-run", 1000)).toEqual({ ok: false, reason: "chief.machine.agent_error" })
+      expect(f.state()?.phase).toBe("failed")
+    }
+    for (const activity of [{ kind: "text" as const, text: "Starting the build" }, { kind: "tool" as const, update: false, id: "write" }]) {
+      const f = fixture()
+      f.ports.events = vi.fn<MachineAgentPorts["events"]>().mockResolvedValueOnce({ ok: true, value: { events: [{ seq: 1, session: "machine-session", at: 1, event: activity }], last_seq: 1, head_seq: 2 } }).mockRejectedValueOnce(new Error("connection lost"))
+      expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "claude", "build me X", "scoped-run", 1000)).toEqual({ pending: "provisioning" })
+      expect(f.state()?.authRetrySafe).toBe(false)
+      f.ports.events = vi.fn(async () => ({ ok: true as const, value: { events: [{ seq: 2, session: "machine-session", at: 2, event: { kind: "error" as const, error_kind: "auth.expired" as const } }], last_seq: 2, head_seq: 2 } }))
+      expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "claude", "build me X", "scoped-run", 1000)).toEqual({ ok: false, reason: "chief.machine.agent_error" })
+    }
   })
 
   it("reconciles the same durable operation when a start response was lost", async () => {
@@ -131,6 +206,29 @@ describe("default Chief machine turn", () => {
     expect(machineSignInURL("https://claude.ai/oauth/authorize?client_id=abc", "claude")).toBe("https://claude.ai/oauth/authorize?client_id=abc")
     expect(machineSignInURL("https://auth.openai.com/codex/device", "codex")).toBe("https://auth.openai.com/codex/device")
     for (const url of ["https://evil.test/oauth/authorize", "https://claude.ai/settings", "https://user:pass@claude.ai/oauth/authorize", "https://auth.openai.com/codex/device"]) expect(machineSignInURL(url, "claude")).toBeNull()
+  })
+
+  it.each([
+    "https://claude.com/cai/oauth/authorize?client_id=test-client&state=test-state",
+    "https://claude.com/cai/oauth/authorize/?client_id=test-client",
+  ])("accepts Claude Code's subscription sign-in page: %s", (url) => {
+    expect(machineSignInURL(url, "claude")).toBe(url)
+    expect(machineSignInURL(url, "codex")).toBeNull()
+  })
+
+  it.each([
+    "https://claude.ai/cai/oauth/authorize",
+    "https://platform.claude.com/cai/oauth/authorize",
+    "https://auth.openai.com/cai/oauth/authorize",
+    "https://claude.com.evil.test/cai/oauth/authorize",
+    "https://claude.com/cai/oauth/authorize/extra",
+    "https://claude.com/cai/oauth/authorize-lookalike",
+    "https://claude.com/settings",
+    "https://user:pass@claude.com/cai/oauth/authorize",
+    "https://claude.com:8443/cai/oauth/authorize",
+    "http://claude.com/cai/oauth/authorize",
+  ])("rejects unrelated or unsafe subscription sign-in URLs: %s", (url) => {
+    expect(machineSignInURL(url, "claude")).toBeNull()
   })
 
   it("offers sign-in for a fresh image's conclusive own-auth check, while unknown stays unknown", () => {
@@ -272,9 +370,36 @@ describe("default machine sign-in recovery", () => {
       expect(f.calls).toEqual(["_acpmux/session/auth", "_acpmux/agent_login/finish", "_acpmux/session/auth"])
       expect(f.timeouts.every((timeout) => timeout <= 300_000)).toBe(true)
       expect(f.kick).toHaveBeenCalledOnce()
-      expect(readMachineState(b.sql, f.run)).toBeNull()
+      expect(readMachineState(b.sql, f.run)).toMatchObject({ phase: "dispatching", attempt: 1, after: 0, authRetrySafe: true })
       expect(b.sql.exec<{ input: string }>(`SELECT input FROM cb_turn WHERE id = ?`, f.run).one().input).toBe('["build me the original hello page"]')
       expect(JSON.stringify(b.sql.exec(`SELECT * FROM cb_config`).toArray())).not.toContain("one-use-private-code")
+    })
+  })
+
+  it("durably changes the rejected attempt after login and retries a lost dispatch without replaying it", async () => {
+    await recovery("accepted", async (b, f) => {
+      const original = readMachineState(b.sql, f.run)!
+      writeConfig(b.sql, { [`machine:${f.run}`]: JSON.stringify({ ...original, session: "rejected-session", after: 46, authRetrySafe: true }) })
+      f.auth = "ready"
+      expect(await machineLogin(b, f.owner, f.run, "finish", { loginId: "consumed-guest-login" })).toEqual({ signedIn: true, resumed: true })
+      const resumed = readMachineState(b.sql, f.run)!
+      expect(resumed).toMatchObject({ phase: "dispatching", operation: original.operation, attempt: 1, after: 0, text: "" })
+      expect(resumed.session).toBeUndefined()
+      const run = fixture(resumed)
+      const executions = new Set<string>([original.operation]) // The old ledger replays its settled auth failure.
+      const start = vi.fn<MachineAgentPorts["start"]>().mockImplementation(async (request) => {
+        expect(readMachineState(b.sql, f.run)?.attempt).toBe(1) // Saved before dispatch.
+        if (request.operation === original.operation) return { ok: false, error: { code: "cached_auth_failure", message: "old prompt replayed" } }
+        if (!executions.has(request.operation)) { executions.add(request.operation); throw new Error("accepted but response lost") }
+        return { ok: true, value: { session: "machine-session" } }
+      })
+      run.ports.start = start
+      expect(await runMachineAgent(run.ports, original.hand, original.cwd, "claude", "build me original X", original.operation, 1000)).toEqual({ pending: "provisioning" })
+      expect(await runMachineAgent(run.ports, original.hand, original.cwd, "claude", "build me original X", original.operation, 1000)).toMatchObject({ ok: true })
+      expect(start.mock.calls[0]).toEqual(start.mock.calls[1])
+      expect(executions.size).toBe(2)
+      expect(f.kick).toHaveBeenCalledOnce()
+      expect(b.sql.exec<{ input: string }>(`SELECT input FROM cb_turn WHERE id = ?`, f.run).one().input).toBe('["build me the original hello page"]')
     })
   })
 
