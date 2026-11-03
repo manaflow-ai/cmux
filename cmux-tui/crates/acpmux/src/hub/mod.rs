@@ -14,6 +14,7 @@ mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;
 mod agent_pairs;
+mod away_recap;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
@@ -238,6 +239,7 @@ mod turn_git;
 mod turn_usage;
 mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
+mod background_cause;
 pub mod background_turn;
 #[cfg(all(test, unix))]
 mod trigger_quiet_tests;
@@ -652,6 +654,12 @@ pub struct Hub {
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
     /// Work that waits for the chat index to start (`Hub::when_chats_ready`).
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
+    /// The app's `agents.chats.sessionRecap` (`away_recap.rs`), from its last chat settings push.
+    pub(super) session_recap: AtomicBool,
+    /// When each away chat's recap is asked for, in hub clock nanos (`away_recap.rs`).
+    pub(super) recap_due: StdMutex<HashMap<String, u64>>,
+    /// Wakes the recap loop when `recap_due` changes.
+    pub(super) recap_wake: Arc<Notify>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
     /// Held by each `sessions.allowFullAccess` push through its teardown (`apply_full_access_push`).
@@ -901,6 +909,9 @@ impl Hub {
             vm_marker_root: StdMutex::new(PathBuf::from("/")),
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
+            session_recap: AtomicBool::new(away_recap::saved_setting()),
+            recap_due: StdMutex::new(HashMap::new()),
+            recap_wake: Arc::new(Notify::new()),
             start_mode_state,
             full_access_pushes: tokio::sync::Mutex::new(()),
             family_gate: Arc::new(tokio::sync::RwLock::new(())),
@@ -981,6 +992,7 @@ impl Hub {
                 hub.watch_orphans();
             }
             hub.watch_titles();
+            hub.watch_recaps();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }
@@ -1244,6 +1256,7 @@ impl Hub {
             admit: StdMutex::new(()),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),
+            away: StdMutex::new(Default::default()),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             prepared: StdMutex::new(std::collections::VecDeque::new()),
@@ -1975,9 +1988,6 @@ impl Hub {
         saved
     }
 
-    /// The largest composer draft the daemon will persist for one session.
-    pub const MAX_COMPOSER_DRAFT_CHARS: usize = 1_000_000;
-
     /// Store the unsent composer text without adding it to the transcript.
     /// Whitespace-only input clears the draft while preserving whitespace in a
     /// non-empty draft exactly as typed.
@@ -1986,12 +1996,6 @@ impl Hub {
         session: &Session,
         text: &str,
     ) -> Result<Option<String>, RpcError> {
-        if text.chars().count() > Self::MAX_COMPOSER_DRAFT_CHARS {
-            return Err(RpcError::invalid_params(format!(
-                "composer draft exceeds {} characters",
-                Self::MAX_COMPOSER_DRAFT_CHARS
-            )));
-        }
         if session.moving().is_some() {
             return Err(RpcError::invalid_params(queue::moving_error().message));
         }

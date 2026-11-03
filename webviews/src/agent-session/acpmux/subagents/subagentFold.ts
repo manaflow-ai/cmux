@@ -1,5 +1,5 @@
 import { AgentProgressStore } from "./agentProgressSource";
-import type { AcpmuxRow } from "../model";
+import type { AcpmuxBackgroundReaction, AcpmuxRow } from "../model";
 import { textFromContent } from "../direct";
 import {
   markPullRequestActivityVersion,
@@ -67,6 +67,9 @@ export type Subagent = {
   progressVersion?: number;
   /// The harness runs it in the background: it outlives its turn's stop.
   background?: boolean;
+  /// The chat's reaction to its end, when acpmux weighed it (direct.ts `attachReaction`): its done
+  /// line marks a result the person has not seen, and its tooltip carries the reply.
+  reaction?: AcpmuxBackgroundReaction;
   /// What it was asked, as the harness got it (Claude's Agent `prompt`): Restart sends it again.
   prompt?: string;
   /// Why a stopped (`cancelled`) one stopped, when this pane knows (``SubagentStops``); none
@@ -392,6 +395,16 @@ export class SubagentFold {
       return true;
     }
     return events.length > 0;
+  }
+
+  /// Puts the chat's reaction on the subagent call `call` started (its Agent call, or a shell call
+  /// that runs one). Whether there is one.
+  react(call: string, reaction: AcpmuxBackgroundReaction): boolean {
+    const agent = this.agents.get(call) ?? this.agents.get(this.spawnedBy.get(call) ?? this.runs.get(call) ?? "");
+    if (!agent) return false;
+    agent.reaction = reaction;
+    this.touch(agent);
+    return true;
   }
 
   /// Whether shell call `call` started an agent, which draws as that agent and not as the call.
@@ -1062,6 +1075,9 @@ export class SubagentFold {
       agent.action = action;
       delete agent.actionShell;
     }
+    // The agentId a SendMessage names it by, which acpmux puts on its progress, so a
+    // "Sent to" row names it when its Agent call's result is on a page not loaded.
+    agent.agentId ??= text(change.agentId);
     const before = [agent.tokens, agent.toolUses];
     agent.tokens = count(change.tokens) ?? agent.tokens;
     agent.toolUses = count(change.toolUses) ?? agent.toolUses;

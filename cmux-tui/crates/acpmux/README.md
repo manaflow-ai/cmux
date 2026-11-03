@@ -467,12 +467,14 @@ Files dropped into a chat (`_acpmux/file_put`, under `<home>/uploads/<session>/`
 deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMaxAgeDays`
 (default 30; 0 keeps them), checked at the daemon's start and daily.
 
-`usageWarnings` (`{"contextTokens": 400000, "subagentsPerHour": 40, "autocompactCap": true}`,
-those are the defaults; 0 or false turns a rule off): a session whose usage breaks a rule gets
+`usageWarnings` (`{"subagentsPerHour": 40, "autocompactCap": true}`, the defaults; with no
+`contextTokens` each session is held to its own window: its autocompact cap, else its model's
+window, else 400000 when acpmux knows neither, and `"contextTokens": N` sets one line for every
+session; 0 or false turns a rule off): a session whose usage breaks a rule gets
 `usageWarnings` on its summary, `[{rule, value, limit, text, action}]`, decided from its `usageStats`
 when the summary is read (`hub/usage_warnings.rs`). `noAutocompactCap`: a Claude session known to run
 with no autocompact cap (`usageStats.autocompact` `none`); `contextTokens`: its last call's
-context is above the limit; `subagentsPerHour`: it started more subagents than the limit in the
+context is above the limit (past its own window: it did not compact); `subagentsPerHour`: it started more subagents than the limit in the
 last hour. A number acpmux could not read is null, never zero, and an unknown cap (`unknown`: a
 chat it adopted or revived without seeing its launch) or count never raises a warning. A peer's
 row names the peer's session (`<peer>/<name>`) in its commands. Each warning names the step that answers it (`actions`: `[{label, command, pending}]`, the one
@@ -1191,7 +1193,13 @@ machine to an ssh peer for good (`src/cli/run/session_move.rs`): a chat's worktr
 and checked out there as a fresh worktree (a plain folder under the home maps to the same path
 under the peer's home), the chat is moved with its history, queue and draft through the peer
 daemon's own socket (an `ssh -L` forward), and the copy here records `movedTo`, never runs again,
-and `resolve` and agent links lead to the peer. `auto` never picks a reserved host.
+and `resolve` and agent links lead to the peer. `auto` never picks a reserved host. With
+`--from PEER` the chats are on that peer and this machine drives the move over ssh to it and to
+the target (the source's checkout is read and its branch pushed there), so two machines that
+cannot reach each other trade chats; `--machine local` makes this machine the target. The bundle
+carries the agent's own store (`src/native.rs`): Claude Code's project file and Codex's rollout
+for any profile of those families, pi's session file (refiled under the target folder), and
+OpenCode's session as `opencode export`, imported in the chat's folder there.
 
 **Peer snapshots: a paused or offline peer's chat paints at once.** The daemon keeps a bounded,
 durable copy of each peer session's events as it saw them (its clients' `_acpmux/attach` and
