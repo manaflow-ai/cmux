@@ -59,6 +59,8 @@ export interface Reply {
   readonly text: string
   /** The run reference: a `work` part naming the run (trajectory), shown under the reply. */
   readonly run: { readonly id: string; readonly host: string; readonly steps: number }
+  /** A large machine reply carries its work reference once, on its last chunk. */
+  readonly continuation?: boolean
   readonly reply_to?: string
   readonly thread_root?: string
   /** Idempotency key and client message id: one per run and refused try (a retry after no answer reuses it, so it commits once). */
@@ -73,7 +75,7 @@ export const postReply = async (env: Env, principal: Principal, r: Reply): Promi
     client_msg_id: r.key,
     parts: [
       { type: "text", text: r.text },
-      { type: "work", session: r.run.id, host: r.run.host, status: "done", preview: preview(r.run.steps) }
+      ...(r.continuation ? [] : [{ type: "work", session: r.run.id, host: r.run.host, status: "done", preview: preview(r.run.steps) }])
     ],
     ...(r.reply_to ? { reply_to: { message_id: r.reply_to, part_index: 0 } } : {}),
     ...(r.thread_root ? { thread_root: r.thread_root } : {})

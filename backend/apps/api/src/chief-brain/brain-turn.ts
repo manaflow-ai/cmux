@@ -15,6 +15,7 @@ import { OPUS } from "../model-gateway/routes.ts"
 import { messageEffectAuthorized } from "./effect-policy.ts"
 import { type ChiefBrainDO, POST_RETRY_MS, retryPost, HOST, msOr, SETTLE_MS, TURN_MS, handsContinueText, type Admission } from "./brain-do.ts"
 import { machineTurn, readMachineState } from "./brain-machine.ts"
+import { machineReplyChunk } from "./brain-machine-reply.ts"
 
 /**
  * The turn loop of a ChiefBrainDO (brain-do.ts): a wake queues messages, the drain admits and opens one
@@ -417,7 +418,7 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<"pending" | 
   // including a build URL after a long response; recovery reads it from its durable state.
   const reply = ok ? machineReply ?? lastTalk(b.sql, id) : ""
   const post = !ok ? "none" : reply === "" || isNoReply(reply) ? "no_reply" : "pending"
-  b.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = ? WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), post === "pending" ? clipReply(linkIds(reply)) : null, post, id)
+  b.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = ? WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), post === "pending" ? machineReply !== undefined ? linkIds(reply) : clipReply(linkIds(reply)) : null, post, id)
   b.sql.exec(`UPDATE cb_inbox SET state = ? WHERE turn = ?`, ok ? "done" : "failed", id)
   if (!ok) [console.warn(JSON.stringify({ msg: "chief_brain.turn_failed", run: id, reason: String(reason).slice(0, 300), error: runError(b.sql, id)?.slice(0, 300) })), await turnFailedNotice(b.doEnv, b.sql, b.config(), row.conversation, id, String(reason), runError(b.sql, id))]
   b.announce(id, [])
@@ -445,7 +446,7 @@ export async function post(b: ChiefBrainDO, id: string, admission?: Promise<Admi
   b.posting.add(id)
   try {
     if (b.childOf()) return await b.childReport(id)
-    const t = b.sql.exec<{ conversation: string; trigger_message: string; trigger_kind: string; trigger_thread_root: string | null; trigger_own_root: number; reply: string | null; post: string; post_tries: number; post_key: number; ended: number | null }>(`SELECT conversation, trigger_message, trigger_kind, trigger_thread_root, trigger_own_root, reply, post, post_tries, post_key, ended FROM cb_turn WHERE id = ?`, id).toArray()[0]
+    const t = b.sql.exec<{ conversation: string; trigger_message: string; trigger_kind: string; trigger_thread_root: string | null; trigger_own_root: number; model: string; reply: string | null; post: string; post_tries: number; post_key: number; ended: number | null }>(`SELECT conversation, trigger_message, trigger_kind, trigger_thread_root, trigger_own_root, model, reply, post, post_tries, post_key, ended FROM cb_turn WHERE id = ?`, id).toArray()[0]
     const cfg = b.config()
     if (!t || t.post !== "pending" || !t.reply || !cfg.agent || !cfg.owner) return null
     // The chief may have been archived or placed on a server since the turn began.
@@ -453,14 +454,24 @@ export async function post(b: ChiefBrainDO, id: string, admission?: Promise<Admi
     const steps = Number(b.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM cb_step WHERE turn = ?`, id).one().n)
     // The ledger replays a refusal under the same key, so a refused try's retry needs a new key (the
     // key is also the client message id); an unknown outcome (no answer) retries under the same key.
-    const key = `chief-reply:${cfg.agent}:${id}:${t.post_key}`
+    const offsetKey = `machine-reply-offset:${id}`
+    const offset = t.model.startsWith("machine:") ? Number(b.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, offsetKey).toArray()[0]?.value ?? "0") : null
+    const chunk = offset !== null ? machineReplyChunk(t.reply, offset) : null
+    const key = `chief-reply:${cfg.agent}:${id}:${t.post_key}${offset !== null ? `:chunk:${offset}` : ""}`
     const res = !a.ok
       ? { ok: false as const, code: a.reason, message: a.reason }
-      : await postReply(b.doEnv, chiefPrincipal(cfg.agent, cfg.owner), { conversation: t.conversation, text: t.reply, run: { id, host: `${HOST}:${cfg.agent}`, steps }, ...replyTarget(t.trigger_kind, t.trigger_message, t.trigger_thread_root, t.trigger_own_root !== 0), key }).catch(
+      : await postReply(b.doEnv, chiefPrincipal(cfg.agent, cfg.owner), { conversation: t.conversation, text: chunk?.text ?? t.reply, run: { id, host: `${HOST}:${cfg.agent}`, steps }, ...(chunk && !chunk.done ? { continuation: true } : {}), ...replyTarget(t.trigger_kind, t.trigger_message, t.trigger_thread_root, t.trigger_own_root !== 0), key }).catch(
           (e: unknown) => ({ ok: false as const, code: "owner.unreachable", message: String(e) })
         )
     if (!res.ok && retryPost(res.code, t.post_tries, t.ended, Date.now())) {
       b.sql.exec(`UPDATE cb_turn SET post_tries = post_tries + 1, post_key = post_key + ? WHERE id = ?`, res.code === "agent_rate" ? 1 : 0, id)
+      return Date.now() + POST_RETRY_MS
+    }
+    if (res.ok && chunk && !chunk.done) {
+      // Persist only after acceptance. A lost response replays this exact chunk's key; a
+      // refused retry changes only this chunk's key and never repeats earlier chunks.
+      writeConfig(b.sql, { [offsetKey]: String(chunk.next) })
+      b.sql.exec(`UPDATE cb_turn SET post_tries = 0 WHERE id = ?`, id)
       return Date.now() + POST_RETRY_MS
     }
     if (res.ok) b.sql.exec(`UPDATE cb_turn SET post = 'posted', posted_message = ?, turn_key = ? WHERE id = ?`, res.message, key, id)
