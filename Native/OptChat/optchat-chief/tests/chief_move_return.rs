@@ -486,10 +486,18 @@ fn a_round_trip_from_the_cloud_to_a_mini_and_home_loses_nothing() {
         .unwrap();
     let on_mini = remote.join(".cmux/chief/src");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
-    while !on_mini.join("state/moved-in.json").exists() && std::time::Instant::now() < deadline {
-        // Bounded wait for the watcher's first move.
+    // Bounded wait for the watcher's first move: its flip (moved.json naming the mini) comes
+    // after the mini's moved-in.json, so wait for the flip itself.
+    let flipped = || {
+        std::fs::read_to_string(src.join("state/moved.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .is_some_and(|m| m["to"].as_str().is_some_and(|t| t.starts_with("ssh:mini:")))
+    };
+    while !flipped() && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
+    assert!(on_mini.join("state/moved-in.json").exists());
     let moved: Value =
         serde_json::from_str(&std::fs::read_to_string(src.join("state/moved.json")).unwrap())
             .unwrap();
