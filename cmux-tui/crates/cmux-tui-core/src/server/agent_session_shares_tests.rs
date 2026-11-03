@@ -189,13 +189,19 @@ fn a_guest_reaches_only_its_verbs_and_its_prompts_wait_for_the_owner() {
     assert_eq!(sent["params"]["_meta"]["acpmux"]["promptId"], id);
     assert_eq!(sent["params"]["_meta"]["acpmux"]["author"], author);
     let content = json!([{"type":"text", "text":" "}, {"type":"text", "text":"still Theo"}]);
-    assert_eq!(client.request(json!({"cmd":"agent-session-prompt", "surface":surface,
-        "client_id":"c2", "content":content}))["ok"], true);
+    assert_eq!(
+        client.request(json!({"cmd":"agent-session-prompt", "surface":surface,
+        "client_id":"c2", "content":content}))["ok"],
+        true
+    );
     let sent = fake.frame();
     assert_eq!(sent["params"]["sessionId"], SESSION);
     assert_eq!(sent["params"]["prompt"], content);
     assert_eq!(sent["params"]["_meta"]["acpmux"]["author"], author);
-    assert_eq!(sent["params"]["_meta"]["acpmux"]["promptId"], guest_prompt_id(share_id, guest_id, "c2"));
+    assert_eq!(
+        sent["params"]["_meta"]["acpmux"]["promptId"],
+        guest_prompt_id(share_id, guest_id, "c2")
+    );
     let mut unnamed = prompt;
     unnamed.as_object_mut().unwrap().remove("client_id");
     assert_code(&client.request(unnamed), "agent_session.bad_request");
