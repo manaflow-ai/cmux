@@ -259,7 +259,14 @@ impl Writer {
                 self.unsynced_since = Some(now);
             }
             let last = self.retained_last;
-            self.publish(|stats| stats.written_lsn = last);
+            let advanced = self.publish(|stats| {
+                let advanced = last > stats.written_lsn;
+                stats.written_lsn = stats.written_lsn.max(last);
+                advanced
+            });
+            if advanced {
+                self.call(&self.shared.written_listeners, last);
+            }
         }
         let segment_bytes = self.shared.config.segment_bytes;
         let full_segment = self.active.as_ref().is_some_and(|active| active.size >= segment_bytes);
@@ -319,13 +326,17 @@ impl Writer {
         });
         self.shared.durable.notify_all();
         if advanced {
-            let listeners =
-                self.shared.listeners.lock().unwrap_or_else(PoisonError::into_inner).clone();
-            for listener in listeners {
-                listener(durable);
-            }
+            self.call(&self.shared.listeners, durable);
         }
         Ok(())
+    }
+
+    /// Calls each listener in `list` with `lsn`, with no lock held.
+    fn call(&self, list: &std::sync::Mutex<Vec<crate::journal::Listener>>, lsn: Lsn) {
+        let listeners = list.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        for listener in listeners {
+            listener(lsn);
+        }
     }
 
     fn create_segment(&mut self) -> io::Result<()> {
