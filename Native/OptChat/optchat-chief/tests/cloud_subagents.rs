@@ -328,7 +328,7 @@ fn control_cloud_sets_the_default_peer_at_run_time() {
         "the peer chooses a scratch folder inside its webRoots"
     );
     assert!(
-        cloud_one.1.contains("worktree add \"$PWD\"/"),
+        cloud_one.1.contains(r#"worktree add \"$PWD\"/"#),
         "{}",
         cloud_one.1
     );
