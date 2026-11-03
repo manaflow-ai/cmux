@@ -43,9 +43,31 @@ A, B, C, D = "a" * 40, "b" * 40, "c" * 40, "d" * 40
 
 
 class WaitTests(unittest.TestCase):
-    def test_a_push_with_no_last_covered_one_runs_at_once_from_its_own_base(self):
-        self.assertEqual(coalesce.plan_wait(None, A, B, 1000.0, 900), (0.0, B))
-        self.assertEqual(coalesce.plan_wait(None, A, "0" * 40, 1000.0, 900), (0.0, ""))
+    def test_a_push_with_no_last_covered_one_runs_every_web_check_at_once(self):
+        # #33892: with no marker (the first run, an eviction) the pushes replaced before this one are outside its own
+        # push range B..A: a web/ change among them would never be checked if a docs-only A routed from B.
+        self.assertEqual(coalesce.plan_wait(None, A, B, 1000.0, 900), (0.0, coalesce.EVERYTHING))
+        self.assertEqual(coalesce.plan_wait(None, A, "0" * 40, 1000.0, 900), (0.0, coalesce.EVERYTHING))
+
+    def test_the_off_switch_routes_every_push_from_its_own_base(self):
+        self.assertEqual(coalesce.plan_wait(None, A, B, 1000.0, 0, off=True), (0.0, B))
+        self.assertEqual(coalesce.plan_wait({"sha": D, "started": 999.0, "covered": {D: C}}, A, B, 1000.0, 0,
+                                            off=True), (0.0, B))
+        self.assertEqual(coalesce.plan_wait(None, A, "0" * 40, 1000.0, 0, off=True), (0.0, ""))
+
+    def test_no_marker_records_the_full_run_so_its_rerun_runs_everything_too(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out, output = Path(tmp, "last.json"), Path(tmp, "output")
+            args = SimpleNamespace(off=False, hold_minutes=15, last=str(Path(tmp, "missing.json")), sha=A, before=B,
+                                   out=str(out))
+            with unittest.mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), \
+                    redirect_stdout(io.StringIO()) as printed:
+                coalesce.wait(args, sleep=lambda s: None, clock=lambda: 1000.0)
+            self.assertIn(f"base={coalesce.EVERYTHING}\n", output.read_text())
+            self.assertIn("every web check", printed.getvalue())
+            marker = coalesce.read_last(str(out))
+            self.assertEqual(marker["covered"], {A: coalesce.EVERYTHING})
+            self.assertEqual(coalesce.plan_wait(marker, A, B, 1001.0, 900, attempt=2), (0.0, coalesce.EVERYTHING))
 
     def test_a_push_inside_the_window_waits_for_it_and_routes_from_the_last_covered_commit(self):
         last = {"sha": B, "started": 1000.0}
@@ -63,9 +85,9 @@ class WaitTests(unittest.TestCase):
         # A newer push ran since: the re-run of A still routes from C, never from the newer covered commit.
         last = {"sha": D, "started": 2000.0, "covered": {A: C, D: A}}
         self.assertEqual(coalesce.plan_wait(last, A, B, 2001.0, 900, attempt=2), (0.0, C))
-        # Forgotten: its own push base, no wait.
+        # Forgotten: the range its first attempt covered is unknown, so every web check, no wait (#33892).
         self.assertEqual(coalesce.plan_wait({"sha": D, "started": 2000.0, "covered": {}}, A, B, 2001.0, 900,
-                                            attempt=2), (0.0, B))
+                                            attempt=2), (0.0, coalesce.EVERYTHING))
 
     def test_a_rerun_leaves_the_marker_as_it_was(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -379,6 +401,8 @@ class WorkflowTests(unittest.TestCase):
     def test_the_bisect_runs_on_a_red_push_and_never_fails(self):
         job = self.web["jobs"]["web-bisect"]
         self.assertIn("needs.web.result == 'failure'", job["if"])
+        # A run of every web check has no covered range to bisect.
+        self.assertIn(f"needs.coalesce.outputs.base != '{coalesce.EVERYTHING}'", job["if"])
         self.assertIn("github.event_name == 'push'", job["if"])
         bisect = next(s for s in job["steps"] if s["name"] == "Bisect the new webview reds")
         self.assertIs(bisect["continue-on-error"], True)
@@ -391,6 +415,24 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.lint["concurrency"]["group"], "cmux-next-web-lint-${{ github.sha }}")
         self.assertNotIn("web-lint", self.web["jobs"])
         self.assertNotIn("needs", self.lint["jobs"]["web-lint"])
+
+    def test_an_unknown_covered_range_runs_every_web_subarea(self):
+        import web_subareas  # noqa: PLC0415
+        self.assertEqual(web_subareas.EVERY_SUBAREA, coalesce.EVERYTHING)
+        steps = yaml.safe_load(CI_WEB.read_text())["jobs"]["web-subarea-scope"]["steps"]
+        fetch = next(s for s in steps if s.get("name") == "Fetch the push base")
+        self.assertIn(f"inputs.push_base != '{coalesce.EVERYTHING}'", fetch["if"])
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp, "output")
+            env = {"GITHUB_OUTPUT": str(output), "EVENT_NAME": "push", "GITHUB_REF": "refs/heads/feat-cmux-next",
+                   "WEB_SUBAREAS_BASE": coalesce.EVERYTHING}
+            with unittest.mock.patch.dict(os.environ, env), redirect_stdout(io.StringIO()), \
+                    unittest.mock.patch.object(web_subareas, "changed_paths",
+                                               side_effect=AssertionError("no diff for an unknown range")):
+                self.assertEqual(web_subareas.route(), 0)
+            everything = Path(tmp, "all")
+            web_subareas.WebSubareas.all().emit(everything)
+            self.assertEqual(output.read_text(), everything.read_text())
 
     def test_the_pull_request_webview_verdict_is_untouched(self):
         # Condition 3: react-apps-base-check runs on pull requests only, from the head shards' own results.

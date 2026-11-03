@@ -2136,6 +2136,16 @@ jobs:
           f="$RUNNER_TEMP/acpmux-input/acpmux"; mkdir -p "${f%/*}"; rm -f "$f.ref"; echo alias > "$f"
           echo "CMUX_NEXT_ACPMUX_BIN=$f" >> "$GITHUB_ENV"
 
+      - name: Prefetch the cmux-tui client while the tree publishes
+        if: (inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true') && steps.nightly-product.outputs.hit != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.tree_pending == 'true'
+        continue-on-error: true
+        env:
+          PREFETCH_GH_TOKEN: ${{ github.token }}
+          CMUX_TUI_CLIENT_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
+          TREE_CANDIDATES: ${{ needs.resolve-nightly-cmux-tui-client.outputs.tree_candidates }}
+          CMUX_TUI_CLIENT_CACHE: ${{ runner.temp }}/cmux-tui-client
+        run: bash scripts/ci/nightly-steps/app-prefetch-pending-cmux-tui.sh start
+
       - name: Build in-tree acpmux for the compilation cache
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.tree_pending != 'true'
         env:
@@ -2237,6 +2247,26 @@ jobs:
         timeout-minutes: 12
         run: scripts/ci/ensure-setup-node.sh 24.22.1
 
+      # build-nightly-inputs can start after this step (run 41570134320 queued it 7.6 min, so the
+      # bundles built here for 106 s); feat-cmux-next's pushes publish them to R2 by source key.
+      - name: Source key of the web bundles (cmux-next)
+        id: app-web-key
+        if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
+        run: scripts/ci/nightly-steps/inputs-web-bundles.sh key
+
+      - name: Restore the published web bundles (cmux-next)
+        id: app-web-r2
+        if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+        with:
+          backend: r2
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.app-web-key.outputs.key }}
+
       # A pattern, not a name: an artifact that is not there yet downloads
       # nothing instead of failing.
       - name: Download the web bundles built beside the app (cmux-next)
@@ -2250,6 +2280,8 @@ jobs:
 
       - name: Build the web bundles (cmux-next)
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
+        env:
+          RESTORED: ${{ steps.app-web-r2.outputs.cache-hit }}
         run: bash scripts/ci/nightly-steps/app-build-web-bundles.sh
 
       - name: Finish fetching the Chromium engine
@@ -4404,9 +4436,7 @@ jobs:
           retention-days: 3
 
 
-      # cx-f58x notary tests leave text receipts only: the repository is
-      # public, so no app, DMG or recovery artifact of a diagnostic build or
-      # of the production-identity probe is ever uploaded.
+      # cx-f58x: text receipts only (notary-test-receipt.sh).
       - name: Write notary test receipt
         id: notary-receipt
         if: always() && needs.decide.outputs.notary_test == 'true' && steps.notarize-nightly.outcome != 'skipped'
@@ -4416,40 +4446,9 @@ jobs:
           EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
           NOTARY_PROBE: ${{ needs.decide.outputs.notary_probe }}
           NOTARIZE_OUTCOME: ${{ steps.notarize-nightly.outcome }}
-        run: |
-          set -uo pipefail
-          out="notary-receipt"
-          mkdir -p "$out"
-          {
-            echo "run: $GITHUB_RUN_ID attempt ${GITHUB_RUN_ATTEMPT:-1}"
-            echo "commit: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}"
-            echo "bundle id: $CHANNEL_BUNDLE_ID"
-            echo "production probe: $NOTARY_PROBE"
-            echo "import variant: $IMPORT_VARIANT"
-            echo "swift flags: ${SWIFT_IMPORT_FLAGS:-none}"
-            echo "empty browser-sources.json: $EMPTY_BROWSER_SOURCES"
-            echo "notarize step: $NOTARIZE_OUTCOME"
-            if [ -f "$NIGHTLY_DMG_RELEASE" ]; then echo "dmg sha256: $(shasum -a 256 "$NIGHTLY_DMG_RELEASE" | cut -d' ' -f1)"; fi
-            if [ -f "$NIGHTLY_DMG_RELEASE.notarization.state" ]; then grep -E '^(submission_id|status)=' "$NIGHTLY_DMG_RELEASE.notarization.state" || true; fi
-          } > "$out/receipt.txt"
-          [ -f "$NIGHTLY_DMG_RELEASE.notarization.log" ] && cp "$NIGHTLY_DMG_RELEASE.notarization.log" "$out/notarization.log"
-          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$CHANNEL_APP_PATH/Contents/Info.plist" > "$out/bundle-id.txt" 2>&1
-          if /usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$CHANNEL_APP_PATH/Contents/Info.plist" >/dev/null 2>&1; then
-            echo "SUPublicEDKey present" > "$out/sparkle.txt"
-          else
-            echo "SUPublicEDKey absent (Sparkle disabled)" > "$out/sparkle.txt"
-          fi
-          codesign -dvv "$CHANNEL_APP_PATH" > "$out/codesign.txt" 2>&1
-          xcrun stapler validate "$CHANNEL_APP_PATH" > "$out/stapler-app.txt" 2>&1
-          [ -f "$NIGHTLY_DMG_RELEASE" ] && xcrun stapler validate "$NIGHTLY_DMG_RELEASE" > "$out/stapler-dmg.txt" 2>&1
-          spctl -a -vv -t exec "$CHANNEL_APP_PATH" > "$out/spctl-app.txt" 2>&1
-          [ -f "$NIGHTLY_DMG_RELEASE" ] && spctl -a -vv -t open --context context:primary-signature "$NIGHTLY_DMG_RELEASE" > "$out/spctl-dmg.txt" 2>&1
-          syspolicy_check distribution "$CHANNEL_APP_PATH" > "$out/syspolicy-check.txt" 2>&1
-          cat "$out/receipt.txt" "$out/sparkle.txt" "$out/stapler-app.txt"
-          { echo "### cx-f58x notary test receipt"; echo '```'; cat "$out/receipt.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          # Receipts are text only: refuse to upload anything else.
-          if find "$out" -type f ! -name '*.txt' ! -name '*.log' | grep -q .; then echo "non-text receipt file" >&2; exit 1; fi
-          exit 0
+          BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+        # An unsigned resume of an older tree may predate the script: the workflow commit's copy.
+        run: s=scripts/ci/nightly-steps/notary-test-receipt.sh; [ -f "$s" ] || s=".nightly-signing-control/$s"; bash "$s"
 
 
       - name: Upload notary test receipt

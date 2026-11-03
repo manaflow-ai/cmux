@@ -154,9 +154,9 @@ test("five ended reports collapse to one count and preserve all five independent
 test("a single report shows its verdict; its full P2 remains readable and metadata is under Details", async () => {
   const { opened } = await mount([report("single-block", "BLOCK")]);
   expect(host.querySelector(".cv-lane-batch")).toBeNull();
-  expect(host.querySelector(".cv-received__preview")?.textContent).toContain("BLOCK");
-  expect(host.querySelector(".cv-received__preview")?.textContent).not.toContain("lane report: turn");
-  expect(host.querySelector(".cv-received__preview")?.textContent).not.toContain("\n");
+  expect(host.querySelector(".cv-disclosure__below")?.textContent).toContain("BLOCK");
+  expect(host.querySelector(".cv-disclosure__below")?.textContent).not.toContain("lane report: turn");
+  expect(host.querySelector(".cv-disclosure__below")?.textContent).not.toContain("\n");
   expect(host.querySelector(".cv-received__text")).toBeNull();
   await click(".cv-received__from--open");
   expect(opened).toEqual(["session-single-block"]);

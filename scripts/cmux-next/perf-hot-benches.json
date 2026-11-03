@@ -13,7 +13,7 @@
     },
     "cef-host-input": {
       "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helperPrototype): encode and one non-blocking write",
-      "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us)",
+      "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us); fleet entry scripts/measure/chromium-host-bench.sh",
       "owner": "PL-cef-helper"
     },
     "key-dispatch": {
