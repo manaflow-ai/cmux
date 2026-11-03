@@ -519,6 +519,7 @@ fn exec_mode(
     answer: &mut dyn FnMut(Request) -> Value,
     workflow_inputs: Option<Value>,
 ) -> Result<Value, String> {
+    let workflow_mode = workflow_inputs.is_some();
     if let Some(name) = arguments.keys().find(|name| name.as_str() != "script") {
         return Err(format!("{EXEC} has no argument {name:?}"));
     }
@@ -599,14 +600,22 @@ fn exec_mode(
     Ok(match outcome.result {
         Ok(result) => {
             value.set("result", result);
-            super::success(fit(value), applied)
+            if workflow_mode {
+                json!({"isError":false,"content":[],"structuredContent":value})
+            } else {
+                super::success(fit(value), applied)
+            }
         }
         Err(error) => {
             value.set("error", error);
             // `partial`: some call may have applied; `call_log` says which,
             // with each failed call's state and idempotency key.
             value.set("state", json!(if applied { "partial" } else { "not_run" }));
-            super::tool_error(fit(value))
+            if workflow_mode {
+                json!({"isError":true,"content":[],"structuredContent":value})
+            } else {
+                super::tool_error(fit(value))
+            }
         }
     })
 }

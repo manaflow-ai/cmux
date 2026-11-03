@@ -24,7 +24,9 @@ pub(super) fn internal_call(backend: &impl Backend, operation: Internal) -> Valu
         None,
         !operation.wait,
     ) {
-        Ok(value) => success(value, !operation.wait),
+        // This bridge is internal to the interpreter, not an MCP response to
+        // a model. Keep the complete outcome for durable journal delivery.
+        Ok(value) => json!({"isError":false,"content":[],"structuredContent":value}),
         Err(error) => failure_result(error),
     }
 }

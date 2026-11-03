@@ -188,3 +188,14 @@ fn native_workflow_engine_invalid_start_rejects_locally_without_wait() {
         "{result}"
     );
 }
+
+#[test]
+fn native_workflow_engine_preserves_large_durable_results() {
+    let output =
+        workflow_exec("return 'x'.repeat(300000);", json!([]), Limits::default(), &mut |_| {
+            panic!("no host call")
+        })
+        .unwrap();
+    assert_eq!(output["isError"], false, "{output}");
+    assert_eq!(output["structuredContent"]["result"].as_str().unwrap().len(), 300000);
+}
