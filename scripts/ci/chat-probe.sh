@@ -11,7 +11,7 @@
 # fetched from the controller and checked against that digest. The probe runs the app's
 # Contents/Resources/bin/acpmux with its own ACPMUX_HOME (an empty one inside the step, so it never touches or
 # talks to a daemon the Mac already runs), HOME set to the step user's real home (where that account's harness
-# logins live), no --cwd (acpmux gives the chat a scratch folder: a no-folder chat) and `--on-permission deny`.
+# logins live), no --cwd (acpmux gives the chat a scratch folder: a no-folder chat) and `--on-permission deny`; `--` ends the flags, so a prompt that starts with `-` is text.
 # --harness is acpmux's -m head (default claude). --seconds bounds the turn (default 120, at most 600); a watchdog
 # ends the run 60 s after that whatever it does.
 #
@@ -109,7 +109,7 @@ echo "chat-probe: $(/usr/bin/id -un) on $(/bin/hostname -s), home $real_home, ha
 mkdir -p "$acpmux_home" "$work/run"
 cd "$work/run"
 HOME="$real_home" ACPMUX_HOME="$acpmux_home" PATH="$real_home/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
-  "$acpmux" --json run -m "$harness" --timeout "$seconds" --on-permission deny "$prompt" \
+  "$acpmux" --json run -m "$harness" --timeout "$seconds" --on-permission deny -- "$prompt" \
   >"$work/out.json" 2>"$work/err.json" </dev/null &
 run_pid=$!
 ( sleep $((seconds + 60)); kill -TERM "$run_pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
