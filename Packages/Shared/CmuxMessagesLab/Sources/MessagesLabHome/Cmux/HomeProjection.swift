@@ -126,6 +126,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private(set) var appliedUpdates = 0
     /// Store reads of this conversation (`refresh`), changed or not (tests: traffic for other conversations costs none).
     private(set) var refreshPasses = 0
+    /// Store observation wakes (HomeProjection+Observe.swift), for tests: a talk token wakes no whole-message view.
+    var observedWakes = 0
     /// Bench: main-thread ms of each step of the projection passes since it was set to `[:]`,
     /// summed per step name (`passStep`, HomeStateChangePerfTests); nil, the default, records nothing.
     var passLog: [String: Double]?
