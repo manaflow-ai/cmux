@@ -38,6 +38,7 @@ dependencies = [
  "futures",
  "futures-util",
  "getrandom 0.3.4",
+ "jsonschema",
  "libc",
  "memchr",
  "notify",
