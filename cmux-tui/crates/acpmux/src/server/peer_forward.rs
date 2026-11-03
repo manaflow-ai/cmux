@@ -221,17 +221,30 @@ pub(super) async fn forward(
 ) -> Option<Result<Value, RpcError>> {
     let reply = forward_inner(hub, conn, m, params).await.transpose();
     // A client waits on a peer that is down (a chat it opens): the peer reconnects within
-    // seconds (`peer_wanted.rs`). A peer daemon's connection is no client waiting here.
-    if conn.origin != Origin::Peer
-        && let Some(Err(e)) = &reply
+    // seconds (`peer_wanted.rs`). A peer daemon's connection is no client waiting here. A
+    // message for a session there, from any connection (a peer daemon's forward and this
+    // daemon's own outbox included), also asks the peer's route to wake a paused machine
+    // (`Peer::wake`); the sender's outbox delivers it once the link is back.
+    if let Some(Err(e)) = &reply
         && let Some(peer) = unreachable_peer(hub, e)
     {
-        peer.want();
+        ask_back(&peer, m, conn.origin);
     }
     if conn.origin == Origin::Peer {
         return reply.map(|r| r.map_err(super::redact::hide_unreachable_peer));
     }
     reply
+}
+
+/// What a request refused because `peer`'s link is down asks of the peer: a message (from any
+/// connection) wakes it (`Peer::wake`), a client's other request wants it back (`Peer::want`),
+/// and a peer daemon's other request asks nothing.
+fn ask_back(peer: &crate::peer::Peer, m: &str, origin: Origin) {
+    if m == method::SESSION_PROMPT {
+        peer.wake();
+    } else if origin != Origin::Peer {
+        peer.want();
+    }
 }
 
 /// The peer of this daemon that `e` refused a request for because its link is down.
@@ -282,6 +295,16 @@ async fn forward_inner(
         && hub.resolve(key).is_err()
         && let Some((peer, id, row)) = hub.resolve_remote(key)
     {
+        // A link that is down lists no features (`link_ended`), so every feature check below (the
+        // trust gate, attachments, a prompt that waits for the owner) would call a prompt
+        // unsupported: final for the outbox, and the peer never asked to wake. The prompt is
+        // refused as unreachable instead, which `forward` turns into a wake and the outbox tries
+        // again; the checks run on that try, once the link is back.
+        if m == method::SESSION_PROMPT && !peer.ready() {
+            crate::author::of_prompt(params)?;
+            crate::prompt_provenance::notice_checked(params)?;
+            return Err(peer.unreachable_error());
+        }
         if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
             return Err(super::trust_gate::peer_unsupported(&peer.name));
         }
@@ -641,7 +664,18 @@ async fn forward_inner(
         // A page goes on the link it is labelled with, or fails; so does a held prompt, an
         // answer to one or a read of one, on the link that listed its feature.
         let on = bound.unwrap_or_else(|| pages.then_some(link).or(resume_link.flatten()));
-        let result = if crate::peer::waits_on_turn(m) {
+        let result = if matches!(m, method::MUX_INFO | method::MUX_EVENTS | method::MUX_HISTORY) {
+            // History reads answer from the current snapshot, even during a running turn.
+            // A connected link can still have a stuck handler; do not inherit its ten-minute
+            // generic deadline. Dropping this future releases its pending reply entry. Attach
+            // keeps its existing lifecycle: it installs a live subscription before replying.
+            tokio::time::timeout(std::time::Duration::from_secs(30), peer.request_on(m, p, on))
+                .await
+                .unwrap_or_else(|_| Err(RpcError::internal(format!(
+                    "reading {m} from peer {} did not finish within 30 seconds; check the peer connection and retry this read",
+                    peer.name
+                )).with_data(json!({"reason": "peer_read_timeout", "peer": peer.name, "method": m}))))
+        } else if crate::peer::waits_on_turn(m) {
             tokio::select! {
                 result = peer.request_on(m, p, on) => result,
                 () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
@@ -910,6 +944,28 @@ mod tests {
                 .unwrap();
             assert!(!result, "stopped peer was reported ready");
         }
+    }
+
+    /// A message for a down peer's session wakes the peer whoever sent it, a peer daemon's
+    /// forward of another daemon's send included; any other request from a peer daemon asks
+    /// nothing, and a client's wants the link back without asking its route to wake a machine.
+    #[test]
+    fn only_a_message_asks_a_down_peers_route_to_wake_it() {
+        let peer = || {
+            let (notices, _receiver) = tokio::sync::mpsc::channel(1);
+            crate::peer::Peer::new("fs-lane-3", "ssh://fs-lane-3", None, None, notices)
+        };
+        for origin in [Origin::Peer, Origin::Local, Origin::Web] {
+            let p = peer();
+            ask_back(&p, method::SESSION_PROMPT, origin);
+            assert!(p.waking() && p.is_wanted(), "{origin:?}");
+        }
+        let p = peer();
+        ask_back(&p, method::MUX_ATTACH, Origin::Peer);
+        assert!(!p.waking() && !p.is_wanted());
+        let p = peer();
+        ask_back(&p, method::MUX_ATTACH, Origin::Local);
+        assert!(!p.waking() && p.is_wanted());
     }
 
     /// A refused answer for a peer's prompt names that peer, so the app can say where to

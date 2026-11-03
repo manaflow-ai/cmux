@@ -100,6 +100,7 @@ impl Brain {
                         self.last_agent_send = Some(now_ms());
                     }
                     if let Some(cmux_conversation::Change::Message { message }) = change {
+                        self.home_approval_posted(&conversation, &key, &op, &message);
                         self.note_posted(&conversation, &key, &message);
                         self.sent(&key, &message.id);
                     }

@@ -7,12 +7,13 @@ public import Foundation
 @MainActor public struct CloudCredentialTransfer {
     public enum Provider: String, Sendable, Equatable, Hashable { case claude, codex }
     public enum Failure: LocalizedError, Equatable {
-        case consentRequired, scopeChanged, sharedMachine, incompatibleConfiguration
+        case consentRequired, scopeChanged, sharedMachine, incompatibleConfiguration, copyTurnedOff
         case localLoginUnavailable, loginFailed, invalidCredential, storeFailed, deliveryFailed
 
         public var errorDescription: String? {
             switch self {
             case .consentRequired: "Confirm this machine and provider before transferring credentials."
+            case .copyTurnedOff: "Copying your login to Cloud machines is off; sign in on the machine instead."
             case .scopeChanged: "The signed-in account or Cloud team changed; start the transfer again."
             case .sharedMachine: "Personal credentials can only be transferred to a Cloud machine you own."
             case .incompatibleConfiguration: "The target's provider configuration conflicts with own login."
@@ -56,12 +57,19 @@ public import Foundation
     /// `callerOwnsVM`: the signed-in caller owns the machine, from the platform (the classic attach
     /// answer's `vmKind == "owner"`, which #28788 gives a team machine's creator, or a Worker
     /// machine's owner link), never from a guest file (the app's `CloudService.callerOwnsVM`).
+    ///
+    /// `stillAllowed`: asked last, right before the login is written (a Release build re-reads its
+    /// remote switch and the person's consent there, since a confirm or a sign-in may have outlasted
+    /// the switch's answer). False stops the copy with ``Failure/copyTurnedOff``.
+    /// No default: every caller says what it re-reads, and a default async closure is a crash class.
     public func run(api: CloudAPIClient, currentTeamID: @MainActor () -> String?, currentUserID: @MainActor () -> String?, confirmed: Bool,
-             refresh: Bool = false, callerOwnsVM: @escaping @Sendable () async throws -> Bool) async throws {
+             refresh: Bool = false, callerOwnsVM: @escaping @Sendable () async throws -> Bool,
+             stillAllowed: @escaping @Sendable () async -> Bool) async throws {
         let pinned = api.pinningTeam(teamID)
         try await run(currentTeamID: currentTeamID, currentUserID: currentUserID, confirmed: confirmed, refresh: refresh,
             effects: Effects(
                 callerOwnsVM: callerOwnsVM,
+                stillAllowed: stillAllowed,
                 exec: { try await pinned.exec(machineID, command: $0, timeoutMs: 20_000).exitCode },
                 write: { try await Self.stage($1, at: $0, on: pinned, machineID: machineID) },
             // Codex auth.json is never reused as a seed: its refresh token is VM-bound and may
@@ -98,6 +106,7 @@ public import Foundation
 
     nonisolated struct Effects: Sendable {
         var callerOwnsVM: @Sendable () async throws -> Bool
+        var stillAllowed: @Sendable () async -> Bool = { true }
         var exec: @Sendable (String) async throws -> Int
         var write: @Sendable (String, Data) async throws -> Void
         var load: @Sendable () async throws -> Data?
@@ -138,6 +147,8 @@ public import Foundation
         // Recheck after browser/Keychain interaction; the target may have changed meanwhile.
         guard try await effects.callerOwnsVM() else { throw Failure.sharedMachine }
         guard try await effects.exec(preflight) == 0 else { throw Failure.sharedMachine }
+        guard await effects.stillAllowed() else { throw Failure.copyTurnedOff }
+        try checkScope()
         let path = "/home/cmux/.cmux/credential-transfer/\(UUID().uuidString).json"
         do {
             try checkScope()

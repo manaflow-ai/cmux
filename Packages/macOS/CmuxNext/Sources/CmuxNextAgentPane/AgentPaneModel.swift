@@ -329,6 +329,7 @@ public final class AgentPaneModel {
     /// The app's Cloud machines for `cloudMachine.*` (``AgentPaneCloudMachines``); nil refuses every method.
     @ObservationIgnored public var cloudMachines: AgentPaneCloudMachines?
     @ObservationIgnored public var onCloudEnvironment: (@MainActor (AgentPaneCloudEnvironmentRequest) async -> [String: Any])?
+    @ObservationIgnored public var onIMessage: (@MainActor (AgentPaneIMessageAction) async -> [String: Any])?
     /// Asks the user to confirm a config option that is not free (the view's native sheet).
     @ObservationIgnored public var onConfirmMode: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
 
@@ -394,6 +395,7 @@ public final class AgentPaneModel {
         case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects: break
         case .reply(let reply) where reply.isPassive: break
         case .cloudEnvironment(let request) where request.action != "update": break
+        case .imessage(let action) where action.isPassive: break
         default:
             let name = String(String(describing: request).prefix { $0 != "(" })
             if touchedBy?.split(separator: ",").contains(Substring(name)) != true, (touchedBy?.count ?? 0) < 200 {
@@ -570,6 +572,12 @@ public final class AgentPaneModel {
                 return Self.transportFailure(.gestureRequired)
             }
             return await onCloudEnvironment(request)
+        case .imessage(let action):
+            guard let onIMessage else { return Self.unsupported("imessage") }
+            guard action.isPassive || userGesture || transport.gestures.consume() else {
+                return Self.transportFailure(.gestureRequired)
+            }
+            return await onIMessage(action)
         case .cloudCredentialTransfer(let request):
             guard remoteChat, newTab == nil, sessionId == request.sessionID else {
                 return AgentPaneReply.failure(code: "unavailable", message: "Credential setup is unavailable for this chat.")
@@ -611,7 +619,7 @@ public final class AgentPaneModel {
             } catch {
                 return AgentPaneReply.failure(code: "btw_failed", message: "Inline side question failed")
             }
-        case .paneAction, .moveToMachine, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .copyText, .sideChat, .subagentPane, .subagentShown, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
+        case .paneAction, .moveToMachine, .diffTurn, .diffPatch, .preview, .setQuickActions, .tabState, .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .copyText, .sideChat, .subagentPane, .subagentShown, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)

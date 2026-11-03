@@ -573,6 +573,8 @@ pub struct Agents {
     pub prompt_ids: Vec<String>,
     pub events: BTreeMap<String, Vec<AcpmuxEvent>>,
     pub ended: Vec<String>,
+    /// `prompt <session>` and `end <session>`, in the order they ran.
+    pub calls: Vec<String>,
     /// Turns held before they run, released by `release`.
     pub hold: bool,
     pub released: usize,
@@ -624,6 +626,9 @@ pub struct Agents {
     /// The `_acpmux/harnesses` answer; None: `catalog()` (claude-sr and
     /// claude on acpmux's own Claude Code adapter, codex on its ACP adapter).
     pub catalog: Option<Value>,
+    pub machine_status: Option<Value>,
+    pub peer_catalogs: BTreeMap<String, Value>,
+    pub harness_health: BTreeMap<String, Value>,
     /// The harness acpmux reports a new session on (`session`); None: the
     /// one the spec asked for.
     pub session_harness: Option<String>,
@@ -889,6 +894,7 @@ impl AgentPort for FakeAgents {
             inner.prompts.push(blocks.clone());
             inner.prompt_ids.push(prompt_id.to_owned());
             inner.prompt_sessions.push(session.to_owned());
+            inner.calls.push(format!("prompt {session}"));
             inner.signals.insert(session.to_owned(), signals.clone());
             inner.turn_over.remove(session);
             inner.prompts.len() - 1
@@ -954,7 +960,9 @@ impl AgentPort for FakeAgents {
     }
 
     fn end_session(&self, session: &str) -> Result<(), String> {
-        self.inner.lock().unwrap().ended.push(session.to_owned());
+        let mut inner = self.inner.lock().unwrap();
+        inner.ended.push(session.to_owned());
+        inner.calls.push(format!("end {session}"));
         Ok(())
     }
 
@@ -976,6 +984,43 @@ impl AgentPort for FakeAgents {
             .catalog
             .clone()
             .unwrap_or_else(catalog))
+    }
+
+    fn machine_status(&self) -> Result<Value, String> {
+        Ok(self
+            .inner
+            .lock()
+            .unwrap()
+            .machine_status
+            .clone()
+            .unwrap_or_else(
+                || json!({"here": {"os": "macos", "pressure": {"ok": true}}, "peers": []}),
+            ))
+    }
+
+    fn harness_catalog_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        match peer {
+            Some(name) => self
+                .inner
+                .lock()
+                .unwrap()
+                .peer_catalogs
+                .get(name)
+                .cloned()
+                .ok_or_else(|| "no peer catalog".into()),
+            None => self.harness_catalog(),
+        }
+    }
+
+    fn harness_health_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        Ok(self
+            .inner
+            .lock()
+            .unwrap()
+            .harness_health
+            .get(peer.unwrap_or("here"))
+            .cloned()
+            .unwrap_or_else(|| json!({"harnesses": []})))
     }
 
     fn session(&self, id: &str) -> Result<Option<cmux_chief::acp::SessionSummary>, String> {
@@ -1276,10 +1321,16 @@ impl Harness {
 
     /// A new message in the conversation, as the subscription delivers it.
     pub fn say(&mut self, author: &str, text: &str) -> Message {
+        self.say_at(author, text, "")
+    }
+
+    /// `say`, with the owner's `created_at` stamp (RFC 3339).
+    pub fn say_at(&mut self, author: &str, text: &str, created_at: &str) -> Message {
         let m = {
             let mut owner = self.owner.lock().unwrap();
             let seq = owner.messages.len() as u64 + 1;
-            let m = message(seq, author, text);
+            let mut m = message(seq, author, text);
+            m.created_at = created_at.to_owned();
             owner.messages.push(m.clone());
             m
         };

@@ -269,6 +269,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TEAM_READ, Request),
         untyped(method::MUX_TEAM_ACK, Request),
         untyped(method::MUX_HISTORY, Request),
+        untyped(method::MUX_SESSION_SEARCH, Request),
         untyped(method::MUX_COMPLETE, Request),
         untyped(method::MUX_WAIT, Request),
         untyped(method::MUX_WATCH_ADD, Request),
@@ -337,6 +338,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SECRET_REQUEST, Request),
         untyped(method::MUX_SECRET_SUBMIT, Request),
         untyped(method::MUX_SECRET_RUN, Request),
+        untyped(method::MUX_MCP_CONNECT_REQUEST, Request),
+        untyped(method::MUX_MCP_CONNECT_ANSWER, Request),
         // Chats (`server/chats.rs`).
         untyped("_acpmux/chats", Request),
         untyped("_acpmux/chats_watch", Request),
