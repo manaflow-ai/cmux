@@ -1983,6 +1983,35 @@ fn ended_turn_text(
 }
 
 #[cfg(test)]
+mod cut_kind_tests {
+    use super::{cut_kind, Cut};
+    use crate::turn::TurnOutcome;
+
+    fn failed(error: &str) -> TurnOutcome {
+        TurnOutcome {
+            error: Some(error.to_owned()),
+            ..TurnOutcome::default()
+        }
+    }
+
+    /// Leo, 2026-11-03: "(turn failed on claude-sr2-pipe: session/new: no
+    /// answer within 200 s)" posted as the Chief's reply.
+    #[test]
+    fn session_new_timeout_runs_again() {
+        let outcome = failed("session/new: no answer within 200 s");
+        assert_eq!(cut_kind(&outcome), Some(Cut::Upstream));
+    }
+
+    #[test]
+    fn a_timeout_after_a_reply_or_elsewhere_still_fails() {
+        let mut replied = failed("session/new: no answer within 200 s");
+        replied.reply = Some("Let me check.".to_owned());
+        assert_eq!(cut_kind(&replied), None);
+        assert_eq!(cut_kind(&failed("session/new: env key refused")), None);
+    }
+}
+
+#[cfg(test)]
 mod ended_turn_text_tests {
     use super::ended_turn_text;
 
