@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 563,
+  "count": 565,
   "sections": [
     {
       "id": "general",
@@ -3613,6 +3613,19 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.rowSpacing",
+          "title": "Row Spacing",
+          "help": "The space between rows in the sidebar.",
+          "kind": "number",
+          "default": null,
+          "group": "Sidebar",
+          "range": {
+            "min": 0,
+            "max": 12,
+            "unit": "points"
+          }
+        },
+        {
           "key": "sidebar.sectionLook",
           "title": "Section Look",
           "help": "How the sections above and below the workspace list draw.",
@@ -5529,6 +5542,14 @@
             "title",
             "full"
           ]
+        },
+        {
+          "key": "feed.needsYouInChief",
+          "title": "Pin Needs You in Chief",
+          "help": "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Feed"
         },
         {
           "key": "notifications.attention.agentChatBlinkCount",
