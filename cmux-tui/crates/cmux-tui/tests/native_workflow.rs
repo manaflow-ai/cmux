@@ -127,7 +127,11 @@ impl Machine {
             // and an event that arrived before this watcher attached to that directory.
             for activity in run.activities.values() {
                 if let Child::Agent { session_id, .. } = &activity.child {
-                    watch.add(&self.dir.path().join("acpmux/sessions").join(session_id));
+                    let session = self.dir.path().join("acpmux/sessions").join(session_id);
+                    watch.add(&session);
+                    // inotify directory watches are not recursive. Event segments
+                    // append below events/, after session metadata stops changing.
+                    watch.add(&session.join("events"));
                 }
             }
             assert_ne!(run.state, State::Failed, "real workflow failed: {:?}", run.outcome);
