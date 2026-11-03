@@ -49,6 +49,8 @@ type Props = ComponentProps<typeof SessionInfo> & {
   edge?: string;
   /// Gallery-only: panel width used by narrow workflow layout states.
   panelWidth?: number;
+  /// Gallery-only: the old always-drawn thin thumb, for comparison with the shipped no-scrollbar body.
+  scroller?: "thumb";
 };
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
@@ -106,6 +108,7 @@ function GallerySessionInfo({
   ceiling,
   edge,
   panelWidth = 320,
+  scroller,
   more: moreAtFirst,
   ...props
 }: Props) {
@@ -115,6 +118,7 @@ function GallerySessionInfo({
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
       {ceiling ? <style>{`.acpmux-session-info[data-placement]{max-height:${ceiling}}`}</style> : null}
       {edge ? <style>{`.acpmux-session-info[data-placement]{${edge}}`}</style> : null}
+      {scroller === "thumb" ? <style>{".acpmux-session-info__body{scrollbar-width:thin}"}</style> : null}
       {transcript ? <Transcript /> : null}
       <SessionInfoPanel
         width={panelWidth}
@@ -393,6 +397,26 @@ const noCardBehind: Play = async (ctx) => {
     throw new Error(`The panel paints a card: ${look.backgroundColor} ${look.backgroundImage}`);
   if (!["none", ""].includes(look.backdropFilter) || look.boxShadow !== "none")
     throw new Error(`The panel draws a card's blur or shadow: ${look.backdropFilter} ${look.boxShadow}`);
+};
+
+/// Leo, 2026-11-03: "i mean there's literally no scrollbar in claude code it's just scrollable". A busy
+/// body overflows, draws no scrollbar and keeps no width for one (its client width is its whole width
+/// inside its borders), and it still scrolls.
+const scrollsWithNoScrollbar: Play = async (ctx) => {
+  const selector = ".acpmux-session-info__body";
+  await ctx.waitFor(() => {
+    const body = ctx.document.querySelector<HTMLElement>(selector);
+    return body !== null && body.scrollHeight > body.clientHeight + 1;
+  });
+  const body = ctx.find({ selector }) as HTMLElement;
+  const look = style(ctx, body);
+  if ("scrollbarWidth" in look && look.scrollbarWidth !== "none")
+    throw new Error(`The body's scrollbar-width is ${look.scrollbarWidth}, not none`);
+  const borders = Number.parseFloat(look.borderLeftWidth) + Number.parseFloat(look.borderRightWidth);
+  if (Math.abs(body.offsetWidth - borders - body.clientWidth) > 0.5)
+    throw new Error(`The body keeps ${body.offsetWidth - borders - body.clientWidth}px for a scrollbar`);
+  await ctx.scroll({ selector }, 120);
+  await ctx.waitFor(() => body.scrollTop > 0);
 };
 
 // The panel's edge: a hairline (at most 1px) in the pane's border color all round, on its rounded corners,
@@ -1358,6 +1382,15 @@ export default componentEntry<Props>({
         onSaveEnvironment: () => undefined,
         closable: true,
       },
+    },
+    "scroller-none": {
+      note: "Chosen. A busy coordinator: the body scrolls by wheel, trackpad and keyboard with no scrollbar at all, as Claude Code's panel, and its edge fades say there is more; nothing takes width at the right edge, so no thumb sits by a section's grip (Leo, 2026-11-03: \"i mean there's literally no scrollbar in claude code it's just scrollable\"). The play scrolls it and checks it keeps no scrollbar width.",
+      props: { ...busy, closable: true },
+      play: scrollsWithNoScrollbar,
+    },
+    "scroller-thumb": {
+      note: 'Before, for comparison: a thin thumb drawn at the right edge beside the section grips (Leo, 2026-11-03: "there\'s basically no thumb on the claude code session info section").',
+      props: { ...busy, closable: true, scroller: "thumb" },
     },
     ceiling: {
       note: "Chosen. A busy coordinator over the same 900px pane: the card uses the full room under the header, less its 8px inset at the foot, and only then does its body scroll; it still floats over the chat with its own edge (Leo, 2026-10-26: \"you still haven't done the full-length thing. It's still just this constrained height for, like, no reason at all\").",
