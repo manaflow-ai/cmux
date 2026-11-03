@@ -322,7 +322,13 @@ impl Artifacts {
 
     /// Stream the whole file to a private temporary file. Memory holds only a text page
     /// and a small binary preview; incomplete downloads are removed on error/cancellation.
-    pub async fn read(&self, token: &str, path: &str, git_ref: Option<&str>, offset: usize) -> Result<Value> {
+    pub async fn read(
+        &self,
+        token: &str,
+        path: &str,
+        git_ref: Option<&str>,
+        offset: usize,
+    ) -> Result<Value> {
         let mut query = vec![("path", path)];
         if let Some(git_ref) = git_ref {
             query.push(("ref", git_ref));
@@ -425,7 +431,7 @@ impl Artifacts {
         let mut head = repo.get("headSha").cloned().unwrap_or(Value::Null);
         let mut body_files = Vec::with_capacity(files.len());
         for file in files {
-            // Bytes clones share storage, including a retry after refreshing the bearer.
+            // Bytes clones share storage; the bearer stays pinned through every upload.
             let blob = self
                 .json(token, "artifact upload", |http| {
                     http.post(blob_url.clone()).body(file.bytes.clone())
