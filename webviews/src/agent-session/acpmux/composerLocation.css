@@ -1097,6 +1097,11 @@
   outline: none;
 }
 .acpmux-folder-popover .acpmux-location-search::placeholder { color: var(--agent-muted); opacity: 1; }
+/* A short pane gives the field a fixed, smaller height, so a whole project row still fits under
+   the pinned actions (composer-location-strip.test.ts) and the field never changes height with the list. */
+@media (max-height: 260px) {
+  .acpmux-folder-popover .acpmux-location-search { height: calc(var(--ui-row-height) - 6px); margin-bottom: 0; }
+}
 .acpmux-folder-popover .acpmux-location-folders { margin: 0; padding: 0; list-style: none; overflow: auto; }
 /* EnvironmentPicker shares this shell but has no pinned ScrollArea; its list must retain wheel scrolling. */
 .acpmux-folder-popover.acpmux-env-popover .acpmux-location-folders { overflow: auto; }
