@@ -65,29 +65,46 @@ is the only supported branch catch-up path.
 
 ## When git is older than 2.46
 
-The resolver needs git 2.46 or newer (`attr.tree` keeps the merged tree's
-`.gitattributes` out of the merge), and the command stops with "git 2.46 or
-newer is required for attr.tree". On a host whose system git is older (the
-Linux agent VMs have 2.43) and that you cannot upgrade, a plain merge meets
-the rule's intent:
+The resolver needs git 2.46 or newer. It stops with "git 2.46 or newer is
+required for attr.tree". It sets `attr.tree` to the base, so your branch's
+`.gitattributes` cannot choose the merge drivers. The Linux agent VMs have
+git 2.43. If you cannot upgrade git, do a plain merge with these steps:
 
-```bash
-git fetch origin feat-cmux-next        # or main
-git merge --no-edit origin/feat-cmux-next
-```
-
-- Only on your own branch, or a branch whose head you trust: the merge
-  drivers and hooks of the trees being merged run, which the resolver turns
-  off for an untrusted fork head.
-- A merge commit only: no rebase, no squash, no force push.
-- A conflict in a generated file (`settings-schema.json`,
-  `settings-schema.sources.sha256`, `docs/mdm/*`, the embedded config
-  schema, `project.pbxproj`, `.xcstrings`) is never merged by hand: take
-  either side and regenerate it, or let the base autofix do it.
-- Resolve any other conflict, then run the area's checks
-  (`python3 scripts/cmux-next/prepush-gate.py` for feat-cmux-next) before you
-  push.
-- next-autoland carries a review receipt across a cmux-bot base merge only,
-  not across your own. Ask for a new receipt at the merge head that confirms
-  the pull request's own files did not change, then remove `ready-to-land`
-  and add it again.
+1. Pick the commit. For feat-cmux-next, use its tip: the script merges the
+   tip there too. For main, run `scripts/merge-main.sh --dry-run`. It works
+   on an old git and prints the last green commit. Merge that commit, not
+   main's tip.
+2. Make sure that this clone has the trusted merge drivers:
+   `git config --get merge.xcstrings-v2.driver` and
+   `git config --get merge.pbxproj-v1.driver` must print a path. If they do
+   not, run `scripts/install-git-hooks.sh`. With the drivers, git merges
+   `.xcstrings` key by key and `project.pbxproj` as a union of the added
+   entries, as the resolver does. Never take one side of these files. That
+   loses the other side's strings or project entries.
+3. Merge with a merge commit: `git fetch origin <base branch>`, then
+   `git merge --no-edit <commit>`. Do not rebase, squash or force-push.
+   Do this only on your own branch, or on a branch whose `.gitattributes`
+   you trust. In a plain merge, your branch's `.gitattributes` chooses the
+   drivers. A path that it maps to `cmux-generated-v1` keeps your side
+   with no conflict.
+4. Repair the generated files. With the drivers installed, git keeps your
+   side of each `merge=cmux-generated-v1` path in `.gitattributes`
+   (settings schema, `docs/mdm/*`, action exports, web bundles) and shows no
+   conflict. Do not edit them by hand. Let the PR autofix regenerate them,
+   or run the matching `scripts/cmux-next/regenerate-*.sh`.
+5. When you merge main into a feat-cmux-next branch, keep main's former web
+   bundles out of the index, as step 3 above says:
+   `git rm -r --cached Resources/markdown-viewer/webviews-app` for the
+   conflicted and added files, or
+   `scripts/cmux-next/regenerate-web-bundles.sh`.
+6. On main, if both sides changed `web/data/cmux.schema.json`, run
+   `scripts/generate-cmux-config-schema.py`. A conflict inside that file
+   needs a person.
+7. Resolve any other conflict. Then run the area's checks
+   (`python3 scripts/cmux-next/prepush-gate.py` for feat-cmux-next) and
+   push.
+8. next-autoland and `risk evidence` read a review receipt at the exact
+   head. next-autoland carries one only across its own update-branch
+   merges (signed `web-flow` commits), not across your merge. Ask for a
+   new receipt at the merge head that confirms the pull request's own
+   files did not change. Then remove `ready-to-land` and add it again.
