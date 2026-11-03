@@ -334,15 +334,17 @@ public final class TerminalSession {
         surfaceView.snapshot(maxPixelSize: maxPixelSize)
     }
 
-    /// A new session for an evicted terminal: its last frame shows at once, until the first
-    /// content the owner sends is parsed and drawn (no empty pane while it attaches). Returns
+    /// A new session for an evicted terminal: its last frame shows at once on the surface's own layer, until the first
+    /// content the owner sends is parsed and the surface draws it there (no empty pane while it attaches, and no
+    /// layer over the surface: SWITCH FRAMES item 2). Returns
     /// why it did not (diagnostics), nil when it holds the frame.
     @discardableResult
     public func showLastFrame(_ frame: TerminalLastFrame) -> String? {
         guard !surfaceHasContent else { return "has_content" }
+        guard !showsHeldFrame else { return "holding" }
         guard let surface = frame.take() else { return "purged" }
         lastFrameHolds += 1
-        frameHold.begin(lastFrame: .surface(surface), over: surfaceView, in: view)
+        surfaceView.showSaved(surface)
         return nil
     }
 
@@ -358,7 +360,7 @@ public final class TerminalSession {
         let frame: TerminalFrameHold.HeldFrame
         if let held = frameHold.heldFrame {
             frame = held
-        } else if surfaceHasContent, let surface = surfaceView.presentedFrame {
+        } else if surfaceHasContent || surfaceView.showsSavedFrame, let surface = surfaceView.presentedFrame {
             frame = .surface(surface)
         } else {
             return nil
@@ -381,7 +383,7 @@ public final class TerminalSession {
     /// Holds `frame`; false when this session has content or holds a frame already.
     @discardableResult
     func holdCarriedFrame(_ frame: TerminalCarriedFrame) -> Bool {
-        guard !surfaceHasContent, !frameHold.isHolding else { return false }
+        guard !surfaceHasContent, !showsHeldFrame else { return false }
         lastFrameHolds += 1
         frameHold.begin(lastFrame: frame.frame, over: surfaceView, in: view)
         return true
@@ -394,7 +396,7 @@ public final class TerminalSession {
 
     /// Whether the pane shows a held frame (a restored, evicted or replaced terminal whose attach has
     /// not drawn its content yet): its hover card pictures that frame (``shownFrameInBackground(maxPixelSize:)``).
-    public var showsHeldFrame: Bool { frameHold.isHolding }
+    public var showsHeldFrame: Bool { frameHold.isHolding || surfaceView.showsSavedFrame }
 
     /// What the pane shows now, rendered off the main thread: while the frame hold is on screen (a
     /// restored, evicted or replaced terminal whose attach has not drawn its content yet), the held
@@ -467,6 +469,18 @@ public final class TerminalSession {
 
     /// Handles one event on the main actor. Returns the lane later output may go to off the main
     /// actor (``consume(_:for:)``).
+    /// The first content is queued on the surface's lane: a held frame waits for it to be drawn, and a saved frame on
+    /// the surface's own layer stays until it is parsed, then the surface draws (``TerminalSurfaceView/showSaved(_:)``).
+    private func contentQueued() {
+        frameHold.contentQueued()
+        guard surfaceView.showsSavedFrame else { return }
+        guard let lane = surfaceView.lane else { return surfaceView.endSavedFrame() }
+        Task { [weak surface = surfaceView] in
+            await lane.drained()
+            surface?.endSavedFrame()
+        }
+    }
+
     private func handle(_ event: TerminalIOEvent) async -> TerminalOutputLane? {
         await apply(event)
         return surfaceHasContent ? surfaceView.lane : nil
@@ -481,7 +495,7 @@ public final class TerminalSession {
             if surfaceHasContent { swapSurface() }
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
-            frameHold.contentQueued()
+            contentQueued()
             TerminalTimings.contentApplied()
         case .kittyReplay(let replay):
             // GhosttyNextKit restores Kitty graphics through GHOSTSNP snapshots
@@ -492,7 +506,7 @@ public final class TerminalSession {
             if surfaceHasContent { swapSurface() }
             surfaceView.lane?.processOutput(replay.vt)
             surfaceHasContent = true
-            frameHold.contentQueued()
+            contentQueued()
             TerminalTimings.contentApplied()
         case .snapshot(let data, let phase):
             // The same surface takes the owner's state: no swap.
@@ -500,7 +514,7 @@ public final class TerminalSession {
             guard restored, phase.isReady else { return }
             restoredSnapshots += 1
             surfaceHasContent = true
-            frameHold.contentQueued()
+            contentQueued()
             TerminalTimings.contentApplied()
         case .output(let data):
             TypingLatencyProbe.shared.mark(.outputReceived, source: io.typingProbeSource,
@@ -511,7 +525,7 @@ public final class TerminalSession {
             // The surface may have been swapped while waiting (a replay).
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
-            frameHold.contentQueued()
+            contentQueued()
             TerminalTimings.contentApplied()
         case .resize(let columns, let rows):
             guard columns > 0, rows > 0 else { return }

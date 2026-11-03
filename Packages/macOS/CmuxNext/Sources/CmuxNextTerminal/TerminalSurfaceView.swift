@@ -512,7 +512,7 @@ public final class TerminalSurfaceView: NSView {
             lastShowsForLaunchFrame = shows
             session?.frameChanges.wake()
         }
-        let drawing = pause == nil
+        let drawing = pause == nil && !showsSavedFrame
         guard drawing != lastOcclusionVisible else { return }
         lastOcclusionVisible = drawing
         session?.frameChanges.wake() // drawn or paused (a window shown, minimized, occluded): its kept frame follows
@@ -524,6 +524,24 @@ public final class TerminalSurfaceView: NSView {
         // otherwise retain an empty IOSurface. Explicitly refresh the reveal edge so the state
         // already parsed off-screen is presented (#22282, related to #16706/#18432).
         if drawing { ghostty_surface_refresh(surface) }
+    }
+
+    /// The terminal's saved frame on this surface's own layer (``TerminalSession/showLastFrame(_:)``): the surface
+    /// draws nothing until its first content is parsed (a frame before that is an empty grid), then its first frame
+    /// replaces the saved one on the same layer. No second layer over the surface (SWITCH FRAMES item 2).
+    private(set) var showsSavedFrame = false
+
+    func showSaved(_ frame: IOSurface) {
+        layer?.contents = frame // Ghostty's layer has no implicit actions
+        showsSavedFrame = true
+        updateOcclusion()
+    }
+
+    /// The first content is parsed: the surface draws it over the saved frame.
+    func endSavedFrame() {
+        guard showsSavedFrame else { return }
+        showsSavedFrame = false
+        updateOcclusion()
     }
 
     /// A paused surface keeps the frame its layer shows, volatile until it shows again

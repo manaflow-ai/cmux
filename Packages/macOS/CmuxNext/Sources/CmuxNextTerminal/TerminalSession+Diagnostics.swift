@@ -56,7 +56,7 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
 
     /// True when the surface can show terminal content right now.
     public var isPresentable: Bool {
-        guard hasSurface, surfaceInHost, inWindow, !hidden, drawing == true else { return false }
+        guard hasSurface, surfaceInHost, inWindow, !hidden, drawing == true || holdingFrame else { return false } // a saved frame shows until the surface draws
         guard let grid, grid.columns > 0, grid.rows > 0 else { return false }
         return viewSize.width >= 1 && viewSize.height >= 1
     }
@@ -122,7 +122,7 @@ extension TerminalSession {
                               width: rect.width / frame.width, height: rect.height / frame.height)
             },
             lastFrameHolds: lastFrameHolds,
-            holdingFrame: frameHold.isHolding
+            holdingFrame: showsHeldFrame
         )
     }
 }

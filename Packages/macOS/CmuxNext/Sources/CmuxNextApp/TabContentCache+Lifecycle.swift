@@ -159,11 +159,11 @@ extension TabContentCache {
 
     private func reveal(_ key: String) {
         if let entry = terminals[key] {
+            // A new session after an eviction shows its last frame until its content draws (one that parsed its content
+            // while hidden draws it now: no hold), before it draws again: else it presents an empty grid over the frame.
+            lastFrames.show(key, on: entry.session)
             entry.session.isRenderingSuspended = false
             entry.io.setVisible(true)
-            // A new session after an eviction shows its last frame until its content draws (one that
-            // parsed its content while hidden draws it now: no hold).
-            lastFrames.show(key, on: entry.session)
         }
         if let entry = browsers[key] {
             entry.tab.setContentVisible(true)

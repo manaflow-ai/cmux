@@ -8,9 +8,10 @@ import IOSurface
 /// no frame until its renderer draws one, so a terminal shown again (a tab closed over it, a cold
 /// workspace switched back to) showed an empty pane for 2-3 frames. The old surface's last frame
 /// stays painted over the fresh one until the fresh one presents a frame drawn after the replay
-/// was parsed: the snapshot first, then live. An evicted terminal shown again (a new session) shows
-/// its last frame (``TerminalLastFrame``) the same way from its first layout, until its first
-/// content is parsed and drawn, however long its attach takes: a relaunch whose daemon restores
+/// was parsed: the snapshot first, then live. A terminal's frame from the last quit (and a frame
+/// carried from a replaced view) shows the same way from its first layout, until its first
+/// content is parsed and drawn, however long its attach takes (an evicted terminal's last frame
+/// shows on the surface's own layer instead, ``TerminalSurfaceView/showSaved(_:)``): a relaunch whose daemon restores
 /// hundreds of terminals can answer an attach seconds late, and an empty surface with a cursor box
 /// is never better than the last content (Chrome keeps a tab's last frame up until the new content
 /// paints). A link that fails says so in the status banner over that frame. The quit saves what the

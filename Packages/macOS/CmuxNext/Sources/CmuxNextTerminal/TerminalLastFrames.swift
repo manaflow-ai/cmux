@@ -1,4 +1,5 @@
-import Foundation
+public import AppKit
+import IOSurface
 /// Evicted terminals' last frames (`TerminalLastFrame`), oldest dropped first past the bound
 /// (``capacity(warm:)``: the warm capacity plus what 1/32 of physical memory holds). Each frame is
 /// one full-resolution drawable (about 24 MB for a large pane on a 2x display), volatile while it
@@ -9,6 +10,14 @@ public struct TerminalLastFrames {
     public init() {}
 
     private var frames: [String: TerminalLastFrame] = [:]
+    /// Frames shown in a pane before its terminal's surface exists (``showAhead(_:in:)``), by the pane's content view.
+    private var ahead: [ObjectIdentifier: Ahead] = [:]
+    private struct Ahead {
+        let key: String
+        let frame: TerminalLastFrame
+        let view: NSView
+        weak var content: NSView?
+    }
     /// Keys in eviction order, oldest first (at most ``capacity(warm:)``, 152: O(bound) edits).
     private var order: [String] = []
     /// What each eviction kept and each re-attach showed (`debug.surfaces` last_frames).
@@ -78,12 +87,73 @@ public struct TerminalLastFrames {
         for _ in insert(frame, for: key, capacity: Self.capacity(warm: capacity)) { note("dropped") }
     }
 
-    /// `key`'s new session draws now: it shows the frame that waits for it, if any.
+    /// `key`'s new session draws now: it shows the frame that waits for it, if any, on its surface's own layer, and the
+    /// frame shown ahead of it in its pane goes in the same turn (one Core Animation transaction: no frame between).
     public mutating func show(_ key: String, on session: TerminalSession) {
-        guard let frame = remove(key) else { return }
-        note(session.showLastFrame(frame) ?? "shown")
+        // The frame a pane shows ahead of this session, if the bound dropped it from the store meanwhile.
+        let shownAhead = ahead.first { $0.value.key == key }?.value.frame
+        if let frame = remove(key) ?? shownAhead { note(session.showLastFrame(frame) ?? "shown") }
+        for (content, shown) in ahead where shown.key == key { withdraw(content) }
+    }
+
+    /// Shows `key`'s frame in `content`, a visible pane that waits for its terminal's surface (one new surface per
+    /// display frame, `ContentPresentationScheduler`), on one layer at once: the first frame after a switch shows each
+    /// pane's last content, not an empty pane (SWITCH FRAMES item 2; Chrome shows a tab's last frame at once and the
+    /// renderer catches up). The terminal's new session takes the frame over in the turn it comes (``show(_:on:)``), or
+    /// ``withdrawAhead(in:)`` takes it away. Returns whether `content` shows it.
+    @discardableResult
+    public mutating func showAhead(_ key: String, in content: NSView) -> Bool { // perf-hot: 1ms workspace-switch (each waiting pane)
+        if let shown = ahead[ObjectIdentifier(content)] {
+            if shown.key == key, shown.content === content { return true }
+            withdraw(ObjectIdentifier(content))
+        }
+        for (gone, shown) in ahead where shown.content == nil { withdraw(gone) } // a pane closed while it waited
+        guard let frame = frames[key], let surface = frame.pin() else { return false }
+        let view = SavedFrameView(surface, in: content)
+        content.addSubview(view)
+        ahead[ObjectIdentifier(content)] = Ahead(key: key, frame: frame, view: view, content: content)
+        note("shown_ahead")
+        return true
+    }
+
+    /// Takes away the frame shown ahead in `content` (its pane shows its content now).
+    public mutating func withdrawAhead(in content: NSView) {
+        withdraw(ObjectIdentifier(content))
+    }
+
+    private mutating func withdraw(_ content: ObjectIdentifier) {
+        guard let shown = ahead.removeValue(forKey: content) else { return }
+        shown.view.removeFromSuperview()
+        shown.frame.unpin()
     }
 
     /// `debug.surfaces` last_frames: the outcome counts and the frames stored now.
     public var report: [String: Int] { outcomes.merging(["stored": count]) { $1 } }
+}
+
+/// An evicted terminal's frame in its pane before the terminal's surface exists: top-left at the window's scale, as the
+/// surface draws it, and no clicks. One layer.
+private final class SavedFrameView: NSView {
+    nonisolated override var wantsUpdateLayer: Bool { true }
+
+    init(_ surface: IOSurface, in content: NSView) {
+        super.init(frame: content.bounds)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .never
+        layer?.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        layer?.contentsGravity = .topLeft
+        layer?.contentsScale = content.window?.backingScaleFactor ?? 2
+        layer?.contents = surface
+        autoresizingMask = [.width, .height]
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if let scale = window?.backingScaleFactor { layer?.contentsScale = scale }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
