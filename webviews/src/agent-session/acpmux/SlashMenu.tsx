@@ -1,5 +1,6 @@
 import React, { useCallback, useLayoutEffect, useRef } from "react";
 import { useEscapingList } from "../../ui/popupHost";
+import { useScrollEdges } from "../../ui/scrollEdges";
 import { useComposerListBox } from "./backdropLayer";
 import { useT } from "./i18n";
 import { shownName, type SlashCommand, type SlashMatch } from "./slashCommands";
@@ -22,13 +23,15 @@ export function SlashMenu({
   // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
   // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
   const box = useComposerListBox();
+  const listEdges = useScrollEdges();
   const escape = useEscapingList("top", 6, undefined, box);
   const setList = useCallback(
     (node: HTMLDivElement | null) => {
       list.current = node;
+      listEdges(node);
       escape?.(node);
     },
-    [escape],
+    [escape, listEdges],
   );
   useLayoutEffect(() => {
     list.current?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
@@ -49,7 +52,7 @@ export function SlashMenu({
   return (
     <div
       ref={setList}
-      className="ui-popup ui-glass acpmux-slash-menu"
+      className="ui-popup ui-glass acpmux-slash-menu ui-scroll-edge-fade"
       id="acpmux-slash-menu"
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listbox"

@@ -5,6 +5,7 @@
 import React, { useId, useRef, useState, type KeyboardEvent } from "react";
 import { ChoiceGroup } from "../../../ui/ChoiceGroup";
 import { KeyboardScope } from "../../../ui/KeyboardScope";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import { useT } from "../i18n";
 import { canPush, messageTooLong, sameNewFiles, type CommitScope, type NewFiles } from "./gitWrite";
 import type { GitWrite } from "./useGitWrite";
@@ -266,6 +267,7 @@ type NewFilesLoad = { state: "loading" } | { state: "failed" } | { state: "loade
 /// The new files a commit with "Include new files" adds, as the Uncommitted diff lists them.
 function NewFileList({ files }: { files?: NewFilesLoad }) {
   const t = useT();
+  const listEdges = useScrollEdges();
   if (!files || files.state === "loading")
     return <span className="acpmux-git-form-note">{t("git.commit.newFilesLoading")}</span>;
   if (files.state === "failed") return <span className="acpmux-git-form-note">{t("git.commit.newFilesFailed")}</span>;
@@ -276,7 +278,7 @@ function NewFileList({ files }: { files?: NewFilesLoad }) {
         {paths.length ? t("git.commit.newFiles") : t("git.commit.newFilesNone")}
       </span>
       {paths.length > 0 && (
-        <ul aria-label={t("git.commit.newFiles")}>
+        <ul ref={listEdges} className="ui-scroll-edge-fade" aria-label={t("git.commit.newFiles")}>
           {paths.map((path) => (
             <li key={path}>{path}</li>
           ))}

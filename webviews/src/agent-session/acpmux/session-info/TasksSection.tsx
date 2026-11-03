@@ -11,6 +11,7 @@
 // the top (ui/presence.ts `useArrivals`); the ones the list is drawn with are simply there.
 import { useState } from "react";
 import { useArrivals } from "../../../ui/presence";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import { formatDuration } from "../conversation/turns";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -56,6 +57,7 @@ export function TasksSection({
 }) {
   const t = useT();
   const [showFinished, setShowFinished] = useState(false);
+  const listEdges = useScrollEdges();
   const { running, finished } = splitCommands(commands);
   const now = useNow(running.length > 0);
   // Every command's id, so opening the finished fold, or a command finishing, replays nothing.
@@ -104,7 +106,7 @@ export function TasksSection({
     );
   };
   return (
-    <div className="acpmux-session-info-scroll" data-section="tasks">
+    <div ref={listEdges} className="acpmux-session-info-scroll ui-scroll-edge-fade" data-section="tasks">
       {(running.length > 0 || scheduled.length > 0) && (
         <ul className="acpmux-session-info-list">
           {running.map((command) =>
