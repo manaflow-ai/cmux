@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 struct PausedWriter {
     bytes: Arc<Mutex<Vec<u8>>>,
     started: Option<mpsc::SyncSender<()>>,
-    resume: mpsc::Receiver<()>,
+    resume: Receiver<()>,
 }
 
 impl Write for PausedWriter {
