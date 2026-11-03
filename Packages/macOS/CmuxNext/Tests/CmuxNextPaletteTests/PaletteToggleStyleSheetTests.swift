@@ -63,9 +63,13 @@ struct PaletteToggleStyleSheetTests {
         let scope = ThemeScope(level: .room)
         scope.setOverride(ThemeSpec(dark ? "Dark+" : "GitHub Light"), input: input, animated: false)
         scope.root(host)
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(PaletteTunables.all)
         defer { _ = TunableStore.shared.set(PaletteTunables.toggleStyle.key, nil) }
         for (index, style) in styles.enumerated() {
-            _ = TunableStore.shared.set(PaletteTunables.toggleStyle.key, style.tunableValue)
+            try #require(TunableStore.shared.set(PaletteTunables.toggleStyle.key, style.tunableValue) == style.tunableValue,
+                         "the style takes the override")
+            try #require(PaletteTunables.toggleStyle.value == style)
             for (column, isOn) in [true, false].enumerated() {
                 let cell = PaletteRowCell(frame: NSRect(x: rowSize.width * CGFloat(column),
                                                         y: sheetSize.height - rowSize.height * CGFloat(index + 1),
