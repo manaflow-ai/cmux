@@ -242,6 +242,70 @@ const settlesWithin = (promise: Promise<unknown>, ms: number) =>
 const sideRead = (message: Message) =>
   message.method === PERMISSION_GROUP_OPS.groups || message.method === HANDOFF_OPS.get;
 
+test("a cold tail draws before the full prompt index is read, then fills its labels after paint", async () => {
+  const daemon = new Daemon("index-after-paint");
+  const A = daemon.sessionA;
+  daemon.pages.set(A, { steps: [prompt("Latest"), reply(A, "Tail ready.")], from: 101, hasMore: true });
+  daemon.prompts.set(A, [prompt("Earlier")]);
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  const savedFrame = scope.requestAnimationFrame;
+  const savedCancel = scope.cancelAnimationFrame;
+  const visibility = Object.getOwnPropertyDescriptor(dom.window.document, "visibilityState");
+  Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, value: "visible" });
+  scope.requestAnimationFrame = (callback: FrameRequestCallback) => {
+    frames.set(++frameId, callback);
+    return frameId;
+  };
+  scope.cancelAnimationFrame = (id: number) => frames.delete(id);
+  const { client, last } = await paneOn(daemon);
+  const indexReads = () => daemon.sent.filter((message) => message.params?.promptIndex === true);
+  try {
+    expect(text(last())).toContain("Tail ready.");
+    expect(indexReads()).toHaveLength(0);
+    expect(last().promptCount).toBe(1);
+    for (const [id, callback] of [...frames]) {
+      frames.delete(id);
+      callback(performance.now());
+    }
+    // rAF still precedes the frame: even an immediate daemon must not parse history here.
+    expect(indexReads()).toHaveLength(0);
+    await turns();
+    expect(indexReads()).toHaveLength(1);
+    expect(last().earlierPrompts?.map((row) => row.text)).toEqual(["Earlier"]);
+    expect(text(last())).toContain("Tail ready.");
+  } finally {
+    client.close();
+    scope.requestAnimationFrame = savedFrame;
+    scope.cancelAnimationFrame = savedCancel;
+    if (visibility) Object.defineProperty(dom.window.document, "visibilityState", visibility);
+    else Reflect.deleteProperty(dom.window.document, "visibilityState");
+  }
+});
+
+test("a hidden tail starts no whole-history read, and closing cancels its deferred read", async () => {
+  const daemon = new Daemon("hidden-index");
+  const A = daemon.sessionA;
+  daemon.pages.set(A, { steps: [prompt("Latest"), reply(A, "Tail ready.")], from: 101, hasMore: true });
+  const visibility = Object.getOwnPropertyDescriptor(dom.window.document, "visibilityState");
+  Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, value: "hidden" });
+  const { client, last } = await paneOn(daemon);
+  try {
+    expect(text(last())).toContain("Tail ready.");
+    await turns();
+    expect(daemon.sent.some((message) => message.params?.promptIndex === true)).toBe(false);
+    client.close();
+    Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, value: "visible" });
+    dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    await turns();
+    expect(daemon.sent.some((message) => message.params?.promptIndex === true)).toBe(false);
+  } finally {
+    client.close();
+    if (visibility) Object.defineProperty(dom.window.document, "visibilityState", visibility);
+    else Reflect.deleteProperty(dom.window.document, "visibilityState");
+  }
+});
+
 test("a cold switch draws the chat's rows with its permission and handoff reads still out", async () => {
   const daemon = new Daemon("side-reads");
   const [A, B] = [daemon.sessionA, daemon.sessionB];
