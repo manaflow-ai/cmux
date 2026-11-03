@@ -312,18 +312,28 @@ def bisect(args, run=subprocess.run) -> int:
                 got = json.loads(out.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 return {f: None for f in files}
-            ran = {name.split(" > ", 1)[0] for name in got}
             # Red only when one of the file's new red tests is red here: a test already red at BASE, red in the same
             # file, says nothing about where the new one broke. A file-level red (no test named) counts any red in
             # the file. A file the commit does not have yet cannot fail there: green.
-            def red(f: str) -> bool:
+            def verdict(f: str) -> bool | None:
+                mine = {name: ok for name, ok in got.items() if name == f or name.startswith(f + " > ")}
                 wanted = names[f]
-                return any(not ok and (name in wanted or (f in wanted and name.split(" > ", 1)[0] == f))
-                           for name, ok in got.items())
-            return {f: (True if red(f) else False if f in ran or not exists(sha, f) else None) for f in files}
+                if f in wanted:
+                    return (not all(mine.values())) if mine else (None if exists(sha, f) else False)
+                if any(mine.get(name) is False for name in wanted):
+                    return True
+                if mine and all(name in mine for name in wanted):
+                    return False  # every new red test ran here and passed
+                if mine and all(mine.values()):
+                    return False  # the file passed whole: the new tests are not in it yet
+                if mine:
+                    return None  # the file failed (a timeout, a load error) before the new tests gave a verdict
+                return None if exists(sha, f) else False
+            return {f: verdict(f) for f in files}
 
         # BASE's verdict is known for a file only when the run before ran it.
-        known = base_run is not None and all(file in base_run["files"] for file in names)
+        # A file red whole at BASE (a timeout, a load error) gave no verdict for the tests in it.
+        known = base_run is not None and all(file in base_run["files"] and file not in base_run["red"] for file in names)
         found = search(sorted(names), points, known, probe, args.max_probes)
     report["files"] = {f: list(v) for f, v in found.items()}
     report["skipped"] = skipped

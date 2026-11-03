@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
@@ -169,7 +170,7 @@ class BisectTests(unittest.TestCase):
         git(repo, "commit", "-qm", subject)
         return git(repo, "rev-parse", "HEAD")
 
-    def run_bisect(self, *, base_red=(), flaky_history=False, old_red_in_file=False):
+    def run_bisect(self, *, base_red=(), flaky_history=False, old_red_in_file=False, timed_out=False):
         tmp = Path(self.tmp.name)
         repo = tmp / "repo"
         repo.mkdir()
@@ -187,7 +188,9 @@ class BisectTests(unittest.TestCase):
         probe.write_text("#!/usr/bin/env bash\nset -e\nsha=$1 out=$3\necho \"$sha\" >> \"$PROBED\"\n"
                          "if [ \"$(git show \"$sha:webviews/src/a.ts\")\" = 2 ]; then ok=false; else ok=true; fi\n"
                          "printf '{\"src/a.test.ts\": %s, \"src/a.test.ts > renders\": %s%s}\\n' \"$ok\" \"$ok\" "
-                         "\"$OLD_RED\" > \"$out\"\n")
+                         "\"$OLD_RED\" > \"$out\"\n"
+                         # A probe that timed out: the file red, no test named.
+                         "if [ -n \"$TIMED_OUT\" ]; then printf '{\"src/a.test.ts\": false}\\n' > \"$out\"; fi\n")
         results = tmp / "shard1.json"
         results.write_text(json.dumps({"src/a.test.ts": False, "src/a.test.ts > renders": False,
                                        "src/old.test.ts": False, "src/old.test.ts > stays red": False,
@@ -213,6 +216,7 @@ class BisectTests(unittest.TestCase):
         os.environ["PROBED"] = str(probed)
         # Every probe also reports a test of the same file that was already red at BASE.
         os.environ["OLD_RED"] = ', "src/a.test.ts > was red": false' if old_red_in_file else ""
+        os.environ["TIMED_OUT"] = "1" if timed_out else ""
         try:
             with redirect_stdout(io.StringIO()) as printed:
                 self.assertEqual(coalesce.bisect(args), 0)
@@ -220,6 +224,7 @@ class BisectTests(unittest.TestCase):
             os.chdir(here)
             del os.environ["PROBED"]
             del os.environ["OLD_RED"]
+            del os.environ["TIMED_OUT"]
         return base, culprit, printed.getvalue(), probed.read_text().split(), json.loads(report.read_text())
 
     def setUp(self):
@@ -247,6 +252,25 @@ class BisectTests(unittest.TestCase):
         found = test_reds.bisect_report(printed)["src/a.test.ts"]
         self.assertEqual((found["kind"], found["first_red"], found["pr"]), ("first", culprit, 103))
         self.assertTrue(probed)
+
+    def test_a_probe_that_timed_out_is_no_verdict_for_the_new_test(self):
+        # Every probe red whole with no test named: never a green, so no commit after it is named the first red.
+        _, _, printed, probed, _ = self.run_bisect(old_red_in_file=True, timed_out=True)
+        self.assertTrue(probed)
+        self.assertEqual(test_reds.bisect_report(printed)["src/a.test.ts"]["kind"], "unresolved")
+
+    def test_a_file_red_whole_at_the_base_gives_the_base_no_verdict(self):
+        # BASE timed out in a.test.ts: its tests' verdicts there are unknown, so the search may probe BASE.
+        seen = []
+        search = coalesce.search
+
+        def spy(files, points, known, probe, max_probes):
+            seen.append(known)
+            return search(files, points, known, probe, max_probes)
+        with unittest.mock.patch.object(coalesce, "search", spy):
+            _, culprit, printed, _, _ = self.run_bisect(base_red=["src/a.test.ts"])
+        self.assertEqual(seen, [False])
+        self.assertEqual(test_reds.bisect_report(printed)["src/a.test.ts"]["first_red"], culprit)
 
     def test_a_commit_routing_the_suite_through_the_bundle_inputs_is_a_candidate(self):
         bundle = lambda path: path == "Resources/settings-schema.json"  # noqa: E731
