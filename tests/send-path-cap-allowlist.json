@@ -77,7 +77,6 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRelaunchWake.swift": {"count": 2, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneReplyImages.swift": {"count": 2, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneReplyLinks.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneReplyMedia.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneReplyPaths.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneReplyTextPreview.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
