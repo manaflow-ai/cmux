@@ -31,12 +31,9 @@ struct BrowserChromeTabHooks {
         let buttons = chrome.toolbarButtons
         if buttons.profileName != state.profileName { buttons.profileName = state.profileName }
         buttons.onPress = state.onToolbarPress
-        // The tab's toolbar sources, once per tab the toolbar has not been configured for (each source re-arms
-        // the toolbar's observation): a switch between tabs already configured sets nothing.
-        if buttons.configuredFor !== state {
-            buttons.configuredFor = state
-            buttons.batchSources { state.configureToolbar?(buttons) }
-        }
+        // The tab's toolbar sources (its own downloads, media, pins, hints) with no render: the switch binds the
+        // toolbar next (`toolbarButtons.bind(_:modes:)`), which observes and renders them once.
+        buttons.batchSources(rendering: false) { state.configureToolbar?(buttons) }
         chrome.showsFocusModeIndicator = state.showsFocusModeIndicator
         chrome.focusModeExitArmed = state.focusModeExitArmed
         if chrome.accessoryView !== state.accessory?.view {

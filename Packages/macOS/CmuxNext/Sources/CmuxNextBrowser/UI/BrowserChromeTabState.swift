@@ -62,7 +62,6 @@ public final class BrowserChromeTabState: Sendable {
     public var configureToolbar: ((BrowserToolbarButtonsView) -> Void)? {
         didSet {
             guard let buttons = chrome?.toolbarButtons else { return }
-            buttons.configuredFor = self
             buttons.batchSources { configureToolbar?(buttons) }
         }
     }

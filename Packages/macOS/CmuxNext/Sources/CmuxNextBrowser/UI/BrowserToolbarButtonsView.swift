@@ -24,21 +24,20 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// The pinned buttons' ids (`browser.toolbarButtons`), read the same way,
     /// so a pin from any window or from cmux.json reaches every toolbar.
     public var pins: (() -> [String])? { didSet { rebind() } }
-    /// The tab whose sources (`BrowserChromeTabState.configureToolbar`) the toolbar has now.
-    weak var configuredFor: AnyObject?
     private var batching = false
     private var batchedChange = false
     /// Renders so far (tests: a tab switch renders the toolbar once).
     private(set) var renders = 0
 
-    /// Sets several sources (`shortcutHint`, `downloads`, `media`, `pins`) with one re-observation and render.
-    func batchSources(_ set: () -> Void) {
+    /// Sets several sources (`shortcutHint`, `downloads`, `media`, `pins`) with one re-observation and render, or
+    /// none when `rendering` is false (a `bind` follows and renders them).
+    func batchSources(rendering: Bool = true, _ set: () -> Void) {
         batching = true
         set()
         batching = false
         if batchedChange {
             batchedChange = false
-            rebind()
+            if rendering { rebind() }
         }
     }
     /// The media hub's cards, kept between opens.
