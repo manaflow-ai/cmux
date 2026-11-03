@@ -11,6 +11,8 @@ final class SidebarStatesPlaygroundView: NSView {
     private let document = FlippedDocument()
     /// The sheets, light then dark.
     private(set) var sheets: [SidebarStatesPlaygroundAppearance: SidebarStatesPlaygroundSheetView] = [:]
+    /// The favicon styles sheets (`sidebar.faviconStyle`, Lawrence msg 19869), light then dark, below the sheets.
+    private(set) var faviconSheets: [SidebarStatesPlaygroundAppearance: SidebarStatesPlaygroundSheetView] = [:]
 
     /// Draws every sheet with `renderer`.
     init(renderer: SidebarStatesPlaygroundRenderer) {
@@ -55,21 +57,30 @@ final class SidebarStatesPlaygroundView: NSView {
 
     @objc private func drawAgain() { drawSheets() }
 
-    /// Draws every column of both appearances again and stacks the sheets, light on top.
+    /// Draws every column of both appearances again and stacks the sheets, light on top, then the favicon styles
+    /// sheets (one column per `sidebar.faviconStyle`, the favicon rows only), light on top.
     func drawSheets() {
         document.subviews.forEach { $0.removeFromSuperview() }
         sheets = [:]
+        faviconSheets = [:]
         var y: CGFloat = 0, width: CGFloat = 0
-        for appearance in SidebarStatesPlaygroundAppearance.allCases {
-            let columns = SidebarStatesPlaygroundColumn.all
+        func add(_ appearance: SidebarStatesPlaygroundAppearance, _ columns: [SidebarStatesPlaygroundColumn],
+                 states: [SidebarStatesPlaygroundState], title: String?) -> SidebarStatesPlaygroundSheetView {
             var cells: [SidebarStatesPlaygroundColumn: [SidebarStatesPlaygroundState: SidebarStatesPlaygroundCell]] = [:]
             for column in columns { cells[column] = renderer.cells(column, appearance) }
-            let sheet = SidebarStatesPlaygroundSheetView(appearance: appearance, columns: columns, cells: cells)
+            let sheet = SidebarStatesPlaygroundSheetView(appearance: appearance, columns: columns, cells: cells, states: states, title: title)
             sheet.frame.origin = NSPoint(x: 0, y: y)
             document.addSubview(sheet)
-            sheets[appearance] = sheet
             y = sheet.frame.maxY
             width = max(width, sheet.frame.width)
+            return sheet
+        }
+        for appearance in SidebarStatesPlaygroundAppearance.allCases {
+            sheets[appearance] = add(appearance, SidebarStatesPlaygroundColumn.all, states: SidebarStatesPlaygroundState.allCases, title: nil)
+        }
+        for appearance in SidebarStatesPlaygroundAppearance.allCases {
+            faviconSheets[appearance] = add(appearance, SidebarStatesPlaygroundColumn.faviconStyles, states: SidebarStatesPlaygroundState.favicons,
+                                            title: Strings.statesPlaygroundFaviconStyles(appearance.title))
         }
         document.frame = NSRect(x: 0, y: 0, width: width, height: y)
     }

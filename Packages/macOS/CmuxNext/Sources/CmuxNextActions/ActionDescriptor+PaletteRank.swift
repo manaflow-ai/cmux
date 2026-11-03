@@ -211,7 +211,6 @@ extension ActionDescriptor {
                           "cloudFilesList", "cloudFileRead", "cloudFileWrite", "cloudFileStat", "cloudFileMkdir",
                           "cloudFileRemove", "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate",
                           "cloudFirewallDelete", "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey",
-                          "cloudSystemTunnelOn", "cloudSystemTunnelOff", "cloudSystemTunnelStatus",
                       ]),
         PaletteFamily("bookmarks", title: familyTitle("palette.family.bookmarks", "Bookmarks: All Commands…"),
                       symbol: "bookmark", members: [

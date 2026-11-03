@@ -210,7 +210,7 @@ impl SecretStore for OsStore {
     }
 
     fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, &'static str> {
-        self.get_by(name, std::time::Instant::now() + TIMEOUT)
+        self.get_by(name, after(TIMEOUT))
     }
 
     fn get_by(
@@ -296,16 +296,26 @@ pub fn capture(
     cmd: Command,
     from_stderr: bool,
 ) -> Result<(std::process::ExitStatus, Zeroizing<Vec<u8>>), &'static str> {
-    capture_until(cmd, from_stderr, std::time::Instant::now() + TIMEOUT)
+    capture_until(cmd, from_stderr, after(TIMEOUT))
+}
+
+/// `now + wait`, or now if that would not fit an `Instant`.
+pub fn after(wait: std::time::Duration) -> std::time::Instant {
+    let now = std::time::Instant::now();
+    now.checked_add(wait).unwrap_or(now)
 }
 
 /// [`capture`], killing the command at `deadline` (at most the store timeout).
+/// The output is read by the deadline too: a process the command started may
+/// hold the pipe open after the command itself exits (`sh -c 'sleep 20 &
+/// exit 0'`), and then the read ends at the deadline as a timeout.
 pub fn capture_until(
     mut cmd: Command,
     from_stderr: bool,
     deadline: std::time::Instant,
 ) -> Result<(std::process::ExitStatus, Zeroizing<Vec<u8>>), &'static str> {
     let wait = deadline.saturating_duration_since(std::time::Instant::now()).min(TIMEOUT);
+    let end = after(wait);
     cmd.stdin(Stdio::null());
     let mut child = cmd.spawn().map_err(|_| UNAVAILABLE)?;
     let pipe: Option<Box<dyn std::io::Read + Send>> = if from_stderr {
@@ -313,21 +323,28 @@ pub fn capture_until(
     } else {
         child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>)
     };
-    let reader = std::thread::spawn(move || drain(pipe));
+    // The reader is never joined: a process the command started may still
+    // hold the pipe open; the reader ends when it closes, and the caller has
+    // returned at the deadline by then.
+    let (sent, read) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let _ = sent.send(drain(pipe));
+    });
     let status = match child.wait_timeout(wait) {
         Ok(Some(status)) => status,
         _ => {
             let _ = child.kill();
             let _ = child.wait();
-            // Not joined: a process the command started may still hold the
-            // pipe open; the reader ends when it closes, and the caller
-            // returns at the deadline.
-            drop(reader);
             return Err("vault.secret_store_timeout");
         }
     };
-    let raw = reader.join().map_err(|_| "vault.secret_store_read_failed")?;
-    Ok((status, raw))
+    match read.recv_timeout(end.saturating_duration_since(std::time::Instant::now())) {
+        Ok(raw) => Ok((status, raw)),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err("vault.secret_store_timeout"),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err("vault.secret_store_read_failed")
+        }
+    }
 }
 
 /// All of a child's pipe, into a zeroed buffer (at most 1 MiB).
@@ -346,8 +363,9 @@ const ITEM_PREFIX: &str = "v1:";
 
 /// The item text of `value`: the marker, then base64, one printable word.
 pub fn encode(value: &str) -> Zeroizing<String> {
-    let mut out =
-        Zeroizing::new(String::with_capacity(ITEM_PREFIX.len() + value.len() * 4 / 3 + 4));
+    let mut out = Zeroizing::new(String::with_capacity(
+        value.len().div_ceil(3).saturating_mul(4).saturating_add(ITEM_PREFIX.len()),
+    ));
     out.push_str(ITEM_PREFIX);
     base64::engine::general_purpose::STANDARD.encode_string(value.as_bytes(), &mut out);
     out

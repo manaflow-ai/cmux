@@ -356,7 +356,7 @@ public final class TerminalHostView: NSView {
 
     /// The strip the scroller keeps free beside the surface: none, since it is pinned to the
     /// overlay style (``SystemScrollers/nativeStyle``), built or not.
-    private var scrollerWidth: CGFloat {
+    var scrollerWidth: CGFloat {
         scroller?.reservedWidth ?? TerminalScroller.reservedWidth(for: SystemScrollers.nativeStyle)
     }
 
@@ -373,6 +373,7 @@ public final class TerminalHostView: NSView {
     /// pinned to the area's top or bottom edge; the host clips it and paints the terminal background beside it.
     private var surfaceFrame: CGRect {
         let area = terminalBounds
+        if let followed = followedHold { return followedSurfaceFrame(followed, in: area) }
         if let hold = surfaceHold {
             let y = hold.anchor == .bottom ? area.minY : area.maxY - hold.size.height
             return CGRect(x: area.minX, y: y, width: hold.size.width, height: hold.size.height)
@@ -387,7 +388,10 @@ public final class TerminalHostView: NSView {
     }
 
     /// The surface's size and edge while its pane's layout spring runs; nil at rest.
-    private var surfaceHold: (size: CGSize, anchor: PaneMotionAnchor)?
+    private(set) var surfaceHold: (size: CGSize, anchor: PaneMotionAnchor)?
+    /// FRAME OWNER S3: the hold this host follows its pane through (``PaneMotionHoldFollowing``), and the host's size
+    /// when it began; nil at rest.
+    var followedHold: (hold: PaneMotionHold, heldSize: CGSize)?
 
     /// The edge a surface rides while its frame differs from the area's (a hold, or a size Ghostty has not shown yet).
     private var surfaceAnchor: PaneMotionAnchor { surfaceHold?.anchor ?? .top }
@@ -407,7 +411,7 @@ public final class TerminalHostView: NSView {
         current?.place(surfaceFrame, anchor: surfaceAnchor)
     }
 
-    public override func layout() {
+    public override func layout() { // perf-hot: 4ms motion-frame (each frame of a key resize the host follows, FRAME OWNER S3)
         super.layout()
         current?.place(surfaceFrame, anchor: surfaceAnchor)
         if let scroller {

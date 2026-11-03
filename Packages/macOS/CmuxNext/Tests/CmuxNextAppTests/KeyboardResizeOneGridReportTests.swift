@@ -3,7 +3,6 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextDesignTokens
 @testable import CmuxNextLayout
 @testable import CmuxNextTabs
 @testable import CmuxNextTerminal
@@ -210,15 +209,8 @@ struct KeyboardResizeOneGridReportTests {
     /// spring. p1 is at rest: its terminal sends no grid after the final one of the first press, and its surface never
     /// takes its start size again. p2 is on the second press's spring, which the close takes over: its terminal sends one
     /// grid for the close, the final one, measured from its live size (not from the size its key hold kept).
-    /// Both hold shapes (FRAME OWNER S1, `motion.frameOwner.tabStrip`): on, only the pane's content area holds and the pane
-    /// content view, its tab strip with it, follows the pane; off, the whole pane content holds.
-    @Test(arguments: [true, false])
-    func aCloseDuringASecondPressSendsEachTerminalOnlyItsFinalGrid(stripFollowsPane: Bool) async throws {
-        let tunables = TunableStore.shared
-        tunables.activate(file: nil)
-        tunables.register([DesignTunables.frameOwnerTabStrip.descriptor])
-        tunables.set(DesignTunables.frameOwnerTabStrip.key, .bool(stripFollowsPane))
-        defer { tunables.set(DesignTunables.frameOwnerTabStrip.key, nil) }
+    /// Only the pane's content area holds (FRAME OWNER S1): the pane content view, its tab strip with it, follows the pane.
+    @Test func aCloseDuringASecondPressSendsEachTerminalOnlyItsFinalGrid() async throws {
         let rig = try Rig(Self.besideStack)
         defer { rig.close() }
         for pane in rig.panes { _ = try await rig.grids(pane) }
@@ -233,9 +225,8 @@ struct KeyboardResizeOneGridReportTests {
         #expect(rig.settle() > 3, "the first press did not spring")
         let host = try #require(rig.root.context.hosts["p1"])
         let area = try #require((host.content as? PaneContentView)?.contentHost)
-        let heldWhole = host.content.frame.size != host.contentRect.size
-        try #require(!host.isOnLayoutSpring && (stripFollowsPane ? !heldWhole && area.isHolding : heldWhole && !area.isHolding),
-                     "p1 is not at rest with its content held (\(host.content.frame.size) in \(host.contentRect.size), area holding \(area.isHolding))")
+        try #require(!host.isOnLayoutSpring && host.content.frame.size == host.contentRect.size && area.isHolding,
+                     "p1 is not at rest with its content area held (\(host.content.frame.size) in \(host.contentRect.size), area holding \(area.isHolding))")
 
         // Before that commit: Ctrl-Shift-J on p2 springs p2 and p3 (p1 stays at rest), and p3 closes during its spring.
         #expect(PaneResize.press("p2", .down, model: rig.model, view: rig.root))

@@ -1463,47 +1463,33 @@ def guardrails(repo: Path, ranges: list, started) -> bool:
 # like the guardrails. The two slower files (test_perf_cron_io.py, 22 s; test_perf_cron_arch_report.py, 82 s:
 # real git clones and subprocesses) are run by hand.
 PERF_CRON_PATHS = ("scripts/cmux-next/perf-cron", "scripts/cmux-next/tests/test_perf_cron")
-PERF_CRON_FILES = ("scripts/cmux-next/perf-cron.py", "scripts/cmux-next/perf-budgets.py", "scripts/cmux-next/perf-budgets.json",
-                   "scripts/cmux-next/perf-profile-split.py", "scripts/cmux-next/tests/test_perf_cron.py",
-                   "scripts/cmux-next/tests/fixtures", "scripts/perf-bench")
-PERF_CRON_TIMEOUT = 60
 
 
 def perf_cron_tests(repo: Path, ranges: list) -> bool:
-    """Run test_perf_cron.py on each pushed head whose own changes touch the perf cron; True when a test fails.
+    """Name the perf cron's unit tests when a pushed head's own changes touch the perf cron; never run them.
 
-    RANGES are push_range.OwnRange values: a path counts when it changes over the base and since the head of
-    every range the push does not own (a merge of origin/feat-cmux-next that only brings in a cron change runs
-    nothing). It runs the head's own files (git
-    archive), not the checkout's. It fails open: a git error, a missing file at an older head, a broken Python or
-    a run past PERF_CRON_TIMEOUT prints a warning and lets the push through."""
-    refused = False
+    They are that head's own code, and the hook never runs code the push controls (docs/contributor-verification.md,
+    trust boundary: a pushed branch may be a contributor's). Running the reviewed copy of the tests would still import
+    the pushed perf-cron.py. CI does not run them either (no new CI tests), so the person runs them on code they
+    trust, with the command printed here. RANGES are push_range.OwnRange values: a path counts when it changes over
+    the base and since the head of every range the push does not own. Never refuses the push: returns False."""
     for own in ranges:
         head = own.head
         try:
             # changed_files keeps only the app's source scopes; the cron is under scripts/.
             changed = [{p for p in git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode().split("\0") if p}
                        for base in [own.base, *(a for _, a in own.before)]]
-            if not any(p.startswith(PERF_CRON_PATHS) for p in set.intersection(*changed)):
-                continue
-            with tempfile.TemporaryDirectory(prefix="cmux-prepush-perf-cron-") as tmp:
-                present = [p for p in PERF_CRON_FILES if git(repo, "ls-tree", "--name-only", head, "--", p, check=False).strip()]
-                if "scripts/cmux-next/tests/test_perf_cron.py" not in present:
-                    continue
-                archive = git(repo, "archive", head, "--", *present)
-                subprocess.run(["tar", "-x", "-C", tmp], input=archive, check=True, capture_output=True, timeout=60)
-                done = subprocess.run([sys.executable, "-I", "-m", "unittest", "discover", "-s", "scripts/cmux-next/tests",
-                                       "-p", "test_perf_cron.py"], cwd=tmp, capture_output=True, text=True,
-                                      timeout=PERF_CRON_TIMEOUT)
         except (Exception, SystemExit) as error:  # SystemExit: git() exits on a failed git call
-            log(f"prepush-gate: WARNING: the perf cron tests did not run ({type(error).__name__}: {error}); not applied "
-                "to this push. Run python3 -I -m unittest discover -s scripts/cmux-next/tests -p 'test_perf_cron*.py'.")
+            log(f"prepush-gate: WARNING: could not tell whether {head[:12]} changes the perf cron "
+                f"({type(error).__name__}: {error}).")
             continue
-        if done.returncode != 0:
-            tail = "\n".join((done.stderr or done.stdout).splitlines()[-25:])
-            log(f"prepush-gate: the perf cron tests fail at {head[:12]} (scripts/cmux-next/tests/test_perf_cron.py):\n{tail}")
-            refused = True
-    return refused
+        touched = sorted(p for p in set.intersection(*changed) if p.startswith(PERF_CRON_PATHS))
+        if touched:
+            log(f"prepush-gate: {head[:12]} changes the perf cron ({', '.join(touched[:3])}"
+                f"{' ...' if len(touched) > 3 else ''}). The hook does not run its unit tests: they are this push's own "
+                "code. Run them yourself on code you trust: python3 -I -m unittest discover -s scripts/cmux-next/tests "
+                "-p 'test_perf_cron*.py'.")
+    return False
 
 
 # guardrails.py loads count-swift-code-lines.py (CI's lexer) from the installed copy: an old one counts
@@ -1719,7 +1705,7 @@ def main(argv: list[str] | None = None) -> int:
         t0 = time.monotonic()
         guarded = perf_cron_tests(repo, ranges) or guarded
         if args.timings:
-            log(f"  {time.monotonic() - t0:5.2f}s  perf cron tests")
+            log(f"  {time.monotonic() - t0:5.2f}s  perf cron (named, not run)")
         t0 = time.monotonic()
         guarded = compile_trailer(repo, compile_ranges(repo, pushed_lines, push_range, args.remote), trusted_scripts) or guarded
         if args.timings:

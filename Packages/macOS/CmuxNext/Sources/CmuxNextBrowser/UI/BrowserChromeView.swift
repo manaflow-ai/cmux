@@ -111,6 +111,8 @@ public final class BrowserChromeView: NSView {
     var httpsFallback = HTTPSUpgradeFallback()
     private var showsStop = false
     var isToolbarHidden = false
+    /// The key-resize hold this chrome follows its pane through (FRAME OWNER S3, `BrowserChromeView+PaneMotion`); nil at rest.
+    var paneMotionHold: PaneMotionHold?
     /// The edge the toolbar rows sit on (`browser.toolbarPosition`); the pane sets it.
     public var toolbarPosition: ToolbarPosition = .top {
         didSet { if toolbarPosition != oldValue { applyToolbarPosition() } }
@@ -369,6 +371,8 @@ public final class BrowserChromeView: NSView {
             content.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
             content.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
         ])
+        // A page that comes in while the chrome follows its pane through a key hold keeps the pane's page size too.
+        if let paneMotionHold { (content as? any BrowserPagePaneMotionHolding)?.holdPage(for: paneMotionHold) }
         pageBars.findBarIfMade?.tab = tab
         addressBar.allowsChromiumSchemes = tab.engineKind == .cef
         extensionToolbar.bind(tab)

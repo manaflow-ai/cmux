@@ -271,6 +271,6 @@ extension TabContentCache {
     /// machine's localhost, which WebKit would load from this Mac).
     private func unproxiedWebKitPage(_ config: BrowserTabConfiguration) -> WebKitTab {
         webKit.makeWebKitTab(id: config.id, profile: config.profile,
-                             initialURL: pageRequests.proxiedTabs.isProxied(config.id.rawValue) ? nil : config.initialURL)
+                             initialURL: pageRequests.staysOffThisMacLocalhost(config.id.rawValue) ? nil : config.initialURL)
     }
 }
