@@ -39,12 +39,17 @@ pub fn protocol_version(params: &Value) -> &'static str {
 /// do not see the tool by default.
 pub const MCP_CONNECT_PREVIEW_ENV: &str = "CMUX_MCP_CONNECT_PREVIEW";
 
+/// `value[key]` without an index: `Null` for a missing key or a value that is not an object.
+fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
+    value.get(key).unwrap_or(&Value::Null)
+}
+
 fn tools() -> Value {
     let mut all = all_tools();
     if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1")
         && let Some(list) = all.as_array_mut()
     {
-        list.retain(|t| t["name"] != "connect_mcp_server");
+        list.retain(|t| *field(t, "name") != "connect_mcp_server");
     }
     all
 }
@@ -205,7 +210,8 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
         Some("connect_mcp_server") => (
             method::MUX_MCP_CONNECT_REQUEST,
             json!({
-                "server": arguments["server"], "scope": arguments["scope"], "reason": arguments["reason"],
+                "server": field(&arguments, "server"), "scope": field(&arguments, "scope"),
+                "reason": field(&arguments, "reason"),
             }),
         ),
         Some("run_with_secret") => (
@@ -227,25 +233,25 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
         Ok(result) => {
             let text = if result["outcome"] == "cancelled" {
                 "The card closed before the user answered (the turn stopped, or a newer ask replaced it).".to_owned()
-            } else if result["status"] == "cancelled" {
+            } else if *field(&result, "status") == "cancelled" {
                 "The connect card closed before the user answered (the turn stopped, or a newer ask replaced it).".to_owned()
-            } else if result["status"] == "declined" {
+            } else if *field(&result, "status") == "declined" {
                 "The user declined to connect this server.".to_owned()
             } else if result["declined"] == true {
                 "The user declined to give this secret.".to_owned()
-            } else if result["connect"] == "signInNeeded" {
+            } else if *field(&result, "connect") == "signInNeeded" {
                 format!(
                     "The user approved {} (scope {}). The server needs a sign-in before it lists tools: \
                      ask the user to sign in on the card. The sign-in happens on the user's side; no \
                      token or code comes to you, so never ask for one.",
-                    result["name"].as_str().unwrap_or("the server"),
-                    result["scope"].as_str().unwrap_or("chat"),
+                    field(&result, "name").as_str().unwrap_or("the server"),
+                    field(&result, "scope").as_str().unwrap_or("chat"),
                 )
-            } else if result["connect"] == "keyNeeded" {
+            } else if *field(&result, "connect") == "keyNeeded" {
                 format!(
                     "The user approved {}. It needs a key, which the user types only into the card's \
                      secure field; never ask for it in the chat.",
-                    result["name"].as_str().unwrap_or("the server"),
+                    field(&result, "name").as_str().unwrap_or("the server"),
                 )
             } else {
                 result.to_string()

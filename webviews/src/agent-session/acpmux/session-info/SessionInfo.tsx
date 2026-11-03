@@ -656,7 +656,7 @@ export function useSessionInfo({
     });
   }, [on, label, onBeforeOpen]);
   // Esc closes it while the keyboard is in it or on its toggle (not in a text field there), before a
-  // diff in place takes it (DiffPanel listens on the window, after the document). Anywhere else Esc
+  // popup in the page takes it (they listen on the window, after the document). Anywhere else Esc
   // keeps its own meaning: with nothing focused and a turn running it is the composer's double press
   // that stops the turn (escapeStop.ts), which an Esc claimed here never reaches. An open popover,
   // menu or dialog takes Esc first (as WidgetEditing.tsx): they listen on the document too, but after this.
