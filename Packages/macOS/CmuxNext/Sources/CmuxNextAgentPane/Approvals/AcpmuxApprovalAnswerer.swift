@@ -96,7 +96,7 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswe
     }
 
     /// The connect card's request id and scope from its Home request, when it is one.
-    nonisolated static func mcpConnect(_ requestJSON: String) -> (requestID: String, scope: String)? {
+    public nonisolated static func mcpConnect(_ requestJSON: String) -> (requestID: String, scope: String)? {
         guard let request = (try? JSONSerialization.jsonObject(with: Data(requestJSON.utf8))) as? [String: Any],
               let call = request["toolCall"] as? [String: Any], let meta = call["_meta"] as? [String: Any],
               let acpmux = meta["acpmux"] as? [String: Any], let connect = acpmux["mcpConnect"] as? [String: Any],
