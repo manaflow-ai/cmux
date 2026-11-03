@@ -1,14 +1,17 @@
 // A Cloud chat's sign-in on its own machine (Leo 2026-11-01, on the one-click sign-in: "yes those
-// are important"): inline in the failed turn's card, never a modal. Sign in to Claude (or Codex)
-// starts that agent's login on the machine (cloudAgentLogin.ts), and Open sign-in page opens its
-// page here on its own click (the host lets only a click start a login); Claude's
-// page gives a code to paste back, Codex's asks for the code the card shows. Use an API key saves
-// one on the machine instead. Once signed in, the failed prompt goes again on the person's click.
+// are important"; 2026-11-02: one "Sign in to Claude" button): inline in the failed turn's card,
+// never a modal. One click on Sign in to Claude (or Codex) starts that agent's login on the machine
+// (cloudAgentLogin.ts) and opens its page: the host lets the start that took the click open the
+// page it names, once. Open sign-in page stays as a quiet way back to it. Claude's page gives a
+// code to paste back (the sign-in completes in the claude binary on the machine; cmux keeps no
+// token); Codex's asks for the code the card shows, copied on the start. Use an API key, a link
+// beside it, saves one on the machine instead. Once signed in, the failed prompt goes again on the
+// person's click.
 // The code and the key live only in this component's state while it is up: never in a row, a
 // log or anything kept.
 import { useEffect, useRef, useState } from "react";
 import { useT, type StringKey } from "../i18n";
-import { copyText } from "./clipboard";
+import { copyText, copyTextResult } from "./clipboard";
 import { LoginStepError, type CloudSignIn as SignIn, type LoginFailure, type LoginStart } from "../cloudAgentLogin";
 
 type Stage =
@@ -60,7 +63,6 @@ export function CloudSignIn({
   const [code, setCode] = useState("");
   const [key, setKey] = useState("");
   const [copied, setCopied] = useState(false);
-  const [opened, setOpened] = useState(false);
   // The login this card started and has not finished: cancelled when the card goes away.
   const open = useRef<string | undefined>(undefined);
   // A step that lands after the person moved on (Cancel, another try) is dropped.
@@ -115,12 +117,17 @@ export function CloudSignIn({
           return;
         }
         open.current = login.loginId;
-        setOpened(false);
+        // The Sign in click opens the page too (the host lets its start open it, once).
+        signIn.open(login.url);
+        setCopied(false);
         if (login.needsCode) {
           setStage({ at: "code", login });
           return;
         }
         setStage({ at: "device", login });
+        // Codex's page asks for the code the card shows: it is on the clipboard already.
+        if (login.userCode)
+          void copyTextResult(login.userCode).then((done) => mine === generation.current && setCopied(done));
         void signIn.finish(login.loginId).then(
           (done) => {
             if (mine !== generation.current) return;
@@ -205,17 +212,10 @@ export function CloudSignIn({
     start();
   };
 
-  // The page opens on its own click: the Sign in click's gesture went to the login's start, which
-  // the host lets only a click begin. It leads until the person opened it; it stays for another try.
+  // The page opened with the Sign in click; this opens it again (a closed tab, or a host that did
+  // not open it), on its own click.
   const pageButton = (login: LoginStart) => (
-    <button
-      type="button"
-      className={`cv-turn-auth-action${opened ? "" : " cv-turn-error__primary"}`}
-      onClick={() => {
-        setOpened(true);
-        signIn.open(login.url);
-      }}
-    >
+    <button type="button" className="cv-turn-auth-action" onClick={() => signIn.open(login.url)}>
       {t("turn.signIn.openPage")}
     </button>
   );
@@ -242,7 +242,8 @@ export function CloudSignIn({
           )}
           <button
             type="button"
-            className="cv-turn-auth-action"
+            // Beside Sign in it is a link, so the sign-in stays the one button; alone it is the button.
+            className={keyOnly ? "cv-turn-auth-action" : "cv-turn-error__offer-link"}
             disabled={stage.at === "starting"}
             onClick={() => setStage({ at: "key" })}
           >
@@ -278,7 +279,7 @@ export function CloudSignIn({
             />
             <button
               type="submit"
-              className={`cv-turn-auth-action${opened ? " cv-turn-error__primary" : ""}`}
+              className="cv-turn-auth-action cv-turn-error__primary"
               disabled={stage.busy || !code.trim()}
             >
               {t("turn.continue")}

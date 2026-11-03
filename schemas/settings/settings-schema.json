@@ -294,7 +294,8 @@
             "rows" : [
               "agents.chats.enabled",
               "agents.chats.discovery",
-              "agents.chats.roots"
+              "agents.chats.roots",
+              "agents.chats.sessionRecap"
             ],
             "title" : {
               "key" : "settings.group.chats",
@@ -357,7 +358,7 @@
         ],
         "id" : "updates",
         "lead" : [
-
+          "appUpdate"
         ],
         "symbol" : "icloud.and.arrow.down",
         "title" : {
@@ -1149,6 +1150,7 @@
               "agentPane.showMachineLoadWarnings",
               "agentPane.newChatsIn",
               "agents.defaultPermissionMode",
+              "agents.promptCache",
               "agents.modelRouter.model",
               "app.warnBeforeClosingAgentSession"
             ],
@@ -1650,7 +1652,7 @@
             "rows" : [
               "cloud.newWorkspacesInCloud",
               "cloud.newWorkspaceFolder",
-              "cloud.agentsStartWithoutAsking"
+              "cloud.useMyClaudeLoginOnMyCloudMachines"
             ],
             "title" : {
               "key" : "settings.group.cloudWorkspaces",
@@ -12419,7 +12421,7 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
+      "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -12431,29 +12433,27 @@
         "text" : "Cloud Workspaces"
       },
       "help" : {
-        "key" : "settings.cloud.agentsStartWithoutAsking.help",
-        "text" : "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on."
+        "key" : "settings.cloud.useMyClaudeLogin.help",
+        "text" : "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead."
       },
       "kept_on_reset_all" : false,
-      "key" : "cloud.agentsStartWithoutAsking",
+      "key" : "cloud.useMyClaudeLoginOnMyCloudMachines",
       "keywords" : [
         "cloud",
-        "vm",
+        "claude",
+        "login",
+        "sign in",
+        "token",
+        "credential",
         "machine",
-        "agent",
-        "start",
-        "session",
-        "ask",
-        "approve",
-        "permission",
-        "without asking",
-        "delegate"
+        "consent",
+        "copy"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
       "path" : [
         "cloud",
-        "agentsStartWithoutAsking"
+        "useMyClaudeLoginOnMyCloudMachines"
       ],
       "refuses" : [
         "true",
@@ -12519,7 +12519,7 @@
             "palette.toggleSetting"
           ],
           "reason" : null,
-          "row" : "setting:cloud.agentsStartWithoutAsking"
+          "row" : "setting:cloud.useMyClaudeLoginOnMyCloudMachines"
         },
         "socket" : {
           "aliases" : [
@@ -12546,8 +12546,8 @@
         }
       },
       "title" : {
-        "key" : "settings.cloud.agentsStartWithoutAsking",
-        "text" : "Let Agents Start Cloud Sessions Without Asking"
+        "key" : "settings.cloud.useMyClaudeLogin",
+        "text" : "Use My Claude Login on My Own Cloud Machines"
       },
       "validation" : "portable"
     },
@@ -19428,6 +19428,139 @@
         "text" : "Chat Folders"
       },
       "validation" : "domain:chat_roots"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.sessionRecap.help",
+        "text" : "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.sessionRecap",
+      "keywords" : [
+        "agents",
+        "chats",
+        "recap",
+        "summary",
+        "away",
+        "claude"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "sessionRecap"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agents.chats.sessionRecap"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chats.sessionRecap",
+        "text" : "Session Recap"
+      },
+      "validation" : "portable"
     },
     {
       "accepts" : [
@@ -92411,6 +92544,156 @@
       "title" : {
         "key" : "settings.agents.defaultPermissionMode",
         "text" : "Permission Mode for New Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "1h",
+        "5m"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.promptCacheOneHour",
+            "text" : "1 Hour"
+          },
+          "value" : "1h"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.promptCacheFiveMinutes",
+            "text" : "5 Minutes"
+          },
+          "value" : "5m"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "1h",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.promptCache.help",
+        "text" : "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.promptCache",
+      "keywords" : [
+        "prompt cache",
+        "cache",
+        "ttl",
+        "claude",
+        "cost",
+        "tokens",
+        "1 hour",
+        "5 minutes"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "promptCache"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.promptCache"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.promptCache",
+        "text" : "Prompt Cache"
       },
       "validation" : "portable"
     },

@@ -17,7 +17,8 @@ CREATE TABLE chat (ROWID INTEGER PRIMARY KEY AUTOINCREMENT, guid TEXT UNIQUE NOT
 CREATE TABLE message (ROWID INTEGER PRIMARY KEY AUTOINCREMENT, guid TEXT UNIQUE NOT NULL,
     text TEXT, handle_id INTEGER DEFAULT 0, service TEXT, date INTEGER, is_from_me INTEGER DEFAULT 0,
     attributedBody BLOB, item_type INTEGER DEFAULT 0, associated_message_type INTEGER DEFAULT 0,
-    associated_message_guid TEXT, cache_has_attachments INTEGER DEFAULT 0, cache_roomnames TEXT);
+    associated_message_guid TEXT, cache_has_attachments INTEGER DEFAULT 0, cache_roomnames TEXT,
+    date_edited INTEGER DEFAULT 0, date_retracted INTEGER DEFAULT 0);
 CREATE TABLE chat_handle_join (chat_id INTEGER, handle_id INTEGER, UNIQUE(chat_id, handle_id));
 CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER, message_date INTEGER DEFAULT 0,
     PRIMARY KEY (chat_id, message_id));
@@ -70,9 +71,13 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::with_schema(SCHEMA)
+    }
+
+    fn with_schema(schema: &str) -> Self {
         let path = scratch_path("fixture");
         let db = Connection::open(&path).expect("fixture db");
-        db.execute_batch(SCHEMA).expect("schema");
+        db.execute_batch(schema).expect("schema");
         Self { path, db }
     }
 
@@ -377,7 +382,10 @@ fn null_item_and_association_columns_count_as_visible() {
     let chat = fx.chat("iMessage;-;+15550001111", 45, None, &[alice]);
     let rowid = fx.message(chat, alice, false, 1, Some("old row"));
     fx.db
-        .execute("UPDATE message SET item_type = NULL, associated_message_type = NULL WHERE ROWID = ?1", params![rowid])
+        .execute(
+            "UPDATE message SET item_type = NULL, associated_message_type = NULL WHERE ROWID = ?1",
+            params![rowid],
+        )
         .unwrap();
     let reader = fx.reader();
     assert_eq!(reader.messages(chat, None, 10).unwrap().len(), 1);
@@ -393,8 +401,114 @@ fn since_returns_a_message_once_even_when_joined_to_two_chats() {
     let b = fx.chat("SMS;-;+15550001111", 45, None, &[alice]);
     let rowid = fx.message(a, alice, false, 1, Some("both"));
     fx.db
-        .execute("INSERT INTO chat_message_join (chat_id, message_id) VALUES (?1, ?2)", params![b, rowid])
+        .execute(
+            "INSERT INTO chat_message_join (chat_id, message_id) VALUES (?1, ?2)",
+            params![b, rowid],
+        )
         .unwrap();
     let fresh = fx.reader().since(0, 10).unwrap();
     assert_eq!(fresh.iter().map(|m| m.rowid).collect::<Vec<_>>(), vec![rowid]);
+}
+
+#[test]
+fn messages_page_by_date_when_rowids_are_out_of_order() {
+    let fx = Fixture::new();
+    let alice = fx.handle("+15550001111");
+    let chat = fx.chat("iMessage;-;+15550001111", 45, None, &[alice]);
+    let newest = fx.message(chat, alice, false, 10, Some("newest"));
+    // iCloud backfill: older messages arrive later with higher rowids.
+    let oldest = fx.message(chat, alice, false, 1, Some("oldest"));
+    let middle = fx.message(chat, alice, false, 5, Some("middle"));
+    let reader = fx.reader();
+    let rowids = |messages: Vec<cmux_imessage::Message>| {
+        messages.iter().map(|m| m.rowid).collect::<Vec<_>>()
+    };
+    assert_eq!(rowids(reader.messages(chat, None, 50).unwrap()), vec![oldest, middle, newest]);
+    assert_eq!(rowids(reader.messages(chat, None, 2).unwrap()), vec![middle, newest]);
+    assert_eq!(
+        rowids(reader.messages(chat, Some(middle), 2).unwrap()),
+        vec![oldest],
+        "pages back from the anchor by date"
+    );
+    assert!(reader.messages(chat, Some(oldest), 2).unwrap().is_empty());
+}
+
+#[test]
+fn stickers_and_app_messages_show_but_tapbacks_and_events_do_not() {
+    let fx = Fixture::new();
+    let alice = fx.handle("+15550001111");
+    let chat = fx.chat("iMessage;-;+15550001111", 45, None, &[alice]);
+    let text = fx.message(chat, alice, false, 1, Some("hello"));
+    let sticker = fx.message_with(chat, alice, false, 2, None, None, 0, 1000);
+    fx.attach(sticker, "sticker.heic", "image/heic");
+    let app = fx.message_with(chat, alice, false, 3, Some("app"), None, 0, 3);
+    fx.message_with(chat, alice, false, 4, Some("Loved “hello”"), None, 0, 2000);
+    fx.message_with(chat, alice, false, 5, Some("Removed a heart"), None, 0, 3000);
+    fx.message_with(chat, alice, false, 6, Some("Loved (iOS 18)"), None, 0, 2007);
+    fx.message_with(chat, alice, false, 7, None, None, 1, 0);
+    let shown: Vec<i64> =
+        fx.reader().messages(chat, None, 50).unwrap().iter().map(|m| m.rowid).collect();
+    assert_eq!(shown, vec![text, sticker, app]);
+}
+
+#[test]
+fn edits_and_unsends_reach_live_updates() {
+    let fx = Fixture::new();
+    let alice = fx.handle("+15550001111");
+    let chat = fx.chat("iMessage;-;+15550001111", 45, None, &[alice]);
+    let first = fx.message(chat, alice, false, 1, Some("hi"));
+    let second = fx.message(chat, alice, true, 2, Some("tpyo"));
+    let reader = fx.reader();
+    let mark = reader.latest_change_mark().unwrap();
+    assert_eq!(mark, 0);
+    assert!(reader.changed_since(mark, 50).unwrap().is_empty());
+
+    let edited_at = BASE_DATE_NS + 3 * 60 * 1_000_000_000;
+    let unsent_at = BASE_DATE_NS + 4 * 60 * 1_000_000_000;
+    fx.db
+        .execute(
+            "UPDATE message SET text = 'typo', date_edited = ?1 WHERE ROWID = ?2",
+            params![edited_at, second],
+        )
+        .unwrap();
+    fx.db
+        .execute(
+            "UPDATE message SET text = NULL, date_retracted = ?1 WHERE ROWID = ?2",
+            params![unsent_at, first],
+        )
+        .unwrap();
+
+    let changed = reader.changed_since(mark, 50).unwrap();
+    assert_eq!(
+        changed.iter().map(|m| m.rowid).collect::<Vec<_>>(),
+        vec![second, first],
+        "in change order"
+    );
+    assert!(changed[0].edited && !changed[0].unsent);
+    assert_eq!(changed[0].text.as_deref(), Some("typo"));
+    assert_eq!(changed[0].chat_id, chat);
+    assert!(changed[1].unsent);
+    assert_eq!(changed[1].text, None);
+    assert_eq!(reader.latest_change_mark().unwrap(), unsent_at);
+    assert!(reader.changed_since(unsent_at, 50).unwrap().is_empty());
+
+    let listed = reader.messages(chat, None, 50).unwrap();
+    assert!(listed[0].unsent, "an unsent message stays in place, marked");
+    assert!(listed[1].edited);
+}
+
+#[test]
+fn databases_without_edit_columns_report_no_changes() {
+    let old_schema = SCHEMA
+        .replace(",\n    date_edited INTEGER DEFAULT 0, date_retracted INTEGER DEFAULT 0", "");
+    assert!(!old_schema.contains("date_edited"));
+    let fx = Fixture::with_schema(&old_schema);
+    let alice = fx.handle("+15550001111");
+    let chat = fx.chat("iMessage;-;+15550001111", 45, None, &[alice]);
+    fx.message(chat, alice, false, 1, Some("hi"));
+    let reader = fx.reader();
+    assert_eq!(reader.latest_change_mark().unwrap(), 0);
+    assert!(reader.changed_since(0, 50).unwrap().is_empty());
+    let listed = reader.messages(chat, None, 50).unwrap();
+    assert!(!listed[0].edited && !listed[0].unsent);
 }

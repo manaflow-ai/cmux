@@ -11,9 +11,8 @@ import Foundation
 /// account, else after one confirm that runs `setup-token` once in a visible local terminal. Every
 /// later machine of the account then gets it with no prompt.
 ///
-/// DEV and dogfood only (``CloudCredentialTransfer/passesHarnessLogin(isDogfoodBuild:defaults:)``;
-/// Leo: "IN THE ACTUAL PRODUCTION APP IT MAY BE AGAINST TOS"). The relay alternative, which keeps
-/// the token on the Mac, is scoped in cmux#29766.
+/// DEV and dogfood builds pass it as before. A Release build passes it only on Leo's three conditions
+/// (``CloudLoginCopyGate``); otherwise the machine's chat offers its own one-click "Sign in to Claude".
 ///
 /// The decision's rules are Rust's (``CloudHarnessLoginDecision``, cmux-cloud-start-core); this
 /// extension reads the machine and the account and acts on it.
@@ -21,11 +20,6 @@ import Foundation
 /// Never blocks the chat: a machine that is not the person's, a cancelled confirm or a failed install
 /// opens the chat anyway, and its turn card still offers recovery (#26148).
 extension CloudStartChat {
-    /// This process's answer to ``CloudCredentialTransfer/passesHarnessLogin(isDogfoodBuild:defaults:)``.
-    nonisolated static var passesHarnessLoginHere: Bool {
-        CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: DevTools.isEnabled, defaults: .standard)
-    }
-
     /// Gives the start's machine the person's Claude login when this build passes it. Returns
     /// whether a login was installed; never throws. `cmux cloud start-session` passes it the same way.
     func passHarnessLogin(harness: String?, machine: CloudMachineSession) async -> Bool {
@@ -34,6 +28,8 @@ extension CloudStartChat {
         let api = cloud.machineAPI.pinningTeam(teamID)
         var decision = CloudHarnessLoginDecision(dogfood: DevTools.isEnabled, setting: CloudCredentialTransfer.passHarnessLoginSetting(.standard),
                                                  harness: harness, signedIn: userID != nil)
+        let gate = Self.loginCopyGate(services)
+        await gate.read(into: &decision)
         // Never silent (CloudHarnessLoginDecision): the reason goes to the log and the machine's `cloud.machines` row.
         defer {
             machine.harnessLogin = decision
@@ -53,6 +49,8 @@ extension CloudStartChat {
             switch verdict.step {
             case .skip: return false
             case .install: break
+            case .askConsent:
+                guard await gate.askConsent(&decision) else { return false }
             case .confirmThenInstall:
                 guard await CloudPresenter.confirmFirstLogin(provider: provider, machine: machine.machine.title, services: services) else {
                     decision.outcome = "declined"
@@ -61,9 +59,10 @@ extension CloudStartChat {
             }
             guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return false }
             let transfer = CloudCredentialTransfer(provider: provider, machineID: machineID, teamID: teamID, userID: userID,
-                allowsCreatorTeamGuest: verdict.guestKind == "team", openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
+                allowsCreatorTeamGuest: verdict.guestKind == "team" && CloudCredentialTransfer.allowsCreatorTeamGuest(isDogfoodBuild: DevTools.isEnabled, defaults: .standard), openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
             try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID }, currentUserID: { cloud.auth.user?.id },
-                                   confirmed: true, callerOwnsVM: { try await cloud.callerOwnsVM(machineID) })
+                                   confirmed: true, callerOwnsVM: { try await cloud.callerOwnsVM(machineID) },
+                                   stillAllowed: gate.stillAllowed)
             decision.outcome = "installed"
             return true
         } catch {

@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudCredentials
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -210,9 +211,7 @@ extension AgentTabStore {
             // A page beside a chat of another machine shows that machine's folders (cx-k21v).
             // (A chat of this Mac keeps the plain page, as before.)
             let tab = beside.flatMap { services.locateTabOnAnyMachine($0)?.0 }.flatMap { services.machines.daemon(forTab: $0).isLocal ? nil : $0 }
-            // Without the Commands palette's actions (30-50 ms on the main thread, most of Cmd-N's
-            // key time: instant-new-surfaces `newTab.paletteActions`): they fill in on the frame
-            // after the page shows, as Cmd-T's do (``NewTabPage/fillPaletteActions(_:)``).
+            // Without the palette's actions: they fill in after the page shows (``NewTabPage/fillPaletteActions(_:)``).
             var page = NewTabPage.page(services, selected: tab, paletteActions: false)
             page.cwd = cwd ?? page.cwd
             NewTabPage.fillPaletteActions(services)
@@ -551,10 +550,11 @@ extension AgentTabStore {
         }
     }
     /// Signed in (on either link: CloudService.machineAPI serves a legacy and a Worker machine), and
-    /// this build passes the Mac's login at all (DEV and dogfood; production's card signs in on the
-    /// machine instead).
+    /// this build may pass the Mac's login at all (DEV and dogfood, or Release unless the setting
+    /// turns it off; a Release recovery then reads the remote switch and asks the consent first,
+    /// CloudPresenter.recoverCredentials).
     static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool,
-                                                   passesLogin: Bool = CloudStartChat.passesHarnessLoginHere) -> Bool {
+                                                   passesLogin: Bool = CloudCredentialTransfer.offersLoginCopy(isDogfoodBuild: DevTools.isEnabled, defaults: .standard)) -> Bool {
         isSignedIn && passesLogin
     }
 }

@@ -276,6 +276,7 @@ mod inbound;
 mod logged_bodies;
 pub use logged_bodies::leave_out_bodies;
 mod outbound;
+pub mod prompt_cache;
 // A tool result's images as ACP image blocks (`result_images.rs`).
 mod result_images;
 pub(crate) use result_images::result_images;
@@ -549,6 +550,8 @@ pub struct Translator {
     /// The cached context count came from an untagged compaction boundary rather
     /// than a model message. The controller can fence its later result resend.
     context_from_compaction: AtomicBool,
+    /// When the chat's prompt cache expires (`prompt_cache.rs`).
+    cache: prompt_cache::CacheClock,
     /// A compaction just ended: the synthetic user line Claude writes next
     /// is its summary (`compaction_summary`).
     awaiting_summary: AtomicBool,
@@ -696,6 +699,7 @@ impl Translator {
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
             context_from_compaction: AtomicBool::new(false),
+            cache: Default::default(),
             awaiting_summary: AtomicBool::new(false),
             compacting: AtomicBool::new(false),
             cancelled_compaction: AtomicBool::new(false),
