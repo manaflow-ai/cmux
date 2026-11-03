@@ -116,10 +116,13 @@ pub(super) fn machine_id_for_this_host(
 /// id other stores key this machine's session on. A registry with no stamp
 /// is stamped as it is.
 ///
-/// Every mutable text that names the copied id (`meta`, this daemon's own
-/// personal session row and its follows, pins and workspace rows, the
-/// sidebar document's workspace refs) is rewritten to the new one. The id is
-/// a random UUID, so a text holding it names that id and nothing else.
+/// Every reference to the copied id is rewritten to the new one: `meta`,
+/// columns named `session_id` or `default_session_id` that hold exactly it
+/// (this daemon's own personal session row and its follows, pins and
+/// workspace rows), the sidebar's dirty marks, and in `*_json` columns the
+/// string values under a session key (the sidebar document's workspace
+/// refs, closed-history records). Free text that merely contains the id (a
+/// command, a path, a description) is left as it is.
 /// Append-only history (tables whose triggers refuse an update: the session
 /// journal, journal segments) keeps what it recorded. `session_public_id`
 /// stays: the journal records it, and it names the session only within this
@@ -184,26 +187,89 @@ fn mutable_columns(connection: &Connection) -> anyhow::Result<Vec<(String, Vec<S
     Ok(out)
 }
 
-/// Replaces `old` with `new` in every text value of every mutable table.
-/// Runs once per copied registry. Rows that key on the id and rows that
-/// refer to them change in one transaction, so foreign keys are checked at
-/// its commit, not after each statement.
+/// Columns that hold a session id as their whole value.
+const SESSION_ID_COLUMNS: [&str; 2] = ["session_id", "default_session_id"];
+/// Keys under which a JSON column holds a session id as a whole string.
+const SESSION_ID_JSON_KEYS: [&str; 4] = ["session_id", "sessionId", "session", "local_session"];
+
+/// Rewrites references to `old` (see [`rehome_registry`]) to `new`. Runs
+/// once per copied registry. Rows that key on the id and rows that refer to
+/// them change in one transaction, so foreign keys are checked at its
+/// commit, not after each statement.
 fn rewrite_text_everywhere(tx: &Transaction<'_>, old: &str, new: &str) -> anyhow::Result<()> {
     tx.execute_batch("PRAGMA defer_foreign_keys=ON;")?;
+    tx.execute("UPDATE meta SET value = ?2 WHERE key = 'registry_id' AND value = ?1", [old, new])?;
     for (table, columns) in mutable_columns(tx)? {
+        let quoted = quote_identifier(&table);
         for column in columns {
+            let name = quote_identifier(&column);
+            if SESSION_ID_COLUMNS.contains(&column.as_str()) {
+                tx.execute(
+                    &format!("UPDATE {quoted} SET {name} = ?2 WHERE {name} = ?1"),
+                    [old, new],
+                )?;
+            } else if table == "sidebar_doc_dirty" && column == "a" {
+                tx.execute(
+                    "UPDATE sidebar_doc_dirty SET a = ?2 WHERE kind = 'ws' AND a = ?1",
+                    [old, new],
+                )?;
+            } else if column.ends_with("_json") {
+                rewrite_json_column(tx, &quoted, &name, old, new)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// In `table.column`, the JSON texts that mention `old`, each with the
+/// session keys that hold exactly `old` set to `new`.
+fn rewrite_json_column(
+    tx: &Transaction<'_>,
+    table: &str,
+    column: &str,
+    old: &str,
+    new: &str,
+) -> anyhow::Result<()> {
+    let texts: Vec<String> = tx
+        .prepare(&format!(
+            "SELECT DISTINCT {column} FROM {table}
+             WHERE typeof({column}) = 'text' AND instr({column}, ?1) > 0"
+        ))?
+        .query_map([old], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    for text in texts {
+        let Ok(mut value) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        if rewrite_session_keys(&mut value, old, new) {
             tx.execute(
-                &format!(
-                    "UPDATE {table} SET {column} = replace({column}, ?1, ?2)
-                     WHERE typeof({column}) = 'text' AND instr({column}, ?1) > 0",
-                    table = quote_identifier(&table),
-                    column = quote_identifier(&column),
-                ),
-                params![old, new],
+                &format!("UPDATE {table} SET {column} = ?2 WHERE {column} = ?1"),
+                params![text, serde_json::to_string(&value)?],
             )?;
         }
     }
     Ok(())
+}
+
+fn rewrite_session_keys(value: &mut Value, old: &str, new: &str) -> bool {
+    match value {
+        Value::Object(map) => {
+            let mut changed = false;
+            for (key, child) in map.iter_mut() {
+                if SESSION_ID_JSON_KEYS.contains(&key.as_str()) && child.as_str() == Some(old) {
+                    *child = Value::String(new.to_string());
+                    changed = true;
+                } else {
+                    changed |= rewrite_session_keys(child, old, new);
+                }
+            }
+            changed
+        }
+        Value::Array(items) => items
+            .iter_mut()
+            .fold(false, |changed, item| rewrite_session_keys(item, old, new) | changed),
+        _ => false,
+    }
 }
 
 fn quote_identifier(name: &str) -> String {
@@ -254,19 +320,19 @@ mod tests {
         persistent_session_state_dir(root, SESSION).join(WORKSPACE_REGISTRY_FILE)
     }
 
-    /// Every mutable text value in the registry that contains `needle`, as
-    /// table.column (append-only history keeps what it recorded).
-    fn texts_naming(root: &Path, needle: &str) -> Vec<String> {
+    /// Every session-id column (whole value) of a mutable table that holds
+    /// `needle`, as table.column.
+    fn session_columns_naming(root: &Path, needle: &str) -> Vec<String> {
         let connection = Connection::open(registry_file(root)).unwrap();
         let mut found = Vec::new();
         for (table, columns) in mutable_columns(&connection).unwrap() {
-            for column in columns {
+            for column in columns.iter().filter(|c| SESSION_ID_COLUMNS.contains(&c.as_str())) {
                 let hits: i64 = connection
                     .query_row(
                         &format!(
-                            "SELECT COUNT(*) FROM {} WHERE typeof({c}) = 'text' AND instr({c}, ?1) > 0",
+                            "SELECT COUNT(*) FROM {} WHERE {} = ?1",
                             quote_identifier(&table),
-                            c = quote_identifier(&column),
+                            quote_identifier(column),
                         ),
                         [needle],
                         |row| row.get(0),
@@ -278,6 +344,28 @@ mod tests {
             }
         }
         found
+    }
+
+    /// Free text that holds the id (a command, a path) and a JSON record that
+    /// names the session, as user data and a reference would.
+    fn plant(root: &Path, id: &str) {
+        Connection::open(registry_file(root))
+            .unwrap()
+            .execute_batch(&format!(
+                "CREATE TABLE user_text(command TEXT, record_json TEXT);
+                 INSERT INTO user_text VALUES('cd /srv/{id} && ls',
+                   '{{\"command\":\"echo {id}\",\"ref\":{{\"session_id\":\"{id}\"}}}}');"
+            ))
+            .unwrap();
+    }
+
+    fn planted(root: &Path) -> (String, Value) {
+        Connection::open(registry_file(root))
+            .unwrap()
+            .query_row("SELECT command, record_json FROM user_text", [], |row| {
+                Ok((row.get(0)?, serde_json::from_str(&row.get::<_, String>(1)?).unwrap()))
+            })
+            .unwrap()
     }
 
     /// A registry in use: a workspace and a terminal, so the session journal
@@ -307,6 +395,7 @@ mod tests {
         as_machine(Some(first));
         seed(&original);
         let made = ids(&original);
+        plant(&original, &made.0);
         assert_eq!(ids(&original), made, "the same machine keeps its ids");
 
         // VMs made from one image: the whole state root, under another machine id.
@@ -317,7 +406,12 @@ mod tests {
         assert_ne!(cloned.0, made.0, "registry id");
         assert_eq!(cloned.1, made.1, "the session public id stays: the journal records it");
         assert_ne!(cloned.2, made.2, "machine id");
-        assert!(texts_naming(&clone, &made.0).is_empty(), "{:?}", texts_naming(&clone, &made.0));
+        let stale = session_columns_naming(&clone, &made.0);
+        assert!(stale.is_empty(), "session columns still name the copied id: {stale:?}");
+        let (command, record) = planted(&clone);
+        assert_eq!(command, format!("cd /srv/{} && ls", made.0), "free text is kept");
+        assert_eq!(record["command"], format!("echo {}", made.0), "free text in JSON is kept");
+        assert_eq!(record["ref"]["session_id"], cloned.0, "a JSON session ref moves");
         let reopened = WorkspaceRegistry::open(&clone, SESSION).unwrap();
         assert_eq!(reopened.snapshot().unwrap().workspaces[0].key, "one", "the workspaces stay");
         drop(reopened);
