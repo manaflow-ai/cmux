@@ -48,8 +48,19 @@ public nonisolated struct ServerUpdateNotice: Sendable, Equatable, Identifiable 
     /// How many features are named in the toast at most.
     public static let namedLimit = 3
 
-    /// The toast's sentence.
+    /// The toast's message, short so the toast never truncates it or its button: "Update ready for cmux-tui"
+    /// (Leo, 2026-11-03: "aren't these all kinda awkward looking"). What the restart gains is ``toastDetail``.
     public var toastMessage: String {
+        UpdaterStrings.format("server.toast.ready", "Update ready for %@", serverLabel)
+    }
+
+    /// The toast's button: "Restart", which opens the confirm. It never repeats the message or the server's name.
+    public var toastButtonTitle: String {
+        UpdaterStrings.text("server.confirm.restart", "Restart")
+    }
+
+    /// The toast's detail (its tooltip): what a restart gains, up to ``namedLimit`` features by name.
+    public var toastDetail: String {
         let named = gainedFeatures.prefix(Self.namedLimit).map(\.title)
         let more = missingCapabilities.count - named.count
         guard !named.isEmpty else {
@@ -64,7 +75,7 @@ public nonisolated struct ServerUpdateNotice: Sendable, Equatable, Identifiable 
         return UpdaterStrings.format("server.toast.features", "Restart %1$@ to use new features: %2$@", serverLabel, list)
     }
 
-    /// The toast's button, which opens the confirm.
+    /// Settings > Server's row button, which opens the confirm.
     public var restartButtonTitle: String {
         UpdaterStrings.format("server.button.restart", "Restart %@…", kind.displayName)
     }

@@ -1411,7 +1411,7 @@ fn ensure_asks_for_the_workspaces_machine_under_the_plans_create_key() {
     .expect("ensure");
     assert_eq!(
         ensure.body(),
-        json!({"clientKey": Keys::of(&key).create, "repo": "manaflow-ai/cmux", "environment": ENV})
+        json!({"clientKey": Keys::of(&key).create, "repo": "manaflow-ai/cmux", "environment": ENV, "projectKey": "git:github.com/manaflow-ai/cmux"})
     );
     let with_ref = Ensure::of(&flags(&[
         "--workspace",
@@ -1426,7 +1426,7 @@ fn ensure_asks_for_the_workspaces_machine_under_the_plans_create_key() {
     .unwrap();
     assert_eq!(
         with_ref.body(),
-        json!({"clientKey": Keys::of(&key).create, "repo": "a/b", "ref": "main"})
+        json!({"clientKey": Keys::of(&key).create, "repo": "a/b", "ref": "main", "projectKey": "git:github.com/a/b"})
     );
     for bad in [
         vec!["--key", key.as_str(), "--repo", "a/b"],
@@ -1488,7 +1488,7 @@ fn ensures_line_names_the_machine_or_the_platforms_code() {
 }
 
 /// Zero-setup hot start: a new machine for a send from a repository's folder, on the personal account, is the
-/// platform's workspace machine, pinned like one the App made; a team's send, a folder with no repository, or a
+/// platform's workspace machine, pinned like one the App made; a team's send or a
 /// platform that made none keeps the App's own create; one that may have made it refuses the send.
 #[test]
 fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
@@ -1527,7 +1527,7 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert_eq!(
         asked.borrow().as_slice(),
         [(
-            json!({"clientKey": Keys::of(&key).create, "repo": "me/paint", "environment": ENV}),
+            json!({"clientKey": Keys::of(&key).create, "repo": "me/paint", "environment": ENV, "projectKey": "git:github.com/me/paint"}),
             "token-1".to_string()
         )]
     );
@@ -1639,4 +1639,135 @@ fn a_copy_answers_how_the_push_went() {
     assert_eq!(answer["install_url"], json!("https://github.com/apps/cmux/installations/new"));
     assert_eq!(answer["skipped_files"][0]["path"], json!(".env"));
     assert!(answer.get("head").is_none() && answer.get("bundle_bytes").is_none(), "{answer}");
+}
+
+#[test]
+fn project_identity_unifies_git_transports_without_leaking_credentials() {
+    for remote in [
+        "https://GitHub.com/Owner/Repo.git/",
+        "git@github.com:owner/repo",
+        "ssh://git@GITHUB.COM:22/OWNER/REPO.GIT",
+        "https://user:secret@github.com:443/owner/repo",
+        "http://github.com:80/owner/repo",
+    ] {
+        assert_eq!(
+            super::project::remote_key(remote).as_deref(),
+            Some("git:github.com/owner/repo"),
+            "{remote}"
+        );
+    }
+    assert_eq!(
+        super::project::remote_key("git@gitlab.com:Group/Nested/Repo.git").as_deref(),
+        Some("git:gitlab.com/group/nested/repo")
+    );
+    for remote in [
+        "",
+        "/tmp/repo",
+        "file:///tmp/repo",
+        "ssh://host:2222/a/b",
+        "https://host/a/../b",
+        "https://host/a/b?token=secret",
+        "https://host/a/b#main",
+        "host:a",
+        "https://host//a/b",
+    ] {
+        assert_eq!(super::project::remote_key(remote), None, "{remote}");
+    }
+}
+
+#[test]
+fn project_folder_identity_survives_relaunch_and_distinguishes_installations() {
+    let dir = scratch();
+    let folder = dir.path().join("project");
+    std::fs::create_dir(&folder).unwrap();
+    let local = folder.to_str().unwrap();
+    let ledger = ledger_in(dir.path());
+    let first = super::project::folder_key(&ledger, local).unwrap().unwrap();
+    assert!(first.starts_with("folder:"));
+    assert_eq!(
+        super::project::folder_key(&ledger, local).unwrap().as_deref(),
+        Some(first.as_str())
+    );
+    let another_install = dir.path().join("another-install/destinations.json");
+    assert_ne!(
+        super::project::folder_key(&another_install, local).unwrap().as_deref(),
+        Some(first.as_str())
+    );
+    let alias = dir.path().join("alias");
+    std::os::unix::fs::symlink(&folder, &alias).unwrap();
+    assert_eq!(
+        super::project::folder_key(&ledger, alias.to_str().unwrap()).unwrap().as_deref(),
+        Some(first.as_str())
+    );
+}
+
+#[test]
+fn project_ensure_shares_a_machine_between_workspaces_and_keeps_both_pins() {
+    let dir = scratch();
+    let ledger = ledger_in(dir.path());
+    let folder = dir.path().join("project");
+    std::fs::create_dir_all(folder.join(".git")).unwrap();
+    std::fs::write(
+        folder.join(".git/config"),
+        "[remote \"origin\"]\n url = git@gitlab.com:Me/Project.git\n",
+    )
+    .unwrap();
+    let asked = RefCell::new(Vec::new());
+    let ensure = |ensure: &Ensure, _: &str| {
+        asked.borrow_mut().push(ensure.body());
+        Ok(json!({"machine": {"id": "project-machine"}, "created": false}))
+    };
+    for workspace in ["ws-a", "ws-b"] {
+        let request = json!({"key": key(), "account": "user-leo/", "workspace": workspace,
+            "local": folder, "credential_on_stdin": true});
+        let answer = plan_with(&ledger, &request.to_string(), &mut "token\n".as_bytes(), &ensure);
+        assert_eq!(answer["machine"], json!("project-machine"), "{answer}");
+    }
+    assert_eq!(asked.borrow().len(), 2);
+    for body in asked.borrow().iter() {
+        assert_eq!(body["projectKey"], json!("git:gitlab.com/me/project"));
+        assert!(body.get("repo").is_none());
+    }
+    Ledger::update(&ledger, |pins| {
+        assert_eq!(pins.workspace_machine("ws-a", "user-leo/").as_deref(), Some("project-machine"));
+        assert_eq!(pins.workspace_machine("ws-b", "user-leo/").as_deref(), Some("project-machine"));
+        assert!(!pick::claim_project(pins, "ws-b", "user-leo/", "racing-machine"));
+    })
+    .unwrap();
+}
+
+#[test]
+fn project_ensure_accepts_a_folder_without_a_remote() {
+    let dir = scratch();
+    let ledger = ledger_in(dir.path());
+    let request = json!({"key": key(), "account": "user-leo/", "workspace": "ws-folder",
+        "local": dir.path(), "credential_on_stdin": true});
+    let answer =
+        plan_with(&ledger, &request.to_string(), &mut "token\n".as_bytes(), &|ensure, _| {
+            assert!(ensure.body()["projectKey"].as_str().unwrap().starts_with("folder:"));
+            assert!(ensure.body().get("repo").is_none());
+            Ok(json!({"machine": {"id": "folder-machine"}, "created": true}))
+        });
+    assert_eq!(answer["machine"], json!("folder-machine"), "{answer}");
+}
+
+#[test]
+fn project_key_cli_keeps_folder_ids_and_normalizes_git_keys() {
+    for (input, expected) in [
+        ("folder:local-ID", "folder:local-ID"),
+        ("git:GitLab.com/Group/Repo.GIT", "git:gitlab.com/group/repo"),
+    ] {
+        let ensure =
+            Ensure::of(&flags(&["--workspace", "ws", "--key", &key(), "--project-key", input]))
+                .unwrap();
+        assert_eq!(ensure.body()["projectKey"], json!(expected));
+        assert!(ensure.body().get("repo").is_none());
+    }
+    for bad in ["folder:", "git:host/../repo", "folder:path/to/folder", "git:host/a/b?token=secret"]
+    {
+        assert!(
+            Ensure::of(&flags(&["--workspace", "ws", "--key", &key(), "--project-key", bad]))
+                .is_none()
+        );
+    }
 }
