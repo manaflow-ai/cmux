@@ -29,6 +29,9 @@ pub const MOVED_FILE: &str = "state/moved.json";
 pub const MOVED_IN_FILE: &str = "state/moved-in.json";
 /// The app's "start no brain" marker (cmux-tui `cmux chief shutdown`).
 pub const SHUTDOWN_FILE: &str = "state/shutdown";
+/// The version of the move verbs a remote mover must have (`move probe`
+/// answers it): 1 = freeze, thaw and watch (a pull back and teleports).
+pub const TELEPORT_VERBS: u32 = 1;
 /// The exit code of a host that refuses a moved home.
 pub const MOVED_EXIT: i32 = 3;
 
@@ -896,7 +899,9 @@ pub(crate) fn remote_mover(host: &str, wanted: &str) -> Result<String, String> {
         )
         .ok()
         .and_then(|out| serde_json::from_str::<serde_json::Value>(out.trim()).ok())
-        .is_some_and(|v| v["format"] == FORMAT)
+        // `teleport`: the verbs a move out of a moved home needs (freeze, thaw,
+        // watch); an older mover there is replaced below.
+        .is_some_and(|v| v["format"] == FORMAT && v["teleport"] == TELEPORT_VERBS)
     };
     if knows(wanted) {
         return Ok(wanted.to_owned());
@@ -1783,6 +1788,7 @@ pub fn cli(args: &[String]) -> i32 {
             let empty = absent_or_empty(&home);
             Ok(json(&serde_json::json!({
                 "format": FORMAT,
+                "teleport": TELEPORT_VERBS,
                 "home": home.to_string_lossy(),
                 "empty": empty,
                 "os": std::env::consts::OS,
