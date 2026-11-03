@@ -47,6 +47,7 @@ import Testing
         content.update(Self.model(.symbols, tabs: 12))
         let strip = try #require(content.railStrip)
         let document = try #require(strip.documentView)
+        #expect(Self.tabs(content).allSatisfy { $0.superview === document }, "the first opening fills the strip")
         #expect(strip.frame.height == Metrics.space2 + 3 * PopupStyle.standard.rowHeight + 3 * Metrics.space1)
         #expect(document.frame.height > strip.frame.height)
     }

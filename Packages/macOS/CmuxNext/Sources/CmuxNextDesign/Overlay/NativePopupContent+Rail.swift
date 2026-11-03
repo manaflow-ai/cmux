@@ -14,8 +14,8 @@ extension NativePopupContent {
     }
 
     /// The tabs go into the wrapping strip (symbols, top) or straight into the popup (left, compact).
-    func addPlacedRail(_ placement: NativePopupRailPlacement) {
-        let rail = railIDs
+    /// `rail` is the incoming model's: `model` still holds the replaced one while rows rebuild.
+    func addPlacedRail(_ placement: NativePopupRailPlacement, rail: Set<String>) {
         let divider = NSBox.separator()
         railDivider = divider
         addSubview(divider)

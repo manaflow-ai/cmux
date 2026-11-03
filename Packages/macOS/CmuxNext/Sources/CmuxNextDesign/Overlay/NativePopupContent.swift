@@ -166,7 +166,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             let rows = model.rows + (model.footer ?? [])
             let hasIcons = rows.contains { $0.icon != nil }
             rowViews = rail.map { ($0, makeRailTab($0, placement: placement)) } + rows.map { row in (row, makeRow(row, hasIconColumn: hasIcons)) }
-            addPlacedRail(placement)
+            addPlacedRail(placement, rail: Set(rail.map(\.id)))
             return
         }
         let rows = (model.rail ?? []) + model.rows + (model.footer ?? [])
