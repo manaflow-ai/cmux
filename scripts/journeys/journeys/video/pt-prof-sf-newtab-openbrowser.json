@@ -1,0 +1,436 @@
+{
+ "id": "pt-prof-sf-newtab-openbrowser",
+ "priority": "P0",
+ "title": "PACING TRIAGE profile: cmd+t x3, shift+cmd+l x3 (warm idle dark anim-off), real HID keys, xctrace + frame trace + core tiers per press, no video",
+ "why": "PACING TRIAGE (STATUS 8034 follow-up): name the main-thread item over 8.3 ms in the refreshes the app misses after the key.",
+ "source": "handoff/resize-videos/SHORTCUT-FRAMES.md (SHORTCUT FRAMES P0)",
+ "budget_seconds": 230,
+ "options": {
+  "key_path": "real"
+ },
+ "cases": [
+  {
+   "name": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip",
+   "stroke": "cmd+t",
+   "action": "newTab.default",
+   "effect": "new-tab",
+   "context": "any",
+   "arm": "warm",
+   "load": "idle",
+   "theme": "dark",
+   "animations": "off",
+   "build": "feat-tip"
+  },
+  {
+   "name": "openBrowser[shift+cmd+l]/warm/idle/dark/anim-off/feat-tip",
+   "stroke": "shift+cmd+l",
+   "action": "openBrowser",
+   "effect": "new-tab",
+   "context": "any",
+   "arm": "warm",
+   "load": "idle",
+   "theme": "dark",
+   "animations": "off",
+   "build": "feat-tip"
+  }
+ ],
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "socket",
+   "name": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "settings_file",
+   "title": "set-up: theme Builtin Dark, animations off, no close warning",
+   "set": {
+    "appearance": {
+     "theme": "Builtin Dark",
+     "appTheme": "followTerminal"
+    },
+    "app": {
+     "warnBeforeClosingTab": false
+    },
+    "ui": {
+     "animations": {
+      "enabled": false
+     }
+    }
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "tiers_start",
+   "name": "tiers",
+   "seconds": 240
+  },
+  {
+   "do": "trace_only_start",
+   "name": "tra"
+  },
+  {
+   "do": "xtp_start",
+   "name": "xtpa",
+   "seconds": 2.5,
+   "wait_first_sample": true,
+   "title": "Time Profiler on the app; the press waits for its first sample"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/1",
+   "title": "the measured press cmd+t (newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/1)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "xtp_stop",
+   "name": "xtpa"
+  },
+  {
+   "do": "trace_only_stop",
+   "name": "tra"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "trace_only_start",
+   "name": "trb"
+  },
+  {
+   "do": "xtp_start",
+   "name": "xtpb",
+   "seconds": 2.5,
+   "wait_first_sample": true,
+   "title": "Time Profiler on the app; the press waits for its first sample"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/2",
+   "title": "the measured press cmd+t (newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/2)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "xtp_stop",
+   "name": "xtpb"
+  },
+  {
+   "do": "trace_only_stop",
+   "name": "trb"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "trace_only_start",
+   "name": "trc"
+  },
+  {
+   "do": "xtp_start",
+   "name": "xtpc",
+   "seconds": 2.5,
+   "wait_first_sample": true,
+   "title": "Time Profiler on the app; the press waits for its first sample"
+  },
+  {
+   "do": "hid_key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/3",
+   "title": "the measured press cmd+t (newTab.default[cmd+t]/warm/idle/dark/anim-off/feat-tip/3)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "xtp_stop",
+   "name": "xtpc"
+  },
+  {
+   "do": "trace_only_stop",
+   "name": "trc"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "trace_only_start",
+   "name": "trd"
+  },
+  {
+   "do": "xtp_start",
+   "name": "xtpd",
+   "seconds": 2.5,
+   "wait_first_sample": true,
+   "title": "Time Profiler on the app; the press waits for its first sample"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/warm/idle/dark/anim-off/feat-tip/1",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/warm/idle/dark/anim-off/feat-tip/1)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "xtp_stop",
+   "name": "xtpd"
+  },
+  {
+   "do": "trace_only_stop",
+   "name": "trd"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "trace_only_start",
+   "name": "tre"
+  },
+  {
+   "do": "xtp_start",
+   "name": "xtpe",
+   "seconds": 2.5,
+   "wait_first_sample": true,
+   "title": "Time Profiler on the app; the press waits for its first sample"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/warm/idle/dark/anim-off/feat-tip/2",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/warm/idle/dark/anim-off/feat-tip/2)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "xtp_stop",
+   "name": "xtpe"
+  },
+  {
+   "do": "trace_only_stop",
+   "name": "tre"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "trace_only_start",
+   "name": "trf"
+  },
+  {
+   "do": "xtp_start",
+   "name": "xtpf",
+   "seconds": 2.5,
+   "wait_first_sample": true,
+   "title": "Time Profiler on the app; the press waits for its first sample"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/warm/idle/dark/anim-off/feat-tip/3",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/warm/idle/dark/anim-off/feat-tip/3)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "xtp_stop",
+   "name": "xtpf"
+  },
+  {
+   "do": "trace_only_stop",
+   "name": "trf"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "tiers_stop",
+   "name": "tiers"
+  },
+  {
+   "do": "type",
+   "text": "echo sf-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "since": "done",
+   "timeout": 15,
+   "title": "after the presses the app still answers: the line shows in the app, the daemon and the frame",
+   "all": [
+    {
+     "app_text_contains": "sf-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "sf-done-${nonce}"
+    }
+   ]
+  }
+ ]
+}

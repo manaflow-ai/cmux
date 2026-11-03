@@ -1,0 +1,437 @@
+{
+ "id": "pt-prof-bv-dt-bottom-light-dark",
+ "priority": "P1",
+ "title": "PACING TRIAGE profile: DevTools docked bottom open+close (real Cmd-Opt-I) x3, light page, dark, xctrace + frame trace + core tiers, no video",
+ "why": "PACING TRIAGE (STATUS 8034 follow-up): name the main-thread item over 8.3 ms in the refreshes the app misses after the key.",
+ "source": "handoff/resize-videos (BROWSER VIDEO suite, lead STATUS 4282; Lawrence's DevTools case)",
+ "budget_seconds": 200,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "rpc",
+   "title": "set-up: the app in dark (debug.appearance; Chromium and pages follow NSApp)",
+   "method": "debug.appearance",
+   "params": {
+    "mode": "dark"
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "bv_serve"
+  },
+  {
+   "do": "hid_key",
+   "key": "n",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "title": "set-up: New Browser Workspace (Opt-Cmd-N): the page fills the workspace"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "set-up: the address bar (Cmd-L)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "smoke_type",
+   "text": "${bv_base}/light.html",
+   "enter": true,
+   "title": "set-up: the test page typed in the address bar"
+  },
+  {
+   "do": "bv_page_ready",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "bv_scroll",
+   "page": "light"
+  },
+  {
+   "do": "hid_click",
+   "target": {
+    "window_point": [
+     560,
+     420
+    ]
+   },
+   "title": "set-up: focus the page (a real click on its text)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "tiers_start",
+   "name": "tiers",
+   "seconds": 240
+  },
+  {
+   "do": "bv_state",
+   "page": "light",
+   "note": "before"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "bv_action",
+   "action": "devtools.openDocked",
+   "note": "open-action",
+   "fallback_key": {
+    "key": "i",
+    "modifiers": [
+     "cmd",
+     "option"
+    ]
+   }
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "bv_state",
+   "page": "light",
+   "note": "open"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "close-r0",
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "bv_state",
+   "page": "light",
+   "note": "after"
+  },
+  {
+   "do": "bv_budget",
+   "note": "budget"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
+  },
+  {
+   "do": "bv_scroll",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "trace_only_start",
+   "name": "tra"
+  },
+  {
+   "do": "xtp_start",
+   "name": "xtpa",
+   "seconds": 2.5,
+   "wait_first_sample": true,
+   "title": "Time Profiler on the app; the press waits for its first sample"
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "open-p1",
+   "title": "open DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "close-p1",
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "xtp_stop",
+   "name": "xtpa"
+  },
+  {
+   "do": "trace_only_stop",
+   "name": "tra"
+  },
+  {
+   "do": "bv_budget",
+   "note": "budget-p1",
+   "all": true
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
+  },
+  {
+   "do": "bv_scroll",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "trace_only_start",
+   "name": "trb"
+  },
+  {
+   "do": "xtp_start",
+   "name": "xtpb",
+   "seconds": 2.5,
+   "wait_first_sample": true,
+   "title": "Time Profiler on the app; the press waits for its first sample"
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "open-p2",
+   "title": "open DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "close-p2",
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "xtp_stop",
+   "name": "xtpb"
+  },
+  {
+   "do": "trace_only_stop",
+   "name": "trb"
+  },
+  {
+   "do": "bv_budget",
+   "note": "budget-p2",
+   "all": true
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
+  },
+  {
+   "do": "bv_scroll",
+   "page": "light"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3
+  },
+  {
+   "do": "trace_only_start",
+   "name": "trc"
+  },
+  {
+   "do": "xtp_start",
+   "name": "xtpc",
+   "seconds": 2.5,
+   "wait_first_sample": true,
+   "title": "Time Profiler on the app; the press waits for its first sample"
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "open-p3",
+   "title": "open DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": true,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6
+  },
+  {
+   "do": "hid_key",
+   "key": "i",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "close-p3",
+   "title": "close DevTools: real Cmd-Opt-I"
+  },
+  {
+   "do": "bv_devtools",
+   "page": "light",
+   "open": false,
+   "timeout": 5
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "xtp_stop",
+   "name": "xtpc"
+  },
+  {
+   "do": "trace_only_stop",
+   "name": "trc"
+  },
+  {
+   "do": "bv_budget",
+   "note": "budget-p3",
+   "all": true
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
+  },
+  {
+   "do": "tiers_stop",
+   "name": "tiers"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "bvend"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo bv-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "title": "after the recordings the app still answers: the line shows in the app, the daemon and the frame",
+   "since": "done",
+   "timeout": 15,
+   "all": [
+    {
+     "app_text_contains": "bv-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "bv-done-${nonce}"
+    }
+   ]
+  }
+ ]
+}

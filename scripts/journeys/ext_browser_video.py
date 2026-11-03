@@ -1,0 +1,281 @@
+"""BROWSER VIDEO suite steps (handoff resize-videos/BROWSER-VIDEO.md): local test pages and browser/agent set-up for the
+DevTools, browser pane and agent pane movies. driver.py loads this file on the mini under /usr/bin/python3 (standard
+library only; no 3.10 syntax). The movies themselves come from ext_video (video_start, hid_key, video_stop).
+
+Pages (served from 127.0.0.1, no network): `light` is a static, left-anchored 520 px column (rows with colored chips),
+a magenta 32 px marker at the document's (8, 408) (the viewport's (8, 8) after the scroll to y=400) and a cyan 20 px
+badge fixed 6 px from the viewport's bottom-right; `heavy` adds a 12,000-cell grid that reflows with the width, a canvas
+drawn every animation frame and a CSS animation. Both follow prefers-color-scheme: navy in dark, cream in light (each
+distinct from DevTools' own background and from the pane fill, so the judge tells page, DevTools and placeholder apart).
+
+Steps (`do`):
+  bv_serve       {}                         starts the page server once; ${bv_base} is its URL
+  bv_open        {page, scroll?: 400}       a Chromium tab on the page (openBrowser.chromium, focused), waits for its
+                                            title, scrolls; ${bv_tab_<page>} is its tab id
+  bv_page_ready  {page, scroll?: 400}       waits until the focused page shows the test page, scrolls it
+  bv_scroll      {page, y?: 400}
+  bv_state       {page, note}                 the page's innerWidth, innerHeight, scrollY, devicePixelRatio and color
+                                            scheme, plus debug.cef's DevTools frames; kept in the recording's notes
+  bv_action      {action, note?, args?, fallback_key?}  action.run (origin script); its send time kept under `note`
+  bv_devtools    {page, open?: true, timeout?: 5, quiet?: 0.6}  waits for the DevTools state; a StepError when it does not come
+  bv_agent       {action, note?, ...params}   debug.agent_pane ACTION (stream, readiness, focus_composer, ...); the reply is
+                                            kept in the recording's notes under `note`
+"""
+import functools
+import http.server
+import json
+import threading
+import time
+
+D = None
+PAGES = {"light": '<!doctype html>\n<html>\n<head>\n<meta charset="utf-8">\n<meta name="color-scheme" content="light dark">\n<title>bv light</title>\n<style>\n  /* browser-video light page: static, left-anchored, fixed-width content, so a narrower or shorter viewport\n     must not move a single pixel of the column (any change there is a jump or a stretch). */\n  :root { --bg: #fff8e0; --fg: #15171a; --line: #d9c98f; }\n  @media (prefers-color-scheme: dark) { :root { --bg: #0b2a4a; --fg: #d8e4f0; --line: #2f5478; } }\n  html, body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/18px Menlo, monospace; }\n  #col { position: absolute; left: 0; top: 0; width: 520px; }\n  .row { box-sizing: border-box; height: 64px; border-bottom: 1px solid var(--line); padding: 6px 10px; }\n  .chip { display: inline-block; width: 40px; height: 40px; vertical-align: middle; margin-right: 12px; }\n  #marker { position: absolute; left: 8px; top: 408px; width: 32px; height: 32px; background: #ff00ff; }\n  #badge { position: fixed; right: 6px; bottom: 6px; width: 20px; height: 20px; background: #00e0ff; }\n  #tall { position: absolute; left: 0; top: 0; width: 1px; height: 5200px; }\n</style>\n</head>\n<body>\n<div id="tall"></div>\n<div id="col"></div>\n<div id="marker"></div>\n<div id="badge"></div>\n<script>\n  const col = document.getElementById("col");\n  const hues = [0, 32, 64, 120, 180, 220, 270, 310];\n  for (let i = 0; i < 80; i++) {\n    const row = document.createElement("div");\n    row.className = "row";\n    const chip = document.createElement("span");\n    chip.className = "chip";\n    chip.style.background = `hsl(${hues[i % hues.length]}, 70%, 50%)`;\n    row.appendChild(chip);\n    row.appendChild(document.createTextNode(`row ${String(i).padStart(2, "0")}  the quick brown fox ${i * 7919 % 1000}`));\n    col.appendChild(row);\n  }\n</script>\n</body>\n</html>\n', "heavy": '<!doctype html>\n<html>\n<head>\n<meta charset="utf-8">\n<meta name="color-scheme" content="light dark">\n<title>bv heavy</title>\n<style>\n  /* browser-video heavy page: the light page\'s static column, plus a 24,000-node grid that reflows with the\n     viewport width, a canvas drawn every animation frame and a CSS animation. The judge masks what moves\n     before the key (canvas, spinner) and checks the static column as on the light page. */\n  :root { --bg: #fff8e0; --fg: #15171a; --line: #d9c98f; }\n  @media (prefers-color-scheme: dark) { :root { --bg: #0b2a4a; --fg: #d8e4f0; --line: #2f5478; } }\n  html, body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/18px Menlo, monospace; }\n  #col { position: absolute; left: 0; top: 0; width: 520px; }\n  .row { box-sizing: border-box; height: 64px; border-bottom: 1px solid var(--line); padding: 6px 10px; }\n  .chip { display: inline-block; width: 40px; height: 40px; vertical-align: middle; margin-right: 12px; }\n  #marker { position: absolute; left: 8px; top: 408px; width: 32px; height: 32px; background: #ff00ff; }\n  #badge { position: fixed; right: 6px; bottom: 6px; width: 20px; height: 20px; background: #00e0ff; }\n  #grid { position: absolute; left: 540px; right: 0; top: 0; display: flex; flex-wrap: wrap; }\n  #grid span { width: 22px; height: 14px; font-size: 9px; line-height: 14px; overflow: hidden; border: 1px solid var(--line); }\n  #anim { position: absolute; left: 280px; top: 420px; width: 200px; height: 120px; }\n  #spin { position: absolute; left: 60px; top: 420px; width: 120px; height: 120px; border-radius: 60px;\n          border: 10px solid #4a8; border-top-color: transparent; box-sizing: border-box; animation: spin 0.9s linear infinite; }\n  @keyframes spin { to { transform: rotate(360deg); } }\n</style>\n</head>\n<body>\n<div id="col"></div>\n<div id="grid"></div>\n<canvas id="anim" width="400" height="240"></canvas>\n<div id="spin"></div>\n<div id="marker"></div>\n<div id="badge"></div>\n<script>\n  const col = document.getElementById("col");\n  const hues = [0, 32, 64, 120, 180, 220, 270, 310];\n  for (let i = 0; i < 80; i++) {\n    const row = document.createElement("div");\n    row.className = "row";\n    const chip = document.createElement("span");\n    chip.className = "chip";\n    chip.style.background = `hsl(${hues[i % hues.length]}, 70%, 50%)`;\n    row.appendChild(chip);\n    row.appendChild(document.createTextNode(`row ${String(i).padStart(2, "0")}  the quick brown fox ${i * 7919 % 1000}`));\n    col.appendChild(row);\n  }\n  const grid = document.getElementById("grid");\n  const frag = document.createDocumentFragment();\n  for (let i = 0; i < 12000; i++) {\n    const cell = document.createElement("span");\n    cell.textContent = (i * 2654435761 % 997).toString(36);\n    frag.appendChild(cell);\n  }\n  grid.appendChild(frag);\n  const canvas = document.getElementById("anim");\n  const ctx = canvas.getContext("2d");\n  function draw(t) {\n    ctx.fillStyle = "#202830";\n    ctx.fillRect(0, 0, 400, 240);\n    for (let i = 0; i < 60; i++) {\n      ctx.fillStyle = `hsl(${(i * 6 + t / 10) % 360}, 80%, 55%)`;\n      ctx.fillRect((i * 37 + t / 4) % 400, (i * 53) % 240, 18, 18);\n    }\n    requestAnimationFrame(draw);\n  }\n  requestAnimationFrame(draw);\n</script>\n</body>\n</html>\n'}
+_server = {}
+
+
+def install(driver):
+    global D
+    D = driver
+
+
+class _Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        name = self.path.strip("/").split(".")[0].split("?")[0]
+        body = PAGES.get(name)
+        if body is None:
+            self.send_response(404)
+            self.end_headers()
+            return
+        data = body.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *args):
+        pass
+
+
+def step_bv_serve(j, step):
+    if "base" not in _server:
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        _server["base"] = "http://127.0.0.1:%d" % server.server_address[1]
+    j.vars["bv_base"] = _server["base"]
+    return {"base": _server["base"]}
+
+
+def _eval(j, script, tab=None):
+    """The page's value of SCRIPT: the tab's, else the focused page's (a tab that reopened can take a new id)."""
+    for target in ([tab, None] if tab else [None]):
+        params = {"script": script}
+        if target:
+            params["tab"] = target
+        try:
+            reply = j.app.rpc("browser.page.eval", params) or {}
+        except Exception:  # noqa: BLE001  a page that reopens or loads answers "unavailable ... retry": the caller polls
+            continue
+        if isinstance(reply, dict) and "value" in reply:
+            return reply.get("value")
+    return None
+
+
+def _wait(fn, seconds, step=0.1):
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        value = fn()
+        if value:
+            return value
+        time.sleep(step)
+    return None
+
+
+def step_bv_open(j, step):
+    page = step["page"]
+    if "base" not in _server:
+        step_bv_serve(j, {})
+    url = "%s/%s.html" % (_server["base"], page)
+    reply = j.app.rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True}) or {}
+    tab = ((reply.get("created") if isinstance(reply, dict) else None) or [None])[0]
+    if not _wait(lambda: _eval(j, "document.title", tab) == "bv " + page, 90, 0.25):
+        raise D.StepError("bv_open: the %s page never loaded (tab %s; %s)" % (page, tab, json.dumps(reply)[:300]))
+    j.vars["bv_tab_" + page] = tab or ""
+    y = int(step.get("scroll", 400))
+    _eval(j, "scrollTo(0, %d)" % y, tab)
+    time.sleep(0.3)
+    return {"tab": tab, "url": url, "state": _state(j, tab)}
+
+
+def step_bv_page_ready(j, step):
+    """Waits (`timeout`, default 90 s) until the focused page shows the test page `page` (its title), then scrolls it
+    (`scroll`, default 400). The first agent call rebuilds a Chromium page (AppBrowserPage+AgentDriven): run this
+    before a recording. ${bv_tab_<page>} becomes empty (the focused page)."""
+    page = step["page"]
+    if not _wait(lambda: _eval(j, "document.title") == "bv " + page, float(step.get("timeout", 90)), 0.25):
+        raise D.StepError("bv_page_ready: the focused page never showed the %s page (title %r)" % (page, _eval(j, "document.title")))
+    j.vars["bv_tab_" + page] = ""
+    _eval(j, "scrollTo(0, %d)" % int(step.get("scroll", 400)))
+    time.sleep(0.3)
+    return {"state": _state(j, None)}
+
+
+def step_bv_scroll(j, step):
+    tab = j.vars.get("bv_tab_" + step["page"]) or None
+    _eval(j, "scrollTo(0, %d)" % int(step.get("y", 400)), tab)
+    return {"tab": tab}
+
+
+def _state(j, tab):
+    value = _eval(j, "JSON.stringify({w: innerWidth, h: innerHeight, y: scrollY, x: scrollX, dpr: devicePixelRatio,"
+                     " dark: matchMedia('(prefers-color-scheme: dark)').matches})", tab)
+    try:
+        return json.loads(value) if isinstance(value, str) else value
+    except ValueError:
+        return value
+
+
+def _note(j, name, value):
+    rec = getattr(j, "video", None)
+    if rec is not None:
+        rec["notes"][name] = value
+
+
+def step_bv_state(j, step):
+    tab = j.vars.get("bv_tab_" + step["page"]) or None
+    cef = j.app.rpc("debug.cef") or {}
+    devtools = cef.get("devtools") if isinstance(cef, dict) else None
+    value = {"t": D.now(), "page": _state(j, tab), "devtools": devtools}
+    _note(j, step["note"], value)
+    return value
+
+
+def step_bv_agent(j, step):
+    params = dict((k, v) for k, v in step.items() if k not in ("do", "note", "title"))
+    sent = D.now()
+    try:
+        reply = j.app.rpc("debug.agent_pane", params) or {}
+    except Exception as error:  # noqa: BLE001  noted, never ends a recording mid-way (an unfinished movie is unreadable)
+        reply = {"error": str(error)[:400]}
+    value = {"t_sent": sent, "t_returned": D.now(), "reply": reply}
+    if step.get("note"):
+        _note(j, step["note"], value)
+    return value
+
+
+def step_bv_action(j, step):
+    """`action.run` ACTION (origin script) with its send time kept in the recording's notes under `note` (the judge
+    counts refreshes from it, as from a hid_key's t_sent). `fallback_key` {key, modifiers}: a real key sent instead
+    when the app refuses the action (its reply notes the refusal)."""
+    sent = D.now()
+    try:
+        # A socket's action.run takes origin cli, mcp, script or remote (never user).
+        reply = j.app.rpc("action.run", {"action": step["action"], "origin": "script", "args": step.get("args") or {}})
+    except Exception as error:  # noqa: BLE001  refused (for example a focus requirement): the fallback key, if any
+        fallback = step.get("fallback_key")
+        if not fallback:
+            raise
+        import ext_realkey
+        sent = D.now()
+        answer = ext_realkey.press(j, fallback["key"], fallback.get("modifiers", []))
+        reply = {"refused": str(error)[:300], "fallback_key": fallback, "answer": answer}
+    value = {"t_sent": sent, "t_returned": D.now(), "action": step["action"], "reply": reply}
+    # The app's own start of that action run (debug.action_budget, host uptime ns) is the time the judge uses (never a
+    # Python clock, cmux-ad 03:40Z). Read after the action, so it costs the recorded frames nothing.
+    sequence = reply.get("sequence") if isinstance(reply, dict) else None
+    try:
+        recent = (j.app.rpc("debug.action_budget", {"limit": 64}) or {}).get("recent") or []
+    except Exception:  # noqa: BLE001  no budget report: the judge then has no app start time for the round
+        recent = []
+    run = next((r for r in recent if sequence is not None and r.get("sequence") == sequence), None) \
+        or next((r for r in reversed(recent) if r.get("id") == step["action"]), None)
+    if run:
+        value["app_start_uptime_ns"] = run.get("start_uptime_ns")
+        value["app_run"] = run
+    if step.get("note"):
+        _note(j, step["note"], value)
+    return value
+
+
+def step_bv_devtools(j, step):
+    """Waits (up to `timeout` s, default 5) until the page tab's DevTools is open (`open: true`) or closed, from debug.cef:
+    a round whose open or close did not happen must not go on (a missed open would turn the next toggle around)."""
+    tab = j.vars.get("bv_tab_" + step["page"]) or None
+    want = bool(step.get("open", True))
+
+    def match():
+        rows = [r for r in (j.app.rpc("debug.cef") or {}).get("devtools") or [] if isinstance(r, dict)]
+        # The page's own row when its id is the tab's; else any shown Chromium tab (these journeys show one).
+        own = [r for r in rows if tab and r.get("tab") == tab] or rows
+        return next((r for r in own if bool(r.get("open")) == want), None)
+    # No socket call in the first `quiet` s after the key: the frames under test are not shared with a main-actor report.
+    time.sleep(float(step.get("quiet", 0.6)))
+    row = _wait(match, float(step.get("timeout", 5)), 0.1)
+    if row is None:
+        raise D.StepError("bv_devtools: DevTools of tab %s did not become %s: %s" % (
+            tab, "open" if want else "closed", json.dumps((j.app.rpc("debug.cef") or {}).get("devtools"))[:400]))
+    return row
+
+
+def step_bv_budget(j, step):
+    """The app's own action runs (debug.action_budget recent: id, entrypoint, input_age_ms, commit_ms, outcome,
+    start_uptime_ns) of `actions` (default the DevTools toggle) into the recording's notes under `note`. Read after
+    the recording's keys, so it costs the recorded frames nothing."""
+    want = set(step.get("actions") or ["toggleBrowserDeveloperTools"])
+    try:
+        recent = (j.app.rpc("debug.action_budget", {"limit": 64}) or {}).get("recent") or []
+    except Exception as error:  # noqa: BLE001  noted, not fatal
+        recent = [{"error": str(error)[:200]}]
+    runs = [r for r in recent if r.get("id") in want]
+    _note(j, step.get("note", "budget"), runs)
+    # `all`: every run in the step's result (a journey with no recording keeps them there; a recording's notes have them).
+    return {"runs": runs if step.get("all") else runs[-4:]}
+
+
+def _devtools_open(j):
+    rows = [r for r in (j.app.rpc("debug.cef") or {}).get("devtools") or [] if isinstance(r, dict)]
+    return any(bool(r.get("open")) for r in rows), rows
+
+
+def step_bv_dtkey(j, step):
+    """DT-KEY (lead 13:3xZ): TOGGLES real Cmd-Opt-I presses (default 34), each judged by DevTools' state (debug.cef) within
+    `timeout` s (default 2). Per press: the app's input journal key-downs after it (did the key reach the app, in which
+    window), the key router's last interception (debug.key last) and the action runs since (debug.action_budget: did
+    toggleBrowserDeveloperTools run). A press whose state did not flip is a miss: its debug.focus (key window, resolved
+    focus) and debug.cef rows are kept, and the state is put back by the action (origin script) so the next press starts
+    right. Never fails the journey; the result lists every press. Python times here are for polling only, never evidence."""
+    import ext_realkey
+    presses, misses = [], 0
+    for n in range(int(step.get("toggles", 34))):
+        was_open, _ = _devtools_open(j)
+        seq_before = ext_realkey._journal_last_seq(j)
+        last_before = j.app.rpc("debug.key", {"last": True}) or {}
+        budget_before = max([int(r.get("sequence") or 0) for r in (j.app.rpc("debug.action_budget", {"limit": 8}) or {}).get("recent") or []] or [0])
+        ext_realkey.press(j, "i", ["cmd", "option"])
+        flipped = _wait(lambda: _devtools_open(j)[0] != was_open or None, float(step.get("timeout", 2)), 0.05) is not None
+        journal = [e for e in ext_realkey._journal_entries(j, 60) if int(e.get("seq") or 0) > seq_before]
+        keys = [{"seq": e.get("seq"), "window": e.get("window"), "kind": e.get("kind")} for e in journal
+                if "key" in json.dumps(e.get("kind")).lower()]
+        last_after = j.app.rpc("debug.key", {"last": True}) or {}
+        runs = [{"id": r.get("id"), "entrypoint": r.get("entrypoint"), "outcome": r.get("outcome")}
+                for r in (j.app.rpc("debug.action_budget", {"limit": 16}) or {}).get("recent") or []
+                if int(r.get("sequence") or 0) > budget_before]
+        row = {"n": n, "was_open": was_open, "flipped": flipped, "journal_keys": keys,
+               "router_before": last_before, "router_after": last_after, "runs": runs}
+        if not flipped:
+            misses += 1
+            row["focus"] = j.app.rpc("debug.focus") or {}
+            row["cef"] = _devtools_open(j)[1]
+            try:
+                j.app.rpc("action.run", {"action": "devtools.close" if was_open else "devtools.openDocked", "origin": "script"})
+            except Exception as error:  # noqa: BLE001  noted
+                row["restore_error"] = str(error)[:200]
+            _wait(lambda: _devtools_open(j)[0] != was_open or None, 3, 0.1)
+        presses.append(row)
+        time.sleep(float(step.get("gap", 0.6)))
+    _note(j, step.get("note", "dtkey"), {"misses": misses, "presses": len(presses)})
+    return {"misses": misses, "presses": presses}
+
+
+STEPS = {"bv_dtkey": step_bv_dtkey, "bv_budget": step_bv_budget, "bv_page_ready": step_bv_page_ready, "bv_devtools": step_bv_devtools, "bv_action": step_bv_action, "bv_serve": step_bv_serve, "bv_open": step_bv_open, "bv_scroll": step_bv_scroll, "bv_state": step_bv_state,
+         "bv_agent": step_bv_agent}
