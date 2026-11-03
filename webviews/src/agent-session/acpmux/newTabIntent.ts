@@ -138,7 +138,19 @@ function encodingSpaces(text: string): string | undefined {
   const authorityEnd = start + endAfterHost;
   const firstSpace = text.search(/\s/u);
   if (firstSpace < 0 || authorityEnd >= firstSpace || /[^\S ]/u.test(text)) return undefined;
-  return explicitURL(text.replace(/ /g, "%20"), scheme);
+  const encoded = text.replace(/ /g, "%20");
+  // The ordinary explicitURL check only extracts a nonempty host. This new path
+  // must refuse malformed authorities/ports instead of turning bad pasted text
+  // into an Open action (for example https://example.com:bad/path with space).
+  if (scheme === "http" || scheme === "https") {
+    try {
+      const parsed = new URL(encoded);
+      if (parsed.protocol !== `${scheme}:` || !parsed.hostname) return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return explicitURL(encoded, scheme);
 }
 
 /// The text with wrap breaks from a terminal paste removed when every break comes after the
