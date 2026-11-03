@@ -527,7 +527,7 @@ fn a_finished_copy_from_an_older_ledger_recovers_its_original_folder() {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(
         &path,
-        json!({"sends": [{"key": copy.key, "account": ACCOUNT, "machine_id": copy.machine,
+        json!({"sends": [{"key": copy.key.to_lowercase(), "account": ACCOUNT, "machine_id": copy.machine,
             "place": place, "copied_chat": chat}]})
         .to_string(),
     )
