@@ -363,7 +363,10 @@ export function ComposerContext({
   // Another machine was picked in the Where menu: the machine control shows and opens (each pick
   // a new request), until the chat or its machine changes.
   const [machineAsk, setMachineAsk] = useState<{ key: string; request: number } | undefined>(undefined);
-  const machineRequest = machineAsk?.key === pickKey ? machineAsk.request : undefined;
+  // Keyed by the chat, not the pick: New Tab echoes the picked machine back into summary, which
+  // changes pickKey, and the open request must survive that echo.
+  const askKey = summary?.sessionId ?? "";
+  const machineRequest = machineAsk?.key === askKey ? machineAsk.request : undefined;
   const machineAsked = machineRequest !== undefined;
   const [waitingPick, setWaiting] = useState<{ key: string; id: string; name: string } | undefined>(undefined);
   const waitMachine = waitingPick?.key === pickKey ? shownMachines.find((m) => m.id === waitingPick.id) : undefined;
@@ -638,7 +641,7 @@ export function ComposerContext({
     }
     const first = others.find(environmentReady);
     if (first && !offMac) pickEnvironment(first.id);
-    setMachineAsk({ key: pickKey, request: (machineAsk?.request ?? 0) + 1 });
+    setMachineAsk({ key: askKey, request: (machineAsk?.request ?? 0) + 1 });
   };
   return (
     <div className="acpmux-composer-strip">

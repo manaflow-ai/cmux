@@ -1347,7 +1347,7 @@ test("Leo's menu: Another machine picks the first ready machine and opens the ma
   expect(popoverRows("machines")[0]!.querySelector(".acpmux-env-row")!.hasAttribute("data-current")).toBe(true);
   expect(doc().querySelectorAll('.acpmux-env-popover.acpmux-env-rows-machines [data-section]')).toHaveLength(0);
   // The Where chip says Another machine, and checks it.
-  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ${t("composer.anotherMachine")}`);
+  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ${t("composer.anotherMachine")} · gpu-box`);
   await press(doc().querySelector('.acpmux-env-popover.acpmux-env-rows-machines input')!, { key: "Escape" });
   await openPicker();
   const checked = popoverRows("where").map((row) => row.querySelector(".acpmux-env-row")!.hasAttribute("data-current"));
