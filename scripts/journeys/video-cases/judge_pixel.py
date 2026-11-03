@@ -65,7 +65,11 @@ HI, LO = 160, 96            # a channel >= HI is on, <= LO is off; between: "oth
 OTHER = -1
 CLASS = {0: "black", 1: "blue", 2: "green", 3: "cyan", 4: "red", 5: "magenta", 6: "yellow", 7: "white"}
 CODE = {v: k for k, v in CLASS.items()}
-ROLE_DEFAULT = {"shell": "#FF00FF", "theme": "#00FFFF", "ring1": "#FF0000", "ring2": "#FFFFFF", "ring3": "#000000"}
+ROLE_DEFAULT = {"shell": "#FF00FF", "theme": "#00FFFF", "ring1": "#FF0000", "ring2": "#FFFFFF", "ring3": "#000000", "strip": "#000000"}
+PILL_TOL = 6                # a strip pixel this far (max channel) from the strip's ground is not ground: the pill, text
+PILL_BRIDGE = 2             # ground gaps this narrow inside a run (between glyphs) are bridged
+PILL_MIN_PX = 12            # the selected tab's pill: the longest run of non-ground pixels, at least this long
+HOST_TOL_PX = 0.99          # a page window this far off its host (device px) or more: off
 TOL_PX = 1.0                # device px: an edge this close is in place
 SKIP_PT = 24.0              # points walked over (fill and "other": the rulers, glyphs) from the fill to ring 3
 NEAR_PT = 48.0              # a ring 3 candidate counts this far outside the pane edge
@@ -115,6 +119,16 @@ class Film:
         self.scale = float((meta.get("start") or {}).get("scale") or self.note.get("scale") or 2.0)
         self.samples = vj._parse_samples(trace)
         self.sample_t = [s.t for s in self.samples]
+        # Chromium hosts per sample (`page`: [host w, host h, page window w, page window h, wall ms, host screen x, page
+        # window screen x, page area w]), in the samples' order (the same stable sort on the same time).
+        t0 = float(trace.get("t0_s") or 0.0)
+        raw = sorted(((t0 + float(x.get("t", 0.0)) / 1000.0, x.get("page") or []) for x in trace.get("samples") or []
+                      if isinstance(x, dict)), key=lambda e: e[0])
+        self.page_rows = [rows for _, rows in raw] if len(raw) == len(self.samples) else [[] for _ in self.samples]
+        frame = self.note.get("window_frame") or ((meta.get("window") or {}).get("frame"))
+        self.window_x = float(frame[0]) if frame else None
+        self.strip_rows = {str(k): int(v) for k, v in ((self.note.get("lines") or {}).get("strip_rows") or {}).items()}
+        self.chrome = {str(c.get("pane")): c for c in self.note.get("chrome") or [] if isinstance(c, dict)}
         scan = Path(f"{self.base}.mov.scan")
         self.has_scan = scan.is_file()
         self.rows, self.cols, self.t, self.row_px, self.col_px = [], [], np.zeros(0), None, None
@@ -134,6 +148,7 @@ class Film:
             self.period = float(np.median(d)) if len(d) else 1 / 120
         roles = dict(ROLE_DEFAULT, **(self.note.get("roles") or {}))
         self.roles = {k: code_of(v) for k, v in roles.items()}
+        self.strip_rgb = tuple(int(roles["strip"].lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
         self.panes = {}  # trace pane id -> {kind, fill code, label}
         for pid, info in (self.note.get("panes") or {}).items():
             if info.get("kind") in ("tui", "page") and info.get("fill"):
@@ -411,6 +426,81 @@ def divider_series(film, did):
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# Tab strips and Chromium page windows
+# ---------------------------------------------------------------------------------------------------------------
+def strip_extent(codes, center, shell):
+    """[lo, hi) of the run of non-shell pixels around CENTER on a strip row (the strip and its tabs), or None."""
+    c = int(round(center))
+    if not 0 <= c < len(codes) or codes[c] == shell:
+        return None
+    shells = np.flatnonzero(codes == shell)
+    left, right = shells[shells < c], shells[shells > c]
+    return (int(left[-1]) + 1 if len(left) else 0), (int(right[0]) if len(right) else len(codes))
+
+
+def pill_run(rgb, lo, hi, ground):
+    """[a, b) of the selected tab's pill on a strip row: the longest run of non-ground pixels in [lo, hi) (gaps of ground of
+    PILL_BRIDGE px or less bridged: the glyphs of its title), at least PILL_MIN_PX long; or None."""
+    seg = rgb[lo:hi].astype(np.int16)
+    off = np.abs(seg - np.array(ground, np.int16)).max(-1) > PILL_TOL
+    m = np.concatenate(([0], off.astype(np.int8), [0]))
+    d = np.diff(m)
+    starts, ends = list(np.flatnonzero(d == 1)), list(np.flatnonzero(d == -1))
+    runs = []
+    for a, b in zip(starts, ends):
+        if runs and a - runs[-1][1] <= PILL_BRIDGE:
+            runs[-1][1] = b
+        else:
+            runs.append([a, b])
+    runs = [r for r in runs if r[1] - r[0] >= PILL_MIN_PX]
+    if not runs:
+        return None
+    a, b = max(runs, key=lambda r: r[1] - r[0])
+    return lo + int(a), lo + int(b)
+
+
+def ground_color(film, rgb_frames, lo_hi):
+    """The strip's ground (RGB): the note's strip color when it covers a fifth of the strip at rest, else the strip's most
+    common color."""
+    want = np.array(film.strip_rgb, np.int16)
+    pixels = np.concatenate([rgb[a:b] for rgb, (a, b) in zip(rgb_frames, lo_hi)]).astype(np.int16)
+    if not len(pixels):
+        return tuple(int(v) for v in want)
+    if (np.abs(pixels - want).max(-1) <= PILL_TOL).mean() >= 0.2:
+        return tuple(int(v) for v in want)
+    values, counts = np.unique(pixels, axis=0, return_counts=True)
+    return tuple(int(v) for v in values[int(np.argmax(counts))])
+
+
+def page_hosts(film):
+    """{pane id: [(host x, host w, page x | None, page w) in window points, or None] per sample}: each Chromium host of the
+    trace matched to the fixture page pane whose content view it fills (nearest x and width, within 8 pt)."""
+    out = {}
+    if film.window_x is None:
+        return out
+    pages = [pid for pid, info in film.panes.items() if info["kind"] == "page"]
+    for k, rows in enumerate(film.page_rows):
+        for row in rows:
+            if not isinstance(row, list) or len(row) < 7:
+                continue
+            host_w, page_w = float(row[0]), float(row[2])
+            host_x = float(row[5]) - film.window_x
+            page_x = None if float(row[6]) == -1 else float(row[6]) - film.window_x
+            best, score = None, 8.0
+            for pid in pages:
+                prow = film.samples[k].panes.get(pid)
+                if prow is None:
+                    continue
+                _, (cx, cy, cw, ch) = pane_rect(prow)
+                d = abs(cx - host_x) + abs(cw - host_w)
+                if d < score:
+                    best, score = pid, d
+            if best is not None:
+                out.setdefault(best, [None] * len(film.samples))[k] = (host_x, host_w, page_x, page_w)
+    return out
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # The judge
 # ---------------------------------------------------------------------------------------------------------------
 def judge(base, all_frames=False):
@@ -484,8 +574,10 @@ def judge(base, all_frames=False):
         strips = [per[f]["strip"] for f in pool if per[f].get("strip") is not None]
         strip_rest = float(np.median(strips)) if strips else None
         other = measured.get((pid, name, axis, "lo")) if side == "hi" else None
+        # A line that shows none of the pane's fill at rest (it runs along a ring row) does not judge that pane.
+        rest_fill = any(per[f] and not per[f].get("no_fill") for f in (rest_frames or range(film.n)))
         worst = {"edge_dev": 0.0, "gap_dev": 0.0, "hidden": 0, "cut": 0, "lag": 0, "no_fill": 0, "strip_max": None,
-                 "remainder_max": None, "frames": 0}
+                 "remainder_max": None, "frames": 0, "backdrop": 0, "backdrop_max": 0.0}
         for f in range(film.n):
             m = per[f]
             if m is None:
@@ -497,14 +589,15 @@ def judge(base, all_frames=False):
             if m.get("no_fill"):
                 worst["no_fill"] += 1
                 entry["no_fill"] = True
-                problems.append("no fill: the pane shows none of its content on this line")
-                entry["problems"] = problems
+                if rest_fill:
+                    problems.append("no fill: the pane shows none of its content on this line")
+                    entry["problems"] = problems
                 add_frame(f, entry)
                 continue
             t = track["per_frame"].get(f)
             if t is not None:
                 entry.update(edge_err=round(view[f] - series[(pid, axis, side)][shown[f]], 2), edge_dev=t["dev"], lag=t["lag"])
-                if abs(t["dev"]) > TOL_PX:
+                if abs(t["dev"]) >= TOL_PX:
                     problems.append(f"content edge {t['dev']:+.1f} px off the pane edge")
                 worst["edge_dev"] = max(worst["edge_dev"], t["dev"], key=abs)
                 if t["lag"]:
@@ -513,6 +606,10 @@ def judge(base, all_frames=False):
             if m.get("ring_edge") is not None:
                 entry["ring_edge"] = m["ring_edge"]
             entry.update(gap=m["gap"], gap_dev=m["gap"] - gap_rest, beyond=m["beyond"], beyond_px=m["beyond_px"], rings=m["rings"])
+            if m["beyond"] == "fill" and m["beyond_px"] >= 1:
+                # The pane's own fill past its rings: a page's backdrop (or stale content) where the gap would show.
+                worst["backdrop"] += 1
+                worst["backdrop_max"] = max(worst["backdrop_max"], m["beyond_px"])
             if m["gap"] - gap_rest >= TOL_PX:
                 problems.append(f"shell visible: gap {m['gap']:.0f} px ({m['gap'] - gap_rest:+.0f} px from rest)")
                 worst["gap_dev"] = max(worst["gap_dev"], m["gap"] - gap_rest)
@@ -543,7 +640,8 @@ def judge(base, all_frames=False):
             "frames": worst["frames"], "max_edge_dev_px": round(worst["edge_dev"], 2), "max_gap_px": round(worst["gap_dev"], 2),
             "hidden_ring_frames": worst["hidden"], "cut_ring_frames": worst["cut"], "no_fill_frames": worst["no_fill"],
             "max_lag_frames": worst["lag"], "strip_max_px": worst["strip_max"], "remainder_max_px": worst["remainder_max"],
-            "motions": track["motions"]}
+            "backdrop_frames": worst["backdrop"], "backdrop_max_px": worst["backdrop_max"], "motions": track["motions"],
+            "judged": rest_fill}
 
     # -- dividers: the middle of the gap between the two fixture panes beside each one --
     for did, (axis, centres, rects) in sorted(dividers.items(), key=lambda kv: str(kv[0])):
@@ -589,7 +687,7 @@ def judge(base, all_frames=False):
                 entry = {"f": f, "t_ms": round((film.t[f] - film.t[0]) * 1000, 2), "sample": shown[f], "line": name,
                          "divider": did, "label": f"divider {pair[0]}|{pair[1]}", "side": "mid", "dev": t["dev"], "lag": t["lag"]}
                 problems = []
-                if abs(t["dev"]) > TOL_PX:
+                if abs(t["dev"]) >= TOL_PX:
                     problems.append(f"shown divider {t['dev']:+.1f} px off the trace divider")
                     worst_dev = max(worst_dev, t["dev"], key=abs)
                 if t["lag"]:
@@ -604,19 +702,154 @@ def judge(base, all_frames=False):
                 "max_edge_dev_px": round(worst_dev, 2), "max_gap_px": 0.0, "hidden_ring_frames": 0, "cut_ring_frames": 0,
                 "no_fill_frames": 0, "max_lag_frames": worst_lag, "strip_max_px": None, "remainder_max_px": None,
                 "motions": track["motions"]}
+    judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame)
+    judge_page_windows(film, shown, measured, summary, add_frame)
+    if film.note.get("page_backdrop") is not False and any(i["kind"] == "page" for i in film.panes.values()):
+        report["notes"].append("the page backdrop was on (browserResize.pageBackdrop: "
+                               f"{film.note.get('page_backdrop')!r}): a page that lags a growing pane shows its own fill past its "
+                               "rings (backdrop_frames), not the shell")
     report["summary"] = summary
     report["frame_findings"] = [{"f": f, "entries": frames_out[f]} for f in sorted(frames_out)]
     report["findings"] = findings_of(report)
     return report
 
 
+def _row_summary(what, key, label, kind, line, side, track, frames, worst_dev, worst_lag, detail="", extra=None):
+    row = {"what": what, "pane": key, "label": label, "kind": kind, "line": line, "side": side,
+           "rest": {"offset": track["rest_offset"]} if track else {}, "frames": frames, "max_edge_dev_px": round(worst_dev, 2),
+           "max_gap_px": 0.0, "hidden_ring_frames": 0, "cut_ring_frames": 0, "no_fill_frames": 0, "max_lag_frames": worst_lag,
+           "strip_max_px": None, "remainder_max_px": None, "motions": track["motions"] if track else [], "detail": detail}
+    row.update(extra or {})
+    return row
+
+
+def judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame):
+    """Each pane's tab strip on its strip row: the strip's two edges against the pane's edges, and the selected tab's pill
+    against the pane's left edge, per frame (frames where the row is outside the strip's height now are skipped)."""
+    rows = {y: i for i, y in enumerate(film.rows)}
+    shell = film.roles["shell"]
+    for pid, y in sorted(film.strip_rows.items()):
+        if y not in rows or film.row_px is None:
+            continue
+        chrome = film.chrome.get(pid) or {}
+        strip = chrome.get("strip")
+        first = next((smp.panes.get(pid) for smp in film.samples if smp.panes.get(pid) is not None), None)
+        if not strip or first is None:
+            continue
+        (_, py0, _, _), _ = pane_rect(first)
+        off_y, strip_h = float(strip[1]) - py0, float(strip[3])
+        px = film.row_px[:, rows[y]]
+        codes_all = classify(px)
+        rgb_all = px[..., 2::-1]
+        ext = [None] * film.n
+        for f in range(film.n):
+            k = shown[f]
+            row = film.samples[k].panes.get(pid) if k is not None else None
+            if row is None or len(row) < 6 or float(row[5]) < 0.99:
+                continue
+            (x, py, w, h), _ = pane_rect(row)
+            top = (py + off_y) * film.scale
+            if not top + 1 <= y <= top + strip_h * film.scale - 1:
+                continue
+            ext[f] = strip_extent(codes_all[f], (x + w / 2) * film.scale, shell)
+        rest = [f for f in rest_frames if ext[f]] or [f for f in range(film.n) if ext[f]][:REST_FALLBACK]
+        if not rest:
+            continue
+        ground = ground_color(film, [rgb_all[f] for f in rest[:REST_FALLBACK]], [ext[f] for f in rest[:REST_FALLBACK]])
+        pill = [pill_run(rgb_all[f], ext[f][0], ext[f][1], ground) if ext[f] else None for f in range(film.n)]
+        label = (film.panes.get(pid) or {}).get("label", pid[:12])
+        lo_series, hi_series = edge_series(film, pid, "row", "lo"), edge_series(film, pid, "row", "hi")
+        tracks = (("strip", "lo", [e[0] if e else None for e in ext], lo_series),
+                  ("strip", "hi", [e[1] if e else None for e in ext], hi_series),
+                  ("pill", "lo", [p[0] if p else None for p in pill], lo_series),
+                  ("pill", "hi", [p[1] if p else None for p in pill], lo_series))
+        for what, side, measured, series in tracks:
+            if not any(v is not None for v in measured):
+                continue
+            track = judge_track(film, shown, measured, series, rest_frames, spring, reduce)
+            worst_dev, worst_lag = 0.0, 0
+            for f, t in sorted(track["per_frame"].items()):
+                entry = {"f": f, "t_ms": round((film.t[f] - film.t[0]) * 1000, 2), "sample": shown[f], "line": f"row@{y}",
+                         "pane": pid, "label": f"{what} {label}", "side": side, "dev": t["dev"], "lag": t["lag"],
+                         "at": measured[f]}
+                problems = []
+                if abs(t["dev"]) >= TOL_PX:
+                    problems.append(f"tab {what} {side} edge {t['dev']:+.1f} px off the pane edge")
+                    worst_dev = max(worst_dev, t["dev"], key=abs)
+                if t["lag"]:
+                    problems.append(f"tab {what} lag {t['lag']} frame(s)")
+                    worst_lag = max(worst_lag, t["lag"], key=abs)
+                if problems:
+                    entry["problems"] = problems
+                add_frame(f, entry)
+            ref = "the pane's left edge" if what == "pill" else f"the pane's {'left' if side == 'lo' else 'right'} edge"
+            summary[f"{what}:{label}:{pid}:row@{y}:{side}"] = _row_summary(
+                what, pid, f"{what} {label}", what, f"row@{y}", side, track, len(track["per_frame"]), worst_dev, worst_lag,
+                detail=f"against {ref}", extra={"ground": list(ground)} if what == "strip" else None)
+
+
+def judge_page_windows(film, shown, measured, summary, add_frame):
+    """D4: each Chromium page window against its host. From the trace: the page window's x and right edge minus its host's,
+    device px, per sample. From the film: the page's ring 1 (its first and last CSS px) minus the host's edges, per frame
+    and row line: negative on the left side (positive on the right) covers the divider; the other sign loses edge columns."""
+    hosts = page_hosts(film)
+    s = film.scale
+    for pid, per_sample in sorted(hosts.items()):
+        label = film.panes[pid]["label"]
+        offs = []
+        for k, v in enumerate(per_sample):
+            if v is None or v[2] is None:
+                continue
+            host_x, host_w, page_x, page_w = v
+            offs.append((k, round((page_x - host_x) * s, 2), round(((page_x + page_w) - (host_x + host_w)) * s, 2),
+                         (host_x * s) % 2 == 1 if s == 2 else None))
+        bad = [o for o in offs if abs(o[1]) >= HOST_TOL_PX or abs(o[2]) >= HOST_TOL_PX]
+        worst = max((o[1] for o in offs), key=abs, default=0.0)
+        worst_hi = max((o[2] for o in offs), key=abs, default=0.0)
+        summary[f"page window:{label}:{pid}:trace"] = _row_summary(
+            "page window", pid, f"page window {label}", "page window", "trace", "lo/hi", None, len(offs),
+            worst if abs(worst) >= abs(worst_hi) else worst_hi, 0,
+            detail=(f"{len(bad)} of {len(offs)} samples off; left {worst:+.1f} px, right {worst_hi:+.1f} px; host on a half point in "
+                    f"{sum(1 for o in bad if o[3])} of them") if bad else f"{len(offs)} samples on their host",
+            extra={"off_samples": [o[0] for o in bad][:40], "half_point_samples": sum(1 for o in bad if o[3])})
+        for (p, line, axis, side), per in sorted(measured.items()):
+            if p != pid or axis != "row":
+                continue
+            worst_dev, n = 0.0, 0
+            for f, m in enumerate(per):
+                k = shown[f]
+                if not m or m.get("no_fill") or m.get("ring_edge") is None or k is None or per_sample[k] is None:
+                    continue
+                host_x, host_w, page_x, page_w = per_sample[k]
+                host_edge = (host_x if side == "lo" else host_x + host_w) * s
+                dev = round(m["ring_edge"] - host_edge, 2)
+                n += 1
+                if abs(dev) < HOST_TOL_PX:
+                    continue
+                worst_dev = max(worst_dev, dev, key=abs)
+                covers = dev < 0 if side == "lo" else dev > 0
+                what = (f"covers the divider by {abs(dev):.0f} px" if covers else f"loses {abs(dev):.0f} edge column(s)")
+                entry = {"f": f, "t_ms": round((film.t[f] - film.t[0]) * 1000, 2), "sample": k, "line": line, "pane": pid,
+                         "label": f"page window {label}", "side": side, "host_offset_px": dev,
+                         "page_offset_px": round(m["ring_edge"] - ((page_x if side == "lo" else page_x + page_w) * s), 2)
+                         if page_x is not None else None, "problems": [f"page {what} (its ring 1 against its host's edge)"]}
+                add_frame(f, entry)
+            if n:
+                summary[f"page window:{label}:{pid}:{line}:{side}"] = _row_summary(
+                    "page window", pid, f"page window {label}", "page window", line, side, None, n, worst_dev, 0,
+                    detail=("" if abs(worst_dev) < HOST_TOL_PX else
+                            ("covers the divider" if (worst_dev < 0) == (side == "lo") else "loses edge columns") + ", film"))
+
+
 def findings_of(report):
     out = []
     for s in report["summary"].values():
         where = f"{s['label']} ({s['kind']}) {s['side']} on {s['line']}"
-        if abs(s["max_edge_dev_px"]) > TOL_PX:
-            out.append({"check": "divider off" if s["what"] == "divider" else "content edge off", "where": where,
-                        "detail": f"max {s['max_edge_dev_px']:+.1f} px"})
+        if abs(s["max_edge_dev_px"]) >= TOL_PX:
+            check = {"divider": "divider off", "strip": "tab strip edge off", "pill": "tab pill off",
+                     "page window": "page window off its host"}.get(s["what"], "content edge off")
+            out.append({"check": check, "where": where, "detail": f"max {s['max_edge_dev_px']:+.1f} px"
+                        + (f" ({s['detail']})" if s.get("detail") else "")})
         if s["max_gap_px"] >= TOL_PX:
             out.append({"check": "gap", "where": where, "detail": f"shell visible up to {s['max_gap_px']:.0f} px past rest"})
         if s["hidden_ring_frames"]:
@@ -625,7 +858,7 @@ def findings_of(report):
             out.append({"check": "rings cut", "where": where, "detail": f"{s['cut_ring_frames']} frame(s): the grid shrank before the redraw"})
         if s["max_lag_frames"]:
             out.append({"check": "lag", "where": where, "detail": f"up to {s['max_lag_frames']} frame(s) behind the trace"})
-        if s["no_fill_frames"]:
+        if s["no_fill_frames"] and s.get("judged", True):
             out.append({"check": "no content", "where": where, "detail": f"{s['no_fill_frames']} frame(s)"})
         for mv in s["motions"]:
             if mv.get("settle_frames"):
