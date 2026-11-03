@@ -104,7 +104,6 @@ syntect = { version = "5.3", default-features = false, features = ["default-fanc
 # (src/codex_app_server.rs). Pinned to an exact commit.
 cmux-codex-acp = { git = "https://github.com/manaflow-ai/cmux-codex-acp", rev = "ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a", default-features = false }
 cmux-host.workspace = true
-tempfile = "3"
 
 # Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 # same-user checks); the detached start (CreateProcess with a handle list),
@@ -123,6 +122,7 @@ windows-sys = { workspace = true, features = [
 
 [dev-dependencies]
 cmux-server-core = { path = "../cmux-server-core" }
+tempfile = "3"
 rcgen = "0.14"
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
 tokio = { version = "1.52", features = ["test-util"] }

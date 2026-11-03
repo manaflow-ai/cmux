@@ -313,6 +313,7 @@ async fn a_large_message_file_is_uploaded_and_reaches_the_agent_intact() {
         })
         .unwrap_or_else(|| panic!("agent got no file reference: {reply}"));
     let saved = reqwest::Url::parse(&uri).unwrap().to_file_path().unwrap();
+    assert_eq!(saved.file_name().unwrap(), "instructions.md");
     let mut file = std::fs::File::open(saved).unwrap();
     let mut actual = sha2::Sha256::new();
     let mut bytes = [0u8; 65536];
@@ -321,7 +322,7 @@ async fn a_large_message_file_is_uploaded_and_reaches_the_agent_intact() {
         if n == 0 {
             break;
         }
-        actual.update(&bytes[..n]);
+        actual.update(bytes.get(..n).unwrap());
     }
     assert_eq!(actual.finalize(), expected.finalize());
 }

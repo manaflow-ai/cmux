@@ -93,9 +93,19 @@ pub(super) struct Target {
     pub key: String,
     pub tag: Option<String>,
     pub text: String,
-    /// A pinned snapshot, shared by every recipient until all uploads finish.
-    pub file: Option<Arc<tempfile::NamedTempFile>>,
+    /// The validated descriptor, shared until every recipient has uploaded it.
+    pub file: Option<Arc<MessageFile>>,
     pub item: Item,
+}
+
+/// Keep the opened file: replacing its path cannot substitute another user's bytes.
+#[derive(Debug)]
+pub(super) struct MessageFile {
+    path: std::path::PathBuf,
+    size: u64,
+    // try_clone shares a cursor. Hold this lock through an upload so batch recipients
+    // cannot move each other's cursor; unrelated message files still upload in parallel.
+    file: tokio::sync::Mutex<std::fs::File>,
 }
 
 impl Target {
@@ -191,7 +201,7 @@ fn pick<'v>(own: &'v Value, defaults: Option<&'v Value>, a: &str, b: &str) -> &'
 }
 
 /// The message: its text, or its file's contents.
-async fn body(item: &Item) -> Result<(String, Option<Arc<tempfile::NamedTempFile>>), String> {
+async fn body(item: &Item) -> Result<(String, Option<Arc<MessageFile>>), String> {
     let text = match (&item.text, &item.file) {
         (Some(text), _) => text.clone(),
         (None, Some(path)) => {
@@ -214,10 +224,8 @@ async fn body(item: &Item) -> Result<(String, Option<Arc<tempfile::NamedTempFile
 /// path is from this server's folder, which it inherits from the chat's agent. Another user's
 /// file is refused even when it is readable: a message goes to other sessions and peers, so it
 /// carries only the sender's own files.
-pub(super) fn read_message_file(
-    path: &str,
-) -> Result<(String, Option<Arc<tempfile::NamedTempFile>>), String> {
-    use std::io::{Read, Write};
+pub(super) fn read_message_file(path: &str) -> Result<(String, Option<Arc<MessageFile>>), String> {
+    use std::io::Read;
     let path = std::path::Path::new(path);
     let shown = path.display();
     let mut open = std::fs::OpenOptions::new();
@@ -247,22 +255,18 @@ pub(super) fn read_message_file(
         .read_to_end(&mut bytes)
         .map_err(|e| format!("cannot read {shown}: {e}"))?;
     if bytes.len() as u64 > INLINE_FILE_BYTES {
-        // Snapshot the validated descriptor, not the path: a replacement or symlink
-        // swap must not send a different user's file. Only this bounded prefix and
-        // io::copy's buffer are resident; the snapshot is owner-only and RAII-cleaned.
-        let name =
-            crate::attach::safe_name(&path.file_name().unwrap_or_default().to_string_lossy());
-        let mut saved = tempfile::Builder::new()
-            .prefix(&format!("message-{name}-"))
-            .tempfile()
-            .map_err(|e| format!("cannot snapshot {shown}: {e}"))?;
-        saved
-            .write_all(&bytes)
-            .and_then(|()| std::io::copy(&mut file, &mut saved).map(|_| ()))
-            .map_err(|e| format!("cannot snapshot {shown}: {e}"))?;
         return Ok((
             "Read the complete message in the attached file before acting.".into(),
-            Some(Arc::new(saved)),
+            Some(Arc::new(MessageFile {
+                path: path.to_owned(),
+                size: meta.len().max(bytes.len() as u64),
+                file: tokio::sync::Mutex::new(file),
+            })),
+        ));
+    }
+    if bytes.len() as u64 != meta.len() {
+        return Err(format!(
+            "{shown} changed while it was read; send it again once writing finishes"
         ));
     }
     let text = String::from_utf8(bytes).map_err(|_| {
@@ -558,10 +562,13 @@ async fn queue(daemon: &Arc<Client>, target: &Target) -> Result<(PromptId, Value
     prompt.thread = target.item.thread.clone();
     prompt.supersede = target.item.supersede.clone();
     if let Some(file) = &target.file {
-        prompt.attachments = crate::attach::references_for(
+        let held = file.file.lock().await;
+        prompt.attachments = crate::attach::reference_for(
             daemon,
             &target.key,
-            &[file.path().to_owned()],
+            &file.path,
+            held.try_clone()?,
+            file.size,
             &|line| eprintln!("{line}"),
         )
         .await?;
