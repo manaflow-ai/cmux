@@ -1128,7 +1128,7 @@ enum FileExplorerError: LocalizedError, Equatable {
         case .remoteFileTooLarge:
             return String(localized: "fileExplorer.error.cloudPreviewTooLarge", defaultValue: "Cloud file previews are limited to 1 MB.")
         case .remoteFileUnavailable:
-            return String(localized: "fileExplorer.preview.genericFailure", defaultValue: "The remote file could not be downloaded. Reconnect and try again.")
+            return String(localized: "fileExplorer.preview.remoteFileUnavailable", defaultValue: "The remote file could not be opened. Check the path, or reconnect and try again.")
         case .remoteCommandFailed:
             return String(localized: "fileExplorer.error.remoteFailed", defaultValue: "Remote command failed")
         case .mutationFailed:
