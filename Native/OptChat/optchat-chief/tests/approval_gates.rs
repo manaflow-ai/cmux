@@ -1672,3 +1672,84 @@ fn the_trusted_list_names_the_sessions_and_the_contact_is_trusted() {
     assert_eq!(h.brain.spawn_policy(), None);
     finish(&mut h);
 }
+
+/// The owner's hidden subagent `a1` asks to connect Linear (acpmux's
+/// `_acpmux/mcp_connect_pending`). Returns its session.
+fn subagent_asking_to_connect(h: &mut Harness) -> String {
+    let session = subagent_asking(h, false);
+    // The tool permission of the shared setup ends first: the connect card is its own ask.
+    h.brain
+        .step(Input::from(AgentEvent::SessionChanged(settled_session(
+            &session,
+        ))));
+    h.settle_posts();
+    h.brain.step(Input::from(AgentEvent::McpConnect {
+        session_id: session.clone(),
+        kind: "mcp_connect_request".into(),
+        card: json!({
+            "requestId": "r-1", "name": "linear", "title": "Linear", "publisher": "linear.app",
+            "verified": true, "transport": "remote", "url": "https://mcp.linear.app/mcp",
+            "auth": "oauth", "reason": "file the bug", "proposedScope": "chief",
+        }),
+    }));
+    drain(h);
+    h.settle_posts();
+    session
+}
+
+#[test]
+fn a_hidden_subagents_mcp_connect_card_shows_in_home_until_acpmux_closes_it() {
+    let mut h = harness(None, false, default_script());
+    let session = subagent_asking_to_connect(&mut h);
+    let cards: Vec<_> = h
+        .owner
+        .lock()
+        .unwrap()
+        .ops
+        .iter()
+        .filter_map(|(_, op)| match op {
+            Op::MessageSend { parts, .. } => parts.iter().find_map(|p| match p {
+                Part::Question(q) if q.items[0].prompt.contains("Linear") => Some(q.clone()),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(cards.len(), 1, "one Home card for the connect ask");
+    let item = &cards[0].items[0];
+    assert_eq!(cards[0].permission.as_deref(), Some("mcp-connect:r-1"));
+    let labels: Vec<_> = item.options.iter().map(|o| o.label.as_str()).collect();
+    assert_eq!(labels, ["Connect", "Don't connect"]);
+    let preview = item.options[0].preview.as_ref().unwrap().text.clone();
+    assert!(preview.contains("https://mcp.linear.app/mcp") && preview.contains("\"chief\""));
+    // No host deadline: acpmux closes an unanswered card itself.
+    assert!(h.brain.unanswered_permissions().is_empty());
+
+    // A summary with no tool permission does not close a connect card, and the Chief cannot
+    // answer it for the person.
+    h.brain
+        .step(Input::from(AgentEvent::SessionChanged(settled_session(
+            &session,
+        ))));
+    assert!(pending_prompt(&h));
+    let refused = relay_allow(&mut h);
+    assert!(refused.contains("only the user answers it"), "{refused}");
+    assert_eq!(answered(&h, "mcp-connect:r-1"), None);
+
+    h.brain.step(Input::from(AgentEvent::McpConnect {
+        session_id: session,
+        kind: "mcp_connect_decision".into(),
+        card: json!({"requestId": "r-1", "name": "linear", "outcome": "approved", "scope": "chief"}),
+    }));
+    assert!(!pending_prompt(&h));
+    assert!(
+        h.brain
+            .state()
+            .outbox
+            .iter()
+            .any(|e| e.idempotency_key.starts_with("home-approval-ended:"))
+            || h.owner.lock().unwrap().ops.iter().any(|(_, op)| matches!(op, Op::MessageEdit { parts, .. }
+                if matches!(&parts[0], Part::Question(q) if q.state == cmux_conversation::QuestionState::Cancelled))),
+        "the closed card is retired"
+    );
+}

@@ -750,6 +750,10 @@ pub mod method {
     pub const MUX_MESSAGE: &str = "_acpmux/message";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
     pub const MUX_PERMISSION_PENDING: &str = "_acpmux/permission_pending";
+    /// An MCP connect card opened (`kind: mcp_connect_request`) or closed
+    /// (`kind: mcp_connect_decision`) in a session: `{sessionId, seq, kind, card}`. A Chief host
+    /// shows a hidden subagent's card in Home (`hub/mcp_connect.rs`).
+    pub const MUX_MCP_CONNECT_PENDING: &str = "_acpmux/mcp_connect_pending";
     /// To watchers when a harness profile source changed and the catalog
     /// reloaded: `{harnesses: string[], diagnostics}`.
     pub const MUX_HARNESSES_CHANGED: &str = "_acpmux/harnesses_changed";

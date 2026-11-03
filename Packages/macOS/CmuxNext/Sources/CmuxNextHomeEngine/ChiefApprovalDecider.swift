@@ -33,6 +33,18 @@ import Foundation
             return (id, [resolve(brain), resolve(home), app].compactMap { $0 })
         }) else { return .refused }
         var seen = Set<String>()
+        // An MCP connect card (brain/home_mcp_connect.rs) answers acpmux's card, bound to the
+        // request id in its own snapshot; a daemon without that open card refuses it.
+        if let requestID = Self.mcpConnectRequestID(request.permission) {
+            guard AcpmuxApprovalAnswerer.mcpConnect(request.requestJSON)?.requestID == requestID else { return .refused }
+            for environment in candidates where seen.insert(environment.socketPath).inserted {
+                let answerer = AcpmuxApprovalAnswerer(environment: environment, chiefHomeID: id)
+                await answerer.prepareForHome()
+                if await answerer.answerMcpConnect(session: session, requestJSON: request.requestJSON,
+                                                   approve: allow, through: gate) { return .answered }
+            }
+            return .refused
+        }
         for environment in candidates where seen.insert(environment.socketPath).inserted {
             let answerer = AcpmuxApprovalAnswerer(environment: environment, chiefHomeID: id)
             await answerer.prepareForHome()
@@ -47,6 +59,14 @@ import Foundation
 
     private nonisolated static func readPinnedID(at file: URL) -> String? {
         pinnedID(try? String(blockingContentsOf: file, encoding: .utf8))
+    }
+
+    /// The connect card's request id when `permission` names one (`mcp-connect:<requestId>`).
+    nonisolated static func mcpConnectRequestID(_ permission: String) -> String? {
+        let prefix = "mcp-connect:"
+        guard permission.hasPrefix(prefix) else { return nil }
+        let id = String(permission.dropFirst(prefix.count))
+        return id.isEmpty ? nil : id
     }
 
     nonisolated static func localSession(_ session: String) -> String? {

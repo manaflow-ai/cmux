@@ -24,6 +24,12 @@ fn home_key(session: &str, pending: &PendingPermission) -> String {
 
 fn card(session: &str, id: &str, pending: &PendingPermission) -> Question {
     let snapshot = pending.request.to_string();
+    // A connect card (home_mcp_connect.rs) answers with Connect or Don't connect.
+    let (allow, deny) = if super::home_mcp_connect::is_mcp_connect(&pending.id) {
+        ("Connect", "Don't connect")
+    } else {
+        ("Allow once", "Deny")
+    };
     Question {
         harness: QuestionHarness::Chief,
         session: session.to_owned(),
@@ -38,7 +44,7 @@ fn card(session: &str, id: &str, pending: &PendingPermission) -> Question {
             options: vec![
                 QuestionOption {
                     id: "allow".into(),
-                    label: "Allow once".into(),
+                    label: allow.into(),
                     detail: None,
                     preview: Some(QuestionPreview {
                         text: snapshot,
@@ -47,7 +53,7 @@ fn card(session: &str, id: &str, pending: &PendingPermission) -> Question {
                 },
                 QuestionOption {
                     id: "deny".into(),
-                    label: "Deny".into(),
+                    label: deny.into(),
                     detail: None,
                     preview: None,
                 },

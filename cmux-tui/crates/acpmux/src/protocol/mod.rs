@@ -465,6 +465,7 @@ pub fn registry() -> Vec<MethodDecl> {
         notification::<MessageEvent>(method::MUX_MESSAGE),
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
         notification::<PermissionPending>(method::MUX_PERMISSION_PENDING),
+        untyped(method::MUX_MCP_CONNECT_PENDING, Notification),
         notification::<presence::PresenceNote>(method::MUX_PRESENCE),
         notification::<peer_state::PeerStateChanged>(method::MUX_PEER_STATE_CHANGED),
         untyped(method::MUX_HARNESSES_CHANGED, Notification),

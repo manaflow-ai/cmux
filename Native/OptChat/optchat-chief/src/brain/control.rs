@@ -615,6 +615,15 @@ impl Brain {
         let (Some(p), Some(session)) = (sub.permission.clone(), sub.session_id.clone()) else {
             return outcome("noop", format!("{id} has no pending prompt"));
         };
+        // Only the person answers an MCP connect card (brain/home_mcp_connect.rs).
+        if super::home_mcp_connect::is_mcp_connect(&p.id) {
+            return outcome(
+                "refused",
+                format!(
+                    "{id} waits on an MCP connect card: only the user answers it, in Home or {id}'s workspace; you may steer or interrupt {id}"
+                ),
+            );
+        }
         let (_, options) = prompt_parts(&p.request);
         let deny = option.eq_ignore_ascii_case("deny");
         // Spawned under the spawn floor (a turn another person started):

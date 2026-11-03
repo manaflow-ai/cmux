@@ -31,6 +31,7 @@ mod engine_control;
 pub mod files;
 mod harness_offer;
 mod home_approvals;
+mod home_mcp_connect;
 mod image_fit;
 pub mod images;
 mod inbox;

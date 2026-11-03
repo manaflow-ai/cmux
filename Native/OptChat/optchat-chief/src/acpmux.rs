@@ -194,6 +194,13 @@ pub enum AgentEvent {
         permission_id: String,
         request: Value,
     },
+    /// An MCP connect card opened (`kind: mcp_connect_request`) or closed
+    /// (`kind: mcp_connect_decision`) in a session (brain/home_mcp_connect.rs).
+    McpConnect {
+        session_id: String,
+        kind: String,
+        card: Value,
+    },
 }
 
 /// The wait for a steer's answer (`AgentPort::start_steer`).
@@ -904,6 +911,16 @@ fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification
                 sink(AgentEvent::SessionChanged(summary));
             }
         }
+        "_acpmux/mcp_connect_pending" => sink(AgentEvent::McpConnect {
+            session_id: session.to_owned(),
+            kind: n
+                .params
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned(),
+            card: n.params.get("card").cloned().unwrap_or(Value::Null),
+        }),
         "_acpmux/permission_pending" => sink(AgentEvent::Permission {
             session_id: session.to_owned(),
             permission_id: n

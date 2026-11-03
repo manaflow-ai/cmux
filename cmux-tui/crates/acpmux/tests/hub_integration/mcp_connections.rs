@@ -204,9 +204,25 @@ async fn mcp_connect_tools_run_through_the_daemon_in_the_scope_the_person_picked
     let (hub, mut person) = setup(PermissionPolicy::Ask).await;
     let id = new_session(&mut person).await;
     let other = new_session(&mut person).await;
+    // A Chief host watches every chat: it hears the card open and close, to show it in Home.
+    let mut chief = connect_as(&hub, Origin::Local, None).await;
+    chief.request(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
 
     let got = approve(&hub, &mut person, &id, &url, "chat").await;
     assert_eq!(got["connect"], "connected", "{got}");
+    let opened = chief
+        .wait_for("_acpmux/mcp_connect_pending", |p| {
+            p["kind"] == "mcp_connect_request" && p["sessionId"] == id
+        })
+        .await;
+    assert_eq!(opened["card"]["url"], url.as_str(), "{opened}");
+    let closed = chief
+        .wait_for("_acpmux/mcp_connect_pending", |p| {
+            p["kind"] == "mcp_connect_decision" && p["sessionId"] == id
+        })
+        .await;
+    assert_eq!(closed["card"]["outcome"], "approved", "{closed}");
+    assert_eq!(closed["card"]["requestId"], opened["card"]["requestId"], "{closed}");
     assert_eq!(got["toolPrefix"], "127-0-0-1", "{got}");
     assert!(got["connectionId"].as_str().unwrap().starts_with("mcp_"), "{got}");
     assert!(got.get("_tools").is_none(), "the definitions stay in the record: {got}");
@@ -485,6 +501,11 @@ async fn mcp_connect_oauth_sign_in_runs_pkce_s256_and_keeps_the_token_from_every
     let got = approve(&hub, &mut person, &id, &url, "chat").await;
     assert_eq!(got["connect"], "signInNeeded", "{got}");
     let conn_id = got["connectionId"].as_str().unwrap().to_owned();
+    // The sign-in already started for the agent to hand to the person (escalate_auth); the page
+    // holds no secret, only the PKCE challenge.
+    let handed = url::Url::parse(got["signInUrl"].as_str().unwrap()).unwrap();
+    assert_eq!(handed.path(), "/authorize", "{got}");
+    assert!(!got.to_string().contains("code_verifier"), "{got}");
 
     let mut proxy = connect_as(&hub, Origin::Local, Some(&id)).await;
     assert!(

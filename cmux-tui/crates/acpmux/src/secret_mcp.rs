@@ -34,27 +34,12 @@ pub fn protocol_version(params: &Value) -> &'static str {
         .unwrap_or(NEWEST_PROTOCOL_VERSION)
 }
 
-/// Lists `connect_mcp_server` only with this set to `1`: until the daemon runs an approved
-/// server (plans/cmux-next/mcp-connect-DESIGN.md step 2b), an approval connects nothing, so agents
-/// do not see the tool by default.
-pub const MCP_CONNECT_PREVIEW_ENV: &str = "CMUX_MCP_CONNECT_PREVIEW";
-
 /// `value[key]` without an index: `Null` for a missing key or a value that is not an object.
 fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
     value.get(key).unwrap_or(&Value::Null)
 }
 
 fn tools() -> Value {
-    let mut all = all_tools();
-    if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1")
-        && let Some(list) = all.as_array_mut()
-    {
-        list.retain(|t| *field(t, "name") != "connect_mcp_server");
-    }
-    all
-}
-
-fn all_tools() -> Value {
     json!([
         {
             "name": "request_secret",
@@ -83,7 +68,7 @@ fn all_tools() -> Value {
         },
         {
             "name": "connect_mcp_server",
-            "description": "Ask the user to connect an MCP server (a known service such as linear, github, sentry or notion; an https:// URL; or a local command such as `npx -y @scope/server`). cmux checks it, then shows the user a card in this chat with the exact server, its publisher and the access it asks for; only the user can approve it, and they pick who gets it. You never see a token or key. The call waits until the user answers (15 minutes at most, or until your turn ends). Returns status approved (with the scope the user chose), declined, cancelled, or unknown (with near names to suggest). An address that is unsafe (a private network, http:// to another machine, a user name before the host) or a shell line is refused with the reason. Use it only when the user asked for the server.",
+            "description": "Ask the user to connect an MCP server (a known service such as linear, github, sentry or notion; an https:// URL; or a local command such as `npx -y @scope/server`). cmux checks it, then shows the user a card in this chat with the exact server, its publisher and the access it asks for; only the user can approve it, and they pick who gets it. You never see a token or key. The call waits until the user answers (15 minutes at most, or until your turn ends). Returns status approved (with the scope the user chose and the connect result: the server's tools, which you then call as <prefix>__<tool> on the cmux-mcp server; or signInNeeded with a signInUrl to hand the user; or keyNeeded), declined, cancelled, or unknown (with near names to suggest). An address that is unsafe (a private network, http:// to another machine, a user name before the host) or a shell line is refused with the reason. Use it only when the user asked for the server.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -200,15 +185,6 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
                 "name": arguments["name"], "reason": arguments["reason"],
             }),
         ),
-        Some("connect_mcp_server")
-            if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1") =>
-        {
-            return error_result(
-                "connect_mcp_server is not on yet: cmux cannot run an approved MCP server until its \
-                 sign-in and proxy land. Tell the user to add the server to the harness themselves."
-                    .to_owned(),
-            );
-        }
         Some("connect_mcp_server") => (
             method::MUX_MCP_CONNECT_REQUEST,
             json!({
@@ -242,10 +218,18 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
             } else if result["declined"] == true {
                 "The user declined to give this secret.".to_owned()
             } else if *field(&result, "connect") == "signInNeeded" {
+                let page = match field(&result, "signInUrl").as_str() {
+                    Some(url) => format!(
+                        " Its sign-in page is open for the user at {url}: if you have the \
+                         escalate_auth tool, call it with that url and kind oauth, so the user signs \
+                         in where they are; otherwise the card's Sign in button opens it."
+                    ),
+                    None => " The user signs in with the card's Sign in button.".to_owned(),
+                };
                 format!(
-                    "The user approved {} (scope {}). The server needs a sign-in before it lists tools: \
-                     ask the user to sign in on the card. The sign-in happens on the user's side; no \
-                     token or code comes to you, so never ask for one.",
+                    "The user approved {} (scope {}). The server needs a sign-in before it lists \
+                     tools.{page} cmux keeps the token; none comes to you, so never ask for one. \
+                     The tools appear on the cmux-mcp server when the sign-in ends.",
                     field(&result, "name").as_str().unwrap_or("the server"),
                     field(&result, "scope").as_str().unwrap_or("chat"),
                 )

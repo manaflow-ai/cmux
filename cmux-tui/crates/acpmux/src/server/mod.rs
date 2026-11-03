@@ -1867,6 +1867,12 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 routed(permission_pending(&ev.session_id, rec, "attach")),
             ));
         }
+        if rec.dir == "mux" && is_mcp_connect_card(&rec.kind) {
+            conn.send(&Message::notification(
+                method::MUX_MCP_CONNECT_PENDING,
+                routed(mcp_connect_pending(&ev.session_id, rec)),
+            ));
+        }
     }
     if watching {
         if let Some(remote) = &ev.remote {
@@ -1912,6 +1918,14 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // A deferred new chat has no attachment yet. Its command publication must still wake
         // the page's read of that chat's command list, including when skills arrive after creation.
         if rec.dir != "mux" && rec.kind != "available_commands_update" {
+            return;
+        }
+        // A watcher that is not attached still hears a connect card open and close.
+        if !attached && is_mcp_connect_card(&rec.kind) {
+            conn.send(&Message::notification(
+                method::MUX_MCP_CONNECT_PENDING,
+                mcp_connect_pending(&ev.session_id, rec),
+            ));
             return;
         }
         let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };
@@ -2003,7 +2017,9 @@ mod worktrees;
 pub mod ws_auth;
 use crate::hub::is_permission_ask;
 pub use pending::{event_value, into_event_value};
-use pending::{peer_permission_pending, permission_pending};
+use pending::{
+    is_mcp_connect_card, mcp_connect_pending, peer_permission_pending, permission_pending,
+};
 pub(crate) use workflow_activity::owner_call as workflow_owner_call;
 mod redact;
 pub(crate) use peer_forward::strip_asks as strip_peer_asks;

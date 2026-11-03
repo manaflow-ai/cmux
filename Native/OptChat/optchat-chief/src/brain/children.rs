@@ -99,6 +99,11 @@ impl Brain {
                     Some("the acpmux daemon ended (sessions were ended); the host stops".into());
             }
             AgentEvent::SessionChanged(session) => self.on_session(session),
+            AgentEvent::McpConnect {
+                session_id,
+                kind,
+                card,
+            } => self.sub_mcp_connect(&session_id, &kind, &card),
             AgentEvent::Permission {
                 session_id,
                 permission_id,
