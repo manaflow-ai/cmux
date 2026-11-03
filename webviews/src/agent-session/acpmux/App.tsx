@@ -2085,6 +2085,9 @@ type ReportDrawn = (
   status?: string,
 ) => void;
 
+/// Enqueues a row's pre-paint measurement after all sibling content layout effects have written.
+type QueueDrawn = (node: HTMLElement, id: string, version: number, actions?: boolean, status?: string) => () => void;
+
 /// A mounted row's drawn height, or undefined when the page has not laid it out (an undisplayed
 /// transcript, or a DOM without layout): such a box has no client rects. A laid-out row that draws
 /// nothing (a step of only quiet thoughts, a render update that joined an earlier card, a payload
@@ -2236,7 +2239,7 @@ const RowFrame = React.memo(function RowFrame({
   rowWidth,
   expanded,
   observer,
-  report,
+  queueDrawn,
   enter,
   onEntered,
   older,
@@ -2286,7 +2289,7 @@ const RowFrame = React.memo(function RowFrame({
   rowWidth: number;
   expanded: boolean;
   observer: ResizeObserver | undefined;
-  report: ReportDrawn;
+  queueDrawn: QueueDrawn;
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
   onEntered: (id: string) => void;
@@ -2354,14 +2357,7 @@ const RowFrame = React.memo(function RowFrame({
   }, [observer]);
   useLayoutEffect(() => {
     const node = ref.current;
-    if (node)
-      report(
-        row.id,
-        row.version,
-        acpmuxPerf.timed("row.measure", () => drawnHeightOf(node)),
-        replyActions,
-        status,
-      );
+    if (node) return queueDrawn(node, row.id, row.version, replyActions, status);
   }, [
     row.id,
     row.version,
@@ -2375,7 +2371,7 @@ const RowFrame = React.memo(function RowFrame({
     lastFooter,
     continuationFooter,
     lastTurn,
-    report,
+    queueDrawn,
   ]);
   const placedTop = top + THREAD_TOP;
   const integralTop = Math.floor(placedTop);
@@ -3262,6 +3258,7 @@ export function VirtualTranscript({
   // Rows place by their drawn height once drawn, and by the estimate until then.
   const [drawn, setDrawn] = useState(new Map<string, DrawnHeight>());
   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
+  const pendingMeasures = useRef(new Map<HTMLElement, () => void>());
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
   /// The last estimate, whose unchanged leading rows the next one keeps.
   const lastEstimate = useRef<
@@ -3412,6 +3409,26 @@ export function VirtualTranscript({
     },
     [sessionId],
   );
+  const queueDrawn = useCallback<QueueDrawn>(
+    (node, id, version, actions, status) => {
+      const measure = () => {
+        if (!node.isConnected || node.dataset.rowId !== id) return;
+        reportDrawn(
+          id,
+          version,
+          acpmuxPerf.timed("row.measure", () => drawnHeightOf(node)),
+          actions,
+          status,
+        );
+      };
+      pendingMeasures.current.set(node, measure);
+      // A changed row or an unmount cannot leave an old version queued for a later commit.
+      return () => {
+        if (pendingMeasures.current.get(node) === measure) pendingMeasures.current.delete(node);
+      };
+    },
+    [reportDrawn],
+  );
   // All of a commit's reports land in one update, before the frame paints.
   /// Rows whose drawn height changed since the last placement, which places again from the first.
   const changedDrawn = useRef(new Set<string>());
@@ -3546,7 +3563,15 @@ export function VirtualTranscript({
       return new Map([...current].filter(([id]) => ids.has(id)));
     });
   }, [rows, queuedTail]);
-  useLayoutEffect(flushDrawn);
+  useLayoutEffect(() => {
+    // Child layout effects enqueue; all sibling DOM writes finish before this parent effect.
+    // Read the dirty rows together, then apply the existing pre-paint placement correction.
+    // No frame/task deferral, and no scan of the mounted window or full transcript.
+    const measures = pendingMeasures.current;
+    pendingMeasures.current = new Map();
+    for (const measure of measures.values()) measure();
+    flushDrawn();
+  });
   // Minimal Mode draws another agent's closed message as its line alone (IncomingMessageCard.tsx):
   // a toggle forgets those rows' drawn heights, so rows offscreen place by the new estimate instead of
   // their old card's height, and marks them changed so the placement starts from the first of them
@@ -5750,7 +5775,7 @@ export function VirtualTranscript({
                       rowWidth={scaledRowWidth}
                       expanded={isExpanded}
                       observer={observer}
-                      report={reportDrawn}
+                      queueDrawn={queueDrawn}
                       // A session switch is a load, not a live arrival. The reset effect runs after
                       // this render, so gate it here as well to avoid a reused row id animating once.
                       enter={!sessionChanged && enteringRows.current.has(row.id)}
