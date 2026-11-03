@@ -4,8 +4,8 @@ use base64::Engine as _;
 use serde_json::{Value, json};
 
 use super::super::tests::{
-    CREDENTIAL, Ran, command, entry, far, fake, mint_answer, never, no_secret, parsed,
-    platform, run_with,
+    CREDENTIAL, Ran, command, entry, fake, far, mint_answer, never, no_secret, parsed, platform,
+    run_with,
 };
 use super::super::{AddArgs, Hooks, RunOptions, Verb, bootstrap, run};
 use super::*;
@@ -53,7 +53,10 @@ fn vault_verbs_parse_and_a_value_never_comes_from_argv() {
         VaultVerb::Set { name: "OPENAI_API_KEY".into() }
     );
     assert_eq!(vault_of(&["machine", "vault", "ls"]), VaultVerb::Ls);
-    assert_eq!(vault_of(&["machine", "vault", "list", "--platform", "https://p.example"]), VaultVerb::Ls);
+    assert_eq!(
+        vault_of(&["machine", "vault", "list", "--platform", "https://p.example"]),
+        VaultVerb::Ls
+    );
     assert_eq!(
         vault_of(&["machine", "vault", "rm", "GITHUB_TOKEN"]),
         VaultVerb::Rm { name: "GITHUB_TOKEN".into() }
@@ -138,9 +141,10 @@ fn set_refuses_an_empty_value_and_errors_never_carry_the_value() {
         (400, json!({"code": "vault.invalid", "message": request}).to_string())
     });
     let (origin, _requests) = fake(echo);
-    let failure = run_vault(&["machine", "vault", "set", "API_KEY"], &origin, OutputMode::Json, VALUE)
-        .code
-        .unwrap_err();
+    let failure =
+        run_vault(&["machine", "vault", "set", "API_KEY"], &origin, OutputMode::Json, VALUE)
+            .code
+            .unwrap_err();
     assert_eq!(failure.message, "the cmux platform refused the value: 400 vault.invalid");
     no_value(&failure.message);
 }
@@ -169,7 +173,10 @@ fn ls_prints_names_revisions_and_times_only() {
         } else {
             let value: Value = serde_json::from_str(ran.out.trim()).unwrap();
             assert_eq!(value["entries"].as_array().unwrap().len(), 2);
-            assert_eq!(value["entries"][0], json!({"name": "OPENAI_API_KEY", "revision": 3, "updatedAt": "2026-11-02T10:00:00Z"}));
+            assert_eq!(
+                value["entries"][0],
+                json!({"name": "OPENAI_API_KEY", "revision": 3, "updatedAt": "2026-11-02T10:00:00Z"})
+            );
         }
     }
     let (origin, _requests) = fake(Arc::new(|_: &str| (404, "{}".to_owned())));
@@ -188,11 +195,15 @@ fn rm_deletes_and_a_missing_name_says_so() {
     }));
     let ran = run_vault(&["machine", "vault", "rm", "API_KEY"], &origin, OutputMode::Json, VALUE);
     assert_eq!(ran.code, Ok(0));
-    assert_eq!(serde_json::from_str::<Value>(ran.out.trim()).unwrap(), json!({"name": "API_KEY", "removed": true}));
+    assert_eq!(
+        serde_json::from_str::<Value>(ran.out.trim()).unwrap(),
+        json!({"name": "API_KEY", "removed": true})
+    );
     assert!(requests.recv().unwrap().starts_with("DELETE /v1/vault/env/API_KEY "));
-    let failure = run_vault(&["machine", "vault", "rm", "OTHER"], &origin, OutputMode::Human, VALUE)
-        .code
-        .unwrap_err();
+    let failure =
+        run_vault(&["machine", "vault", "rm", "OTHER"], &origin, OutputMode::Human, VALUE)
+            .code
+            .unwrap_err();
     assert_eq!(failure.code, "machine_vault.not_found");
     assert_eq!(failure.message, "your vault has no OTHER");
 }
@@ -212,7 +223,8 @@ fn grant_and_revoke_put_the_machines_vault_flag_by_name() {
             }
             (404, "{}".to_owned())
         }));
-        let ran = run_vault(&["machine", "vault", verb, "lane-vm-3"], &origin, OutputMode::Json, VALUE);
+        let ran =
+            run_vault(&["machine", "vault", verb, "lane-vm-3"], &origin, OutputMode::Json, VALUE);
         assert_eq!(ran.code, Ok(0), "{verb}");
         assert_eq!(
             serde_json::from_str::<Value>(ran.out.trim()).unwrap(),
@@ -262,11 +274,14 @@ fn vault_platform(mint_status: u16) -> (String, std::sync::mpsc::Receiver<String
 #[test]
 fn add_vault_asks_with_the_names_then_mints_with_vault_true() {
     let (origin, requests) = vault_platform(200);
-    let ran = run_with(&["machine", "add", "--vault"], &origin, OutputMode::Json, false, true, never());
+    let ran =
+        run_with(&["machine", "add", "--vault"], &origin, OutputMode::Json, false, true, never());
     assert_eq!(ran.code, Ok(0));
     assert_eq!(
         ran.asked,
-        vec!["This machine gets 2 env vars from your vault: OPENAI_API_KEY, GITHUB_TOKEN. Continue?"]
+        vec![
+            "This machine gets 2 env vars from your vault: OPENAI_API_KEY, GITHUB_TOKEN. Continue?"
+        ]
     );
     assert!(requests.recv().unwrap().starts_with("GET /v1/vault/env "));
     let mint = requests.recv().unwrap();
@@ -275,17 +290,26 @@ fn add_vault_asks_with_the_names_then_mints_with_vault_true() {
     assert_eq!(body, json!({"vault": true}));
     // A no: no token is made.
     let (origin, requests) = vault_platform(200);
-    let ran = run_with(&["machine", "add", "--vault"], &origin, OutputMode::Human, false, false, never());
+    let ran =
+        run_with(&["machine", "add", "--vault"], &origin, OutputMode::Human, false, false, never());
     assert_eq!(ran.code.unwrap_err().exit, 2);
     assert!(requests.recv().unwrap().starts_with("GET /v1/vault/env "));
     assert!(requests.try_recv().is_err(), "nothing minted after a no");
     // --yes asks nothing; --quiet without --yes refuses before any call.
     let (origin, _requests) = vault_platform(200);
-    let ran = run_with(&["machine", "add", "--vault", "--yes"], &origin, OutputMode::Json, false, false, never());
+    let ran = run_with(
+        &["machine", "add", "--vault", "--yes"],
+        &origin,
+        OutputMode::Json,
+        false,
+        false,
+        never(),
+    );
     assert_eq!(ran.code, Ok(0));
     assert!(ran.asked.is_empty());
     let (origin, requests) = vault_platform(200);
-    let ran = run_with(&["machine", "add", "--vault"], &origin, OutputMode::Quiet, false, true, never());
+    let ran =
+        run_with(&["machine", "add", "--vault"], &origin, OutputMode::Quiet, false, true, never());
     assert_eq!(ran.code.unwrap_err().exit, 2);
     assert!(requests.try_recv().is_err());
     // Without --vault, nothing about the vault changes.
@@ -301,9 +325,16 @@ fn add_vault_asks_with_the_names_then_mints_with_vault_true() {
 #[test]
 fn add_vault_on_a_team_says_the_vault_is_personal_only() {
     let (origin, _requests) = vault_platform(403);
-    let failure = run_with(&["machine", "add", "--vault", "--yes"], &origin, OutputMode::Json, false, true, never())
-        .code
-        .unwrap_err();
+    let failure = run_with(
+        &["machine", "add", "--vault", "--yes"],
+        &origin,
+        OutputMode::Json,
+        false,
+        true,
+        never(),
+    )
+    .code
+    .unwrap_err();
     assert_eq!(failure.code, "machine_join.vault_personal_only");
     no_secret(&failure.message);
 }
@@ -316,7 +347,11 @@ fn add_flags_parse_together_and_refuse_what_does_not_fit() {
     );
     assert_eq!(
         command(&["machine", "add", "leo@mini-9", "--bootstrap"]).verb,
-        Verb::Add(AddArgs { host: Some("leo@mini-9".into()), bootstrap: true, ..AddArgs::default() })
+        Verb::Add(AddArgs {
+            host: Some("leo@mini-9".into()),
+            bootstrap: true,
+            ..AddArgs::default()
+        })
     );
     assert_eq!(
         command(&["machine", "add", "--vault", "--destination", "mini-9"]).verb,
@@ -380,11 +415,15 @@ fn machine_adds_switches_leave_json_to_the_global_output_mode() {
         };
         assert_eq!(global.output, OutputMode::Json, "{args:?}");
         assert!(!rest.contains(&"--json".to_owned()), "{args:?}: {rest:?}");
-        assert!(parsed(&rest.iter().map(String::as_str).collect::<Vec<_>>()).is_some_and(|r| r.is_ok()), "{rest:?}");
+        assert!(
+            parsed(&rest.iter().map(String::as_str).collect::<Vec<_>>()).is_some_and(|r| r.is_ok()),
+            "{rest:?}"
+        );
     }
     // Elsewhere `--bootstrap` keeps its value (`cloud new-machine --bootstrap NAME`).
     let (_, rest) =
-        match crate::cli::parse_globals(&words(&["cloud", "new-machine", "--bootstrap", "--json"])) {
+        match crate::cli::parse_globals(&words(&["cloud", "new-machine", "--bootstrap", "--json"]))
+        {
             Ok(parsed) => parsed,
             Err((error, _)) => panic!("{}", error.0),
         };

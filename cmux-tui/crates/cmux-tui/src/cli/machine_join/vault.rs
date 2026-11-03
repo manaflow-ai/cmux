@@ -250,7 +250,8 @@ pub(super) fn run(
                 rows.iter()
                     .map(|e| {
                         let revision = e.revision.map_or_else(String::new, |r| format!("  r{r}"));
-                        let at = e.updated_at.as_str().map_or_else(String::new, |t| format!("  {t}"));
+                        let at =
+                            e.updated_at.as_str().map_or_else(String::new, |t| format!("  {t}"));
                         format!("{}{revision}{at}", e.name)
                     })
                     .collect::<Vec<_>>()
@@ -272,7 +273,9 @@ pub(super) fn run(
                     e => vault_failure(&e, "the removal"),
                 })?;
             (
-                format!("{name} removed from your vault. Machines that pulled it keep their copy until they pull again."),
+                format!(
+                    "{name} removed from your vault. Machines that pulled it keep their copy until they pull again."
+                ),
                 json!({ "name": name, "removed": true }),
             )
         }
@@ -297,9 +300,15 @@ pub(super) fn run(
                     found.name
                 )
             } else {
-                format!("{} may no longer pull your vault. What it already pulled stays on it.", found.name)
+                format!(
+                    "{} may no longer pull your vault. What it already pulled stays on it.",
+                    found.name
+                )
             };
-            (human, json!({ "machineId": found.machine_id, "name": found.name, "granted": granted }))
+            (
+                human,
+                json!({ "machineId": found.machine_id, "name": found.name, "granted": granted }),
+            )
         }
     };
     match output {
