@@ -337,7 +337,10 @@ final class CloudMachineSession {
     private func showEnded(_ error: any Error) {
         CloudAppLinks.logEnded(error)
         let message = CloudAppLinks.endedMessage(error)
+        // A dropped daemon connection reads only "connection ended" when it asks again; the
+        // failure that dropped it (a dial refusal, a handshake) is the daemon's last startup error.
         linkEndedDetail = String(describing: error)
+            + (daemon.lastStartupError.map { "; the daemon connection failed: \($0.description)" } ?? "")
         daemon.shutdownConnection()
         daemon.store.markFailed(message)
         linkEnded = message

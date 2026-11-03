@@ -1444,6 +1444,25 @@
    its own (Machines…). No section headers and no second lines; each of the first nine machines ends
    with its ⌥⌘ digit, then the current one's check. */
 .acpmux-env-popover { min-width: 220px; }
+/* Its rows as the model picker's and every other menu's (design/menus.md, popupSurface.css): the
+   neutral menu wash (--acpmux-menu-hover, as .acpmux-quick-item), no accent tint and no focus bar,
+   inset 5 from the popup's edges at radius 5, the icon at the shared 15 leading. The highlight is
+   hover and the arrow keys only: the row Base UI highlights by itself on open draws nothing, so the
+   current machine shows by its check alone (Austin 2026-11-02: "This highlighting needs some fix",
+   a dark teal block edge to edge over This Mac's check). */
+.acpmux-menu.acpmux-location-menu.acpmux-env-popover { padding: var(--cmux-menu-highlight-inset); }
+.acpmux-env-popover .acpmux-menu-item {
+  padding-inline: calc(var(--cmux-menu-icon-x) - var(--cmux-menu-highlight-inset))
+    calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
+  border-radius: var(--cmux-menu-highlight-radius);
+}
+.acpmux-folder-popover.acpmux-env-popover .acpmux-menu-item[data-highlighted] {
+  background: var(--acpmux-menu-hover);
+  box-shadow: none;
+}
+.acpmux-folder-popover.acpmux-env-popover.acpmux-env-highlight-auto .acpmux-menu-item[data-highlighted] {
+  background: transparent;
+}
 /* A short list has no search field: the field stays, unseen, for the arrows, Return and Escape. */
 .acpmux-env-popover.acpmux-env-searchless .acpmux-location-search {
   position: absolute;
