@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// Retires a page shown through a pane's shared chrome (`BrowserChromeTabState`): the page closes and leaves
 /// the chrome's page area; a chrome that shows it now lets it go and stays for the pane's other tabs.
