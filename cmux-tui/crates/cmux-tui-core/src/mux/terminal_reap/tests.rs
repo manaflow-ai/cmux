@@ -343,14 +343,19 @@ fn a_reclaim_pass_ends_closed_terminals_waiting_out_the_grace_when_ptys_are_low(
 fn closed_terminals_past_the_grace_cap_end_at_once() {
     let mux = Mux::new_for_test("terminal-reap-cap", SurfaceOptions::default());
     let extra = 2;
+    // Every workspace first: a create after a reap trips the scoped-projection cross-check on the
+    // base as well (a separate defect, see the PR), so this test closes and reaps only.
+    let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
+    let surfaces: Vec<_> = (0..MAX_TERMINALS_IN_REAP_GRACE + extra)
+        .map(|index| mux.new_workspace(Some(format!("closed-{index}")), Some((80, 24))).unwrap())
+        .collect();
     let mut schedule = ReapSchedule::default();
     let mut closed = Vec::new();
     let mut reaped = Vec::new();
     // A burst of closes, the reaper woken after each (a topology change wakes it).
-    for index in 0..MAX_TERMINALS_IN_REAP_GRACE + extra {
-        let surface = mux.new_workspace(Some(format!("closed-{index}")), Some((80, 24))).unwrap();
-        let terminal_id = host_id(&mux, &surface);
-        close_workspace_of(&mux, &surface);
+    for (index, surface) in surfaces.iter().enumerate() {
+        let terminal_id = host_id(&mux, surface);
+        close_workspace_of(&mux, surface);
         reaped.extend(mux.reap_unplaced_terminals(&mut schedule, Instant::now()));
         // Distinct close times: the first closed is the longest closed.
         mux.workspace_registry
@@ -361,7 +366,6 @@ fn closed_terminals_past_the_grace_cap_end_at_once() {
         closed.push(terminal_id);
     }
     reaped.extend(mux.reap_unplaced_terminals(&mut schedule, Instant::now()));
-    let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
     reaped.sort();
     let mut oldest = closed[..extra].to_vec();
     oldest.sort();
