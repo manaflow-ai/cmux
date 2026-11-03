@@ -16,6 +16,9 @@
 //!   other command write then read. With no repo, or when the API refuses,
 //!   gh still runs, without a token, after one line on stderr.
 //!   `CMUX_GITHUB_GH_REAL` names the gh to run (the shim's real one).
+//!   With no auth of the person's own, `gh auth status` and `gh api user`
+//!   are answered from the account cmux has connected
+//!   (`github_cli_identity.rs`), never with a token.
 //! - `setup [--unset]`: opt-in wiring of the user's git config (the helper
 //!   for https://github.com, with `useHttpPath` so git names the repo).
 //!
@@ -81,7 +84,7 @@ impl std::fmt::Display for Refused {
     }
 }
 
-fn refused(code: &str, message: impl Into<String>) -> Refused {
+pub(crate) fn refused(code: &str, message: impl Into<String>) -> Refused {
     Refused { code: code.to_owned(), message: message.into(), retry_after: None }
 }
 
@@ -113,21 +116,7 @@ fn ask_retrying(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
 
 /// One ask over the agent socket: write the line, read the one reply.
 pub fn ask_agent(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
-    let mut stream = UnixStream::connect(socket).map_err(|e| {
-        refused(
-            "vm.agent_unreachable",
-            format!("{} ({e}); `cmux github` works on a cmux Cloud machine", socket.display()),
-        )
-    })?;
-    let io = |e: std::io::Error| refused("vm.agent_unreachable", e.to_string());
-    stream.set_read_timeout(Some(ASK_TIMEOUT)).map_err(io)?;
-    stream.set_write_timeout(Some(Duration::from_secs(5))).map_err(io)?;
-    stream.write_all(format!("{}\n", ask.to_line()).as_bytes()).map_err(io)?;
-    let mut line = String::new();
-    BufReader::new(stream.take(64 * 1024)).read_line(&mut line).map_err(io)?;
-    let reply: Value = serde_json::from_str(&line).map_err(|_| {
-        refused("vm.agent_bad_answer", "the Cloud agent's answer is not JSON (an older image?)")
-    })?;
+    let reply = agent_reply(socket, &ask.to_line(), ASK_TIMEOUT)?;
     if *reply.field("ok") == true {
         let token = reply.field("token").as_str().unwrap_or("");
         if token.is_empty() {
@@ -142,6 +131,25 @@ pub fn ask_agent(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
     );
     e.retry_after = reply.field("retry_after").as_u64();
     Err(e)
+}
+
+/// One line to the agent socket and its one JSON reply, read within `wait`.
+pub(crate) fn agent_reply(socket: &Path, line: &str, wait: Duration) -> Result<Value, Refused> {
+    let mut stream = UnixStream::connect(socket).map_err(|e| {
+        refused(
+            "vm.agent_unreachable",
+            format!("{} ({e}); `cmux github` works on a cmux Cloud machine", socket.display()),
+        )
+    })?;
+    let io = |e: std::io::Error| refused("vm.agent_unreachable", e.to_string());
+    stream.set_read_timeout(Some(wait)).map_err(io)?;
+    stream.set_write_timeout(Some(Duration::from_secs(5))).map_err(io)?;
+    stream.write_all(format!("{line}\n").as_bytes()).map_err(io)?;
+    let mut reply = String::new();
+    BufReader::new(stream.take(64 * 1024)).read_line(&mut reply).map_err(io)?;
+    serde_json::from_str(&reply).map_err(|_| {
+        refused("vm.agent_bad_answer", "the Cloud agent's answer is not JSON (an older image?)")
+    })
 }
 
 fn perms(pairs: &[(&str, &str)]) -> Map<String, Value> {
@@ -823,6 +831,14 @@ fn gh_auto(args: &[String]) -> u8 {
         own_login: !token_env && own_gh_login(),
         gh_repo: gh_repo.as_deref(),
     };
+    if !cx.token_env && !cx.own_login {
+        match crate::github_cli_identity::answer_from_agent(args, Path::new(AGENT_SOCKET)) {
+            Some(Ok(out)) => return out.emit(),
+            // No answer from cmux: gh runs as it would have.
+            Some(Err(note)) => eprintln!("cmux github gh: {note}"),
+            None => {}
+        }
+    }
     let mut command = std::process::Command::new(real_gh());
     match gh_auto_route(args, &cx, &origin_url) {
         GhRoute::Direct => {

@@ -223,4 +223,7 @@ fn the_tool_takes_no_arguments_and_its_instruction_names_it() {
     assert_eq!(tool["name"], TOOL);
     assert_eq!(tool["inputSchema"], json!({"type": "object", "properties": {}}));
     assert!(STEER.contains("call github_status"));
+    // Models ran `gh auth status` instead, which sees nothing on a Cloud machine with no repo.
+    assert!(STEER.contains("instead of running gh"));
+    assert!(STEER.contains("Cloud"));
 }
