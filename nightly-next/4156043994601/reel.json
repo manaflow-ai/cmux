@@ -1,0 +1,185 @@
+{
+  "version": 1,
+  "build": "4156043994601",
+  "notes": "notes/4156043994601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32701,
+      "title": "feat(agent-pane): a Chief's prompt says \"Sent from <Chief>\" with its avatar",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32730,
+      "title": "cmux NEXT: the working spinner is ChatGPT's ring with a gap, heavier and slower",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32777,
+      "title": "cmux NEXT: a new workspace's New Tab page shows once, in place, at its final size (no blank frame, no composer resize)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32782,
+      "title": "base red: native broker names the json step without a string slice",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32787,
+      "title": "Session Info: compare the pushed panel's frame within half a point",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32658,
+      "title": "test(web): a harness with no symbol counts its initial as its rail mark",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32779,
+      "title": "test(api): the expired-slot abort test asserts the queued abort record, not a still-open upload",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32760,
+      "title": "base red: the old-host close-script test compiles and runs the script with node:vm, not the Function constructor",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32705,
+      "title": "cmux NEXT Cloud: a repaired machine update rolls back to the build that served and never starts twice",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32719,
+      "title": "cmux NEXT: the Updated card takes the theme's surface and says the build's real top change",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32778,
+      "title": "Session Info overlays test: expect the card's part inside the panel, which now ends after its content (#32661)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32732,
+      "title": "fix(find): dragging off a Find pill button cancels the press",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32655,
+      "title": "base red: move #28618's native row tools fixture into CmuxNextAgentPane (tip arch red from 201e1deacc02)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32764,
+      "title": "Use a neutral machine name in the hover card colour test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32695,
+      "title": "cmux NEXT composer: Send, Stop and the mic at Claude Code's size and weight, and a fuller ↵",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32700,
+      "title": "Session Info: the native panel steps behind the page's popovers and hover cards",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32689,
+      "title": "ci(nightly-next): the tick does not promote a commit whose app is already published",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27909,
+      "title": "App Store: explain the next step when no apps are installed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32669,
+      "title": "Agent pane: the recap card and the host's line on the composer card's edges (carries #28587)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32674,
+      "title": "Session Info: native section headers draw the hover chevron after the title and the six-dot grip at the right edge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32677,
+      "title": "agent pane: an opened subagent goes to the right split; no \"Back to\" names a raw id",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32679,
+      "title": "Cloud: at the machine cap, pause an idle machine or offer Pause one / Upgrade / Run on This Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32729,
+      "title": "base red: machine update reads the identify pid with a checked get (tip panic-ratchet red from 3aca90c71dfa)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32686,
+      "title": "cmux NEXT composer: an inline attachment drags to reorder from anywhere on its thumbnail",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32688,
+      "title": "cmux NEXT sidebar: hover card names a Cloud machine once, closes tabs, stops re-hover flicker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32750,
+      "title": "Cloud Native: name the check behind bootstrap_refused and route_refused",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32704,
+      "title": "Agent header: the open panel's toggle requires its filled square; Esc closes native Session Info after a click in it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32661,
+      "title": "cmux NEXT: native Session Info has no card and ends after its content",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32645,
+      "title": "bench-startup: a STRESS reopen is the active app (open -a, lsappinfo front at the measured point); launch marks over a FIFO",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
