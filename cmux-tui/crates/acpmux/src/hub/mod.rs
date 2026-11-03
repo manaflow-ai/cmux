@@ -59,9 +59,9 @@ mod prompt_accept_tests;
 #[cfg(test)]
 mod shutdown_scan_tests;
 #[cfg(test)]
-mod transcript_seq_tests;
-#[cfg(test)]
 mod shutdown_tests;
+#[cfg(test)]
+mod transcript_seq_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
 pub(crate) mod fork_before;
