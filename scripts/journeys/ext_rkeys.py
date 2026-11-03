@@ -89,7 +89,8 @@ def step_rk_hold(j, step):
     rec = getattr(j, "video", None)
     if rec is not None:
         rec["hid"].append({"kind": "hold", "path": "debug.key repeat (not HID)", "args": args, "t_sent": round(sent, 6),
-                           "t_returned": round(returned, 6), "answer": {k: reply.get(k) for k in ("sent", "ran", "refused", "repeats_dropped")}})
+                           "t_returned": round(returned, 6), "answer": {k: reply.get(k) for k in ("sent", "ran", "refused", "repeats_dropped")},
+                           "host_offset_s": round(V._host_offset_s(), 6)})  # driver clock -> host (video_judge)
     return reply
 
 
