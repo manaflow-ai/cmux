@@ -17,6 +17,16 @@ struct Policy {
     observation: u64,
     #[serde(default)]
     epoch: u64,
+    #[serde(default)]
+    nudge: Option<Nudge>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct Nudge {
+    id: String,
+    session_id: String,
+    prompt_id: String,
+    target_prompt_id: String,
 }
 
 impl Hub {
@@ -63,7 +73,26 @@ impl Hub {
                         )
                     }) {
                         drop(gate);
-                        return self.workflow_bg_wait(&session, &previous_id).await;
+                        let result = self.workflow_bg_wait(&session, &previous_id).await;
+                        self.workflow_complete_child(
+                            run,
+                            generation,
+                            &format!("{}-task-{}", activity.id, policy.epoch),
+                            &result,
+                        )
+                        .await?;
+                        return result;
+                    }
+                    let child_id = format!("{}-task-{}", activity.id, policy.epoch);
+                    if self
+                        .workflow_runs
+                        .store()
+                        .activity(&run.id, generation, &run.owner_session_id, &child_id)
+                        .map_err(workflow_error)?
+                        .is_some_and(|child| child.outcome.is_none())
+                    {
+                        self.workflow_runs.store().complete_activity(&run.id,generation,&run.owner_session_id,&child_id,
+                            Err(json!({"code":"activity.cancelled","message":"task stopped before explicit resume"}))).map_err(workflow_error)?;
                     }
                 }
                 policy.epoch = generation;
@@ -101,7 +130,15 @@ impl Hub {
                 self.bg_start_with_id(&session, prompt, Some(run.cwd.clone()), Some(&task_id))
                     .await?;
                 drop(gate);
-                self.workflow_bg_wait(&session, &task_id).await
+                let result = self.workflow_bg_wait(&session, &task_id).await;
+                self.workflow_complete_child(
+                    run,
+                    generation,
+                    &format!("{}-task-{generation}", activity.id),
+                    &result,
+                )
+                .await?;
+                result
             }
             Child::Agent { session_id, prompt_id, .. } => {
                 let key = AttemptKey::new(&activity.id);
@@ -153,9 +190,7 @@ impl Hub {
                             if state.correction.is_some() { 1 } else { 0 }
                         );
                         self.remove_queued(&previous, &previous_id);
-                        if previous.turn().is_some_and(|turn| turn.prompt_id == previous_id) {
-                            self.cancel(&previous).await?;
-                        }
+                        self.cancel_prompt(&previous, &previous_id).await?;
                     }
                     let session_id = if restarted {
                         format!("{session_id}-restart")
@@ -267,16 +302,21 @@ impl Hub {
                     let mut gate = Some(gate);
                     let mut admitted = false;
                     let mut waiting = false;
+                    let mut nudge_reconciled = false;
                     let deadline = tokio::time::sleep(stall);
                     tokio::pin!(deadline);
                     let outcome = loop {
                         tokio::select! {
                             result = &mut future => {drop(gate.take()); break result?;},
-                            _ = &mut admission, if !admitted => {admitted=true; drop(gate.take());},
+                            _ = &mut admission, if !admitted => {
+                                admitted=true; drop(gate.take());
+                                if let Some(nudge) = &state.nudge {nudge_reconciled=self.workflow_nudge(run,generation,nudge).await?;}
+                            },
                             event = events.recv() => {
                                 match event {
                                     Ok(event) if event.session_id == session.id => {
                                         waiting = session.status() == SessionStatus::Waiting || session.meta().usage_limits.is_some();
+                                        if !waiting && !nudge_reconciled && let Some(nudge) = &state.nudge {nudge_reconciled=self.workflow_nudge(run,generation,nudge).await?;}
                                         deadline.as_mut().reset(tokio::time::Instant::now()+stall);
                                     }
                                     Err(tokio::sync::broadcast::error::RecvError::Closed) => return Err(RpcError::internal("workflow event stream closed")),
@@ -294,26 +334,16 @@ impl Hub {
                                 let current = recovery.key.clone();
                                 let action = recovery.observe(&current,state.observation,RecoveryEvent::Stalled);
                                 state.recovery = Some(recovery.clone());
+                                if action == RecoveryAction::Nudge {
+                                    state.nudge = Some(Nudge {id:format!("{}-nudge",activity.id),session_id:session.id.clone(),
+                                        prompt_id:format!("{current_id}-nudge"),target_prompt_id:current_id.clone()});
+                                }
                                 self.workflow_runs.store().update_activity_policy(&run.id,generation,&run.owner_session_id,
                                     &activity.id,serde_json::to_value(&state).map_err(workflow_error)?).map_err(workflow_error)?;
                                 match action {
                                     RecoveryAction::Nudge => {
-                                        let hub = self.clone();
-                                        let session = session.clone();
-                                        let run = run.clone();
-                                        let nudge_id = format!("{current_id}-nudge");
-                                        self.workflow_runs.store().register_activity(&run.id,generation,&run.owner_session_id,ActivityRecord {
-                                            id:format!("{}-nudge",activity.id),kind:"agent_nudge".into(),fingerprint:"continue".into(),
-                                            child:Child::Agent {session_id:session.id.clone(),prompt_id:nudge_id.clone(),host:None},policy:Value::Null,outcome:None,
-                                        }).map_err(workflow_error)?;
-                                        tokio::spawn(async move {
-                                            let (send, mut accepted) = tokio::sync::oneshot::channel();
-                                            let nudge = hub.prompt_with(&session,vec![json!({"type":"text","text":"Please continue and report your current progress."})],
-                                                "workflow",true,PromptOptions {prompt_id:Some(nudge_id),resend:true,steer_only:true,
-                                                    agent:Some(run.owner_session_id),on_accepted:Some(Box::new(move |v| {let _=send.send(v);})),..Default::default()});
-                                            tokio::pin!(nudge);
-                                            tokio::select! { _ = &mut nudge => {drop(action_gate);}, _ = &mut accepted => {drop(action_gate); let _=nudge.await;} }
-                                        });
+                                        drop(action_gate);
+                                        if let Some(nudge) = &state.nudge {nudge_reconciled=self.workflow_nudge(run,generation,nudge).await?;}
                                         deadline.as_mut().reset(tokio::time::Instant::now()+stall);
                                     }
                                     RecoveryAction::Restart {..} => {
@@ -322,7 +352,7 @@ impl Hub {
                                                 .is_some_and(|r| options.get("route").and_then(Value::as_str) != Some(r));
                                         if !alternate {return Err(RpcError::internal("workflow stalled after nudge; no different permitted fallback harness or route configured"));}
                                         self.remove_queued(&session,&current_id);
-                                        if session.turn().is_some_and(|turn| turn.prompt_id == current_id) {self.cancel(&session).await?;}
+                                        self.cancel_prompt(&session,&current_id).await?;
                                         drop(action_gate);
                                         continue 'attempt;
                                     }
@@ -421,6 +451,106 @@ impl Hub {
         Ok(allowed)
     }
 
+    async fn workflow_complete_child(
+        &self,
+        run: &RunRecord,
+        generation: u64,
+        id: &str,
+        result: &Result<Value, RpcError>,
+    ) -> Result<(), RpcError> {
+        let _gate = self.workflow_runs.gate(&run.id).lock_owned().await;
+        let store = self.workflow_runs.store();
+        if store
+            .activity(&run.id, generation, &run.owner_session_id, id)
+            .map_err(workflow_error)?
+            .is_some_and(|activity| activity.outcome.is_none())
+        {
+            store.complete_activity(&run.id,generation,&run.owner_session_id,id,
+                result.clone().map_err(|error|json!({"code":error.code,"message":error.message,"data":error.data}))).map_err(workflow_error)?;
+        }
+        Ok(())
+    }
+
+    /// Reconcile the persisted action with its exact target turn before another escalation.
+    /// Repeated calls join the same prompt ID; a terminal target records a superseded action.
+    async fn workflow_nudge(
+        self: &Arc<Self>,
+        run: &RunRecord,
+        generation: u64,
+        intent: &Nudge,
+    ) -> Result<bool, RpcError> {
+        let gate = self.workflow_runs.gate(&run.id).lock_owned().await;
+        let record = self
+            .workflow_runs
+            .store()
+            .register_activity(
+                &run.id,
+                generation,
+                &run.owner_session_id,
+                ActivityRecord {
+                    id: intent.id.clone(),
+                    kind: "agent_nudge".into(),
+                    fingerprint: "continue".into(),
+                    child: Child::Agent {
+                        session_id: intent.session_id.clone(),
+                        prompt_id: intent.prompt_id.clone(),
+                        host: None,
+                    },
+                    policy: Value::Null,
+                    outcome: None,
+                },
+            )
+            .map_err(workflow_error)?;
+        if record.outcome.is_some() {
+            return Ok(true);
+        }
+        let session = self.resolve(&intent.session_id)?;
+        if session.status() == SessionStatus::Waiting || session.meta().usage_limits.is_some() {
+            return Ok(false);
+        }
+        let known = self.knows_prompt(&session, &intent.prompt_id, true);
+        if known {
+            self.workflow_runs
+                .store()
+                .complete_activity(
+                    &run.id,
+                    generation,
+                    &run.owner_session_id,
+                    &intent.id,
+                    Ok(json!({"admitted":true,"replayed":true})),
+                )
+                .map_err(workflow_error)?;
+            return Ok(true);
+        }
+        let target = session.turn().filter(|turn| turn.prompt_id == intent.target_prompt_id);
+        if !known && target.is_none() {
+            self.workflow_runs.store().complete_activity(&run.id,generation,&run.owner_session_id,&intent.id,
+                Err(json!({"code":"activity.superseded","message":"nudge target already ended"}))).map_err(workflow_error)?;
+            return Ok(true);
+        }
+        let hub = self.clone();
+        let run = run.clone();
+        let intent = intent.clone();
+        tokio::spawn(async move {
+            let (send, mut accepted) = tokio::sync::oneshot::channel();
+            let future=hub.prompt_with(&session,vec![json!({"type":"text","text":"Please continue and report your current progress."})],
+                "workflow",true,PromptOptions {prompt_id:Some(intent.prompt_id),resend:true,steer_only:true,
+                    interrupt_turn:target.map(|turn|turn.turn_id),agent:Some(run.owner_session_id.clone()),
+                    on_accepted:Some(Box::new(move |value|{let _=send.send(value);})),..Default::default()});
+            tokio::pin!(future);
+            let result = tokio::select! {
+                result=&mut future=>{drop(gate);result},
+                accepted=&mut accepted=>{
+                    drop(gate);
+                    if let Ok(value)=accepted {let _=hub.workflow_complete_child(&run,generation,&intent.id,&Ok(value)).await;}
+                    future.await
+                },
+            };
+            let _ = hub.workflow_complete_child(&run, generation, &intent.id, &result).await;
+        });
+        Ok(true)
+    }
+
     /// Called under the run gate, after checking its generation, on a terminal failure.
     pub(crate) async fn workflow_cancel_activity(
         self: &Arc<Self>,
@@ -435,9 +565,7 @@ impl Hub {
                 Child::Agent { session_id, prompt_id, .. } => {
                     if let Ok(session) = self.resolve(session_id) {
                         self.remove_queued(&session, prompt_id);
-                        if session.turn().is_some_and(|turn| turn.prompt_id == *prompt_id) {
-                            self.cancel(&session).await?;
-                        }
+                        self.cancel_prompt(&session, prompt_id).await?;
                     }
                 }
                 Child::Machine { session_id, task_id, .. } => {
@@ -450,6 +578,10 @@ impl Hub {
                         }
                     }
                 }
+            }
+            if child.id != activity {
+                let _ = self.workflow_runs.store().complete_activity(&run.id,run.generation,&run.owner_session_id,
+                    &child.id,Err(json!({"code":"activity.cancelled","message":"workflow child was superseded or stopped"})));
             }
         }
         Ok(())
@@ -527,6 +659,286 @@ fn workflow_error(error: impl std::fmt::Display) -> RpcError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn activity_chat() -> (Arc<Hub>, RunRecord, ActivityRecord) {
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_workflow_agent.py");
+        let mut config: crate::config::Config =
+            serde_json::from_value(json!({"defaultHarness":"fake",
+            "harnesses":{"fake":{"argv":["python3",fixture]}}}))
+            .unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let owner:crate::store::SessionMeta=serde_json::from_value(json!({"schema":crate::store::META_SCHEMA,
+            "id":"owner","name":"owner","harness":"fake","cwd":"/tmp","status":"closed","createdAt":1,"updatedAt":2})).unwrap();
+        store.save(&owner).unwrap();
+        let hub = Hub::new(config, store);
+        let id = format!("wf-test-{}", uuid::Uuid::now_v7().simple());
+        let run = hub
+            .workflow_runs
+            .store()
+            .start(RunRecord {
+                version: 1,
+                id: id.clone(),
+                name: "Test workflow".into(),
+                owner_session_id: "owner".into(),
+                source: "await agent('test')".into(),
+                source_hash: String::new(),
+                args: json!([]),
+                allowed_tools: None,
+                cwd: std::env::temp_dir(),
+                generation: 1,
+                state: crate::workflow_runs::State::Running,
+                activities: Default::default(),
+                outcome: None,
+            })
+            .unwrap();
+        let child = ActivityRecord {
+            id: "activity".into(),
+            kind: "agent".into(),
+            fingerprint: "pinned".into(),
+            child: Child::Agent {
+                session_id: format!("{id}-child"),
+                prompt_id: format!("{id}-prompt"),
+                host: None,
+            },
+            policy: Value::Null,
+            outcome: None,
+        };
+        hub.workflow_runs
+            .store()
+            .register_activity(&run.id, run.generation, "owner", child.clone())
+            .unwrap();
+        (hub, run, child)
+    }
+
+    async fn cleanup(hub: Arc<Hub>, run: RunRecord) {
+        hub.shutdown_all().await;
+        // This test created the UUID-named directory; no other run is touched.
+        std::fs::remove_dir_all(hub.workflow_runs.store().directory(&run.id).unwrap()).unwrap();
+    }
+
+    fn turns(hub: &Hub, child: &ActivityRecord) -> usize {
+        let Child::Agent { session_id, .. } = &child.child else { unreachable!() };
+        let mut turns = 0;
+        hub.store
+            .scan_strict(session_id, 0, &mut |record| {
+                if record.kind == "turn_started" {
+                    turns += 1;
+                }
+                true
+            })
+            .unwrap();
+        turns
+    }
+
+    #[tokio::test]
+    async fn workflow_schema_corrects_once_and_replay_reuses_both_prompt_outcomes() {
+        let (hub, run, child) = activity_chat();
+        let options = json!({"harness":"fake","schema":{"type":"object","required":["ok"],"properties":{"ok":{"const":true}}}});
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            hub.workflow_execute(&run, run.generation, &child, "schema-once", &options),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(result, json!({"ok":true}));
+        assert_eq!(turns(&hub, &child), 2);
+        let saved = hub
+            .workflow_runs
+            .store()
+            .activity(&run.id, run.generation, "owner", &child.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            hub.workflow_execute(&run, run.generation, &saved, "schema-once", &options)
+                .await
+                .unwrap(),
+            result
+        );
+        assert_eq!(turns(&hub, &child), 2, "replay must not create new turns");
+        cleanup(hub, run).await;
+    }
+
+    #[tokio::test]
+    async fn workflow_schema_second_mismatch_is_terminal_without_third_prompt() {
+        let (hub, run, child) = activity_chat();
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            hub.workflow_execute(
+                &run,
+                run.generation,
+                &child,
+                "schema-twice",
+                &json!({"harness":"fake","schema":{"type":"object"}}),
+            ),
+        )
+        .await
+        .unwrap();
+        assert!(result.unwrap_err().message.contains("after correction"));
+        assert_eq!(turns(&hub, &child), 2);
+        cleanup(hub, run).await;
+    }
+
+    #[tokio::test]
+    async fn workflow_pause_resume_preserves_child_and_restarts_only_cancelled_prompt() {
+        let (hub, run, child) = activity_chat();
+        let mut events = hub.subscribe();
+        let worker_hub = hub.clone();
+        let worker_run = run.clone();
+        let worker_child = child.clone();
+        let worker = tokio::spawn(async move {
+            worker_hub
+                .workflow_execute(
+                    &worker_run,
+                    worker_run.generation,
+                    &worker_child,
+                    "until-cancel",
+                    &json!({"harness":"fake"}),
+                )
+                .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            loop {
+                let event = events.recv().await.unwrap();
+                if event.record.kind == "agent_message_chunk" {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let paused = hub.workflow_pause(&run.id, "owner").await.unwrap();
+        assert_eq!(paused.state, crate::workflow_runs::State::Paused);
+        assert!(worker.await.unwrap().is_err(), "paused generation cannot save a late outcome");
+        let resumed = hub.workflow_runs.store().resume(&run.id, "owner", false).unwrap();
+        let saved = hub
+            .workflow_runs
+            .store()
+            .activity(&run.id, resumed.generation, "owner", &child.id)
+            .unwrap()
+            .unwrap();
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            hub.workflow_execute(
+                &resumed,
+                resumed.generation,
+                &saved,
+                "until-cancel",
+                &json!({"harness":"fake"}),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(result, json!("{\"ok\":true}"));
+        assert_eq!(turns(&hub, &child), 2, "same session, one cancelled and one resumed turn");
+        cleanup(hub, resumed).await;
+    }
+
+    #[tokio::test]
+    async fn workflow_reconciles_persisted_nudge_intent_without_duplicate_effect() {
+        let (hub, run, child) = activity_chat();
+        let mut events = hub.subscribe();
+        let worker_hub = hub.clone();
+        let worker_run = run.clone();
+        let worker_child = child.clone();
+        let worker = tokio::spawn(async move {
+            worker_hub
+                .workflow_execute(
+                    &worker_run,
+                    worker_run.generation,
+                    &worker_child,
+                    "until-cancel",
+                    &json!({"harness":"fake"}),
+                )
+                .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            loop {
+                let event = events.recv().await.unwrap();
+                if event.record.kind == "agent_message_chunk" {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let Child::Agent { session_id, .. } = &child.child else { unreachable!() };
+        let session = hub.resolve(session_id).unwrap();
+        let target = session.turn().unwrap().prompt_id;
+        let intent = Nudge {
+            id: "activity-nudge".into(),
+            session_id: session.id.clone(),
+            prompt_id: format!("{target}-nudge"),
+            target_prompt_id: target,
+        };
+        let mut recovery = RecoveryState::new(AttemptKey::new(&child.id));
+        recovery.observe(&AttemptKey::new(&child.id), 1, RecoveryEvent::Stalled);
+        let policy = Policy {
+            nudge: Some(intent.clone()),
+            recovery: Some(recovery),
+            epoch: run.generation,
+            ..Default::default()
+        };
+        hub.workflow_runs
+            .store()
+            .update_activity_policy(
+                &run.id,
+                run.generation,
+                "owner",
+                &child.id,
+                serde_json::to_value(policy).unwrap(),
+            )
+            .unwrap();
+        // Simulate the gap after the durable decision and before its child/effect existed.
+        assert!(
+            hub.workflow_runs
+                .store()
+                .activity(&run.id, run.generation, "owner", &intent.id)
+                .unwrap()
+                .is_none()
+        );
+        hub.workflow_nudge(&run, run.generation, &intent).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            loop {
+                let event = events.recv().await.unwrap();
+                if event.record.msg.pointer("/params/update/content/text").and_then(Value::as_str)
+                    == Some("nudge accepted")
+                {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        hub.workflow_nudge(&run, run.generation, &intent).await.unwrap();
+        assert!(
+            hub.workflow_runs
+                .store()
+                .activity(&run.id, run.generation, "owner", &intent.id)
+                .unwrap()
+                .unwrap()
+                .outcome
+                .is_some()
+        );
+        let mut nudges = 0;
+        hub.store
+            .scan_strict(&session.id, 0, &mut |event| {
+                if event.msg.pointer("/params/update/content/text").and_then(Value::as_str)
+                    == Some("nudge accepted")
+                {
+                    nudges += 1;
+                }
+                true
+            })
+            .unwrap();
+        assert_eq!(nudges, 1, "reconciled intent must steer only once");
+        hub.workflow_pause(&run.id, "owner").await.unwrap();
+        assert!(worker.await.unwrap().is_err());
+        cleanup(hub, run).await;
+    }
 
     #[tokio::test]
     async fn workflow_reply_reads_only_exact_final_message_before_human_followup() {
