@@ -11396,6 +11396,34 @@
       "title_table" : "HomeActions"
     },
     {
+      "cli" : "devOnly",
+      "cli_name" : "action home-agent-message-playground",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.agentMessagePlayground",
+      "main_menu" : "debug",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Agent Messages Playground",
+      "title_key" : "action.home.agentMessagePlayground",
+      "title_table" : "HomeActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "chat send",
       "context_menu" : "noObject",
@@ -27633,6 +27661,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "ownerVerb",
+      "cli_name" : "action cloud-preview",
+      "context_menu" : "duplicateOfDefault",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudPreview",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Machine Preview",
+      "title_key" : "action.cloudPreview",
+      "title_table" : "CloudPortActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "cloud open-browser",
       "context_menu" : "offered",
@@ -30589,6 +30645,34 @@
       "palette_suggested" : null,
       "title" : "Hide Host Pressure Warning",
       "title_key" : "action.hostPressure.hideWarning",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "devOnly",
+      "cli_name" : "action debug-tab-bar-playground",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.tabBarPlayground",
+      "main_menu" : "debug",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Tab Bar Playground",
+      "title_key" : "action.debug.tabBarPlayground",
       "title_table" : "ActionCatalog"
     },
     {
