@@ -314,6 +314,18 @@ public final class LayoutRootView: NSView {
         if current != lastSnapshot { sync(current) }
     }
 
+    /// Mirrors the model now for the window's next frame tick (a keyboard resize press, FRAME OWNER S1B): the springs
+    /// get their targets in this turn, so the next display frame moves, but nothing is presented, laid out, announced to
+    /// the content or synced to the overlay here. The next tick presents once (`advanceFrame`; a snap with no spring
+    /// presents in its `presentWaiting`), and it is asked for. The key's own turn stays a model change.
+    public func syncWithModelForNextFrame() {
+        let held = context.holdsPresentations
+        context.holdsPresentations = true
+        syncWithModel()
+        context.holdsPresentations = held
+        if screenViews.values.contains(where: \.frameInput.presentationWaiting) { driver.start() }
+    }
+
     var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }
 
     /// ``sync(_:)``'s body (`LayoutRootView+AvoiderBatch`).
