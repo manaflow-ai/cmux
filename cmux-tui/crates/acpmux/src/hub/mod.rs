@@ -1994,9 +1994,6 @@ impl Hub {
         saved
     }
 
-    /// The largest composer draft the daemon will persist for one session.
-    pub const MAX_COMPOSER_DRAFT_CHARS: usize = 1_000_000;
-
     /// Store the unsent composer text without adding it to the transcript.
     /// Whitespace-only input clears the draft while preserving whitespace in a
     /// non-empty draft exactly as typed.
@@ -2005,12 +2002,6 @@ impl Hub {
         session: &Session,
         text: &str,
     ) -> Result<Option<String>, RpcError> {
-        if text.chars().count() > Self::MAX_COMPOSER_DRAFT_CHARS {
-            return Err(RpcError::invalid_params(format!(
-                "composer draft exceeds {} characters",
-                Self::MAX_COMPOSER_DRAFT_CHARS
-            )));
-        }
         if session.moving().is_some() {
             return Err(RpcError::invalid_params(queue::moving_error().message));
         }

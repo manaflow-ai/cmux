@@ -37,6 +37,8 @@ final class CloudService {
     @ObservationIgnored let paths: CloudPaths
     /// One app-lifetime owner of confirmed, per-account Codex delivery.
     let codexBroker: CloudCodexBrokerAdapter
+    /// The Release login copy's remote off switch (CloudService+LoginCopy.swift).
+    @ObservationIgnored let harnessLoginCopySwitch = CloudHarnessLoginCopySwitch()
     @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
     /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
@@ -339,8 +341,8 @@ final class CloudService {
             // must fence the old Native mesh and link before reconnecting.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
                 if accountScope != nil {
-                    // Sign-out revoked the WireGuard peer and parked the hub.
-                    await self.hub?.resume()
+                    AgentPaneTailCache.shared.resume()
+                    await self.hub?.resume() // sign-out revoked the WireGuard peer and parked the hub
                     // Another account's machines, connections and share installs end first (its next share binds this one).
                     let switched = await self.link.sessionBegan(user: self.auth.user?.id, team: self.auth.teamID)
                     if switched { self.dropAllMachines() }
@@ -880,7 +882,7 @@ final class CloudService {
 
     /// Runs when a sign-out starts, while the account's tokens still work
     /// (the device hub signs this Mac out of its sessions at once).
-    var willSignOut: [@MainActor () -> Void] = []
+    var willSignOut: [@MainActor () -> Void] = [{ AgentPaneTailCache.shared.clear() }]
 
     func signOut() async {
         signedOutCreation.cancel()

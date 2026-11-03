@@ -26,6 +26,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use cmux_host::cloud::github_status::sanitize;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use zeroize::Zeroizing;
 
@@ -153,20 +154,25 @@ pub async fn resolve(sources: &Sources) -> Value {
     let mut seen = std::collections::BTreeSet::new();
     let accounts: Vec<Value> = accounts
         .into_iter()
-        .filter(|a| seen.insert((a["login"].to_string(), a["source"].to_string())))
+        .filter(|a| seen.insert((field(a, "login").to_string(), field(a, "source").to_string())))
         .collect();
     let Some(first) = accounts.first() else {
         let mut out = json!({"connected": false, "source": "none", "via": "cmux", "accounts": []});
         if unavailable {
-            out["unavailable"] = json!(true);
+            out.set("unavailable", json!(true));
         }
         return out;
     };
     let mut out = first.clone();
-    out["connected"] = json!(true);
-    out["via"] = json!("cmux");
-    out["accounts"] = Value::Array(accounts);
+    out.set("connected", json!(true));
+    out.set("via", json!("cmux"));
+    out.set("accounts", Value::Array(accounts));
     out
+}
+
+/// `value[key]` without an index: `Null` for a missing key or a value that is not an object.
+fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
+    value.get(key).unwrap_or(&Value::Null)
 }
 
 fn connected(status: &Value) -> bool {
@@ -179,21 +185,21 @@ fn account(status: Value) -> Value {
     let mut out = json!({});
     for key in ["login", "name", "htmlUrl", "accountType"] {
         if let Some(v) = status.get(key).filter(|v| v.is_string()) {
-            out[key] = v.clone();
+            out.set(key, v.clone());
         }
     }
-    out["source"] = status.get("source").cloned().unwrap_or_else(|| json!("github-app"));
+    out.set("source", status.get("source").cloned().unwrap_or_else(|| json!("github-app")));
     out
 }
 
 /// How one account reads to the model.
 fn describe(account: &Value) -> String {
-    let login = account["login"].as_str().unwrap_or_default();
-    let who = match account["name"].as_str() {
+    let login = field(account, "login").as_str().unwrap_or_default();
+    let who = match field(account, "name").as_str() {
         Some(name) => format!("{login} ({name})"),
         None => login.to_owned(),
     };
-    match (account["source"].as_str(), account["accountType"].as_str()) {
+    match (field(account, "source").as_str(), field(account, "accountType").as_str()) {
         (Some("gh-cli"), _) => {
             format!("{who}, the person's own GitHub CLI login on this machine, read by cmux")
         }
@@ -207,8 +213,8 @@ fn describe(account: &Value) -> String {
 
 /// The MCP result: a sentence for the model and the object as `structuredContent`.
 pub fn result(status: &Value) -> Value {
-    let accounts = status["accounts"].as_array().cloned().unwrap_or_default();
-    let text = if accounts.is_empty() && status["unavailable"] == true {
+    let accounts = field(status, "accounts").as_array().cloned().unwrap_or_default();
+    let text = if accounts.is_empty() && *field(status, "unavailable") == true {
         "cmux could not check the GitHub connection right now (its service did not answer), and \
          this machine has no GitHub CLI login. Say the connection could not be checked, not that \
          GitHub is disconnected, and suggest trying again."
@@ -307,7 +313,7 @@ async fn from_gh(gh: &OsString) -> Option<Value> {
         "htmlUrl": user.get("html_url").cloned().unwrap_or(Value::Null),
     });
     let mut status = sanitize(&body);
-    status["source"] = json!("gh-cli");
+    status.set("source", json!("gh-cli"));
     Some(status)
 }
 

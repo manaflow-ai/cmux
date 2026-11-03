@@ -152,6 +152,8 @@ pub enum Input {
         place: Option<String>,
         /// `spawn(harness)`: the harness its subagents run on; None: the turn's.
         harness: Option<String>,
+        /// Acpmux's health and login snapshot, read off the brain thread.
+        machines: Vec<crate::place_route::Machine>,
         reply: Sender<Result<crate::subagents::SpawnPlan, String>>,
     },
     /// A queued subagent's launch, saved in its record.
@@ -1447,6 +1449,7 @@ impl Brain {
                 peer,
                 place,
                 harness,
+                machines,
                 reply,
             } => {
                 // `cloud:SIZE`: on the cloud, at that VM size.
@@ -1457,7 +1460,21 @@ impl Brain {
                 let plan = self
                     .spawn_peer(peer.as_deref(), place.as_deref())
                     .and_then(|peers| {
-                        self.register_spawn_sized(&tasks, &peers, place.as_deref(), size.as_deref())
+                        let engine = self.spawn_engine();
+                        let family = self.family_of(
+                            harness
+                                .as_deref()
+                                .or_else(|| engine.as_ref().map(|e| e.harness.as_str()))
+                                .unwrap_or(&self.settings.harness),
+                        );
+                        self.register_spawn_sized(
+                            &tasks,
+                            &peers,
+                            place.as_deref(),
+                            size.as_deref(),
+                            &machines,
+                            family,
+                        )
                     })
                     .map(|mut plan| {
                         if let Some(h) = harness.as_deref() {
