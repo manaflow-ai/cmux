@@ -321,6 +321,34 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertFalse(log.exists(), "a Swift-only push runs only the pieces that read Swift")
         self.assertEqual(self.remote_head(), head)
 
+    def test_a_lone_piece_never_runs_check_code_an_earlier_push_changed(self):
+        # The trust boundary holds for #34046's lone pieces too: a branch whose earlier push changed a source-check
+        # script, then pushes only Swift, must not run that pushed script.
+        self.text_focus_fixture()
+        marker = self.root / "pushed-code-ran"
+        self.git("checkout", "--quiet", "-b", "topic")
+        target = self.repo / self.TEXT_FOCUS
+        target.write_text(target.read_text().replace("def main() -> int:\n",
+                                                     f"def main() -> int:\n    open({str(marker)!r}, 'w').close()\n"))
+        self.commit("change the text-focus check")
+        first = subprocess.run(["git", "-C", str(self.repo), "push", "origin", "topic"], env=self.env, text=True,
+                               capture_output=True)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertFalse(marker.exists())
+
+        for number, env in enumerate(({}, LIGHT_HOST)):
+            with self.subTest(env=env):
+                self.write(self.SWIFT_SOURCE, 'struct Field {\n    var body: some View {\n'
+                           f'        SecureField("Key{number}", text: $key)\n            .focusEffectDisabled()\n'
+                           '    }\n}\n')
+                self.commit("a Swift-only change")
+                result = subprocess.run(["git", "-C", str(self.repo), "push", "origin", "topic"],
+                                        env={**self.env, **env}, text=True, capture_output=True)
+
+                self.assertFalse(marker.exists(), "a lone piece ran the check script an earlier push changed")
+                self.assertIn("webviews: not linted here", result.stderr)
+                self.assertIn(self.TEXT_FOCUS, result.stderr)
+
     def test_a_swift_file_no_piece_reads_runs_no_lint(self):
         self.text_focus_fixture()
         self.write("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notes.md", "TextField(\n")
