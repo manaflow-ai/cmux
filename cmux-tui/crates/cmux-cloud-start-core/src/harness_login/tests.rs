@@ -323,7 +323,11 @@ fn a_working_machine_login_is_used_whatever_the_choice() {
     for login in [MachineLogin::Session, MachineLogin::Cached, MachineLogin::Working] {
         for requested in [None, Some(Choice::Pass), Some(Choice::Machine)] {
             let d = Inputs { machine_login: Some(login), requested, headless: true, ..owner() };
-            assert_eq!((decide(&d).step, decide(&d).reason), (Step::Skip, Reason::MachineLoginKept), "{login:?} {requested:?}");
+            assert_eq!(
+                (decide(&d).step, decide(&d).reason),
+                (Step::Skip, Reason::MachineLoginKept),
+                "{login:?} {requested:?}"
+            );
         }
     }
 }
@@ -349,14 +353,16 @@ fn the_flag_then_the_stored_choice_decide() {
     assert_eq!(decide(&machine).reason, Reason::MachineLoginMissing);
     assert_eq!(decide(&machine).step, Step::Refuse);
     // The person's own --login pass is their confirm; an agent's is not.
-    let person = Inputs { requested: Some(Choice::Pass), requested_by_person: true, ..headless.clone() };
+    let person =
+        Inputs { requested: Some(Choice::Pass), requested_by_person: true, ..headless.clone() };
     assert_eq!(decide(&person).reason, Reason::InstallChosen);
     let agent = Inputs { requested: Some(Choice::Pass), ..headless.clone() };
     assert_eq!(decide(&agent).reason, Reason::NeedsLoginChoice);
     // The stored choice stands in for a missing flag; the flag wins over it.
     let stored = Inputs { stored: Some(Choice::None), ..headless.clone() };
     assert_eq!(decide(&stored).reason, Reason::ChoseNone);
-    let flag_wins = Inputs { requested: Some(Choice::Machine), stored: Some(Choice::None), ..headless };
+    let flag_wins =
+        Inputs { requested: Some(Choice::Machine), stored: Some(Choice::None), ..headless };
     assert_eq!(decide(&flag_wins).reason, Reason::MachineLoginMissing);
     assert!(decide(&flag_wins).summary.contains(", login machine, headless"));
 }
