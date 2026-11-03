@@ -1115,7 +1115,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextRemoteViewSessions",
             dependencies: [
                 "CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextSettings", "CmuxNextBrowser", "CmuxNextRemoteView",
-                "CmuxNextRemoteBrowser",
+                "CmuxNextRemoteBrowser", "CmuxNextRemoteLocalhost",
                 .product(name: "CmuxVNC", package: "CmuxVNC"),
                 .product(name: "CmuxVNCDemoServer", package: "CmuxVNC"),
             ],
