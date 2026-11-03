@@ -398,6 +398,7 @@ not a complete copy of its transcript.
 | Daemon missing | On its host, `acpmux daemon status`, then `acpmux daemon start` for a standalone daemon. For a service-managed daemon, inspect that service and its configured home/listener. |
 | Another service owns the socket | Use the CLI from the running app and record its socket/holder error. Do not delete a live socket or terminate an unknown process. |
 | Harness fails to start | `acpmux daemon harnesses`; verify that host's harness installation/login. `acpmux harness doctor codex` performs a handshake and a real prompt, which can consume usage. |
+| `remote chain refused: bwrap unavailable` on a Linux machine | Sessions started there from another machine run only inside the bubblewrap sandbox. `acpmux machine doctor my-linux` warns at the daemon step; `--fix` installs `bubblewrap` when sudo needs no password, else run `sudo apt-get install -y bubblewrap` there. The sandbox lets Claude reach its own `ANTHROPIC_BASE_URL` port on another host (a tailnet router such as `:4016`), plus 80 and 443. |
 | Stuck or stale chat | `acpmux session info my-linux/api-work` and `acpmux session tail my-linux/api-work`. Restore connectivity before interpreting stale state; cancel/stop only the intended session. |
 | Cloud action unavailable | Inspect `cmux action describe cloudPauseMachine --json`, account/team access and the explicit machine target. A command being listed does not mean its current context is eligible. |
 

@@ -95,6 +95,7 @@ pub mod model_copies;
 pub mod native;
 pub mod no_panic;
 pub mod offer_mcp;
+pub mod opaque_agent_id;
 pub(crate) mod opencode_ask;
 #[cfg(windows)]
 mod owner_only;
