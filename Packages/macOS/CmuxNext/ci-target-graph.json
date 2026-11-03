@@ -1225,6 +1225,7 @@
         "CmuxNextWakeups"
       ],
       "packages": [
+        "CmuxAgentQuestion",
         "CmuxHomeCore",
         "CmuxHomeRender",
         "CmuxMessagesLab"
@@ -1246,7 +1247,8 @@
       ],
       "packages": [
         "CmuxAgentQuestion",
-        "CmuxHomeCore"
+        "CmuxHomeCore",
+        "CmuxHomeRender"
       ]
     },
     "CmuxNextHomeEngineTests": {

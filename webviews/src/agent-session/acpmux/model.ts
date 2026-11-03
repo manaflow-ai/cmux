@@ -374,6 +374,9 @@ export type AcpmuxRow = {
   background?: AcpmuxBackgroundTurn;
   /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
   inBackground?: string;
+  /// An agent reply to the person's own prompt (conversation/turns.ts answeringPerson): its text
+  /// draws even when it is only punctuation (visibleMessage.ts).
+  answersPerson?: true;
   /// A run of background-task notifications folded under one line (conversation/backgroundRuns.ts):
   /// drawn as a background turn's line, with what it counts and the rows it folds.
   backgroundRun?: AcpmuxBackgroundRun;

@@ -4,6 +4,7 @@ import CmuxHomeRender
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextChiefMemory
 import CmuxNextChiefPetWiring
 import CmuxNextDesign
@@ -30,9 +31,11 @@ final class HomeHostView: NSView {
     private var settingsView: HomeChiefSettingsView { settings.content }
     /// The Chief pet's rows in the popover's Appearance section.
     private let petRows: ChiefPetSettingsRows
-    private(set) var isChief = false { didSet { if isChief != oldValue { watchHeaderPanels() } } }
+    private(set) var isChief = false { didSet { if isChief != oldValue { watchHeaderPanels(); watchNeedsYou() } } }
     /// The header's top-right panel toggles follow their panels (HomeHostView+HeaderPanels.swift).
     var headerPanelsWatch: Task<Void, Never>?
+    /// A Chief's pinned Needs you section follows the Feed's open requests (HomeHostView+NeedsYou.swift).
+    var needsYouWatch: Task<Void, Never>?
     private var engineWatch: Task<Void, Never>?
     /// Each Chief's avatar beside this conversation's group bubbles, as its Home row draws it.
     private var avatarsWatch: Task<Void, Never>?
@@ -70,6 +73,11 @@ final class HomeHostView: NSView {
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id,
                                               diagrams: service.diagrams, openPanel: services.openPanel)
+        let approvals = ChiefApprovalDecider(home: service.chief.home, app: QuitAgents.environment(services),
+                                             work: services.work, environment: ChiefHomeAcpmux.environment)
+        transcript.approvals = approvals
+        let person = PersonInputCheck(sources: services.personInput.sources)
+        transcript.isPersonApprovalEvent = { person.isPerson($0) }
         transcript.composerSpellCheckingEnabled = services.settings?.snapshot.agentPaneComposer.spellChecking ?? false
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
@@ -227,6 +235,7 @@ final class HomeHostView: NSView {
         }
         // Settings > Home: whether attached photos and videos keep their location.
         transcript.keepLocation = { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }
+
         spellCheckingWatch = Task { [weak self, weak services] in
             for await enabled in ObservationStream({ services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false }) {
                 self?.transcript.composerSpellCheckingEnabled = enabled
@@ -384,7 +393,7 @@ final class HomeHostView: NSView {
     // the app's claim registry and cancels its wake on the app's timer (both outlive this view). A guard that
     // returned off main skipped all of it.
     nonisolated deinit {
-        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, firstPage, memoryOfferWatch, chiefIntroWatch] {
+        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, needsYouWatch, firstPage, memoryOfferWatch, chiefIntroWatch] {
             task?.cancel()
         }
         let settings = settings, transcript = transcript

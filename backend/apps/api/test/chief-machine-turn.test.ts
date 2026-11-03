@@ -1,13 +1,52 @@
 import { describe, expect, it, vi } from "vitest"
-import { authorizeMachineHand, machineAuthState, machineHarness, machineLogin, machinePrompt, machineSignInURL, readMachineState, runMachineAgent, type MachineAgentPorts, type MachineState } from "../src/chief-brain/brain-machine.ts"
+import { authorizeMachineHand, machineAuthState, machineHarness, machineLogin, machinePrompt, machineSignInURL, readMachineState, runMachineAgent, wakeDefaultMachine, type MachineAgentPorts, type MachineState } from "../src/chief-brain/brain-machine.ts"
 import type { StoredEvent } from "../src/hand-wire.ts"
 import { env } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
 import type { ChiefBrainDO } from "../src/chief-brain/brain-do.ts"
 import type { Env } from "../src/env.ts"
 import { personalTeamIdFor } from "../src/domains/user.ts"
-import { defaultHandId, type DefaultChiefMachine } from "../src/chief-default-hand.ts"
+import { defaultHandId, type DefaultChiefMachine, type DefaultHandScope } from "../src/chief-default-hand.ts"
 import { writeConfig } from "../src/chief-brain/brain-store.ts"
+import { createdAndBound, frame, person, reply } from "./cloud-bind-support.ts"
+import type { Principal } from "@cmux/ownership"
+
+describe("default machine wake against CloudDO", { timeout: 60_000 }, () => {
+  const carrier = async () => {
+    const x = person()
+    const { machine, install } = await createdAndBound(x)
+    const chief = `agent_machine_wake_${x.user}`
+    const scope: DefaultHandScope = { owner: x.user, chief, workspace: `chief-default-${x.user}`, team: x.team, machine, provider: "fake", connection_machine: machine, install: install.id }
+    const testEnv = env as unknown as Env
+    const user = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(x.user))
+    const fake = {
+      ...testEnv,
+      // The Chief binding is the only fixture. VM installs, authorization, reads and power
+      // admission use the real UserDO and CloudDO, including their different read shapes.
+      USER_DO: { idFromName: (name: string) => name, get: () => ({
+        readOp: async (entity: string, principal: Principal, op: string, params: unknown) => op === "chief.list"
+          ? { ok: true, value: { chiefs: [{ id: chief, owner_user: x.user, archived_at: null, brain_place: null, cloud_machine: scope }] } }
+          : user.readOp(entity, principal, op, params),
+      }) },
+    } as unknown as Env
+    return { x, scope, brain: { doEnv: fake } as ChiefBrainDO }
+  }
+
+  it("continues provisioning when the actual machine read is already running", async () => {
+    const f = await carrier()
+    expect(await f.x.stub.readOp(f.x.team, f.x.p, "cloud.machine.get", { machine: f.scope.connection_machine })).toMatchObject({ ok: true, value: { status: "running" } })
+    await expect(wakeDefaultMachine(f.brain, f.scope)).resolves.toBe(true)
+  })
+
+  it("starts a paused carrier through CloudDO admission and observes it running", async () => {
+    const f = await carrier()
+    expect(reply(await f.x.stub.submit(f.x.team, f.x.p, frame("cloud.machine.pause", { machine: f.scope.connection_machine })))).toMatchObject({ t: "result" })
+    expect(await f.x.stub.readOp(f.x.team, f.x.p, "cloud.machine.get", { machine: f.scope.connection_machine })).toMatchObject({ value: { status: "paused" } })
+    await expect(wakeDefaultMachine(f.brain, f.scope)).resolves.toBe(false)
+    await expect(wakeDefaultMachine(f.brain, f.scope)).resolves.toBe(true)
+    expect(await f.x.stub.fakeControl({})).toMatchObject({ starts: 1, pauses: 1 })
+  })
+})
 
 const fixture = (initial: MachineState | null = null) => {
   let state = initial
