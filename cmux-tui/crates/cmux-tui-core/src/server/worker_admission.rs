@@ -148,6 +148,14 @@ impl Drop for ServerSurfaceBytesPermit {
 }
 
 impl ServerSurfaceOperationAdmission {
+    /// Runs `hold` while this thread holds the admission state lock (test hook: a person's key must not wait for it,
+    /// R-DAEMON-STATE stage S1).
+    #[cfg(test)]
+    pub(super) fn hold_for_test(&self, hold: impl FnOnce()) {
+        let _state = self.state.lock().recover_poison();
+        hold();
+    }
+
     pub(super) fn try_reserve_worker(self: &Arc<Self>) -> Option<ServerSurfaceWorkerPermit> {
         let mut state = self.state.lock().recover_poison();
         if state.workers >= SERVER_SURFACE_WORKER_CAPACITY {
