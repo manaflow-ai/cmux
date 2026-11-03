@@ -203,7 +203,8 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
     );
     let send = &fake.ran[2];
     assert_eq!(&send[..4], &strings(&["cloud", "exec", "--target", "machine:vm-1"]));
-    assert!(send[5].contains("printf '%s' 'What is 2+2?' | cmux-tui acp send --no-wait sess-1 -"));
+    assert!(send[5].contains("printf '%s' 'What is 2+2?' | \"$c\" acp send --no-wait sess-1 -"));
+    assert!(send[5].starts_with(GUEST_PRELUDE));
     assert_eq!(fake.paused, Duration::from_secs(2));
 }
 

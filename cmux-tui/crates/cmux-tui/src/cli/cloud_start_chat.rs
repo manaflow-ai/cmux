@@ -39,8 +39,12 @@ const MAX_TIMEOUT: Duration = Duration::from_secs(4 * 60 * 60);
 const WAIT_SLICE_SECONDS: u64 = 20;
 /// The pause before asking again when the machine's acpmux had not started the turn yet.
 const NOT_STARTED_PAUSE: Duration = Duration::from_secs(2);
-/// The machine's own binary: the guest `cmux` wrapper takes no `acp`.
+/// The machine's own binary: the guest `cmux` wrapper takes no `acp`. `cmux-tui` on `PATH` is a
+/// link to the daemon's own `~/.cmux/bin/cmux-tui` on a NEXT image; the script prefers that one, so
+/// the client is the build the machine's acpmux runs.
 const GUEST_CMUX: &str = "cmux-tui";
+const GUEST_PRELUDE: &str =
+    "c=cmux-tui; [ -x \"$HOME/.cmux/bin/cmux-tui\" ] && c=\"$HOME/.cmux/bin/cmux-tui\"; ";
 
 /// Which machine the chat starts on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -439,8 +443,8 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
 
     // 3. The prompt.
     let send = format!(
-        "echo @@history; {GUEST_CMUX} acp history {sid} --json -n 1 2>&1; echo @@send; \
-         printf '%s' {prompt} | {GUEST_CMUX} acp send --no-wait {sid} - 2>&1; echo \"@@exit $?\"",
+        "{GUEST_PRELUDE}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; echo @@send; \
+         printf '%s' {prompt} | \"$c\" acp send --no-wait {sid} - 2>&1; echo \"@@exit $?\"",
         sid = shell_quote(session),
         prompt = shell_quote(&request.prompt),
     );
@@ -470,9 +474,9 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     // 4. The turn's end and its reply.
     let deadline = runner.now() + request.timeout;
     let poll = format!(
-        "{GUEST_CMUX} acp wait {sid} --timeout {WAIT_SLICE_SECONDS} >/dev/null 2>&1; \
-         echo \"@@wait $?\"; echo @@history; {GUEST_CMUX} acp history {sid} --json -n 1 2>&1; \
-         echo @@last; {GUEST_CMUX} acp last {sid} --json 2>&1",
+        "{GUEST_PRELUDE}\"$c\" acp wait {sid} --timeout {WAIT_SLICE_SECONDS} >/dev/null 2>&1; \
+         echo \"@@wait $?\"; echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
+         echo @@last; \"$c\" acp last {sid} --json 2>&1",
         sid = shell_quote(session),
     );
     loop {
