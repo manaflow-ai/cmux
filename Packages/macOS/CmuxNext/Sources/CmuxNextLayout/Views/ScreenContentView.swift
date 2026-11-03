@@ -6,7 +6,9 @@ import CmuxNextDesign
 final class ScreenContentView: NSView {
     let screenID: ScreenID
     let context: LayoutViewContext
-    private(set) var layout: ScreenLayout
+    private(set) var layout: ScreenLayout { didSet { layoutRevision &+= 1 } }
+    /// Bumped on every layout change: what the tab-drop answers (`DropAnswerMemo`) were worked out for.
+    private(set) var layoutRevision: UInt64 = 0
     /// The layout is one zoomed pane (`LayoutScreen.zoomed`).
     private(set) var zoomed = false
     /// Where the panes a structural change carries showed (view x), set again
@@ -94,6 +96,10 @@ final class ScreenContentView: NSView {
     /// Pane strip clips computed and presentation passes run, cumulative (PaneMotionWorkTests: per frame the clips
     /// are the panes that moved or whose covers changed; `LayoutWorkProbe`), and a structural change's next pass re-places all.
     var stripClipsComputed = 0, presentationPasses = 0, forcesPresentation = false
+    /// Whole-screen geometry computes a tab drop's hit test made (room check and edge preview; HOT PATH AUDIT drag-frame).
+    var dropGeometryComputes = 0
+    /// The room checks and edge previews of this layout, viewport and style: a pointer move inside one zone computes none.
+    var dropAnswers = DropAnswerMemo()
     init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext,
          paneMotionVariant: @escaping () -> PaneMotionVariant = { LayoutTunables.paneMotionVariant.value }) {
         self.screenID = screenID
