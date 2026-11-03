@@ -38,6 +38,8 @@ import sys, zipfile
 with zipfile.ZipFile(sys.argv[1], "w") as z:
     z.writestr("cmux DEV t.app/Contents/Info.plist", "<plist/>")
 ' "$3"
+# As the real client does: a progress line on stderr, the digest on stdout (Python: a closed pipe fails its exit).
+python3 -c 'import sys; print("cmux-ci: progress", file=sys.stderr); print("digest")'
 """
 
 FAKE_DITTO = r"""#!/bin/sh
@@ -244,6 +246,15 @@ class FollowUps(FillBase):
             app = bc.fill("JOB4", "-", 3, "")
         self.assertTrue(app.endswith("cmux DEV old.app"), app)
         self.assertEqual(sorted(p.name for p in cache.parent.iterdir()), ["JOB4"])  # no temporary left
+
+    def test_a_plain_file_at_the_cache_path_is_replaced(self):
+        # An older copy's `touch "$c"` after its folder was removed leaves a plain file where the cache goes.
+        cache = self.t.home / ".cache" / "cmux-journeys" / "builds" / "JOB5"
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text("")
+        done = self.fill(self.sha, self.url, "JOB5")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue((cache / "ok").exists())
 
 
 if __name__ == "__main__":

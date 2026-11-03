@@ -57,6 +57,17 @@ def remove_dead_temporaries(builds):
             shutil.rmtree(os.path.join(builds, name), ignore_errors=True)
 
 
+def clear(cache):
+    """Remove CACHE, a folder or (an older copy's `touch "$c"` after its folder went away) a plain file."""
+    if os.path.isdir(cache) and not os.path.islink(cache):
+        shutil.rmtree(cache, ignore_errors=True)
+    else:
+        try:
+            os.unlink(cache)
+        except OSError:
+            pass
+
+
 def install(temporary, cache):
     """Move the filled TEMPORARY to CACHE. The `ok` marker is written first, inside TEMPORARY, so CACHE appears
     complete or not at all. An older harness copy (no lock) may move its own copy to CACHE at the same moment
@@ -67,7 +78,11 @@ def install(temporary, cache):
         if filled(cache):
             shutil.rmtree(temporary, ignore_errors=True)
             return
-        shutil.rmtree(cache, ignore_errors=True)
+        if app_in(cache):  # an older copy moved its build in and has yet to touch its ok: give it a moment
+            time.sleep(1)
+            if filled(cache):
+                continue
+        clear(cache)
         try:
             os.rename(temporary, cache)
             return
@@ -160,7 +175,13 @@ def fetch_direct(url, zip_path, want):
 
 def fetch_cmux_ci(job, zip_path):
     tool = os.environ.get("JOURNEYS_CMUX_CI") or shutil.which("cmux-ci") or os.path.expanduser("~/.local/bin/cmux-ci")
-    return subprocess.run([tool, "artifact", job, zip_path], stdout=sys.stderr).returncode == 0
+    # Its output goes through say(), never straight to fd 2: when the caller's ssh is gone, a write to that closed pipe
+    # would fail the client's exit (Python ignores SIGPIPE) after a whole good download (review of #33170).
+    proc = subprocess.Popen([tool, "artifact", job, zip_path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            stdin=subprocess.DEVNULL)
+    for line in proc.stdout:
+        say(line.decode(errors="replace").rstrip())
+    return proc.wait() == 0
 
 
 def unpack(zip_path, into):
