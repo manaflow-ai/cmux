@@ -327,6 +327,8 @@ export interface MenuPopupProps {
   matchTrigger?: boolean;
   /** False for a custom layout with its own scrolling columns. */
   scroll?: boolean;
+  /** Pinned below the scrolling rows, outside their edge fade. */
+  footer?: ReactNode;
   children: ReactNode;
 }
 
@@ -352,6 +354,7 @@ export function MenuPopup({
   escapes = true,
   matchTrigger = false,
   scroll = true,
+  footer,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
@@ -449,6 +452,7 @@ export function MenuPopup({
                 ) : (
                   children
                 )}
+                {footer}
               </PopupSurface>
             </PopupBoundary>
           </InPopup>

@@ -1325,6 +1325,22 @@ export function QuickModelMenu({
         </MenuButton>
         <MenuPopup
           scroll={families === undefined}
+          footer={
+            menu.update && (
+              <div className="acpmux-quick-update">
+                <span>{menu.update.text}</span>
+                <MenuItem
+                  className="acpmux-quick-update-action"
+                  onSelect={() => {
+                    menu.update?.run();
+                    onOpenChange(false);
+                  }}
+                >
+                  {t("harness.update")}
+                </MenuItem>
+              </div>
+            )
+          }
           side={side}
           flip={false}
           align="start"
@@ -1437,20 +1453,6 @@ export function QuickModelMenu({
             </div>
           ) : (
             list
-          )}
-          {menu.update && (
-            <div className="acpmux-quick-update">
-              <span>{menu.update.text}</span>
-              <MenuItem
-                className="acpmux-quick-update-action"
-                onSelect={() => {
-                  menu.update?.run();
-                  onOpenChange(false);
-                }}
-              >
-                {t("harness.update")}
-              </MenuItem>
-            </div>
           )}
         </MenuPopup>
       </Menu>
