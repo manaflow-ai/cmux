@@ -13,7 +13,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { usePaneLanguage, useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
 import { liveLineTokens } from "./liveLineTokens.experiment";
-import { Envelope, Spinner, TerminalSquare } from "./icons";
+import { Spinner } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
@@ -157,17 +157,7 @@ export function Thinking({
     );
   return (
     // `cv-worked--live`: its words start on the icon rows' text column (conversation.css).
-    <div
-      className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`}
-      data-find-skip
-    >
-      {/* One icon per kind in the rows' one icon column, so the words start where every row's do:
-          a send's envelope, a command's terminal, and otherwise the working spinner. */}
-      {!waiting && (
-        <span className="cv-worked__icon" aria-hidden="true">
-          {sending ? <Envelope /> : doingShell ? <TerminalSquare /> : <Spinner loading />}
-        </span>
-      )}
+    <div className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}

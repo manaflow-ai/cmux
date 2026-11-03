@@ -48,12 +48,11 @@ test("the count takes the theme's tertiary text token, in tabular numerals, neve
 
 // The coordinator, relaying Leo's capture of "Thinking 7m 34s · ↓ 4.5K out ↑ 1.4M in": the split
 // counts on the live line are "debug noise in the main transcript". It says one count, as Claude
-// Code's does, keeps the split in that count's hover, and draws its icon in the rows' column.
-test("the live line at the bottom says one count, the split on hover, beside its icon", () => {
+// Code's does, and keeps the split in that count's hover.
+test("the live line at the bottom says one count, the split on hover", () => {
   const line = Object.entries(tokenLines).find(([name]) => name.includes("Thinking.tsx"))![1];
   const html = tokenLineMarkup(line, SPLIT);
   expect(html).toContain('<span class="cv-worked__tokens" title="');
   expect(html).toMatch(/cv-worked__tokens" title="[^"]*12\.4K/);
   expect(html.replace(/title="[^"]*"/g, "")).not.toMatch(/↓|↑| in</);
-  expect(html).toContain('<span class="cv-worked__icon" aria-hidden="true">');
 });
