@@ -31,7 +31,8 @@ public final class AgentPaneNewTabActions {
     private let listing: @MainActor () -> PaletteCommandListing
     private let measure: @MainActor (() -> Void) -> Void
     private var running: PaletteCommandListing?
-    private var deliver: (@MainActor (Listed) -> Void)?
+    /// Who waits for the list being read: each one's `wanted` (asked at the first task) and `deliver`.
+    private var waiters: [(wanted: @MainActor () -> Bool, deliver: @MainActor (Listed) -> Void)] = []
     /// The last list read. A read that lists the same rows gives this value again (its array's buffer too), so a page
     /// that shows it compares equal at once and sends nothing, and its JSON is not encoded again.
     public private(set) var last: Listed?
@@ -50,25 +51,28 @@ public final class AgentPaneNewTabActions {
 
     /// Lists the actions in background tasks from the next frame on and gives them to `deliver` once read (their
     /// JSON is encoded off the main thread), when `wanted` still holds at the first task: the key's turn only queues
-    /// it. A call while a list is read joins it: its `wanted` and `deliver` replace the earlier ones.
+    /// it. A call while a list is read joins it: every waiter whose `wanted` held gets the same list (the web pages'
+    /// fill and each native page ask on their own).
     public func list(wanted: @escaping @MainActor () -> Bool, _ deliver: @escaping @MainActor (Listed) -> Void) {
-        (self.wanted, self.deliver) = (wanted, deliver)
+        waiters.append((wanted, deliver))
         encoding &+= 1 // a list being encoded is older than this request
         guard !queued, running == nil else { return }
         queued = true
         queue.enqueue { [weak self] in self?.start() }
     }
 
-    private var wanted: (@MainActor () -> Bool)?
     private var queued = false
+
+    /// A native New Tab page's ask for the actions (``NativeNewTabModel/PaletteActionsRequest``): one waiter of the listing.
+    public var request: NativeNewTabModel.PaletteActionsRequest {
+        { [weak self] wanted, deliver in self?.list(wanted: wanted) { deliver($0.actions) } }
+    }
 
     /// The first task: the palette's context (the focused object) and catalog are read here, not in the key's turn.
     private func start() {
         queued = false
-        guard wanted?() == true else {
-            (deliver, wanted) = (nil, nil)
-            return
-        }
+        waiters.removeAll { !$0.wanted() }
+        guard !waiters.isEmpty else { return }
         measure { running = listing() }
         queue.enqueue { [weak self] in self?.step() }
     }
@@ -105,9 +109,9 @@ public final class AgentPaneNewTabActions {
     }
 
     private func hand(_ listed: Listed) {
-        let deliver = deliver
-        (self.deliver, wanted) = (nil, nil)
-        deliver?(listed)
+        let waiting = waiters
+        waiters.removeAll()
+        for waiter in waiting { waiter.deliver(listed) }
     }
 
     nonisolated static func encode(_ actions: [AgentPaneOmnibar.Action]) -> String {

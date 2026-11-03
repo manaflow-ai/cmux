@@ -266,18 +266,42 @@ pub fn forget(paths: &Paths, batch: &str) -> Result<(), String> {
 /// Returns what it did.
 pub fn undo_local(paths: &Paths, batch: Option<&str>) -> Result<(usize, String), String> {
     let all = runs(paths);
-    let run = match batch {
-        Some(b) => all.iter().rev().find(|r| r.batch == b),
-        None => all.iter().rev().find(|r| r.to == "local"),
+    let batch = match batch {
+        Some(b) => b.to_owned(),
+        None => all
+            .iter()
+            .rev()
+            .find(|r| r.to == "local")
+            .map(|r| r.batch.clone())
+            .ok_or("nothing to undo: no earlier import into this memory")?,
+    };
+    // One UI Import can write several source rows with the same batch. Treat
+    // them as one append: restore the first backup, validate the total tail,
+    // and remove all keys/records together.
+    let grouped: Vec<&Run> = all.iter().filter(|r| r.batch == batch).collect();
+    if grouped.is_empty() {
+        return Err("nothing to undo: no earlier import into this memory".into());
     }
-    .ok_or("nothing to undo: no earlier import into this memory")?
-    .clone();
-    if run.to != "local" {
+    if grouped.iter().any(|r| r.to != "local") {
         return Err(format!(
             "batch {} went to the cloud: undo it with --to cloud",
-            run.batch
+            batch
         ));
     }
+    let run = Run {
+        batch: batch.clone(),
+        to: "local".into(),
+        source: grouped
+            .iter()
+            .map(|r| r.source.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
+        written: grouped.iter().map(|r| r.written).sum(),
+        messages_before: grouped[0].messages_before,
+        backup: grouped[0].backup.clone(),
+        chief: None,
+        keys: grouped.iter().flat_map(|r| r.keys.clone()).collect(),
+    };
     let now = crate::claude_import::existing_messages(&paths.chat, &paths.memory_db)?;
     if now != run.messages_before + run.written as u64 {
         return Err(format!(
@@ -568,6 +592,49 @@ mod tests {
             &local_known(&paths).unwrap(),
         );
         assert_eq!(again.0.new, 1);
+    }
+
+    #[test]
+    fn undo_local_coalesces_sources_with_one_batch() {
+        let dir = temp("undo-batch");
+        let paths = Paths::new(&dir);
+        crate::browse::import(
+            &paths.chat,
+            &paths.memory_db,
+            &[Imported {
+                kind: optchat_core::Kind::Note,
+                text: "mine".into(),
+                date: None,
+            }],
+        )
+        .unwrap();
+        let before =
+            crate::claude_import::existing_messages(&paths.chat, &paths.memory_db).unwrap();
+        for (source, text) in [("codex", "one"), ("grok-bot", "two")] {
+            let fresh = vec![item("note", text, "2026-10-02T00:00:00Z", source)];
+            let (n, backup) = write_local(&paths, &fresh).unwrap();
+            record(
+                &paths,
+                &Run {
+                    batch: "shared".into(),
+                    to: "local".into(),
+                    source: source.into(),
+                    written: n,
+                    messages_before: before + if source == "codex" { 0 } else { 1 },
+                    backup,
+                    chief: None,
+                    keys: fresh.iter().map(|i| i.key.clone()).collect(),
+                },
+            )
+            .unwrap();
+        }
+        let (removed, _) = undo_local(&paths, Some("shared")).unwrap();
+        assert_eq!(removed, 2);
+        assert_eq!(
+            crate::claude_import::existing_messages(&paths.chat, &paths.memory_db).unwrap(),
+            before
+        );
+        assert!(runs(&paths).is_empty());
     }
 
     #[test]

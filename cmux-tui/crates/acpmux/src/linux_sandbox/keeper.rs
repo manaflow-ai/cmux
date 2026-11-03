@@ -572,7 +572,7 @@ async fn session(
     let supervisor = SupervisorHandle::start(notify, policy)?;
     let stop = CancellationToken::new();
     let mut services = JoinSet::new();
-    let policy = net_policy(&options);
+    let policy = net_policy(options);
     start_service(
         &mut services,
         proxy::serve_proxy(listeners.next().ok_or("missing proxy listener")?, policy, stop.clone()),

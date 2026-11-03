@@ -2295,6 +2295,7 @@ jobs:
         run: |
           python3 tests/test_test_reds.py
           python3 tests/test_base_red_excuse.py
+          python3 tests/test_web_coalesce.py
 
       # The cmux NEXT DEV update script (an unchanged build is left alone; an
       # update keeps sessions and reopens the app) and the classic session import.

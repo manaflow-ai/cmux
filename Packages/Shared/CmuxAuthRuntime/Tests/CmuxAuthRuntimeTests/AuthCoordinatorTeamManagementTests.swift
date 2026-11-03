@@ -152,6 +152,32 @@ struct AuthCoordinatorTeamManagementTests {
         #expect(try await coordinator.receivedTeamInvitations().isEmpty)
     }
 
+    /// A team-list read that starts while the accept runs answers without the joined team; it
+    /// must not land over the accept's own re-read and drop the team it joined.
+    @Test func aTeamReadDuringTheAcceptCannotDropTheJoinedTeam() async throws {
+        let (coordinator, client) = try await signedIn(teams: [alpha], selected: "team-a")
+        await client.setReceivedInvitations(["inv-1": beta])
+        let acceptStarted = TestPhaseSignal()
+        let acceptRelease = TestContinuationBlocker()
+        await client.holdNextTeamAccept(started: acceptStarted, release: acceptRelease)
+
+        let accept = Task { try await coordinator.acceptTeamInvitation(id: "inv-1") }
+        await acceptStarted.waitUntilStarted()
+        let listStarted = TestPhaseSignal()
+        let listRelease = TestContinuationBlocker()
+        await client.holdNextTeamList(started: listStarted, release: listRelease)
+        let refresh = Task { await coordinator.refreshTeams() }
+        await listStarted.waitUntilStarted()
+        await acceptRelease.release()
+        let joined = try await accept.value
+        await listRelease.release()
+        await refresh.value
+
+        #expect(joined.teamID == "team-b")
+        #expect(coordinator.availableTeams.map(\.id) == ["team-a", "team-b"])
+        #expect(coordinator.resolvedTeamID == "team-b")
+    }
+
     @Test func decliningLeavesTheMembershipAlone() async throws {
         let (coordinator, client) = try await signedIn(teams: [alpha], selected: "team-a")
         await client.setReceivedInvitations(["inv-1": beta])
@@ -220,6 +246,10 @@ extension FakeAuthClient: TeamManaging {
 
     /// Joins like the server: the user becomes a member and the team the account's selection.
     func acceptTeamInvitation(id: String) async throws -> CMUXTeamJoin {
+        if let gate = takeTeamAcceptGate() {
+            await gate.started.markStarted()
+            await gate.release.wait()
+        }
         guard let team = receivedInvitations.removeValue(forKey: id) else { throw CMUXTeamError.invitationInvalid }
         if !teams.contains(where: { $0.id == team.id }) { teams.append(team) }
         serverSelectedTeamID = team.id
