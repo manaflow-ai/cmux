@@ -15,6 +15,7 @@ import { agentName, agentDisplayName, picksOwnModel } from "./agents";
 import { agentKey } from "../shared/agentKey";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
+import { Spinner } from "./conversation/icons";
 import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, translate, usePaneLanguage, useT } from "./i18n";
@@ -1593,7 +1594,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   onClick={refreshCatalog}
                 >
                   {refreshStatus === "fetching" ? (
-                    <span className="acpmux-mp-refresh-spinner" aria-hidden="true" />
+                    <Spinner size={14} loading />
                   ) : (
                     <Icon name="action.reload" size={14} />
                   )}

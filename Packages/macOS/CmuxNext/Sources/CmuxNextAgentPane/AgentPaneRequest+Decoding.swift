@@ -352,7 +352,7 @@ extension AgentPaneRequest {
         case "chat.attach.choose": self = .chooseAttachments
         case "chat.attach.dropped":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
-               let names = params?["names"] as? [String], (1...AgentPaneDroppedPaths.maximumNames).contains(names.count),
+               let names = params?["names"] as? [String], !names.isEmpty,
                names.allSatisfy(AgentPaneDroppedPaths.isAskedName) {
                 self = .attachDropped(kind, names: names)
             } else {
@@ -360,7 +360,7 @@ extension AgentPaneRequest {
             }
         case "chat.attach.source":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
-               let names = params?["names"] as? [String], (1...AgentPaneDroppedPaths.maximumNames).contains(names.count),
+               let names = params?["names"] as? [String], !names.isEmpty,
                names.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 1024 }) {
                 // The page's `Date.now()` when it took the gesture (ms); absent from an older page.
                 let gestureAt = (params?["gestureAt"] as? NSNumber).map { $0.doubleValue / 1000 }.flatMap { $0.isFinite ? $0 : nil }
@@ -420,6 +420,8 @@ extension AgentPaneRequest {
                 let toggle = params?["mode"] as? String == "toggle"
                 if id == AgentPaneModel.diffAction, let turn = AgentPaneDiffTurn(params: params?["turn"]) {
                     self = .diffTurn(turn, cwd: cwd, toggle: toggle)
+                } else if id == AgentPaneModel.diffAction, let patch = AgentPaneDiffPatch(params: params?["patch"]) {
+                    self = .diffPatch(patch, cwd: cwd, toggle: toggle)
                 } else {
                     self = .paneAction(id, cwd: cwd, toggle: toggle)
                 }

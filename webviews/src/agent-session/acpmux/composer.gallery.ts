@@ -1596,9 +1596,9 @@ export default agentPaneEntry({
       note: "A turn running: Send becomes Stop.",
       snapshot: chat(working, { isWorking: true }),
     },
-    // Leo 2026-10-20: the empty prompt mid-turn teaches its keys, as Claude's composer does.
+    // Leo 2026-11-03: mid-turn the empty prompt keeps Claude desktop's placeholder; Send names the keys.
     "working-hint-steer": {
-      note: "A turn running for an agent that steers: the empty prompt says ↵ steers and ⌘↵ queues.",
+      note: "A turn running for an agent that steers: the empty prompt says Type / for commands; Send's tooltip names ↵ steer and ⌘↵ queue.",
       snapshot: steering(true),
     },
     "working-hint-queue": {
@@ -1635,7 +1635,7 @@ export default agentPaneEntry({
       snapshot: chat(working, { isWorking: true, stopping: true }),
     },
     "working-steer": {
-      note: "A prompt typed while the turn runs: Stop's slot before the mic turns into the one Send (↵ in Claude's look), which puts the prompt into the turn as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn. No second ↵ control (Leo 2026-10-31).",
+      note: "A prompt typed while the turn runs: Stop's slot before the mic turns into the one Send (↵ in Claude's look), which puts the prompt into the turn as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; its tooltip names both keys. No second ↵ control (Leo 2026-10-31).",
       snapshot: steering(true),
       ready: { draft: "Use the new tokenizer instead" },
       play: async (ctx) => {
@@ -1643,7 +1643,7 @@ export default agentPaneEntry({
           const sends = ctx.document.querySelectorAll(".acpmux-composer-actions :is(.acpmux-send, .acpmux-cancel)");
           return (
             sends.length === 1 &&
-            sends[0]!.getAttribute("title") === "Send now; the agent reads it mid-turn (Return)" &&
+            sends[0]!.getAttribute("title") === "↵ steer · ⌘↵ queue" &&
             ctx.document.querySelector(".acpmux-composer-actions > .acpmux-send + .acpmux-fit-mic")
           );
         });
@@ -2838,7 +2838,7 @@ export default agentPaneEntry({
       }),
     },
     "access-menu": {
-      note: "A Claude chat's mode menu is Claude Code's own: Mode, then Auto (Recommended), Manual, Accept edits, Plan and Bypass permissions with their descriptions and keys 1 to 5, tight rows, the accent check on the chosen one. The button is the mode's symbol and its name, no pill at rest.",
+      note: "A Claude chat's mode menu is Claude Code's own: Mode, then Auto (Recommended), Manual, Accept edits, Plan and Bypass permissions with their descriptions and keys 1 to 5, tight rows, the accent check on the chosen one. The button is the mode's symbol and its name, no pill at rest. Manual is hovered with a neutral wash; Bypass keeps only its check.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-access",
@@ -2869,6 +2869,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: '[aria-label="Mode"]' });
         await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+        await ctx.hover({ role: "menuitemradio", name: /Manual/ });
       },
     },
     "access-menu-codex": {

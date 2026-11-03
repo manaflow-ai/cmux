@@ -55,6 +55,11 @@ export function leadEdge(icon: { left: number; width: number }): number {
   return icon.width > GLYPH_SLOT ? icon.left : icon.left + icon.width / 2 - GLYPH_SLOT / 2;
 }
 
+/** The logical start edge of a box: its right edge in a right-to-left row, its left edge otherwise. */
+export function startEdge(rect: { left: number; right: number }, rtl: boolean): number {
+  return rtl ? rect.right : rect.left;
+}
+
 /** Rows whose lead edge is near the shared column but not on it. */
 export function offColumn(rows: { key: string; edge: number }[], rule: string, what: string): Violation[] {
   const column = sharedEdge(rows.map(({ edge }) => edge));
@@ -202,11 +207,6 @@ const MENU = ".ui-popup, [role='menu'], [popover] [role='listbox'], [role='dialo
 const ITEM = ".ui-menu-item, [role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option']";
 const NOT_LABEL = ".ui-menu-check, .ui-menu-shortcut, kbd, [aria-hidden='true']";
 
-/** Labels align at inline-start; proportional RTL text has different physical left edges. */
-export function labelStart(rect: { left: number; right: number }, direction: string): number {
-  return direction === "rtl" ? rect.right : rect.left;
-}
-
 function menuViolations(doc: Document): Violation[] {
   const violations: Violation[] = [];
   const menus = [...doc.querySelectorAll(MENU)].filter(
@@ -222,7 +222,7 @@ function menuViolations(doc: Document): Violation[] {
         items.flatMap((item) => {
           const label = textRects(item, NOT_LABEL)[0];
           return label
-            ? [{ key: `${name} ${labelOf(item)}`, edge: labelStart(label, getComputedStyle(item).direction) }]
+            ? [{ key: `${name} ${labelOf(item)}`, edge: startEdge(label, getComputedStyle(item).direction === "rtl") }]
             : [];
         }),
         "menu-label",
