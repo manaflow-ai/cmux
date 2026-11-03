@@ -4909,6 +4909,16 @@
       "title" : "Program Link Rules",
       "type" : "array"
     },
+    "ui.activityIndicator" : {
+      "default" : "icon",
+      "description" : "How slow background work shows in the window's top row while it runs, such as a cleanup, an update download or an import.",
+      "enum" : [
+        "icon",
+        "labeled"
+      ],
+      "title" : "Activity Indicator",
+      "type" : "string"
+    },
     "ui.animations.bounce" : {
       "default" : "none",
       "description" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",

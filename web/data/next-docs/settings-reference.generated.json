@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 559,
+  "count": 560,
   "sections": [
     {
       "id": "general",
@@ -3948,6 +3948,18 @@
           "values": [
             "workspaces",
             "tabs"
+          ]
+        },
+        {
+          "key": "ui.activityIndicator",
+          "title": "Activity Indicator",
+          "help": "How slow background work shows in the window's top row while it runs, such as a cleanup, an update download or an import.",
+          "kind": "choice",
+          "default": "icon",
+          "group": "Loading Indicator",
+          "values": [
+            "icon",
+            "labeled"
           ]
         },
         {

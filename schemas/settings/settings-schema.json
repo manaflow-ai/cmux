@@ -696,6 +696,7 @@
             "key" : "settings.group.statusIndicator",
             "rows" : [
               "appearance.statusIndicator.style",
+              "ui.activityIndicator",
               "appearance.statusIndicator.animation",
               "appearance.statusIndicator.size",
               "appearance.statusIndicator.thickness",
@@ -5848,7 +5849,7 @@
       "range" : {
         "max" : 320,
         "min" : 16,
-        "placeholder" : 48,
+        "placeholder" : 72,
         "step" : 1,
         "unit" : "points"
       },
@@ -36743,6 +36744,157 @@
       "title" : {
         "key" : "settings.statusIndicator.style",
         "text" : "Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "icon",
+        "labeled"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.activityIcon",
+            "text" : "Icon"
+          },
+          "value" : "icon"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.activityLabeled",
+            "text" : "Icon and Progress"
+          },
+          "value" : "labeled"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "icon",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.statusIndicator",
+        "text" : "Loading Indicator"
+      },
+      "help" : {
+        "key" : "settings.ui.activityIndicator.help",
+        "text" : "How slow background work shows in the window's top row while it runs, such as a cleanup, an update download or an import."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.activityIndicator",
+      "keywords" : [
+        "activity",
+        "jobs",
+        "background",
+        "progress",
+        "cleanup",
+        "busy",
+        "indicator"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "activityIndicator"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:ui.activityIndicator"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.ui.activityIndicator",
+        "text" : "Activity Indicator"
       },
       "validation" : "portable"
     },
