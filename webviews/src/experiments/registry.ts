@@ -30,6 +30,7 @@ import { traySurfaceLook } from "../agent-session/acpmux/subagents/traySurface.e
 import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment";
 import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
+import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
 import type { Experiment } from "./experiment";
 
@@ -66,6 +67,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   chatSwitchMotion,
   liveBackground,
   composerPlusCommands,
+  promptSuggestionLook,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

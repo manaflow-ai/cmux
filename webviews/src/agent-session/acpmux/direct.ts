@@ -320,6 +320,9 @@ const usageSetup = (update: any, used: number): number | undefined => {
 /// The agent's own change of a config option (a reasoning level, a model): the whole option list.
 const CONFIG_KIND = "config_option_update";
 const SESSION_INFO_KIND = "session_info_update";
+/// The agent's guess at the next prompt after a turn (acpmux claude_stdio/prompt_suggestions.rs):
+/// `suggestion` a string, or null to take it back. Never a transcript row.
+const SUGGESTION_KIND = "prompt_suggestion";
 /// The chat's one session start row (conversation/SessionStartNote.tsx).
 const SESSION_START_ROW = "session-start";
 /// A record that opens a turn: older pages split before one, so each holds whole turns. A steer
@@ -1754,6 +1757,13 @@ export class AcpmuxDirectClient {
   /// receipt (`permissionRecord`, permissions/record.ts).
   private askedPermissions = new Map<string, AcpmuxPermission>();
   private commands: SlashCommand[] = [];
+  /// The newest prompt suggestion (`SUGGESTION_KIND`) still valid: unset by a newer clear, prompt
+  /// or turn start. `suggestionSeq` is the newest suggestion record seen (a set or a clear), and
+  /// `suggestionFence` the newest prompt or turn start: a record older than either is history (an
+  /// older page folded in) and changes nothing.
+  private promptSuggestion: { text: string; seq: number } | undefined;
+  private suggestionSeq = 0;
+  private suggestionFence = 0;
   private usage: { used: number; size: number; setup?: number } | undefined;
   /// The running turn's output tokens: its model calls' generated usage added up from
   /// `turn_started`, the running line's count (conversation/WorkingFor.tsx). Unset outside a
@@ -2764,6 +2774,7 @@ export class AcpmuxDirectClient {
     this.limitsSeq = 0;
     this.limitsVersion += 1;
     this.goalSeq = 0;
+    this.forgetSuggestion();
     this.usage = undefined;
     this.turnTokens = undefined;
     this.turnTokenSplit = undefined;
@@ -4919,6 +4930,7 @@ export class AcpmuxDirectClient {
     this.firstSeq = undefined;
     // Found again as the held events are reduced (`reduceEvent`).
     this.nativeSeed = undefined;
+    this.forgetSuggestion();
     this.lastSeq = 0;
     this.turnOpen = false;
     this.runningTurnId = undefined;
@@ -5454,6 +5466,28 @@ export class AcpmuxDirectClient {
     }
   }
 
+  /// A `prompt_suggestion` record: a string is the newest suggestion unless a turn runs (one that
+  /// arrives mid-turn is stale), null takes the shown one back. A record older than the newest
+  /// suggestion record, prompt or turn start (an older page) changes nothing.
+  private heardSuggestion(value: unknown, seq: number): void {
+    if (seq < this.suggestionSeq || seq < this.suggestionFence) return;
+    this.suggestionSeq = seq;
+    const text = typeof value === "string" ? value.trim() : "";
+    this.promptSuggestion = text && !this.turnOpen ? { text, seq } : undefined;
+  }
+
+  /// A prompt or a turn start at `seq`: a suggestion before it is spent.
+  private suggestionFenced(seq: number): void {
+    this.suggestionFence = Math.max(this.suggestionFence, seq);
+    if (this.promptSuggestion && this.promptSuggestion.seq <= seq) this.promptSuggestion = undefined;
+  }
+
+  private forgetSuggestion(): void {
+    this.promptSuggestion = undefined;
+    this.suggestionSeq = 0;
+    this.suggestionFence = 0;
+  }
+
   private reduce(event: EventRecord): void {
     this.rows.current = event.seq;
     try {
@@ -5531,6 +5565,10 @@ export class AcpmuxDirectClient {
           this.summary = { ...this.summary, contextBreakdown: undefined };
         this.usage = setup === undefined ? { used, size } : { used, size, setup };
       }
+      return;
+    }
+    if (update?.sessionUpdate === SUGGESTION_KIND) {
+      this.heardSuggestion(update.suggestion, event.seq ?? 0);
       return;
     }
     if (update?.sessionUpdate === CONFIG_KIND) {
@@ -5688,6 +5726,7 @@ export class AcpmuxDirectClient {
         this.planRow = undefined;
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
         if (msg.steer !== true) {
+          this.suggestionFenced(event.seq ?? 0);
           const openedTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
           this.stopSeesTurnOpen(event, openedTurnId, true);
           this.runningTurnId = openedTurnId;
@@ -5860,6 +5899,7 @@ export class AcpmuxDirectClient {
       } else if (event.kind === "turn_heard") {
         this.silentTurn = false;
       } else if (event.kind === "turn_started") {
+        this.suggestionFenced(event.seq ?? 0);
         const startedTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
         // A prompt opens its turn (user_message); one opening with none open, and naming no turn, is
         // a turn the agent started on its own, never the turn before's.
@@ -6517,6 +6557,10 @@ export class AcpmuxDirectClient {
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
       isWorking: working,
+      // Between turns only, and never while a replay seeks: the composer's ghost text.
+      ...(this.promptSuggestion && !working && this.replayThrough === undefined
+        ? { promptSuggestion: this.promptSuggestion }
+        : {}),
       turnsEnded: this.turnsEnded,
       // A Stop whose turn has not ended yet (`stoppingAfterSeq`).
       ...(working && this.stoppingAfterSeq !== undefined ? { stopping: true as const } : {}),
