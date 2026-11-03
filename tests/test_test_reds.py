@@ -71,6 +71,44 @@ class Replay26346(unittest.TestCase):
         self.assertIn("crashed (signal 6)", json.loads(done.stdout)["reasons"][0])
 
 
+def objc_line(path="Sources/A.swift", line=12, member="viewDidMove", cls="NSView", sel="viewDidMove"):
+    return (f"objc-selectors: {path}:{line}: super.{member} ({cls} call:{sel}/0): probe needed; "
+            "run scripts/cmux-next/check-objc-selectors.py --probe --write on a Mac and commit table.json")
+
+
+class CrashClassRuleLines(unittest.TestCase):
+    # cmux#33113 added an unprobed `super` call; the rule printed this line and the job had no test name to match.
+    def test_the_line_is_a_named_failure_keyed_by_rule_site_and_selector(self):
+        found = reds.read(log(objc_line()))
+        self.assertEqual(found.failed, {"objc-selectors Sources/A.swift:12 super.viewDidMove (NSView call:viewDidMove/0)"})
+        self.assertTrue(reds.is_test_red(found))
+
+    def test_the_same_diagnostic_on_head_and_base_is_a_base_red(self):
+        verdict = reds.classify(log(objc_line()), log(objc_line()))
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(len(verdict.shared), 1)
+
+    def test_error_annotation_prefix_and_timestamp_still_match(self):
+        verdict = reds.classify(log("##[error]" + objc_line()), log(objc_line()))
+        self.assertFalse(verdict.own, verdict.reasons)
+
+    def test_a_different_file_line_or_selector_is_the_heads_own(self):
+        for other in (objc_line(path="Sources/B.swift"), objc_line(line=13),
+                      objc_line(member="mouseDown", sel="mouseDown")):
+            with self.subTest(other=other):
+                verdict = reds.classify(log(other), log(objc_line()))
+                self.assertTrue(verdict.own)
+                self.assertIn("pass or do not run", " ".join(verdict.reasons))
+
+    def test_no_base_log_excuses_nothing(self):
+        self.assertTrue(reds.classify(log(objc_line()), None).own)
+
+    def test_the_cef_contract_rule_is_keyed_by_its_detail(self):
+        line = "cef-objc-contract: NSApp foo:: verdict 'x' (review it: a, b)"
+        self.assertFalse(reds.classify(log(line), log(line)).own)
+        self.assertTrue(reds.classify(log(line), log(line.replace("foo", "bar"))).own)
+
+
 class KnownIssueSuiteCompletion(unittest.TestCase):
     # Reduced from the #27127 comparison: a completed ClassicUpgradeSimulationTests suite
     # was treated as unfinished even though its known-issue test and run summary were read.
@@ -332,6 +370,25 @@ class PerTest(unittest.TestCase):
                   "━ Test a() passed after 9.5 seconds with 1 known issue.",
                   "━ Test run with 1 test in 1 suite passed after 9.5 seconds with 1 known issue.")
         self.assertEqual(reds.read(run).truncated, [])
+
+    def test_a_pass_line_another_stream_cut_into_finished(self):
+        # cmux-next swift test, run 41665450504 shard 14: the runtime's stderr cut into a pass line and the helper was
+        # killed before the rest was written. It passed; the run is still cut short (no summary), never a base red.
+        run = log("◇ Test run started.", "◇ Test aFailureNothingRetriesShowsAtOnce() started.",
+                  "✔ Test aFailureNothingRetriesShowsAtOnceswift runtime: backtrace-on-crash is not supported for "
+                  "privileged executables.")
+        self.assertFalse(any("never finished" in why for why in reds.read(run).truncated))
+        # foo() is not closed by fooBar()'s pass.
+        other = log("◇ Test run started.", "◇ Test foo() started.", "◇ Test fooBar() started.",
+                    "✔ Test fooBar() passed after 0.1 seconds.")
+        self.assertIn("1 test(s) started and never finished: foo", reds.read(other).truncated)
+        # A cut-into pass closes the longest name it fits, once: fooBar(), never foo() as well.
+        both = log("◇ Test run started.", "◇ Test foo() started.", "◇ Test fooBar() started.",
+                   "✔ Test fooBarswift runtime: backtrace-on-crash is not supported for privileged executables.")
+        self.assertIn("1 test(s) started and never finished: foo", reds.read(both).truncated)
+        # A run's own summary does not close a test named run().
+        named_run = log("◇ Test run started.", "◇ Test run() started.", "✔ Test run with 1 test in 1 suite passed after 0.1 seconds.")
+        self.assertIn("1 test(s) started and never finished: run", reds.read(named_run).truncated)
 
     def test_the_bundle_runners_exited_line_is_a_crash_after_a_shared_failure(self):
         crash = log("◇ Test run started.", failed("a()"), "✘ Test a() failed after 0.1 seconds with 1 issue.",

@@ -10,7 +10,7 @@
  */
 import { HttpApiBuilder, HttpServerRequest } from "@effect/platform";
 import { name, type Named } from "@gdp-ts/core";
-import { Clock, Duration, Effect, Option } from "effect";
+import { Clock, Duration, Effect, Either, Option } from "effect";
 import { CmuxVmApi } from "../api.ts";
 import { Acl, AclApplied, Device, DeviceAddress, DeviceEnrollment, DeviceList, DeviceOverlayPolicy, EnrollmentCode, Mesh, MeshList, MeshMember, OverlayPolicy, PeerMap, TunnelConfig } from "../api/mesh.ts";
 import { MembershipCache } from "../auth/membership-cache.ts";
@@ -28,6 +28,7 @@ import {
   NotFound,
   PaymentRequired,
   QuotaExceeded,
+  type ServiceUnavailable,
   unavailable,
   vmNotFound,
 } from "../errors.ts";
@@ -371,10 +372,23 @@ const withSlot = <C, K extends "mesh" | "device", A, E, R, E2, R2>(
     return yield* k(decided.proof).pipe(Effect.ensuring(limits.release(tenantId, decided.proof.reservationId)));
   });
 
-/** How long a mesh writer may hold the lock if it dies without releasing it; longer than the largest apply (500 rules, ~32 s). */
-const MESH_WRITER_LEASE_MS = 5 * 60_000;
-/** How long a change waits for the writer before it answers 409. */
-const MESH_WRITER_WAIT_MS = 15_000;
+export interface MeshWriterTiming {
+  /** How long the lock outlives its holder's last renewal: what a writer that died without unlocking blocks the mesh for. */
+  readonly leaseMs: number;
+  /** How often a live writer renews its lease; well under `leaseMs`, so a slow renewal never lets it lapse. */
+  readonly renewEveryMs: number;
+  /** How long a change waits for the writer before it answers 409. */
+  readonly waitMs: number;
+}
+
+/**
+ * A short lease, renewed while the writer runs. The Workers runtime drops a
+ * request's pending work when its client disconnects (outcome `canceled`), so
+ * neither the unlock nor the next renewal runs: the lock then lapses within
+ * one lease (30 s), not the five minutes a fixed lease had to allow for the
+ * largest apply (500 rules, ~32 s). A live apply of any length keeps renewing.
+ */
+const MESH_WRITER_TIMING: MeshWriterTiming = { leaseMs: 30_000, renewEveryMs: 10_000, waitMs: 15_000 };
 
 /**
  * Runs `effect` as the mesh's only writer of provider rules (DESIGN.md 4.1,
@@ -382,8 +396,15 @@ const MESH_WRITER_WAIT_MS = 15_000;
  * read-compile-apply, so two reconciles (an ACL apply and an enroll, a VM
  * join or a revocation) never plan from different ACL versions or create the
  * same rule twice. A change that cannot get the lock in 15 s is a 409.
+ *
+ * The lease is renewed every `renewEveryMs` while `effect` runs. If a renewal
+ * finds the lock taken by someone else, or no renewal has succeeded for
+ * `leaseMs - renewEveryMs` (so the lease could lapse before the next one),
+ * `effect` is interrupted and the change answers 503: it never keeps writing
+ * once another writer may hold the lock. Reads that fence their own snapshot
+ * (the member and receiver-policy reads) do not take this lock.
  */
-export const withMeshWriter = <A, E, R>(tenantId: Principal["tenantId"], meshId: string, effect: Effect.Effect<A, E, R>) =>
+export const withMeshWriter = <A, E, R>(tenantId: Principal["tenantId"], meshId: string, effect: Effect.Effect<A, E, R>, timing: MeshWriterTiming = MESH_WRITER_TIMING) =>
   Effect.gen(function* () {
     const limits = yield* TenantLimits;
     const holder = crypto.randomUUID();
@@ -391,15 +412,32 @@ export const withMeshWriter = <A, E, R>(tenantId: Principal["tenantId"], meshId:
     const started = yield* Clock.currentTimeMillis;
     let delayMs = 20;
     for (;;) {
-      const taken = yield* limits.lock(tenantId, key, holder, MESH_WRITER_LEASE_MS).pipe(Effect.catchAll(dependencyDown("limits.lock")));
+      const taken = yield* limits.lock(tenantId, key, holder, timing.leaseMs).pipe(Effect.catchAll(dependencyDown("limits.lock")));
       if (taken) break;
-      if ((yield* Clock.currentTimeMillis) - started >= MESH_WRITER_WAIT_MS) {
+      if ((yield* Clock.currentTimeMillis) - started >= timing.waitMs) {
         return yield* Effect.fail(new Conflict({ message: "Another change to this mesh is in progress; retry" }));
       }
       yield* Effect.sleep(Duration.millis(delayMs));
       delayMs = Math.min(delayMs * 2, 400);
     }
-    return yield* effect.pipe(Effect.ensuring(limits.unlock(tenantId, key, holder)));
+    const renewal: Effect.Effect<never, ServiceUnavailable> = Effect.gen(function* () {
+      let renewedAt = yield* Clock.currentTimeMillis;
+      for (;;) {
+        yield* Effect.sleep(Duration.millis(timing.renewEveryMs));
+        const kept = yield* Effect.either(limits.lock(tenantId, key, holder, timing.leaseMs));
+        const at = yield* Clock.currentTimeMillis;
+        if (Either.isRight(kept) && kept.right) {
+          renewedAt = at;
+          continue;
+        }
+        if (Either.isRight(kept) || at - renewedAt >= timing.leaseMs - timing.renewEveryMs) {
+          yield* logEvent("mesh_writer_lease_lost", { meshId, cause: Either.isRight(kept) ? "taken" : "unrenewed" });
+          return yield* Effect.fail(unavailable());
+        }
+      }
+    });
+    // Whichever ends first wins; the effect ending stops the renewals, and a lost lease interrupts the effect.
+    return yield* Effect.raceFirst(effect, renewal).pipe(Effect.ensuring(limits.unlock(tenantId, key, holder)));
   });
 
 /**
@@ -1030,8 +1068,10 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
           if (scope === null) return yield* Effect.fail(missingScope("vm:read"));
           const parsed = parseVmId(path.vmId);
           if (Option.isNone(parsed)) return yield* Effect.fail(vmNotFound());
-          return yield* name(parsed.value, (vm) => withMeshWriter(caller.value.tenantId, mesh.value,
-            readMeshMember(caller, mesh, vm, { ownsMesh: proofs.owns, meshScope: proofs.scope, vmScope: scope })));
+          // No writer lock: the address refresh is a compare-and-set on this exact attachment (a 409 if it changed), and a
+          // reconcile never reads a member's address. A read under the lock queued behind every apply, and a cancelled one leaked it.
+          return yield* name(parsed.value, (vm) =>
+            readMeshMember(caller, mesh, vm, { ownsMesh: proofs.owns, meshScope: proofs.scope, vmScope: scope }));
         }),
       ),
     )
@@ -1041,9 +1081,10 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
         if (scope === null) return yield* Effect.fail(missingScope("vm:read"));
         const parsed = parseVmId(path.vmId);
         if (Option.isNone(parsed)) return yield* Effect.fail(vmNotFound());
+        // No writer lock: readVmReceiverPolicy compiles the mesh's stored state twice around its owner lookups and refuses
+        // (503) unless both snapshots and the ACL match, so it answers only from one consistent committed state.
         return yield* name(parsed.value, (vm) => audited("mesh.vm.receiver_policy", vm.value,
-          withMeshWriter(caller.value.tenantId, mesh.value,
-            readVmReceiverPolicy(caller, mesh, vm, { ownsMesh: proofs.owns, meshScope: proofs.scope, vmScope: scope }))));
+          readVmReceiverPolicy(caller, mesh, vm, { ownsMesh: proofs.owns, meshScope: proofs.scope, vmScope: scope })));
       })),
     )
     .handle("attachMeshVm", ({ path }) =>

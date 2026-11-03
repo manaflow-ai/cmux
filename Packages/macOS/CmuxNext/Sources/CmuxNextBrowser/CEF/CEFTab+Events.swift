@@ -251,9 +251,9 @@ extension CEFTab {
     /// Runs a DevTools protocol method on this tab in process (an app page's script batches and replies,
     /// diagnostics, trusted-input tests). Returns the method's JSON result. Large parameters are encoded off the
     /// main actor, in this tab's call order.
-    public func devTools(method: String, params: [String: any Sendable]) async throws -> String {
+    public func devTools(method: String, params: [String: any Sendable], timeout: Duration = .seconds(5)) async throws -> String {
         guard let browserID, !isClosed else { throw BrowserTabError.closed }
-        return try await runtime.devTools(browserID, method: method, payload: params)
+        return try await runtime.devTools(browserID, method: method, payload: params, timeout: timeout)
     }
 
     // MARK: Find

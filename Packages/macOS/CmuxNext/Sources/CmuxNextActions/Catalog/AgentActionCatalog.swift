@@ -598,7 +598,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // import-from` is the CLI). `chief` names a Cloud Chief to import into; `source` skips the question.
             ActionDescriptor(
                 id: "chief.importMemories",
-                title: String(localized: "action.chief.importMemories", defaultValue: "Import Memories…", bundle: .module),
+                title: String(localized: "action.chief.importMemories", defaultValue: "Bring Your History", bundle: .module),
                 keywords: ["chief", "memory", "memories", "import", "claude", "claude code", "codex", "chatgpt", "openai", "bring", "migrate", "onboard"],
                 category: .agents, symbol: "square.and.arrow.down", surfaces: [.palette],
                 arguments: [
