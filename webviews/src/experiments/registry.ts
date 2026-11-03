@@ -16,8 +16,10 @@ import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutte
 import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.experiment";
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
 import { threadMinimapWave } from "../agent-session/acpmux/threadMinimap/wave.experiment";
+import { threadMinimapIncoming } from "../agent-session/acpmux/threadMinimap/incoming.experiment";
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
+import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
@@ -30,6 +32,7 @@ import { traySurfaceLook } from "../agent-session/acpmux/subagents/traySurface.e
 import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment";
 import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
+import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -39,6 +42,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   chiefDock,
   hoverActions,
   startedSessionCards,
+  fileKindIcon,
+  finishedTaskLook,
   threadMinimapLayout,
   threadMinimapHeight,
   threadMinimapGutter,
@@ -47,6 +52,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapLit,
   threadMinimapMark,
   threadMinimapWave,
+  threadMinimapIncoming,
   chatMinimapPlaceholder,
   turnErrorCard,
   pausedMachineResume,

@@ -15,6 +15,9 @@
     },
     "v16": {
       "reviewer": "hq cloud-api-promote lane 2026-10-19 (new_sqlite_classes HandDO; additive; sandbox hands and Mac hands stay closed in production (no HAND_SANDBOX_SNAPSHOT, no HANDS_MAC_ENABLED); with CHIEF_BRAIN_ENABLED=1 the pairing routes /hand/install.sh, /v1/hands/pair and /v1/hands/pair-codes answer signed-in users, inert without those)"
+    },
+    "v20": {
+      "reviewer": "cloud-clouddo lane 2026-11-03 (new_sqlite_classes TrajectoryDO from #25682; additive, no rename, delete or transfer; inert in production: CLOUD_TRAJECTORIES_ENABLED is set only in development, so cloud-trajectory.ts answers 404 cloud.trajectory.disabled and nothing instantiates the class)"
     }
   },
   "guarded_vars": {

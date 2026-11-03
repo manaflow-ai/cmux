@@ -39,7 +39,7 @@ mod update_notice;
 
 pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
-pub(crate) use app_control::{AppControlMessages, VersionLabels};
+pub(crate) use app_control::{AppControlMessages, NightlyMessages, VersionLabels};
 pub(crate) use attach::AttachMessages;
 pub(crate) use auth_token::AuthTokenMessages;
 pub(crate) use automation::AutomationMessages;

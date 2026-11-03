@@ -14,7 +14,9 @@
 //!    never lands on a machine another workspace uses (leo-workspace `design/cloud.md`, "One
 //!    workspace per small machine").
 //! 3. `cloud exec` on that machine: hands the prompt to the chat's session in the machine's own
-//!    acpmux (`cmux-tui acp send --no-wait`), which the chat's tab shows like any send.
+//!    acpmux (`cmux-tui acp send --no-wait`), which the chat's tab shows like any send. A prompt
+//!    of any length works: one too long to go in one command goes to a file on the machine first,
+//!    in pieces, and the send reads it from there ([`upload_prompt`]).
 //! 4. With `--wait`, `cloud exec` again until the turn ends (`cmux-tui acp wait`, under the
 //!    exec's own 25 s limit each time), then the turn's last reply (`cmux-tui acp last`).
 //!
@@ -46,6 +48,17 @@ const GUEST_CMUX: &str = "cmux-tui";
 /// (`~/.acpmux/acpmux.sock`).
 const GUEST_PRELUDE: &str = "export HOME=\"${HOME:-/home/cmux}\"; c=cmux-tui; \
     [ -x \"$HOME/.cmux/bin/cmux-tui\" ] && c=\"$HOME/.cmux/bin/cmux-tui\"; ";
+
+/// The most of a prompt that goes inside the send's own command, quoted. Longer prompts go to a
+/// file on the machine first. The cmux API takes a command of at most 64 KiB, and this one has
+/// the script around it.
+const INLINE_PROMPT_BYTES: usize = 60 * 1024;
+/// One upload piece of a long prompt, as raw bytes; it travels as base64, a third larger. Its
+/// `cloud exec` stays well inside this Mac's room for a child's arguments (1 MiB).
+const PROMPT_PIECE_BYTES: usize = 384 * 1024;
+/// The piece once a route refuses the large one as too long a command (a cmux API that takes
+/// at most 64 KiB per command): its base64 and the script around it fit there.
+const SMALL_PROMPT_PIECE_BYTES: usize = 45 * 1024;
 
 /// This command's flags that take the next word as their value.
 const TAKES_VALUE: &[&str] =
@@ -468,16 +481,49 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         "follow_up": follow_ups(machine_id, session),
     });
 
-    // 3. The prompt.
-    let send = format!(
-        "{GUEST_PRELUDE}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; echo @@send; \
-         printf '%s' {prompt} | \"$c\" acp send --no-wait {sid} - 2>&1; echo \"@@exit $?\"",
-        sid = shell_quote(session),
-        prompt = shell_quote(&request.prompt),
-    );
+    // 3. The prompt: inside the command when it fits there, else from a file on the machine.
+    let quoted = shell_quote(&request.prompt);
+    // The uploaded prompt's file words, when the prompt went to a file.
+    let mut uploaded = None;
+    let send = if quoted.len() <= INLINE_PROMPT_BYTES {
+        format!(
+            "{GUEST_PRELUDE}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; echo @@send; \
+             printf '%s' {quoted} | \"$c\" acp send --no-wait {sid} - 2>&1; echo \"@@exit $?\"",
+            sid = shell_quote(session),
+        )
+    } else {
+        let file = match upload_prompt(runner, machine_id, session, request.prompt.as_bytes()) {
+            Ok(file) => file,
+            Err(error) => {
+                return failed(
+                    "chat.send_failed",
+                    format!(
+                        "the chat started, but the prompt did not reach its machine: {}",
+                        at(&error, "message").as_str().unwrap_or("cloud exec failed")
+                    ),
+                    json!({"answer": answer, "app": error}),
+                    1,
+                );
+            }
+        };
+        uploaded = Some(file.clone());
+        format!(
+            "{GUEST_PRELUDE}{file}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
+             echo @@send; \"$c\" acp send --no-wait {sid} - < \"$f\" 2>&1; echo \"@@exit $?\"; \
+             rm -f \"$f\"",
+            sid = shell_quote(session),
+        )
+    };
     let sent = match exec(runner, machine_id, &send) {
         Ok(stdout) => stdout,
-        Err(error) => return sent_failure(error, answer),
+        Err(error) => {
+            // Refused before it started: the uploaded prompt does not stay on the machine. Any other
+            // failure (no answer) may be a send still reading the file, so the file stays.
+            if let Some(file) = uploaded.as_ref().filter(|_| refused_before_start(&error)) {
+                let _ = exec(runner, machine_id, &format!("{GUEST_PRELUDE}{file}rm -f \"$f\""));
+            }
+            return sent_failure(error, answer);
+        }
     };
     let reported = sections(&sent);
     let baseline = last_turn(reported.get("history")).map_or(0, |turn| turn.seq);
@@ -613,6 +659,88 @@ fn exec(runner: &mut dyn Runner, machine: &str, script: &str) -> Result<String, 
     ];
     let result = step_result(&runner.cmux(&args))?;
     Ok(at(&result, "stdout").as_str().unwrap_or_default().to_owned())
+}
+
+/// The shell words that set `f` to the prompt file `name` on the machine (after
+/// [`GUEST_PRELUDE`], which sets `HOME`): `f=...; `.
+fn prompt_file(name: &str) -> String {
+    let name: String = name
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() || "-_.".contains(ch) { ch } else { '_' })
+        .collect();
+    format!("f=\"$HOME/.cmux/prompts/\"{}; ", shell_quote(&format!("{name}.prompt")))
+}
+
+/// Whether a `cloud exec` was refused before its command started: the machine busy, stopped or
+/// gone, the caller not allowed, or the command too long.
+fn refused_before_start(error: &Value) -> bool {
+    let code = at(error, "code").as_str().unwrap_or_default();
+    matches!(code, "vm_busy" | "vm_not_running" | "vm_not_found" | "vm_forbidden")
+        || command_too_long(error)
+}
+
+/// Whether a refused `cloud exec` was refused for its command's length (nothing of it ran).
+fn command_too_long(error: &Value) -> bool {
+    let code = at(error, "code").as_str().unwrap_or_default().to_lowercase();
+    let message = at(error, "message").as_str().unwrap_or_default().to_lowercase();
+    code.contains("too_large")
+        || code.contains("too_long")
+        || message.contains("too large")
+        || message.contains("too long")
+        || message.contains("command is over")
+        || message.contains("413")
+}
+
+/// Writes `prompt` to the session's prompt file on the machine (0600, in the work user's
+/// `~/.cmux/prompts`, a file of this upload's own), one `cloud exec` per piece, each piece's base64 decoded there and
+/// appended. There is no limit on the prompt: a route that refuses a large piece as too long a
+/// command gets small ones, as many as it takes. Answers the [`prompt_file`] words for the send.
+pub(super) fn upload_prompt(
+    runner: &mut dyn Runner,
+    machine: &str,
+    session: &str,
+    prompt: &[u8],
+) -> Result<String, Value> {
+    use base64::Engine as _;
+    // A file of this upload's own: two starts can share a session id, and neither may send the other's text.
+    let file = prompt_file(&format!("{session}-{}", uuid::Uuid::new_v4().simple()));
+    let mut piece = PROMPT_PIECE_BYTES;
+    let mut sent = 0;
+    while sent < prompt.len() {
+        let end = sent.saturating_add(piece).min(prompt.len());
+        let chunk = prompt.get(sent..end).unwrap_or_default();
+        let encoded = base64::engine::general_purpose::STANDARD.encode(chunk);
+        // The first piece starts the file over: a retry of this run's upload never appends twice.
+        let start = if sent == 0 { ": > \"$f\" && " } else { "" };
+        let script = format!(
+            "{GUEST_PRELUDE}umask 077; mkdir -p \"$HOME/.cmux/prompts\" && {file}{start}\
+             printf '%s' '{encoded}' | base64 -d >> \"$f\" && echo \"@@size $(wc -c < \"$f\")\""
+        );
+        let stdout = match exec(runner, machine, &script) {
+            Ok(stdout) => stdout,
+            Err(error) if command_too_long(&error) && piece > SMALL_PROMPT_PIECE_BYTES => {
+                piece = SMALL_PROMPT_PIECE_BYTES;
+                continue;
+            }
+            Err(error) => {
+                let _ = exec(runner, machine, &format!("{GUEST_PRELUDE}{file}rm -f \"$f\""));
+                return Err(error);
+            }
+        };
+        let size = sections(&stdout).get("size").and_then(|size| size.trim().parse::<usize>().ok());
+        if size != Some(end) {
+            let _ = exec(runner, machine, &format!("{GUEST_PRELUDE}{file}rm -f \"$f\""));
+            return Err(json!({
+                "code": "chat.upload_failed",
+                "message": format!(
+                    "the prompt file on the machine holds {} bytes after {end} were sent",
+                    size.map_or_else(|| "an unknown number of".to_owned(), |size| size.to_string())
+                ),
+            }));
+        }
+        sent = end;
+    }
+    Ok(file)
 }
 
 /// A failure of a step before the chat existed.
