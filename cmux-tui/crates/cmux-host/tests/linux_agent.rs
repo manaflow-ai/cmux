@@ -511,3 +511,10 @@ fn receiver_root_privileged_host_run_activates_native_bootstrap() {
     }
     println!("ROOT_BOUNDARY_EXECUTED native_host_run_activation");
 }
+
+/// `cloud clone-mark` writes acpmux's marker where acpmux reads it: `clone-boot` in the work
+/// user's `~/.acpmux` (#33140). The path comes from `role::acpmux_home`, not a literal root.
+#[test]
+fn clone_mark_writes_in_the_work_users_acpmux_home() {
+    assert_eq!(cmux_host::cloud::clone_mark::marker(), "/home/cmux/.acpmux/clone-boot");
+}

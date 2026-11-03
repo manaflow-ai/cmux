@@ -39,8 +39,13 @@ CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"downloads-{opts.tag}-")
 CONFIG = os.path.join(SCRATCH, "cmux.json")
+# The app's downloads folder (CMUX_NEXT_DOWNLOADS_DIR, Debug builds), never the account's ~/Downloads: macOS asks
+# for access to that one in a prompt that covers a fleet Mac's screen.
+DOWNLOADS = os.path.join(SCRATCH, "downloads")
+os.makedirs(DOWNLOADS)
 BASE_ENV = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_NEXT_DOWNLOADS_DIR": DOWNLOADS}
 CLI_ENV = {**BASE_ENV, "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
 failures = []
 RUN = os.urandom(4).hex()

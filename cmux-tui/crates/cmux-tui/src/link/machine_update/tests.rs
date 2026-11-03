@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use super::{AfterLostStart, Request, lost_start_began, machine_is_older, parse};
+use serde_json::json;
+
+use super::{AfterLostStart, Request, ended, lost_start_began, machine_is_older, parse};
 
 fn args(line: &str) -> Vec<String> {
     line.split_whitespace().map(str::to_owned).collect()
@@ -77,4 +79,20 @@ fn a_lost_start_whose_daemon_came_back_on_another_pid_began() {
 #[test]
 fn a_lost_start_on_the_same_daemon_with_nothing_changed_is_started_again() {
     assert!(!seen(Some(Some(OLD_PID)), false, true));
+}
+
+fn code(state: &str) -> Result<String, &'static str> {
+    ended(&json!({"state": state, "detail": "why"}), "own").map_err(|failed| failed.code)
+}
+
+#[test]
+fn a_daemon_on_someone_elses_build_is_its_own_quiet_code_not_a_failure() {
+    // Leo, 2026-11-02, on "Couldn't update leo-cloud: the daemon does not run
+    // the installed binary": "WHY WOULD THIS STILL HAPPEN".
+    assert_eq!(code("foreign"), Err("machine_update_foreign_daemon"));
+    assert_eq!(code("busy"), Err("machine_update_busy"));
+    assert_eq!(code("pending"), Err("machine_update_pending"));
+    assert_eq!(code("rolled_back"), Err("machine_update_rolled_back"));
+    assert_eq!(code("updated"), Ok("own".to_owned()));
+    assert_eq!(code("failed"), Err("machine_update_failed"));
 }

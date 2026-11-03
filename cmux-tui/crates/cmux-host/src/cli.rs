@@ -434,18 +434,19 @@ fn cloud_verb(args: &[String]) -> u8 {
 #[cfg(target_os = "linux")]
 fn clone_mark(paths: &Paths) -> Result<serde_json::Value, String> {
     use crate::cloud::client::Store;
-    use crate::cloud::clone_mark::{MARKER, copied, marker_text};
+    use crate::cloud::clone_mark::{copied, marker, marker_text};
     let mut store = crate::cloud::role::FileStore::new(paths.clone());
     let Some(copied) = copied(&store) else { return Ok(serde_json::json!({"marked": false})) };
     let user = crate::linux::spawn::lookup_user(crate::daemon_spec::WORK_USER)
         .ok_or("no work user on this machine")?;
-    let path = paths.at(MARKER);
+    let marker = marker();
+    let path = paths.at(&marker);
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         std::os::unix::fs::lchown(dir, Some(user.uid), Some(user.gid))
             .map_err(|e| format!("{}: {e}", dir.display()))?;
     }
-    store.write(MARKER, &marker_text(&copied), 0o600)?;
+    store.write(&marker, &marker_text(&copied), 0o600)?;
     std::os::unix::fs::lchown(&path, Some(user.uid), Some(user.gid))
         .map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(serde_json::json!({"marked": true, "from": copied.from, "to": copied.to}))

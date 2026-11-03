@@ -525,6 +525,11 @@ jobs:
           # Keep jsdom and browser workers below the 16-vCPU saturation point. The Session Info
           # test set grew enough that twelve plain workers starved each other and timed out.
           CMUX_WEB_TEST_JOBS: "8"
+          # The dev-server files run after the plain and browser pools, so the cap above never
+          # needed to narrow them: they ran 4 at a time on 16 vCPU before it, and its jobs / 4
+          # took them to 2, which doubled the phase that is most of a shard's wall time. The
+          # shard split reads these widths (run-webviews-tests.sh), so it balances on them.
+          CMUX_WEB_TEST_DEV_JOBS: "4"
         run: |
           # Replay uses this exact runner and result parser, with the base's tests and bun.
           # Different deadline policies can otherwise turn an old named failure into a new timeout.
