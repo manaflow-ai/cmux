@@ -120,7 +120,9 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, args: &Value) -> V
     };
     let (text, mut structured) = pr_state(&pr);
     if let Some(d) = arg(args, "description") {
-        structured["description"] = json!(d);
+        if let Some(obj) = structured.as_object_mut() {
+            obj.insert("description".to_owned(), json!(d));
+        }
     }
     ok(text, structured)
 }
@@ -135,7 +137,7 @@ async fn chat_cwd(daemon: &Arc<Client>, session: &str) -> Option<PathBuf> {
         .request(method::MUX_INFO, json!({"sessionId": session, "waitLogs": false}))
         .await
         .ok()?;
-    info["cwd"].as_str().map(PathBuf::from).filter(|p| p.is_dir())
+    text(&info, "cwd").map(PathBuf::from).filter(|p| p.is_dir())
 }
 
 async fn run_gh(args: &[String], cwd: Option<PathBuf>) -> Result<Vec<u8>, String> {
@@ -165,6 +167,19 @@ async fn run_gh(args: &[String], cwd: Option<PathBuf>) -> Result<Vec<u8>, String
     let tail: String = stderr.chars().skip(skip).collect();
     let code = out.status.code().map_or("a signal".to_owned(), |c| format!("exit {c}"));
     Err(format!("gh pr view failed ({code}): {tail}"))
+}
+
+/// `v[k]` without the indexing lint: Null when absent.
+fn field<'a>(v: &'a Value, k: &str) -> &'a Value {
+    v.get(k).unwrap_or(&Value::Null)
+}
+
+fn text<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
+    v.get(k).and_then(Value::as_str)
+}
+
+fn text_or_empty<'a>(v: &'a Value, k: &str) -> &'a str {
+    text(v, k).unwrap_or_default()
 }
 
 fn short(sha: &str) -> &str {
@@ -200,9 +215,8 @@ pub(super) fn receipt(line: &str) -> Option<Receipt> {
 /// The newest comment's last receipt line, with the comment's author.
 fn newest_receipt(comments: &[Value]) -> Option<(Receipt, String)> {
     comments.iter().rev().find_map(|c| {
-        let found =
-            c["body"].as_str().unwrap_or_default().lines().filter_map(receipt).next_back()?;
-        Some((found, c["author"]["login"].as_str().unwrap_or_default().to_owned()))
+        let found = text_or_empty(c, "body").lines().filter_map(receipt).next_back()?;
+        Some((found, text_or_empty(field(c, "author"), "login").to_owned()))
     })
 }
 
@@ -210,9 +224,9 @@ fn newest_receipt(comments: &[Value]) -> Option<(Receipt, String)> {
 fn checks(rollup: &[Value]) -> (Vec<String>, usize, usize) {
     let (mut failing, mut pending, mut passed): (Vec<String>, usize, usize) = (Vec::new(), 0, 0);
     for c in rollup {
-        let name = c["name"].as_str().or(c["context"].as_str()).unwrap_or("?").to_owned();
-        let up = |k: &str| c[k].as_str().unwrap_or_default().to_ascii_uppercase();
-        if c["__typename"].as_str() == Some("StatusContext") || c.get("context").is_some() {
+        let name = text(c, "name").or(text(c, "context")).unwrap_or("?").to_owned();
+        let up = |k: &str| text_or_empty(c, k).to_ascii_uppercase();
+        if text(c, "__typename") == Some("StatusContext") || c.get("context").is_some() {
             match up("state").as_str() {
                 "FAILURE" | "ERROR" => failing.push(name),
                 "PENDING" | "EXPECTED" | "" => pending = pending.saturating_add(1),
@@ -238,16 +252,14 @@ fn checks(rollup: &[Value]) -> (Vec<String>, usize, usize) {
 
 /// HOLD lines of the body and hold labels.
 fn holds(pr: &Value) -> Vec<String> {
-    let mut found: Vec<String> = pr["body"]
-        .as_str()
-        .unwrap_or_default()
+    let mut found: Vec<String> = text_or_empty(pr, "body")
         .lines()
         .map(str::trim)
         .filter(|l| l.starts_with("HOLD:"))
         .map(str::to_owned)
         .collect();
-    for label in pr["labels"].as_array().into_iter().flatten() {
-        let name = label["name"].as_str().unwrap_or_default();
+    for label in field(pr, "labels").as_array().into_iter().flatten() {
+        let name = text_or_empty(label, "name");
         if name.split(|c: char| !c.is_ascii_alphanumeric()).any(|w| w.eq_ignore_ascii_case("hold"))
         {
             found.push(format!("label {name}"));
@@ -263,18 +275,18 @@ fn plural(n: usize, one: &str) -> String {
 /// The result of `pr_state` for `gh pr view --json` output: the text (outcome line first) and
 /// the `structuredContent`.
 pub(super) fn pr_state(pr: &Value) -> (String, Value) {
-    let s = |k: &str| pr[k].as_str().unwrap_or_default();
-    let number = pr["number"].as_u64().unwrap_or(0);
+    let s = |k: &str| text_or_empty(pr, k);
+    let number = field(pr, "number").as_u64().unwrap_or(0);
     let head = s("headRefOid").to_lowercase();
     let state = s("state").to_ascii_uppercase();
     let repo = parse_url(s("url")).map(|(r, _)| r);
-    let rollup = pr["statusCheckRollup"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let rollup = field(pr, "statusCheckRollup").as_array().map(Vec::as_slice).unwrap_or_default();
     let (failing, pending, passed) = checks(rollup);
-    let comments = pr["comments"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let comments = field(pr, "comments").as_array().map(Vec::as_slice).unwrap_or_default();
     let review = newest_receipt(comments);
     let at_head = |r: &Receipt| !head.is_empty() && head.starts_with(&r.sha);
     let holds = holds(pr);
-    let merge_commit = pr["mergeCommit"]["oid"].as_str().unwrap_or_default();
+    let merge_commit = text_or_empty(field(pr, "mergeCommit"), "oid");
     let mergeable = match s("mergeable").to_ascii_uppercase().as_str() {
         "MERGEABLE" => "mergeable",
         "CONFLICTING" => "conflicts",
