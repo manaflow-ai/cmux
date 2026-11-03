@@ -526,9 +526,9 @@
 {"file":"pages/artifacts/styles.css","kind":"easing","property":"transition","values":{"transform var(--cmux-motion-micro) ease-out":1}}
 {"file":"pages/changelog/styles.css","kind":"duration","property":"transition","values":{"transform 120ms ease":2}}
 {"file":"pages/changelog/styles.css","kind":"font-weight","property":"font-weight","values":{"500":2,"700":1}}
-{"file":"pages/changelog/styles.css","kind":"height","property":"height","values":{"26px":1,"1px":1,"6px":1,"96px":1,"5px":1}}
-{"file":"pages/changelog/styles.css","kind":"radius","property":"border-radius","values":{"10px":2,"7px":1,"3px":3,"5px":1}}
-{"file":"pages/changelog/styles.css","kind":"spacing","property":"gap","values":{"10px":6,"6px":6,"14px":1}}
+{"file":"pages/changelog/styles.css","kind":"height","property":"height","values":{"1px":1,"6px":1,"96px":1,"5px":1}}
+{"file":"pages/changelog/styles.css","kind":"radius","property":"border-radius","values":{"10px":2,"3px":3,"5px":1}}
+{"file":"pages/changelog/styles.css","kind":"spacing","property":"gap","values":{"10px":6,"6px":6}}
 {"file":"pages/changelog/styles.css","kind":"spacing","property":"margin","values":{"6px 0 8px":1,"16px 0 14px":1,"6px 0 0":1,"14px 0 2px":1,"2px 0 0":2,"0 0 10px":1,"0 0 2px":1,"6px 0 4px":1}}
 {"file":"pages/changelog/styles.css","kind":"spacing","property":"margin-bottom","values":{"18px":1,"10px":1}}
 {"file":"pages/changelog/styles.css","kind":"spacing","property":"margin-top","values":{"22px":1,"18px":2,"10px":1,"2px":3,"6px":1,"14px":1,"3px":1}}

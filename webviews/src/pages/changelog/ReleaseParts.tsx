@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton } from "../../ui/DialogButton";
+import { Button } from "../../ui/Button";
 import type { Strings } from "../shared/i18n";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { byArea } from "./areas";
@@ -147,9 +148,9 @@ export function ItemActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContex
   return (
     <div className="cl-actions">
       {item.action && (
-        <button type="button" className="cl-button" onClick={() => ctx.onTry(item.action!.id)}>
+        <Button size="sm" variant="subtle" className="cl-action-button" onClick={() => ctx.onTry(item.action!.id)}>
           {item.action.title || ctx.strings.t("changelog.page.tryIt")}
-        </button>
+        </Button>
       )}
       {item.docs && (
         <a
