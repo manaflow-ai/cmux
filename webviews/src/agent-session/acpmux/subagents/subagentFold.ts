@@ -1045,6 +1045,9 @@ export class SubagentFold {
       agent.action = action;
       delete agent.actionShell;
     }
+    // acpmux names a Claude agent's agentId (what SendMessage reaches and resumes it by) on its
+    // records too, not only in its Agent call's result (cmux-tui acpmux subagents.rs).
+    agent.agentId = text(change.agentId) ?? agent.agentId;
     agent.tokens = count(change.tokens) ?? agent.tokens;
     agent.toolUses = count(change.toolUses) ?? agent.toolUses;
     // Optional orchestration fields may be removed explicitly when a resumed harness no longer

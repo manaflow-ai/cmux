@@ -1,7 +1,10 @@
 // l10n-allow-file: test fixture prompts, replies and subagent names, not shipped UI.
 // A subagent's own pane (a tab on the chat's session that opens on `subagent:<id>`,
-// subagents/subagentPanes.ts) shows the subagent, read only. It never draws the chat's composer,
-// queue or pull request bars: they are the chat's, and a prompt typed there went to the chat.
+// subagents/subagentPanes.ts) shows the subagent with a composer of its own (Leo 2026-11-03:
+// "currently it says "read only" on the subagents in cmux-next. we should improve that"). It never
+// draws the chat's composer, queue or pull request bars: they are the chat's. What is typed in the
+// subagent's composer goes to the chat as a SendMessage relay naming the subagent's agentId
+// (subagents/subagentMessage.ts), since a Claude subagent has no acpmux session of its own.
 // Leo 2026-10-20: a reviewer's pane showed the chat's queued "this is a bit spammy" and its #663
 // bar. The chat's own pane keeps all of them. The page is the pane's dev entry with its browser
 // host, talking JSON-RPC to a stand-in acpmux daemon; the app's `subagent:` reveal is the page
@@ -67,7 +70,18 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
       "subagent_spawned",
       update(
         { sessionUpdate: "subagent_spawned" },
-        { subagents: [{ id: "a1", parent: null, name: "Reviewer", state: "running", startedAt: START + 4000 }] },
+        {
+          subagents: [
+            {
+              id: "a1",
+              parent: null,
+              name: "Reviewer",
+              state: "running",
+              startedAt: START + 4000,
+              agentId: "a39e817af38ddf5e7",
+            },
+          ],
+        },
       ),
     ],
     [
@@ -124,13 +138,20 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     await page.getByText("The reviewer is on it.").waitFor({ timeout: 25_000 });
     return page;
   };
-  /// What the pane's bottom shows: the chat's composer, its queued prompt and its pull request bar.
+  /// What the pane's bottom shows: the chat's composer, its queued prompt and its pull request bar,
+  /// and a subagent's own composer: its placeholder and the line naming the chat that passes it on.
   const bottom = (page: Page) =>
     page.evaluate(() => ({
-      composer: document.querySelectorAll(".acpmux-composer").length,
+      composer: document.querySelectorAll(".acpmux-composer:not(.acpmux-subagent-composer)").length,
       queued: [...document.querySelectorAll(".acpmux-queued")].map((row) => row.textContent ?? ""),
-      readOnly: document.querySelector(".cv-subagent-pane-footer")?.textContent?.trim() ?? "",
+      subagent: document.querySelectorAll(".acpmux-subagent-composer").length,
+      placeholder:
+        document.querySelector(".acpmux-subagent-composer [aria-label]")?.getAttribute("aria-label")?.trim() ?? "",
+      via: document.querySelector(".cv-subagent-composer-via")?.textContent?.trim() ?? "",
+      text: document.body.textContent ?? "",
     }));
+  /// Every prompt the stand-in daemon was sent, as its text.
+  const prompts: string[] = [];
   beforeAll(async () => {
     daemon = Bun.serve({
       port: 0,
@@ -140,7 +161,8 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
       },
       websocket: {
         message(ws, raw) {
-          const message = JSON.parse(String(raw)) as { id?: number; method: string };
+          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: unknown };
+          if (/prompt/i.test(message.method)) prompts.push(JSON.stringify(message.params ?? null));
           if (message.id !== undefined)
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
         },
@@ -167,11 +189,11 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     const shown = await bottom(page);
     expect(shown.composer).toBe(1);
     expect(shown.queued.some((text) => text.includes("this is a bit spammy"))).toBe(true);
-    expect(shown.readOnly).toBe("");
+    expect(shown.subagent).toBe(0);
     await page.close();
   });
 
-  test("a subagent's pane shows the subagent read only, with none of the chat's queue or bars", async () => {
+  test("a subagent's pane shows its own composer, with none of the chat's queue or bars", async () => {
     const page = await open();
     await page.locator(".acpmux-queued").first().waitFor({ timeout: 10_000 });
     await page.evaluate(() =>
@@ -183,13 +205,41 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     const shown = await bottom(page);
     expect(shown.composer).toBe(0);
     expect(shown.queued).toEqual([]);
-    expect(shown.readOnly).toContain("Release review");
+    expect(shown.subagent).toBe(1);
+    expect(shown.text).not.toContain("Read only");
+    expect(shown.placeholder).toBe("Message Reviewer");
+    expect(shown.via).toContain("Release review");
     // "Subagent of" shows the chat in this pane: the chat's composer, queue and bar are back.
     await page.locator(".cv-subagent-of__pill").click();
     await page.locator(".acpmux-queued").first().waitFor({ timeout: 10_000 });
     const chat = await bottom(page);
     expect(chat.composer).toBe(1);
-    expect(chat.readOnly).toBe("");
+    expect(chat.subagent).toBe(0);
+    await page.close();
+  });
+
+  test("a message typed in a subagent's pane goes to its chat as a SendMessage to its agentId", async () => {
+    const page = await open();
+    await page.evaluate(() =>
+      (window as { cmuxAcpmuxBridge?: { revealTurn?(value: string): void } }).cmuxAcpmuxBridge?.revealTurn?.(
+        "subagent:a1",
+      ),
+    );
+    await page.locator(".acpmux-subagent-composer").waitFor({ timeout: 10_000 });
+    prompts.length = 0;
+    await page.locator('.acpmux-subagent-composer [aria-label="Message Reviewer"]').click();
+    await page.keyboard.type("Also check the retry tests");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => !document.querySelector(".acpmux-subagent-composer .ProseMirror")?.textContent);
+    const deadline = Date.now() + 10_000;
+    while (!prompts.some((sent) => sent.includes("Also check the retry tests")) && Date.now() < deadline)
+      await page.waitForTimeout(50);
+    const sent = prompts.find((entry) => entry.includes("Also check the retry tests"));
+    expect(sent).toBeDefined();
+    expect(sent).toContain(CHAT);
+    expect(sent).toContain("SendMessage");
+    expect(sent).toContain("a39e817af38ddf5e7");
+    expect(sent).toContain("Reviewer");
     await page.close();
   });
 });
