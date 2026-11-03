@@ -242,7 +242,9 @@ pub fn export_row(chief: &Chief, line: &Line) -> Value {
     };
     let id = line.chief.as_deref().unwrap_or(&legacy_scope);
     let (payer, provider) = payer_provider(line.harness.as_deref().unwrap_or(""), None);
-    let key = if line.kind == "subagent" && line.agent.as_deref() == Some(line.key.as_str()) {
+    let key = if line.kind == "compactor"
+        || (line.kind == "subagent" && line.agent.as_deref() == Some(line.key.as_str()))
+    {
         format!("{}:{}", line.key, line.ts)
     } else {
         line.key.clone()
