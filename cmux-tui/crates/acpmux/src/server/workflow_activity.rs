@@ -44,6 +44,37 @@ fn internal(e: impl std::fmt::Display) -> RpcError {
     RpcError::internal(e.to_string())
 }
 
+fn validate_activity_id(id: &str, registered: bool) -> Result<(), RpcError> {
+    // The runner hashes UUID:ordinal journal identities to a SHA-256 transport ID.
+    // Preserve older safe identities already registered by this daemon.
+    let generated_width = crate::workflow_runs::digest("").len();
+    if id.is_empty()
+        || !id.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        || (id.len() > generated_width && !registered)
+    {
+        return Err(RpcError::invalid_params(
+            "activityId must be a safe workflow journal identity",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_placement(kind: &str, options: &Value) -> Result<(), RpcError> {
+    if options.get("on").is_some_and(|host| !host.is_string()) {
+        return Err(RpcError::invalid_params("on must name a machine"));
+    }
+    if let Some(host) = options.get("on").and_then(Value::as_str)
+        && kind == "machine"
+        && host != "local"
+        && host != crate::hub::host_label()
+    {
+        return Err(RpcError::invalid_params(
+            "remote workflow activities require an authenticated machine executor; no local fallback",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) async fn dispatch(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -79,13 +110,28 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     let store = hub.workflow_runs.store();
     let pending = flight(id, "", generation);
     if action == "wait" {
-        let activities = params
-            .get("activityIds")
-            .and_then(Value::as_array)
-            .map(|ids| ids.iter().filter_map(Value::as_str).collect::<Vec<_>>())
-            .unwrap_or_else(|| vec![activity]);
-        if activities.is_empty() || activities.iter().any(|id| id.is_empty()) {
+        let activities = match params.get("activityIds") {
+            Some(Value::Array(ids)) => ids
+                .iter()
+                .map(|id| {
+                    id.as_str()
+                        .ok_or_else(|| RpcError::invalid_params("activityIds must contain strings"))
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            None => vec![activity],
+            _ => return Err(RpcError::invalid_params("activityIds must be an array")),
+        };
+        if activities.is_empty() {
             return Err(RpcError::invalid_params("activityIds must name activities"));
+        }
+        for activity in &activities {
+            validate_activity_id(
+                activity,
+                store
+                    .activity(id, generation, &run.owner_session_id, activity)
+                    .map_err(internal)?
+                    .is_some(),
+            )?;
         }
         drop(guard);
         loop {
@@ -108,9 +154,13 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     if action != "start" {
         return Err(RpcError::invalid_params("use start or wait"));
     }
-    if activity.is_empty() {
-        return Err(RpcError::invalid_params("activityId is required"));
-    }
+    validate_activity_id(
+        activity,
+        store
+            .activity(id, generation, &run.owner_session_id, activity)
+            .map_err(internal)?
+            .is_some(),
+    )?;
     let worker = flight(id, activity, generation);
     let kind = text("kind")?;
     if !matches!(kind, "agent" | "machine") {
@@ -135,15 +185,7 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     }
     // Command execution on peers remains denied by bg_tasks. A requested placement never
     // silently falls back to this daemon's machine.
-    if let Some(host) = options.get("on").and_then(Value::as_str)
-        && kind == "machine"
-        && host != "local"
-        && host != crate::hub::host_label()
-    {
-        return Err(RpcError::invalid_params(
-            "remote workflow activities require an authenticated machine executor; no local fallback",
-        ));
-    }
+    validate_placement(kind, &options)?;
     if let Some(schema) = options.get("schema") {
         crate::workflow_reply::ReplyPolicy::new(
             schema,
@@ -290,4 +332,48 @@ pub(crate) fn owner_call<'a>(
         }
         Err(RpcError::internal("workflow RPC returned no result"))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workflow_placement_rejects_present_non_string_and_remote_without_local_fallback() {
+        for on in [
+            json!(["ci"]),
+            Value::Null,
+            json!(true),
+            json!(7),
+            json!({"host":"ci"}),
+            json!("remote-ci"),
+        ] {
+            assert!(validate_placement("machine", &json!({"on":on})).is_err());
+        }
+        assert!(validate_placement("machine", &json!({})).is_ok());
+        assert!(validate_placement("machine", &json!({"on":"local"})).is_ok());
+        assert!(validate_placement("agent", &json!({"on":"paired-machine"})).is_ok());
+        assert!(validate_placement("agent", &json!({"on":["ci"]})).is_err());
+    }
+
+    #[test]
+    fn workflow_activity_identity_accepts_transport_hash_and_safe_registered_legacy() {
+        let generated = crate::workflow_runs::digest(
+            "01912345-1234-7123-8123-123456789abc:18446744073709551615",
+        );
+        assert!(validate_activity_id(&generated, false).is_ok());
+        for id in ["test", "test-lint", "legacy_1"] {
+            assert!(validate_activity_id(id, false).is_ok());
+        }
+        for id in ["", "../test", "a:b", "bad/name", "has space", "nonascii-λ", "line\nfeed"] {
+            assert!(validate_activity_id(id, false).is_err());
+            assert!(validate_activity_id(id, true).is_err());
+        }
+        let legacy = format!("legacy-{}", generated);
+        assert!(validate_activity_id(&legacy, false).is_err());
+        assert!(
+            validate_activity_id(&legacy, true).is_ok(),
+            "existing safe journal records stay addressable"
+        );
+    }
 }
