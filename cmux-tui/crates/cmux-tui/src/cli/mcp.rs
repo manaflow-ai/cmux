@@ -1417,7 +1417,9 @@ fn initialize(params: &Value, list_changed: bool, code_mode: bool, chief: bool) 
         if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
         acpmux::agent_tools::ASKING_RULE
     );
-    let _ = (chief, CHIEF_RULE);
+    if chief {
+        instructions = format!("{instructions} {CHIEF_RULE}");
+    }
     json!({
         "protocolVersion": acpmux::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": list_changed}},
