@@ -232,10 +232,15 @@ struct TerminalSurfaceCommitSizeTests {
             let committed = await withCheckedContinuation { (done: CheckedContinuation<ContinuousClock.Instant?, Never>) in
                 CommitBoundary().after { outcome in done.resume(returning: outcome == .committed ? .now : nil) }
             }
+            // The real signal: the presenter's waiting state of both terminals, read after each commit.
             let presenter = TerminalFramePresenter.forWindow(window)
             let deadline = ContinuousClock.now.advanced(by: .seconds(2))
             while ContinuousClock.now < deadline, sessions.contains(where: { presenter.isWaiting($0.surfaceView) }) {
                 await Self.commit()
+            }
+            for (index, session) in sessions.enumerated() where presenter.isWaiting(session.surfaceView) {
+                let size = session.surfaceView.frameOwnership.inFlight.map { "\($0.width)x\($0.height) pt" } ?? "unknown"
+                Issue.record("after \(direction) the terminal of p\(index + 1) still waits for its frame at \(size) after 2 s")
             }
             let ms = committed.map { end -> Double in
                 let turn = pressed.duration(to: end)
