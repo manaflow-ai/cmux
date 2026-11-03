@@ -150,50 +150,65 @@
 }
 .wn-card-primary:hover { background: var(--page-selection); }
 
-/* The update-ready popover: the type of every cmux popover and hover card (Leo 2026-10-19: it was
-   "tonka toys big"): 13 px change titles at the regular weight, 12 px secondary lines, small tertiary
-   numbers, tight rows. The host makes it 340 pt wide and at most 60% of the window tall. */
+/* The update-ready popover follows the sidebar's density and text size like the card it opens from
+   (Lawrence 2026-11-03, msg 19857: "everything's size [must be] proportional [to] the compactness of
+   [the] ui ... cohesive, and derived"). It drew the pages' own type (13 px body on 18 px lines, 340 px
+   wide) and the page is zoomed by the content scale, so at app.uiScale 1.15 its changes read at ~15 pt
+   beside 12 pt Compact rows. The host now sends sizes derived from the rows' tokens as
+   --cmux-sidebar-pop-* (SidebarRowTokens.popover in Swift, docs/cmux-next/derived-sizing.md), already
+   divided by the page zoom: change titles are the rows' title text, second lines and the heading the
+   rows' detail text, lines 11/8 of the text, insets twice the rows' inset. The fallbacks are the
+   Compact values, for a page shown outside the app (the gallery). */
 .wn-pop {
-  width: 340px;
-  padding: 10px 12px 8px;
+  --wn-pop-body: var(--cmux-sidebar-pop-body, 12px);
+  --wn-pop-body-line: var(--cmux-sidebar-pop-body-line, 17px);
+  --wn-pop-detail: var(--cmux-sidebar-pop-detail, 10.5px);
+  --wn-pop-detail-line: var(--cmux-sidebar-pop-detail-line, 14px);
+  --wn-pop-item-y: var(--cmux-sidebar-pop-item-padding-y, 4px);
+  --wn-pop-gap: var(--cmux-sidebar-pop-block-gap, 6px);
+  --wn-pop-column: var(--cmux-sidebar-pop-number, 12px);
+  --wn-pop-column-gap: var(--cmux-sidebar-pop-column-gap, 6px);
+  width: var(--cmux-sidebar-pop-width, 312px);
+  box-sizing: border-box;
+  padding: var(--cmux-sidebar-pop-padding-y, 8px) var(--cmux-sidebar-pop-padding-x, 12px);
   color: var(--page-text);
-  font-size: var(--text-body);
-  line-height: var(--text-body--line-height);
+  font-size: var(--wn-pop-body);
+  line-height: var(--wn-pop-body-line);
   letter-spacing: var(--text-body--letter-spacing);
 }
 .wn-pop-title {
   color: var(--page-text-2);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
+  font-size: var(--wn-pop-detail);
+  line-height: var(--wn-pop-detail-line);
   font-weight: var(--weight-regular);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.wn-pop-from { color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); font-variant-numeric: tabular-nums; letter-spacing: var(--text-detail--letter-spacing); }
-.wn-pop-list { list-style: none; margin: 6px 0 0; padding: 0; }
-/* Each change gets a little air (design #2 "Readable"). */
-.wn-pop-list li { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 6px; padding: 4px 0; }
+.wn-pop-from { color: var(--page-text-3); font-size: var(--wn-pop-detail); line-height: var(--wn-pop-detail-line); font-variant-numeric: tabular-nums; letter-spacing: var(--text-detail--letter-spacing); }
+.wn-pop-list { list-style: none; margin: var(--wn-pop-gap) 0 0; padding: 0; }
+/* Each change gets a row's room above and below it (design #2 "Readable"). */
+.wn-pop-list li { display: grid; grid-template-columns: var(--wn-pop-column) minmax(0, 1fr); gap: var(--wn-pop-column-gap); padding: var(--wn-pop-item-y) 0; }
 .wn-pop-n {
   color: var(--page-text-3);
-  font-size: var(--text-caption);
-  line-height: var(--text-body--line-height);
+  font-size: var(--wn-pop-detail);
+  line-height: var(--wn-pop-body-line);
   font-variant-numeric: tabular-nums;
   text-align: right;
   letter-spacing: var(--text-caption--letter-spacing);
 }
 .wn-pop-item { display: block; font-weight: var(--weight-regular); }
-.wn-pop-line { display: block; margin-top: 1px; color: var(--page-text-2); font-size: var(--text-detail); line-height: var(--text-detail--line-height); letter-spacing: var(--text-detail--letter-spacing); }
+.wn-pop-line { display: block; margin-top: 1px; color: var(--page-text-2); font-size: var(--wn-pop-detail); line-height: var(--wn-pop-detail-line); letter-spacing: var(--text-detail--letter-spacing); }
 /* A change's picture: the popover's width, inline with the text, scrolling with it; a click opens
    the change's notes, where it shows at the page's width. */
 .wn-pop-media {
   display: block;
   width: 100%;
-  margin: 6px 0 2px;
+  margin: var(--wn-pop-gap) 0 calc(var(--wn-pop-item-y) / 2);
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--cmux-sidebar-pop-media-radius, 6px);
   background: transparent;
   overflow: hidden;
   cursor: zoom-in;
@@ -202,24 +217,24 @@
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 6px;
+  border-radius: var(--cmux-sidebar-pop-media-radius, 6px);
   box-shadow: inset 0 0 0 1px var(--page-separator);
 }
 /* The rest of the update's changes, after the numbered top three: one quiet line each, aligned
    with the titles above (2026-10-20, the popover scrolls to the whole list). */
-.wn-pop-rest { margin: 2px 0 0; padding: 0 0 0 18px; }
+.wn-pop-rest { margin: 2px 0 0; padding: 0 0 0 calc(var(--wn-pop-column) + var(--wn-pop-column-gap)); }
 .wn-pop-rest-group h4 {
-  margin: 8px 0 2px;
+  margin: var(--wn-pop-gap) 0 calc(var(--wn-pop-item-y) / 2);
   color: var(--page-text-3);
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
+  font-size: var(--wn-pop-detail);
+  line-height: var(--wn-pop-detail-line);
   font-weight: 600;
   letter-spacing: var(--text-caption--letter-spacing);
 }
 .wn-pop-rest-group ul { list-style: none; margin: 0; padding: 0; }
-.wn-pop-rest-group li { padding: 3px 0; color: var(--page-text-2); }
-.wn-pop-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--page-separator); }
-.wn-pop-more { color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); letter-spacing: var(--text-detail--letter-spacing); }
+.wn-pop-rest-group li { padding: calc(var(--wn-pop-item-y) * 0.75) 0; color: var(--page-text-2); }
+.wn-pop-foot { display: flex; justify-content: space-between; align-items: baseline; gap: var(--wn-pop-gap); margin-top: var(--wn-pop-gap); padding-top: var(--wn-pop-gap); border-top: 1px solid var(--page-separator); }
+.wn-pop-more { color: var(--page-text-3); font-size: var(--wn-pop-detail); line-height: var(--wn-pop-detail-line); letter-spacing: var(--text-detail--letter-spacing); }
 .wn-pop-all {
   margin-left: auto;
   white-space: nowrap;
@@ -227,7 +242,7 @@
   padding: 0;
   background: transparent;
   color: var(--page-text);
-  font-size: var(--text-detail);
+  font-size: var(--wn-pop-detail);
   font-weight: 500;
   cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);

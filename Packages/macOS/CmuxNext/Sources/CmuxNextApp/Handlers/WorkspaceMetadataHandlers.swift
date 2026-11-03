@@ -63,7 +63,7 @@ enum WorkspaceMetadataHandlers {
             guard let cwd = directory(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceHasNoDirectory) }
             NSWorkspace.shared.revealInBackground([URL(fileURLWithPath: cwd)])
         })
-
+        registry.bindEffect("debug.sizingPlayground", effect: { [playground = SizingPlaygroundWindow()] _ in playground.show(); return .done })
         registry.bind("palette.markWorkspaceUnread", requires: DaemonCapability.notificationMarkUnread.rawValue, daemon: context.services.activeDaemon, run: { invocation in
             try context.require(DaemonCapability.notificationMarkUnread.rawValue)
             WorkspaceUnreadMark.set(true, on: [try context.workspace(invocation).model], machines: context.services.machines)

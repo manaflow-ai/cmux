@@ -314,7 +314,10 @@ import CmuxNextTestSupport
         let surface = try #require(popup as? HoverCardPanel, "the popup is not the app's one hover card").cardFrame
         #expect(surface.height <= ceil(h.window.frame.height * 0.6) + 1,
                 "the popup is \(surface.height) pt tall in a \(h.window.frame.height) pt window")
-        #expect((320...360).contains(surface.width), "the popup is \(surface.width) pt wide")
+        // Its width follows the rows' text size (Lawrence msg 19857, ``SidebarRowTokens/popover``): 312 pt at
+        // Compact's 12 pt titles, 364 pt at the larger text size; no longer a fixed menu width.
+        let derived = SidebarRowTokens.current.popover.width
+        #expect(abs(surface.width - derived) <= 1, "the popup is \(surface.width) pt wide, not the derived \(derived) pt")
     }
 
     /// Lawrence 2026-10-20: "the hover on update ready thing to show the changelog new features

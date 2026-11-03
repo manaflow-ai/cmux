@@ -38,14 +38,23 @@ final class SidebarPopoverIslandHost: NSView {
     var onPointerExit: (() -> Void)?
     private var tracking: NSTrackingArea?
 
-    /// The host's height in a hover card (the card fits its body); its width is fixed.
+    /// The host's height in a hover card (the card fits its body), and its width (the sidebar's
+    /// popover width, which follows the rows' text size).
     private var heightConstraint: NSLayoutConstraint?
+    private var widthConstraint: NSLayoutConstraint?
 
     init(width: CGFloat) {
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: 1))
         let height = heightAnchor.constraint(equalToConstant: 1)
-        NSLayoutConstraint.activate([widthAnchor.constraint(equalToConstant: width), height])
+        let widthConstraint = widthAnchor.constraint(equalToConstant: width)
+        NSLayoutConstraint.activate([widthConstraint, height])
         heightConstraint = height
+        self.widthConstraint = widthConstraint
+    }
+
+    /// Sizes the host `width` wide (the popover width at the sidebar's density and text size now).
+    func fit(width: CGFloat) {
+        widthConstraint?.constant = max(1, width)
     }
 
     /// Sizes the host `height` tall (the page's height, capped to its window).

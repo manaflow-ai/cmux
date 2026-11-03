@@ -158,6 +158,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         ].merging((app ?? ThemeScope.app.store.appTheme ?? tokens.app).cssVariables) { own, _ in own }
             // The sidebar cards' sizes at `sidebar.density` (the Updated card's page, 2026-11-01).
             .merging(SidebarRowTokens.current.card.cssVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
+            // Its What's New popover's sizes at the same density and text size (Lawrence msg 19857).
+            .merging(SidebarRowTokens.current.popover.cssVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
