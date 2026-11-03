@@ -34,7 +34,7 @@ final class AgentShareConsentFeed {
     }
 
     /// The `feed.post` op for `ask` under dedupe and idempotency key `key`; it lapses with the sheet.
-    nonisolated static func postBody(_ ask: AgentShareConsentAsk, key: String, expiresInMs: Int) -> [String: Any] {
+    static func postBody(_ ask: AgentShareConsentAsk, key: String, expiresInMs: Int) -> [String: Any] {
         let params: [String: Any] = [
             "type": "request",
             "kind": "confirm",
