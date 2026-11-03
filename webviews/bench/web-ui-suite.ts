@@ -16,7 +16,7 @@ import { PERF_ROW_MARK, type PerfRow } from "./perfRow";
 
 type Bench = { name: string; file: string; args: string[]; env?: Record<string, string>; timeoutMs: number };
 
-/// Short arguments; the timeouts sum to 29 minutes, under perf-cron.py's 30-minute cap on the suite.
+/// Short arguments; the timeouts sum to 29.5 minutes, under perf-cron.py's 30-minute cap on the suite.
 /// Not here: thread-minimap-frame-cost (an A/B check of the VS Code Minimap against its own 1 ms budget,
 /// which exits non-zero by design when over it; its rail frame cost is covered by thread-rail-jump),
 /// diff-stream (the diff-viewer part already runs it) and thread-rail-drag (an adapter, not a bench).
@@ -29,8 +29,8 @@ export const BENCHES: readonly Bench[] = [
     args: ["500", "500", "3"],
     timeoutMs: 120_000,
   },
-  { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 300_000 },
-  { name: "chat-switch", file: "chat-switch.bench.ts", args: ["3", "300"], timeoutMs: 300_000 },
+  { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 255_000 },
+  { name: "chat-switch", file: "chat-switch.bench.ts", args: ["3", "300"], timeoutMs: 255_000 },
   {
     name: "transcript-scroll-frame",
     file: "transcript-scroll-frame.bench.ts",
@@ -39,6 +39,13 @@ export const BENCHES: readonly Bench[] = [
   },
   { name: "thread-rail-jump", file: "thread-rail-jump.bench.ts", args: ["1000", "5"], timeoutMs: 300_000 },
   { name: "ui-stability", file: "ui-stability.bench.ts", args: ["2"], timeoutMs: 240_000 },
+  // A turn that ends while the reader is scrolled up: CLS, the anchor's drift and rows folded away.
+  {
+    name: "transcript-turn-end-shift",
+    file: "transcript-turn-end-shift.bench.ts",
+    args: ["2"],
+    timeoutMs: 120_000,
+  },
 ];
 
 export type Failure = { bench: string; why: string; tail: string[] };

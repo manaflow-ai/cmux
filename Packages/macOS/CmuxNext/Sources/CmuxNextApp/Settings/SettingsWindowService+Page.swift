@@ -8,6 +8,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextServer
 import CmuxNextSettingsWindow
+import CmuxNextUpdater
 import CmuxNextWebUpdates
 
 /// What the React Settings page shows beside the schema rows (R82 commit 2): `cmux.settings.host.lists`.
@@ -66,6 +67,7 @@ extension SettingsWindowService {
             "server": services.serverUpdates.settingsPageJSON,
             "import_suggestions": ImportSuggestionsCenter.shared.settingsJSON,
             "web_updates": WebUpdates.shared.pageJSON,
+            "app_update": services.updater.settingsPageJSON,
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
             "voice_input": ChiefVoiceInputPageRoute().hostJSON,
             // Settings > Menus: every right-click menu's rows and the person's arrangement of it.
