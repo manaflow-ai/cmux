@@ -46,6 +46,16 @@ struct CloudCodexBrokerAdapterTests {
         func commit(_ machine: String, _ a: String, _ b: String, _ c: String, _ d: String) {
             values[machine, default: [:]][b] = values[machine]?[a]
             values[machine, default: [:]][d] = values[machine]?[c]
+            commits[machine, default: 0] += 1
+            if let (target, count, observer) = commitObserver, target == machine, commits[machine, default: 0] >= count {
+                commitObserver = nil; observer.resume()
+            }
+        }
+        var commits: [String: Int] = [:]
+        var commitObserver: (String, Int, CheckedContinuation<Void, Never>)?
+        func waitForCommits(_ machine: String, _ count: Int) async {
+            if commits[machine, default: 0] >= count { return }
+            await withCheckedContinuation { commitObserver = (machine, count, $0) }
         }
         nonisolated func target(_ machine: String) -> CloudCodexBrokerTarget {
             CloudCodexBrokerTarget(machineID: machine, capability: {
@@ -176,6 +186,111 @@ done
 
     /// An `own` mode the person chose (`cr use`, an agent login) before any broker delivery is
     /// theirs: a revoke restores it rather than taking it for an earlier run's marker.
+    /// cmux#33878: renewal picks back up after a relaunch on each machine the last run left access on,
+    /// so a Cloud Codex run outlives the access that was on the machine when cmux quit.
+    @Test func relaunchResumesRenewalOnMachinesTheLastRunLeftAccessOn() async throws {
+        let (root, launch) = try fixture(shortGrants: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        await files.write("one", CloudCodexBroker.modePath, Data("team\n".utf8))
+        try await adapter.run(machineID: "one", scope: scope, confirmed: true) { _ in true }
+        await adapter.detachForQuit()
+        let left = try #require(await files.read("one", CloudCodexBroker.accessPath))
+        let commitsAtQuit = await files.commits["one", default: 0]
+
+        let relaunched = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        #expect(await !relaunched.delivers(machineID: "one", scope: scope))
+        await relaunched.resume(scope: scope, liveMachineIDs: ["one"])
+        #expect(await relaunched.delivers(machineID: "one", scope: scope))
+        // The left grant expires 123 s out, so its renewal is due within seconds.
+        await files.waitForCommits("one", commitsAtQuit + 1)
+        let renewed = try #require(await files.read("one", CloudCodexBroker.accessPath))
+        #expect(renewed != left)
+        #expect(await files.read("one", CloudCodexBroker.modePath) == Data("own\n".utf8))
+        // A renewal keeps the person's mode from before the first run, so a sign-out still restores it.
+        await relaunched.signOut()
+        #expect(await files.read("one", CloudCodexBroker.accessPath) == nil)
+        #expect(await files.read("one", CloudCodexBroker.modePath) == Data("team\n".utf8))
+        #expect(CloudCodexDeliveryRecord(home: relaunched.home(for: scope)).entries().isEmpty)
+    }
+
+    /// cmux#33877: after a relaunch, a sign-out erases the access an earlier run left, without a new
+    /// Codex run first. A machine paused at the sign-out is erased, never renewed, once it is back.
+    @Test func signOutAfterRelaunchErasesAccessAnEarlierRunLeft() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        await files.write("one", CloudCodexBroker.modePath, Data("team\n".utf8))
+        try await adapter.run(machineID: "one", scope: scope, confirmed: true) { _ in true }
+        try await adapter.run(machineID: "two", scope: scope, confirmed: true) { _ in true }
+        await adapter.detachForQuit()
+        #expect(CloudCodexDeliveryRecord(home: adapter.home(for: scope)).entries() == ["one": false, "two": false])
+
+        // "two" is paused when the relaunched app lists its machines and when it signs out.
+        let relaunched = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        await relaunched.resume(scope: scope, liveMachineIDs: ["one"])
+        await relaunched.signOut()
+        #expect(await files.read("one", CloudCodexBroker.accessPath) == nil)
+        #expect(await files.read("one", CloudCodexBroker.modePath) == Data("team\n".utf8))
+        #expect(await files.read("two", CloudCodexBroker.accessPath) != nil)
+        #expect(CloudCodexDeliveryRecord(home: relaunched.home(for: scope)).entries() == ["two": true])
+
+        // Signed back in, with "two" running again: it is erased, not renewed.
+        let later = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        await later.resume(scope: scope, liveMachineIDs: ["one", "two"])
+        #expect(await files.read("two", CloudCodexBroker.accessPath) == nil)
+        #expect(await files.read("two", CloudCodexBroker.modePath) == nil)
+        #expect(await !later.delivers(machineID: "two", scope: scope))
+        #expect(CloudCodexDeliveryRecord(home: later.home(for: scope)).entries().isEmpty)
+        await later.shutdown()
+    }
+
+    /// cmux#33877: the Cloud off switch and an account or team switch erase what an earlier run left
+    /// too; a machine whose Codex the person signed in some other way since is left alone.
+    @Test func offSwitchAndSwitchAfterRelaunchEraseAccessAnEarlierRunLeft() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let personal = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { personal }, launch: { launch }, target: { _, id in files.target(id) })
+        for machine in ["one", "two", "mine"] {
+            try await adapter.run(machineID: machine, scope: personal, confirmed: true) { _ in true }
+        }
+        await adapter.detachForQuit()
+        // While cmux was quit the person signed Codex in on "mine" themselves.
+        await files.write("mine", CloudCodexBroker.modePath, Data("personal\n".utf8))
+
+        let off = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { personal }, launch: { launch }, target: { _, id in files.target(id) })
+        await off.resume(scope: personal, liveMachineIDs: ["one", "mine"])
+        #expect(await files.read("mine", CloudCodexBroker.accessPath) != nil)
+        #expect(await files.read("mine", CloudCodexBroker.modePath) == Data("personal\n".utf8))
+        off.setAvailable(false)
+        await off.shutdown()
+        #expect(await files.read("one", CloudCodexBroker.accessPath) == nil)
+        #expect(await files.read("one", CloudCodexBroker.modePath) == nil)
+
+        #expect(CloudCodexDeliveryRecord(home: off.home(for: personal)).entries() == ["two": true])
+
+        // Cloud back on: one more run delivers to "three" and quits, and the next run switches teams.
+        let again = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { personal }, launch: { launch }, target: { _, id in files.target(id) })
+        try await again.run(machineID: "three", scope: personal, confirmed: true) { _ in true }
+        await again.detachForQuit()
+        var current: CloudCodexBrokerScope? = personal
+        let switching = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { current }, launch: { launch }, target: { _, id in files.target(id) })
+        await switching.resume(scope: personal, liveMachineIDs: ["three"])
+        #expect(await files.read("three", CloudCodexBroker.accessPath) != nil)
+        current = .init(userID: "user", teamID: "team")
+        await switching.scopeDidChange()
+        #expect(await files.read("three", CloudCodexBroker.accessPath) == nil)
+        #expect(await files.read("three", CloudCodexBroker.modePath) == nil)
+        #expect(CloudCodexDeliveryRecord(home: switching.home(for: personal)).entries() == ["two": true])
+        await switching.shutdown()
+    }
+
     @Test func revokeRestoresAnOwnModeThePersonChose() async throws {
         let (root, launch) = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -34,6 +34,8 @@ import Observation
     @ObservationIgnored private var scopeWaiters: [CloudCodexBrokerScope: [CheckedContinuation<Void, Never>]] = [:]
     @ObservationIgnored private var stopped = false
     @ObservationIgnored private var signingOutScope: CloudCodexBrokerScope?
+    /// The pass ``machinesListed(_:)`` started; one at a time.
+    @ObservationIgnored private var resumePass: Task<Void, Never>?
     /// Policy availability is an immediate fence. The holder teardown runs
     /// asynchronously, but new requests and in-flight writes observe this flag
     /// through the scope callback before they can commit a VM file.
@@ -70,16 +72,7 @@ import Observation
         try check(scope)
         if let teardown = teardownTasks[scope] { await teardown.value }
         try check(scope)
-        let current = currentScope
-        let availability: @MainActor @Sendable () -> CloudCodexBrokerScope? = { [weak self] in
-            guard let self, self.available else { return nil }
-            return current()
-        }
-        let retryingRetiredHolder = await registry.hasPendingCleanup(for: scope)
-        let broker = try await registry.broker(for: scope, currentScope: { await availability() },
-            executable: resolved.executable, executablePrefix: resolved.prefix,
-            codexExecutable: resolved.codex, home: home(for: scope))
-        if retryingRetiredHolder { cleanupByScope.removeValue(forKey: scope) }
+        let broker = try await openBroker(scope, resolved)
         try check(scope)
         scopes.insert(scope)
         let vm = target(scope, machineID)
@@ -109,6 +102,57 @@ import Observation
         defer { runs.removeValue(forKey: id) }
         try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
         try check(scope)
+    }
+
+    /// Each machine list the app reads: ``resume(scope:liveMachineIDs:)`` for the signed-in scope and its
+    /// live machines. One pass at a time; a list that lands during one is picked up by the next list.
+    public func machinesListed(_ machines: [CloudMachine]) {
+        guard resumePass == nil, let scope = currentScope() else { return }
+        let live = Set(machines.filter { $0.status.isLive }.map(\.id))
+        resumePass = Task { [weak self] in
+            await self?.resume(scope: scope, liveMachineIDs: live)
+            self?.resumePass = nil
+        }
+    }
+
+    /// After a relaunch, and after each machine list: takes back the machines in `liveMachineIDs` that
+    /// an earlier run of cmux delivered Codex access to for `scope` (``CloudCodexDeliveryRecord``), so
+    /// their renewal picks back up (cmux#33878) and a sign-out, a switch or the off switch erases them
+    /// (cmux#33877). A machine whose erase an earlier run could not finish is erased instead. Asks no
+    /// consent and shows no prompt: each was confirmed when it was first delivered to. Stops: a machine
+    /// already registered is skipped, so a repeat pass does nothing.
+    public func resume(scope: CloudCodexBrokerScope, liveMachineIDs: Set<String>) async {
+        let record = CloudCodexDeliveryRecord(home: home(for: scope))
+        let recorded = await Task.detached(priority: .utility) { record.entries() }.value
+        guard !recorded.isEmpty else { return }
+        if let teardown = teardownTasks[scope] { await teardown.value }
+        guard (try? check(scope)) != nil else { return }
+        // Recorded machines belong to this scope now, so its retirement marks every one for erasure.
+        scopes.insert(scope)
+        let wanted = recorded.filter { liveMachineIDs.contains($0.key) }
+        guard !wanted.isEmpty, let resolved = try? await launch(), (try? check(scope)) != nil,
+              let broker = try? await openBroker(scope, resolved), (try? check(scope)) != nil else { return }
+        await lockScope(scope)
+        defer { unlockScope(scope) }
+        let registered = await broker.registeredMachineIDs()
+        for (machineID, erase) in wanted.sorted(by: { $0.key < $1.key }) where !registered.contains(machineID) {
+            guard (try? check(scope)) != nil else { return }
+            await broker.resume(target: target(scope, machineID), erase: erase)
+        }
+    }
+
+    private func openBroker(_ scope: CloudCodexBrokerScope, _ resolved: Launch) async throws -> CloudCodexBroker {
+        let current = currentScope
+        let availability: @MainActor @Sendable () -> CloudCodexBrokerScope? = { [weak self] in
+            guard let self, self.available else { return nil }
+            return current()
+        }
+        let retryingRetiredHolder = await registry.hasPendingCleanup(for: scope)
+        let broker = try await registry.broker(for: scope, currentScope: { await availability() },
+            executable: resolved.executable, executablePrefix: resolved.prefix,
+            codexExecutable: resolved.codex, home: home(for: scope))
+        if retryingRetiredHolder { cleanupByScope.removeValue(forKey: scope) }
+        return broker
     }
 
     /// Whether this scope's broker already delivers (and renews) access on `machineID`. A new chat's
@@ -226,8 +270,12 @@ import Observation
         scopes.remove(scope)
         // Keep the barrier visible until teardown completes. Every concurrent
         // caller must await the same task before opening a replacement holder.
+        let record = CloudCodexDeliveryRecord(home: home(for: scope))
         teardownTasks[scope] = Task { [registry] in
             cleanupByScope[scope] = await registry.remove(scope: scope)
+            // What is still recorded (a paused machine, one this run never reached) is erased by the
+            // next pass that reaches it, never renewed (cmux#33877).
+            await Task.detached(priority: .utility) { record.markAllForErasure() }.value
             teardownTasks.removeValue(forKey: scope)
         }
     }
