@@ -12,6 +12,7 @@ use std::cell::RefCell;
 struct Fake<F: Fn(&str, Option<&[u8]>) -> RemoteOut> {
     answer: F,
     calls: RefCell<Vec<(String, bool)>>,
+    first_contacts: RefCell<Vec<bool>>,
     /// The scripts that ran fenced for the update lock.
     fenced: RefCell<Vec<String>>,
     pushes: RefCell<Vec<String>>,
@@ -23,6 +24,7 @@ impl<F: Fn(&str, Option<&[u8]>) -> RemoteOut> Fake<F> {
         Self {
             answer,
             calls: RefCell::default(),
+            first_contacts: RefCell::default(),
             fenced: RefCell::default(),
             pushes: RefCell::default(),
             locked: Default::default(),
@@ -44,6 +46,10 @@ impl<F: Fn(&str, Option<&[u8]>) -> RemoteOut> Remote for Fake<F> {
         };
         self.calls.borrow_mut().push((script.to_owned(), stdin.is_some()));
         Ok((self.answer)(script, stdin))
+    }
+    fn first_contact(&self, accept_new_host_key: bool) -> Result<RemoteOut> {
+        self.first_contacts.borrow_mut().push(accept_new_host_key);
+        self.exec("true", None)
     }
     fn push(&self, _local: &Path, remote: &str) -> Result<()> {
         self.pushes.borrow_mut().push(remote.to_owned());
@@ -85,6 +91,7 @@ fn plan(harnesses: &[&str]) -> Plan {
         remote_binary: DAEMON_BIN.into(),
         reverse: false,
         lends_github: false,
+        accept_new_host_key: false,
     }
 }
 
@@ -206,7 +213,7 @@ fn ssh_stderr_is_classified() {
         ),
         (
             "No ED25519 host key is known for box and you have requested strict checking.\nHost key verification failed.",
-            SshFailure::HostKeyChanged,
+            SshFailure::HostKeyUntrusted,
         ),
         ("kex_exchange_identification: read: Connection reset by peer", SshFailure::Other),
     ];
@@ -215,6 +222,7 @@ fn ssh_stderr_is_classified() {
     }
     assert!(SshFailure::KeyRejected.fix("leo@box").contains("ssh-copy-id leo@box"));
     assert!(SshFailure::HostKeyChanged.fix("leo@box").contains("ssh-keygen -R box"));
+    assert!(!SshFailure::HostKeyUntrusted.fix("leo@box").contains("ssh-keygen -R"));
     let tailnet_fix = SshFailure::NoRoute.fix("leo@huge-blue.tail9.ts.net");
     assert!(tailnet_fix.contains("Tailscale SSH isn't allowed to this machine"));
     assert!(tailnet_fix.contains("\"dst\": [\"huge-blue.tail9.ts.net\"]"));
@@ -1184,7 +1192,33 @@ fn two_daemon_host_with(
 }
 
 fn enroll_plan() -> Plan {
-    Plan::enroll("leo@box.tail".into(), Some("box".into()), vec![], DAEMON_BIN.into(), false)
+    Plan::enroll("leo@box.tail".into(), Some("box".into()), vec![], DAEMON_BIN.into(), false, false)
+}
+
+#[test]
+fn first_contact_trust_is_opt_in_and_a_changed_key_stops_enrollment() {
+    let local = Local { harness_dir: None, home: None };
+    for accept in [false, true] {
+        let mut plan = enroll_plan();
+        plan.accept_new_host_key = accept;
+        let fake = Fake::new(|script, _| {
+            assert_eq!(script, "true", "a failed reach must not run another command");
+            RemoteOut {
+                ok: false,
+                stdout: String::new(),
+                stderr: "REMOTE HOST IDENTIFICATION HAS CHANGED!\nHost key verification failed."
+                    .into(),
+            }
+        });
+        let results = machine_steps(&fake, &plan, &local, true, &mut |_| {}).0;
+        assert_eq!(*fake.first_contacts.borrow(), [accept]);
+        assert_eq!(results[0].state, StepState::Fail);
+        assert!(results[1..].iter().all(|step| step.state == StepState::Skip));
+        assert_eq!(fake.calls.borrow().len(), 1);
+        assert!(fake.pushes.borrow().is_empty());
+    }
+    assert!(!enroll_plan().accept_new_host_key);
+    assert!(!plan(&[]).accept_new_host_key);
 }
 
 #[test]
