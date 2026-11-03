@@ -178,6 +178,27 @@ import Testing
         #expect(runtime.state == .shutDown)
     }
 
+    /// The App hides its windows (`beforeEngineStop`) right before CefShutdown blocks the main thread, so a
+    /// decided quit looks done instead of a frozen window; a quit that skips CefShutdown hides nothing.
+    @Test func theWindowsGoRightBeforeCefShutdownBlocksTheMainThread() async throws {
+        SpyShim.reset()
+        let (runtime, root) = try Self.spyRuntime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        SpyShim.answerFlush = Self.answerAfterCommit(runtime)
+
+        await runtime.shutdown(timeout: .seconds(2), beforeEngineStop: { SpyShim.calls.append("hide") })
+
+        #expect(SpyShim.calls == ["flush", "hide", "shutdown"])
+
+        SpyShim.reset()
+        SpyShim.createOpensWindow = false
+        let (stuck, stuckRoot) = try Self.spyRuntime()
+        defer { try? FileManager.default.removeItem(at: stuckRoot) }
+        _ = try Self.startCreation(stuck)
+        await stuck.shutdown(timeout: .milliseconds(200), beforeEngineStop: { SpyShim.calls.append("hide") })
+        #expect(SpyShim.calls == ["flush"], "a quit that skips CefShutdown hid the windows")
+    }
+
     /// The spy's flush answer: the commit runs on another thread for `commitCost`, then Chromium's REPLY
     /// reaches the runtime on the main thread.
     private static func answerAfterCommit(_ runtime: CEFRuntime) -> @Sendable (Int32) -> Void {
