@@ -390,6 +390,8 @@ import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMess
 import type { IncomingMessage } from "./conversation/incomingMessage";
 import { CompactionNote, FailoverNote, PolicyUnenforcedNote } from "./conversation/CompactionNote";
 import { BackgroundTurnLine } from "./conversation/BackgroundTurnLine";
+import { TaskLines } from "./conversation/TaskLine";
+import { TASK_LINE } from "./conversation/taskLineKind";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { MessageRunLine } from "./conversation/MessageRunLine";
 import { AgentPairNote } from "./conversation/AgentPairNote";
@@ -1924,6 +1926,14 @@ const NO_AGENTS: readonly Subagent[] = [];
 const sameItems = <T,>(a: readonly T[], b: readonly T[]) =>
   a.length === b.length && a.every((item, index) => item === b[index]);
 
+/// A finished turn's started sub-sessions, one line each beside its fold (conversation/TaskLine.tsx).
+const TaskLineRow = memo(
+  function TaskLineRow({ row }: RowProps) {
+    return row.tasks?.length ? <TaskLines tasks={row.tasks} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+
 /// The chats this chat's agent started, as cards where each was started (started/StartedSessionCard.tsx).
 const StartedSessionsRow = memo(
   function StartedSessionsRow({ row }: RowProps) {
@@ -1965,6 +1975,7 @@ const defaultRegistry: NativeRegistry = {
   [PENDING_MESSAGES]: PendingMessagesRow,
   [LANE_NOTICE_BATCH]: LaneNoticeBatchRow,
   [STARTED_SESSIONS]: StartedSessionsRow,
+  [TASK_LINE]: TaskLineRow,
   typing: NoticeRow,
   permission: PermissionRow,
   [QUESTION_RECORD]: QuestionRecordRow,
@@ -2031,6 +2042,7 @@ export const readOnlyRegistry: NativeRegistry = {
   sessionOffer: NoRow,
   [OFFER_RESULT]: NoRow,
   [STARTED_SESSIONS]: NoRow,
+  [TASK_LINE]: NoRow,
   [PREVIEW]: NoRow,
   [RENDER]: NoRow,
 };
