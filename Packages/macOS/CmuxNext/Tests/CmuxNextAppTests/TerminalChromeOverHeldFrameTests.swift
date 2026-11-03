@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+@testable import CmuxNextDesign
 @testable import CmuxNextTerminal
 import CmuxNextTestSupport
 import Foundation
