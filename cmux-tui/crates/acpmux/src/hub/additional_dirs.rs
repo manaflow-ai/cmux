@@ -4,8 +4,8 @@
 //! with `sessionCapabilities.additionalDirectories`). They are kept in the chat's meta
 //! (`SessionMeta::additional_directories`) and given to every start of its harness: Claude Code
 //! as `--add-dir DIR` (`claude_args`), an ACP harness in its `session/new` and `session/load`
-//! (`spawn.rs` `acp_params`). A chat needs no folder of its own to have them (Leo, 2026-11-03:
-//! "and you can also just start with nothing").
+//! (`spawn.rs` `acp_params`). A chat needs no project to have them: one started with nothing runs in
+//! its empty agent-home folder (Leo, 2026-11-03: "and you can also just start with nothing").
 //!
 //! A folder is an absolute path to a directory that exists, kept canonical (symlinks resolved,
 //! no `..`), each once, and never the chat's own folder. A WebSocket caller's folders must also

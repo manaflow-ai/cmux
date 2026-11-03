@@ -1,8 +1,8 @@
 //! A chat started with `additionalDirectories` (ACP `session/new`) can see those folders beside
 //! its own: every start of its harness, the first, a respawn and a restart, gets them. Claude
 //! Code takes them as `--add-dir DIR`; an ACP harness in its `session/new` and `session/load`.
-//! A chat needs no folder of its own to have them (Leo: "and you can also just start with
-//! nothing"), and the session's summary lists them for the pane.
+//! A chat needs no project to have them (Leo: "and you can also just start with nothing"), and
+//! the session's summary lists them for the pane.
 
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
@@ -99,6 +99,12 @@ impl Client {
         said
     }
 
+    /// The `additionalDirectories` the fake ACP agent's last session/new or load carried.
+    async fn dirs(&mut self, session: &str) -> Value {
+        let said = self.said(session, "dirs").await;
+        serde_json::from_str(&said).unwrap_or_else(|e| panic!("{e}: {said}"))
+    }
+
     /// The `--add-dir` values of the fake Claude Code's argv.
     async fn add_dirs(&mut self, session: &str) -> Vec<String> {
         let said = self.said(session, "hi").await;
@@ -149,7 +155,10 @@ async fn claude_code_gets_every_folder_at_every_start() {
     assert_eq!(c.add_dirs(&id).await, [s(&a), s(&b)], "a restart");
 
     // A chat started without any keeps only its own folder.
-    let plain = c.new_session("fakeclaude", None, Value::Null).await.expect("session/new");
+    let plain = c
+        .new_session("fakeclaude", Some(&std::env::temp_dir()), Value::Null)
+        .await
+        .expect("session/new");
     assert!(plain.pointer("/_meta/acpmux/additionalDirectories").is_none(), "{plain}");
     assert!(c.add_dirs(plain["sessionId"].as_str().unwrap()).await.is_empty());
 }
@@ -159,9 +168,12 @@ async fn a_chat_with_no_folder_of_its_own_still_sees_its_sources() {
     let _hermetic = &HERMETIC;
     let hub = hub();
     let mut c = Client::new(&hub);
-    let (_root, a, _) = folders();
-    // "and you can also just start with nothing": no cwd at all.
-    let created = c.new_session("fakeclaude", None, json!([a])).await.expect("session/new");
+    let (root, a, _) = folders();
+    // "and you can also just start with nothing": no project, only the empty agent-home folder
+    // the app gives such a chat (AcpmuxPathPolicy `noProject`).
+    let home = root.path().join("agent-home");
+    std::fs::create_dir_all(&home).unwrap();
+    let created = c.new_session("fakeclaude", Some(&home), json!([a])).await.expect("session/new");
     let id = created["sessionId"].as_str().unwrap().to_owned();
     assert_eq!(c.add_dirs(&id).await, [s(&a)]);
 }
@@ -178,15 +190,15 @@ async fn an_acp_harness_gets_them_in_session_new_and_load() {
         .await
         .expect("session/new");
     let id = created["sessionId"].as_str().unwrap().to_owned();
-    assert_eq!(c.said(&id, "dirs").await, json!([s(&a), s(&b)]).to_string(), "session/new");
+    assert_eq!(c.dirs(&id).await, json!([s(&a), s(&b)]), "session/new");
 
     // A restart loads the same conversation, with the same folders.
     c.call("_acpmux/sessions/restart_harness", json!({"sessions": [id]})).await.0.expect("restart");
-    assert_eq!(c.said(&id, "dirs").await, json!([s(&a), s(&b)]).to_string(), "session/load");
+    assert_eq!(c.dirs(&id).await, json!([s(&a), s(&b)]), "session/load");
 
     // None asked: the field is left out, as before.
-    let plain = c.new_session("fake", None, Value::Null).await.expect("session/new");
-    assert_eq!(c.said(plain["sessionId"].as_str().unwrap(), "dirs").await, "null");
+    let plain = c.new_session("fake", Some(&std::env::temp_dir()), Value::Null).await.expect("new");
+    assert_eq!(c.dirs(plain["sessionId"].as_str().unwrap()).await, Value::Null);
 }
 
 #[tokio::test]
@@ -206,7 +218,7 @@ async fn folders_are_absolute_existing_and_listed_once() {
         json!([file]),
     ] {
         let e = c
-            .new_session("fakeclaude", None, bad.clone())
+            .new_session("fakeclaude", Some(&std::env::temp_dir()), bad.clone())
             .await
             .expect_err(&format!("{bad} is refused"));
         assert_eq!(e["code"], json!(-32602), "{bad}: {e}");
