@@ -2157,8 +2157,9 @@ export function shortModelName(name: string, short?: string, harnessName?: strin
 
 /// The name an alias draws once the release it runs is known: the release's (`release`, "Opus 5.5")
 /// when the alias's own name (`name`) is only that release's family ("Opus"), or the family and a
-/// variant ("Opus · 1M context" while it runs "Opus 5.5 · 1M context"). Any other name stays: it says
-/// more than the family ("Opus plan · Sonnet execute").
+/// variant ("Opus · 1M context" while it runs "Opus 5.5 · 1M context"). The alias's variant stays when
+/// the release's name has none ("Opus · 1M context" running "Opus 5.5" is "Opus 5.5 · 1M context").
+/// Any other name stays: it says more than the family ("Opus plan · Sonnet execute").
 export function aliasNamedAsRelease(name: string, release: string): string {
   const family = modelFamily(release.replace(/^claude\s+/i, ""))?.toLowerCase();
   const head = name
@@ -2166,7 +2167,9 @@ export function aliasNamedAsRelease(name: string, release: string): string {
     .trim()
     .toLowerCase()
     .replace(/^claude\s+/, "");
-  return family && head === family ? release : name;
+  if (!family || head !== family) return name;
+  const variant = name.indexOf("·");
+  return variant > 0 && !release.includes("·") ? `${release} ${name.slice(variant).trim()}` : release;
 }
 
 /// A model's family for a narrow controls row: its name's first word ("Opus" of "Opus 5.5") when

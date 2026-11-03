@@ -99,6 +99,7 @@ const EFFORT = {
 const MODELS = [
   { id: "default", name: "Default (Claude Code's choice)" },
   { id: "opus", name: "Opus" },
+  { id: "opus[1m]", name: "Opus · 1M context" },
   { id: "opusplan", name: "Opus plan · Sonnet execute" },
   { id: "sonnet", name: "Sonnet" },
   { id: "claude-opus-5-5", name: "Opus 5.5" },
@@ -193,6 +194,16 @@ test("before its session reports the release, the alias is named as the release 
   expect(chip()).toBe("Opus 5.5");
 });
 
+test("a chat on the 1M opus alias keeps its context variant beside the version", async () => {
+  await mount("opus[1m]", "claude-opus-5-5[1m]");
+  expect(chip()).toMatch(/^Opus 5\.5 .*1M/);
+  act(() => root?.unmount());
+  root = undefined;
+  host.replaceChildren();
+  await mount("opus[1m]", "claude-opus-5-5");
+  expect(chip()).toMatch(/^Opus 5\.5 .*1M/);
+});
+
 test("an alias whose name says more than its family keeps its name", async () => {
   await mount("opusplan", "claude-opus-5-5");
   expect(chip()).toContain("plan");
@@ -208,6 +219,7 @@ test("aliasNamedAsRelease swaps only a bare family", async () => {
   expect(aliasNamedAsRelease("Opus", "Opus 5.5")).toBe("Opus 5.5");
   expect(aliasNamedAsRelease("Opus", "Claude Opus 5.5")).toBe("Claude Opus 5.5");
   expect(aliasNamedAsRelease("Opus · 1M context", "Opus 5.5 · 1M context")).toBe("Opus 5.5 · 1M context");
+  expect(aliasNamedAsRelease("Opus · 1M context", "Opus 5.5")).toBe("Opus 5.5 · 1M context");
   expect(aliasNamedAsRelease("Opus plan · Sonnet execute", "Opus 5.5")).toBe("Opus plan · Sonnet execute");
   expect(aliasNamedAsRelease("Sonnet", "Opus 5.5")).toBe("Sonnet");
 });
