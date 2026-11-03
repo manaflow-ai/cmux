@@ -381,14 +381,16 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
                 Patch::Clear => {
                     item.extra.remove(GROUP_SORT_KEY);
                 }
-                Patch::Set(value) => match GroupSort::read(value).ok_or(Refusal::InvalidValue)?.value() {
-                    Some(stored) => {
-                        item.extra.insert(GROUP_SORT_KEY.into(), Value::String(stored.into()));
+                Patch::Set(value) => {
+                    match GroupSort::read(value).ok_or(Refusal::InvalidValue)?.value() {
+                        Some(stored) => {
+                            item.extra.insert(GROUP_SORT_KEY.into(), Value::String(stored.into()));
+                        }
+                        None => {
+                            item.extra.remove(GROUP_SORT_KEY);
+                        }
                     }
-                    None => {
-                        item.extra.remove(GROUP_SORT_KEY);
-                    }
-                },
+                }
             }
             Ok(())
         }),
