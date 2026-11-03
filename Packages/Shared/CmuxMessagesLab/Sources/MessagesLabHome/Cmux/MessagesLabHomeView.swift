@@ -359,6 +359,13 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// cmux: a small control right after the header's name pill, on its line (Home's Chief location
+    /// chip); it takes its own clicks. Sized by its `intrinsicContentSize`. Nil: none.
+    public var headerPillAccessory: NSView? {
+        get { controller.host.paneHeader.pillAccessory }
+        set { controller.host.paneHeader.pillAccessory = newValue }
+    }
+
     /// cmux: who else has the conversation open, as faces beside the header's name pill (chat
     /// multiplayer); empty shows none. `label` is what VoiceOver reads for them.
     public func setHeaderFaces(_ faces: [PaneHeaderFace], label: String) {
