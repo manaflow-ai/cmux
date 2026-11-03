@@ -57,7 +57,8 @@ struct LinkHintTypingTests {
         #expect(resolved.outcome == .passThrough)
         #expect(passed.isEmpty, "a key-up went to the page before its key-down: \(passed)")
         #expect(resolved.page.map(\.description) == typed.map(\.description), "the page got \(resolved.page), not \(typed)")
-        #expect(pending.resolve(&session, targets: [Self.field], editing: true).page.isEmpty, "a held key went to the page twice")
+        let again = pending.resolve(&session, targets: [Self.field], editing: true).page
+        #expect(again.isEmpty, "a held key went to the page twice")
     }
 
     /// Lead review of #32537, case 2 (no text field has the keyboard, link hints start): the letters typed before the
@@ -105,17 +106,20 @@ struct LinkHintTypingTests {
     @Test func anEndBeforeThePageAnsweredGivesEveryHeldKeyToThePageInOrder() {
         let typed = Self.typing(Self.letters("ield") + [" ", "<esc>"])
         var (pending, _) = Self.held(typed)
-        #expect(pending.releaseAll().map(\.description) == typed.map(\.description))
-        #expect(pending.releaseAll().isEmpty && pending.isEmpty, "a held key went to the page twice")
+        let released = pending.releaseAll(), releasedAgain = pending.releaseAll()
+        #expect(released.map(\.description) == typed.map(\.description))
+        #expect(releasedAgain.isEmpty && pending.isEmpty, "a held key went to the page twice")
     }
 
     /// A key-up whose key-down was not held (typed before the session) goes on at once: it is held only with its down.
     @Test func aKeyUpIsHeldOnlyWithItsKeyDown() {
         var pending = LinkHintPendingKeys<Key>()
-        #expect(!pending.holdUp(Key("f", down: false, code: 3), code: 3), "the up of a key the page already had was held")
+        let foreignUp = pending.holdUp(Key("f", down: false, code: 3), code: 3)
+        #expect(!foreignUp, "the up of a key the page already had was held")
         pending.hold(Key("i", code: 4), kind: .letter("i"), code: 4)
-        #expect(pending.holdUp(Key("i", down: false, code: 4), code: 4))
-        #expect(!pending.holdUp(Key("i", down: false, code: 4), code: 4), "a second up of one held down was held")
+        let up = pending.holdUp(Key("i", down: false, code: 4), code: 4), secondUp = pending.holdUp(Key("i", down: false, code: 4), code: 4)
+        #expect(up)
+        #expect(!secondUp, "a second up of one held down was held")
     }
 
     /// Review of #32537 (v7 judged by the session's start time, so a hint letter typed after the `f` but still queued
@@ -126,13 +130,16 @@ struct LinkHintTypingTests {
         var seen = LinkHintSeenKeys<Key>()
         let f = Key("f"), i = Key("i")
         let sig = { (time: TimeInterval, key: Key) in LinkHintSeenKeys<Key>.Signature(time: time, code: key.code, characters: key.text) }
-        #expect(!seen.note(f, sig(9.00, f)) && !seen.note(i, sig(9.01, i)), "a key the app never dispatched counts as seen")
-        #expect(seen.note(f, sig(9.00, f)), "Chromium's send-back of the `f` the page had was not known")
-        #expect(seen.note(Key("i"), sig(9.01, i)), "a copy of a key the page had (same time, code, characters) was not known")
-        #expect(!seen.note(Key("e"), sig(9.02, Key("e"))), "a hint letter still queued at the session start was taken as the page's")
+        let firstF = seen.note(f, sig(9.00, f)), firstI = seen.note(i, sig(9.01, i))
+        let backF = seen.note(f, sig(9.00, f)), copyI = seen.note(Key("i"), sig(9.01, i)), queuedE = seen.note(Key("e"), sig(9.02, Key("e")))
+        #expect(!firstF && !firstI, "a key the app never dispatched counts as seen")
+        #expect(backF, "Chromium's send-back of the `f` the page had was not known")
+        #expect(copyI, "a copy of a key the page had (same time, code, characters) was not known")
+        #expect(!queuedE, "a hint letter still queued at the session start was taken as the page's")
         let synthetic = Key("a")
-        #expect(!seen.note(synthetic, sig(0, synthetic)) && !seen.note(Key("a"), sig(0, Key("a"))), "two synthetic keys were one")
-        #expect(seen.note(synthetic, sig(0, synthetic)))
+        let firstA = seen.note(synthetic, sig(0, synthetic)), otherA = seen.note(Key("a"), sig(0, Key("a"))), backA = seen.note(synthetic, sig(0, synthetic))
+        #expect(!firstA && !otherA, "two synthetic keys were one")
+        #expect(backA)
     }
 
     /// Lead on STATUS 7898: two identical keys typed in one display refresh ("ll" at 120 Hz) have the same key code and
@@ -143,10 +150,12 @@ struct LinkHintTypingTests {
         let uptime: TimeInterval = 432_000.123_456_789
         let first = Key("l", code: 37), second = Key("l", code: 37)
         let sig = { (time: TimeInterval) in LinkHintSeenKeys<Key>.Signature(time: time, code: 37, characters: "l") }
-        #expect(!seen.note(first, sig(uptime)), "the first l counts as seen")
-        #expect(!seen.note(second, sig(uptime + 0.004)), "the second l, 4 ms later, was taken as the first one's copy")
-        #expect(!seen.note(Key("l", code: 37), sig(uptime + 0.004_001)), "an l 1 µs after the second was taken as its copy")
-        #expect(seen.note(Key("l", code: 37), sig(uptime)) && seen.note(Key("l", code: 37), sig(uptime + 0.004)),
+        let l1 = seen.note(first, sig(uptime)), l2 = seen.note(second, sig(uptime + 0.004)), l3 = seen.note(Key("l", code: 37), sig(uptime + 0.004_001))
+        let back1 = seen.note(Key("l", code: 37), sig(uptime)), back2 = seen.note(Key("l", code: 37), sig(uptime + 0.004))
+        #expect(!l1, "the first l counts as seen")
+        #expect(!l2, "the second l, 4 ms later, was taken as the first one's copy")
+        #expect(!l3, "an l 1 µs after the second was taken as its copy")
+        #expect(back1 && back2,
                 "Chromium's send-back of an l the page had was not known")
     }
 
