@@ -1465,7 +1465,8 @@ fi
 # need only that architecture too.
 RELOAD_HELPER_ARCHS="arm64 x86_64"
 if [[ "$NATIVE_ARCH" -eq 1 ]]; then
-  RELOAD_HELPER_ARCHS="$(uname -m)"
+  # hw.optional.arm64, not `uname -m`: a shell under Rosetta reports x86_64 on an Apple silicon Mac.
+  if [[ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" == 1 ]]; then RELOAD_HELPER_ARCHS=arm64; else RELOAD_HELPER_ARCHS="$(uname -m)"; fi
   echo "==> native architecture build: ARCHS=$RELOAD_HELPER_ARCHS ONLY_ACTIVE_ARCH=YES (not universal)"
 fi
 if [[ "$BUILD_CONFIGURATION" == "Release" || "$NATIVE_ARCH" -eq 1 ]]; then
@@ -1717,6 +1718,12 @@ fi
 
 if should_skip_ghostty_cli_helper_zig_build; then
   export CMUX_SKIP_ZIG_BUILD=1
+fi
+
+# A measurement step's build drops the last finished build's marker first, so a build cut short this time
+# leaves none and the build worker drops the DerivedData it may have half written (measurement_derived_data_path).
+if reload_is_measurement_step && [[ "$DERIVED_DATA" == "$(measurement_derived_data_path)" ]]; then
+  rm -f "$(dirname "$(dirname "$DERIVED_DATA")")/.cmux-ci-built-ref"
 fi
 
 XCODEBUILD_ARGS=(

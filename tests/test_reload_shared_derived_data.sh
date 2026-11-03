@@ -56,6 +56,8 @@ export CMUX_CI_STEP_CLASS=isolated
 unset CMUX_CI_STEP_CLASS
 grep -Fq 'rev-parse HEAD > "$(dirname "$(dirname "$DERIVED_DATA")")/.cmux-ci-built-ref"' "$ROOT/scripts/reload.sh" \
   || fail "reload.sh no longer marks a finished measurement build for the worker (.build/.cmux-ci-built-ref)"
+grep -Fq 'rm -f "$(dirname "$(dirname "$DERIVED_DATA")")/.cmux-ci-built-ref"' "$ROOT/scripts/reload.sh" \
+  || fail "reload.sh no longer drops the last build's marker before a measurement build (an interrupted build must leave none)"
 
 # The parser must record --derived-data and the tag default must go through the resolver with it.
 awk '/^    --derived-data\)/,/;;/' "$ROOT/scripts/reload.sh" | grep -q 'DERIVED_SET=1' \

@@ -85,7 +85,7 @@ echo "PASS: products are read from the built configuration's directory"
 
 # A fleet measurement step (CMUX_CI_STEP_CLASS=exclusive) builds the app only to run it on this Mac, so it
 # builds this Mac's architecture alone (chat-open.sh step b128e339 timed out in a universal Release build).
-host_arch="$(uname -m)"
+host_arch="$(uname -m)"; [[ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" == 1 ]] && host_arch=arm64
 RUN_ENV=(CMUX_CI_STEP_CLASS=exclusive)
 run_reload --tag "$TAG" --build-only --derived-data "$TMP_DIR/dd" --config bench
 [[ -f "$ARGS" ]] || fail "the measurement reload never reached xcodebuild: $OUTPUT"
