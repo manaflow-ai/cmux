@@ -483,6 +483,10 @@ pub(super) enum Request {
     Call { name: String, arguments: Map<String, Value> },
     /// `cmux.docs(query)`.
     Docs { query: String },
+    /// Launch or reattach without waiting; the workflow runner journals it first.
+    ActivityStart { kind: String, prompt: String, options: Map<String, Value> },
+    /// Wait for exactly the activity whose promise is next in invocation order.
+    ActivityWait { id: String },
 }
 
 enum ToServer {
@@ -534,6 +538,8 @@ pub(super) fn exec(
             ToServer::Request(request, reply) => {
                 let name = match &request {
                     Request::Call { name, .. } => Some(name.clone()),
+                    Request::ActivityStart { kind, .. } => Some(kind.clone()),
+                    Request::ActivityWait { .. } => None,
                     Request::Docs { .. } => None,
                 };
                 let answered = answer(request);
@@ -593,6 +599,21 @@ pub(super) fn exec(
         }
     })
 }
+
+/// The daemon-owned runner uses this entry point with pinned inputs and source.
+pub(super) fn workflow_exec(
+    script: &str,
+    _inputs: Value,
+    limits: Limits,
+    answer: &mut dyn FnMut(Request) -> Value,
+) -> Result<Value, String> {
+    let mut arguments = Map::new();
+    arguments.insert("script".into(), Value::String(script.into()));
+    exec(&arguments, limits, answer)
+}
+
+#[cfg(test)]
+mod workflow_tests;
 
 /// Keeps a result under the server's limit: a large `result` becomes a
 /// text preview, then logs are cut.
