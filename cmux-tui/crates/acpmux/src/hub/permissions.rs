@@ -798,7 +798,9 @@ impl Hub {
                 Some(own) => {
                     let meta = session.meta();
                     let family = self.config.read().await.family(&meta.harness);
-                    let mut env = crate::login_env::effective_for(family.as_deref(), &own);
+                    let mut env = probe_env(&own, |own| {
+                        crate::login_env::effective_for(family.as_deref(), own)
+                    });
                     // The agent's PATH, unless its own env names one (`apply_tokio_for`).
                     if let Some(path) = crate::login_env::agent_path()
                         && !own.contains_key("PATH")
@@ -1703,5 +1705,45 @@ mod stderr_tests {
         let mut lines = vec!["\x1b[31mERROR failed to refresh models\x1b[0m".to_owned()];
         lines.extend(std::iter::repeat_n("\x1b[0m".to_owned(), 8));
         assert_eq!(feed(&lines), vec!["failed to refresh models"]);
+    }
+}
+
+/// The environment a read-only shell probe runs in: what the harness got.
+/// A remote-origin launch gets no local overlay (the vault, `machine.env`,
+/// login values), so its probe sees only the env that launch was given;
+/// a local one gets `local(own)`.
+fn probe_env(
+    own: &std::collections::BTreeMap<String, String>,
+    local: impl FnOnce(
+        &std::collections::BTreeMap<String, String>,
+    ) -> std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeMap<String, String> {
+    if own.get(crate::agent::REMOTE_ENV_POLICY_KEY).map(String::as_str) == Some("1") {
+        let mut env = own.clone();
+        env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
+        return env;
+    }
+    local(own)
+}
+
+#[cfg(test)]
+mod probe_env_tests {
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn a_remote_launch_probe_gets_no_local_overlay() {
+        let overlay = |own: &BTreeMap<String, String>| {
+            let mut env = own.clone();
+            env.insert("VAULT_SECRET".into(), "local".into());
+            env
+        };
+        let remote = BTreeMap::from([
+            (crate::agent::REMOTE_ENV_POLICY_KEY.to_owned(), "1".to_owned()),
+            ("OWN".to_owned(), "x".to_owned()),
+        ]);
+        let env = super::probe_env(&remote, overlay);
+        assert_eq!(env, BTreeMap::from([("OWN".to_owned(), "x".to_owned())]));
+        let local = BTreeMap::from([("OWN".to_owned(), "x".to_owned())]);
+        assert!(super::probe_env(&local, overlay).contains_key("VAULT_SECRET"));
     }
 }
