@@ -164,7 +164,7 @@ test("native Connectors retains MCP counts beside every iMessage state", () => {
   ).toBe(t("rail.connected", { count: 1 }));
 });
 
-test("native iMessage reveals Connect once and keeps the person's fold after status refreshes", async () => {
+test("native iMessage reveals Connect once and keeps the person's fold across refreshes and remounts", async () => {
   const { JSDOM } = await import("jsdom");
   const { act, createElement } = await import("react");
   const { createRoot } = await import("react-dom/client");
@@ -197,30 +197,30 @@ test("native iMessage reveals Connect once and keeps the person's fold after sta
   let status: IMessageView["data"]["status"] = "not_connected";
   setNativeHost(async (method) => (method === "imessage.status" ? { ...IMESSAGE_INITIAL, status } : {}));
   resetSessionInfoState();
-  try {
-    await act(async () =>
-      root.render(
-        createElement(NativeSessionInfo, {
-          shown: true,
-          width: 320,
-          top: 0,
-          side: 0,
-          label: "Session Info",
-          links: [],
-          artifacts: 0,
-          documents: [],
-          rows: [],
-          agents: [],
-          waiting: new Set<string>(),
-          statuses: {},
-          processes: [],
-          listed: true,
-          transcriptTasks: [],
-          sessions: [],
-          workflows: [],
-        }),
-      ),
+  const renderPanel = () =>
+    root.render(
+      createElement(NativeSessionInfo, {
+        shown: true,
+        width: 320,
+        top: 0,
+        side: 0,
+        label: "Session Info",
+        links: [],
+        artifacts: 0,
+        documents: [],
+        rows: [],
+        agents: [],
+        waiting: new Set<string>(),
+        statuses: {},
+        processes: [],
+        listed: true,
+        transcriptTasks: [],
+        sessions: [],
+        workflows: [],
+      }),
     );
+  try {
+    await act(async () => renderPanel());
     expect(sessionInfoState().sections.connectors).toBe(true);
     await act(async () => runNativeSessionInfoAction("fold:connectors:0"));
     expect(sessionInfoState().sections.connectors).toBe(false);
@@ -229,6 +229,12 @@ test("native iMessage reveals Connect once and keeps the person's fold after sta
       await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux-imessage-changed")));
       expect(sessionInfoState().sections.connectors).toBe(false);
     }
+    await act(async () => root.render(null));
+    await act(async () => renderPanel());
+    expect(sessionInfoState().sections.connectors).toBe(false);
+    status = "needs_full_disk_access";
+    await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux-imessage-changed")));
+    expect(sessionInfoState().sections.connectors).toBe(false);
   } finally {
     await act(async () => root.unmount());
     setNativeHost(undefined);

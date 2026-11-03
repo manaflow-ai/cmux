@@ -92,6 +92,7 @@ import {
 } from "./subagentScope";
 import {
   bindSessionInfoPane,
+  claimSessionInfoIMessageReveal,
   SESSION_INFO_WIDTH,
   sessionInfoPaneKey,
   setSessionInfoMore,
@@ -1672,10 +1673,8 @@ export function SessionInfo({
   const state = sections ?? stored;
   const fold = (id: SessionInfoSectionId) => (next: boolean) => (onSection ?? setSessionInfoSection)(id, next);
   const imessageStatus = imessage?.data.status;
-  const revealedIMessage = useRef(false);
   useEffect(() => {
-    if (!imessageStatus || imessageStatus === "connected" || revealedIMessage.current) return;
-    revealedIMessage.current = true;
+    if (!imessageStatus || imessageStatus === "connected" || !claimSessionInfoIMessageReveal()) return;
     (onSection ?? setSessionInfoSection)("connectors", true);
   }, [imessageStatus, onSection]);
   useEffect(() => {

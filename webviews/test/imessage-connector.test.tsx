@@ -29,6 +29,7 @@ function install() {
     window: dom.window,
     document: dom.window.document,
     navigator: dom.window.navigator,
+    localStorage: dom.window.localStorage,
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
@@ -112,6 +113,12 @@ test("Connectors reveals Connect once, then keeps a manual fold through status r
     await act(async () => dom!.window.dispatchEvent(new dom!.window.Event("cmux-imessage-changed")));
     expect(fold().getAttribute("aria-expanded")).toBe("false");
   }
+  await act(async () => root!.unmount());
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<SessionInfo more />);
+  });
+  expect(fold().getAttribute("aria-expanded")).toBe("false");
 });
 
 test("the Connectors header keeps the MCP count beside an unconnected iMessage row", async () => {
@@ -119,7 +126,9 @@ test("the Connectors header keeps the MCP count beside an unconnected iMessage r
   setNativeHost(async () => ({ ...IMESSAGE_INITIAL }));
   await act(async () => {
     root = createRoot(container);
-    root.render(<SessionInfo more summary={{ mcpServers: [{ name: "github", status: "connected" }] }} />);
+    root.render(
+      <SessionInfo more summary={{ sessionId: "chat", mcpServers: [{ name: "github", status: "connected" }] }} />,
+    );
   });
   const section = container.querySelector('[data-section="connectors"]')!;
   expect(section.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe(
