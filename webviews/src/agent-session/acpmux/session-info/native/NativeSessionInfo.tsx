@@ -21,6 +21,7 @@ import type { OutputArtifact, OutputLink } from "../OutputsSection";
 import { sessionInfoLists, type SessionInfoProcess } from "../processes";
 import { useSectionOrder, sectionOrder } from "../sectionOrder";
 import {
+  claimSessionInfoIMessageReveal,
   setSessionInfoSection,
   setSessionInfoSourcesAll,
   useSessionInfoState,
@@ -50,6 +51,7 @@ import { useCloudRepositories } from "./useCloudRepositories";
 import { cloudEnvironmentRequest, openCloudEnvironment, subscribeCloudEnvironment } from "../../cloudEnvironment";
 import { copyText } from "../../conversation/clipboard";
 import { useSubagentLimitController } from "../SubagentLimitStepper";
+import { useIMessage } from "../imessage";
 
 const NO_SCHEDULED: readonly SummaryWakeup[] = [];
 
@@ -119,7 +121,13 @@ export function orderSections(sections: readonly (NativeInfoSection | undefined)
   return sectionOrder().flatMap((id) => {
     const section = byId.get(id);
     return section
-      ? [{ ...section, reorderable: true, reorderLabel: t("sessionInfo.reorderSection", { section: section.title }) }]
+      ? [
+          {
+            ...section,
+            reorderable: true,
+            reorderLabel: t("sessionInfo.reorderSection", { section: section.title }),
+          },
+        ]
       : [];
   });
 }
@@ -180,6 +188,16 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const language = usePaneLanguage();
   const state = useSessionInfoState();
   const { shown, summary, onShowUsage } = props;
+  const imessage = useIMessage(shown);
+  const imessageStatus = imessage?.data.status;
+  useEffect(() => {
+    if (!imessageStatus || imessageStatus === "connected") return;
+    // A persistent claim reveals Connect once across panels; later folds belong to the person.
+    if (claimSessionInfoIMessageReveal()) setSessionInfoSection("connectors", true);
+  }, [imessageStatus]);
+  useEffect(() => {
+    if (imessage?.expanded) setSessionInfoSection("connectors", true);
+  }, [imessage?.expanded]);
   const contextUsage = props.usage ?? compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const environmentEditor = useSyncExternalStore(subscribeCloudEnvironment, cloudEnvironmentRequest);
   const cloudSession =
@@ -242,7 +260,11 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
     onSetRunningLimit && chatId && !summary?.peer
       ? (maxRunning: number | null, from?: number) => onSetRunningLimit(chatId, maxRunning, from)
       : undefined;
-  const limit = useSubagentLimitController({ chatId, limits: summary?.subsessionLimits, onSet: setRunningLimit });
+  const limit = useSubagentLimitController({
+    chatId,
+    limits: summary?.subsessionLimits,
+    onSet: setRunningLimit,
+  });
   const local = opensProcessTerminal(summary);
   const showsCalls =
     shown &&
@@ -323,7 +345,13 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
         t,
       ),
       connectorsSection(
-        { servers: summary?.mcpServers ?? [], onReconnect: reconnect, open: state.sections.connectors, reconnecting },
+        {
+          servers: summary?.mcpServers ?? [],
+          onReconnect: reconnect,
+          open: state.sections.connectors,
+          reconnecting,
+          imessage,
+        },
         actions,
         t,
       ),

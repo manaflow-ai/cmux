@@ -537,7 +537,8 @@
       "terminal-clipboard-subscribe",
       "terminal-clipboard-reply",
       "snapshot-request",
-      "set-attach-visibility"
+      "set-attach-visibility",
+      "chief-work"
     ],
     "local-admin": [
       "server-stats",

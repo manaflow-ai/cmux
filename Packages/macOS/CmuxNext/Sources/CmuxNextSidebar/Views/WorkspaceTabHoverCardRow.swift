@@ -17,6 +17,10 @@ final class WorkspaceTabHoverCardRow: NSView {
 
     private let style: WorkspaceTabHoverCardStyle
     private let icon = NSImageView()
+    /// The tab's favicon as the sidebar's favicon style draws it (the one favicon path, `SidebarFaviconRenditions`).
+    private let faviconRenditions = SidebarFaviconRenditions()
+    /// The favicon shown, drawn again when the theme or the favicon style changes.
+    private var favicon: SidebarFavicon?
     private let title = ChromeLabel(labelWithString: "")
     /// The muted line: place, state and time (`WorkspaceTabHoverCardLine`).
     private let detail = ChromeLabel(labelWithString: "")
@@ -91,7 +95,8 @@ final class WorkspaceTabHoverCardRow: NSView {
             isHovered = false
         }
         let side = WorkspaceHoverCardView.iconSize
-        icon.image = tab.favicon.map { NSImage(cgImage: $0.image, size: NSSize(width: side, height: side)) }
+        favicon = tab.favicon
+        icon.image = tab.favicon.map(faviconImage)
             ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
             ?? NSImage.icon(tab.kind.icon, size: side)
         let line = WorkspaceTabHoverCardLine(tab, style: style, now: now, machine: machine)
@@ -204,10 +209,22 @@ final class WorkspaceTabHoverCardRow: NSView {
             // Secondary, the token the card's facts use: tertiary washed the paths out on dark glass.
             detail.textColor = style.tintsState ? Self.stateTone(state) ?? Palette.textSecondary : Palette.textSecondary
             trailingLabel.textColor = Palette.textSecondary
-            icon.contentTintColor = Palette.textSecondary
+            // A low-contrast mono favicon draws in the card's label colour (Lawrence msg 19869); a glyph in the secondary ink.
+            if let favicon { icon.image = faviconImage(favicon) }
+            icon.contentTintColor = favicon == nil ? Palette.textSecondary : Palette.textPrimary
             unreadDot.layer?.backgroundColor = Palette.statusUnread.cgColor
         }
         paint()
+    }
+
+    /// `favicon` as the sidebar's favicon style draws it on the card (its glass over the window background), in this
+    /// row's theme. Its bitmap is made once per image and style and kept.
+    private func faviconImage(_ favicon: SidebarFavicon) -> NSImage {
+        faviconRenditions.onStyleChange = { [weak self] in self?.applyColors() }
+        return performWithTheme {
+            faviconRenditions.drawing(favicon, side: WorkspaceHoverCardView.iconSize, scale: window?.backingScaleFactor ?? 2,
+                                      ground: SidebarFaviconRenditions.groundLuminance(Palette.windowBackground)).image
+        }
     }
 
     /// A needs-you or failed tab's status color (the sidebar's status colors); nil otherwise.

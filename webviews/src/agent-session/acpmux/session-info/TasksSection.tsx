@@ -13,6 +13,7 @@
 // the top (ui/presence.ts `useArrivals`); the ones the list is drawn with are simply there.
 import { useState } from "react";
 import { useArrivals } from "../../../ui/presence";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -61,6 +62,7 @@ export function TasksSection({
   const t = useT();
   const language = usePaneLanguage();
   const [showFinished, setShowFinished] = useState(false);
+  const listEdges = useScrollEdges();
   const { running, finished } = splitCommands(commands);
   const now = useNow(running.length > 0);
   // Moves once, when the earliest wakeup or cron job still ahead ends (no per-second poll).
@@ -138,7 +140,7 @@ export function TasksSection({
     ...ended.map((entry) => ({ at: entry.status.endedAt, entry })),
   ].sort((a, b) => (b.at ?? -Infinity) - (a.at ?? -Infinity));
   return (
-    <div className="acpmux-session-info-scroll" data-section="tasks">
+    <div ref={listEdges} className="acpmux-session-info-scroll ui-scroll-edge-fade" data-section="tasks">
       {(running.length > 0 || active.length > 0) && (
         <ul className="acpmux-session-info-list">
           {running.map((command) =>
