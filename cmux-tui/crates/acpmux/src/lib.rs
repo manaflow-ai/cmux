@@ -133,6 +133,7 @@ pub mod session_identity;
 pub mod session_liveness;
 pub mod session_name;
 mod session_scope;
+pub mod session_status;
 pub mod sha256;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;

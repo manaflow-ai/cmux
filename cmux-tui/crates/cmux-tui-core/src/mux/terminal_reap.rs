@@ -245,7 +245,7 @@ impl Mux {
     /// first saw it so (`terminal_unplaced_store.rs`).
     /// A pass that sees no unplaced terminal while the registry holds no
     /// unplaced time (`unplaced_rows_empty`) does not touch the registry.
-    fn reapable_terminals_unplaced_for(
+    pub(super) fn reapable_terminals_unplaced_for(
         &self,
         unplaced_rows_empty: &mut bool,
     ) -> anyhow::Result<HashMap<String, Duration>> {

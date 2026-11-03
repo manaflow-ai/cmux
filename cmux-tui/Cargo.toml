@@ -21,6 +21,7 @@ members = [
     "crates/acpmux-build-id",
     "crates/cmux-coderouter",
     "crates/cmux-history",
+    "crates/cmux-imessage",
     "crates/cmux-chat-index",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
@@ -227,6 +228,7 @@ cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-history = { path = "crates/cmux-history" }
+cmux-imessage = { path = "crates/cmux-imessage" }
 cmux-local-auth = { path = "crates/cmux-local-auth" }
 cmux-config = { path = "crates/cmux-config" }
 cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }

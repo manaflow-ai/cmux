@@ -312,6 +312,35 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
         await browser?.close();
       });
 
+      for (const action of ["cancel", "save"] as const) {
+        test(`closing a comment draft with ${action} releases the gutter button`, async () => {
+          const commentsPage = await browser.newPage({ viewport: VIEWPORT });
+          try {
+            await commentsPage.goto(`${base}/test/browser/diff-virtualization.html?fixture=comments`);
+            const gutter = commentsPage.locator('[data-column-number="4"]').first();
+            await gutter.hover();
+            await commentsPage.locator("[data-utility-button]").click();
+            const composer = commentsPage.locator(".comment-composer");
+            await composer.waitFor();
+            expect(await commentsPage.evaluate(() => (window as any).__INSTANCE.getSelectedLines())).not.toBeNull();
+            // The pointer has left the gutter, just as when clicking the comment's footer.
+            if (action === "save") await composer.locator("textarea").fill("Review this line.");
+            await composer
+              .getByRole("button", { name: action === "cancel" ? "Cancel" : "Comment", exact: true })
+              .click();
+            await composer.waitFor({ state: "detached" });
+            expect(await commentsPage.evaluate(() => (window as any).__INSTANCE.getSelectedLines())).toBeNull();
+            expect(await commentsPage.locator("[data-utility-button]").count()).toBe(0);
+            expect(await commentsPage.locator(".comment-card").count()).toBe(action === "save" ? 1 : 0);
+            // Normal hover still offers a new comment after the old selection is released.
+            await commentsPage.locator('[data-column-number="5"]').first().hover();
+            await commentsPage.locator("[data-utility-button]").waitFor({ state: "visible" });
+          } finally {
+            await commentsPage.close();
+          }
+        });
+      }
+
       test("mounted files and line rows stay bounded by the viewport anywhere in the diff", async () => {
         const scrollHeight = await page.evaluate(() => document.querySelector(".code-view-root")!.scrollHeight);
         // 2,000 files are far taller than the viewport (each small file is ~600px).
