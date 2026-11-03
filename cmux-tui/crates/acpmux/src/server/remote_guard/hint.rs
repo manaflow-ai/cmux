@@ -151,7 +151,7 @@ fn update_first(
         return None;
     }
     // `--if-idle`: the update never restarts the peer under a session mid-turn there.
-    let update = format!("acpmux host update {peer_name} --if-idle");
+    let update = format!("acpmux machine update {peer_name} --if-idle");
     let then = command(params, &Start::of(params), Some(peer_name), false).render(None);
     let message = format!(
         "{}: {peer_name} runs acpmux build {} (this daemon: {}), from before a start with no folder runs in a scratch folder there; run `{update}`, then `{then}`",
@@ -712,10 +712,10 @@ newlines')"#
         let data = e.data.clone().unwrap();
         assert_eq!(data["reason"], "peer_version_skew");
         assert_eq!(data["refused"], CWD_OUTSIDE_ROOTS);
-        assert_eq!(data["try"], "acpmux host update gcp-codex-lane-1 --if-idle");
+        assert_eq!(data["try"], "acpmux machine update gcp-codex-lane-1 --if-idle");
         assert_eq!(data["then"], "acpmux new --host=gcp-codex-lane-1 -m claude hi");
         assert!(e.message.contains("972843ddd"), "{}", e.message);
-        let update = "`acpmux host update gcp-codex-lane-1 --if-idle`";
+        let update = "`acpmux machine update gcp-codex-lane-1 --if-idle`";
         assert!(e.message.contains(update), "{}", e.message);
         // A folder named, a peer that says how it served us, or one of this build: as before.
         let named = json!({"cwd": "/tmp/x", "_meta": {"acpmux": {"argv": argv}}});

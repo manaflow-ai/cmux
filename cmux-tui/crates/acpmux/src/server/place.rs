@@ -135,7 +135,7 @@ pub(super) async fn subsession_host(
             return Ok(None);
         }
         return Err(RpcError::invalid_params(format!(
-            "start_session refused: a sub-session starts only on this machine ({here}), not on {host:?}. Pass host \"auto\" to check this machine has room first, or leave host out. To run work on another machine, tell the user: `acpmux new --host auto` places a session on the machine with the most room."
+            "start_session refused: a sub-session starts only on this machine ({here}), not on {host:?}. Pass host \"auto\" to check this machine has room first, or leave host out. To run work on another machine, tell the user: `acpmux new --machine auto` places a session on the machine with the most room."
         ))
         .with_data(json!({"reason": "subsessions.host_unsupported", "host": here})));
     };

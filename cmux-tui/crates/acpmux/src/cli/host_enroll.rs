@@ -727,7 +727,7 @@ pub(super) fn platform_skew(
         .filter(|target| Some(*target) != local_target)
         .map(|target| {
             format!(
-                "Run `acpmux host update {name} --binary-dir DIR` (DIR/acpmux-{target}), or rebuild acpmux on {host} for its OS and architecture (see docs/remote-agents-and-cloud.md)."
+                "Run `acpmux machine update {name} --binary-dir DIR` (DIR/acpmux-{target}), or rebuild acpmux on {host} for its OS and architecture (see docs/remote-agents-and-cloud.md)."
             )
         })
         .unwrap_or_else(|| {
@@ -844,9 +844,9 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
                 return step;
             }
             return StepResult::new(Step::Install, StepState::Warn, why)
-                .with_fix(format!("Run `acpmux host update {name}`."))
+                .with_fix(format!("Run `acpmux machine update {name}`."))
                 .with_reason("peer_version_skew")
-                .with_try(format!("acpmux host update {name}"));
+                .with_try(format!("acpmux machine update {name}"));
         }
         return fail(
             Step::Install,

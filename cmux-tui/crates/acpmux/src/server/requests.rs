@@ -348,7 +348,7 @@ async fn dispatch_brief(
                 return replayed;
             }
             return Err(RpcError::invalid_params(format!(
-                "host {selected:?} is not allowed for this dispatch ({why}); `acpmux host place` lists the hosts that are"
+                "host {selected:?} is not allowed for this dispatch ({why}); `acpmux machine pick` lists the hosts that are"
             )));
         }
         Some(selected.clone())
@@ -356,7 +356,7 @@ async fn dispatch_brief(
     if let Some(peer_name) = host {
         let peer = hub.peer_by_name(&peer_name).ok_or_else(|| {
             RpcError::not_found(format!(
-                "no peer {peer_name:?}; run `acpmux host ls` and connect it"
+                "no peer {peer_name:?}; run `acpmux machine ls` and connect it"
             ))
         })?;
         if !peer.connected.load(std::sync::atomic::Ordering::SeqCst) {
@@ -510,7 +510,7 @@ async fn dispatch_brief(
     if let Some(why) = super::place::here_refusal(super::place::brief_work(&brief)) {
         hub.briefs.release(&id);
         return Err(RpcError::invalid_params(format!(
-            "this host is not allowed for this dispatch ({why}); `acpmux host place` lists the hosts that are"
+            "this host is not allowed for this dispatch ({why}); `acpmux machine pick` lists the hosts that are"
         ))
         .with_data(json!({"reason": "dispatch.host_refused"})));
     }

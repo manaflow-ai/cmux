@@ -863,7 +863,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         let (message, warning) = if url.starts_with("ssh://") && has_token {
                             (
                                 format!(
-                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host ls` and retry after it shows connected (the saved WebSocket token is retained)"
+                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux machine ls` and retry after it shows connected (the saved WebSocket token is retained)"
                                 ),
                                 json!({
                                     "reason": "peer_probing",
@@ -874,7 +874,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         } else if url.starts_with("ssh://") {
                             (
                                 format!(
-                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host doctor {name} --json`"
+                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux machine doctor {name} --json`"
                                 ),
                                 json!({
                                     "reason": "peer_probing",
@@ -885,11 +885,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         } else {
                             (
                                 format!(
-                                    "peer {name} was saved and is probing in the background; run `acpmux host ls` and retry after it shows connected"
+                                    "peer {name} was saved and is probing in the background; run `acpmux machine ls` and retry after it shows connected"
                                 ),
                                 json!({
                                     "reason": "peer_probing",
-                                    "try": "acpmux host ls",
+                                    "try": "acpmux machine ls",
                                     "detail": "the peer was saved and is probing in the background"
                                 }),
                             )
@@ -1040,7 +1040,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             let peers = v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
             if peers.is_empty() {
-                println!("no peers (add one: acpmux host add HOST)");
+                println!("no peers (add one: acpmux machine add HOST)");
             }
             for p in peers {
                 let state = crate::peer_link::state_label(&p, crate::store::now_ms());

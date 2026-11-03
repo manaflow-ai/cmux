@@ -53,7 +53,7 @@ pub enum Target {
 
 /// What a `Target::HereForFolder` launch prints.
 pub const FOLDER_HERE: &str = "starting on this machine, which a person works at, because --cwd or \
--w names a folder here; leave them out to place it on a fleet host (`acpmux host place`), or \
+-w names a folder here; leave them out to place it on a fleet host (`acpmux machine pick`), or \
 pass --host local to say this machine on purpose";
 
 /// Whether this machine is one a person works at, by the fleet registry.
