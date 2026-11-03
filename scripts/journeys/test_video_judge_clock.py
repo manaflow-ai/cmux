@@ -159,6 +159,22 @@ class VideoJudgeClockTests(unittest.TestCase):
         self.assertIsNone(got["offset_s"])
         self.assertIn("equally", got["note"])
 
+    def test_an_input_not_logged_as_hid_before_the_press_is_not_taken_for_it(self):
+        # Review BLOCK of 831d17262aa (feat-bv-51b2e1d-120x1/bv-dt-right-heavy-dark-r0): the journal has two equal
+        # Cmd-Opt-I clusters, the open action's own key (not logged as HID) 2.17 s before the logged press. Both match
+        # 1 of 1 action; the first has more events and won, which put the film's frames 2.08 s after the driver's
+        # t_stop. Meta's t_stop bounds the offset from below.
+        offset = 1021257.0
+        hid = [{"kind": "key", "t_sent": 9.705, "t_returned": 9.78}]
+        journal = [{"uptimeNanos": int(round((t + offset) * 1e9)), "kind": {"key": {"_0": {"phase": ph}}}}
+                   for base, phases in ((7.534, ("flags", "flags", "down", "up", "flags", "flags")), (9.705, ("flags", "down", "up")))
+                   for t, ph in zip((base + 0.004 + 0.01 * k for k in range(6)), phases)]
+        frames = [7.0 + offset, 11.2 + offset]
+        meta = {"t_start": 6.9, "t_stop": 11.9, "counts": {"first_t": frames[0]}}
+        got = vj.hid_clock_offset(hid, journal, frames, meta)
+        self.assertEqual(got["source"], "journal", got)
+        self.assertAlmostEqual(got["offset_s"], offset + 0.004, delta=1e-6, msg=got)
+
     def test_ext_video_writes_the_drivers_offset_into_each_hid_entry(self):
         import time
         import types

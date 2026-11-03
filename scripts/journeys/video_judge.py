@@ -50,6 +50,7 @@ REF_FRAMES = 5             # at-rest reference frames taken before and after eac
 COMMIT_SLACK_S = 0.0005    # clock jitter allowed when picking the model sample a frame shows
 HID_CLOCK_SLACK_S = 0.002   # a journal input event this close outside a HID action's [t_sent, t_returned] is its own
 HID_CLOCK_PRIOR_S = (-3.0, 1.0)  # the journal offset's search range around meta's first frame - t_start
+HID_CLOCK_STOP_SLACK_S = 0.05  # clock read jitter allowed at meta's t_stop
 HID_CLOCK_AGREE_S = 0.05    # equally good journal offsets farther apart than this: the offset is unknown
 COLOR_TOL = 3              # max channel difference for "the same color" in exact scanlines
 TRACK_TOL = 6              # max channel difference to the divider's at-rest color while tracking it
@@ -279,7 +280,8 @@ def hid_clock_offset(hid, journal, frame_t=(), meta=None):
                 one recording of boot).
       journal:  the rest. Each HID action's input reaches the journal between its t_sent and t_returned. Seeds:
                 (journal input event - t_sent) of every action, within HID_CLOCK_PRIOR_S of meta's first frame
-                minus t_start. Only actions that end after the journal's oldest entry count (it keeps the last 400);
+                minus t_start, and not below the last frame minus meta's t_stop (the driver reads t_stop after the
+                recorder stopped). Only actions that end after the journal's oldest entry count (it keeps the last 400);
                 the seed with the most such actions matched minus missed, then the most input events inside them,
                 wins. Two winners more than HID_CLOCK_AGREE_S apart, or HID that the winner puts outside the
                 recording: unknown (a note). The offset is the smallest (first event - t_sent) over the matched
@@ -311,6 +313,12 @@ def hid_clock_offset(hid, journal, frame_t=(), meta=None):
     prior = _recording_prior(meta, frame_t)
     if prior is not None:
         seeds = seeds[(seeds >= prior + HID_CLOCK_PRIOR_S[0]) & (seeds <= prior + HID_CLOCK_PRIOR_S[1])]
+    t_stop = (meta or {}).get("t_stop")
+    if isinstance(t_stop, (int, float)) and len(frame_t):
+        # The recorder stops before the driver reads t_stop, so the last frame is no later than t_stop on the host
+        # clock: a smaller offset is impossible (review of 831d17262aa: bv-dt-right-heavy-dark-r0, whose journal also
+        # has the open action's own Cmd-Opt-I, not logged as HID, 2.1 s before the logged one).
+        seeds = seeds[seeds >= float(frame_t[-1]) - float(t_stop) - HID_CLOCK_STOP_SLACK_S]
     start = _journal_start(journal)
     scored = []
     for c in seeds:
