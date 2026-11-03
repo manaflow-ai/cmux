@@ -84,13 +84,20 @@ extension ClaudeHookSessionStore {
             if record.claudeViewerOriginalWorkspaceSlots == nil {
                 record.claudeViewerOriginalWorkspaceSlots = [:]
             }
-            if record.claudeViewerOriginalSurfaceSlots?[surfaceId] == nil,
-               let slot = state.activeSessionsBySurface[surfaceId] {
-                record.claudeViewerOriginalSurfaceSlots?[surfaceId] = activeSnapshot(slot)
+            // A pane with no slot must be recorded as explicitly empty, not
+            // as "not captured"; otherwise a second admission snapshots the
+            // worker's own slot and a last detach restores stale ownership.
+            if record.claudeViewerOriginalSurfaceSlots?[surfaceId] == nil {
+                record.claudeViewerOriginalSurfaceSlots?[surfaceId] =
+                    state.activeSessionsBySurface[surfaceId].map(activeSnapshot)
+                    ?? ClaudeViewerActiveSessionSnapshot(
+                        sessionId: "", turnId: nil, allowsNewSessionReplacement: nil, updatedAt: 0)
             }
-            if record.claudeViewerOriginalWorkspaceSlots?[workspaceId] == nil,
-               let slot = state.activeSessionsByWorkspace[workspaceId] {
-                record.claudeViewerOriginalWorkspaceSlots?[workspaceId] = activeSnapshot(slot)
+            if record.claudeViewerOriginalWorkspaceSlots?[workspaceId] == nil {
+                record.claudeViewerOriginalWorkspaceSlots?[workspaceId] =
+                    state.activeSessionsByWorkspace[workspaceId].map(activeSnapshot)
+                    ?? ClaudeViewerActiveSessionSnapshot(
+                        sessionId: "", turnId: nil, allowsNewSessionReplacement: nil, updatedAt: 0)
             }
             record.claudeViewerRouteSurfaceId = surfaceId
             record.workspaceId = workspaceId
@@ -156,7 +163,8 @@ extension ClaudeHookSessionStore {
                 for lease in removed {
                     if !remaining.contains(where: { $0.surfaceID == lease.surfaceID }),
                        state.activeSessionsBySurface[lease.surfaceID]?.sessionId == key {
-                        if let earliest = record.claudeViewerOriginalSurfaceSlots?[lease.surfaceID] {
+                        if let earliest = record.claudeViewerOriginalSurfaceSlots?[lease.surfaceID],
+                           !earliest.sessionId.isEmpty {
                             state.activeSessionsBySurface[lease.surfaceID] = activeRecord(earliest)
                         } else {
                             state.activeSessionsBySurface.removeValue(forKey: lease.surfaceID)
@@ -165,7 +173,8 @@ extension ClaudeHookSessionStore {
                     }
                     if !remaining.contains(where: { $0.workspaceID == lease.workspaceID }),
                        state.activeSessionsByWorkspace[lease.workspaceID]?.sessionId == key {
-                        if let earliest = record.claudeViewerOriginalWorkspaceSlots?[lease.workspaceID] {
+                        if let earliest = record.claudeViewerOriginalWorkspaceSlots?[lease.workspaceID],
+                           !earliest.sessionId.isEmpty {
                             state.activeSessionsByWorkspace[lease.workspaceID] = activeRecord(earliest)
                         } else {
                             state.activeSessionsByWorkspace.removeValue(forKey: lease.workspaceID)

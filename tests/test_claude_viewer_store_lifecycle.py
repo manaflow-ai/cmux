@@ -132,6 +132,10 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
             "jobId": self.worker_session[:8], "procStart": process_start(self.worker.pid),
             "pidDomain": "darwin",
         }))
+        self.reset_state()
+
+    def reset_state(self):
+        now = time.time()
         self.state_path.write_text(json.dumps({
             "version": 1,
             "sessions": {self.worker_session: {
@@ -144,6 +148,12 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
             "activeSessionsByWorkspace": {self.worker_workspace: {
                 "sessionId": self.launcher_session, "updatedAt": now}},
         }))
+
+    def set_surface_owner(self, surface_id):
+        state = json.loads(self.state_path.read_text())
+        state.setdefault("activeSessionsBySurface", {})[surface_id] = {
+            "sessionId": self.launcher_session, "updatedAt": time.time()}
+        self.state_path.write_text(json.dumps(state))
         self.server = MappedHookSocketServer(self.worker_workspace, self.worker_surface)
         self.server.__enter__()
         self.server.workspace_surfaces[self.worker_workspace] = self.worker_surface
@@ -187,7 +197,9 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
     def test_same_pane_two_viewers_both_orders_restore_worker_route(self):
         for order in (("first", "second"), ("second", "first")):
             with self.subTest(order=order):
+                self.reset_state()
                 pane_surface = str(uuid.uuid4())
+                self.set_surface_owner(pane_surface)
                 first, _ = self.viewer(self.worker_workspace, pane_surface)
                 second, _ = self.viewer(self.worker_workspace, pane_surface)
                 first.run("attached")
@@ -203,6 +215,8 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
 
     def test_cross_pane_viewers_restore_each_pane_owner(self):
         pane_a, pane_b = str(uuid.uuid4()), str(uuid.uuid4())
+        self.set_surface_owner(pane_a)
+        self.set_surface_owner(pane_b)
         first, _ = self.viewer(self.worker_workspace, pane_a)
         second, _ = self.viewer(self.worker_workspace, pane_b)
         first.run("attached")
@@ -223,13 +237,14 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
         new_owner, new_route = str(uuid.uuid4()), str(uuid.uuid4())
         state = json.loads(self.state_path.read_text())
         state["sessions"][self.worker_session]["surfaceId"] = new_route
-        state["activeSessionsBySurface"][pane_surface] = {
+        state.setdefault("activeSessionsBySurface", {})[pane_surface] = {
             "sessionId": new_owner, "updatedAt": time.time()}
         self.state_path.write_text(json.dumps(state))
         viewer.run("detached")
         state = json.loads(self.state_path.read_text())
         self.assertEqual(state["sessions"][self.worker_session]["surfaceId"], new_route)
-        self.assertEqual(state["activeSessionsBySurface"][pane_surface]["sessionId"], new_owner)
+        self.assertEqual(state.get("activeSessionsBySurface", {}).get(pane_surface, {}).get("sessionId"),
+                         new_owner)
         viewer.close()
 
     def test_closed_marker_blocks_a_lease_without_a_detach_event(self):
