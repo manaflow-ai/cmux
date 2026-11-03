@@ -35,7 +35,7 @@ export default componentEntry({
   widths: { narrow: 360, normal: 600 },
   covers: ["pages/settings/components/AccentPicker.tsx#AccentPicker", "ui/Listbox.tsx#Listbox"],
   load: async () => AccentFixture,
-  styles: () => Promise.all([import("../styles.css"), import("../layout.css")]),
+  styles: () => import("../page.css"),
   variants: {
     overflowing: {
       note: "Rich accent rows scroll inside the theme-style listbox.",

@@ -96,6 +96,7 @@ export function Popover({
   native,
   children,
 }: PopoverProps) {
+  const popupClassName = cx("ui-popup ui-glass ui-popover", className);
   const edges = useScrollEdges();
   const container = usePortalContainer();
   const positionMethod = useOverlayPosition();
@@ -139,7 +140,7 @@ export function Popover({
             ref={fade ? edges : undefined}
             // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
             data-popup-shift={flip === "shift" ? "" : undefined}
-            className={cx("ui-popup ui-glass ui-popover", fade && "ui-scroll-edge-fade", className)}
+            className={cx(popupClassName, fade && "ui-scroll-edge-fade")}
             aria-label={label}
             initialFocus={initialFocus}
             finalFocus={finalFocus}

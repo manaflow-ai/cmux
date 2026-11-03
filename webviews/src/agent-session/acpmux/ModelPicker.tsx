@@ -1438,7 +1438,6 @@ export function ModelPicker(props: ModelPickerProps) {
               started chat's harness is fixed, so its menu has none. */}
           {!harnessFixed && (
             <ScrollArea
-              fade
               className="acpmux-mp-rail-scroll w-11 flex-none border-r-[0.5px] border-edge"
               viewportClassName="acpmux-mp-rail-viewport"
               horizontal
