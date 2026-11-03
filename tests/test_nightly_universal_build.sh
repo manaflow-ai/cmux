@@ -906,6 +906,9 @@ NOT_PUBLISHED="needs.resolve-nightly-cmux-tui-client.outputs.already_published !
 NOT_CONTINUE="needs.decide.outputs.continue_only != 'true'"
 # A nightly-next push that a newer push replaced builds nothing (one build slot, #21917).
 NOT_SUPERSEDED="needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'"
+# A build a newer published build is already above spends no notarization (#33109): the macOS
+# signer adds it as one more top-level conjunct, so it only narrows the gate.
+NOT_OVERTAKEN="needs.pick-nightly-sign-runner.outputs.overtaken != 'true'"
 # The helper, the variant and the macOS signer each exclude build_only with a top-level `&&`.
 BUILD_GATE="needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE"
 # nightly-next's early controls wait for their admission receipt (#30284): the resolver, the
@@ -918,7 +921,7 @@ SIGN_FALLBACK="!cancelled() && needs.decide.result == 'success' && needs.build-n
 if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $EARLY_ADMISSION" ] \
   || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $BUILD_GATE" ] \
-  || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"$SIGN_FALLBACK && $BUILD_GATE\"" ] \
+  || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"$SIGN_FALLBACK && $BUILD_GATE && $NOT_OVERTAKEN\"" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $EARLY_ADMISSION" ] \
   || [ "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" != "$(job_if build-nightly-app)" ] \
   || [ "$(job_if publish-nightly)" != "    if: \"always() && !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success' && (needs.verify-final-dmg-nightly.outputs.smoked_in_job == 'true' || !(needs.signer-dmg.result == 'success' && vars.NIGHTLY_NEXT_PARALLEL_SMOKE != 'off' && needs.decide.outputs.track == 'nightly-next') && needs.verify-final-dmg-nightly.outputs.image == '' || needs.launch-smoke-nightly.result == 'success' && needs.verify-final-dmg-nightly.outputs.image != '' && needs.launch-smoke-nightly.outputs.image == needs.verify-final-dmg-nightly.outputs.image)) || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))\"" ]; then
