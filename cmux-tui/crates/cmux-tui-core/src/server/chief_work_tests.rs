@@ -93,6 +93,19 @@ fn chief_work_lost_and_failed_commands_do_not_look_completed() {
 }
 
 #[test]
+fn chief_work_failed_agents_preserve_live_work_and_input_precedence() {
+    for indicator in ["failed", "lost"] {
+        assert_eq!(agent(&json!({"status": "idle", "indicator": indicator}))["state"], "failed");
+    }
+    let mut raw = json!({"status": "idle", "lastTurn": {"status": "failed"}});
+    assert_eq!(agent(&raw)["state"], "failed");
+    raw["status"] = json!("running");
+    assert_eq!(agent(&raw)["state"], "working");
+    raw["status"] = json!("waiting");
+    assert_eq!(agent(&raw)["state"], "waiting");
+}
+
+#[test]
 fn chief_work_a_moved_home_keeps_its_pinned_identity() {
     let dir = cmux_unix_socket::short_test_dir("chief-work");
     std::fs::create_dir(dir.path().join("optchat")).unwrap();
@@ -130,4 +143,62 @@ fn chief_work_admits_the_owner_channels_page_and_refuses_other_devices_and_agent
     mux.bind_conversation_principal(page, "agent_other".to_owned()).unwrap();
     assert!(!reader(&mux, page));
     assert!(!reader(&mux, u64::MAX));
+}
+
+#[test]
+fn chief_work_scoped_hello_admits_channels_and_refuses_every_other_page() {
+    use crate::server::client_hello::{HelloGate, Peer};
+    let mux = Mux::new_for_test("chief-work-hello", crate::SurfaceOptions::default());
+    let request = r#"{"id":42,"cmd":"chief-work","chief":"agent_mux"}"#;
+    for page in ["home-channels", "history", "agent", "unknown"] {
+        let mut gate = HelloGate::new(ClientTransport::WebSocket);
+        gate.scope_to_page(page);
+        let reply = gate.observe(&mux, u64::MAX, request, Peer::unknown);
+        if page == "home-channels" {
+            assert!(reply.is_none());
+        } else {
+            let reply = reply.unwrap();
+            assert_eq!(reply["id"], 42);
+            assert_eq!(reply["error_code"], "origin.forbidden");
+        }
+    }
+}
+
+#[test]
+fn chief_work_a_bounded_snapshot_reads_active_sessions_first_and_reports_truncation() {
+    let mut sessions: Vec<Value> = (0..MAX_SESSIONS)
+        .map(|n| session(&format!("idle-{n}"), json!({"mux.parent": "optchat-chief:12345678"})))
+        .collect();
+    let mut active = session("active", json!({"mux.parent": "optchat-chief:12345678"}));
+    active.as_object_mut().unwrap().insert("status".into(), json!("running"));
+    sessions.push(active);
+    let mut read = Vec::new();
+    let snapshot = inventory("12345678", |method, params, _| {
+        if method == "_acpmux/sessions" {
+            return Ok(json!({"sessions": sessions}));
+        }
+        read.push(params["sessionId"].clone());
+        Ok(json!({"processes": []}))
+    })
+    .unwrap();
+    assert_eq!(snapshot["truncated"], true);
+    assert_eq!(read.len(), MAX_SESSIONS);
+    assert_eq!(read[0], "active");
+}
+
+#[test]
+fn chief_work_command_bounds_report_only_omitted_rows() {
+    for count in [MAX_TASKS, MAX_TASKS + 1] {
+        let snapshot = inventory("12345678", |method, _, _| {
+            if method == "_acpmux/sessions" {
+                return Ok(json!({"sessions": [session("turn", json!({"cmux.chief": "12345678"}))]}));
+            }
+            let rows: Vec<Value> = (0..count).map(|n| json!({
+                "id": format!("turn/{n}"), "sessionId": "turn", "command": "bun test", "state": "running"
+            })).collect();
+            Ok(json!({"processes": rows}))
+        }).unwrap();
+        assert_eq!(snapshot["tasks"].as_array().unwrap().len(), MAX_TASKS);
+        assert_eq!(snapshot["truncated"], count > MAX_TASKS);
+    }
 }

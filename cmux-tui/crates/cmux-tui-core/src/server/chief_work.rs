@@ -195,7 +195,8 @@ fn inventory(
         .map(|s| agent(s))
         .collect();
     let mut tasks = Vec::new();
-    for session in sessions {
+    let mut sessions = sessions.into_iter().peekable();
+    while let Some(session) = sessions.next() {
         let id = string(session, "sessionId").ok_or(UNAVAILABLE)?;
         let mut cursor: Option<String> = None;
         let mut cursors = HashSet::new();
@@ -226,7 +227,7 @@ fn inventory(
             }
         }
         if tasks.len() >= MAX_TASKS {
-            truncated = true;
+            truncated |= sessions.peek().is_some();
             break;
         }
     }
@@ -291,6 +292,11 @@ fn agent(raw: &Value) -> Value {
         Some("running" | "stopping") => "working",
         Some("waiting") => "waiting",
         Some("stuck" | "disconnected" | "unreachable") => "failed",
+        _ if matches!(string(raw, "indicator"), Some("failed" | "lost"))
+            || raw.pointer("/lastTurn/status").and_then(Value::as_str) == Some("failed") =>
+        {
+            "failed"
+        }
         _ => "idle",
     };
     json!({"id": raw.get("sessionId"), "name": string(raw, "name").or_else(|| string(raw, "title")).unwrap_or("Agent"),

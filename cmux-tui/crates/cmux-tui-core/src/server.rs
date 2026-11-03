@@ -792,6 +792,11 @@ enum Command {
     /// The Chief memory inspector's read-only API, for the owner's trusted
     /// connection, forwarded to the brain host (`chief-inspect-v1`).
     ChiefInspect(chief_inspect::Params),
+    /// Read-only inventory of this Chief's owned work (`chief-work-v1`).
+    /// Its bounded async raw handler runs before command dispatch.
+    ChiefWork {
+        chief: String,
+    },
     UrlOpenClaim {
         request_id: String,
     },
