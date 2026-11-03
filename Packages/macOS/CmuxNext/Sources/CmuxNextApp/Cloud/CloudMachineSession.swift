@@ -147,14 +147,17 @@ final class CloudMachineSession {
     /// paused machine (`cloud.machine.connect` starts it).
     func connect(origin: CloudLinkOrigin = .script) {
         guard !disconnected, !machine.shownStatus.isChanging else {
-            CloudMachineLink.noteConnectSkipped(machineID, disconnected: disconnected, changing: machine.shownStatus.isChanging)
+            CloudMachineLink.noteConnect(machineID, "skipped: disconnected=\(disconnected) changing=\(machine.shownStatus.isChanging)")
             return
         }
         if appLink != nil {
             guard machine.status.isLive || origin == .user, !appConnecting, appTicket == nil || linkEnded != nil else { return }
             appConnecting = true
         } else {
-            guard machine.status.isLive else { return }
+            guard machine.status.isLive else {
+                CloudMachineLink.noteConnect(machineID, "skipped: status \(machine.status.rawValue)")
+                return
+            }
         }
         connects += 1
         // A resume that failed earlier says nothing about this connect.
@@ -176,9 +179,11 @@ final class CloudMachineSession {
             guard let link else { return }
             await link.resume()
             guard !disconnected, machine.status.isLive, !machine.shownStatus.isChanging else {
+                CloudMachineLink.noteConnect(machineID, "hop skipped: disconnected=\(disconnected) status \(machine.status.rawValue) changing=\(machine.shownStatus.isChanging)")
                 noteMutationInterruption()
                 return
             }
+            CloudMachineLink.noteConnect(machineID, "hop starts the daemon")
             // A link start that a pause overtook changes nothing (`noteLink`).
             let suspendsBefore = suspends
             daemon.start(remote: { [weak self] in

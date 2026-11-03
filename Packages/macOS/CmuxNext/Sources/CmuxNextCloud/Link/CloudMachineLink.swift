@@ -52,10 +52,9 @@ public actor CloudMachineLink {
     /// A hub start's token read (60 s), enrollment (60 s) and first line (45 s), plus a margin.
     static let hubBound: Duration = .seconds(170)
 
-    /// A connect that did nothing, so a stuck machine's log says why no link started.
-    public nonisolated static func noteConnectSkipped(_ machineID: String, disconnected: Bool, changing: Bool) {
-        Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.link")
-            .notice("connect skipped for \(machineID, privacy: .public): disconnected=\(disconnected) changing=\(changing)")
+    /// Where a connect got to, so a stuck machine's log says why no link started.
+    public nonisolated static func noteConnect(_ machineID: String, _ what: String) {
+        Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.link").notice("connect \(machineID, privacy: .public): \(what, privacy: .public)")
     }
 
     public func socketPath() async throws -> String {
