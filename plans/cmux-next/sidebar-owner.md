@@ -1,5 +1,19 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-03: a row's working spinner draws at the row's status glyph size, not the warning's. Leo, verbatim: "i think
+  the spinners are maybe a bit too big in this situation" (the compact sidebar). Since #30236's follow-up (Leo
+  2026-11-01, "every icon is still f***ing small") every non-dot row badge drew in a 14 pt box, so at compact the
+  spinner outweighed the 8 pt unread dot and the 10 pt status marks of badge-less rows. A working or loading badge now
+  takes `RowBadgeView.spinnerSide` (`SidebarStyle.statusGlyphSize`: 10 pt compact, 12 comfortable) on the same cell
+  center; the red warning and needs-you marks keep 14 pt. Regression: `RowBadgeSpinnerDensityTests` (every density and
+  minimal mode), `RowBadgeMarkSizeTests.theSpinnerIsSmallerThanTheWarning`.
+- 2026-11-03: the update and notice cards take the theme. Leo, verbatim, on the Downloading Update card: "will this
+  be themeed properly?". The download bar was the fixed secondary-text gray (`Palette.textSecondary`) and the Update
+  Ready and notice cards' veil the neutral gray; the bar is now the theme's accent (`Palette.accentFill`, the primary
+  text with no accent chosen) on the theme's hover-fill track, and both cards' `CardSurfaceView` takes the theme's glass
+  tint (`takesThemeTint`), as the Updated card's does since 2026-11-02. Layout and copy are unchanged. Regression:
+  `SidebarCardSurfaceTests.theDownloadBarIsTheThemesAccent` (dark and light, neutral and chosen accent) and the
+  cards' `...InTheThemesTint` surface tests.
 - 2026-11-03: folding a group never changes the rows' width. Leo: "why when i collapse/expand the cosmic-gray group
   do the workspace horizontal widths differ?". The list took the clip's width, which a legacy scroller narrows by 11 pt
   only while the rows overflow (an open long group); `SidebarListView.rowsWidth(in:)` now counts the scroller for its
@@ -1161,6 +1175,22 @@ An empty group now keeps only its header at rest. The header's existing + appear
   `WorkspaceTabHoverCardTests.aHoveredRowsCloseButtonClosesItsTabAndKeepsTheCard`,
   `WorkspaceHoverCardBehaviorTests.comingBackToTheSameRowShowsTheSameCardWithNoCrossfade`,
   `WorkspaceTabHoverCardRichRowsTests`.
+
+## The spaces row's + always sits right of the last space (2026-11-03)
+
+- Leo 2026-11-03 03:30Z: "I don't want hovering near the row to also just immediately turn it to a plus. only when
+  im direclty over it. or, rather, why do we not just have the plus to the right of the center circle? always to the
+  rightmost of the circles, maybe with the horizontal scrollbar?"
+- The + in the spaces row is drawn at rest, always right after the last space's dot (one space included: the dot
+  stays centered and the + sits to its right). Entering the row changes nothing; only the slot directly under the
+  pointer shows a hover chip. No dot turns into a + on hover. This replaces the hover-only + and the lone space's
+  dot-to-+ swap of #30232 (444237863ce).
+- Too many spaces still narrow, then turn compact; a strip that still does not fit now scrolls: it keeps the current
+  space in view (a swipe or wheel over the row pages spaces, so the row scrolls with it) and the + stays pinned on the
+  trailing edge, rightmost. Dots, the current-space chip, the profile control, drag reorder, tear-off and paging are
+  unchanged. Gallery: `ProfileBarVariantGalleryTests` (sidebar-space-variants): one space, four spaces, overflow with
+  the + pinned (chosen) and overflow with the + riding the end of the dots, each at rest, pointer in the row and over
+  the +, light/dark at 2x. Test: `ProfileBarPlusPlacementTests`.
 
 ## Reviewed behavior-only commits
 

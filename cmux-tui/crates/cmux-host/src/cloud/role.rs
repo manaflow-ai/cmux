@@ -293,7 +293,7 @@ pub fn resolve_daemon_info(paths: &Paths) -> Result<DaemonInfo, String> {
     let recorded = fs::read_to_string(paths.at(DAEMON_INFO_FILE))
         .map_err(|_| "no daemon identify and no recorded daemon.json".to_owned())?;
     let info: DaemonInfo = serde_json::from_str(&recorded).map_err(|e| e.to_string())?;
-    Ok(info.with_activity(false))
+    Ok(info.with_activity(false, false))
 }
 
 /// `wg genkey | wg pubkey` (wireguard-tools in the base image).
@@ -1088,6 +1088,12 @@ impl Worker {
     }
 }
 
+/// The acpmux home of the user whose home is `home`: the default `~/.acpmux`, as the image runs
+/// acpmux. The one place cmux-host names it (the trajectory mirror, `clone_mark::marker`).
+pub fn acpmux_home(home: &Path) -> PathBuf {
+    home.join(".acpmux")
+}
+
 /// Where the trajectory mirror finds acpmux: the work user's home when the
 /// image has that user (the session host's layout, `linux/spawn.rs`
 /// `select_layout`), else root's. Its staging folder for restores is that
@@ -1107,7 +1113,7 @@ fn spawn_trajectories(paths: &Paths) -> io::Result<Trajectories<PosterHttp>> {
     }
     std::os::unix::fs::lchown(&staging, Some(user.uid), Some(user.gid))?;
     fs::set_permissions(&staging, fs::Permissions::from_mode(0o700))?;
-    let acpmux = home.join(".acpmux");
+    let acpmux = acpmux_home(&home);
     let layout = Layout { sessions: acpmux.join("sessions"), home: home.clone(), staging };
     let importer = AcpmuxImporter {
         bin: binary_path(&home),

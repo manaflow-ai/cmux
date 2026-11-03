@@ -37,7 +37,7 @@ import Testing
             #expect(payload.style == style.rawValue, "\(style.title), \(name)")
             let height = provider.measure(custom, maxWidth: 420).height
             #expect(height == style.height(payload), "\(style.title), \(name): measured \(height)")
-            #expect(height >= HomeAgentFoldRowProvider.height, "\(style.title), \(name)")
+            #expect(height >= (style.spacing == nil ? HomeAgentFoldRowProvider.height : 16), "\(style.title), \(name)")
             let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
             let ctx = try #require(CGContext(data: nil, width: 420, height: Int(height.rounded(.up)), bitsPerComponent: 8, bytesPerRow: 0,
                                              space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
@@ -59,6 +59,15 @@ import Testing
         #expect(payload.states == ["reported", "told", "told"])
         #expect(payload.latest == "Done: both rows now start at 12 pt.")
         #expect(payload.count == 4 && payload.role == "fold")
+    }
+
+    /// The spacing variants (user 2026-11-02, msg 19733): each one changes the shipped line's spacing, and no two
+    /// are the same, so every pick in the playground shows something new.
+    @Test func everySpacingVariantDiffersFromTheShippedLineAndTheOthers() {
+        let spacings = HomeAgentFoldStyle.allCases.compactMap(\.spacing)
+        #expect(spacings.count >= 10)
+        #expect(!spacings.contains(.shipped))
+        for (i, a) in spacings.enumerated() { for b in spacings.dropFirst(i + 1) { #expect(a != b) } }
     }
 
     @Test func theShippedProviderStillDrawsTheShippedLine() throws {

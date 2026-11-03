@@ -177,6 +177,18 @@
 .acpmux-session-info[data-placement="overlay"] {
   --ui-enter-distance: 24px;
 }
+/* A floating Session Info opens in its final place on the click. Its exit still slides away, and
+   the foot of an already open panel still follows a growing composer. */
+.acpmux-session-info[data-placement="overlay"]:is([data-presence="from"], [data-presence="shown"]) {
+  opacity: 1;
+  translate: none;
+  transition-property: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-session-info[data-placement="overlay"][data-presence="shown"][data-over-chat][data-foot-moves] {
+    transition-property: max-height;
+  }
+}
 .acpmux-session-info[data-resizing] {
   user-select: none;
 }
@@ -232,9 +244,9 @@
   font-weight: 500;
 }
 .acpmux-session-info__body {
-  /* A section's drag handle (.acpmux-session-info-section__handle) is this wide: the grid side inset
-     (the body's right padding, data-layout) less one base step, which keeps it clear of the scrollbar. */
-  --acpmux-session-info-handle-width: calc(var(--grid-sidebar-highlight-inset) - var(--grid-base));
+  /* A section's drag handle (.acpmux-session-info-section__handle) is this wide: one base step of the
+     body's left inset, then the head's leading padding up to its icon column. */
+  --acpmux-session-info-handle-width: calc(var(--grid-base) + var(--grid-gap));
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -243,6 +255,15 @@
   padding: var(--grid-gap) var(--grid-sidebar-highlight-inset);
   overflow-x: hidden;
   overflow-y: auto;
+  /* No scrollbar at all, as Claude Code's panel: it scrolls by wheel, trackpad and keyboard, and the
+     edge fades below say there is more (Leo, 2026-11-03: "i mean there's literally no scrollbar in
+     claude code it's just scrollable"). No thumb draws and none takes width, so nothing sits beside a
+     section's grip or the trailing column. Hidden in both engines, as the session rail's list
+     (threadMinimap.css); check-scrollbars.sh lists the exception. */
+  scrollbar-width: none;
+}
+.acpmux-session-info__body::-webkit-scrollbar {
+  display: none;
 }
 /* Rows scrolled past the body's top or bottom fade into the glass at that edge (scrollEdges.ts marks
    which edges have more), as the Summary card and the menus do, a little shorter so it stays quiet:
@@ -284,13 +305,14 @@
   border-radius: var(--acpmux-session-info-row-radius);
   background: none;
 }
-/* The six-dot handle that moves a section (SessionInfoGroup.tsx): in the body's right padding, at the
-   right end of the section's head past its trailing column, as Claude Code draws it (Leo, 2026-10-31:
-   "ok we can click and drag but my screenshots were literally claude code having it on the fucking
-   right"), so the title keeps the text column it has with no handle. It shows only while its head (a
-   bare section's first row) or the handle itself is hovered, on keyboard focus, or while it drags, as
-   the native panel's grip does (#32674): no glyph at rest, and not for a pointer over the section's
-   other rows. It takes no room in the section, and a drag lights only the handle. */
+/* The six-dot handle that moves a section (SessionInfoGroup.tsx): left of the section's title, in the
+   head's leading padding before its icon column and one base step into the body's left inset, so it
+   sits by the title and far from the scrollbar's thumb (Leo, 2026-11-03: "the grabber is too close to
+   the thumb scroll thing in fact why dont we have the drag grabber to the left of the title"). It
+   overlaps no icon or title, and the title keeps the text column it has with no handle. It shows only
+   while its head (a bare section's first row) or the handle itself is hovered, on keyboard focus, or
+   while it drags, as the native panel's grip does (#32674): no glyph at rest, and not for a pointer
+   over the section's other rows. It takes no room in the section, and a drag lights only the handle. */
 .acpmux-session-info-section {
   position: relative;
 }
@@ -298,10 +320,9 @@
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
-  /* The first 4px of the body's right inset, past the trailing column and outside the row highlight;
-     the inset's other 4px keep it clear of the scrollbar's thumb (Leo, 2026-11-01: "the dragger is a
-     bit too close to the thumb"). The inset stays the grid's, so the trailing column keeps its line. */
-  right: calc(-1 * var(--acpmux-session-info-handle-width));
+  /* From one base step left of the section to its icon column (the head's padding is one grid gap):
+     the panel's resize edge (3px in) stays clear on the left, the icon or title on the right. */
+  left: calc(-1 * var(--grid-base));
   width: var(--acpmux-session-info-handle-width);
   height: var(--grid-row);
   display: flex;
@@ -343,8 +364,7 @@
    (glance), a hairline between blocks and none around them; the top block's rows run together. The
    body's sides are the head's, so a row's text lines up under the panel's title. */
 .acpmux-session-info__body[data-layout] {
-  /* The handle's 4px, then 4px clear of the scrollbar's thumb (Leo, 2026-11-01: "the dragger is a bit
-     too close to the thumb"), inside the grid's side inset. */
+  /* The grid's side inset each side; a section's drag handle takes one base step of the left one. */
   padding-right: var(--grid-sidebar-highlight-inset);
   padding-left: var(--grid-sidebar-highlight-inset);
 }

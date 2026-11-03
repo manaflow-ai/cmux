@@ -20,9 +20,22 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
     public var icon: Data?
     /// The accessibility identifier of the dialog view (tests, automation).
     public var identifier: String?
+    /// Where the buttons and check boxes go.
+    public var layout: Layout
+
+    /// How a dialog places its buttons and check boxes.
+    public enum Layout: Equatable, Sendable {
+        /// Fields above the buttons; the buttons on one line, else stacked the card's width (every dialog).
+        case standard
+        /// One safe answer among destructive ones (Quit cmux?), as a native alert draws it: Cancel and the
+        /// default on one line, the destructive choices as quiet red text buttons on their own line under them,
+        /// and the check boxes last, where NSAlert puts its suppression button. No key glyphs: Return and
+        /// Escape still answer (Leo, 2026-11-03: "aren't these all kinda awkward looking").
+        case safeDefault
+    }
 
     public init(title: String, lines: [String] = [], origin: String? = nil, fields: [CmuxDialogField] = [],
-                buttons: [CmuxDialogButton], icon: Data? = nil, identifier: String? = nil) {
+                buttons: [CmuxDialogButton], icon: Data? = nil, identifier: String? = nil, layout: Layout = .standard) {
         self.title = title
         self.lines = lines
         self.origin = origin
@@ -30,6 +43,7 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
         self.buttons = buttons
         self.icon = icon
         self.identifier = identifier
+        self.layout = layout
     }
 
     /// The button Return presses: the first `.default`, else none.
