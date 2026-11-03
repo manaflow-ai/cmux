@@ -111,7 +111,9 @@ async function mount(model: string, runs: string) {
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
   const { usePickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogHost");
-  const catalog = [{ id: "claude", name: "Claude Code", family: "claude", models: MODELS }] as unknown as Snapshot["catalog"];
+  const catalog = [
+    { id: "claude", name: "Claude Code", family: "claude", models: MODELS },
+  ] as unknown as Snapshot["catalog"];
   const summary = {
     sessionId: "s-claude",
     harness: "claude",
