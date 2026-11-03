@@ -254,7 +254,6 @@ async fn run(client: &Artifacts, name: &str, args: Value) -> Value {
     tokio::time::timeout(Duration::from_secs(10), call(client, name, &args)).await.unwrap()
 }
 
-
 #[cfg(unix)]
 #[tokio::test]
 async fn tool_calls_refresh_the_install_token_after_switch_and_refuse_signed_out() {
@@ -594,7 +593,10 @@ async fn legacy_schema_fallback_keeps_all_3_mib_and_retries_conflict_without_reu
         bytes: bytes.clone(),
         content_type: Some("text/plain".into()),
     }];
-    let result = client(&base).save("fixture-token", "Dataset", "other", &files, &json!({})).await.unwrap();
+    let result = client(&base)
+        .save("fixture-token", "Dataset", "other", &files, &json!({}))
+        .await
+        .unwrap();
     assert_eq!(result.0, id);
     let seen = server.await.unwrap();
     assert_eq!(seen.len(), 6);
@@ -640,9 +642,7 @@ async fn legacy_fallback_preserves_oversized_and_unrelated_refusals() {
                 None => (404, JSON, Vec::new()),
             });
         }
-        if status == 401 {
-            answers.push((401, JSON, refusal.clone()));
-        }
+        // A 401 ends the operation on its original account, without re-minting.
         let expected_requests = answers.len();
         let (base, server) = fixture(answers).await;
         let files = [File {
@@ -650,7 +650,10 @@ async fn legacy_fallback_preserves_oversized_and_unrelated_refusals() {
             bytes: Bytes::from(vec![0xff; size]),
             content_type: None,
         }];
-        let error = client(&base).save("fixture-token", "Dataset", "other", &files, &json!({})).await.unwrap_err();
+        let error = client(&base)
+            .save("fixture-token", "Dataset", "other", &files, &json!({}))
+            .await
+            .unwrap_err();
         assert!(error.to_string().contains(&format!("HTTP {status}")), "{error:#}");
         assert_eq!(server.await.unwrap().len(), expected_requests, "no inline create on refusal");
     }
