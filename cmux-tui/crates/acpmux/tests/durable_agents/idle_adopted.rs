@@ -80,7 +80,8 @@ async fn an_adopted_harness_running_only_its_mcp_servers_hibernates() {
 /// 2026-11-03). Its next prompt wakes it and is answered.
 #[tokio::test]
 async fn an_adopted_harness_whose_servers_were_never_kept_hibernates_and_wakes() {
-    let pids_file = std::env::temp_dir().join(format!("amd-idlelegacy-{}", std::process::id()));
+    let pids_file =
+        std::env::temp_dir().join(format!("amd-idlelegacy-pids-{}", std::process::id()));
     let mut daemon = Daemon::claude_router(
         "idlelegacy",
         &[("FAKE_CLAUDE_RUN_USER_MCP", pids_file.to_str().unwrap())],
