@@ -293,6 +293,17 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var loadingStopped = false
     /// The current document is Chromium's error page for a failed load.
     @ObservationIgnored var committedIsErrorPage = false
+    /// A first paint came after this load started and before its first commit: it is the committing document's (the
+    /// page channel can reach the app before `.loadStart`; lead on STATUS 8132, set 1 a3 waited the whole bound).
+    @ObservationIgnored var paintBeforeCommit = false
+    /// This load committed a document already (a later commit in the same load is a replacement, painted afresh).
+    @ObservationIgnored var committedThisLoad = false
+
+    /// The main frame's document painted content (`CEFFirstPaintBridge`).
+    func documentDidFirstPaint() {
+        if state.isLoading, !committedThisLoad { paintBeforeCommit = true } else { documentPainted = true }
+        documentMayTakeKeys()
+    }
     /// The document the tab was asked to show is blank (a New Tab page): its blank document counts as loaded.
     @ObservationIgnored var blankIsDocument = false
 
@@ -302,6 +313,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // page with nothing to load takes keys now (lead on STATUS 7916: a reopen by address is no saved navigation).
         let navigates = pendingURL != nil || pendingRestore != nil || loadAfterAttach != nil
         (hasDocument, documentLoaded, documentPainted, loadingStopped) = (false, false, false, false)
+        (paintBeforeCommit, committedThisLoad) = (false, false)
         blankIsDocument = pendingURL.map { !PageBackground.isRealPage($0) } ?? false
         isCreationPending = false
         CEFAgentURLGuard.applyShimGuard(self)

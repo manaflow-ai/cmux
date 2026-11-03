@@ -20,7 +20,8 @@ extension CEFTab {
             nativeHistory = (back, forward)
             restored.applyAvailability()
             restored.dropForwardIfLeftFirstEntry()
-            if loading, !state.isLoading {
+            if loading, !state.isLoading { // a new load: no commit and no early paint of it yet
+                (paintBeforeCommit, committedThisLoad) = (false, false)
                 let id = makeNavigationID()
                 navigation = id
                 capturesTitleBeforeCommit = true
@@ -48,7 +49,9 @@ extension CEFTab {
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
             clearTitleBeforeCommit()
             committedURL = URL(string: url)
-            (documentLoaded, documentPainted, committedIsErrorPage) = (false, false, false) // a new document: the one before is gone
+            // A new document: the one before is gone. Its own first paint may have come first, if this is the load's first commit.
+            (documentLoaded, documentPainted, committedIsErrorPage) = (false, paintBeforeCommit && !committedThisLoad, false)
+            (paintBeforeCommit, committedThisLoad) = (false, true)
             pageInfoDocumentCommitted(URL(string: url))
             resetPageBackdrop()
             // The document that just committed is the only one that can hear
@@ -59,6 +62,7 @@ extension CEFTab {
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
         case .loadEnd:
             if PageBackground.isRealPage(committedURL) || blankIsDocument { documentLoaded = true } // its script ran: a focused field and listeners exist
+            documentMayTakeKeys() // loading may have stopped before this load end
             if let navigation { machine.apply(.finished(navigation)) }
             // Read-then-settle, as at the first paint (one read per document), and a fresh read after it.
             documentDidFinishLoad()
