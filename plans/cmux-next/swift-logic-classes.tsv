@@ -2936,6 +2936,7 @@ CmuxNextApp	protocol	SurfacePresenter	0	MIXED	20	0	Packages/macOS/CmuxNext/Sourc
 CmuxNextApp	struct	WeakPresenter	0	MIXED	20	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabContentCache.swift	from class TabContentCache:22: page/surface cache (platform ~420); LRU 8 and warm-set eviction policy (logic ~97)
 CmuxNextApp	enum	TabMirror	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabMirror.swift	tab-to-tree mirror gap rule (refuse "no tab")
 CmuxNextBridge	extension	PreviewImageCache	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/PreviewImageCache+Fitting.swift	Picture scaling and off-main decode for the preview cache (moved from the App's TabPreviewFitting)
+CmuxNextBridge	extension	PreviewImageCache	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/PreviewImageCache+Compression.swift	Compressed page pictures for the preview cache, encoded off the waiting path (moved from the App's HibernationSnapshots)
 CmuxNextApp	class	TabPreviewSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabPreviewSource.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	AppServices	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabSearch/AppServices+RevealTab.swift	Reveal tab wiring
 CmuxNextApp	extension	AppServices	1	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabSearch/AppServices+RevealTab.swift	Reveal tab wiring

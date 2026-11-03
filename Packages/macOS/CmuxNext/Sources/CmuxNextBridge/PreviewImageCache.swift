@@ -1,4 +1,5 @@
 public import CoreGraphics
+public import Foundation
 
 /// Downscaled tab preview images, least recently used first out, capped by
 /// byte size (architecture.md section 4: 32 MB total): an image's decoded size, or
@@ -11,6 +12,8 @@ public final class PreviewImageCache {
     private var costs: [String: Int] = [:]
     /// Least recently used first.
     private var order: [String] = []
+    /// Encodes a picture this cache keeps compressed, wherever it is called (a test injects one it can hold).
+    public var encode: @Sendable (CGImage) async -> (data: Data, image: CGImage)? = { PreviewImageCache.compressed($0, quality: 0.8) }
 
     public init(capacityBytes: Int = 32 << 20) {
         self.capacityBytes = capacityBytes
