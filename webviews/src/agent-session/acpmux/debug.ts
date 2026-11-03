@@ -57,6 +57,8 @@ export type AcpmuxDebug = {
   newChat(harness?: string, cwd?: string): Promise<Record<string, unknown>>;
   pickFolder(cwd: string): Record<string, unknown>;
   composeSend(text: string): Promise<Record<string, unknown>>;
+  composeDraft(text?: string): Promise<Record<string, unknown>>;
+  scrollState(fraction?: number): Promise<Record<string, unknown>>;
   runMode(mode?: string): Record<string, unknown>;
   selectSession(sessionId: string): Record<string, unknown>;
   answerPermission(options?: {
@@ -350,6 +352,12 @@ export function createAcpmuxDebug(
     },
     async composeSend(text) {
       return host.automation ? automation.composeSend(host.automation, String(text ?? "")) : NO_AUTOMATION;
+    },
+    async composeDraft(text) {
+      return host.automation ? automation.composeDraft(host.automation, text) : NO_AUTOMATION;
+    },
+    async scrollState(fraction) {
+      return host.automation ? automation.scrollState(host.automation, fraction) : NO_AUTOMATION;
     },
     runMode(mode) {
       return host.automation ? automation.runMode(host.automation, mode || undefined) : NO_AUTOMATION;

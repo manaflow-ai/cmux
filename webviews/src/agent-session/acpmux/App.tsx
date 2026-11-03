@@ -9975,6 +9975,13 @@ function AcpmuxPane() {
   /// The composer for automation (automation.ts composeSend, runMode): its own Return and run row.
   const automationCompose = useRef<AutomationCompose>(undefined);
   automationCompose.current = {
+    async draft(text) {
+      const handle = composerHandle.current;
+      if (!handle) return undefined;
+      if (text !== undefined && handle.draft().text !== text) handle.restore(text, []);
+      await settleDraftWithin(handle, DRAFT_SETTLE_MS);
+      return composerHandle.current?.draft().text;
+    },
     async send(text) {
       const handle = composerHandle.current;
       if (!handle) return undefined;
@@ -10270,7 +10277,9 @@ function AcpmuxPane() {
         openDiff: (rowId) => automationView.current?.openDiff(rowId),
         diff: () => automationView.current?.diff ?? { open: false, paths: [] },
         pickFolder: (cwd) => automationPick.current?.(cwd),
+        scrollAnchor: () => transcriptAnchor.current?.(),
         compose: {
+          draft: (text) => automationCompose.current?.draft?.(text) ?? Promise.resolve(undefined),
           send: (text) => automationCompose.current?.send(text) ?? Promise.resolve(undefined),
           runMode: () => automationCompose.current?.runMode(),
           setRunMode: (mode) => automationCompose.current?.setRunMode(mode) ?? false,

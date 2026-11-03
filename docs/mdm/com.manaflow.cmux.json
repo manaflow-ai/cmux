@@ -274,6 +274,28 @@
       "title" : "Seconds Between Retries",
       "type" : "number"
     },
+    "agents.chatPages.enabled" : {
+      "default" : true,
+      "description" : "Free idle local chat pages while keeping their session, draft and scroll position. Explicit browser hibernation settings still apply.",
+      "title" : "Release Hidden Chat Pages",
+      "type" : "boolean"
+    },
+    "agents.chatPages.hiddenMinutes" : {
+      "default" : 5,
+      "description" : "Minutes to keep an idle local WebKit chat page after hiding it. Working chats, pinned tabs and pages with pending prompts stay loaded.",
+      "maximum" : 1440,
+      "minimum" : 1,
+      "title" : "Release Hidden Chats After",
+      "type" : "number"
+    },
+    "agents.chatPages.newTabCapacity" : {
+      "default" : 2,
+      "description" : "Keep this many recently hidden, untouched New Tab pages warm. Pages you edited and the single prewarmed spare stay loaded.",
+      "maximum" : 16,
+      "minimum" : 0,
+      "title" : "Keep Hidden New Tab Pages",
+      "type" : "number"
+    },
     "agents.chats.discovery" : {
       "default" : true,
       "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
