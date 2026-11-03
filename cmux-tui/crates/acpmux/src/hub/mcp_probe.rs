@@ -139,6 +139,7 @@ fn client() -> Option<reqwest::Client> {
     reqwest::Client::builder()
         .timeout(TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
+        .dns_resolver(super::mcp_resolver::CheckedResolver)
         .build()
         .ok()
 }
