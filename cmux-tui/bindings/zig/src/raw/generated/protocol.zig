@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976";
+pub const ir_sha256 = "bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -328,6 +328,77 @@ pub const CellPixelSurface = struct {
     height_px: u16,
     surface: Id,
     width_px: u16,
+};
+
+pub const ChiefWorkAgentState = enum {
+    working,
+    waiting,
+    idle,
+    failed,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "working")) return .working;
+        if (std.mem.eql(u8, value, "waiting")) return .waiting;
+        if (std.mem.eql(u8, value, "idle")) return .idle;
+        if (std.mem.eql(u8, value, "failed")) return .failed;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .working => "working",
+            .waiting => "waiting",
+            .idle => "idle",
+            .failed => "failed",
+        };
+    }
+};
+
+pub const ChiefWorkAgent = struct {
+    id: []const u8,
+    name: []const u8,
+    started_at: wire.Nullable(u64),
+    state: ChiefWorkAgentState,
+    task: wire.Nullable([]const u8),
+    updated_at: wire.Nullable(u64),
+};
+
+pub const ChiefWorkTaskStatus = enum {
+    running,
+    done,
+    failed,
+    cancelled,
+    unknown,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "running")) return .running;
+        if (std.mem.eql(u8, value, "done")) return .done;
+        if (std.mem.eql(u8, value, "failed")) return .failed;
+        if (std.mem.eql(u8, value, "cancelled")) return .cancelled;
+        if (std.mem.eql(u8, value, "unknown")) return .unknown;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .running => "running",
+            .done => "done",
+            .failed => "failed",
+            .cancelled => "cancelled",
+            .unknown => "unknown",
+        };
+    }
+};
+
+pub const ChiefWorkTask = struct {
+    command: []const u8,
+    detail: wire.Nullable([]const u8),
+    ended_at: wire.Nullable(u64),
+    id: []const u8,
+    session_id: []const u8,
+    started_at: wire.Nullable(u64),
+    status: ChiefWorkTaskStatus,
+    title: []const u8,
 };
 
 pub const ClientInfo = struct {
@@ -3802,6 +3873,30 @@ pub fn chiefInspect(client: anytype, request: ChiefInspectRequest) !wire.Decoded
             .authority = "local-admin",
             .since = 12,
             .capability = "chief-inspect-v1",
+        },
+        request,
+    );
+}
+
+pub const ChiefWorkRequest = struct {
+    chief: []const u8,
+};
+
+pub const ChiefWorkResult = struct {
+    agents: []const ChiefWorkAgent,
+    task_sources: []const []const u8,
+    tasks: []const ChiefWorkTask,
+    truncated: bool,
+};
+
+pub fn chiefWork(client: anytype, request: ChiefWorkRequest) !wire.Decoded(ChiefWorkResult) {
+    return client.callTyped(
+        ChiefWorkResult,
+        .{
+            .name = "chief-work",
+            .authority = "frontend",
+            .since = 12,
+            .capability = "chief-work-v1",
         },
         request,
     );
@@ -11727,7 +11822,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 288;
+pub const command_count: usize = 289;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11750,6 +11845,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "browser-wheel", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel-guarded", .authority = "frontend", .since = 10, .capability = "browser-pointer-frame-guard-v1", .stream = null },
     .{ .name = "chief-inspect", .authority = "local-admin", .since = 12, .capability = "chief-inspect-v1", .stream = null },
+    .{ .name = "chief-work", .authority = "frontend", .since = 12, .capability = "chief-work-v1", .stream = null },
     .{ .name = "clear-history", .authority = "control", .since = 9, .capability = "clear-history-v1", .stream = null },
     .{ .name = "clear-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "client-focus", .authority = "control", .since = 12, .capability = "client-focus-v1", .stream = null },

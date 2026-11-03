@@ -200183,6 +200183,60 @@
           }
         }
       }
+    },
+    "settings.cloud.agentsStartWithoutAsking": {
+      "comment": "Settings > Machines: toggle that lets agents start Cloud machines and sessions with no Start card in their chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Let Agents Start Cloud Sessions Without Asking"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "السماح للوكلاء ببدء جلسات سحابية دون سؤال"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dozvoli agentima da pokreću Cloud sesije bez pitanja"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Lad agenter starte Cloud-sessioner uden at spørge"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Agents Cloud-Sitzungen ohne Nachfrage starten lassen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Permitir que los agentes inicien sesiones en la nube sin preguntar"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Laisser les agents démarrer des sessions Cloud sans demander"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Consenti agli agenti di avviare sessioni Cloud senza chiedere"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "確認なしでエージェントにクラウドセッションを開始させる"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "អនុញ្ញាតឱ្យភ្នាក់ងារចាប់ផ្ដើមវគ្គ Cloud ដោយមិនសួរ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "묻지 않고 에이전트가 클라우드 세션 시작"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "La agenter starte Cloud-økter uten å spørre"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pozwól agentom uruchamiać sesje w chmurze bez pytania"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Permitir que agentes iniciem sessões na nuvem sem perguntar"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Разрешить агентам запускать облачные сеансы без вопроса"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ให้เอเจนต์เริ่มเซสชันคลาวด์โดยไม่ต้องถาม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ajanların sormadan bulut oturumu başlatmasına izin ver"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Дозволити агентам запускати хмарні сеанси без запиту"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cho phép tác tử khởi động phiên đám mây mà không cần hỏi"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "允许智能体无需询问即启动云端会话"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "允許代理程式不經詢問即啟動雲端工作階段"}}
+      }
+    },
+    "settings.cloud.agentsStartWithoutAsking.help": {
+      "comment": "Settings > Machines: help for the Let Agents Start Cloud Sessions Without Asking toggle (keep the command in backticks).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يُنشئ أمر `cmux cloud start-session` الخاص بالوكيل الجهاز السحابي أو يستأنفه ويبدأ جلسته دون بطاقة بدء في المحادثة. أنت وحدك من يمكنه تفعيل هذا."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Agentov `cmux cloud start-session` kreira ili nastavlja Cloud mašinu i pokreće sesiju bez kartice Pokreni u četu. Samo ti ovo možeš uključiti."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "En agents `cmux cloud start-session` opretter eller genoptager Cloud-maskinen og starter sessionen uden Start-kort i chatten. Kun du kan slå dette til."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "`cmux cloud start-session` eines Agents erstellt oder setzt die Cloud-Maschine fort und startet die Sitzung ohne Starten-Karte im Chat. Nur du kannst das einschalten."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El `cmux cloud start-session` de un agente crea o reanuda la máquina en la nube e inicia su sesión sin la tarjeta Iniciar en el chat. Solo tú puedes activarlo."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Le `cmux cloud start-session` d'un agent crée ou reprend la machine Cloud et démarre sa session sans carte Démarrer dans le chat. Vous seul pouvez l'activer."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Il `cmux cloud start-session` di un agente crea o riprende la macchina Cloud e avvia la sessione senza la scheda Avvia nella chat. Solo tu puoi attivarlo."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントの `cmux cloud start-session` が、チャットに 開始 カードを出さずにクラウドマシンを作成または再開してセッションを開始します。これをオンにできるのはあなただけです。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "`cmux cloud start-session` របស់ភ្នាក់ងារ បង្កើត ឬបន្តម៉ាស៊ីន Cloud ហើយចាប់ផ្ដើមវគ្គដោយគ្មានកាត ចាប់ផ្ដើម នៅក្នុងការជជែក។ មានតែអ្នកទេដែលអាចបើកវាបាន។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "에이전트의 `cmux cloud start-session`이 채팅에 시작 카드 없이 클라우드 머신을 만들거나 재개하고 세션을 시작합니다. 이 설정은 본인만 켤 수 있습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "En agents `cmux cloud start-session` oppretter eller gjenopptar Cloud-maskinen og starter økten uten Start-kort i chatten. Bare du kan slå dette på."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Polecenie `cmux cloud start-session` agenta tworzy lub wznawia maszynę w chmurze i uruchamia sesję bez karty Uruchom w czacie. Tylko Ty możesz to włączyć."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O `cmux cloud start-session` de um agente cria ou retoma a máquina na nuvem e inicia a sessão sem o cartão Iniciar no chat. Só você pode ativar isso."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Команда `cmux cloud start-session` агента создаёт или возобновляет облачную машину и запускает сеанс без карточки «Запустить» в чате. Включить это можете только вы."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "`cmux cloud start-session` ของเอเจนต์จะสร้างหรือกลับมาใช้เครื่องคลาวด์และเริ่มเซสชันโดยไม่มีการ์ด เริ่ม ในแชท มีเพียงคุณเท่านั้นที่เปิดตัวเลือกนี้ได้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir ajanın `cmux cloud start-session` komutu, sohbette Başlat kartı olmadan bulut makinesini oluşturur veya sürdürür ve oturumunu başlatır. Bunu yalnızca siz açabilirsiniz."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Команда `cmux cloud start-session` агента створює або відновлює хмарну машину й запускає сеанс без картки «Запустити» в чаті. Увімкнути це можете лише ви."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Lệnh `cmux cloud start-session` của tác tử sẽ tạo hoặc tiếp tục máy đám mây và khởi động phiên mà không hiện thẻ Bắt đầu trong cuộc trò chuyện. Chỉ bạn mới có thể bật tùy chọn này."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "智能体的 `cmux cloud start-session` 会创建或恢复云端机器并启动会话，聊天中不显示“开始”卡片。只有你可以打开此项。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理程式的 `cmux cloud start-session` 會建立或恢復雲端機器並啟動工作階段，聊天中不顯示「開始」卡片。只有你可以開啟此項。"}}
+      }
     }
   },
   "version": "1.0"

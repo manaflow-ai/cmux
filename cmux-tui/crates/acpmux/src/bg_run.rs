@@ -73,6 +73,9 @@ pub struct Spec {
     /// Its chat gets one message when it ends (`hub/bg_tasks.rs` `bg_notify`).
     #[serde(default)]
     pub notify: bool,
+    /// Its last output line is its summary once it ended (`run_wait` prints its outcome last).
+    #[serde(default)]
+    pub result_line: bool,
 }
 
 /// `<id>.json`, written whole (to a temporary file, then renamed) each time it changes.
@@ -103,6 +106,9 @@ pub struct Record {
     /// [`Spec::notify`].
     #[serde(default)]
     pub notify: bool,
+    /// [`Spec::result_line`].
+    #[serde(default)]
+    pub result_line: bool,
 }
 
 fn file(dir: &Path, id: &str, ext: &str) -> PathBuf {
@@ -316,6 +322,19 @@ pub fn outcome(view: &serde_json::Value) -> (String, &'static str) {
     use serde_json::Value;
     let s = |k: &str| view.get(k).and_then(Value::as_str).unwrap_or_default();
     let int = |k: &str| view.get(k).and_then(Value::as_i64);
+    // A task that prints its own outcome last (`resultLine`) is summed up by that line once
+    // it ended.
+    let last = s("lastLine").trim();
+    if s("state") != "running"
+        && view.get("resultLine") == Some(&Value::Bool(true))
+        && !last.is_empty()
+    {
+        let status = match (s("state"), int("exitCode")) {
+            ("exited", Some(0)) => "ok",
+            _ => "failed",
+        };
+        return (label(Some(last), ""), status);
+    }
     let label = label(view.get("description").and_then(Value::as_str), s("command"));
     let (verb, end, status) = match s("state") {
         "running" => ("running", String::new(), "running"),
@@ -529,6 +548,7 @@ pub fn main() -> anyhow::Result<()> {
             generation: spec.generation.clone(),
             description: spec.description.clone(),
             notify: spec.notify,
+            result_line: spec.result_line,
             ..Record::default()
         };
         // A closed answer pipe is an error here, never a SIGPIPE (ignored since the start).
