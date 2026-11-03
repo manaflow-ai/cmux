@@ -52,7 +52,13 @@ function load() {
   return { data, type: read(TYPE_SOURCE), motion: read(MOTION_SOURCE) };
 }
 
-const px = (value) => `${value}px`;
+// Keep the named design metrics on the same zoom as LayoutGrid and the type scale.
+// Tailwind p-N already uses --grid-base, so spacing must use it too.
+const gridPx = (value) => {
+  assert(value % 4 === 0, `spacing ${value} is off the 4 grid`);
+  return `calc(var(--grid-base) * ${value / 4})`;
+};
+const scaledPx = (value) => `calc(${value}px * var(--cmux-interface-scale, 1))`;
 const glassVars = (level) => ({
   tint: [`--ds-glass-${level.name}-tint`, `${level.tint}%`],
   blur: [`--ds-glass-${level.name}-${level.blurName ?? "blur"}`, level.blur],
@@ -63,15 +69,15 @@ const shadow = (entry, mode) => `${entry.geometry} color-mix(in srgb, black ${en
 
 function cssBlock(data) {
   const out = [BEGIN, ":root {"];
-  for (const step of data.spacing.steps) out.push(`  --ds-space-${step.name}: ${px(step.px)};`);
-  for (const size of data.spacing.layout) out.push(`  --ds-space-${size}: ${px(size)}; /* layout gap */`);
+  for (const step of data.spacing.steps) out.push(`  --ds-space-${step.name}: ${gridPx(step.px)};`);
+  for (const size of data.spacing.layout) out.push(`  --ds-space-${size}: ${gridPx(size)}; /* layout gap */`);
   for (const control of data.controls)
-    out.push(`  --ds-control-${control.name}: ${px(control.px)}; /* ${control.for} */`);
-  for (const icon of data.icons) out.push(`  --ds-icon-${icon.name}: ${px(icon.px)}; /* ${icon.for} */`);
-  for (const radius of data.radii) out.push(`  --ds-radius-${radius.name}: ${px(radius.px)}; /* ${radius.for} */`);
+    out.push(`  --ds-control-${control.name}: ${scaledPx(control.px)}; /* ${control.for} */`);
+  for (const icon of data.icons) out.push(`  --ds-icon-${icon.name}: ${scaledPx(icon.px)}; /* ${icon.for} */`);
+  for (const radius of data.radii) out.push(`  --ds-radius-${radius.name}: ${scaledPx(radius.px)}; /* ${radius.for} */`);
   for (const radius of data.namedRadii) {
     const note = radius.for ? ` /* ${radius.for} */` : "";
-    out.push(`  --ds-radius-${radius.name}: ${radius.var ?? px(radius.px)};${note}`);
+    out.push(`  --ds-radius-${radius.name}: ${radius.var ?? scaledPx(radius.px)};${note}`);
   }
   for (const level of data.glass) {
     const { tint, blur } = glassVars(level);
