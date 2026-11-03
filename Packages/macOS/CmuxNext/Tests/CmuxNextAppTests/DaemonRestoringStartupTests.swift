@@ -136,9 +136,6 @@ struct DaemonRestoringStartupTests {
     @Test func theActivityIndicatorFollowsTheJobsInBothDesigns() throws {
         let jobs = LongJobs()
         let indicator = ActivityIndicatorView(jobs: jobs, labeled: { false }, onVisibilityChange: {})
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200), styleMask: [.titled], backing: .buffered, defer: true)
-        window.contentView?.addSubview(indicator)
-        defer { window.close() }
         #expect(indicator.isHidden)
 
         let handle = jobs.begin(kind: LongJob.browserImportKind)
