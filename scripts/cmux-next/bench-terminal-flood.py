@@ -29,6 +29,9 @@ Per round it records:
   hangs       `debug.hangs` over the round;
   resyncs     per pane, the change of the terminal's restored snapshots (an overflowed attach resyncs).
 
+Host models (--host-models default,holder) run interleaved in one step: --passes times A B (A B A B for 2),
+one app launch per model per pass, so both models see the same host drift; compare them pass by pass.
+
 Floors on the same host (no app), with the same bytes and the same P at once:
   floor_copy  `cat FILE > /dev/null` (the memory floor);
   floor_pty   the file through a PTY into a reader that does one read(2) of 64 KiB into one reused buffer per
@@ -54,7 +57,9 @@ parser.add_argument("--json", help="also write the report here (split-spring.sh'
 parser.add_argument("--panes", default="1,4,12")
 parser.add_argument("--workloads", default="cat,yes")
 parser.add_argument("--mib", type=float, default=16.0, help="MiB each pane produces per round")
-parser.add_argument("--rounds", type=int, default=2)
+parser.add_argument("--rounds", type=int, default=1, help="rounds per workload in each pass")
+parser.add_argument("--passes", type=int, default=2,
+                    help="interleaved passes over the host models (A B A B ...), one app launch per model per pass")
 parser.add_argument("--timeout", type=float, default=600.0, help="seconds one round may take")
 parser.add_argument("--profile", action="store_true", help="sample app, daemon and a holder in one extra round")
 parser.add_argument("--host-models", default="default,holder",
@@ -263,7 +268,7 @@ def shell_ready(flood, tabs, nonce):
     return bool(flood.wait(ready, 60, 0.25))
 
 
-MODEL = {"name": "default"}
+MODEL = {"name": "default", "pass": 0}
 
 
 def run_round(flood, app, tabs, workload, file_path, round_index):
@@ -318,7 +323,7 @@ def run_round(flood, app, tabs, workload, file_path, round_index):
     total_mib = len(tabs) * BYTES / 1048576
     hang_list = hangs.get("hangs") if isinstance(hangs, dict) else None
     row = {
-        "model": MODEL["name"], "workload": workload, "panes": len(tabs), "round": round_index, "complete": ok,
+        "model": MODEL["name"], "pass": MODEL["pass"], "workload": workload, "panes": len(tabs), "round": round_index, "complete": ok,
         "mib_total": round(total_mib, 2), "send_s": round(sent, 3),
         "producer_s_p50": pct(producer_s, 0.5), "producer_s_max": pct(producer_s, 1.0),
         "all_produced_s": round(produced, 3), "shown_s": round(shown_s, 3),
@@ -342,7 +347,7 @@ def run_round(flood, app, tabs, workload, file_path, round_index):
     }
     REPORT["rounds"].append(row)
     per = row["processes"]
-    print(f"terminal-flood: {MODEL['name']:<7} {workload:<3} P={len(tabs):<2} r{round_index} shown {row['shown_s']:.2f}s "
+    print(f"terminal-flood: {MODEL['name']:<7} p{MODEL['pass']} {workload:<3} P={len(tabs):<2} r{round_index} shown {row['shown_s']:.2f}s "
           f"({row['mib_per_s']} MiB/s; producer max {row['producer_s_max']}s; lag {row['app_lag_s']}s) cpu ms/MiB "
           + " ".join(f"{k} {v['cpu_ms_per_mib']}" for k, v in sorted(per.items()))
           + f" | dropped {row['dropped']} main p95 {row['main_ms_p95']} hangs {row['hangs']} resyncs {row['resyncs']}"
@@ -456,20 +461,26 @@ def main():
             raise SystemExit(f"terminal-flood: no grid for {count} panes ({sorted(GRIDS)})")
     floors(file_path, counts)
     REPORT["host"] = os.uname().nodename
-    for model in [m for m in opts.host_models.split(",") if m]:
-        MODEL["name"] = model
-        env = {"CMUX_NEXT_TUI_TERMINAL_HOST_MODEL": "holder"} if model == "holder" else {}
-        app = BenchApp(opts.app, out=opts.out, env=env, window=(40, 40, 1600, 1000), log_name=f"app-{model}.log")
-        try:
-            measure_model(app, counts, file_path)
-        except LaunchError as error:
-            note(f"{model}: launch failed: {error}")
-        finally:
-            app.stop()
+    models = [m for m in opts.host_models.split(",") if m]
+    # Interleaved arms (A B A B): each pass launches every model once, in the same order, so drift of the host
+    # (thermal, background work) falls on both models alike. Compare models only across matching passes.
+    for index in range(opts.passes):
+        for model in models:
+            MODEL["name"], MODEL["pass"] = model, index
+            env = {"CMUX_NEXT_TUI_TERMINAL_HOST_MODEL": "holder"} if model == "holder" else {}
+            app = BenchApp(opts.app, out=opts.out, env=env, window=(40, 40, 1600, 1000),
+                           log_name=f"app-{model}-p{index}.log")
+            try:
+                measure_model(app, counts, file_path, profile=opts.profile and index == opts.passes - 1)
+            except LaunchError as error:
+                note(f"{model} pass {index}: launch failed: {error}")
+            finally:
+                app.stop()
+    REPORT["arm_order"] = [f"{m}-p{i}" for i in range(opts.passes) for m in models]
     write_report()
 
 
-def measure_model(app, counts, file_path):
+def measure_model(app, counts, file_path, profile=False):
     app.launch()
     flood = Flood(app)
     for count in counts:
@@ -486,7 +497,7 @@ def measure_model(app, counts, file_path):
         for workload in [w for w in opts.workloads.split(",") if w]:
             for r in range(opts.rounds):
                 run_round(flood, app, tabs, workload, file_path, r)
-        if opts.profile and count == max(counts):
+        if profile and count == max(counts):
             profile_round(flood, app, tabs, file_path)
 
 
