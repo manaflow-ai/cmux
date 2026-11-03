@@ -208,9 +208,10 @@ class SocketMadeTerminalApp(KeyMadeTerminalApp):
 
 class SocketNewTerminalTests(unittest.TestCase):
     """`new_terminal` (via socket, the default) and `script_new_terminal` adopt the terminal the daemon says it
-    created (`created` of the newTab reply), never the stand-in's host id from the topology: on FEAT DOGFOOD BUILD
-    4cceb277 (feat 8d660c2e834a) both journeys of a round failed at `new_terminal` after 20 s on the stand-in's id
-    (`cmux terminal 86fc5b15b7384ce68e8f08a9ea3b4cfc screen read: selector.not_found`, cmux23, 18:03Z 2026-11-03)."""
+    created (`created` of the newTab reply), never a host id read from the topology. The old socket step kept the
+    first id it read from the named workspace's selected tab; a tab whose terminal the daemon has not named yet
+    carries the host id, which no daemon selector resolves (found by reading the code: the 4cceb277 round of
+    2026-11-03 failed on the same id class in focused_terminal, via key, not on these paths)."""
 
     def journey(self, app):
         out = tempfile.mkdtemp(prefix="socket-terminal-")
