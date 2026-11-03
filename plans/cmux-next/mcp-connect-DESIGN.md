@@ -274,8 +274,9 @@ Status (a974, 2026-11-03):
 | Step | State |
 |---|---|
 | 1. Doc + `cmux-mcp-connect` core (resolve, URL/command rules, pin, screen, classify, PKCE, discovery, redact) with 34 tests | built; fleet-tested |
-| 2a. acpmux `mcp_connect_request` / `mcp_connect_answer` (person only), `connect_mcp_server` tool on `cmux-secrets` (listed only with `CMUX_MCP_CONNECT_PREVIEW=1` until 2b lands, since an approval connects nothing yet), 5 integration tests | built |
-| 2b. Connection store, Keychain item with an acpmux-only access list, OAuth run (loopback listener, DCR, token exchange), `acpmux mcp-proxy`, tool pin and policy at call time, audit records | next |
+| 2a. acpmux `mcp_connect_request` / `mcp_connect_answer` (person only), `connect_mcp_server` tool on `cmux-secrets` (listed only with `CMUX_MCP_CONNECT_PREVIEW=1` until 2b-ii lands, since an approved server is not yet kept or proxied), 5 integration tests | built |
+| 2b-i. First connect after approval (`hub/mcp_probe.rs`, `cmux-mcp-connect::wire`): `initialize` + `tools/list` over Streamable HTTP (JSON or event stream, session id kept, redirects off, size and page caps); the tools go to the card and the agent screened and classed, without the server's text; a 401 answers `signInNeeded` with the RFC 9728 metadata URL and scopes; a key comes only with the person's answer and goes only into its header. Live-checked against Context7 (2 read tools) and Linear (401 + metadata), recorded as fixtures | built |
+| 2b-ii. Connection store, Keychain item with an acpmux-only access list, OAuth run (loopback listener, DCR, token exchange), `acpmux mcp-proxy`, tool pin and policy at call time, audit records | next |
 | 3a. Swift card (model, flow, key that never prints, six styles), Debug > MCP Connect Card Playground, flow tests | built |
 | 3b. The card in the Home transcript: the Chief's turn session is hidden, so the Chief host relays its `mcp_connect_request` into the Home conversation as a card part, and the app answers on its own person-proven acpmux connection; the webview agent pane gets `McpConnectCard.tsx` beside `SecretCard.tsx` | next |
 | 3c. Settings > MCP Servers, palette entries | next |
