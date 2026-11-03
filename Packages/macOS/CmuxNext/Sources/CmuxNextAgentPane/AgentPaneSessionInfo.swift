@@ -195,6 +195,6 @@ extension AgentPaneSessionInfo {
                 ]),
             ])
         } ?? .string(id)
-        return "window.cmuxAcpmuxSessionInfo?.action?(\(value.compactText));"
+        return "window.cmuxAcpmuxSessionInfo?.action?.(\(value.compactText));"
     }
 }
