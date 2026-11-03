@@ -72,7 +72,8 @@ struct DockMenuTests {
         var dockMenuHasWindow: Bool { true }
         func dockMenuReopenWindow() {}
         func dockMenuNewChat(_ arguments: [String: ActionValue]) { newChats.append(arguments) }
-        func dockMenuOpenChat(_ id: String) { opened.append(id) }
+        func dockMenuOpenChat(_ id: String) throws { opened.append(id) }
+        func dockMenuRefuse(_ reason: String) {}
     }
 
     @Test func theMenuIsBuiltFromCachedRowsWithoutCallingTheHost() {

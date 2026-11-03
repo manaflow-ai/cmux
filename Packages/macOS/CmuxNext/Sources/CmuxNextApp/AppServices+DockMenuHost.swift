@@ -9,5 +9,6 @@ extension AppServices: DockMenuHost {
     var dockMenuHasWindow: Bool { !windows.controllers.isEmpty }
     func dockMenuReopenWindow() { windows.reopenOrCreateWindow() }
     func dockMenuNewChat(_ arguments: [String: ActionValue]) { _ = registry.perform("palette.newAgentChat", invocation: ActionInvocation(arguments: arguments, origin: .user)) }
-    func dockMenuOpenChat(_ id: String) { do { try DeepLinkNavigator(services: self).open(DeepLink(.session(id, turn: nil)), background: false, asking: false) } catch { registry.refuse(String(describing: error)) } }
+    func dockMenuOpenChat(_ id: String) throws { try DeepLinkNavigator(services: self).open(DeepLink(.session(id, turn: nil)), background: false, asking: false) }
+    func dockMenuRefuse(_ reason: String) { registry.refuse(reason) }
 }

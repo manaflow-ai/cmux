@@ -19,8 +19,10 @@ public protocol DockMenuHost: AnyObject {
     func dockMenuReopenWindow()
     /// Runs New Agent Chat with `arguments` (`harness`, `host`), as Cmd-I and the palette do.
     func dockMenuNewChat(_ arguments: [String: ActionValue])
-    /// Shows the tab that shows the chat, else opens it in a new agent tab.
-    func dockMenuOpenChat(_ id: String)
+    /// Shows the tab that shows the chat, else opens it in a new agent tab; throws when it is gone.
+    func dockMenuOpenChat(_ id: String) throws
+    /// Says why a row could not run (the app's refusal toast).
+    func dockMenuRefuse(_ reason: String)
 }
 
 /// The Dock icon's menu (`applicationDockMenu(_:)`), on by default: New Chat, New Chat in ▸
@@ -113,7 +115,7 @@ public final class DockMenuController: NSObject {
             host.dockMenuNewChat(arguments)
         case .open(let chat):
             if !host.dockMenuHasWindow { host.dockMenuReopenWindow() }
-            host.dockMenuOpenChat(chat)
+            do { try host.dockMenuOpenChat(chat) } catch { host.dockMenuRefuse(String(describing: error)) }
         }
     }
 }
