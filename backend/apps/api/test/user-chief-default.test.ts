@@ -4,7 +4,7 @@ import type { Principal, ReduceContext, ReduceResult } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
 import { DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_PROVISION, HOSTED_DEFAULT_KEY, defaultChiefIdentity, defaultChiefWorkspace } from "../src/domains/user-chief-default.ts"
 import { personalTeamIdFor, userDomain, type UserState } from "../src/domains/user.ts"
-import { ensureChiefMachine, type DefaultMachinePlatform } from "../src/user-chief-provision.ts"
+import { deliverSignupChief, ensureChiefMachine, type DefaultMachinePlatform } from "../src/user-chief-provision.ts"
 import { fireAlarm, quiesce } from "./setup/alarm.ts"
 
 const USER = "user_00000000000000000001"
@@ -103,6 +103,34 @@ describe("signup default Chief", () => {
       { ...platformValue(), machine: { ...platformValue().machine, kind: "fleet" } },
       { ...platformValue(), machine: { ...platformValue().machine, visibility: "team" } }
     ]) await expect(ensureChiefMachine(platform(bad), USER, () => state)).rejects.toMatchObject({ message: "chief.provision.invalid_machine", retryable: false })
+  })
+
+  it("a partial outbox delivery resumes after VM registration without creating a second Chief", async () => {
+    let state = existing()
+    const items = [
+      { id: 1, op: DEFAULT_CHIEF_ENSURE, key: HOSTED_DEFAULT_KEY, params: {} },
+      { id: 2, op: DEFAULT_CHIEF_PROVISION, key: `chief-default-machine:${USER}`, params: {} }
+    ]
+    const host = {
+      platform: platform(),
+      current: () => state,
+      deliver: async (batch: typeof items) => {
+        for (const item of batch) state = decided(userDomain.reduce(state, item.op, item.params, context())).state
+        return { done: batch.map((item) => item.id) }
+      },
+      bind: (machine: typeof binding) => {
+        state = decided(userDomain.reduce(state, DEFAULT_CHIEF_BIND, machine, context())).state
+        return { frames: [] }
+      }
+    }
+    await expect(deliverSignupChief(USER, `user:${USER}`, items, host)).rejects.toMatchObject({ retryable: true })
+    const chief = state.hosted_default
+    state = machineState(state)
+    expect(await deliverSignupChief(USER, `user:${USER}`, items, host)).toEqual({ done: [1, 2] })
+    expect(Object.keys(state.chiefs ?? {})).toEqual([chief])
+    expect(state.chiefs?.[chief!]?.cloud_machine).toEqual(binding)
+    await expect(deliverSignupChief(USER, "user:other", items, host)).rejects.toMatchObject({ retryable: false })
+    await expect(deliverSignupChief(USER, `user:${USER}`, [{ ...items[1]!, params: { machine: "foreign" } }], host)).rejects.toMatchObject({ retryable: false })
   })
 })
 
