@@ -35,6 +35,7 @@ import { threadMinimapLayout } from "./layout.experiment";
 import { threadMinimapHeight, railHeightConfig } from "./height.experiment";
 import { LIT_OPACITY, threadMinimapLit } from "./lit.experiment";
 import { MARK_OPACITY, threadMinimapMark } from "./mark.experiment";
+import { INCOMING_LOOK, threadMinimapIncoming } from "./incoming.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import { tickRanges } from "./tickWindow";
 import { useThreadMinimapArm } from "../chatDisplay";
@@ -61,6 +62,7 @@ import {
   tickProgress,
   turnScrollTop,
   visibleTurns,
+  foldIncoming,
   type MinimapTick as MinimapTickRow,
   type MinimapTurn,
   type MinimapTurns,
@@ -184,6 +186,9 @@ export function ThreadMinimap({
   const [lit] = useState(() => LIT_OPACITY[experimentArm(threadMinimapLit)]);
   /// How bright a bookmarked prompt draws at rest (mark.experiment.ts), read once per pane.
   const [mark] = useState(() => MARK_OPACITY[experimentArm(threadMinimapMark)]);
+  /// How other chats' messages draw (incoming.experiment.ts), read once per pane: folded per run into
+  /// one tick, dimmer at rest, both (the default) or neither.
+  const [incomingLook] = useState(() => INCOMING_LOOK[experimentArm(threadMinimapIncoming)]);
   const full = arm === "full";
   const marks = usePromptMarks(sessionId);
   /// The turns of the last commit: the next render reads from them and leaves them as they are, so
@@ -198,9 +203,15 @@ export function ThreadMinimap({
   useLayoutEffect(() => {
     lastTurns.current = read;
   }, [read]);
-  const { turns, ticks } = read;
-  const loadedTurns = read.loadedTurns ?? turns.filter((turn) => turn.index >= 0);
+  const loadedTurns = read.loadedTurns ?? read.turns.filter((turn) => turn.index >= 0);
   const loadedStart = read.loadedStart ?? 0;
+  // A run of other chats' messages next to each other draws as one tick (model.ts `foldIncoming`):
+  // the rail's jumps, hover, keys and bookmarks all read the folded lists. The full-height map keeps
+  // a mark per prompt (`loadedTurns`).
+  const { turns, ticks } = useMemo(
+    () => (incomingLook.fold ? foldIncoming(read.turns, read.ticks, loadedStart) : read),
+    [incomingLook.fold, read, loadedStart],
+  );
   /// The row under the pointer, or the one a scrub is on.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
   /// When the pane is too narrow for the rail beside the text, the edge strip can reveal it over the
@@ -1002,6 +1013,8 @@ export function ThreadMinimap({
           data-occluded={!railVisible || undefined}
           // The `dimmed` gutter arm (gutter.experiment.ts) draws the occluded rail faint instead of hidden.
           data-dim={(placement.gutterArm === "dimmed" && !railVisible) || undefined}
+          // Other chats' ticks draw a step under the person's at rest (incoming.experiment.ts).
+          data-incoming-dim={incomingLook.dim || undefined}
           data-scrubbing={scrubbing || undefined}
           data-reduce={reduce || undefined}
           data-snap={snap || undefined}
@@ -1158,7 +1171,7 @@ export function ThreadMinimap({
           viewportHeight={viewportHeight}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
-          prompt={cardTurn.prompt}
+          prompt={cardTurn.members ? foldedTitle(t, cardTurn.members.length) : cardTurn.prompt}
           from={cardTurn.from}
           reply={cardTurn.reply}
           metadata={cardTurn.metadata}
@@ -1294,7 +1307,12 @@ const TickList = memo(function TickList({
           describedBy={described === index ? cardId : undefined}
           label={
             tick.from !== undefined
-              ? t("minimap.tickFrom", { index: index + 1, count: ticks.length, name: tick.from, prompt: tick.prompt })
+              ? t("minimap.tickFrom", {
+                  index: index + 1,
+                  count: ticks.length,
+                  name: tick.from,
+                  prompt: tick.members ? foldedTitle(t, tick.members.length) : tick.prompt,
+                })
               : t(marks.has(tick) ? "minimap.tickBookmarked" : "minimap.tick", {
                   index: index + 1,
                   count: ticks.length,
@@ -1424,4 +1442,11 @@ function tickPropsEqual(was: Readonly<Record<string, unknown>>, next: Readonly<R
   for (const key in next) if (!MOUNT_ONLY.has(key) && !Object.is(was[key], next[key])) return false;
   for (const key in was) if (!(key in next)) return false;
   return true;
+}
+
+/// A folded tick's title, as the transcript's row for the same messages reads ("Received 3
+/// messages", conversation/messageRuns.ts `messageRunSummary`, cmux#32720).
+function foldedTitle(t: ReturnType<typeof useT>, count: number): string {
+  const text = count === 1 ? t("messageRun.received.one") : t("messageRun.received.other", { n: count });
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

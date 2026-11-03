@@ -32,6 +32,9 @@ export type MinimapTurn = {
   /// The start of the first reply after the prompt.
   reply: ReplyBlock[];
   metadata?: MinimapTurnMetadata;
+  /// A run of other chats' messages folded into this one tick (`foldIncoming`): every message's row
+  /// id, the first (this turn's own) first. Absent for a tick of one prompt.
+  members?: readonly string[];
 };
 
 /// The rail's geometry and timing, measured from 60 Hz recordings of the Codex desktop app's prompt
@@ -329,7 +332,7 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
 
 /// What a turn's tick on the rail shows: its prompt, by key. A tick changes only when its prompt
 /// does, not when the reply it previews streams on.
-export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "from">;
+export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "from" | "members">;
 
 /// Who sent a prompt that is not the person's (conversation/incomingMessage.ts): another session's
 /// message, or acpmux's inbox notice of several. The rail keeps their ticks, set apart from the
@@ -742,4 +745,97 @@ function inlineSpans(text: string): ReplySpan[] {
   }
   add(text.slice(at), false);
   return spans;
+}
+
+/// The rail's view of `turns` and `ticks` with each run of other chats' messages next to each other
+/// (two or more held turns with a sender, model.ts `promptSender`) folded into one tick (Leo,
+/// 2026-11-03: "i've always been on the fence about messages from other chats showing up in that
+/// prompt jump scroll rail individual elements"; incoming.experiment.ts). The folded tick is its
+/// first message's: its key, row and jump target, so it stays the same element as more messages
+/// join the run, and a bookmark on it marks that first message (ThreadMinimap `groupMarks`). Its
+/// card previews the run's last reply. Turns read from the prompt index (not held yet, index -1)
+/// are never folded, so `loadedStart` stays as it was.
+///
+/// Built per change of `ticks` (a new prompt, older turns), never per streamed token: the run
+/// boundaries are read from the ticks, and with no run to fold both lists are returned as they are.
+/// With runs, a token rebuilds the turn list (one entry per tick) and reuses each folded turn while
+/// its members are the same objects.
+export function foldIncoming(
+  turns: readonly MinimapTurn[],
+  ticks: readonly MinimapTick[],
+  loadedStart = 0,
+): { turns: readonly MinimapTurn[]; ticks: readonly MinimapTick[] } {
+  const runs = incomingRuns(ticks, loadedStart);
+  if (!runs.ranges.length) return { turns, ticks };
+  const folded: MinimapTurn[] = [];
+  let at = 0;
+  for (const [start, end] of runs.ranges) {
+    for (; at < start; at += 1) folded.push(turns[at]!);
+    folded.push(foldedTurn(turns.slice(start, end)));
+    at = end;
+  }
+  for (; at < turns.length; at += 1) folded.push(turns[at]!);
+  return { turns: folded, ticks: runs.ticks };
+}
+
+const runsByTicks = new WeakMap<
+  readonly MinimapTick[],
+  { loadedStart: number; ranges: [number, number][]; ticks: readonly MinimapTick[] }
+>();
+
+/// The runs of two or more held ticks with a sender next to each other, and the folded ticks.
+function incomingRuns(ticks: readonly MinimapTick[], loadedStart: number) {
+  const held = runsByTicks.get(ticks);
+  if (held && held.loadedStart === loadedStart) return held;
+  const ranges: [number, number][] = [];
+  for (let start = loadedStart; start < ticks.length;) {
+    if (ticks[start]!.from === undefined) {
+      start += 1;
+      continue;
+    }
+    let end = start + 1;
+    while (end < ticks.length && ticks[end]!.from !== undefined) end += 1;
+    if (end - start > 1) ranges.push([start, end]);
+    start = end;
+  }
+  let folded: readonly MinimapTick[] = ticks;
+  if (ranges.length) {
+    const list: MinimapTick[] = [];
+    let at = 0;
+    for (const [start, end] of ranges) {
+      for (; at < start; at += 1) list.push(ticks[at]!);
+      const run = ticks.slice(start, end);
+      list.push({ ...run[0]!, from: senders(run), members: run.map((tick) => tick.id) });
+      at = end;
+    }
+    for (; at < ticks.length; at += 1) list.push(ticks[at]!);
+    folded = list;
+  }
+  const result = { loadedStart, ranges, ticks: folded };
+  runsByTicks.set(ticks, result);
+  return result;
+}
+
+/// The senders of a run, each once, in the order they first wrote.
+const senders = (run: readonly Pick<MinimapTurn, "from">[]) =>
+  [...new Set(run.map((turn) => turn.from).filter((from): from is string => from !== undefined))].join(", ");
+
+const foldedTurns = new WeakMap<MinimapTurn, { run: readonly MinimapTurn[]; turn: MinimapTurn }>();
+
+/// One turn for a run: the first message's place and key, the run's senders and every member's row,
+/// with the last message's reply and details (what the agent did once they were all in).
+function foldedTurn(run: readonly MinimapTurn[]): MinimapTurn {
+  const first = run[0]!;
+  const held = foldedTurns.get(first);
+  if (held && held.run.length === run.length && held.run.every((turn, i) => turn === run[i])) return held.turn;
+  const last = run.at(-1)!;
+  const turn: MinimapTurn = {
+    ...first,
+    from: senders(run),
+    reply: last.reply,
+    metadata: last.metadata,
+    members: run.map((member) => member.id),
+  };
+  foldedTurns.set(first, { run, turn });
+  return turn;
 }
