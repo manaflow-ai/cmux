@@ -136,6 +136,7 @@ tokio.workspace = true
 # Cloud VM. chatmux-relay already uses reqwest for pairing bootstrap.
 # `stream`: attachment files upload from disk, never read whole.
 reqwest = { workspace = true, features = ["stream"] }
+tempfile = "3"
 rustls.workspace = true
 url.workspace = true
 async-trait.workspace = true
