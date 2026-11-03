@@ -5,17 +5,16 @@
 import type { StringKey, Translate } from "../../i18n";
 import type { SummaryPullRequest } from "../../summary/sessionSummary";
 import { CHANGES_SHOWN, changesOrder, glyphState, KINDS, type SessionInfoPullRequestStatus } from "../ChangesSection";
-import type { PullRequestGlyphState } from "../PullRequestGlyph";
-import type { NativeInfoActions, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
+import { PULL_REQUEST_ICONS, type PullRequestGlyphState } from "../PullRequestGlyph";
+import {
+  NATIVE_PACK_ICON,
+  type NativeInfoActions,
+  type NativeInfoRow,
+  type NativeInfoSection,
+  type NativeInfoTone,
+} from "./model";
 import { nativeExternalUrl, safeExternalUrl } from "./links";
 
-const SYMBOLS: Record<PullRequestGlyphState, string> = {
-  open: "arrow.triangle.pull",
-  draft: "arrow.triangle.pull",
-  conflicting: "arrow.triangle.pull",
-  merged: "arrow.triangle.merge",
-  closed: "xmark.circle",
-};
 const TONES: Record<PullRequestGlyphState, NativeInfoTone> = {
   open: "done",
   draft: "muted",
@@ -130,7 +129,8 @@ export function changesSection(
       : undefined;
     return {
       id: pr.url,
-      symbol: SYMBOLS[state],
+      // The pack's glyph, as the page's row draws it (PullRequestGlyph), not an SF Symbol.
+      symbol: `${NATIVE_PACK_ICON}${PULL_REQUEST_ICONS[state]}`,
       title: (live.title ?? pr.title) || `#${pr.number}`,
       ...(live.owner ? { detail: live.owner } : {}),
       subtitle: line.join("  "),
