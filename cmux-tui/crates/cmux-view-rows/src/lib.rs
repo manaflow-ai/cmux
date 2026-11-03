@@ -242,12 +242,87 @@ impl<K: Eq + Hash + Clone, R: Clone + PartialEq> Window<K, R> {
     /// The message that brings a receiver from the last list to `rows`: None when `rows` is that
     /// list, a reset for the first message and after [`Window::invalidate`], else the minimal edit.
     pub fn next(&mut self, rows: Rows<K, R>) -> Option<Diff<K, R>> {
-        // Stub until the edit lands: every message is a reset (the edit tests fail on it).
         let revision = self.revision.wrapping_add(1);
+        let diff = match &self.sent {
+            None => Diff::Reset { revision, rows: rows.clone() },
+            Some(sent) => {
+                let edit = edit_between(sent, &rows);
+                if edit.is_empty() {
+                    return None;
+                }
+                Diff::Edit { base: self.revision, revision, edit }
+            }
+        };
         self.revision = revision;
-        self.sent = Some(rows.clone());
-        Some(Diff::Reset { revision, rows })
+        self.sent = Some(rows);
+        Some(diff)
     }
+}
+
+/// The minimal edit from `base` to `new`, in O(n log n): the kept rows keep their places along one
+/// longest increasing run of their new indices, and only the others move.
+fn edit_between<K: Eq + Hash + Clone, R: Clone + PartialEq>(
+    base: &Rows<K, R>,
+    new: &Rows<K, R>,
+) -> Edit<K, R> {
+    let mut removed = Vec::new();
+    // The kept rows in base order, each from its base index to its new index.
+    let mut kept = Vec::new();
+    for (from, key) in base.keys.iter().enumerate() {
+        match new.position(key) {
+            Some(to) => kept.push(Move { from, to }),
+            None => removed.push(from),
+        }
+    }
+    let targets: Vec<usize> = kept.iter().map(|step| step.to).collect();
+    let mut moved: Vec<Move> = kept
+        .into_iter()
+        .zip(longest_increasing(&targets))
+        .filter(|(_, keeps_place)| !keeps_place)
+        .map(|(step, _)| step)
+        .collect();
+    moved.sort_unstable_by_key(|step| step.to);
+    let mut inserted = Vec::new();
+    let mut changed = Vec::new();
+    for (at, (key, row)) in new.iter().enumerate() {
+        match base.get(key) {
+            None => inserted.push(Placed { at, key: key.clone(), row: row.clone() }),
+            Some(before) if before != row => {
+                changed.push(Placed { at, key: key.clone(), row: row.clone() });
+            }
+            Some(_) => {}
+        }
+    }
+    Edit { removed, moved, inserted, changed, count: new.len() }
+}
+
+/// Marks the members of one longest strictly increasing subsequence of `values` (patience sorting
+/// with back links, O(n log n)). Ties between equally long subsequences go to the one that ends at
+/// the smallest last value found first, so the same input always marks the same rows.
+fn longest_increasing(values: &[usize]) -> Vec<bool> {
+    // tails[l]: the index (into `values`) of the smallest last value of an increasing subsequence
+    // of length l + 1 found so far; their values increase with l.
+    let mut tails: Vec<usize> = Vec::new();
+    // before[i]: the index before i in the subsequence that ends at i.
+    let mut before: Vec<Option<usize>> = Vec::with_capacity(values.len());
+    for (i, value) in values.iter().enumerate() {
+        let length =
+            tails.partition_point(|&tail| values.get(tail).is_some_and(|last| last < value));
+        before.push(length.checked_sub(1).and_then(|shorter| tails.get(shorter).copied()));
+        match tails.get_mut(length) {
+            Some(tail) => *tail = i,
+            None => tails.push(i),
+        }
+    }
+    let mut member = vec![false; values.len()];
+    let mut at = tails.last().copied();
+    while let Some(i) = at {
+        if let Some(mark) = member.get_mut(i) {
+            *mark = true;
+        }
+        at = before.get(i).copied().flatten();
+    }
+    member
 }
 
 /// The receiver side of one window: the rows it shows and the revision they are at.
