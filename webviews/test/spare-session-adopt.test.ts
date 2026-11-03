@@ -167,7 +167,7 @@ afterEach(() => {
 });
 
 /// The prewarmed New Tab page's client: a new chat page, with no session (the spare's handshake).
-async function spare(daemon: Daemon) {
+async function spare(daemon: Daemon, onSnapshot?: (snapshot: AcpmuxSnapshot) => void) {
   const drawn: AcpmuxSnapshot[] = [];
   const client = await AcpmuxDirectClient.connect(
     {
@@ -178,7 +178,10 @@ async function spare(daemon: Daemon) {
       newSession: true,
     },
     (snapshot) => {
-      if (snapshot.type === "snapshot") drawn.push(snapshot);
+      if (snapshot.type === "snapshot") {
+        drawn.push(snapshot);
+        onSnapshot?.(snapshot);
+      }
     },
     undefined,
     () => daemon as unknown as WebSocket,
@@ -257,6 +260,25 @@ test("a chat the daemon does not list is the adopted tab's missing chat, never a
   expect(page.last()?.missingSession).toBe(chat);
   expect(page.last()?.missingReason).toBe("notListedAtOpen");
   expect(daemon.attaches).toEqual([chat]);
+});
+
+test("a failed adoption cannot clear a chat selected after its list read", async () => {
+  const missing = "adopt-gone";
+  const next = "selected-after-adoption";
+  const daemon = new Daemon([next]);
+  let selected: Promise<string | undefined> | undefined;
+  const page = await spare(daemon, (snapshot) => {
+    // The failed attach's list read reports A missing. Select B before the adoption resumes.
+    if (snapshot.missingSession === missing && snapshot.missingReason === "leftListWhileShown" && !selected)
+      selected = page.client.select(next);
+  });
+
+  await page.client.adoptSession(missing).catch(() => undefined);
+  expect(selected).toBeDefined();
+  await selected;
+  expect(page.last()?.sessionId).toBe(next);
+  expect(page.last()?.missingSession).toBeUndefined();
+  expect(text(page.last())).toContain(`Reply of ${next}.`);
 });
 
 test("a chat the page's list lacks opens on its attach, without waiting for the list", async () => {
