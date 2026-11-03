@@ -302,6 +302,27 @@ mod tests {
     }
 
     #[test]
+    fn preview_boolean_switches_do_not_consume_global_output_flags() {
+        for command in [
+            "share --port 3000 --link",
+            "share --port 3000 --team",
+            "url --port 3000 --bootstrap",
+            "url --port 3000 --open",
+        ] {
+            for (flag, output) in [
+                ("--json", OutputMode::Json),
+                ("--jsonl", OutputMode::JsonLines),
+                ("--quiet", OutputMode::Quiet),
+            ] {
+                let args = words(&format!("cloud preview {command} {flag}"));
+                let (global, rest) = super::super::parse_globals(&args).unwrap();
+                assert_eq!(global.output, output, "{command} {flag}");
+                assert!(parse(&rest[2..]).is_ok(), "{command} {flag}");
+            }
+        }
+    }
+
+    #[test]
     fn preview_rejects_ambiguous_sharing_bad_ports_and_unknown_flags() {
         for invalid in [
             "url",

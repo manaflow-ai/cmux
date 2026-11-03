@@ -894,6 +894,15 @@ fn scan_globals(
             index += 1;
             continue;
         }
+        // Preview audience and bootstrap switches have no value. Keep the next
+        // word available for global output flags instead of consuming it as payload.
+        if command.get(..2).is_some_and(|words| words == ["cloud", "preview"])
+            && matches!(value.as_str(), "--link" | "--team" | "--bootstrap" | "--open")
+        {
+            command.push(value.clone());
+            index += 1;
+            continue;
+        }
         // Cloud repo actions name a chat, not a daemon, with --session.
         if command.get(..2).is_some_and(|words| words == ["cloud", "repo"])
             && (value == "--session" || value.starts_with("--session="))
