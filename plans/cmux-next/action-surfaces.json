@@ -23175,14 +23175,7 @@
       "cli_name" : "agent toggle-ui-pointer",
       "context_menu" : "offered",
       "context_menus" : [
-        "agentChat",
-        "tab",
-        "pane",
-        "newTab",
-        "workspaceRow",
-        "sidebarItem",
-        "sidebarSection",
-        "windowBackground"
+        "agentChat"
       ],
       "default_aliases" : [
 
@@ -42564,24 +42557,6 @@
 
             ]
           }
-        },
-        {
-          "kind" : "separator",
-          "order" : 7
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "agentPane.togglePointerInspector",
-          "kind" : "action",
-          "label" : "Inspect Element",
-          "order" : 8,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
         }
       ],
       "implied" : [
@@ -43281,27 +43256,9 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "agentPane.togglePointerInspector",
-              "kind" : "action",
-              "label" : "Inspect Element",
-              "order" : 27,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "kind" : "separator",
-              "order" : 28
-            },
-            {
-              "enabled_when" : "can_perform",
               "id" : "pane.closeOthers",
               "kind" : "action",
-              "order" : 29,
+              "order" : 27,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -45058,9 +45015,8 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "agentPane.togglePointerInspector",
+          "id" : "sidebar.chief.toggleIdleSubagents",
           "kind" : "action",
-          "label" : "Inspect Element",
           "order" : 3,
           "visible_when" : {
             "debug_only" : false,
@@ -45076,26 +45032,9 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "sidebar.chief.toggleIdleSubagents",
-          "kind" : "action",
-          "order" : 5,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "kind" : "separator",
-          "order" : 6
-        },
-        {
-          "enabled_when" : "can_perform",
           "id" : "sidebar.profileControl.hide",
           "kind" : "action",
-          "order" : 7,
+          "order" : 5,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -45108,7 +45047,7 @@
           "enabled_when" : "can_perform",
           "id" : "sidebar.edit",
           "kind" : "action",
-          "order" : 8,
+          "order" : 6,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -45119,13 +45058,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 9
+          "order" : 7
         },
         {
           "enabled_when" : "can_perform",
           "id" : "sidebar.item.removeEverywhere",
           "kind" : "action",
-          "order" : 10,
+          "order" : 8,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -45138,7 +45077,7 @@
           "enabled_when" : "can_perform",
           "id" : "sidebar.item.remove",
           "kind" : "action",
-          "order" : 11,
+          "order" : 9,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -45152,7 +45091,7 @@
           "id" : "sidebar.item.hideApp",
           "kind" : "action",
           "label" : "Hide App",
-          "order" : 12,
+          "order" : 10,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -45372,24 +45311,6 @@
               "id" : "sidebar.section.setMaxRows",
               "kind" : "action",
               "order" : 1,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "kind" : "separator",
-              "order" : 2
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "agentPane.togglePointerInspector",
-              "kind" : "action",
-              "label" : "Inspect Element",
-              "order" : 3,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -46933,9 +46854,8 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "agentPane.togglePointerInspector",
+              "id" : "closeTabsToLeft",
               "kind" : "action",
-              "label" : "Inspect Element",
               "order" : 33,
               "visible_when" : {
                 "debug_only" : false,
@@ -46951,26 +46871,9 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "closeTabsToLeft",
-              "kind" : "action",
-              "order" : 35,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "kind" : "separator",
-              "order" : 36
-            },
-            {
-              "enabled_when" : "can_perform",
               "id" : "tab.stash",
               "kind" : "action",
-              "order" : 37,
+              "order" : 35,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -46983,7 +46886,7 @@
               "enabled_when" : "can_perform",
               "id" : "tab.stashToRight",
               "kind" : "action",
-              "order" : 38,
+              "order" : 36,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -46996,7 +46899,7 @@
               "enabled_when" : "can_perform",
               "id" : "tab.stashOthers",
               "kind" : "action",
-              "order" : 39,
+              "order" : 37,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -48036,24 +47939,6 @@
           "id" : "appearance.changeBackground",
           "kind" : "action",
           "order" : 0,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "kind" : "separator",
-          "order" : 1
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "agentPane.togglePointerInspector",
-          "kind" : "action",
-          "label" : "Inspect Element",
-          "order" : 2,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -49914,27 +49799,9 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "agentPane.togglePointerInspector",
-              "kind" : "action",
-              "label" : "Inspect Element",
-              "order" : 11,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "kind" : "separator",
-              "order" : 12
-            },
-            {
-              "enabled_when" : "can_perform",
               "id" : "palette.closeOtherWorkspaces",
               "kind" : "action",
-              "order" : 13,
+              "order" : 11,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -49947,7 +49814,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspace.closeOthersInGroup",
               "kind" : "action",
-              "order" : 14,
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -49960,7 +49827,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.closeWorkspacesBelow",
               "kind" : "action",
-              "order" : 15,
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -49973,7 +49840,7 @@
               "enabled_when" : "can_perform",
               "id" : "palette.closeWorkspacesAbove",
               "kind" : "action",
-              "order" : 16,
+              "order" : 14,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -49986,7 +49853,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspace.closeAll",
               "kind" : "action",
-              "order" : 17,
+              "order" : 15,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -49999,7 +49866,7 @@
               "enabled_when" : "can_perform",
               "id" : "reopenClosedWorkspace",
               "kind" : "action",
-              "order" : 18,
+              "order" : 16,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -50012,7 +49879,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspace.stash",
               "kind" : "action",
-              "order" : 19,
+              "order" : 17,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -50025,7 +49892,7 @@
               "enabled_when" : "can_perform",
               "id" : "window.stash",
               "kind" : "action",
-              "order" : 20,
+              "order" : 18,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
