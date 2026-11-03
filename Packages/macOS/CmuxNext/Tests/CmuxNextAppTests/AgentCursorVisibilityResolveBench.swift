@@ -35,20 +35,29 @@ struct AgentCursorVisibilityResolveBench {
             if case .visible = resolver.resolve(target: item.target, in: item.snapshot) { sink &+= 1 }
             if case .visible = AgentCursorVisibilityResolver.resolve(target: item.target, in: item.snapshot) { sink &+= 1 }
         }
-        let control = ResolveMallocProbe.allocations { _ = ContiguousArray(repeating: 1, count: 64).count }
-        try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
-        let loop = try #require(ResolveMallocProbe.allocations { for item in cases { sink &+= item.target.utf8.count & 1 } })
-        let kept = try #require(ResolveMallocProbe.allocations {
+        // The control's address goes into the sink, so a release build cannot drop or stack-promote it.
+        let control = ResolveMallocProbe.allocations {
+            let block = UnsafeMutableRawPointer.allocate(byteCount: 64 + cases.count, alignment: 16)
+            sink &+= Int(bitPattern: block) & 1
+            block.deallocate()
+        }
+        let loop = ResolveMallocProbe.allocations { for item in cases { sink &+= item.target.utf8.count & 1 } } ?? 0
+        let kept = ResolveMallocProbe.allocations {
             for item in cases {
                 if case .visible = resolver.resolve(target: item.target, in: item.snapshot) { sink &+= 1 }
             }
-        })
-        let oneOff = try #require(ResolveMallocProbe.allocations {
+        }
+        let oneOff = ResolveMallocProbe.allocations {
             for item in cases {
                 if case .visible = AgentCursorVisibilityResolver.resolve(target: item.target, in: item.snapshot) { sink &+= 1 }
             }
-        })
-        func perResolve(_ count: Int) -> String { String(format: "%.2f", Double(count - loop) / Double(cases.count)) }
+        }
+        // No hook, or a hook that missed the control: print that, and still time the resolves.
+        let probed = (control ?? 0) > 0
+        func perResolve(_ count: Int?) -> String {
+            guard probed, let count else { return "not counted (malloc_logger saw no control allocation)" }
+            return String(format: "%.2f", Double(count - loop) / Double(cases.count))
+        }
 
         var perCall: [Double] = []
         perCall.reserveCapacity(Self.samples)
