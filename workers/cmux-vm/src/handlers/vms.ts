@@ -34,6 +34,7 @@ import { VmImageList } from "../api/images.ts";
 import { visibleVmImages, vmImageAllowed, vmImageEvidenceOf, type VmImageAllowed } from "../proofs/vm-image.ts";
 import { CmuxVmApi, CreatedVm, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
 import { OwnershipStore } from "../db/stores.ts";
+import { MeshStore } from "../db/mesh.ts";
 import { agentBudgetAllows, revokeVmClientSessions, withAgentLabels } from "./agent-sandboxes.ts";
 import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import {
@@ -621,6 +622,13 @@ export const deleteVmById = (rawVmId: string) =>
         yield* store
           .markDeleted(tenantId, "vm", vm.value, now)
           .pipe(Effect.mapError(() => unavailable()));
+        // A deleted VM leaves its mesh: a member row left behind would make every later ACL reconcile name a
+        // VM that is gone, and every attach to that mesh would answer 409.
+        const meshes = yield* MeshStore;
+        const membership = yield* meshes.memberOf(tenantId, vm.value).pipe(Effect.mapError(() => unavailable()));
+        if (Option.isSome(membership)) {
+          yield* meshes.detachMember(tenantId, membership.value.meshId, vm.value, now).pipe(Effect.mapError(() => unavailable()));
+        }
         yield* settleDeletedCreation(caller, proofs.scope, vm.value);
         // Its client-session tokens die with it; a failed revoke is retried by the reaper.
         yield* revokeVmClientSessions(tenantId, vm.value).pipe(Effect.ignore);

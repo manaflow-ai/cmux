@@ -3308,11 +3308,6 @@ button.cv-video-frames__frame:focus-visible {
 .cv-command__failed {
   color: var(--agent-status-failure);
 }
-/* A run's "(2 failed)" after its summary reads in the summary's own tone, as Claude Code desktop's
-   header does; each failed call's own "Failed" tag stays red (FailedCount.tsx). */
-.cv-tool__failed.is-count {
-  color: inherit;
-}
 /* "Failed" right after a failed call's title, before its chevron (CommandRow.tsx): never cut, one
    space from the words rather than the row's gap. */
 .cv-command > .cv-command__failed {
@@ -4685,7 +4680,7 @@ a.cv-sha:focus-visible {
   margin: 0;
   padding: 0 12px 0 8px;
   overflow-x: auto;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--cv-mono, var(--cmux-diff-code-font-family, "SF Mono", ui-monospace, Menlo, monospace));
   font-size: var(--cv-codeblock-size, 12px);
   line-height: var(--cv-codeblock-line-height, 20px);
   color: var(--cv-codeblock-text);
@@ -5333,7 +5328,6 @@ a.cv-sha:focus-visible {
   outline: 2px solid var(--agent-accent);
   outline-offset: 2px;
 }
-.acpmux-reviewing > .acpmux-jump-latest,
 .acpmux-inspecting > .acpmux-jump-latest {
   visibility: hidden;
 }

@@ -170,3 +170,25 @@ test("accept posts only the attempt, same origin with credentials, and maps the 
   for (const code of ["share.not_invited", "share.unauthorized", "share.unverified", "share.kicked"] as const)
     expect(await answer(403, { code })(SHARE, request)).toEqual({ ok: false, error: code });
 });
+
+test("a tab that joined by the link still accepts on the invite page; an invite join opens both", () => {
+  const kept = storage();
+  // Joined /g/<id> by the link: that guest is anonymous, so /i/<id> must accept as the account.
+  rememberJoined(SHARE, "link-guest", kept, "Ana");
+  expect(joinedAs(SHARE, kept)).toBe("link-guest");
+  expect(joinedAs(SHARE, kept, true)).toBeUndefined();
+  expect(joinedRole(SHARE, kept, true)).toBeUndefined();
+  // The accept replaces it: the invite's guest and role, on either page.
+  rememberJoined(SHARE, "invitee", kept, undefined, "view", "invite");
+  expect(joinedAs(SHARE, kept, true)).toBe("invitee");
+  expect(joinedRole(SHARE, kept, true)).toBe("view");
+  expect(joinedAs(SHARE, kept)).toBe("invitee");
+  expect(joinedRole(SHARE, kept)).toBe("view");
+  // A tab that joined before the join kind was kept: a role says it was an invite.
+  const before = storage();
+  before.setItem(`cmux.guest.${SHARE}.joined`, "old-invitee");
+  before.setItem(`cmux.guest.${SHARE}.role`, "talk");
+  expect(joinedAs(SHARE, before, true)).toBe("old-invitee");
+  before.removeItem(`cmux.guest.${SHARE}.role`);
+  expect(joinedAs(SHARE, before, true)).toBeUndefined();
+});

@@ -179,6 +179,14 @@ STARTED = re.compile(r"◇ Test (?:case passing .+? to )?(\w+)\((.*?)\) started\
 # A test's end (Swift Testing; a case of a parameterized test ends with its test), and XCTest's start and end.
 # ━ is a test that passed with a known issue (withKnownIssue): it finished.
 FINISHED = re.compile(r"[✔✘━] Test (\w+)\(.*?\)(?: with \d+ test cases?)? (?:passed|failed)\b")
+# A pass whose line another stream cut into: Swift Testing prints ✔ only for a test that passed, so
+# "✔ Test aFailureNothingRetriesShowsAtOnceswift runtime: backtrace-on-crash ..." (run 41665450504, the helper killed
+# with the rest of the line unwritten) is that test's pass. spliced_pass matches a started name followed by anything
+# but more of a test name and its "(": foo is not taken for fooBar().
+def spliced_pass(name: str, text: str) -> bool:
+    return re.search(rf"✔ Test {re.escape(name)}(?!\w*\()", text) is not None
+
+
 XC_STARTED = re.compile(r"Test Case '-\[(\S+ \S+)\]' started")
 XC_FINISHED = re.compile(r"Test Case '-\[(\S+ \S+)\]' (?:passed|failed|skipped)")
 CARGO_RUNNING = re.compile(r"^running \d+ tests?$")
@@ -252,6 +260,30 @@ def lines_of(log: str) -> list[str]:
     return [text for n, text in enumerate(lines) if n not in skip]
 
 
+# A crash-class rule's failure line (cmux-next-crash-class.yml; crash_class_fast_gate.py lists the prefixes):
+# `objc-selectors: <file>:<line>: super.<sel> (<Class> call:<sel>/<n>): probe needed; run ...` and
+# `cef-objc-contract: <detail>`. The rule is a named failure the way a test is, so a base red there is excused.
+CRASH_RULES = ("objc-selectors", "cef-objc-contract")
+CRASH_RULE = re.compile(r"^(?:##\[error\])?(" + "|".join(CRASH_RULES) + r"): (.+?)\s*$")
+CRASH_RULE_SITE = re.compile(r"^(\S+?:\d+): (.+?)(?:: probe needed.*|; .*)?$")
+
+
+def crash_rule_failure(text: str) -> str | None:
+    """The failure key of a crash-class rule line: `rule file:line detail` (rule, site, selector) when the line
+    carries a site, else `rule detail`; the trailing advice (`probe needed; run ...`) is not part of the key."""
+    if not (match := CRASH_RULE.match(text)):
+        return None
+    rule, detail = match.groups()
+    if site := CRASH_RULE_SITE.match(detail):
+        return f"{rule} {site.group(1)} {site.group(2)}"
+    return f"{rule} {detail}"
+
+
+def is_crash_rule_failure(name: str) -> bool:
+    """Whether a failure name came from crash_rule_failure (a rule line, not a test)."""
+    return name.split(" ", 1)[0] in CRASH_RULES
+
+
 def failed_names(lines: list[str]) -> set[str]:
     """The failing tests LINES name: each FAILED pattern's, an xcresult `FAILED:` line's and the names under
     xcodebuild's `Failing tests:` (XCRESULT_FAILED). LINES are a step's output (lines_of), never its echoed script."""
@@ -269,6 +301,8 @@ def failed_names(lines: list[str]) -> set[str]:
         for pattern in FAILED:
             if match := pattern.search(text):
                 found.add(match.group(1))
+        if rule := crash_rule_failure(text):
+            found.add(rule)
         if match := SUITE_FAILED.search(text):
             found.add(match.group(1).strip('"'))
         if match := XCRESULT_FAILED.match(text):
@@ -551,6 +585,12 @@ def read(log: str | None, bun: bool = True) -> Result:
         result.failed |= names
         result.ran = True
     unfinished = started - {m.group(1) for text in lines for m in [FINISHED.search(text)] if m}
+    # Each cut-into pass closes one start, the longest name it fits (fooBar(), not foo() too); a run's own
+    # summary ("✔ Test run with 1 test ...") is never one, so it does not close a test named run().
+    for text in lines:
+        if unfinished and "✔ Test " in text and not FINISHED.search(text) and not RUN_ENDED.search(text):
+            if fits := [name for name in unfinished if spliced_pass(name, text)]:
+                unfinished.discard(max(fits, key=len))
     unfinished |= ({m.group(1) for text in lines for m in [XC_STARTED.search(text)] if m}
                    - {m.group(1) for text in lines for m in [XC_FINISHED.search(text)] if m})
     if unfinished:

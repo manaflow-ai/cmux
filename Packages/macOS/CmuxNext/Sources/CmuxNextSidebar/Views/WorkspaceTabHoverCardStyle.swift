@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import Foundation
 
 /// How the workspace hover card lays out its tab list (Lawrence msg 19245: "alignment here looks bad ...
@@ -66,6 +67,10 @@ struct WorkspaceTabHoverCardStyle: Hashable, Sendable {
     /// state · machine · time, each when the tab has it) on one text column, on the frosted glass.
     static let standard = WorkspaceTabHoverCardStyle()
 
-    /// A row's height: the title and detail lines plus a step above and below.
-    @MainActor var rowHeight: CGFloat { twoLines ? 34 : 24 }
+    /// A row's height at the sidebar's density and text size (``SidebarHoverCardMetrics``): one row, and the detail
+    /// text added for a two-line row (24 and 34 pt at compact and the default text).
+    @MainActor var rowHeight: CGFloat {
+        let card = SidebarRowTokens.current.hoverCard
+        return twoLines ? card.tabRowHeightTwoLines : card.tabRowHeight
+    }
 }
