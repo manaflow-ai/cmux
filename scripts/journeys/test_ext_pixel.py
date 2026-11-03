@@ -487,6 +487,37 @@ class RecorderWaitTests(unittest.TestCase):
         self.assertEqual(j.px["films"][-1]["bytes"], {"movie": 1234, "scan": 56789})
 
 
+class WindowFrameTests(unittest.TestCase):
+    """px_window_frame: the window's bottom-right corner moved through ext_window's window_drag (debug.mouse into AppKit's
+    resize tracking, the path the R3a journeys use), its frame read back."""
+
+    def test_window_drag_of_the_corner(self):
+        calls = []
+
+        class Win:
+            pass
+
+        def fake(j, step):
+            calls.append(step)
+            return {"frame_before": [76, 116, 1361, 792], "frame_after": [76, 266, 1061, 642], "dragged": step["by"]}
+
+        real = X.W.step_window_drag
+        X.W.step_window_drag = fake
+        try:
+            j = FakeJourney(FakeApp(), tempfile.mkdtemp())
+            j.video = {"hid": [], "notes": {}}
+            out = X.step_px_window_frame(j, {"by": [-300, -150], "ms": 600, "mark": "in"})
+        finally:
+            X.W.step_window_drag = real
+        self.assertEqual(calls[0]["edge"], "bottom-right")
+        self.assertEqual(calls[0]["by"], [-300, -150])
+        self.assertEqual(calls[0]["events"], 72)  # 600 ms at 120 events a second
+        self.assertEqual(calls[0]["hz"], 120)
+        self.assertEqual(out["frame_after"], [76, 266, 1061, 642])
+        self.assertEqual(j.video["hid"][0]["kind"], "window_drag")
+        self.assertIn("in", j.marks)
+
+
 class VideoFetchTests(unittest.TestCase):
     """run.py's lease fetch of the films: compressed on the mini (`tar cz`), read back by take_videos unchanged."""
 
@@ -554,6 +585,35 @@ class PixelCasesTests(unittest.TestCase):
                 self.assertEqual(kinds, {"app", "daemon", "frame"}, s["id"])
                 self.assertEqual([st["do"] for st in s["finally"]], ["px_springs", "px_tunable", "px_agent_css", "settings_file"])
                 self.assertEqual(s["steps"][0]["set"]["appearance"]["surfaces"]["tabBar"], {"color": "#000000", "opacity": 1})
+            # cmux22 2026-11-03 (kit ae6563d7d44): the after check clicked p0's left edge (x=208, the sidebar boundary) and
+            # the click did not focus; the fixture's #00FFFF ground hid the echo from text recognition. Now: focus by the
+            # app (rk_focus), the fixture colors off, then the echo checked by app, daemon and frame.
+            for s in specs:
+                after = s["steps"][[i for i, st in enumerate(s["steps"]) if st["do"] == "px_film"][-1] + 1:]
+                dos = [st["do"] for st in after]
+                self.assertNotIn("use_pane", dos, s["id"])
+                self.assertEqual(dos[:2], ["rk_focus", "settings_file"], s["id"])
+                self.assertEqual(after[0]["pane"], "p0")
+                self.assertEqual(after[1]["unset"], ["appearance.themeEdits", "appearance.surfaces"])
+                self.assertEqual(dos[-1], "expect")
+            # The 6-pane layout fits the 1361 x 792 pt window (cmux22: the third splitDown had no room): 3 columns of 2
+            # rows by newColumn, newRow, each column's width preset, and a full-width window.
+            six = next(s for s in specs if s["id"] == "px-keys-single-6-s1r")
+            acts = [st.get("action") for st in six["steps"] if st["do"] in ("action", "try_action")]
+            self.assertEqual(acts.count("newColumn"), 2, acts)
+            self.assertEqual(acts.count("newRow"), 3, acts)
+            self.assertNotIn("splitDown", acts)
+            self.assertIn("column.widthOneThird", acts)
+            place = next(st for st in six["steps"] if st["do"] == "window_place")
+            self.assertEqual(place["fraction"], [0.0, 0.05, 1.0, 0.9])
+            # The window resize is the app's own window frame, animated (ext_pixel px_window_frame): a CuaDriver drag never
+            # reached the window's corner on cmux22.
+            wr = next(s for s in specs if s["id"] == "px-window-resize-4-s1r")
+            film_steps = [st for f in wr["steps"] if f["do"] == "px_film" for st in f["steps"]]
+            self.assertFalse([st for st in film_steps if st["do"] == "hid_drag"])
+            frames = [st for st in film_steps if st["do"] == "px_window_frame"]
+            self.assertEqual([st["by"] for st in frames], [[-300, -150], [300, 150]] * 1)
+            self.assertEqual(next(st for st in film_steps if st["do"] == "px_record_start")["input"], "window resize (window_drag)")
             s1r = {s["id"]: s for s in specs if s["id"].endswith("-s1r")}
             self.assertEqual(len(s1r), 11)
             self.assertTrue(all([n.rsplit("-", 1)[1] for n in s["recordings"]] == ["s1", "reduce"] for s in s1r.values()))
