@@ -1,10 +1,12 @@
 //! The model-based fuzz (DESIGN.md section 4.9): seeded random sequences of
-//! keys, clicks, creations and their replies, closes and reopens, page
-//! readiness, dispatch changes, overlays, fields, sessions, dialogs, input
-//! sources and windows, run through the router and the reference model
-//! together. After every event the router's effects must keep the ledger's
-//! invariants, and every key's state (with the action and tab of each run) and
-//! every sink's deliveries must equal the model's. Every case ends with a
+//! keys, clicks, creations and their replies (before or after the stand-in
+//! shows), closes and reopens, exits and restarts, workspace switches, page
+//! readiness and page answers, dispatch changes, overlays, fields, sessions,
+//! dialogs, input sources and windows, run through the router and the
+//! reference model together. After every event the router's effects must keep
+//! the ledger's invariants, and every key's state (with the action and tab of
+//! each run), every offer's end and every sink's deliveries must equal the
+//! model's. Every case ends with a
 //! finale the checker adds itself (so a shrunk case keeps it): the input
 //! source stops composing, the session ends, every dialog is answered, every
 //! page is ready and every window closes. No key may still wait after it.
@@ -19,8 +21,8 @@ use cmux_focus_core::event::{FocusEvent, Source};
 use cmux_focus_core::input::ledger::Ledger;
 use cmux_focus_core::input::{
     Binding, DialogScope, FieldKind, GoneReason, InputEffect, InputEvent, InputId, InputRouter,
-    KeyPhase, KeyRecord, LaneLimit, Modifiers, SessionEnd, SessionKind, Sink, TerminalKey, Tier,
-    WindowRole,
+    KeyPhase, KeyRecord, LaneLimit, Modifiers, OfferEnd, SessionEnd, SessionKind, Sink,
+    TerminalKey, Tier, WindowRole,
 };
 use cmux_focus_core::state::{ExpectationKey, Overlay, Target};
 use cmux_focus_core::topology::{Kind, Pane, Tab, Topology};
@@ -76,6 +78,8 @@ struct Creation {
     window: usize,
     tab: Tab,
     new_pane: bool,
+    /// Its reply came before its stand-in showed.
+    replied: bool,
 }
 
 /// A shown creation whose reply has not come yet.
@@ -300,6 +304,7 @@ impl World {
             letter,
             page_editing_chord: modifiers.command && self.rng.chance(40),
             field_uses_escape: code == 53 && self.rng.chance(30),
+            page_reports_unhandled: self.rng.chance(70),
         }
     }
 
@@ -349,7 +354,7 @@ impl World {
         if tab.kind != Kind::Terminal {
             self.pages.push(tab.id.clone());
         }
-        let creation = Creation { key, window, tab, new_pane };
+        let creation = Creation { key, window, tab, new_pane, replied: false };
         if self.rng.chance(60) {
             self.show(creation, model);
         } else {
@@ -364,8 +369,10 @@ impl World {
         if !window.open {
             return;
         }
-        let tab = creation.tab.id.clone();
-        self.awaiting.push(Awaiting { key: creation.key, window: creation.window, tab });
+        if !creation.replied {
+            let tab = creation.tab.id.clone();
+            self.awaiting.push(Awaiting { key: creation.key, window: creation.window, tab });
+        }
         if creation.new_pane || window.panes.is_empty() {
             let at =
                 focused.map_or(window.panes.len(), |i| i.saturating_add(1).min(window.panes.len()));
@@ -397,7 +404,7 @@ impl World {
             }
             return;
         };
-        let roll = self.rng.below(104);
+        let roll = self.rng.below(107);
         match roll {
             0..30 => {
                 let code = [0u16, 11, 8, 2, 14, 36, 51, 53][self.rng.below(8)];
@@ -489,8 +496,10 @@ impl World {
                 }
             }
             82..83 => {
-                if !self.creations.is_empty() {
-                    let creation = self.creations.remove(self.rng.below(self.creations.len()));
+                // A creation fails before its stand-in shows (one reply each).
+                let index = self.rng.below(self.creations.len());
+                if self.creations.get(index).is_some_and(|creation| !creation.replied) {
+                    let creation = self.creations.remove(index);
                     self.queue.push_back(InputEvent::CreationFailed { key: creation.key });
                 }
             }
@@ -580,13 +589,29 @@ impl World {
             99 => self.swap_stand_in(window),
             100..102 => self.reply(),
             102 => self.reopen(model),
-            _ => self.end_shown(window),
+            103 => self.end_shown(window),
+            104 => self.switch_away(window),
+            105 => self.topology(window),
+            _ => self.restart(window),
         }
     }
 
     /// A shown creation's reply: done, or failed (the app then takes its
     /// stand-in down).
     fn reply(&mut self) {
+        // Half the time a creation whose stand-in has not shown: the daemon's
+        // reply comes before the store's delta that shows the tab.
+        if self.rng.chance(50) {
+            let unreplied: Vec<usize> = (0..self.creations.len())
+                .filter(|index| self.creations.get(*index).is_some_and(|c| !c.replied))
+                .collect();
+            let pick = self.rng.below(unreplied.len());
+            if let Some(creation) = unreplied.get(pick).and_then(|i| self.creations.get_mut(*i)) {
+                creation.replied = true;
+                self.queue.push_back(InputEvent::Created { key: creation.key.clone() });
+                return;
+            }
+        }
         if self.awaiting.is_empty() {
             return;
         }
@@ -672,8 +697,41 @@ impl World {
         let tabs: Vec<Tab> = w.panes.iter().flat_map(|pane| pane.tabs.iter().cloned()).collect();
         if let Some(tab) = tabs.get(self.rng.below(tabs.len())) {
             let sink = sink_of(tab);
-            self.queue.push_back(InputEvent::Gone { sink, reason: GoneReason::Closed });
+            self.queue.push_back(InputEvent::Gone { sink, reason: GoneReason::Exited });
         }
+    }
+
+    /// The person shows another workspace in `window` (one terminal of its
+    /// own): none of the window's own tabs shows until a later topology of its
+    /// workspace (any change to its panes, or action 105).
+    fn switch_away(&mut self, window: usize) {
+        let Some(w) = self.windows.get(window).filter(|w| w.open) else { return };
+        let tab = terminal_tab(&format!("{}-zt", w.id), &format!("{}-Z", w.id));
+        let selected = Some(tab.id.clone());
+        let pane = Pane { id: format!("{}-z", w.id), tabs: vec![tab], selected };
+        let topology = Topology::new(Some(format!("{}-away", w.workspace)), vec![pane], Vec::new());
+        let id = arc(&w.id);
+        self.queue
+            .push_back(InputEvent::Focus { window: id, event: FocusEvent::Topology { topology } });
+    }
+
+    /// The person restarts a shown terminal (its process exited, or not): a
+    /// creation names its terminal again, and its reply comes later.
+    fn restart(&mut self, window: usize) {
+        let Some(w) = self.windows.get(window).filter(|w| w.open) else { return };
+        let terminals: Vec<Tab> = w
+            .panes
+            .iter()
+            .flat_map(|pane| pane.tabs.iter())
+            .filter(|tab| tab.kind == Kind::Terminal)
+            .cloned()
+            .collect();
+        let Some(tab) = terminals.get(self.rng.below(terminals.len())).cloned() else { return };
+        let key = ExpectationKey::Tab { id: tab.id.clone() };
+        let creation =
+            InputEvent::Creation { key: key.clone(), sink: sink_of(&tab), kind: tab.kind };
+        self.queue.push_back(creation);
+        self.awaiting.push(Awaiting { key, window, tab: tab.id });
     }
 
     /// A session, a dialog or a page's report (stage S1b's events).
@@ -720,13 +778,19 @@ impl World {
                 }
             }
             _ => {
-                // The page reports an offered key unhandled (sometimes one that is not offered).
+                // The page answers an offered key, unhandled or handled
+                // (sometimes for a key that is not offered).
                 let offered = model.offered();
                 let id = match offered.get(self.rng.below(offered.len().max(1))) {
                     Some(id) if self.rng.chance(85) => *id,
                     _ => self.rng.next_u64() % 64,
                 };
-                self.queue.push_back(InputEvent::PageUnhandled { id: InputId(id) });
+                let event = if self.rng.chance(70) {
+                    InputEvent::PageUnhandled { id: InputId(id) }
+                } else {
+                    InputEvent::PageHandled { id: InputId(id) }
+                };
+                self.queue.push_back(event);
             }
         }
     }
@@ -866,6 +930,7 @@ struct Tracker {
     states: HashMap<u64, State>,
     deliveries: HashMap<Sink, Vec<u64>>,
     session_ends: Vec<(SessionKind, SessionEnd)>,
+    offer_ends: Vec<(u64, OfferEnd)>,
 }
 
 impl Tracker {
@@ -889,6 +954,10 @@ impl Tracker {
             InputEffect::SessionKey { id, key } => (id, State::Ended(Ending::Session(*key))),
             InputEffect::SessionEnded { kind, reason } => {
                 self.session_ends.push((kind.clone(), *reason));
+                return;
+            }
+            InputEffect::OfferClosed { id, reason } => {
+                self.offer_ends.push((id.0, *reason));
                 return;
             }
             InputEffect::Focus { .. }
@@ -948,6 +1017,15 @@ pub(super) fn check(events: &[InputEvent], under: &mut dyn Under) -> Result<(), 
                 why: format!(
                     "session ends differ: router {:?}, model {:?}",
                     tracker.session_ends, model.session_ends
+                ),
+            });
+        }
+        if tracker.offer_ends != model.offer_ends {
+            return Err(Failure {
+                step,
+                why: format!(
+                    "offer ends differ: router {:?}, model {:?}",
+                    tracker.offer_ends, model.offer_ends
                 ),
             });
         }

@@ -254,6 +254,7 @@ impl InputRouter {
                 self.drop_lanes(vec![Sink::Dialog(*id)], reason);
             }
             InputEvent::PageUnhandled { id } => self.page_unhandled(*id),
+            InputEvent::PageHandled { .. } => {}
         }
     }
 

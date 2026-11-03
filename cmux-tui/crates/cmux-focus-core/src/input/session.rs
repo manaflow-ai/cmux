@@ -43,9 +43,12 @@ pub enum SessionKind {
 pub enum SessionKey {
     /// A letter (lowercase), typed with or without Shift.
     Letter {
+        /// The letter, lowercase.
         letter: char,
+        /// Shift was held.
         shift: bool,
     },
+    /// Delete (Backspace): the hint session takes back its last letter.
     Backspace,
     /// Escape: the session ends with it.
     Escape,

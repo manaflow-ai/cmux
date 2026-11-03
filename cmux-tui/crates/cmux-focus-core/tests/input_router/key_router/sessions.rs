@@ -4,13 +4,14 @@
 //! /Users/lawrence/fun/wt/handoff/cmux-lead-status-3.md).
 
 use super::support::{
-    Session, arc, browser_tab, chord, content, key, pane, terminal, terminal_tab, topology,
+    SCENARIO_LANE_LIMIT, Session, arc, browser_tab, chord, content, key, pane, terminal,
+    terminal_tab, topology,
 };
 use cmux_focus_core::event::{FocusEvent, Source};
 use cmux_focus_core::input::{
-    ConsumeReason, DialogScope, DropReason, FieldKind, GoneReason, InputEffect, InputEvent,
-    InputId, KeyRecord, Modifiers, SessionEnd, SessionKey, SessionKind, Sink, Tier, Via,
-    WaitReason,
+    Binding, ConsumeReason, DialogScope, DropReason, FieldKind, GoneReason, InputEffect,
+    InputEvent, InputId, KeyPhase, KeyRecord, Modifiers, OfferEnd, SessionEnd, SessionKey,
+    SessionKind, Sink, Tier, Via, WaitReason,
 };
 use cmux_focus_core::state::{Resolved, Target};
 use cmux_focus_core::topology::Pane;
@@ -418,4 +419,159 @@ fn keys_waiting_for_a_dialog_go_with_it() {
     s.send(InputEvent::DialogDismissed { id: 9 });
     let closed = DropReason::SinkGone(GoneReason::Closed);
     assert_eq!(s.last(typed), Some(&InputEffect::Dropped { id: typed, reason: closed }));
+}
+
+/// The offer ends of `s`'s effects, in order.
+fn offer_ends(s: &Session) -> Vec<(InputId, OfferEnd)> {
+    s.effects
+        .iter()
+        .filter_map(|effect| match effect {
+            InputEffect::OfferClosed { id, reason } => Some((*id, *reason)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Two windows, each with a ready browser page: w1 shows b1, w2 shows c2.
+fn two_pages() -> Session {
+    let mut s = Session::new();
+    s.open("w1", topology("ws", vec![pane("p1", vec![browser_tab("b1")])]), "p1");
+    s.open("w2", topology("ws2", vec![pane("q1", vec![browser_tab("c2")])]), "q1");
+    s.send(InputEvent::Ready { sink: content("b1") });
+    s.send(InputEvent::Ready { sink: content("c2") });
+    s
+}
+
+/// Second review, finding 3: a WebKit page never reports the keys it leaves
+/// unhandled, so a chord offered to it was lost (Cmd-R and Cmd-F did
+/// nothing). Only a page that reports gets a chord first; on any other page
+/// the action runs at once, as today.
+#[test]
+fn a_page_that_does_not_report_unhandled_keys_gets_no_offer() {
+    let mut s = page_window();
+    let reload = s.press(KeyRecord {
+        page_reports_unhandled: false,
+        ..chord("w1", 15, "browserReload", Tier::Content, Some(content("b1")))
+    });
+    assert_eq!(
+        s.last(reload),
+        Some(&InputEffect::Run { id: reload, action: arc("browserReload"), tab: Some(arc("b1")) })
+    );
+    let find = s.press(KeyRecord {
+        page_reports_unhandled: false,
+        ..chord("w1", F, "find", Tier::Navigation, Some(content("b1")))
+    });
+    assert!(matches!(s.last(find), Some(InputEffect::Run { .. })));
+}
+
+/// Second review, finding 5: one page's report forgot the older offers of
+/// every page. A page answers its own keys in key order, so a report closes
+/// only the same page's older offers.
+#[test]
+fn a_report_from_one_page_keeps_the_offers_of_another_page() {
+    let mut s = two_pages();
+    s.reaches(Some(content("b1")));
+    let first = s.press(chord("w1", F, "find", Tier::Navigation, Some(content("b1"))));
+    s.reaches(Some(content("c2")));
+    let second = s.press(chord("w2", F, "find", Tier::Navigation, Some(content("c2"))));
+    assert!(matches!(s.last(first), Some(InputEffect::Offer { .. })));
+    assert!(matches!(s.last(second), Some(InputEffect::Offer { .. })));
+    s.send(InputEvent::PageUnhandled { id: second });
+    let ran = s.send(InputEvent::PageUnhandled { id: first });
+    assert_eq!(
+        ran,
+        vec![InputEffect::Run { id: first, action: arc("find"), tab: Some(arc("b1")) }]
+    );
+    assert!(offer_ends(&s).is_empty());
+}
+
+/// A page reports a key it handled: the key's action never runs, and the
+/// same page's older offers close as handled, in key order.
+#[test]
+fn a_handled_report_closes_the_offer_and_the_older_ones_of_its_page() {
+    let mut s = page_window();
+    let find = s.press(chord("w1", F, "find", Tier::Navigation, Some(content("b1"))));
+    let next = s.press(chord("w1", 5, "findNext", Tier::Navigation, Some(content("b1"))));
+    s.send(InputEvent::PageHandled { id: next });
+    assert_eq!(offer_ends(&s), vec![(find, OfferEnd::Handled), (next, OfferEnd::Handled)]);
+    assert!(s.send(InputEvent::PageUnhandled { id: find }).is_empty(), "nothing runs");
+}
+
+/// Second review, finding 4 (R9 R-L1, R-L5): 16 offers were kept at most, and
+/// an evicted offer's report ran nothing, with no sign. The offers waiting
+/// for one page are bounded like a lane (the router's lane limit), and the
+/// oldest one past the bound closes visibly.
+#[test]
+fn offers_past_the_bound_close_visibly() {
+    let mut s = page_window();
+    let mut offered = Vec::new();
+    for _ in 0..=SCENARIO_LANE_LIMIT {
+        let repeat = KeyRecord {
+            phase: KeyPhase::Down,
+            ..chord("w1", 5, "findNext", Tier::Navigation, Some(content("b1")))
+        };
+        offered.push(s.press(repeat));
+        s.press(KeyRecord {
+            phase: KeyPhase::Up,
+            ..chord("w1", 5, "findNext", Tier::Navigation, Some(content("b1")))
+        });
+    }
+    let oldest = offered.first().copied().unwrap_or(InputId(0));
+    assert_eq!(offer_ends(&s), vec![(oldest, OfferEnd::Overflow)]);
+    let newest = offered.last().copied().unwrap_or(InputId(0));
+    let ran = s.send(InputEvent::PageUnhandled { id: newest });
+    assert_eq!(ran.len(), SCENARIO_LANE_LIMIT, "the newest report closes the older offers");
+}
+
+/// The page closes before it answers: its offers close with the reason.
+#[test]
+fn a_page_that_closes_before_its_answer_closes_its_offers() {
+    let mut s = page_window();
+    let find = s.press(chord("w1", F, "find", Tier::Navigation, Some(content("b1"))));
+    s.send(InputEvent::Gone { sink: content("b1"), reason: GoneReason::Closed });
+    assert_eq!(offer_ends(&s), vec![(find, OfferEnd::PageGone)]);
+}
+
+/// Second review, finding 6: a bare key with a binding (a viewer's `j`) ran
+/// its action on the tab a dialog blocks. A key with no Command or Control
+/// is the blocking dialog's, bound or not; a Command chord still runs.
+#[test]
+fn a_bare_bound_key_under_a_dialog_goes_to_the_dialog() {
+    let mut s = page_window();
+    let scope = DialogScope::Tab { window: arc("w1"), tab: arc("b1") };
+    s.send(InputEvent::DialogShown { id: 8, scope });
+    let bare = s.press(KeyRecord {
+        binding: Some(Binding {
+            action: arc("viewer.next"),
+            tier: Tier::Content,
+            ghostty: false,
+            edits_input: false,
+        }),
+        ..key("w1", 38, Some(content("b1")))
+    });
+    assert_eq!(s.took(&Sink::Dialog(8)), vec![bare]);
+    let close = s.press(chord("w1", 13, "closeTab", Tier::System, Some(content("b1"))));
+    assert!(matches!(s.last(close), Some(InputEffect::Run { .. })));
+}
+
+/// Second review, nit: the repeat of a key its page got first, decided again
+/// as a run, left the page without the key-up. The release of a key-down a
+/// page got goes to that page.
+#[test]
+fn the_release_of_an_offered_key_reaches_its_page_after_a_repeat_that_ran() {
+    let mut s = page_window();
+    let find = chord("w1", F, "find", Tier::Navigation, Some(content("b1")));
+    let down = s.press(find.clone());
+    assert!(matches!(s.last(down), Some(InputEffect::Offer { .. })));
+    // The page now has waiting keys, so the repeat runs Find at once.
+    s.send(InputEvent::Pending { sink: content("b1") });
+    s.press(key("w1", A, Some(content("b1"))));
+    let repeat = s.press(KeyRecord { phase: KeyPhase::Repeat, ..find.clone() });
+    assert!(matches!(s.last(repeat), Some(InputEffect::Run { .. })));
+    s.send(InputEvent::Ready { sink: content("b1") });
+    let up = s.press(KeyRecord { phase: KeyPhase::Up, ..find });
+    assert_eq!(
+        s.last(up),
+        Some(&InputEffect::Deliver { id: up, sink: content("b1"), via: Via::Responder })
+    );
 }

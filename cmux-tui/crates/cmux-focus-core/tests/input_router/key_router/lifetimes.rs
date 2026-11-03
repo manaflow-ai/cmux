@@ -1,10 +1,12 @@
-//! Sink lifetimes and the details of a key's route that the first review of
-//! the router found wrong (PR #34052 review, findings 1-3, 8, 10, 11), and the
-//! fuzz failure of the S1b green step (fleet step 1803a1b30c2e, seed 39): a
-//! sink that ended takes keys again only as a new sink, a creation's reply
-//! comes after its stand-in showed, an input action waits for its sink like a
-//! key, the binding rules read the key's own target, and a key that reached
-//! nothing has no repeat or release anywhere.
+//! Sink lifetimes and the details of a key's route that the reviews of the
+//! router found wrong (PR #34052, first review findings 1-3, 8, 10, 11; second
+//! review findings 1, 2, 7 and the copy-mode nit), and the fuzz failure of the
+//! S1b green step (fleet step 1803a1b30c2e, seed 39): a sink that ended takes
+//! keys again only as a new sink, an exited terminal stays ended wherever its
+//! tab shows until a restart, a creation's reply comes before or after its
+//! stand-in showed, an input action waits for its sink like a key and is
+//! dropped like one, the binding rules read the key's own target, and a key
+//! that reached nothing has no repeat or release anywhere.
 
 use super::support::{
     Session, arc, browser_tab, chord, content, key, pane, terminal, terminal_tab, topology,
@@ -47,13 +49,18 @@ fn failed() -> DropReason {
     DropReason::SinkGone(GoneReason::CreationFailed)
 }
 
+fn exited() -> DropReason {
+    DropReason::SinkGone(GoneReason::Exited)
+}
+
 /// Fuzz seed 39 of the S1b green step (InputId 47 went to Host("T2") after T2
-/// ended): a terminal that ended takes no key while its tab still shows, and
-/// takes keys again when a window shows it after none did (a closed window
-/// opened again). The ledger checks that no key reaches the terminal while it
-/// is ended, and accepts it again once the router says it came back.
+/// ended): a terminal whose tab closed takes no key while its tab still shows
+/// (a topology that lags), and a window that shows it again after none did (a
+/// closed window opened again, Reopen Closed) shows a new tab. The ledger
+/// checks that no key reaches the terminal while it is ended, and accepts it
+/// again once the router says it is new.
 #[test]
-fn a_terminal_that_ended_takes_keys_again_only_when_a_window_shows_it_again() {
+fn a_closed_tab_shown_again_by_a_reopen_takes_keys_as_a_new_tab() {
     let mut s = Session::new();
     let shows = || topology("ws2", vec![pane("q1", vec![terminal_tab("t2", "T2")])]);
     s.open("w2", shows(), "q1");
@@ -191,10 +198,141 @@ fn a_paste_typed_under_a_dialog_runs_at_once() {
         id: 2,
         scope: DialogScope::Tab { window: arc("w1"), tab: arc("b1") },
     });
+    // It edits the dialog's input, so it names no tab (second review, nit).
     let pasted = s.press(paste("w1", Some(content("b1"))));
     assert_eq!(
         s.last(pasted),
-        Some(&InputEffect::Run { id: pasted, action: arc("paste"), tab: Some(arc("b1")) })
+        Some(&InputEffect::Run { id: pasted, action: arc("paste"), tab: None })
+    );
+}
+
+/// Second review, finding 2: an exited terminal became "new" after a topology
+/// that did not show it, so after a workspace switch, a tab move or a window
+/// reopen its keys went to a terminal that does not run. It stays ended
+/// wherever its tab shows, until a creation names it again (a restart).
+#[test]
+fn an_exited_terminal_takes_no_key_after_a_switch_or_a_reopen_until_a_restart() {
+    let mut s = Session::new();
+    let both = || {
+        topology(
+            "ws",
+            vec![
+                pane("p1", vec![terminal_tab("t1", "T1")]),
+                pane("p2", vec![terminal_tab("t2", "T2")]),
+            ],
+        )
+    };
+    s.open("w1", both(), "p2");
+    s.reaches(Some(terminal("T2")));
+    s.send(InputEvent::Gone { sink: terminal("T2"), reason: GoneReason::Exited });
+    let shown = s.press(key("w1", A, Some(terminal("T2"))));
+    assert_eq!(s.last(shown), Some(&InputEffect::Dropped { id: shown, reason: exited() }));
+    // Another workspace, then back: the keyboard returns to p2.
+    let away = topology("ws-b", vec![pane("q9", vec![terminal_tab("t9", "T9")])]);
+    s.focus("w1", FocusEvent::Topology { topology: away });
+    s.focus("w1", FocusEvent::Topology { topology: both() });
+    let back = s.press(key("w1", B, Some(terminal("T2"))));
+    assert_eq!(s.last(back), Some(&InputEffect::Dropped { id: back, reason: exited() }));
+    // The window closes and opens again.
+    s.send(InputEvent::WindowClosed { window: arc("w1") });
+    s.open("w1", both(), "p2");
+    let reopened = s.press(key("w1", C, Some(terminal("T2"))));
+    assert_eq!(s.last(reopened), Some(&InputEffect::Dropped { id: reopened, reason: exited() }));
+    // A restart names the terminal again.
+    let restart = ExpectationKey::Tab { id: "t2".into() };
+    s.send(InputEvent::Creation {
+        key: restart.clone(),
+        sink: terminal("T2"),
+        kind: Kind::Terminal,
+    });
+    s.send(InputEvent::Created { key: restart });
+    let restarted = s.press(key("w1", D, Some(terminal("T2"))));
+    assert_eq!(s.took(&terminal("T2")), vec![restarted]);
+    assert!(s.took(&terminal("T1")).is_empty());
+}
+
+/// An exited terminal whose tab then closes is gone for good: a reopen of
+/// the tab (a window that shows it again after none did) is a new tab.
+#[test]
+fn an_exited_terminal_whose_tab_closes_is_a_new_tab_when_reopened() {
+    let mut s = Session::new();
+    let shows = || topology("ws", vec![pane("p1", vec![terminal_tab("t1", "T1")])]);
+    s.open("w1", shows(), "p1");
+    s.reaches(Some(terminal("T1")));
+    s.send(InputEvent::Gone { sink: terminal("T1"), reason: GoneReason::Exited });
+    s.focus("w1", FocusEvent::Topology { topology: topology("ws", vec![pane("p1", Vec::new())]) });
+    s.send(InputEvent::Gone { sink: terminal("T1"), reason: GoneReason::Closed });
+    s.focus("w1", FocusEvent::Topology { topology: shows() });
+    let typed = s.press(key("w1", A, Some(terminal("T1"))));
+    assert_eq!(s.took(&terminal("T1")), vec![typed]);
+}
+
+/// Second review, finding 1: the daemon's reply came before the store's delta
+/// that shows the new tab, the router forgot the creation, and the next key
+/// went to the page the person left (the 1193 / INVERSE-KEY class). A done
+/// creation keeps the keys typed for its tab until a window shows the tab.
+#[test]
+fn a_creation_done_before_its_tab_shows_keeps_the_keys_for_its_terminal() {
+    let mut s = Session::new();
+    let panes =
+        vec![pane("p1", vec![terminal_tab("t1", "T1")]), pane("p2", vec![browser_tab("b1")])];
+    s.open("w1", topology("ws", panes.clone()), "p2");
+    s.send(InputEvent::Ready { sink: content("b1") });
+    s.reaches(Some(content("b1")));
+    s.press(chord("w1", 50, "newTerminalTab", Tier::Navigation, Some(content("b1"))));
+    s.create("w1", "s9", terminal("T9"));
+    s.send(InputEvent::Created { key: ExpectationKey::Tab { id: "s9".into() } });
+    let typed = s.press(key("w1", B, Some(content("b1"))));
+    assert_eq!(
+        s.last(typed),
+        Some(&InputEffect::Deliver { id: typed, sink: terminal("T9"), via: Via::Direct })
+    );
+    let mut shown = panes;
+    shown.push(pane("p3", vec![terminal_tab("s9", "T9")]));
+    s.focus("w1", FocusEvent::Topology { topology: topology("ws", shown) });
+    let later = s.press(key("w1", C, Some(terminal("T9"))));
+    assert_eq!(s.took(&terminal("T9")), vec![typed, later]);
+    assert!(s.took(&content("b1")).is_empty());
+}
+
+/// Second review, finding 7: a Paste for an exited terminal ran into it while
+/// a key for it was dropped. An input action for an ended input is dropped
+/// with the input's reason, like a key.
+#[test]
+fn a_paste_for_an_exited_terminal_is_dropped_like_a_key() {
+    let mut s = Session::new();
+    s.open("w1", topology("ws", vec![pane("p1", vec![terminal_tab("t1", "T1")])]), "p1");
+    s.reaches(Some(terminal("T1")));
+    s.send(InputEvent::Gone { sink: terminal("T1"), reason: GoneReason::Exited });
+    let pasted = s.press(paste("w1", Some(terminal("T1"))));
+    assert_eq!(s.last(pasted), Some(&InputEffect::Dropped { id: pasted, reason: exited() }));
+}
+
+/// Second review, nit: copy mode belongs to the focused terminal. A Ghostty
+/// keybind typed for a new terminal (the focus is on its way to it) goes to
+/// that terminal's view, as it does for any terminal not in copy mode.
+#[test]
+fn a_new_terminal_is_not_in_the_focused_terminals_copy_mode() {
+    let mut s = Session::new();
+    s.open("w1", topology("ws", vec![pane("p1", vec![terminal_tab("t1", "T1")])]), "p1");
+    s.reaches(Some(terminal("T1")));
+    s.press(chord("w1", 50, "newTerminalTab", Tier::Navigation, Some(terminal("T1"))));
+    s.create("w1", "s9", terminal("T9"));
+    let keybind = s.press(KeyRecord {
+        modifiers: Modifiers { command: true, option: true, ..Modifiers::default() },
+        binding: Some(Binding {
+            action: arc("goToSplit"),
+            tier: Tier::Navigation,
+            ghostty: true,
+            edits_input: false,
+        }),
+        letter: None,
+        terminal_copy_mode: true,
+        ..key("w1", LEFT, Some(terminal("T1")))
+    });
+    assert_eq!(
+        s.last(keybind),
+        Some(&InputEffect::Deliver { id: keybind, sink: terminal("T9"), via: Via::Direct })
     );
 }
 

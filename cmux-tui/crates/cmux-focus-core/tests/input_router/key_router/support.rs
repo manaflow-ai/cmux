@@ -66,6 +66,7 @@ pub fn key(window: &str, code: u16, reaches: Option<Sink>) -> KeyRecord {
             .map(|(_, letter)| *letter),
         page_editing_chord: false,
         field_uses_escape: false,
+        page_reports_unhandled: true,
     }
 }
 

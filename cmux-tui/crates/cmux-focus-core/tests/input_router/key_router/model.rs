@@ -1,15 +1,15 @@
 //! The reference model the fuzz checks the router against: the same rules
-//! (DESIGN.md sections 4.4-4.8) written as plainly as possible, with none of
+//! (DESIGN.md sections 4.3-4.8) written as plainly as possible, with none of
 //! the router's structure. It keeps every key in one list with its state,
-//! finds tabs by scanning every window's topology, and after every event
-//! settles the whole world from scratch: what ended, what left, and what can
-//! go now, oldest key first.
+//! finds tabs by scanning every window's topology, keeps every creation for
+//! good, and after every event settles the whole world from scratch: what
+//! ended, what left, and what can go now, oldest key first.
 
 use cmux_focus_core::event::{FocusEffect, FocusEvent, Source};
 use cmux_focus_core::input::{
     Binding, ConsumeReason, DialogScope, DropReason, FieldKind, GoneReason, InputEvent, KeyPhase,
-    KeyRecord, SessionEnd, SessionKey, SessionKind, Sink, TerminalKey, Tier, Via, WaitReason,
-    WindowRole,
+    KeyRecord, OfferEnd, SessionEnd, SessionKey, SessionKind, Sink, TerminalKey, Tier, Via,
+    WaitReason, WindowRole,
 };
 use cmux_focus_core::reducer;
 use cmux_focus_core::state::{ExpectationKey, FocusState, Resolved, Target};
@@ -64,6 +64,24 @@ enum Pressed {
     Offered(Sink),
 }
 
+/// A creation, kept for good (the router forgets a done one once a window
+/// shows its tab, which changes no route).
+struct Made {
+    key: ExpectationKey,
+    sink: Sink,
+    kind: Kind,
+    /// Its reply came: done.
+    replied: bool,
+}
+
+/// A key offered to its page, whose answer has not come.
+struct Offered {
+    id: u64,
+    page: Sink,
+    action: Arc<str>,
+    tab: Option<Arc<str>>,
+}
+
 /// What the binding rules see of a key's target.
 #[derive(Clone, Copy)]
 struct Seen {
@@ -76,12 +94,13 @@ struct Seen {
     chrome_field: bool,
 }
 
-/// Where a key typed now goes: the sink, the tab it is for, and what the
-/// binding rules see.
+/// Where a key typed now goes: the sink, the tab it is for, what the binding
+/// rules see, and whether the focus is on its way to it (an expectation).
 struct Aimed {
     sink: Option<Sink>,
     tab: Option<Arc<str>>,
     seen: Seen,
+    expected: bool,
 }
 
 pub struct Model {
@@ -92,8 +111,7 @@ pub struct Model {
     /// Tab sinks that ended: why, and whether no window showed them since.
     gone: HashMap<Sink, (GoneReason, bool)>,
     composes: bool,
-    /// Creations until their reply.
-    creations: Vec<(ExpectationKey, Sink, Kind)>,
+    creations: Vec<Made>,
     keys: Vec<Key>,
     pressed: HashMap<(String, u16), Pressed>,
     /// Every sink's deliveries, in order.
@@ -104,9 +122,10 @@ pub struct Model {
     pub session_ends: Vec<(SessionKind, SessionEnd)>,
     /// The dialogs shown, oldest first.
     dialogs: Vec<(u64, DialogScope)>,
-    /// The keys offered to their page whose report is awaited, oldest first
-    /// (at most 16, as the router keeps): id, action, tab.
-    offers: Vec<(u64, Arc<str>, Option<Arc<str>>)>,
+    /// The keys offered to a page whose answer has not come, oldest first.
+    offers: Vec<Offered>,
+    /// Every offer that ended with no action, in order.
+    pub offer_ends: Vec<(u64, OfferEnd)>,
     /// Per window, the pane Escape in a field gives the keyboard back to.
     return_to: HashMap<String, String>,
 }
@@ -125,7 +144,8 @@ const CHROME: [&str; 7] = [
 const KEPT: [&str; 2] = ["toggleBrowserFocusMode", "quit"];
 
 impl Model {
-    /// A model whose lanes hold `limit` entries at most.
+    /// A model whose lanes (and each page's waiting offers) hold `limit`
+    /// entries at most.
     pub fn new(limit: usize) -> Model {
         Model {
             limit,
@@ -142,13 +162,14 @@ impl Model {
             session_ends: Vec::new(),
             dialogs: Vec::new(),
             offers: Vec::new(),
+            offer_ends: Vec::new(),
             return_to: HashMap::new(),
         }
     }
 
-    /// The ids of the keys offered to a page whose report is still awaited.
+    /// The ids of the keys offered to a page whose answer has not come.
     pub fn offered(&self) -> Vec<u64> {
-        self.offers.iter().map(|(id, _, _)| *id).collect()
+        self.offers.iter().map(|offer| offer.id).collect()
     }
 
     /// Every key's state, by id.
@@ -196,14 +217,24 @@ impl Model {
                 if self.gone.remove(sink).is_some() {
                     self.renew(sink);
                 }
-                self.creations.retain(|(k, _, _)| k != key);
-                self.creations.push((key.clone(), sink.clone(), *kind));
+                self.creations.retain(|made| made.key != *key);
+                let made =
+                    Made { key: key.clone(), sink: sink.clone(), kind: *kind, replied: false };
+                self.creations.push(made);
             }
-            InputEvent::Created { key } => self.creations.retain(|(k, _, _)| k != key),
+            InputEvent::Created { key } => {
+                for made in &mut self.creations {
+                    if made.key == *key {
+                        made.replied = true;
+                    }
+                }
+            }
             InputEvent::CreationFailed { key } => {
-                if let Some(index) = self.creations.iter().position(|(k, _, _)| k == key) {
-                    let (_, sink, _) = self.creations.remove(index);
-                    self.end(&sink, GoneReason::CreationFailed);
+                // One reply a creation: a failure after "done" changes nothing.
+                let failed = self.creations.iter().position(|m| m.key == *key && !m.replied);
+                if let Some(index) = failed {
+                    let made = self.creations.remove(index);
+                    self.end(&made.sink, GoneReason::CreationFailed);
                 }
             }
             InputEvent::InputSource { composes } => self.composes = *composes,
@@ -239,19 +270,34 @@ impl Model {
                     }
                 }
             }
-            InputEvent::PageUnhandled { id } => {
-                if let Some(index) = self.offers.iter().position(|(o, _, _)| *o == id.0) {
-                    let ran = self.offers.drain(..=index).next_back();
-                    if let Some((_, action, tab)) = ran
-                        && let Some(key) = self.keys.iter_mut().find(|k| k.id == id.0)
-                    {
-                        key.state = State::Ended(Ending::Ran { action, tab });
-                    }
-                }
-            }
+            InputEvent::PageUnhandled { id } => self.page_answered(id.0, true),
+            InputEvent::PageHandled { id } => self.page_answered(id.0, false),
         }
         self.drop_left();
         self.settle();
+    }
+
+    /// The page answered offered key `id`: the same page's older offers were
+    /// handled; the key's action runs when the page left it unhandled.
+    fn page_answered(&mut self, id: u64, unhandled: bool) {
+        let Some(index) = self.offers.iter().position(|offer| offer.id == id) else { return };
+        let answered = self.offers.remove(index);
+        let mut kept = Vec::new();
+        for offer in std::mem::take(&mut self.offers) {
+            if offer.id < id && offer.page == answered.page {
+                self.offer_ends.push((offer.id, OfferEnd::Handled));
+            } else {
+                kept.push(offer);
+            }
+        }
+        self.offers = kept;
+        if !unhandled {
+            self.offer_ends.push((id, OfferEnd::Handled));
+            return;
+        }
+        if let Some(key) = self.keys.iter_mut().find(|key| key.id == id) {
+            key.state = State::Ended(Ending::Ran { action: answered.action, tab: answered.tab });
+        }
     }
 
     fn close(&mut self, window: &str) {
@@ -350,8 +396,10 @@ impl Model {
         shown
     }
 
-    /// An ended sink a window shows again after none did is new; one that no
-    /// window shows and no held key names is forgotten (also new).
+    /// An exited sink stays ended wherever its tab shows: only a creation
+    /// makes it new. A closed (or failed) sink that a window shows again after
+    /// none did is new; one that no window shows and no held key names is
+    /// forgotten (also new).
     fn track_gone(&mut self) {
         let shown = self.shown_sinks();
         let ended: Vec<Sink> = self.gone.keys().cloned().collect();
@@ -362,7 +410,10 @@ impl Model {
                 Pressed::Offered(held) => *held == sink,
                 _ => false,
             });
-            let Some((_, left)) = self.gone.get_mut(&sink) else { continue };
+            let Some((reason, left)) = self.gone.get_mut(&sink) else { continue };
+            if *reason == GoneReason::Exited {
+                continue;
+            }
             let new = if shows {
                 *left
             } else {
@@ -459,9 +510,30 @@ impl Model {
     fn end(&mut self, sink: &Sink, reason: GoneReason) {
         self.ready.remove(sink);
         if matches!(sink, Sink::Terminal(_) | Sink::Content(_) | Sink::DevTools(_)) {
-            self.creations.retain(|(_, s, _)| s != sink);
-            let left = !self.shown_sinks().contains(sink);
-            self.gone.insert(sink.clone(), (reason, left));
+            self.creations.retain(|made| made.sink != *sink);
+            let shown = self.shown_sinks().contains(sink);
+            match self.gone.get_mut(sink) {
+                // An exited sink whose tab then closes is gone for good.
+                Some((had, left)) => {
+                    if *had == GoneReason::Exited && reason != GoneReason::Exited {
+                        *had = reason;
+                        *left = !shown;
+                    }
+                }
+                None => {
+                    self.gone.insert(sink.clone(), (reason, !shown));
+                }
+            }
+            // The page's offers can get no answer now.
+            let mut kept = Vec::new();
+            for offer in std::mem::take(&mut self.offers) {
+                if offer.page == *sink {
+                    self.offer_ends.push((offer.id, OfferEnd::PageGone));
+                } else {
+                    kept.push(offer);
+                }
+            }
+            self.offers = kept;
         }
         for key in &mut self.keys {
             if key.state == State::Waiting(sink.clone()) {
@@ -564,7 +636,15 @@ impl Model {
                 Some(Pressed::Platform) => {
                     self.record(id, None, false, State::Ended(Ending::Platform));
                 }
-                Some(Pressed::Consumed | Pressed::Offered(_)) | None => {
+                // The release of a key-down its page got first goes to that page.
+                Some(Pressed::Offered(page)) => {
+                    let pressed = match self.decide(id, key) {
+                        offered @ Pressed::Offered(_) => offered,
+                        _ => Pressed::Offered(page),
+                    };
+                    self.pressed.insert(slot, pressed);
+                }
+                Some(Pressed::Consumed) | None => {
                     let pressed = self.decide(id, key);
                     self.pressed.insert(slot, pressed);
                 }
@@ -622,25 +702,48 @@ impl Model {
         }
         let aimed = self.aimed(&key.window);
         let dialog = self.dialog_for(&key.window, aimed.sink.as_ref());
+        // A key with no Command or Control is a blocking dialog's, bound or not.
+        if let Some(dialog) = dialog
+            && !(key.modifiers.command || key.modifiers.control)
+        {
+            return self.press(id, key, Sink::Dialog(dialog));
+        }
         if let Some(binding) = &key.binding
             && let Some(focus) = self.focus(&key.window)
         {
             let seen = aimed.seen;
             let mode = focus.derived.browser_focus_mode_active;
-            let to_view = binding.ghostty
-                && ((seen.terminal && !key.terminal_copy_mode) || binding.tier == Tier::Content);
+            // Copy mode is the focused terminal's, never a new terminal's.
+            let copy_mode = key.terminal_copy_mode && !aimed.expected;
+            let to_view =
+                binding.ghostty && ((seen.terminal && !copy_mode) || binding.tier == Tier::Content);
             if !to_view && runs(&binding.action, binding.tier, seen, mode) {
                 if dialog.is_none()
                     && let Some(page) = self.page_first(binding, key, focus, aimed.sink.as_ref())
                 {
-                    self.offers.push((id, binding.action.clone(), aimed.tab.clone()));
-                    if self.offers.len() > 16 {
-                        self.offers.remove(0);
+                    let waiting = self.offers.iter().filter(|offer| offer.page == page).count();
+                    if waiting >= self.limit
+                        && let Some(oldest) =
+                            self.offers.iter().position(|offer| offer.page == page)
+                    {
+                        let dropped = self.offers.remove(oldest);
+                        self.offer_ends.push((dropped.id, OfferEnd::Overflow));
                     }
+                    let action = binding.action.clone();
+                    let offer = Offered { id, page: page.clone(), action, tab: aimed.tab.clone() };
+                    self.offers.push(offer);
                     self.record(id, None, false, State::Ended(Ending::Offered(page.clone())));
                     return Pressed::Offered(page);
                 }
-                self.ran(id, binding, dialog.map(Sink::Dialog).or(aimed.sink), aimed.tab, key);
+                // Under a dialog, an input action edits the dialog's input, with no tab.
+                let (input, tab) = match dialog {
+                    Some(dialog) => {
+                        let tab = if binding.edits_input { None } else { aimed.tab };
+                        (Some(Sink::Dialog(dialog)), tab)
+                    }
+                    None => (aimed.sink, aimed.tab),
+                };
+                self.ran(id, binding, input, tab, key);
                 return Pressed::Consumed;
             }
         }
@@ -680,8 +783,9 @@ impl Model {
         }
     }
 
-    /// Key `id` runs `binding`: now, or, when the action edits `input` and
-    /// that input cannot take input now or has entries waiting, in its lane.
+    /// Key `id` runs `binding`: now, or, when the action edits `input`, in
+    /// `input`'s lane while it cannot take input or has entries waiting; an
+    /// input that ended drops it, like a key.
     fn ran(
         &mut self,
         id: u64,
@@ -691,12 +795,15 @@ impl Model {
         key: &KeyRecord,
     ) {
         let ran = State::Ended(Ending::Ran { action: binding.action.clone(), tab: tab.clone() });
-        let Some(sink) =
-            input.filter(|sink| binding.edits_input && self.gone_reason(sink).is_none())
-        else {
+        let Some(sink) = input.filter(|_| binding.edits_input) else {
             self.record(id, None, false, ran);
             return;
         };
+        if let Some(reason) = self.gone_reason(&sink) {
+            let dropped = State::Ended(Ending::Dropped(DropReason::SinkGone(reason)));
+            self.record(id, None, false, dropped);
+            return;
+        }
         let waiting = self.waits(&sink);
         if waiting == 0 && self.via(&sink, key.reaches.as_ref(), false).is_ok() {
             self.record(id, None, false, ran);
@@ -766,13 +873,13 @@ impl Model {
             chrome_field: false,
         };
         let Some(focus) = self.focus(window) else {
-            return Aimed { sink: None, tab: None, seen: nothing };
+            return Aimed { sink: None, tab: None, seen: nothing, expected: false };
         };
         let w: Arc<str> = Arc::from(window);
         let focused = seen_focused(&focus.derived.resolved);
         if let Some(top) = focus.overlays.last() {
             let sink = Some(Sink::Overlay { window: w, overlay: *top });
-            return Aimed { sink, tab: None, seen: focused };
+            return Aimed { sink, tab: None, seen: focused, expected: false };
         }
         if let Some(expectation) = &focus.expectation
             && expectation.generation == focus.generation
@@ -793,7 +900,8 @@ impl Model {
                 (Target::TextField {}, _) => field(FieldKind::TextField),
                 _ => sink,
             };
-            return Aimed { seen: seen_expected(&sink, kind), sink: Some(sink), tab };
+            let seen = seen_expected(&sink, kind);
+            return Aimed { sink: Some(sink), tab, seen, expected: true };
         }
         let field = |which| Some(Sink::Field { window: w.clone(), field: which });
         let tab = |id: &str| Arc::<str>::from(id);
@@ -824,7 +932,8 @@ impl Model {
             }
             Resolved::EmptyPane { .. } | Resolved::None {} => None,
         };
-        Aimed { sink, tab: focus.derived.resolved.tab().map(tab), seen: focused }
+        let tab = focus.derived.resolved.tab().map(tab);
+        Aimed { sink, tab, seen: focused, expected: false }
     }
 
     /// The tab an expectation names: its id, content sink and kind, from a
@@ -839,8 +948,8 @@ impl Model {
             let sink = tab_sink(&shown)?;
             return Some((Some(Arc::from(shown.id.as_str())), sink, shown.kind));
         }
-        let (_, sink, kind) = self.creations.iter().find(|(k, _, _)| k == key)?;
-        let tab = match (key, sink) {
+        let made = self.creations.iter().find(|made| made.key == *key)?;
+        let tab = match (key, &made.sink) {
             (ExpectationKey::Tab { id }, _) => Some(Arc::from(id.as_str())),
             (
                 ExpectationKey::Surface { .. },
@@ -848,12 +957,13 @@ impl Model {
             ) => Some(t.clone()),
             (ExpectationKey::Surface { .. }, _) => None,
         };
-        Some((tab, sink.clone(), *kind))
+        Some((tab, made.sink.clone(), made.kind))
     }
 
     /// The page a bound chord goes to first (the app's `offersToPage`): the
-    /// page the key is aimed at, when it is the window's focused browser page
-    /// and its window has the keys and it takes them now.
+    /// page the key is aimed at, when it is the window's focused browser page,
+    /// it reports the keys it leaves unhandled, its window has the keys and it
+    /// takes them now.
     fn page_first(
         &self,
         binding: &Binding,
@@ -865,6 +975,7 @@ impl Model {
         let page = Sink::Content(Arc::from(tab.as_str()));
         let action: &str = &binding.action;
         if aimed != Some(&page)
+            || !key.page_reports_unhandled
             || focus.derived.browser_focus_mode_active
             || binding.ghostty
             || DEV_TOOLS.contains(&action)

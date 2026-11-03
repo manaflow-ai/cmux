@@ -115,6 +115,11 @@ pub struct KeyRecord {
     /// Escape does something in the focused field itself now (it clears the
     /// field's text, closes its list): the field takes it.
     pub field_uses_escape: bool,
+    /// The focused page reports the keys it leaves unhandled (a Chromium page
+    /// whose page window has the keys; the app's
+    /// `KeyFacts.pageReportsUnhandledKeys`): only such a page gets a bound
+    /// chord first. A WebKit page never reports, so its chords run at once.
+    pub page_reports_unhandled: bool,
 }
 
 impl KeyRecord {

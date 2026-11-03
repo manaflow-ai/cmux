@@ -96,10 +96,29 @@ pub enum DropReason {
 /// Why a sink ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum GoneReason {
-    /// Its tab closed.
+    /// Its tab closed. A closed tab's id shows again only when Reopen Closed
+    /// brings the tab back, as a new tab.
     Closed,
     /// The creation that was making it failed.
     CreationFailed,
+    /// It ended and its tab stays (a terminal whose process exited, shown
+    /// with its end banner): it takes no key until a creation names it again
+    /// (a restart) or its tab closes, wherever its tab shows meanwhile.
+    Exited,
+}
+
+/// How the offer of a key to its page first ended with no action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum OfferEnd {
+    /// The page handled the key: it said so, or it answered a newer key (a
+    /// page answers its keys in key order).
+    Handled,
+    /// The page ended before it answered.
+    PageGone,
+    /// More offers to the same page waited for its answers than a lane holds:
+    /// the oldest one's action can no longer run, and the platform shows that
+    /// (R9 R-L5).
+    Overflow,
 }
 
 /// Why a key was consumed with no effect.
@@ -125,7 +144,8 @@ pub enum ConsumeReason {
 /// or `SessionKey`). Keys that waited in a lane before it may be delivered
 /// first in the same call, so the platform applies the effects in order. A
 /// `Queued` key later ends in exactly one `Deliver`, `Run` or `Dropped`; an
-/// `Offer`ed key may later get one `Run` (its page left it unhandled).
+/// `Offer`ed key later gets one `Run` (its page left it unhandled) or one
+/// `OfferClosed`, or nothing while its page has not answered.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InputEffect {
     /// The key goes to `sink` now.
@@ -149,6 +169,8 @@ pub enum InputEffect {
     SessionKey { id: InputId, key: SessionKey },
     /// The key session ended (the platform removes its labels or recorder).
     SessionEnded { kind: SessionKind, reason: SessionEnd },
+    /// The offer of key `id` to its page ended with no action.
+    OfferClosed { id: InputId, reason: OfferEnd },
     /// A tab's sink ended: no key reaches it until a [`InputEffect::SinkNew`]
     /// for it. Its waiting keys are dropped in the same call.
     SinkEnded { sink: Sink, reason: GoneReason },
@@ -172,6 +194,7 @@ impl InputEffect {
             | InputEffect::Dropped { id, .. }
             | InputEffect::Platform { id }
             | InputEffect::Offer { id, .. }
+            | InputEffect::OfferClosed { id, .. }
             | InputEffect::SessionKey { id, .. } => Some(*id),
             InputEffect::Focus { .. }
             | InputEffect::SessionEnded { .. }
@@ -198,22 +221,26 @@ pub enum InputEvent {
     Dispatch { reaches: Option<Sink> },
     /// `sink` can take input now (a page painted after its commit, a primary
     /// input reported ready). A report for a sink that ended counts for none:
-    /// a new sink of its id reports again after its own first paint.
+    /// after [`InputEffect::SinkNew`] for it, the platform reports again at the
+    /// new sink's own first paint.
     Ready { sink: Sink },
     /// `sink` cannot take input until it reports ready again (a new document
     /// started).
     Pending { sink: Sink },
     /// `sink` ended: its waiting keys are dropped. A tab's sink takes no key
     /// until it is a new sink ([`InputEffect::SinkNew`]); a field, overlay or
-    /// dialog only loses its waiting keys.
+    /// dialog only loses its waiting keys. An exited sink whose tab then closes
+    /// is reported again, `Closed`.
     Gone { sink: Sink, reason: GoneReason },
     /// A creation makes `sink`, a tab of `kind`, under `key` (its stand-in tab
     /// or surface): keys for it go to `sink` before any window's topology has
     /// it. Each creation gets one reply: [`InputEvent::Created`] or
-    /// [`InputEvent::CreationFailed`], usually after its stand-in showed. A
-    /// creation that names a sink that ended makes a new sink of that id.
+    /// [`InputEvent::CreationFailed`], before or after its stand-in showed. A
+    /// creation that names a sink that ended makes a new sink of that id (a
+    /// reopen, a restart, a relaunch).
     Creation { key: ExpectationKey, sink: Sink, kind: Kind },
-    /// The creation under `key` is done.
+    /// The creation under `key` is done. Keys for its tab still go to its
+    /// sink until a window shows the tab.
     Created { key: ExpectationKey },
     /// The creation under `key` failed, before or after its stand-in showed: its
     /// sink ends, and its waiting and later keys are dropped with the reason
@@ -232,6 +259,9 @@ pub enum InputEvent {
     /// Dialog `id` was answered or dismissed: the keys its target kept wait
     /// for go on.
     DialogDismissed { id: u64 },
-    /// The page left key `id`, offered to it first, unhandled.
+    /// The page left key `id`, offered to it first, unhandled: its action
+    /// runs.
     PageUnhandled { id: InputId },
+    /// The page handled key `id`, offered to it first: its action never runs.
+    PageHandled { id: InputId },
 }
