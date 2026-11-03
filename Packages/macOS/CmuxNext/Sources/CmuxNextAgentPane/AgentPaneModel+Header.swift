@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+public import CmuxNextActions
 import CmuxNextDesign
 import Foundation
 
@@ -91,9 +91,11 @@ public struct AgentPaneHeaderHooks {
     /// depth, or the session that started it (acpmux `startedBy`, mirrored by the app's turn-state
     /// watch). ``AgentPaneOfferOpen`` opens only those, or the pane's own sessions; none by default.
     public var isFamily: @MainActor (_ session: String, _ chat: String) -> Bool
-    /// Changes with a chat turn (``AgentPaneDiffTurn``): the diff beside the chat with that turn
-    /// as its Last turn, toggled (`true`) or opened. Nil: the header runs Changes without it.
-    public var diffTurn: (@MainActor (_ cwd: String?, _ turn: AgentPaneDiffTurn, _ toggle: Bool) -> Void)?
+    /// Changes with more `openDiffViewer` arguments, toggled (`true`) or opened: a chat turn
+    /// (``AgentPaneDiffTurn``), the diff beside the chat with that turn as its Last turn, or the
+    /// turn's own patch (``AgentPaneDiffPatch``), a diff tab that shows only that patch. Nil: the
+    /// header runs Changes without a turn, and the page shows a patch's changes itself.
+    public var diffOpen: (@MainActor (_ cwd: String?, _ arguments: [String: ActionValue], _ toggle: Bool) -> Void)?
     /// Eligible Cloud machines for the title menu's Move to machine submenu.
     public var moveTargets: @MainActor () -> [AgentPaneMoveTarget]
     /// Dispatches an existing CloudMove operation to one validated target machine, for the chat
@@ -225,8 +227,15 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")
             }
             let folder = folderForOtherTabs(cwd)
-            if let diffTurn = header.diffTurn { diffTurn(folder, turn, toggle) }
+            if let diffOpen = header.diffOpen { diffOpen(folder, turn.actionArguments, toggle) }
             else if toggle { header.toggle(Self.diffAction, folder) } else { header.run(Self.diffAction, folder) }
+            return AgentPaneReply.success(["ran": true])
+        case .diffPatch(let patch, let cwd, let toggle):
+            // No hook (a host without diff tabs): the page shows the turn's changes itself.
+            guard newTab == nil, let diffOpen = header?.diffOpen else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")
+            }
+            diffOpen(folderForOtherTabs(cwd), patch.actionArguments, toggle)
             return AgentPaneReply.success(["ran": true])
         case .sessionInfo(let info):
             sessionInfo.update(info)
