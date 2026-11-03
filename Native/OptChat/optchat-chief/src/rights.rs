@@ -444,7 +444,11 @@ impl Pattern {
         if !tool_ok || tool.is_empty() {
             return Err(bad());
         }
-        if tool.contains('*') && !(tool.starts_with("mcp__") && tool.ends_with("__*")) {
+        let server = tool
+            .strip_prefix("mcp__")
+            .and_then(|t| t.strip_suffix("__*"))
+            .filter(|server| !server.is_empty() && !server.contains('*'));
+        if tool.contains('*') && server.is_none() {
             return Err(format!("{text:?}: only `mcp__<server>__*` may use a wildcard in the tool"));
         }
         if arg.is_some() && arg_key(tool).is_none() {
