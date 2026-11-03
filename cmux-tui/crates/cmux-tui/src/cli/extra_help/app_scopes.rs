@@ -17,7 +17,7 @@ pub(in crate::cli) fn print(args: &[String]) -> Option<i32> {
     Some(0)
 }
 
-/// `help acp|mcp|coderouter|link` runs that command's own `--help`, so the
+/// `help acp|mcp|coderouter|billing|auth|link` runs that command's own `--help`, so the
 /// two spellings print the same text.
 fn process_help(args: &[String]) -> Option<i32> {
     let [help, scope] = args else { return None };
@@ -31,6 +31,7 @@ fn process_help(args: &[String]) -> Option<i32> {
         "mcp" => super::super::mcp::run_if_requested(&flag()),
         "coderouter" => super::super::coderouter::run_if_requested(&flag()),
         "billing" => super::super::billing::run_if_requested(&flag()),
+        "auth" => super::super::auth_token::run_if_requested(&flag()),
         _ => None,
     }
 }
@@ -54,6 +55,7 @@ fn text(args: &[String]) -> Option<String> {
             format!("{}\n", messages.browser_page_usage)
         }
         ["notify", ..] => return Some(super::super::scope_help::NOTIFY_HELP.to_owned()),
+        ["space", ..] => return Some(super::super::scope_help::SPACE_HELP.to_owned()),
         ["status", ..] => return Some(super::super::scope_help::STATUS_HELP.to_owned()),
         ["agent", "open"] => return Some(messages.agent_open_usage.to_owned()),
         ["agent", "open-tab"] => return Some(messages.agent_open_tab_usage.to_owned()),
@@ -114,6 +116,7 @@ action with that CLI name: `cmux action list --noun {scope}` lists them.
 const APP_HELP: &str = "\
 usage: cmux app ping | identify | capabilities
        cmux identify | ping | capabilities      (the classic spelling, same answer)
+       cmux app renderers [--interval-ms <n>]   (Chromium renderer pids, their pages and tabs)
        cmux app call <method> [<json-object>]   (debug builds only)
        cmux app <verb...> [--<argument> <value>]...";
 

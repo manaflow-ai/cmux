@@ -70,6 +70,13 @@
 .acpmux-env-select-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-env-select-text[data-placeholder] { color: var(--agent-muted); }
 
+/* The Host field is a compact picker, so a long machine name must not make its menu span the
+   window. Keep the field-width guarantee for wide panels, then use the existing location-menu
+   width (320px) as the cap when the field itself is narrower. */
+.ui-popup.ui-menu.ui-menu-match-trigger.acpmux-env-host-menu {
+  max-width: max(var(--anchor-width, 0px), min(320px, calc(100vw - 16px)));
+}
+
 .acpmux-env-check { display: flex; align-items: center; gap: 6px; width: fit-content; }
 
 .acpmux-env-footer { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-height: 28px; }

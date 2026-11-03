@@ -39,7 +39,7 @@ extension SidebarListViewComponents {
 
 extension SidebarGroupLine {
     /// Every open group in `rows` with shown members: its line from its header to the last member row's bottom,
-    /// Chrome's shape (Leo 2026-10-19): 2 pt (`SidebarStyle.groupBarWidth`), flat ends, a cut
+    /// Chrome's shape (Leo 2026-10-19): 2 pt (`SidebarStyle.groupBarWidth`), one capsule (`SidebarGroupLineShape`), a cut
     /// (`SidebarStyle.groupLineCut`, never past the top of the row under the header) below the bar, or out of the bar's square corner when `joined` under the solid
     /// band (`joinsBar`); just left of the members' rows (`SidebarStyle.groupLineX`), so no row fill covers it
     /// (cx-q5jw: straight and unbroken, Edge style). `frame` places a row.
@@ -51,6 +51,8 @@ extension SidebarGroupLine {
                       layout: SidebarGroupLineLayout = SidebarStyle.groupLineLayout, joinsBar: Bool = SidebarGroupLine.joinsBar,
                       frame: (SidebarRow) -> CGRect) -> [SidebarGroupLine] {
         var headers: [(GroupID, SidebarRow)] = []
+        // Groups drawn as their one member's row (`SidebarRow.standsForGroup`): a line along that row, no header.
+        var soles: [(GroupID, SidebarRow)] = []
         var last: [GroupID: SidebarRow] = [:]
         var first: [GroupID: SidebarRow] = [:] // each group's first own member, whose x the rail keeps
         var below: [GroupID: SidebarRow] = [:] // the row right under each header: the rail never starts inside it
@@ -75,13 +77,25 @@ extension SidebarGroupLine {
                 drawn.insert(id)
                 pending.insert(id)
                 if nested, let parent = colors[id]?.parent { extend(parent, to: row) }
-            case .workspace, .tab, .item, .emptyGroup:
+            case .workspace, .item, .emptyGroup:
+                if row.standsForGroup, let group = row.group {
+                    soles.append((group, row))
+                    drawn.insert(group)
+                }
                 if let group = row.group { extend(group, to: row); first[group] = first[group] ?? row }
             default: break
             }
         }
         let width = SidebarStyle.groupBarWidth
-        return headers.compactMap { id, header in
+        // A sole member's line runs the row's height at the bar's x a header would have: no bar above it, so no cut.
+        let soleLines = soles.map { id, row in
+            let head = frame(row), tail = frame(last[id] ?? row), bar = SidebarStyle.groupBarX(membersMinX: head.minX)
+            let x = layout == .inside ? max(bar, SidebarStyle.groupLineX(membersMinX: head.minX)) : bar
+            return SidebarGroupLine(group: id, frame: CGRect(x: x, y: head.minY,
+                                                             width: width, height: tail.maxY - head.minY),
+                                    color: colors[id]?.tint ?? row.groupColor.map(GroupTint.palette) ?? .none, level: nested ? max(0, row.depth - 1) : 0)
+        }
+        return soleLines + headers.compactMap { id, header in
             guard !header.isCollapsed, let end = last[id], end.y > header.y else { return nil }
             let head = frame(header), tail = frame(end)
             // The header's bar fills its row: the line starts a cut under it, or joined, right where it ends. The cut is
@@ -98,7 +112,7 @@ extension SidebarGroupLine {
             let x = layout == .inside ? max(head.minX, insideRail)
                 : head.minX
             return SidebarGroupLine(group: id, frame: CGRect(x: x, y: top, width: width, height: bottom - top),
-                                    color: colors[id]?.tint ?? .palette(end.groupColor ?? .grey), level: nested ? header.depth : 0)
+                                    color: colors[id]?.tint ?? end.groupColor.map(GroupTint.palette) ?? .none, level: nested ? header.depth : 0)
         }
     }
 }

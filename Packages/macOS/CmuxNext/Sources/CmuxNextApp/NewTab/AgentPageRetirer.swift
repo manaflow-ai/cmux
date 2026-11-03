@@ -22,6 +22,6 @@ final class AgentPageRetirer {
     private func flush() {
         let views = retiring
         retiring.removeAll()
-        for view in views { BenchSpans.measure("agentPane.close") { view.close() } }
+        for view in views { view.releaseHeldPrompts { retired in BenchSpans.measure("agentPane.close") { retired.close() } } }
     }
 }

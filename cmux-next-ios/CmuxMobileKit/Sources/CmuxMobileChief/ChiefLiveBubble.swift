@@ -125,28 +125,25 @@ private struct ChiefLiveReplyViewport: Layout {
     }
 }
 
-/// The one-line status: typing dots, the activity text with its
+/// The one-line status: typing dots, the shimmering step text with its
 /// elapsed time, and a chevron when there are details to expand.
 struct ChiefLiveStatusLine: View {
     let live: ChiefLive
     let expanded: Bool
     let canExpand: Bool
     let toggle: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: toggle) {
-            Group {
-                if reduceMotion {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        content(now: context.date, animated: false)
-                    }
-                } else {
-                    // One clock drives dots, shimmer and elapsed time. It leaves
-                    // with this view when the run ends or the screen closes.
-                    TimelineView(.animation) { context in
-                        content(now: context.date, animated: true)
-                    }
+            HStack(spacing: 8) {
+                ChiefTypingDots()
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    ChiefShimmerText(text: ChiefLiveBubble.activityLine(ChiefLiveBubble.statusText(live), since: live.since, now: context.date))
+                }
+                if canExpand {
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
                 }
             }
             .padding(.leading, 4)
@@ -157,24 +154,6 @@ struct ChiefLiveStatusLine: View {
         .accessibilityLabel(Text(ChiefLiveBubble.statusText(live)))
         .accessibilityHint(canExpand ? Text(expanded ? "Hides the details" : "Shows the details") : Text(""))
         .accessibilityIdentifier("chief.live.status")
-    }
-
-    @ViewBuilder
-    private func content(now: Date, animated: Bool) -> some View {
-        let phase = now.timeIntervalSinceReferenceDate
-        HStack(spacing: 8) {
-            ChiefTypingDots(phase: phase, animated: animated)
-            ChiefShimmerText(
-                text: ChiefLiveBubble.activityLine(ChiefLiveBubble.statusText(live), since: live.since, now: now),
-                phase: phase,
-                animated: animated
-            )
-            if canExpand {
-                Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-        }
     }
 }
 
@@ -242,11 +221,10 @@ struct ChiefLiveDetailRow: View {
     }
 }
 
-/// The status shimmer shares its parent clock with the typing dots.
+/// Text with a light band sweeping across it (no sweep with Reduce Motion).
 struct ChiefShimmerText: View {
     let text: String
-    let phase: TimeInterval
-    let animated: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let label = Text(text)
@@ -254,38 +232,49 @@ struct ChiefShimmerText: View {
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.middle)
-        if animated {
-            let position = phase.truncatingRemainder(dividingBy: 1.6) / 1.6 * 1.5 - 0.25
+        if reduceMotion {
+            label
+        } else {
             label.overlay {
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: position - 0.25),
-                        .init(color: .white.opacity(0.7), location: position),
-                        .init(color: .clear, location: position + 0.25),
-                    ],
-                    startPoint: .leading, endPoint: .trailing
-                )
+                // A band half the text wide whose middle runs from -0.25 to 1.25 of the width:
+                // it enters and leaves fully off the text.
+                // A repeating keyframe animation of the band's offset: it starts over whenever the
+                // line appears, and only the band updates per frame.
+                GeometryReader { proxy in
+                    let width = proxy.size.width
+                    LinearGradient(colors: [.clear, .white.opacity(0.7), .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: width * 0.5)
+                        .keyframeAnimator(initialValue: 0.0, repeating: true) { band, phase in
+                            band.offset(x: -width * 0.5 + width * 1.5 * phase)
+                        } keyframes: { _ in
+                            LinearKeyframe(1.0, duration: 1.6)
+                        }
+                }
                 .mask(label)
                 .blendMode(.plusLighter)
             }
-        } else {
-            label
         }
     }
 }
 
-/// The three-dot typing indicator of the status line.
+/// The three-dot typing indicator of the status line: a wave through the dots (each one's
+/// opacity follows `sin(4t)`, a beat later than the one before), from a repeating keyframe
+/// clock that starts over whenever the line appears. Still with Reduce Motion.
 struct ChiefTypingDots: View {
-    let phase: TimeInterval
-    let animated: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// One period of `sin(4t)`.
+    static let period = Double.pi / 2
 
     var body: some View {
-        HStack(spacing: 3) {
-            ForEach(0..<3) { index in
-                Circle()
-                    .fill(Color.secondary)
-                    .frame(width: 6, height: 6)
-                    .opacity(animated ? 0.35 + 0.65 * max(0, sin((phase * 4) - Double(index) * 0.8)) : 0.7)
+        Group {
+            if reduceMotion {
+                ChiefTypingDotsRow(t: nil)
+            } else {
+                ChiefTypingDotsRow(t: 0).keyframeAnimator(initialValue: 0.0, repeating: true) { _, t in
+                    ChiefTypingDotsRow(t: t)
+                } keyframes: { _ in
+                    LinearKeyframe(Self.period, duration: Self.period)
+                }
             }
         }
         .padding(.horizontal, 8)
@@ -295,6 +284,23 @@ struct ChiefTypingDots: View {
         .accessibilityIdentifier("chief.live.typing")
     }
 }
+
+/// The three dots at clock `t` (nil: still, Reduce Motion).
+struct ChiefTypingDotsRow: View {
+    let t: Double?
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<3) { index in
+                Circle()
+                    .fill(Color.secondary)
+                    .frame(width: 6, height: 6)
+                    .opacity(t.map { 0.35 + 0.65 * max(0, sin($0 * 4 - Double(index) * 0.8)) } ?? 0.7)
+            }
+        }
+    }
+}
+
 /// The window frame of the live status line and its details (the only
 /// part of the overlay that takes touches).
 @MainActor

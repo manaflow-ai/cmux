@@ -55,6 +55,18 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
   });
 
+  test("Claude Code is the devbox Dockerfile's pin, so the native image never ships an older one", () => {
+    // One source of truth: the native bake installs the lock's claude, the devbox image the Dockerfile's
+    // CMUX_IMAGE_CLAUDE_CODE_VERSION. A lock left behind shipped 2.1.267, which the API refuses (2.1.280 or newer).
+    const dockerfile = readFileSync(new URL("../services/vms/images/devbox/Dockerfile", import.meta.url), "utf8");
+    const pin = /^ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=(\S+)$/m.exec(dockerfile)?.[1];
+    const claude = readInputsLock().programs.find((p) => p.name === "claude");
+    expect(pin).toBeDefined();
+    expect(claude?.version).toBe(pin);
+    expect(claude?.expect).toBe(pin);
+    expect(claude?.url).toBe(`https://downloads.claude.ai/claude-code-releases/${pin}/linux-x64/claude`);
+  });
+
   test("acpmux is cmux-tui under its own name (argv0 dispatch), checked by version and by a session list", async () => {
     // Automation agent steps run `acpmux run`; cmux-tui runs acpmux when argv0 is `acpmux`.
     const lock = readInputsLock();
@@ -65,6 +77,9 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     expect(programChecksCommand(lock)).toContain("acpmux --version");
     const list = acpmuxListCommand();
     expect(list).toContain("acpmux ls --json");
+    // acpmux ls no longer starts a daemon (#28046), so the smoke starts one before listing.
+    expect(list.indexOf("acpmux daemon start")).toBeGreaterThan(-1);
+    expect(list.indexOf("acpmux daemon start")).toBeLessThan(list.indexOf("acpmux ls --json"));
     const syntax = await runChild("bash", ["-n"], { input: list, timeout: 20_000 });
     expect(syntax.stderr).toBe("");
     expect(syntax.status).toBe(0);
@@ -182,7 +197,7 @@ describe("base fingerprint and closure checks", () => {
   test("base packages and npm globals must be in the lock", () => {
     expect(basePackageProblems(lock, new Map(Object.entries(lock.base.basePackages)))).toEqual([]);
     expect(basePackageProblems(lock, new Map())).toHaveLength(Object.keys(lock.base.basePackages).length);
-    const globals = new Map([["npm", "11.19.0"], ["openclaw", "2026.7.1-2"], ["left-pad", "1.3.0"], ["corepack", "0.37.0"]]);
+    const globals = new Map([["npm", lock.base.npmGlobals.keep.npm], ["openclaw", "2026.7.1-2"], ["left-pad", "1.3.0"], ["corepack", "0.37.0"]]);
     expect(npmGlobalProblems(lock, globals)).toEqual([
       "base npm global left-pad@1.3.0 is not in the lock (keep or strip it)",
       "base npm global corepack@0.37.0, lock keeps 0.36.0",

@@ -7,11 +7,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useSyncedRef } from "./useSyncedRef";
 import type { DiffSource } from "../diff/generated/protocol";
-import type { PageClient } from "../pages/shared/pageClient";
+import { isPageError, type PageClient } from "../pages/shared/pageClient";
 
 export const DIFF_FINGERPRINT_OP = "cmux.diff.git.fingerprint";
-/** How often a visible viewer compares, in ms. */
+/** How often a focused viewer compares, in ms. */
 export const FRESHNESS_INTERVAL = 4000;
+/** Keep a visible background window current without running git every four seconds. */
+export const UNFOCUSED_FRESHNESS_INTERVAL = 30_000;
 
 /** Reads the fingerprint of the diff `shown` compares; undefined where the host can't say. */
 export function diffFingerprintReader(
@@ -46,12 +48,14 @@ export function useDiffFreshness(
   generation: number,
   canRefresh: () => boolean,
   refresh: () => void,
+  onUnavailable?: (reason: string | undefined) => void,
 ): boolean {
   const [stale, setStale] = useState<number>();
   const baseline = useRef<string | undefined>(undefined);
-  const latest = useSyncedRef({ canRefresh, refresh });
+  const latest = useSyncedRef({ canRefresh, refresh, onUnavailable });
   useEffect(() => {
     baseline.current = undefined;
+    latest.current.onUnavailable?.(undefined);
     if (!read) return;
     let current = true;
     let busy = false;
@@ -61,29 +65,49 @@ export function useDiffFreshness(
       try {
         const now = await read();
         if (!current || now === undefined) return;
+        latest.current.onUnavailable?.(undefined);
         if (baseline.current === undefined) baseline.current = now;
         else if (now !== baseline.current) {
           if (returning && latest.current.canRefresh()) latest.current.refresh();
           else setStale(generation);
         }
-      } catch {
-        // The host could not read the repository now; the next check asks again.
+      } catch (error) {
+        // Keep the patch and drafts while the machine is unavailable; a successful read clears
+        // the host's localized reason, even when its fingerprint has not changed.
+        if (current && isPageError(error) && error.code.startsWith("cmux.diff.machine_")) {
+          latest.current.onUnavailable?.(error.message);
+        }
+        // Other repository failures retry on the next check as before.
       } finally {
         busy = false;
       }
     };
     void check(false);
-    const timer = setInterval(() => void check(false), FRESHNESS_INTERVAL);
-    const back = () => void check(true);
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const schedule = (focused: boolean) => {
+      clearInterval(timer);
+      timer = undefined;
+      if (document.visibilityState === "hidden") return;
+      timer = setInterval(() => void check(false), focused ? FRESHNESS_INTERVAL : UNFOCUSED_FRESHNESS_INTERVAL);
+    };
+    schedule(document.hasFocus());
+    const back = () => {
+      schedule(true);
+      void check(true);
+    };
+    const blur = () => schedule(false);
     const visible = () => {
-      if (document.visibilityState === "visible") back();
+      schedule(document.hasFocus());
+      if (document.visibilityState === "visible") void check(true);
     };
     window.addEventListener("focus", back);
+    window.addEventListener("blur", blur);
     document.addEventListener("visibilitychange", visible);
     return () => {
       current = false;
       clearInterval(timer);
       window.removeEventListener("focus", back);
+      window.removeEventListener("blur", blur);
       document.removeEventListener("visibilitychange", visible);
     };
   }, [read, generation, latest]);

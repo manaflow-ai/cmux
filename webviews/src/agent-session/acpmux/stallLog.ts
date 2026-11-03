@@ -21,5 +21,6 @@ export function stallLine(
   const age = typeof newer.at === "number" ? now - newer.at : Number.POSITIVE_INFINITY;
   if (age < STALL_GRACE_MS) return undefined;
   const seconds = Number.isFinite(age) ? `${Math.round(age / 1000)} s ago` : "at an unknown time";
+  // l10n-allow: a log line for the error journal and unified log; never shown in the pane.
   return `agent pane stall: session ${sessionId}: pane at seq ${paneSeq}, acpmux at seq ${newer.seq} (written ${seconds}); a send is still pending; connection ${connection}`;
 }

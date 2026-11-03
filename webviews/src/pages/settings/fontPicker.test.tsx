@@ -7,7 +7,7 @@ import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
-const { click, fire, ops, renderPage, rowElement } = await import("./testing");
+const { click, fire, ops, renderPage, rowElement, settle } = await import("./testing");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -69,6 +69,45 @@ describe("FontPicker", () => {
     await fire(search, "keydown", { key: "Escape" });
     expect(ops(page!.provider, "cmux.settings.preview.end")).toEqual([{ key: "terminal.fontFamily" }]);
     expect(ops(page!.provider, "cmux.settings.set")).toEqual([]);
+  });
+
+  test("highlighting the default after a preview ends it, so Escape has nothing left to revert", async () => {
+    const search = await open();
+    await fire(search, "keydown", { key: "ArrowDown" });
+    await fire(search, "keydown", { key: "ArrowDown" });
+    expect(ops(page!.provider, "cmux.settings.preview").length).toBe(1);
+    await fire(search, "keydown", { key: "ArrowUp" });
+    expect(ops(page!.provider, "cmux.settings.preview.end")).toEqual([{ key: "terminal.fontFamily" }]);
+    await fire(search, "keydown", { key: "Escape" });
+    expect(ops(page!.provider, "cmux.settings.preview.end")).toHaveLength(1);
+  });
+
+  test("a late save cannot end a newer preview after the picker reopens", async () => {
+    const search = await open();
+    let resolveSave!: () => void;
+    page!.store.set = (() =>
+      new Promise<void>((resolve) => (resolveSave = resolve))) as unknown as Rendered["store"]["set"];
+    // The first row is the default, which is already in effect; the second is a family to save.
+    await fire(search, "keydown", { key: "ArrowDown" });
+    await fire(search, "keydown", { key: "ArrowDown" });
+    await fire(search, "keydown", { key: "Enter" });
+    const button = rowElement(page!.container, "terminal.fontFamily").querySelector<HTMLElement>("[data-font-picker]")!;
+    const now = performance.now;
+    const later = now.call(performance) + 1000;
+    performance.now = () => later;
+    try {
+      await click(button);
+    } finally {
+      performance.now = now;
+    }
+    const reopened = document.querySelector<HTMLElement>(".font-search")!;
+    await fire(reopened, "keydown", { key: "ArrowDown" });
+    await fire(reopened, "keydown", { key: "ArrowDown" });
+    expect(ops(page!.provider, "cmux.settings.preview").length).toBe(2);
+    const endsBeforeSave = ops(page!.provider, "cmux.settings.preview.end").length;
+    resolveSave();
+    await settle();
+    expect(ops(page!.provider, "cmux.settings.preview.end").length).toBe(endsBeforeSave);
   });
 
   test("Return writes the highlighted font, and it leads the list next time", async () => {

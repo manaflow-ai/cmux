@@ -17,8 +17,16 @@ public final class TabStripModel {
     /// Identifies this strip in cross-strip drags.
     public let stripID: UUID
     public var tabs: [TabItem] { didSet { followTabs() } }
+    /// The strip holds one tab: a pane whose chat shares its row shows that row as no band over the chat,
+    /// the transcript running up under the tab and tools (Leo, 2026-11-03: "isn't it kinda arbitrary anyway
+    /// if you literally only have one tab there?"). Two or more tabs keep the row as before.
+    public var holdsOneTab: Bool { tabs.count == 1 }
     /// Groups of this strip. Members reference them through `TabItem.groupID`.
     public var groups: [TabGroupItem]
+    /// One tab and no group. A chat alone in its pane then draws no tab beside its tools in the tab
+    /// row: the page shows through the rest of the row (Leo 2026-11-03, "isn't it kinda arbitrary
+    /// anyway if you literally only have one tab there?"; `PaneTabRowSharing.tabRowTakesLoneTab`).
+    public var hasLoneTab: Bool { tabs.count == 1 && groups.isEmpty }
     /// The active tab. One outside `multiSelection` ends that selection.
     public var selectedID: TabID? { didSet { if selectedID != oldValue { followActive() } } }
     /// Cmd- and Shift-click's selection (`TabMultiSelection`); empty while only `selectedID` is selected.
@@ -31,6 +39,10 @@ public final class TabStripModel {
     /// Full Width Tab mode: the strip shows only the selected tab, across its whole width
     /// (``TabLayoutEngine/layout(items:availableWidth:style:metrics:closingModeWidth:fullWidthTab:)``).
     public var showsSelectedFullWidth = false
+    /// The strip's pane is zoomed: its selected tab shows the zoom indicator, whose click restores
+    /// the layout (`TabStripIntent.toggleZoom`; cmux classic's, #25624). Inside the tab, so a zoom
+    /// never changes the strip's width and moves no tab.
+    public var zoomsSelected = false
 
     /// Receives every intent. Set by the App (or the demo).
     @ObservationIgnored public var intentHandler: ((TabStripIntent) -> Void)?

@@ -12,6 +12,7 @@
 // the timers.
 import { useEffect, useSyncExternalStore } from "react";
 import { callChipHost } from "./host";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 
 type State = "yes" | "no" | "asking" | "unknown";
 
@@ -115,7 +116,9 @@ function subscribe(listener: () => void) {
 /** Whether each of `urls` is a pull request the App's cache knows; undefined until all answer.
  *  An empty list asks nothing. */
 export function usePullRequestsExist(urls: readonly string[]): readonly boolean[] | undefined {
-  const key = urls.join(" ");
+  // Read only (a guest), nothing is asked: every reference reads as not known.
+  const readOnly = useTranscriptReadOnly();
+  const key = readOnly ? "" : urls.join(" ");
   // The snapshot is a string, so an unchanged answer is the same value and re-renders nothing.
   const read = () =>
     key

@@ -5,7 +5,6 @@ import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import CmuxNextRemote
 import Foundation
-import os
 
 /// Which brain answers a Home Chief conversation, and the owner's control
 /// of it: the engine source of the settings panel and `chief.stop`. This
@@ -24,7 +23,6 @@ struct HomeChiefControl {
     /// panel, Stop and the avatar act on that Chief's own brain, never the
     /// default's. Nil: the default Chief (or a cloud Chief).
     var chief: String?
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
     /// The `shared stop action` (palette, the compose bar's stop button, Esc
     /// and Cmd-. in the field): the key window's Home view stops its Chief.
@@ -89,53 +87,13 @@ struct HomeChiefControl {
             files: files)
     }
 
-    /// `chief.stop` on this Chief's brain; nil when it stopped (or had no
-    /// turn), else why not.
-    func stop() async -> HomeChiefEngineError? {
-        // The Cloud service has no stop for a hosted Chief's turn yet; no server to ask.
-        if isHosted { return .cloudStopUnsupported }
-        guard let connection else { return .unreachable }
-        do {
-            let stopped = try await ChiefControlClient(connection).stopChief(chief: named)
-            Self.logger.info("home: chief.stop answered stopped=\(stopped, privacy: .public)")
-            return nil
-        } catch let error as ChiefControlError {
-            Self.logger.error("home: chief.stop failed: \(String(describing: error), privacy: .public)")
-            return HomeChiefEngineError(error)
-        } catch {
-            return .other(String(describing: error))
-        }
+    var turnControl: HomeChiefTurnControl {
+        HomeChiefTurnControl(connection: connection, named: named, isHosted: isHosted)
     }
+    func stop() async -> HomeChiefEngineError? { await turnControl.stop() }
+    func stopAll() async -> Result<ChiefStopAll, HomeChiefEngineError> { await turnControl.stopAll() }
+    func restart(_ names: [String]) async -> HomeChiefEngineError? { await turnControl.restart(names) }
 
-    /// `chief.stop {all: true}` on this Chief's brain: what stopped, else why not.
-    func stopAll() async -> Result<ChiefStopAll, HomeChiefEngineError> {
-        if isHosted { return .failure(.cloudStopUnsupported) }
-        guard let connection else { return .failure(.unreachable) }
-        do throws(ChiefControlError) {
-            let answer = try await ChiefControlClient(connection).stopAllAgents(chief: named)
-            Self.logger.info("home: stop all agents stopped \(answer.subagents.count, privacy: .public) subagent(s)")
-            return .success(answer)
-        } catch {
-            Self.logger.error("home: stop all agents failed: \(String(describing: error), privacy: .public)")
-            return .failure(HomeChiefEngineError(error))
-        }
-    }
-
-    /// `chief.stop {restart: names}`: Restart on the stop-all toast; nil when
-    /// every one went on, else why not.
-    func restart(_ names: [String]) async -> HomeChiefEngineError? {
-        guard let connection else { return .unreachable }
-        do throws(ChiefControlError) {
-            let answer = try await ChiefControlClient(connection).restartAgents(names, chief: named)
-            guard answer.errors.isEmpty else {
-                Self.logger.error("home: restart: \(answer.errors.joined(separator: "; "), privacy: .public)")
-                return .other(answer.errors.joined(separator: "; "))
-            }
-            return nil
-        } catch {
-            return HomeChiefEngineError(error)
-        }
-    }
 }
 
 /// The stop-all toast's words. Keys live in Resources/Localizable.xcstrings.

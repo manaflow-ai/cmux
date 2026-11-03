@@ -10,14 +10,22 @@ extension ChatsFeed {
     /// (WORKING-AND-LOADING-INDICATORS), whether or not a window shows Chats.
     /// Nil without a local acpmux environment.
     static func started(for services: AppServices) -> ChatsFeed? {
-        guard let environment = QuitAgents.environment(services) else { return nil }
-        let turns = AgentTurnStateFeed.shared ?? AgentTurnStateFeed(socketPath: environment.socketPath)
+        guard let environment = QuitAgents.environment(services) else {
+            // The showcase has no acpmux daemon, but the DEBUG pull-request fixture
+            // still needs the real sidebar feed to publish its sample badges. With a
+            // real environment, normal startup below preserves the local host identity.
+            if SidebarPullRequestFixture.enabled {
+                SidebarSessionTreeFeed.shared.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: nil)
+            }
+            return nil
+        }
+        // An acpmux peer that connects later in the launch gets the app's build too.
+        let turns = AgentTurnStateFeed.shared ?? AgentTurnStateFeed(socketPath: environment.socketPath, lanes: services.agentLanes,
+                                                                   peerSessionChanged: { [updates = services.daemonUpdates] in updates.peerSessionChanged($0, stale: $1) })
         AgentTurnStateFeed.shared = turns
         AgentTurnStateFeed.drained = { DebugTimings.turnStatesApplied(lines: $0, $1) }
         // A deleted chat's uploads go with it; any past their age at launch (``AgentChatUploads``).
         AgentTurnStateFeed.purged = { AgentChatUploads.removeInBackground(session: $0) }
-        // An acpmux peer that connects later in the launch gets the app's build too.
-        AgentTurnStateFeed.peerSessionChanged = { _ = AcpmuxPeerReconnects.shared.note(peer: $0, stale: $1) }
         AgentChatUploads.sweepInBackground()
         let localHost = (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:))
         turns.start(localHost: localHost)
@@ -26,7 +34,7 @@ extension ChatsFeed {
         let feed = ChatsFeed(socketPath: environment.socketPath, drained: { DebugTimings.chatsFeedApplied(lines: $0, $1) })
         // The session tree's chat history: two windows acpmux keeps (never the whole index); rows
         // open through the shared Open Chat path.
-        SidebarChatHistoryFeed.shared.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: localHost,
+        SidebarChatHistoryFeed.shared.start(liveTabs: { services.machines.daemons.flatMap { $0.store.liveTabs } }, localHost: localHost,
                                             open: { [weak services] key in services?.chatsOpener.open(key) }, windows: feed.windows)
         return feed
     }

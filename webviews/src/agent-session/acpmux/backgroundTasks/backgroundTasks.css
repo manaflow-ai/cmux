@@ -15,8 +15,13 @@
 .acpmux-shell[data-tab-row] {
   --acpmux-bg-top: var(--acpmux-tab-row-height);
 }
+/* The column paints over its row siblings: a pushed Session Info slides in from under the pane's
+   right edge (sessionInfo.css, negative margin-right while it enters, #31423), and with the column
+   there that edge is the column's, so the panel comes out from behind it instead of over it. */
 .acpmux-shell > .acpmux-bg {
   --ui-enter-distance: 100%;
+  position: relative;
+  z-index: var(--layer-raised);
   flex: 0 0 var(--acpmux-bg-column);
   min-width: 0;
   margin-top: var(--acpmux-bg-top);
@@ -287,6 +292,22 @@
   padding: 0 8px;
   border-radius: 8px;
   color: var(--agent-muted);
+}
+/* The list's two headings, "Running N" and "Finished N" (BackgroundTasksPanel.tsx `panelSections`),
+   as Claude Desktop's panel splits it: muted, each folding its blocks; its hover covers the heading's
+   words alone, never the row. */
+.acpmux-bg__section + .acpmux-bg__section {
+  margin-top: 16px;
+}
+.acpmux-bg__fold.acpmux-bg__section-head {
+  width: fit-content;
+  max-width: 100%;
+}
+.acpmux-bg__section-head + .acpmux-bg__group {
+  margin-top: 4px;
+}
+.acpmux-bg__section-count {
+  font-variant-numeric: tabular-nums;
 }
 .acpmux-bg__list[hidden] {
   display: none;

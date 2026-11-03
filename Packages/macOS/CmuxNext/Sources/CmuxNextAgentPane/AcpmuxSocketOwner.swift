@@ -5,7 +5,7 @@ import CmuxNextCompat
 import CmuxNextWakeups
 
 /// The process that holds this app's acpmux socket when the app may not use its daemon: the
-/// binary it runs. A refusal remembers it so the pane's Restart acpmux (``takeOver(environment:owner:)``)
+/// binary it runs. A refusal remembers it so the pane's Restart acpmux (``takeOver(environment:owner:daemons:)``)
 /// stops only that binary's daemon and starts this app's own (2026-10-22: a daemon on NIGHTLY's
 /// shared `~/.acpmux` was refused, and Retry only asked the same daemon again). It is not a
 /// trust decision: the peer check stays as it is.
@@ -29,14 +29,12 @@ public nonisolated struct AcpmuxSocketOwner: Equatable, Sendable {
         return AcpmuxSocketOwner(path: peer.executablePath, socketPath: socketPath)
     }
 
-    /// Daemons (by pid) a person already asked this process to replace: a second ask while the
-    /// first one runs waits on nothing and fails, so two clicks never stop two daemons.
-    private static let stopping = Mutex<Set<Int32>>([])
-
     /// A person asked to restart acpmux from this app's own binary (the pane's Restart acpmux):
     /// stops the daemon on `environment`'s socket the way an update hands one off, so its agents
     /// detach and the next daemon adopts them, and its sessions stay on disk. The caller's next
-    /// handshake starts this app's daemon. True when that daemon exited.
+    /// handshake starts this app's daemon. True when that daemon exited. A daemon a person already
+    /// asked `daemons` (the app's ``AcpmuxLocalDaemons``) to replace is not asked again while that
+    /// runs: the second ask waits on nothing and fails, so two clicks never stop two daemons.
     ///
     /// Everything is decided and sent on ONE connection whose peer was read on that very
     /// descriptor, never on a fresh one (a daemon that took the socket between two connections is
@@ -49,18 +47,18 @@ public nonisolated struct AcpmuxSocketOwner: Equatable, Sendable {
     /// and only while the connection to that very process is still open: a process that exited
     /// closed it, so its pid, even reused by the same binary, is never booted out.
     ///
-    @concurrent static func takeOver(environment: AcpmuxEnvironment, owner: AcpmuxSocketOwner) async -> Bool {
-        await takeOver(environment: environment, owner: owner,
+    @concurrent static func takeOver(environment: AcpmuxEnvironment, owner: AcpmuxSocketOwner, daemons: AcpmuxLocalDaemons) async -> Bool {
+        await takeOver(environment: environment, owner: owner, daemons: daemons,
                        bootOut: { pid, stillRunning in
                            await AcpmuxStrayDaemon.bootOutLaunchdJob(runningPID: pid, stillRunning: stillRunning)
                        },
                        exited: { pid in await AgentPaneProcessExit(pid: pid).event(within: .seconds(15)) })
     }
 
-    /// ``takeOver(environment:owner:)`` with its launchd bootout (`bootOut`, given the pid and
+    /// ``takeOver(environment:owner:daemons:)`` with its launchd bootout (`bootOut`, given the pid and
     /// whether its connection is still open) and exit wait (`exited`) passed in, for tests.
     @concurrent static func takeOver(
-        environment: AcpmuxEnvironment, owner: AcpmuxSocketOwner,
+        environment: AcpmuxEnvironment, owner: AcpmuxSocketOwner, daemons: AcpmuxLocalDaemons,
         bootOut: @Sendable (Int32, @escaping @Sendable () -> Bool) async -> Bool,
         exited: @Sendable (Int32) async -> Bool
     ) async -> Bool {
@@ -71,8 +69,8 @@ public nonisolated struct AcpmuxSocketOwner: Equatable, Sendable {
         guard let peer = UnixSocketPeer(descriptor: descriptor), peer.uid == getuid(),
               !peer.runs(environment.executable), peer.executablePath == owner.path else { return false }
         let pid = peer.pid
-        guard stopping.withLock({ $0.insert(pid).inserted }) else { return false }
-        defer { _ = stopping.withLock { $0.remove(pid) } }
+        guard daemons.claimStop(pid) else { return false }
+        defer { daemons.endStop(pid) }
         let until = Date().addingTimeInterval(5)
         let status: AcpmuxStatus
         do {

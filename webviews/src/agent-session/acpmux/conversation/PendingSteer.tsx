@@ -1,4 +1,4 @@
-import { useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import type { AcpmuxRow, QueueEdit } from "../model";
@@ -23,6 +23,12 @@ import { TurnActionsContext, type TakeBack } from "./turnActions";
 /// The X stays beside it, as does one that failed on the way (an RPC error, attachments not read):
 /// acpmux also refuses for a moment right after the steer is sent, before it has registered it
 /// (it prepares the steer's large images first), and a later click takes the steer back then.
+/// While several of the person's steers wait, the row of the newest (snapshot `newestOwnSteer`):
+/// only it offers Send now. Send now stops the agent's current step and the agent then reads every
+/// waiting steer, so a Send now under each read as if each were held in a queue (Leo, 2026-11-01:
+/// "why are ALL of these send now???? aren't these steers???"). Undefined (one waits): its own.
+export const NewestSteerContext = createContext<string | undefined>(undefined);
+
 export function PendingSteer({
   row,
   send,
@@ -34,19 +40,32 @@ export function PendingSteer({
 }) {
   const t = useT();
   const { unsteer } = useContext(TurnActionsContext);
+  const newest = useContext(NewestSteerContext);
   const [sending, setSending] = useState(false);
   const waiting = row.steer === "waiting";
   const [sentNow, setSentNow] = useState(false);
   const [kept, setKept] = useState(false);
   const promptId = row.steerPromptId;
+  const sent = useSyncExternalStore(subscribeSentNow, readSentNow, readSentNow);
+  // Sent now from any of its controls: this row's Send now, or the composer queue's or a queued
+  // card's, which turn a queued prompt into a steer under the same promptId.
+  const ownSent = sentNow || Boolean(promptId && sent.ids.has(promptId));
+  // The newest steer's Send now covers the earlier ones: the agent reads them with it. Before paint,
+  // so an earlier steer never shows its X for a frame after the newest's Send now worked.
+  const isNewest = newest === row.id;
+  useLayoutEffect(() => {
+    if (waiting && ownSent && isNewest) coverUntil(row.at);
+  }, [waiting, ownSent, isNewest, row.at]);
+  const covered = newest !== undefined && !isNewest && row.at <= sent.coveredAt;
   // The transcript virtualizes rows: a remount must not offer an accepted send again.
-  if (!waiting || sentNow || (promptId && sentNowIds.has(promptId))) return children ?? null;
+  if (!waiting || ownSent || covered) return children ?? null;
   if (!promptId) return null;
   const busy = sending;
+  const offersSendNow = newest === undefined || newest === row.id;
   return (
     <div className="cv-user__pending">
       <MessageFooterRow>
-        {promptId && (
+        {promptId && offersSendNow && (
           <button
             type="button"
             className="cv-user__send-now"
@@ -59,7 +78,7 @@ export function PendingSteer({
                 .catch(() => false)
                 .then((sent) => {
                   if (!sent) return;
-                  sentNowIds.add(promptId);
+                  markSentNow(promptId);
                   setSentNow(true);
                 })
                 .finally(() => setSending(false));
@@ -93,9 +112,33 @@ export function PendingSteer({
   );
 }
 
-/// The steers whose Send now worked, by promptId, so a row drawn again while acpmux still says the
+/// The prompts whose Send now worked, by promptId, so a row drawn again while acpmux still says the
 /// steer waits (scrolled away and back) shows no controls. One id per click, for the page's life.
-const sentNowIds = new Set<string>();
+/// `coveredAt`: the time of the newest steer whose Send now worked while several waited. Send now
+/// stops the agent's step and the agent then reads every waiting steer, so the earlier ones it
+/// covered (sent at or before it) drop their X and Copy line with it instead of looking held back
+/// (Leo, 2026-11-03: "this looks kinda weird when i send now and there was a previously steered
+/// message"). A steer sent later waits on its own.
+let sentNowState = { ids: new Set<string>(), coveredAt: Number.NEGATIVE_INFINITY };
+const sentNowListeners = new Set<() => void>();
+function publishSentNow(next: typeof sentNowState): void {
+  sentNowState = next;
+  for (const listener of sentNowListeners) listener();
+}
+function subscribeSentNow(listener: () => void): () => void {
+  sentNowListeners.add(listener);
+  return () => sentNowListeners.delete(listener);
+}
+const readSentNow = () => sentNowState;
+function coverUntil(at: number): void {
+  if (at > sentNowState.coveredAt) publishSentNow({ ...sentNowState, coveredAt: at });
+}
+
+/// A `send_now` acpmux accepted for `promptId`, from any control (App.tsx `editQueued`).
+export function markSentNow(promptId: string): void {
+  if (!sentNowState.ids.has(promptId))
+    publishSentNow({ ...sentNowState, ids: new Set(sentNowState.ids).add(promptId) });
+}
 
 /// Whether the chat's X takes a waiting steer back (`_acpmux/steer_withdraw`): only acpmux's Claude
 /// Code adapter does. acpmux's `backgroundsWork` marks a chat that runs it, whatever its family is

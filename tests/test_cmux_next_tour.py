@@ -17,6 +17,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -242,7 +243,8 @@ class AppWindowCaptureTests(unittest.TestCase):
                                        FAKE_CAPTURES=str(self.root / "captures.log"))
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(manifest["capture_mode"], "direct")
-        self.assertEqual(manifest["frame_interval"], 0.5)
+        self.assertGreater(manifest["capture_fps"], 2)
+        self.assertIn("video_fallback", manifest)
         out = self.root / "out/demo"
         for step in manifest["steps"]:
             self.assertEqual(step["status"], "ok")
@@ -405,6 +407,18 @@ class AppWindowCaptureTests(unittest.TestCase):
             with self.subTest(rpc=rpc):
                 self.tour.write_text(json.dumps({"title": "Demo", "steps": [{"title": "Bad", "rpc": rpc}]}), encoding="utf-8")
                 with self.assertRaisesRegex(tour.TourError, "`rpc` must be"):
+                    tour.load_tour(self.tour)
+
+    def test_env_sets_cmux_next_launch_variables_with_the_checkout_path(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        self.tour.write_text(json.dumps({"title": "Demo", "env": {"CMUX_NEXT_BROWSER_IMPORT_HOME": "{repo}/fixtures/home"},
+                                         "steps": [{"title": "Launch"}]}), encoding="utf-8")
+        self.assertEqual(tour.load_tour(self.tour)["env"], {"CMUX_NEXT_BROWSER_IMPORT_HOME": f"{ROOT}/fixtures/home"})
+        for env in ({"PATH": "/x"}, {"CMUX_NEXT_X": 1}, ["CMUX_NEXT_X"]):
+            with self.subTest(env=env):
+                self.tour.write_text(json.dumps({"title": "Demo", "env": env, "steps": [{"title": "Launch"}]}), encoding="utf-8")
+                with self.assertRaisesRegex(tour.TourError, "`env` maps"):
                     tour.load_tour(self.tour)
 
     def test_display_must_be_true_or_false(self) -> None:
@@ -670,6 +684,89 @@ class StopTests(unittest.TestCase):
         self.assertIsNone(theirs.poll(), "another slot's app was ended")
 
 
+class FixtureCropTests(unittest.TestCase):
+    def setUp(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        self.tour = tour
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / "row.png"
+        self.geometry = {"capture": {"x": 10, "y": 20, "width": 120, "height": 40},
+                         "window": {"width": 800, "height": 600}, "scale": 2, "menuVisible": True}
+        self.snapshot = {"method": "composited", "floating_windows": 1}
+        self.size = (1600, 1200)
+        self.config = {"method": "debug.native_row_tools_fixture", "params": {"inspect": True},
+                       "scale": 2, "menu": True}
+        self.app = mock.Mock()
+        self.app.request.side_effect = self.request
+
+    @staticmethod
+    def write_png_header(path: Path, width: int, height: int) -> None:
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR"
+                         + width.to_bytes(4, "big") + height.to_bytes(4, "big"))
+
+    def request(self, method: str, params: dict, **kwargs) -> dict:
+        if method == "debug.window_snapshot":
+            self.write_png_header(Path(params["path"]), *self.size)
+            return self.snapshot
+        self.assertEqual(params, {"inspect": True})
+        return self.geometry
+
+    def crop(self, argv: list[str], **kwargs) -> subprocess.CompletedProcess:
+        self.assertEqual(argv[:7], ["sips", "--cropToHeightWidth", "80", "240", "--cropOffset", "40", "20"])
+        self.write_png_header(Path(argv[-1]), 240, 80)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    def test_crops_the_composited_menu_at_true_2x(self) -> None:
+        with mock.patch.object(self.tour.subprocess, "run", side_effect=self.crop) as crop:
+            self.assertIsNone(self.tour.capture_fixture(self.app, self.path, self.config))
+        crop.assert_called_once()
+        self.assertEqual(self.tour.png_size(self.path), (240, 80))
+        self.assertFalse(self.path.with_name("row-raw.png").exists())
+
+    def test_rejects_1x_without_upscaling(self) -> None:
+        self.size = (800, 600)
+        with mock.patch.object(self.tour.subprocess, "run") as crop:
+            self.assertIn("no upscaling", self.tour.capture_fixture(self.app, self.path, self.config))
+        crop.assert_not_called()
+        self.assertFalse(self.path.exists())
+
+    def test_rejects_missing_menu_or_appkit_fallback(self) -> None:
+        for fields in ({"floating_windows": 0}, {"method": "appkit"}):
+            with self.subTest(fields=fields):
+                self.snapshot = {"method": "composited", "floating_windows": 1, **fields}
+                self.assertIn("native menu overlay", self.tour.capture_fixture(self.app, self.path, self.config))
+                self.assertFalse(self.path.exists())
+
+    def test_rejects_fixture_that_did_not_open_its_menu(self) -> None:
+        self.geometry["menuVisible"] = False
+        self.assertIn("not visible", self.tour.capture_fixture(self.app, self.path, self.config))
+        self.assertFalse(self.path.exists())
+
+    def test_capture_failure_cannot_leave_a_passing_step(self) -> None:
+        step = {"title": "menu", "capture": self.config, "wait": 0}
+        with mock.patch.object(self.tour, "capture_fixture", return_value="no native menu overlay"):
+            result = self.tour.run_step(self.app, mock.Mock(), step, 1, self.path.parent)
+        self.assertEqual(result["status"], "failed")
+        self.assertNotIn("shot", result)
+
+    def test_rejects_geometry_outside_window_or_nonfinite(self) -> None:
+        for value in (790, -1, float("inf"), float("nan")):
+            with self.subTest(value=value):
+                self.geometry["capture"]["x"] = value
+                self.assertIsNotNone(self.tour.capture_fixture(self.app, self.path, self.config))
+                self.assertFalse(self.path.exists())
+
+    def test_verifies_cropped_pixel_dimensions(self) -> None:
+        def wrong_crop(argv, **kwargs):
+            self.write_png_header(Path(argv[-1]), 120, 40)
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        with mock.patch.object(self.tour.subprocess, "run", side_effect=wrong_crop):
+            self.assertIn("dimensions", self.tour.capture_fixture(self.app, self.path, self.config))
+        self.assertFalse(self.path.exists())
+
+
 class CheckedInToursTests(unittest.TestCase):
     """Every tour under scripts/cmux-next/media/tours loads: one bad file (a step key tour.py does not
     know, as #26274's "record" was) stops every pull request's tour before it starts, since the
@@ -731,6 +828,83 @@ class FocusAfterCloseTests(unittest.TestCase):
         self.load([self.run_action("closePane"), self.run_action("splitRight"), self.run_action("focusLeft")])
         self.load([self.run_action("focusRight"), self.run_action("closePane"), self.run_action("focusPaneByNumber")])
 
+
+
+class WindowVideoTests(unittest.TestCase):
+    def test_compiler_failure_selects_the_still_fallback(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        with tempfile.TemporaryDirectory() as root:
+            recording = tour.WindowVideo(mock.Mock(), 123, Path(root), Path(root))
+            with mock.patch.object(tour.sys, "platform", "darwin"), \
+                    mock.patch.object(tour.subprocess, "run", return_value=mock.Mock(returncode=1, stderr="SDK unavailable")):
+                self.assertFalse(recording.start())
+            self.assertIn("SDK unavailable", recording.reason)
+            self.assertIsNone(recording.process)
+
+    def test_failed_native_start_records_stills_with_measured_timing(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        with tempfile.TemporaryDirectory() as root:
+            session = mock.Mock(prefix=[], capture_prefix=[], user="test")
+            session.shareable.side_effect = lambda path: (path.mkdir(parents=True, exist_ok=True) or path)
+            app = mock.Mock(identity={}, log_path=Path(root) / "absent")
+            app.main_window_frame.return_value = [0, 0, 800, 600]
+            native = mock.Mock(reason="SDK unavailable")
+            native.start.return_value = False
+            native.stop.return_value = False
+            def step(*args):
+                time.sleep(0.1)
+                return {"status": "ok"}
+            with mock.patch.object(tour, "App", return_value=app), \
+                    mock.patch.object(tour, "WindowVideo", return_value=native), \
+                    mock.patch.object(tour.Screen, "capture", return_value=None), \
+                    mock.patch.object(tour, "run_step", side_effect=step), \
+                    mock.patch.object(tour.signal, "signal"):
+                manifest = tour.run_tour(Path(root), {"name": "demo", "title": "Demo", "steps": [{"title": "Animate"}]},
+                                         Path(root), session)
+            self.assertNotIn("video", manifest)
+            self.assertEqual(manifest["video_fallback"], "SDK unavailable")
+            self.assertGreaterEqual(len(manifest["frames"]), 2)
+            self.assertGreater(manifest["capture_fps"], 2)
+            self.assertAlmostEqual(manifest["frame_interval"], 1 / manifest["capture_fps"])
+
+    def test_native_capture_stops_and_finalizes_before_the_app(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        events = []
+        with tempfile.TemporaryDirectory() as root:
+            session = mock.Mock(prefix=[], capture_prefix=[], user="test")
+            session.shareable.side_effect = lambda path: (path.mkdir(parents=True, exist_ok=True) or path)
+            app = mock.Mock(identity={}, log_path=Path(root) / "absent")
+            app.main_window_frame.return_value = [0, 0, 800, 600]
+            app.stop.side_effect = lambda: events.append("app-stop")
+            native = mock.Mock(reason="")
+            native.start.return_value = True
+            native.stop.side_effect = lambda: (events.append("video-stop") or True)
+            with mock.patch.object(tour, "App", return_value=app), \
+                    mock.patch.object(tour, "WindowVideo", return_value=native), \
+                    mock.patch.object(tour.Screen, "capture", return_value=None), \
+                    mock.patch.object(tour, "run_step", return_value={"status": "ok"}), \
+                    mock.patch.object(tour.signal, "signal"), \
+                    mock.patch.object(tour.Recorder, "start") as stills:
+                manifest = tour.run_tour(Path(root), {"name": "demo", "title": "Demo", "steps": [{"title": "Animate"}]},
+                                         Path(root), session)
+            self.assertEqual(manifest["video"], "capture.mov")
+            self.assertEqual(events, ["video-stop", "app-stop"])
+            stills.assert_not_called()
+
+    def test_stop_times_out_and_kills_only_the_owned_recorder(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour as video
+        with tempfile.TemporaryDirectory() as root:
+            recording = video.WindowVideo(mock.Mock(), 123, Path(root), Path(root))
+            process = mock.Mock(returncode=-9)
+            process.communicate.side_effect = [subprocess.TimeoutExpired("recorder", 20), ("", "")]
+            recording.process = process
+            self.assertFalse(recording.stop())
+            process.kill.assert_called_once_with()
+            self.assertIsNone(recording.process)
 
 if __name__ == "__main__":
     unittest.main()

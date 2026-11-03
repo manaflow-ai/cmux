@@ -40,6 +40,27 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         public var depth = 0
         /// The open workspace members (rows that are not a closed one's, dimmed): the window listing one owns the group.
         public var openMembers: [SidebarDocWorkspaceRef] = []
+        /// The space it was made in (`SidebarDocItem.room`); nil: made before groups carried one.
+        public var room: String?
+
+        /// Whether a window on space `room` lists this group when it lists none of its workspaces (an empty
+        /// group, a kept group whose members closed): a top-level group only in its own space (spaces.md). One with no
+        /// stored space is the default space's, unless an open workspace of it says otherwise (it lists where that one
+        /// lists). `room` nil: no space filter (every group lists, as before spaces owned them). `spaces`: the spaces
+        /// that exist; a group of one that is gone is the default space's (`SidebarDocItem.owningRoom`).
+        /// A nested group (`followsParent`) lists wherever its parent lists, and the caller checks the parent. So no
+        /// group lists in no space, whatever an op left stored: a top-level one always has a space that exists, and
+        /// every group under it goes with it.
+        public func lists(inRoom room: String?, spaces: Set<String>? = nil) -> Bool {
+            guard let room, !followsParent else { return true }
+            if let own = self.room { return SidebarDocItem.owningRoom(own, spaces: spaces) == room }
+            return room == SidebarDocItem.defaultRoom && openMembers.isEmpty
+        }
+
+        /// A group under another group: its space is its parent's, whatever it stores (a link-only child, a New
+        /// Subgroup, one nested under another space's group, one left behind when its parent moved space). Its own
+        /// stored space counts again if it leaves the parent.
+        public var followsParent: Bool { parent != nil }
 
         /// A url, tab or app member and the workspace member's item it follows (nil: first).
         public struct Listed: Hashable, Sendable {
@@ -130,6 +151,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
                 // A nested group (remote-groups-DESIGN.md R1) lists after its parent, with its own members.
                 var group = Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [], section: record.id,
                                   pinned: record.kind == .pinned)
+                group.room = item.room
                 group.parent = row.depth > 0 ? row.parent ?? item.parent : nil
                 group.depth = row.depth
                 bandGroups.append(group)
@@ -138,7 +160,10 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
                 bandGroups[at].add(id, item) // a workspace, link, tab or app member: a member row in the list
                 if let ref = item.body.workspace, !row.dimmed { bandGroups[at].openMembers.append(ref) }
             } else if row.depth == 0 {
-                sections[index].items.append(Self.layoutItem(item))
+                var layoutItem = Self.layoutItem(item)
+                // A Pinned link, tab or app is its space's (a pinned workspace's space is its own, `bandHides`).
+                if record.kind == .pinned, item.body.belongsToASpace { layoutItem.room = item.room ?? SidebarDocItem.defaultRoom }
+                sections[index].items.append(layoutItem)
             }
         }
         if !placedList {
@@ -171,6 +196,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             }
         case let .group(name, color, icon, collapsed):
             var group = Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [], section: row.section)
+            group.room = item.room
             group.parent = row.depth > 0 ? row.parent ?? item.parent : nil
             group.depth = row.depth
             machines.append(group, session: session)
@@ -259,7 +285,8 @@ extension SidebarDocStore {
         guard isActive else { return nil }
         if let cached = projectionCache, cached.answers(version: version, live: live) { return cached.projection }
         guard let rows = rows(SidebarViewRequest(live: live)) else { return nil }
-        let projection = SidebarDocProjection(rows: rows, records: records.addingPendingChief(drawnIn: rows, pending: pendingChief.map(\.add)),
+        // The pending record writes (`shownRecords`), then a Chief dragged in before its echo.
+        let projection = SidebarDocProjection(rows: rows, records: shownRecords.addingPendingChief(drawnIn: rows, pending: pendingChief.map(\.add)),
                                               revision: records.revision)
         projectionCache = SidebarDocProjectionCache(version: version, live: live, projection: projection)
         return projection
@@ -270,8 +297,8 @@ extension SidebarDocStore {
     /// place live workspaces it lacks.
     /// `connectedRemotes`: the other machines' sessions connected now. A
     /// placed workspace of one of them that left the live set while its
-    /// machine stayed connected closed there: the client sends `close` for
-    /// it (the home daemon closes its own machine's workspaces itself).
+    /// machine stayed connected closed there: the client removes its placement
+    /// (the home daemon closes its own machine's workspaces itself).
     public func show(live: [SidebarDocWorkspaceRef], connectedRemotes: Set<String> = []) {
         let previous = lastLiveProjection
         let next = projection(live: live)
@@ -284,9 +311,16 @@ extension SidebarDocStore {
         (lastLive, lastConnectedRemotes) = (now, connectedRemotes)
         lastLiveProjection = next
         guard isActive, !closed.isEmpty else { return }
-        let refs = closed.sorted { ($0.sessionID, $0.workspaceID) < ($1.sessionID, $1.workspaceID) }
-            .map { ["session_id": $0.sessionID, "workspace_id": $0.workspaceID] }
-        send(ops: [["op": "close", "refs": refs]], title: Self.moveTitle, undoable: false)
+        // Forward precise item deletions, which the pinned app FFI already supports.
+        // Its legacy `close` operation also prunes ancestors and makes the header blink.
+        let records = shownRecords
+        let ops: [[String: Any]] = closed.sorted { ($0.sessionID, $0.workspaceID) < ($1.sessionID, $1.workspaceID) }
+            .compactMap { ref in
+                guard let id = previous?.items[ref], let item = records.items[id], item.body.workspace == ref,
+                      let section = records.sections[item.section], !section.keepsClosed else { return nil }
+                return ["op": "item.delete", "id": id]
+            }
+        send(ops: ops, title: Self.moveTitle, undoable: false)
     }
 
     /// The target that puts moved items where `index` (counted without

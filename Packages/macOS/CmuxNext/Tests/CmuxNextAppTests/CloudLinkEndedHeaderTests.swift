@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
 import CmuxNextCompat
@@ -36,7 +37,7 @@ struct CloudLinkEndedHeaderTests {
         defer { session.disconnect() }
         await Self.connectAndEnd(session)
         #expect(session.stage.failure != nil, "the link ended: the progress view still offers a connect")
-        let header = CloudCreationRows.machine(session, compatibility: nil)
+        let header = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
         #expect(header.status != .failed, "a machine that ran did not fail to start")
         #expect(SectionHeaderRowView.statusText(header.status, hostGroup: false) == "Disconnected")
         #expect(SectionHeaderRowView.statusWords(header.status) == "Disconnected")
@@ -59,7 +60,7 @@ struct CloudLinkEndedHeaderTests {
         await Self.connectAndEnd(session)
         var iterator = reads.makeAsyncIterator()
         #expect(await iterator.next() == false, "one unforced list read")
-        let header = CloudCreationRows.machine(session, compatibility: nil)
+        let header = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
         #expect(header.status == .pausedIdle)
         #expect(SectionHeaderRowView.statusText(header.status, hostGroup: false) == "Paused (idle)")
     }
@@ -72,7 +73,7 @@ struct CloudLinkEndedHeaderTests {
         let session = Self.session(status: status, error: .failed(code: "vm_start_failed", message: "the provider could not start it"))
         defer { session.disconnect() }
         await Self.connectAndEnd(session)
-        let header = CloudCreationRows.machine(session, compatibility: nil)
+        let header = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
         #expect(header.status == .failed)
         #expect(SectionHeaderRowView.statusText(header.status, hostGroup: false) == "Failed to start")
     }
@@ -82,7 +83,7 @@ struct CloudLinkEndedHeaderTests {
         let session = Self.session(status: .running, error: .revoked(reason: "access removed"))
         defer { session.disconnect() }
         await Self.connectAndEnd(session)
-        #expect(CloudCreationRows.machine(session, compatibility: nil).status == .disconnected)
+        #expect(CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard()).status == .disconnected)
     }
 
     /// A list read began, then the person clicked Connect, and the read answered the machine
@@ -136,7 +137,7 @@ struct CloudLinkEndedHeaderTests {
         #expect(session.machine.pauseReason == nil)
         #expect(session.machine.runningSince == since, "its running cost stays")
         #expect(session.machine.title == "Renamed VM", "the record's other fields apply")
-        let header = CloudCreationRows.machine(session, compatibility: nil)
+        let header = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
         #expect(header.status == .connecting, "live while the click's connect starts it, not Offline")
         await resolver.finish()
     }
@@ -146,7 +147,7 @@ struct CloudLinkEndedHeaderTests {
         let session = Self.session(status: .failed)
         defer { session.disconnect() }
         await Self.connectAndEnd(session)
-        let header = CloudCreationRows.machine(session, compatibility: nil)
+        let header = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
         #expect(header.status == .failed)
         #expect(SectionHeaderRowView.statusText(header.status, hostGroup: false) == "Failed to start")
     }

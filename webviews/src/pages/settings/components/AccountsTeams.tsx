@@ -1,11 +1,19 @@
-// Settings > Accounts, Teams: one row per team with your role, the open team's details (members,
-// pending invitations for admins, plan), and the create, rename and delete forms. Like the rest of
+// Settings > Accounts, Teams: invitations addressed to you (Join Team, Decline), one row per team
+// with your role, the open team's details (members, pending invitations for admins, plan), and the
+// create, rename and delete forms. Like the rest of
 // Accounts, the host sends every text and decides what each person may do (members get no Rename
 // or Delete); the page draws it and forwards `team.*` gestures. A typed name lives in the form's
 // own state until it is submitted.
 import { useState, type KeyboardEvent } from "react";
 import { useStore } from "../context";
-import type { AccountsButton, AccountsTeamDetails, AccountsTeamForm, AccountsTeamList, AccountsTeamRow } from "../ops";
+import type {
+  AccountsButton,
+  AccountsReceivedInvitations,
+  AccountsTeamDetails,
+  AccountsTeamForm,
+  AccountsTeamList,
+  AccountsTeamRow,
+} from "../ops";
 
 export function TeamsGroup({ list }: { list: AccountsTeamList }) {
   const store = useStore();
@@ -20,6 +28,7 @@ export function TeamsGroup({ list }: { list: AccountsTeamList }) {
           {list.notice.text}
         </output>
       )}
+      {list.received && <ReceivedGroup received={list.received} />}
       <div className="rows">
         {list.create && (
           <div className="row accounts-row" data-team-create="">
@@ -38,6 +47,45 @@ export function TeamsGroup({ list }: { list: AccountsTeamList }) {
         )}
       </div>
     </section>
+  );
+}
+
+// Invitations to You: each team that invited one of your verified emails, with Join Team and
+// Decline. The host sends the texts; the invitation's id goes as `team`.
+function ReceivedGroup({ received }: { received: AccountsReceivedInvitations }) {
+  const store = useStore();
+  return (
+    <div className="accounts-team-list" data-team-received="">
+      <div className="row-title">{received.title}</div>
+      {received.error && (
+        <div className="row-error" role="alert">
+          {received.error}
+        </div>
+      )}
+      <div className="rows">
+        {received.rows.map((invitation) => (
+          <div className="row accounts-row" key={invitation.id} data-team-received-invitation={invitation.id}>
+            <div className="row-main">
+              <div className="row-label">
+                <div className="row-title accounts-team-title">{invitation.team}</div>
+                <div className="row-help">{invitation.detail}</div>
+                {invitation.expires && <div className="row-help">{invitation.expires}</div>}
+              </div>
+              <div className="row-control accounts-buttons">
+                <TeamButton
+                  button={invitation.accept}
+                  onRun={() => void store.runAccounts({ action: invitation.accept.id, team: invitation.id })}
+                />
+                <TeamButton
+                  button={invitation.decline}
+                  onRun={() => void store.runAccounts({ action: invitation.decline.id, team: invitation.id })}
+                />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

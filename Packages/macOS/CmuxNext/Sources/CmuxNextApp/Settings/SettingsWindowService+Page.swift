@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDesign
@@ -7,6 +8,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextServer
 import CmuxNextSettingsWindow
+import CmuxNextUpdater
 import CmuxNextWebUpdates
 
 /// What the React Settings page shows beside the schema rows (R82 commit 2): `cmux.settings.host.lists`.
@@ -21,6 +23,8 @@ extension SettingsWindowService {
         return [
             // The Development category (dev_only) shows only in DEV builds; Devices shows in every build.
             "dev_build": .bool(DevTools.isDebugBuild),
+            // Raw legacy preference; the web shares its fallback policy with the model picker.
+            "harness_placement": .string(AgentPaneTunables.harnessPlacement.value.rawValue),
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
             "machines": .array(machines.map { vmHostRow(Self.machineRow($0), id: $0.id) }),
             // Settings > Devices (plans/cmux-next/add-device-DESIGN.md 2.4): every device, one remove.
@@ -63,12 +67,13 @@ extension SettingsWindowService {
             "server": services.serverUpdates.settingsPageJSON,
             "import_suggestions": ImportSuggestionsCenter.shared.settingsJSON,
             "web_updates": WebUpdates.shared.pageJSON,
+            "app_update": services.updater.settingsPageJSON,
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
             "voice_input": ChiefVoiceInputPageRoute().hostJSON,
             // Settings > Menus: every right-click menu's rows and the person's arrangement of it.
             "context_menus": contextMenusRoute.hostJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
-            "backdrops": backdropCatalog.catalog.pageRows,
+            "backdrops": backdropRowsCache.rows(for: backdropCatalog.catalog),
             "derived": .object(pageDerivedNumbers()),
         ]
     }

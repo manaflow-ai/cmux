@@ -243,8 +243,9 @@ use self::selection::{
     StatusMessageSelection,
 };
 use self::session_mutation::{
-    MutationImpact, PendingSessionMutation, PendingSessionMutationState, SessionCompletion,
-    SessionCompletionAction, SessionMutationOutcome, layout_undo_error_completion,
+    MutationImpact, PendingCompletedSelection, PendingSessionMutation, PendingSessionMutationState,
+    SessionCompletion, SessionCompletionAction, SessionMutationOutcome,
+    layout_undo_error_completion,
 };
 pub(crate) use self::status_segments::StatusSegmentView;
 use self::status_segments::{ResolvedStatusSegments, StatusWorkerStop};
@@ -558,6 +559,7 @@ pub struct App {
     last_applied_refresh_sequence: u64,
     applied_destination_generation: u64,
     pending_session_completions: VecDeque<SessionCompletion>,
+    pending_completed_selection: Option<PendingCompletedSelection>,
     mux_titles: Arc<MuxTitleIngress>,
     pty_failures: Arc<PtyFailureIngress>,
     mux_recovery_generation: Arc<AtomicU64>,

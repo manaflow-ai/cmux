@@ -104,12 +104,25 @@ const gapVariants = Object.fromEntries(
           const after = rects("after")[0]!;
           const upper = ctx.document.querySelector<HTMLElement>('[data-row-id="upper"]')!;
           const column = upper.getBoundingClientRect();
-          const padding = Number.parseFloat(ctx.document.defaultView!.getComputedStyle(upper).paddingBottom);
-          await drag(
-            ctx,
-            { x: (column.left + column.right) / 2, y: column.bottom - Math.max(1, padding / 2) },
-            { x: after.left + 180, y: after.top + after.height / 2 },
-          );
+          // The press lands on the upper row's gap target (App.tsx RowFrame): on the grid the stack
+          // places the gap under the row (padding-block 0, #27580), so the target spans the row's own
+          // bottom padding and the placed gap down to the next row. Start at its middle, or the point
+          // nearest it that the target itself takes (an action row laid in the gap keeps its own).
+          const target = upper.querySelector<HTMLElement>('[data-transcript-gap="row"]')!;
+          const gap = target.getBoundingClientRect();
+          const x = (column.left + column.right) / 2;
+          const middle = (gap.top + gap.bottom) / 2;
+          let y = middle;
+          for (let step = 0; step < gap.height / 2; step += 1) {
+            const hit = [middle + step, middle - step].find((at) =>
+              target.contains(ctx.document.elementFromPoint(x, at)),
+            );
+            if (hit !== undefined) {
+              y = hit;
+              break;
+            }
+          }
+          await drag(ctx, { x, y }, { x: after.left + 180, y: after.top + after.height / 2 });
           if (ctx.document.getSelection()?.isCollapsed) throw new Error("Gap drag selected no text");
         },
       },
