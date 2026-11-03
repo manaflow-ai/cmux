@@ -33,6 +33,7 @@ import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMessage";
+import type { InboxNotice } from "./conversation/inboxNotice";
 import type { TurnCopyPart } from "./conversation/turnCopy";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
@@ -264,6 +265,10 @@ export type QueuedPrompt = {
   /// Another agent's message waiting here (direct.ts `queuedMessage`): it draws in the transcript
   /// as the message's received card (conversation/queuedMessages.ts), never as a queue row.
   message?: IncomingMessage;
+  /// acpmux's inbox notice waiting here (provenance `inbox_notice`, hub/inbox.rs): other agents'
+  /// messages, not the person's prompt. Like `message`, it draws in the transcript's one group of
+  /// waiting messages as its threads (conversation/queuedMessages.ts), never as a queue row.
+  inbox?: InboxNotice;
   /// A teammate's prompt in a shared chat (its `person_message` provenance): its row names them,
   /// and only they may change it (acpmux refuses another author's edit with `queue.not_author`).
   author?: Participant;

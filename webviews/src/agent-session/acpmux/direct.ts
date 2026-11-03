@@ -99,7 +99,7 @@ import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
-import { inboxText, type InboxMessage } from "./conversation/inboxNotice";
+import { inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage, startCancelled } from "./transportErrors";
@@ -635,6 +635,7 @@ function queuedEntry(
   inlineParts?: PromptContentPart[],
   retry?: SubagentRetryNotice,
   hold: Hold = {},
+  inbox?: InboxNotice,
 ): QueuedPrompt {
   return {
     id,
@@ -643,9 +644,10 @@ function queuedEntry(
     ...(sending ? { sending } : {}),
     ...(images?.length ? { images: [...images] } : {}),
     ...(message ? { message } : {}),
+    ...(inbox && !message ? { inbox } : {}),
     ...(author ? { author } : {}),
     ...(inlineParts?.length ? { inlineParts } : {}),
-    ...(retry && !message && !author ? { retry } : {}),
+    ...(retry && !message && !inbox && !author ? { retry } : {}),
     ...(hold.awaitingOwner ? { awaitingOwner: true } : {}),
     ...(hold.revision !== undefined ? { revision: hold.revision } : {}),
     ...(hold.awaitingOwner && hold.updating ? { updating: true } : {}),
@@ -731,6 +733,14 @@ export function queuedMessage(msg: any, context?: IncomingContext): IncomingMess
   const named = [`[${name}]`, `From ${name}:`].find((prefix) => lead.toLowerCase().startsWith(prefix.toLowerCase()));
   const harness = typeof msg?.fromHarness === "string" && msg.fromHarness.trim() ? msg.fromHarness.trim() : undefined;
   return { name, ...(harness ? { harness } : {}), text: (named ? lead.slice(named.length) : text).trim(), raw: text };
+}
+
+/// A `queued` record that is acpmux's inbox notice (provenance `inbox_notice`), as its threads.
+/// Undefined for any other prompt. acpmux's queue list names no provenance, so a notice the pane
+/// has only that list of shows as a queue row until its record is read.
+export function queuedInbox(msg: any, context?: IncomingContext): InboxNotice | undefined {
+  const incoming = incomingPrompt(String(msg?.text ?? ""), msg, context);
+  return incoming?.kind === "inbox" ? incoming.notice : undefined;
 }
 
 /// The images a `queued` or `queue_updated` record names (`images`, in its prompt's order), each
@@ -879,6 +889,9 @@ export function mergeQueue(
     // prompt is the person's own. Without this, a queued agent_message was rendered as a plain
     // user prompt until it left the queue, so its received card (and reply actions) disappeared.
     const message = listed === null ? undefined : (kept ?? listedMessage);
+    // acpmux's inbox notice: the threads its `queued` record named, while the text is the same. An
+    // edit makes it the person's (hub/queue.rs drops the provenance), so it keeps none.
+    const inbox = message || edited?.has(id) || !whole ? undefined : had.inbox;
     // A list that names the field says whose it is, null the owner's (acpmux lists it for every
     // prompt once it serves authors); an older acpmux lists none, and the records read decide.
     const hold = listedHold(entry, had);
@@ -905,7 +918,7 @@ export function mergeQueue(
       // `subagent_retry` provenance, which an edit drops), else, from an acpmux that lists none,
       // the one its `queued` record gave while the text is the same (the preview that text or cut
       // from it). An edit, seen or missed, drops it; a null listing removes it.
-      message || author || edited?.has(id)
+      message || inbox || author || edited?.has(id)
         ? undefined
         : "subagentRetry" in (entry ?? {})
           ? withRecovered(listedRetry(entry.subagentRetry), had?.retry)
@@ -914,6 +927,7 @@ export function mergeQueue(
             : undefined,
       // A guest's prompt that waits for the owner (acpmux lists `awaitingOwner`; an older one, none).
       hold,
+      inbox,
     );
     // Whether a person's Stop holds it, as acpmux lists it (`heldByStop`); listed unheld, it was
     // let go. A list without the field (an older acpmux) keeps what the records said.
@@ -945,6 +959,7 @@ function sameQueuedEntry(a: QueuedPrompt, b: QueuedPrompt): boolean {
     a.heldByStop === b.heldByStop &&
     JSON.stringify(a.images) === JSON.stringify(b.images) &&
     JSON.stringify(a.message) === JSON.stringify(b.message) &&
+    JSON.stringify(a.inbox) === JSON.stringify(b.inbox) &&
     JSON.stringify(a.author) === JSON.stringify(b.author) &&
     JSON.stringify(a.inlineParts) === JSON.stringify(b.inlineParts) &&
     JSON.stringify(a.retry) === JSON.stringify(b.retry) &&
@@ -4901,7 +4916,7 @@ export class AcpmuxDirectClient {
     }
     this.queue = this.queue.map((entry) => {
       const msg = queued.get(entry.id);
-      if (entry.message || !msg || String(msg.text ?? "") !== entry.prompt) return entry;
+      if (entry.message || entry.inbox || !msg || String(msg.text ?? "") !== entry.prompt) return entry;
       const message = queuedMessage(msg, this.incomingContext());
       return message
         ? keepStopHold(
@@ -5118,6 +5133,7 @@ export class AcpmuxDirectClient {
                   entry.inlineParts,
                   entry.retry,
                   entry,
+                  entry.inbox,
                 ),
                 // Sent now, it is no longer held (hub/queue.rs `put_next`).
                 entry.id === next ? undefined : entry,
@@ -5176,6 +5192,8 @@ export class AcpmuxDirectClient {
               msg,
               this.queue.find((entry) => entry.id === id),
             ),
+            // acpmux's inbox notice: other agents' messages, drawn with them (queuedMessages.ts).
+            queuedInbox(msg, this.incomingContext()),
           ),
         ];
       }
@@ -7445,6 +7463,7 @@ export class AcpmuxDirectClient {
               queued.inlineParts,
               queued.retry,
               queued,
+              queued.inbox,
             )
           : queued,
       );

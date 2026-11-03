@@ -1878,8 +1878,12 @@ const QueuedMessageRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
 );
-/// A queued inbox wrapper has one queue target for the whole notice. Keep its Send now/Dismiss
-/// controls beside the first flattened preview row without turning every delivery into a queue row.
+/// A queued inbox wrapper has one queue target for the whole notice. Keep its Send now beside the
+/// first flattened preview row without turning every delivery into a queue row. No Dismiss: taking
+/// a notice out of the queue only puts its messages back as new, and the next notice brings them
+/// again (acpmux hub/inbox.rs `notice_done`); agents' messages to each other are not the person's
+/// to cancel (Leo, 2026-11-03: "we don't really wanna be cancelling agent back and forth messages
+/// 99% of the time").
 const InboxQueueActions = memo(function InboxQueueActions({
   queue,
   version,
@@ -1899,7 +1903,6 @@ const InboxQueueActions = memo(function InboxQueueActions({
               ? () => void act.steer(queue.promptId).then((ok) => ok && setSentAt(version), fail)
               : undefined
           }
-          dismiss={act ? () => void act.remove(queue.promptId).catch(fail) : undefined}
         />
       </MessageFooterRow>
     </span>
