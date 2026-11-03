@@ -42,6 +42,42 @@ struct BrowserTabCloseLeavesAtOnceTests {
         }
     }
 
+    /// The measure (same harness at base and head): a person's close of a deciding page's tab to the
+    /// tab gone from its strip, 20 rounds. The page never answers within the round's 1 s, as a slow
+    /// renderer; then it closes the tab (the `closeTab` its page's close runs). Prints p50/p95.
+    @Test func measureCloseToStripDrop() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let pane = try #require(services.windows.active?.focusedPane)
+            let handle = pane.pane.handle
+            let undo = try #require(services.closedTabs?.undoToasts)
+            var deciding: Set<String> = []
+            undo.pageDecidesClose = { _, tab in deciding.contains(tab.rawValue) }
+            var samples: [Double] = []
+            var stayed = 0
+            for round in 0..<20 {
+                let page = try await connection.newFrontendBrowserTab(url: "https://example.com/m\(round)", engine: .webkit, in: handle, activate: false)
+                try await PinnedPageTests.until({ store.tab(surface: page.surface).map { pane.orderedIDs.map(\.rawValue).contains($0.id) } == true })
+                let id = try #require(store.tab(surface: page.surface)).id
+                deciding = [id]
+                let start = ContinuousClock.now
+                _ = services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user))
+                let deadline = start + .seconds(1)
+                while pane.orderedIDs.map(\.rawValue).contains(id), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(1)) }
+                if pane.orderedIDs.map(\.rawValue).contains(id) { stayed += 1 } else {
+                    let elapsed = start.duration(to: .now)
+                    samples.append(Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15)
+                }
+                deciding = []
+                _ = services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id)))
+                try await PinnedPageTests.until({ store.liveTreeLists(tab: id) == false }, within: .seconds(10))
+            }
+            let sorted = samples.sorted()
+            func pct(_ p: Double) -> String { sorted.isEmpty ? "-" : String(format: "%.2f", sorted[min(sorted.count - 1, Int(Double(sorted.count) * p))]) }
+            print("MEASURE close->strip-drop rounds=20 dropped=\(sorted.count) stayed-past-1s=\(stayed) p50_ms=\(pct(0.5)) p95_ms=\(pct(0.95))")
+        }
+    }
+
     /// A page that asks ("Leave site?") brings its tab back at its place, selected, before the
     /// question (`HiddenPageCloses.restore`, which the page's question and its `.activate` run).
     @Test func aPageThatAsksBringsItsTabBackSelected() async throws {
