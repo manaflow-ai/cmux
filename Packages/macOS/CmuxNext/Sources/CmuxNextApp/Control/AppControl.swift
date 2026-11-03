@@ -113,6 +113,10 @@ final class AppControl {
                 let services = await MainActor.run { services }
                 return try await ResourceControl.run(call.params, services: services)
             }.withDeadline(.fixed(ResourceControl.deadline)),
+            .async("renderers.list") { [weak services] call in // each Chromium renderer pid, its pages, their tabs
+                let services = await MainActor.run { services }
+                return try await ResourceControl.renderers(call.params, services: services)
+            }.withDeadline(.fixed(ResourceControl.renderersDeadline)),
             // Installed Chrome extensions, shortcuts and toolbar badges.
             .mainActor("browser.extensions") { [weak services] _ in
                 guard let services else { return .value(.null) }
