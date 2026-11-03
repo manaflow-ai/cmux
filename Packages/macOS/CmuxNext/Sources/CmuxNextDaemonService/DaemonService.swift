@@ -160,7 +160,7 @@ public final class DaemonService {
     @ObservationIgnored var restoreStall: OwnerRestoreProgress.Stall?
     /// Counts the restore reports this service took (observed: the update restart's successor wait restarts its
     /// bound on each one, so a long restore of the successor is not "no successor").
-    private(set) var restoreReportsSeen = 0
+    var restoreReportsSeen = 0
     /// While a connection that was up is down and the owner restores again (a reconnect behind a restart or a
     /// crash): its jobs, shown as this machine's while `startup` stays `.connected`. Nil otherwise.
     var reconnectRestoringJobs: [LongJob]?
