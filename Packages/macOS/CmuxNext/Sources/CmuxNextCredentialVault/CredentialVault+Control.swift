@@ -434,7 +434,6 @@ nonisolated enum VaultControl {
         ControlError.invalidParams(CredentialVaultStrings.missingParam(method, key))
     }
 
-
     /// `body` with a vault failure as its control error.
     private static func run<T>(_ body: () throws -> T) throws -> T {
         do {
