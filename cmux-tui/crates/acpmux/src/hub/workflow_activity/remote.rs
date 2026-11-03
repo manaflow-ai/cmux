@@ -119,7 +119,7 @@ impl Hub {
             let allowed = self.workflow_activity_scope(run, "agent").await?;
             let corrected = state.correction.is_some();
             let text = state.correction.as_deref().unwrap_or(prompt);
-            let request = remote_request(
+            let mut request = remote_request(
                 run,
                 activity,
                 state.epoch,
@@ -131,6 +131,19 @@ impl Hub {
             );
             let child_id =
                 format!("{}-remote-{}-{}", activity.id, state.epoch, u8::from(corrected));
+            // The daemon's caller proof rotates at restart. Reattach with the
+            // per-brief capability already persisted before the original send.
+            if let Some(previous) = self
+                .workflow_runs
+                .store()
+                .get(&run.id)
+                .map_err(workflow_error)?
+                .activities
+                .get(&child_id)
+                && let Some(token) = previous.policy.pointer("/remoteDispatch/receiptToken")
+            {
+                request["receiptToken"] = token.clone();
+            }
             self.workflow_runs
                 .store()
                 .update_activity_policy(
