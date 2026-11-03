@@ -33,7 +33,8 @@ import Testing
         let rig = Rig(machines: [CloudMachine(id: "vm", status: .running)])
         #expect(rig.section.isHidden)
         rig.section.open()
-        await until { rig.section.streaming == "vm" }
+        // The first state applies in open's own turn, so the card is measured with the section shown.
+        #expect(rig.section.streaming == "vm")
         #expect(!rig.section.isHidden)
         #expect(rig.feed.starts == ["vm"])
         rig.section.close()
@@ -73,11 +74,13 @@ import Testing
         await until { rig.section.streaming == "vm" }
         rig.feed.end()
         #expect(rig.section.streaming == nil)
-        // Another read of the same running machine does not reconnect.
-        rig.directory.paid = true
-        rig.directory.machines = [CloudMachine(id: "vm", status: .running)]
-        await settle()
+        // A new value for the same machine, still running (renamed), does not reconnect.
+        var renamed = CloudMachine(id: "vm", status: .running)
+        renamed.displayName = "renamed"
+        rig.directory.machines = [renamed]
+        await until { rig.section.shown?.name == "renamed" }
         #expect(rig.feed.starts == ["vm"])
+        #expect(rig.section.streaming == nil)
         rig.section.close()
         // A new open tries again.
         rig.section.open()
@@ -149,9 +152,5 @@ import Testing
     private func until(_ condition: @MainActor () -> Bool) async {
         for _ in 0..<1_000 where !condition() { await Task.yield() }
         #expect(condition())
-    }
-
-    private func settle() async {
-        for _ in 0..<50 { await Task.yield() }
     }
 }

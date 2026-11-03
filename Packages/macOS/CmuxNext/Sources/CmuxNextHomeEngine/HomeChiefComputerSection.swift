@@ -122,13 +122,15 @@ public final class HomeChiefComputerSection: NSStackView {
         watch?.cancel()
         guard let source else { return show(nil) }
         let directory = source.directory
+        // The first value applies now, so the card opens at its final height.
+        let (first, later) = ObservationStream.current { () -> HomeChiefComputer? in
+            let now = directory()
+            return HomeChiefComputer(machines: now.machines, paid: now.paid)
+        }
+        show(first)
         // task-owner: the open card's machine watch; cancelled when the card closes
         watch = Task { [weak self] in
-            let shown = ObservationStream { () -> HomeChiefComputer? in
-                let now = directory()
-                return HomeChiefComputer(machines: now.machines, paid: now.paid)
-            }
-            for await computer in shown { self?.show(computer) }
+            for await computer in later { self?.show(computer) }
         }
     }
 
@@ -163,9 +165,11 @@ public final class HomeChiefComputerSection: NSStackView {
         streaming = machine
         stopStream = source.frames(machine, { [weak self] buffer in
             guard let self, streaming == machine else { return }
+            let first = screen.layer?.contents == nil
             // The frame's IOSurface is never written again (CloudDesktopFrames), so the layer shows it as is.
             screen.layer?.contents = CVPixelBufferGetIOSurface(buffer)?.takeUnretainedValue()
-            redraw()
+            // Only the first frame changes the labels (it takes "Connecting…" away).
+            if first { redraw() }
         }, { [weak self] in
             guard let self, streaming == machine else { return }
             stopStream = nil
