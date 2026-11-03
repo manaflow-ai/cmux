@@ -14,7 +14,8 @@ import type { Subagent } from "../../subagents/subagentFold";
 import type { WorkflowAgent, WorkflowSummary } from "../../summary/workflow";
 import type { Artifact } from "../../conversation/artifactPreview";
 import type { TurnFile } from "../../diff";
-import type { SessionSummary, SummaryBackgroundTask } from "../../summary/sessionSummary";
+import type { SessionSummary, SummaryBackgroundTask, SummaryWakeup } from "../../summary/sessionSummary";
+import { useScheduledClock } from "../scheduled";
 import { visibleChanges, type SessionInfoPullRequestStatus } from "../ChangesSection";
 import type { OutputArtifact, OutputLink } from "../OutputsSection";
 import { sessionInfoLists, type SessionInfoProcess } from "../processes";
@@ -49,6 +50,8 @@ import { useCloudRepositories } from "./useCloudRepositories";
 import { cloudEnvironmentRequest, openCloudEnvironment, subscribeCloudEnvironment } from "../../cloudEnvironment";
 import { copyText } from "../../conversation/clipboard";
 import { useSubagentLimitController } from "../SubagentLimitStepper";
+
+const NO_SCHEDULED: readonly SummaryWakeup[] = [];
 
 type Summary = Parameters<typeof environmentSection>[0]["summary"];
 
@@ -229,7 +232,10 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       props.processes.some((process) => process.state === "running") ||
       props.transcriptTasks.some((task) => task.state === "running") ||
       props.workflows.some((workflow) => workflow.state === "running" || workflow.state === "pending"));
-  const now = useNow(live);
+  const tickingNow = useNow(live);
+  // Moves once, when the earliest wakeup or cron job still ahead ends (no per-second poll).
+  const scheduledNow = useScheduledClock(props.made?.scheduled ?? NO_SCHEDULED);
+  const now = Math.max(tickingNow, scheduledNow);
   const chatId = summary?.sessionId;
   const { onSetRunningLimit, onReconnectMcp } = props;
   const setRunningLimit =
@@ -401,7 +407,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           processes: props.processes,
           transcriptTasks: props.transcriptTasks,
           listed: props.listed,
-          scheduled: props.made?.scheduled ?? [],
+          scheduled: props.made?.scheduled ?? NO_SCHEDULED,
+          language,
           workflows: props.workflows,
           local,
           calls,
