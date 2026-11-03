@@ -469,8 +469,12 @@ impl Brain {
         let people = if !ctx.turn_people.is_empty() {
             ctx.turn_people.clone()
         } else {
+            // A turn this host did not start (one it adopted after a
+            // restart, or one that outlived its outcome) is the saved one.
             match (current.as_deref(), load_turn_people(&ctx.root)) {
-                (Some(key), Some((saved, people))) if saved == key && !people.is_empty() => {
+                (key, Some((saved, people)))
+                    if key.is_none_or(|k| k == saved) && !people.is_empty() =>
+                {
                     if let Some(c) = self.rights.as_mut() {
                         c.turn_people = people.clone();
                         c.turn_key = Some(saved);
