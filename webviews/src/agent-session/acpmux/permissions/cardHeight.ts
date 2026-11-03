@@ -31,6 +31,7 @@ function textHeight(text: string, width: number, size: number, line: number, mon
     return layout(
       prepare(text, `${weight} ${size}px ${mono ? "monospace" : typeScale.font.family}`, {
         whiteSpace: "pre-wrap",
+        letterSpacing: mono ? 0 : (typeScale.steps.find((entry) => entry.size === size)?.tracking ?? 0) * size,
       }),
       room,
       line,
@@ -41,11 +42,16 @@ function textHeight(text: string, width: number, size: number, line: number, mon
   }
 }
 
-function textWidth(text: string, size: number): number {
+function textWidth(text: string, size: number, weight = 400): number {
   try {
     return (
-      layoutWithLines(prepareWithSegments(text, `${size}px ${typeScale.font.family}`), Infinity, size).lines[0]
-        ?.width ?? 0
+      layoutWithLines(
+        prepareWithSegments(text, `${weight} ${size}px ${typeScale.font.family}`, {
+          letterSpacing: (typeScale.steps.find((entry) => entry.size === size)?.tracking ?? 0) * size,
+        }),
+        Infinity,
+        size,
+      ).lines[0]?.width ?? 0
     );
   } catch {
     return text.length * size * 0.55;
@@ -106,7 +112,9 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
     ...(deny ? [translate("permission.deny")] : []),
   ];
   const taken = new Set(labels);
-  const widths = labels.map((label) => textWidth(label, body.size) + 2 * padding);
+  const widths = labels.map(
+    (label, index) => textWidth(label, body.size, allowOnce && index === 0 ? 500 : 400) + 2 * padding,
+  );
   for (const option of others) {
     const label = optionButtonLabel(option, translate, taken);
     taken.add(label);
@@ -138,7 +146,7 @@ function questionHeight(question: AgentQuestion, width: number): number {
   }
   const item = question.items[0];
   if (!item) return 24;
-  const chip = item.header ? Math.min(room * 0.4, textWidth(item.header, caption.size) + 16) + 8 : 0;
+  const chip = item.header ? Math.min(room * 0.4, textWidth(item.header, caption.size, 600) + 16) + 8 : 0;
   const promptRoom = Math.max(1, room - chip);
   // Needs-input pill + gap, fieldset edges, then the 12px-padded header and its divider.
   let height = 24 + 8 + 1 + 2 * padding + text(item.prompt, promptRoom, body.lineHeight, body.size, 600) + 0.5;
