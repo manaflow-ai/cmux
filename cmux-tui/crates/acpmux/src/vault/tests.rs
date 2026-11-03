@@ -528,7 +528,7 @@ struct RacingStore<'a> {
 
 impl SecretStore for RacingStore<'_> {
     fn kind(&self) -> &'static str {
-        "memory"
+        "test"
     }
     fn put(&self, name: &str, value: &str) -> Result<(), &'static str> {
         self.inner.put(name, value)
@@ -595,7 +595,7 @@ struct SwitchingStore<'a> {
 
 impl SecretStore for SwitchingStore<'_> {
     fn kind(&self) -> &'static str {
-        "memory"
+        "test"
     }
     fn put(&self, name: &str, value: &str) -> Result<(), &'static str> {
         self.inner.put(name, value)
@@ -675,7 +675,7 @@ struct GatedStore {
 
 impl SecretStore for GatedStore {
     fn kind(&self) -> &'static str {
-        "memory"
+        "test"
     }
     fn put(&self, name: &str, value: &str) -> Result<(), &'static str> {
         self.entered.send(()).unwrap();
@@ -1066,4 +1066,158 @@ fn a_failed_reply_carries_the_code_and_no_value() {
     assert_eq!(reply["failure"]["code"], "vault.revoked");
     assert_eq!(reply["failure"]["deleted"][0], "A_KEY");
     assert!(reply["outcome"].is_null());
+}
+
+#[test]
+#[cfg(unix)]
+fn switching_to_memory_keeps_cleaning_up_the_os_store() {
+    use std::sync::atomic::Ordering;
+    let home = tempfile::tempdir().unwrap();
+    // A headless Mac over ssh: the OS store's deletes fail too.
+    let os = MemoryStore { fail_delete: true.into(), ..MemoryStore::default() };
+    let mem =
+        MemoryStore { memory_mode: true, leftovers: Some(Box::new(os)), ..MemoryStore::default() };
+    let os = mem.os_leftovers().unwrap();
+    let answer = || Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
+    // Pulled while the OS store took writes.
+    pull::settle(home.path(), "https://hub.test", CRED, answer(), os, &live, 1).unwrap();
+    assert!(os.get("API_TOKEN").unwrap().is_some());
+
+    // Now the daemon keeps values in memory: the OS item is tracked for
+    // cleanup, and the entry is stored again in memory.
+    let outcome =
+        pull::settle(home.path(), "https://hub.test", CRED, answer(), &mem, &live, 2).unwrap();
+    assert_eq!(outcome.stored, ["API_TOKEN"]);
+    assert!(mem.get("API_TOKEN").unwrap().is_some());
+    let state = pull::read_state(home.path());
+    assert_eq!(state.backend, "memory");
+    assert!(state.os_pending.contains("API_TOKEN"));
+    assert_eq!(state.delivered_names(Some((CRED, false))), ["API_TOKEN"]);
+
+    // Forget can't delete the OS item yet: it fails and keeps the state file.
+    let failure = pull::forget(home.path(), &mem).unwrap_err();
+    assert_eq!(failure.code, pull::PARTIAL);
+    assert!(mem.get("API_TOKEN").unwrap().is_none(), "the memory value goes at once");
+    assert!(pull::state_path(home.path()).exists());
+    assert!(pull::read_state(home.path()).os_pending.contains("API_TOKEN"));
+    assert!(pull::read_state(home.path()).env.is_empty());
+
+    // Once the OS store takes the delete, forget finishes.
+    mem.leftovers.as_ref().unwrap().fail_delete.store(false, Ordering::SeqCst);
+    pull::forget(home.path(), &mem).unwrap();
+    assert!(os.get("API_TOKEN").unwrap().is_none());
+    assert!(!pull::state_path(home.path()).exists());
+}
+
+#[test]
+fn back_on_the_os_store_leftovers_become_cleanup_records() {
+    let mut state = salted();
+    state.backend = "memory".into();
+    state.os_pending.insert("OLD_KEY".into());
+    state.env.insert("MEM_KEY".into(), plan::EnvRecord::default());
+    state.switch_backend("keychain");
+    assert_eq!(state.backend, "os");
+    assert!(state.env.is_empty(), "values in another process's memory are gone");
+    assert!(state.os_pending.is_empty());
+    assert!(state.pending_delete.contains("OLD_KEY"));
+    assert!(!state.pending_delete.contains("MEM_KEY"), "never in the OS store");
+
+    // A state from before `backend` was saved is the OS store's.
+    let mut legacy = salted();
+    legacy.env.insert("A_KEY".into(), plan::EnvRecord::default());
+    legacy.switch_backend("memory");
+    assert!(legacy.os_pending.contains("A_KEY"));
+    assert!(legacy.env.is_empty());
+}
+
+/// Reads of `fail` fail; every read's deadline is recorded.
+#[derive(Default)]
+struct PickyStore {
+    inner: MemoryStore,
+    fail: std::sync::Mutex<Option<String>>,
+    deadlines: std::sync::Mutex<Vec<std::time::Instant>>,
+}
+
+impl SecretStore for PickyStore {
+    fn kind(&self) -> &'static str {
+        "test"
+    }
+    fn put(&self, name: &str, value: &str) -> Result<(), &'static str> {
+        self.inner.put(name, value)
+    }
+    fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, &'static str> {
+        if self.fail.lock().unwrap().as_deref() == Some(name) {
+            return Err("vault.secret_store_read_failed");
+        }
+        self.inner.get(name)
+    }
+    fn get_by(
+        &self,
+        name: &str,
+        deadline: std::time::Instant,
+    ) -> Result<Option<Zeroizing<String>>, &'static str> {
+        self.deadlines.lock().unwrap().push(deadline);
+        self.get(name)
+    }
+    fn delete(&self, name: &str) -> Result<(), &'static str> {
+        self.inner.delete(name)
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn a_retry_reads_only_what_was_missing_and_keeps_the_rest() {
+    let _one = LOADED_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    super::reset_loaded();
+    let home = tempfile::tempdir().unwrap();
+    let store = PickyStore::default();
+    let answer = Answer::Granted {
+        env: vec![active("A_KEY", 1, SECRET_A), active("B_KEY", 1, SECRET_B)],
+        refused: 0,
+    };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+    let path = pull::state_path(home.path());
+    let start = std::time::Instant::now();
+    *store.fail.lock().unwrap() = Some("B_KEY".into());
+    super::refresh_at(&path, &store, start);
+    assert_eq!(super::loaded_names(), ["A_KEY"]);
+    // Now A cannot be read, B can: the retry reads B only and keeps A.
+    *store.fail.lock().unwrap() = Some("A_KEY".into());
+    store.deadlines.lock().unwrap().clear();
+    super::refresh_at(&path, &store, start + super::RETRY_INCOMPLETE);
+    let mut names = super::loaded_names();
+    names.sort();
+    assert_eq!(names, ["A_KEY", "B_KEY"]);
+    assert_eq!(store.deadlines.lock().unwrap().len(), 1, "one read: B");
+}
+
+#[test]
+fn every_store_read_gets_the_load_deadline() {
+    let mut state = salted();
+    let store = PickyStore::default();
+    store.put("API_TOKEN", SECRET_A).unwrap();
+    state.env.insert(
+        "API_TOKEN".into(),
+        plan::EnvRecord {
+            revision: 1,
+            fingerprint: state.fingerprint("API_TOKEN", SECRET_A),
+            ..Default::default()
+        },
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let (vars, _) = super::load_values_by(&state, &store, deadline);
+    assert_eq!(vars.len(), 1);
+    assert_eq!(*store.deadlines.lock().unwrap(), [deadline]);
+}
+
+#[test]
+#[cfg(unix)]
+fn a_store_command_crossing_the_deadline_is_stopped_there() {
+    let mut cmd = std::process::Command::new("sh");
+    cmd.args(["-c", "sleep 5"]).stdout(std::process::Stdio::piped());
+    let start = std::time::Instant::now();
+    let deadline = start + std::time::Duration::from_millis(200);
+    let result = super::store::capture_until(cmd, false, deadline);
+    assert_eq!(result.err(), Some("vault.secret_store_timeout"));
+    assert!(start.elapsed() < std::time::Duration::from_secs(3), "stopped at the deadline");
 }

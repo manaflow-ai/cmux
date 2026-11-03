@@ -56,8 +56,25 @@ pub trait SecretStore: Send + Sync {
     /// Errors are codes, never values.
     fn put(&self, name: &str, value: &str) -> Result<(), &'static str>;
     fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, &'static str>;
+    /// [`SecretStore::get`], given up at `deadline` (`vault.secret_store_timeout`).
+    fn get_by(
+        &self,
+        name: &str,
+        deadline: std::time::Instant,
+    ) -> Result<Option<Zeroizing<String>>, &'static str> {
+        if std::time::Instant::now() >= deadline {
+            return Err("vault.secret_store_timeout");
+        }
+        self.get(name)
+    }
     /// Ok when the item is gone (or was never there).
     fn delete(&self, name: &str) -> Result<(), &'static str>;
+    /// The OS store whose leftover items (`State::os_pending`) this store's
+    /// pulls delete: the daemon's memory store has one; the OS store is
+    /// itself the one, so it has none.
+    fn os_leftovers(&self) -> Option<&dyn SecretStore> {
+        None
+    }
 }
 
 /// The values of a machine with no usable OS store, in this process's memory
@@ -84,6 +101,9 @@ impl SecretStore for ProcessMemory {
         PROCESS_MEMORY.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
         Ok(())
     }
+    fn os_leftovers(&self) -> Option<&dyn SecretStore> {
+        Some(&OsStore)
+    }
 }
 
 /// The item [`probe`] writes and removes again: no env name the vault can
@@ -94,8 +114,15 @@ pub const PROBE_NAME: &str = ".probe";
 /// store, checked once per process: `false` without one, and on a Mac whose
 /// session has no writable login keychain (ssh to a headless Mac).
 pub fn os_usable() -> bool {
-    static USABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *USABLE.get_or_init(|| probe(&OsStore))
+}
+
+static USABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// [`os_usable`] once it is known, without running the check: `None` while
+/// it runs or before anything asked (a machine that is not joined never asks).
+pub fn os_usable_known() -> Option<bool> {
+    USABLE.get().copied()
 }
 
 /// Write, read back and remove [`PROBE_NAME`] (a fixed, non-secret value).
@@ -111,7 +138,17 @@ pub fn probe(store: &dyn SecretStore) -> bool {
 /// The store the daemon keeps values in: the OS store when [`os_usable`],
 /// else [`ProcessMemory`].
 pub fn for_daemon() -> std::sync::Arc<dyn SecretStore> {
-    if os_usable() { std::sync::Arc::new(OsStore) } else { std::sync::Arc::new(ProcessMemory) }
+    pick(os_usable())
+}
+
+/// [`for_daemon`] once the check is done, never running it: what a launch
+/// uses, so a launch never waits on the store check.
+pub fn for_daemon_known() -> Option<std::sync::Arc<dyn SecretStore>> {
+    os_usable_known().map(pick)
+}
+
+fn pick(usable: bool) -> std::sync::Arc<dyn SecretStore> {
+    if usable { std::sync::Arc::new(OsStore) } else { std::sync::Arc::new(ProcessMemory) }
 }
 
 /// The OS store of this machine.
@@ -158,6 +195,14 @@ impl SecretStore for OsStore {
     }
 
     fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, &'static str> {
+        self.get_by(name, std::time::Instant::now() + TIMEOUT)
+    }
+
+    fn get_by(
+        &self,
+        name: &str,
+        deadline: std::time::Instant,
+    ) -> Result<Option<Zeroizing<String>>, &'static str> {
         if !self.available() {
             return Err(UNAVAILABLE);
         }
@@ -175,7 +220,7 @@ impl SecretStore for OsStore {
             c.stdout(Stdio::piped()).stderr(Stdio::null());
             c
         };
-        let (status, raw) = capture(cmd, macos)?;
+        let (status, raw) = capture_until(cmd, macos, deadline)?;
         if !status.success() {
             // `security` exits 44 for a missing item (any other exit, a locked
             // keychain say, is an error to retry); `secret-tool` exits 1 with no output.
@@ -233,9 +278,19 @@ impl SecretStore for OsStore {
 /// while waiting, bounded by the store timeout: a large item fills the pipe
 /// before the command exits, so reading only after the exit would stall it.
 pub fn capture(
-    mut cmd: Command,
+    cmd: Command,
     from_stderr: bool,
 ) -> Result<(std::process::ExitStatus, Zeroizing<Vec<u8>>), &'static str> {
+    capture_until(cmd, from_stderr, std::time::Instant::now() + TIMEOUT)
+}
+
+/// [`capture`], killing the command at `deadline` (at most the store timeout).
+pub fn capture_until(
+    mut cmd: Command,
+    from_stderr: bool,
+    deadline: std::time::Instant,
+) -> Result<(std::process::ExitStatus, Zeroizing<Vec<u8>>), &'static str> {
+    let wait = deadline.saturating_duration_since(std::time::Instant::now()).min(TIMEOUT);
     cmd.stdin(Stdio::null());
     let mut child = cmd.spawn().map_err(|_| UNAVAILABLE)?;
     let pipe: Option<Box<dyn std::io::Read + Send>> = if from_stderr {
@@ -244,7 +299,7 @@ pub fn capture(
         child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>)
     };
     let reader = std::thread::spawn(move || drain(pipe));
-    let status = match child.wait_timeout(TIMEOUT) {
+    let status = match child.wait_timeout(wait) {
         Ok(Some(status)) => status,
         _ => {
             let _ = child.kill();
@@ -317,12 +372,22 @@ pub struct MemoryStore {
     pub fail_get: std::sync::atomic::AtomicBool,
     /// Writes of this name fail.
     pub fail_put: Option<String>,
+    /// Kind `memory`: stands for the daemon's memory store.
+    pub memory_mode: bool,
+    /// The OS store a memory-mode store cleans up (`os_leftovers`).
+    pub leftovers: Option<Box<MemoryStore>>,
 }
 
 #[cfg(test)]
 impl SecretStore for MemoryStore {
     fn kind(&self) -> &'static str {
-        if self.unavailable { "unavailable" } else { "memory" }
+        if self.unavailable {
+            "unavailable"
+        } else if self.memory_mode {
+            "memory"
+        } else {
+            "test"
+        }
     }
     fn put(&self, name: &str, value: &str) -> Result<(), &'static str> {
         if self.unavailable {
@@ -349,5 +414,8 @@ impl SecretStore for MemoryStore {
         }
         self.items.lock().unwrap().remove(name);
         Ok(())
+    }
+    fn os_leftovers(&self) -> Option<&dyn SecretStore> {
+        self.leftovers.as_deref().map(|s| s as &dyn SecretStore)
     }
 }

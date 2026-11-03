@@ -69,6 +69,9 @@ struct Loaded {
     /// Some entries could not be read (a locked Keychain): when, so they are
     /// read again after [`RETRY_INCOMPLETE`] without a state change.
     incomplete_at: Option<std::time::Instant>,
+    /// The entries that load could not read: a retry reads only these and
+    /// keeps the values it already checked, while the state is unchanged.
+    missing: Vec<String>,
 }
 
 /// How long an incomplete load waits before it reads the store again.
@@ -88,6 +91,7 @@ static LOADED: RwLock<Loaded> = RwLock::new(Loaded {
     state: None,
     vars: Vec::new(),
     incomplete_at: None,
+    missing: Vec::new(),
 });
 static RELOAD: Mutex<()> = Mutex::new(());
 
@@ -128,7 +132,7 @@ pub fn load_values_by(
             skipped.push((name.clone(), "vault.load_timeout"));
             continue;
         }
-        match store.get(name) {
+        match store.get_by(name, deadline) {
             Ok(Some(value)) if state.fingerprint(name, &value) == record.fingerprint => {
                 vars.push((name.clone(), value));
             }
@@ -171,14 +175,26 @@ fn refresh_at(path: &std::path::Path, store: &dyn SecretStore, at: std::time::In
     let home = path.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
     let state = pull::read_state(&home);
     let signature = state.signature();
-    {
+    // The same entries as the last load: an unchanged state keeps its
+    // values, and a retry reads only the entries that load could not.
+    let missing = {
         let mut loaded = LOADED.write().unwrap_or_else(|e| e.into_inner());
-        if seen_before && complete_before && loaded.signature == signature {
+        let same = seen_before && loaded.signature == signature;
+        if same && complete_before {
             loaded.seen = Some(now);
             return;
         }
-    }
-    let (vars, skipped) = load_values(&state, store);
+        same.then(|| loaded.missing.clone())
+    };
+    let retry = missing.is_some();
+    let (vars, skipped) = match &missing {
+        Some(missing) => {
+            let mut part = state.clone();
+            part.env.retain(|name, _| missing.contains(name));
+            load_values(&part, store)
+        }
+        None => load_values(&state, store),
+    };
     for (name, code) in &skipped {
         tracing::warn!(name = %name, code = %code, "vault env entry not loaded");
     }
@@ -186,7 +202,12 @@ fn refresh_at(path: &std::path::Path, store: &dyn SecretStore, at: std::time::In
     loaded.seen = Some(now);
     loaded.signature = signature;
     loaded.state = Some(state);
-    loaded.vars = vars;
+    if retry {
+        loaded.vars.extend(vars);
+    } else {
+        loaded.vars = vars;
+    }
+    loaded.missing = skipped.iter().map(|(name, _)| name.clone()).collect();
     loaded.incomplete_at = (!skipped.is_empty()).then_some(at);
 }
 
@@ -199,6 +220,7 @@ fn reset_loaded() {
     loaded.state = None;
     loaded.vars.clear();
     loaded.incomplete_at = None;
+    loaded.missing.clear();
 }
 
 /// The values held in memory now (tests).
@@ -214,8 +236,10 @@ pub fn env_for_children() -> Vec<(String, String)> {
     if !ACTIVE.load(Ordering::SeqCst) {
         return Vec::new();
     }
+    // Before the store check has run (a machine not joined never runs it,
+    // and a launch never waits on it), there is nothing to give.
+    let Some(store) = store::for_daemon_known() else { return Vec::new() };
     let home = crate::config::home();
-    let store = store::for_daemon();
     let deliver = || deliver_at(&home, &*store, &pull::current_credential, Instant::now());
     // A reload runs store commands (bounded by `LOAD_BUDGET`): on a Tokio
     // worker, the runtime moves its other tasks off this thread first.
@@ -340,16 +364,32 @@ pub async fn start_worker() {
     if ACTIVE.swap(true, Ordering::SeqCst) {
         return;
     }
-    // Values kept in this daemon's memory (no usable OS store) are gone at
-    // every start: a saved state then does not serve the first spawn.
-    // The OS store check runs store commands once: off the async workers.
-    let memory = tokio::task::spawn_blocking(|| !store::os_usable()).await.unwrap_or(true);
-    let saved = pull::state_path(&crate::config::home()).exists() && !memory;
+    // A machine that is not joined never touches the store.
     let joined = matches!(crate::cli::cloud_join::machine_credential(), Ok(Some(_)));
     let mut failures = 0u32;
     let mut first_delay = Duration::ZERO;
-    if needs_initial_pull(saved, joined) {
-        match bounded(INITIAL_WAIT, run_once()).await {
+    let started = tokio::time::Instant::now();
+    // The store check runs store commands (each may wait up to a minute): off
+    // the async workers, and within `INITIAL_WAIT` with the first pull. Past
+    // it, launches give no vault env until the check is done (the loop's
+    // first round waits for it).
+    let usable = if joined {
+        match bounded(INITIAL_WAIT, tokio::task::spawn_blocking(store::os_usable)).await {
+            Some(Ok(usable)) => Some(usable),
+            _ => {
+                tracing::warn!(code = "vault.store_check_timeout", "vault pull deferred");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    // Values kept in this daemon's memory (no usable OS store) are gone at
+    // every start: a saved state then does not serve the first spawn.
+    let saved = pull::state_path(&crate::config::home()).exists() && usable == Some(true);
+    if usable.is_some() && needs_initial_pull(saved, joined) {
+        let left = INITIAL_WAIT.saturating_sub(started.elapsed());
+        match bounded(left, run_once()).await {
             Some(Ok(result)) => {
                 tracing::info!(result, "vault pull");
                 first_delay = EVERY;
@@ -397,7 +437,9 @@ async fn run_once() -> Result<&'static str, String> {
         Ok(None) => return Ok("not_joined"),
         Err(_) => return Err("vault.credential_unreadable".to_owned()),
     }
-    let store = store::for_daemon();
+    let Ok(store) = tokio::task::spawn_blocking(store::for_daemon).await else {
+        return Err("vault.internal".to_owned());
+    };
     let result = match pull::pull(crate::config::home(), store, false).await {
         Ok(outcome) => {
             for (name, code) in &outcome.failed {
@@ -419,7 +461,9 @@ async fn run_once() -> Result<&'static str, String> {
 /// loaded for the next spawn. With no usable OS store the values live only
 /// here, so the CLI cannot pull them itself.
 pub async fn pull_now() -> (&'static str, Result<pull::Outcome, pull::Failure>) {
-    let store = store::for_daemon();
+    let Ok(store) = tokio::task::spawn_blocking(store::for_daemon).await else {
+        return ("unknown", Err(internal()));
+    };
     let kind = store.kind();
     let result = pull::pull(crate::config::home(), store.clone(), true).await;
     let _ = tokio::task::spawn_blocking(move || refresh(&*store)).await;
@@ -428,7 +472,9 @@ pub async fn pull_now() -> (&'static str, Result<pull::Outcome, pull::Failure>) 
 
 /// `machine vault forget` asked of this daemon (`_acpmux/vault_forget`).
 pub async fn forget_now() -> (&'static str, Result<pull::Outcome, pull::Failure>) {
-    let store = store::for_daemon();
+    let Ok(store) = tokio::task::spawn_blocking(store::for_daemon).await else {
+        return ("unknown", Err(internal()));
+    };
     let kind = store.kind();
     let home = crate::config::home();
     let result = tokio::task::spawn_blocking(move || {
@@ -437,8 +483,10 @@ pub async fn forget_now() -> (&'static str, Result<pull::Outcome, pull::Failure>
         result
     })
     .await
-    .unwrap_or_else(|_| {
-        Err(pull::Failure { code: "vault.internal".into(), deleted: Vec::new(), outcome: None })
-    });
+    .unwrap_or_else(|_| Err(internal()));
     (kind, result)
+}
+
+fn internal() -> pull::Failure {
+    pull::Failure { code: "vault.internal".into(), deleted: Vec::new(), outcome: None }
 }
