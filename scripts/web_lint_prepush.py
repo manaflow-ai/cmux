@@ -1239,7 +1239,8 @@ def shown(job: tuple) -> str:
 
 def refuse_escapes(tree: Path, plan: Plan, mode: str, read=None) -> bool:
     """Drop from PLAN, saying so, each package whose check code does not resolve to itself in TREE (escaping_paths():
-    its executed folders and every file its check names). False when nothing is left to run."""
+    its executed folders and every file its check names), and each lone source-check piece (Plan.script_pieces) whose
+    script does not. False when nothing is left to run."""
     kept = []
     for package in plan.script_packages:
         scripts = package_scripts(tree, package, read)
@@ -1259,7 +1260,24 @@ def refuse_escapes(tree: Path, plan: Plan, mode: str, read=None) -> bool:
             print(f"{mode}: {directory}: not linted here: its check code resolves outside itself in the tree "
                   f"({', '.join(escaped)}). The `web lint` CI job checks it.", file=sys.stderr)
             del plan.eslint_files[directory]
-    return bool(plan.script_packages or plan.eslint_files)
+    packages = {package.directory: package for package in SCRIPT_PACKAGES}
+    for directory, pieces in list(plan.script_pieces.items()):
+        package = packages[directory]
+        kept_pieces = []
+        for piece in pieces:
+            script = posixpath.normpath(posixpath.join(directory, next(
+                (word for word in (light_argv(piece) or [])[1:] if not word.startswith("-")), "")))
+            escaped = escaping_paths(tree, [p.rstrip("/") for p in package.executed] + [script])
+            if escaped:
+                print(f"{mode}: {directory}: {piece}: not run here: its check code resolves outside itself in the "
+                      f"tree ({', '.join(escaped[:5])}). The `web lint` CI job checks it.", file=sys.stderr)
+            else:
+                kept_pieces.append(piece)
+        if kept_pieces:
+            plan.script_pieces[directory] = kept_pieces
+        else:
+            del plan.script_pieces[directory]
+    return bool(plan.script_packages or plan.script_pieces or plan.eslint_files)
 
 
 def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool = True,

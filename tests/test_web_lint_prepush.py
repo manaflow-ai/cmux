@@ -1772,6 +1772,28 @@ class TrustBoundaryTests(unittest.TestCase):
             self.assertIn("webviews/tools/a.py", err.getvalue())
             self.assertEqual(plan.script_packages, [])
 
+    def test_a_lone_source_check_piece_runs_only_when_its_script_resolves_to_itself(self):
+        # #34046's pieces run alone for a push outside the package triggers; #34124's resolution rule applies to them.
+        lint = load_lint(SOURCE)
+        webviews = next(p for p in lint.SCRIPT_PACKAGES if p.directory == "webviews")
+        piece = "python3 ../scripts/cmux-next/check_x.py"
+        with tempfile.TemporaryDirectory(prefix="cmux-escape-") as temporary:
+            tree = Path(temporary)
+            (tree / "webviews/src").mkdir(parents=True)
+            (tree / "webviews/src/x.py").write_text("")
+            (tree / "scripts/cmux-next").mkdir(parents=True)
+            (tree / "scripts/cmux-next/check_x.py").write_text("")
+            plan = lint.Plan(script_pieces={"webviews": [piece]})
+            self.assertTrue(lint.refuse_escapes(tree, plan, "pre-push"), "a script that is itself runs")
+            self.assertEqual(plan.script_pieces, {"webviews": [piece]})
+            (tree / "scripts/cmux-next/check_x.py").unlink()
+            (tree / "scripts/cmux-next/check_x.py").symlink_to("../../webviews/src/x.py")
+            plan = lint.Plan(script_pieces={"webviews": [piece]})
+            with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+                self.assertFalse(lint.refuse_escapes(tree, plan, "pre-push"))
+            self.assertIn("scripts/cmux-next/check_x.py", err.getvalue())
+            self.assertEqual(plan.script_pieces, {})
+
     def test_the_real_check_code_has_no_symlink_and_resolves_to_itself(self):
         # The boundary must not refuse the real tree: no tracked symlink at check code, and every named file is its own.
         lint = load_lint(SOURCE)
