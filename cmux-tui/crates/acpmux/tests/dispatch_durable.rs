@@ -65,7 +65,7 @@ fn durable_peer_dispatch_replays_the_same_child_and_exact_reply() {
     tokio::runtime::Builder::new_multi_thread().worker_threads(2).thread_stack_size(32 << 20)
         .enable_all().build().unwrap().block_on(async {
             let hub=hub();
-            let params=json!({"briefId":"workflow-activity","durable":true,"host":"local",
+            let params=json!({"briefId":"workflow-activity","durable":true,"receiptToken":"1111111111111111111111111111111111111111111111111111111111111111","host":"local",
                 "title":"Workflow remote check","brief":"exact workflow reply","cwd":std::env::temp_dir(),
                 "harness":"fake","policy":"ask","allowedTools":[]});
             let (first,replay)=tokio::join!(
@@ -87,8 +87,25 @@ fn durable_peer_dispatch_replays_the_same_child_and_exact_reply() {
             assert_eq!(count,1,"concurrent retries dispatched more than one prompt");
             let mut changed=params.clone();changed["brief"]=json!("different effect");
             assert!(call(&hub,Some(Origin::Peer),method::MUX_DISPATCH,changed).await.unwrap_err().contains("pins different inputs"));
-            let mut forbidden=params;forbidden["briefId"]=json!("forbidden");forbidden["policy"]=json!("approve-all");
+            let mut forbidden=params.clone();forbidden["briefId"]=json!("forbidden");forbidden["policy"]=json!("approve-all");
             assert!(call(&hub,Some(Origin::Peer),method::MUX_DISPATCH,forbidden).await.unwrap_err().contains("person-approved preset"));
+            let mut stolen = params.clone();
+            stolen["briefId"] = json!("workflow-activity");
+            stolen["policy"] = json!("ask");
+            stolen["receiptToken"] = json!("2222222222222222222222222222222222222222222222222222222222222222");
+            assert!(call(&hub, Some(Origin::Peer), method::MUX_DISPATCH, stolen.clone()).await.is_err(),
+                "a different caller read a durable receipt by knowing its id");
+            stolen["action"] = json!("cancel");
+            assert!(call(&hub, Some(Origin::Peer), method::MUX_DISPATCH, stolen).await.is_err(),
+                "a different caller cancelled a durable dispatch by knowing its id");
+            for origin in [None, Some(Origin::Peer)] {
+                let listed = call(&hub, origin, method::MUX_BRIEFS, json!({})).await.unwrap();
+                assert!(listed["briefs"].as_array().unwrap().is_empty(),
+                    "legacy brief listing leaked a private durable receipt: {listed}");
+                for operation in [method::MUX_STEER, method::MUX_REPORT] {
+                    assert!(call(&hub, origin, operation, json!({"briefId":"workflow-activity", "text":"steal", "summary":"steal"})).await.is_err());
+                }
+            }
             hub.shutdown_all().await;
         });
 }
@@ -103,7 +120,7 @@ fn durable_cancel_fences_delayed_dispatch_and_only_its_exact_prompt() {
         .unwrap()
         .block_on(async {
             let hub = hub();
-            let params = json!({"briefId":"before-start","durable":true,"host":"local",
+            let params = json!({"briefId":"before-start","durable":true,"receiptToken":"1111111111111111111111111111111111111111111111111111111111111111","host":"local",
                 "title":"Workflow cancel fence","brief":"until-cancel","cwd":std::env::temp_dir(),
                 "harness":"fake","policy":"ask","allowedTools":[]});
             let mut cancel = params.clone();
@@ -177,7 +194,7 @@ fn durable_dispatch_crosses_a_real_peer_and_reattaches_by_its_pinned_alias() {
             let added=local.add_peer("paired-target",&format!("ws://127.0.0.1:{port}"),
                 Some("durable-peer-test".into()),Some(peer_token),true).await.unwrap();
             assert_eq!(added["peer"]["connected"],true,"{added}");
-            let params=json!({"briefId":"cross-peer","durable":true,"host":"paired-target","wait":true,
+            let params=json!({"briefId":"cross-peer","durable":true,"receiptToken":"1111111111111111111111111111111111111111111111111111111111111111","host":"paired-target","wait":true,
                 "brief":"cross-peer reply","title":"Peer workflow","cwd":std::env::temp_dir(),
                 "harness":"fake","policy":"ask","allowedTools":[]});
             let first=call(&local,None,method::MUX_DISPATCH,params.clone()).await.unwrap();
