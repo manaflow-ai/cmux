@@ -171,7 +171,7 @@ import UniformTypeIdentifiers
 
     @Test func invalidNamesCannotReadOutsideTheOutbox() throws {
         let outbox = PushOutbox(directory: URL(fileURLWithPath: "/unused"))
-        #expect(throws: PushOutbox.Refused.self) { try PushReplyAttachments.files(["../private"], outbox: outbox) }
-        #expect(throws: PushOutbox.Refused.self) { try PushReplyAttachments.files([".hidden"], outbox: outbox) }
+        #expect(throws: LinkUpload.Failure.self) { try PushReplyAttachments.files(["../private"], outbox: outbox) }
+        #expect(throws: LinkUpload.Failure.self) { try PushReplyAttachments.files([".hidden"], outbox: outbox) }
     }
 }

@@ -16,7 +16,9 @@ enum PushReplyAttachments {
         var uploaded: [String: String] = [:]
         for attachment in attachments {
             guard let link else { throw LinkError(code: "offline", message: "Connect to send attachments.") }
-            guard let url = attachment.fileURL else { throw PushOutbox.Refused() }
+            guard let url = attachment.fileURL else {
+                throw LinkUpload.Failure(code: "unreadable", message: "Couldn't read \(attachment.name) on this iPhone.")
+            }
             do {
                 uploaded[attachment.id] = try await LinkUpload.upload(fileAt: url, name: attachment.name, cwd: nil, over: link)
             } catch let failure as LinkUpload.Failure {
@@ -61,7 +63,9 @@ enum PushReplyAttachments {
         guard !names.isEmpty else { return [] }
         guard let outbox else { throw LinkUpload.Failure(code: "unreadable", message: "Couldn't open notification attachments.") }
         return try names.map { name in
-            guard (name as NSString).lastPathComponent == name, !name.hasPrefix(".") else { throw PushOutbox.Refused() }
+            guard (name as NSString).lastPathComponent == name, !name.hasPrefix(".") else {
+                throw LinkUpload.Failure(code: "unreadable", message: "Invalid notification attachment name.")
+            }
             let url = outbox.attachments.appendingPathComponent(name)
             guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey]),
                   values.isRegularFile == true, values.isSymbolicLink != true, let size = values.fileSize else {
