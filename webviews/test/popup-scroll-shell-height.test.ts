@@ -26,7 +26,7 @@ for (const viewport of [168, 288]) {
       paddingTop: "4px",
       paddingBottom: "4px",
       getPropertyValue: () => "296px",
-    })) as typeof getComputedStyle;
+    })) as unknown as typeof getComputedStyle;
     expect(naturalHeight(shell)).toBe(296);
   });
 }
