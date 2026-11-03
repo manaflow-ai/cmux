@@ -135,6 +135,11 @@ button.cv-agentmsg__name:focus-visible {
   > .cv-agentmsg__chevron {
   color: var(--cv-text);
 }
+/* Shut and stacked, the toggle holds no words: it takes back the line's gap before it, so the chevron
+   sits right after the recipient's chip, as after any row's words (transcript-chevron-after-label). */
+.acpmux-row .cv-agentmsg:not([data-open]) .cv-agentmsg__toggle:has(> .cv-agentmsg__preview:empty) {
+  margin-inline-start: calc(-1 * var(--grid-gap) - 0.5 * var(--ds-space-1));
+}
 /* Stacked or opened, the toggle holds no words and has no box of its own: the line, which the
    pointer already toggles, shows its focus. */
 .cv-agentmsg__line:has(.cv-agentmsg__toggle:focus-visible > .cv-agentmsg__preview:empty) {

@@ -39,7 +39,7 @@
 /* A line that starts with its toggle: the hover plate keeps its inset, the icon stays in the
    shared column. */
 .cv-disclosure__line > :is(.cv-disclosure__toggle, .cv-disclosure__open):first-child:not(.is-chevron) {
-  margin-inline-start: calc(-1 * var(--ds-space-1));
+  margin-inline-start: calc(-0.5 * var(--ds-space-1));
 }
 /* A line that opens a chat (`.cv-disclosure__open`) ends at its status; its chevron is the panel's
    own toggle right after it. */
