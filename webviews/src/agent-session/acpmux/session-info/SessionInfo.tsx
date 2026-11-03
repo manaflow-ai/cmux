@@ -312,20 +312,16 @@ export const pushedRoom = (paneWidth: number, panel: number, column?: ChatColumn
   if (full) return even(all);
   const end = paneWidth - panel - 2 * FLOAT_MARGIN - Math.max(0, overflow);
   if (columnEnd(paneWidth, column) <= end) return 0;
-  let fits = paneWidth - all;
-  if (fits <= 0 || columnEnd(fits, column) > end) return even(all);
-  // The widest chat whose column still ends by `end`. columnEnd grows with the chat's width up to the
-  // 4 grid's 0-3 px steps, so this can stop a few pixels short of the widest; `fits` always holds.
-  let over = paneWidth;
-  while (over - fits > 1) {
-    const mid = Math.floor((fits + over) / 2);
-    if (columnEnd(mid, column) <= end) fits = mid;
-    else over = mid;
-  }
+  if (paneWidth - all <= 0 || columnEnd(paneWidth - all, column) > end) return even(all);
+  // The least room, in steps of 8 (the column's inset is on the 4 grid, so each step moves the column's
+  // end in by about 4), whose column still ends by `end`. Rounding a pixel search up to 8 instead could
+  // land 1-3 px past it: columnEnd does not grow steadily with the chat's width. At most about 70 steps,
+  // run once per layout of the panel.
+  let room = 8;
+  while (room < all && columnEnd(paneWidth - room, column) > end) room += 8;
   // Once the chat would end under the panel itself (its page edge under the card), the whole room: the
   // chat's right edge, its scrollbar with it, is then the panel's left margin, as Push always draws it.
-  const room = paneWidth - fits;
-  return even(room >= panel ? all : room);
+  return room >= panel ? even(all) : room;
 };
 /// The chat's content Session Info must never float over: the transcript's rows and the composer.
 const CHAT_CONTENT = ".acpmux-main :is(.acpmux-row, .acpmux-composer-box)";
