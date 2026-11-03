@@ -146,6 +146,7 @@ export function createAcpmuxDebug(
         incomingRows,
         linkRows,
         organizationRows,
+        toolSummaryRows,
         SUBAGENT_TRAY_STEPS,
         subagentTrayRows,
         SHARED_PRESENCE,
