@@ -243,6 +243,47 @@ class DragFollowUpTests(unittest.TestCase):
             movie_drops = [d for d in report["defects"] if d["kind"] == "dropped" and d["frame"] is None]
             self.assertEqual(movie_drops, [], (events is not None, movie_drops))
 
+    def drops(self, trace, frames, events):
+        report = self.jt.judge(trace, frames, 2.0, events)
+        trace_drops = sorted((d["frame"], d.get("drag")) for d in report["defects"] if d["kind"] == "dropped" and d["frame"] is not None)
+        movie_drops = sorted((d["movie_frame"], d.get("drag")) for d in report["defects"] if d["kind"] == "dropped" and d["frame"] is None)
+        return trace_drops, movie_drops
+
+    @staticmethod
+    def frames_of(trace, skip=()):
+        return [[trace["t0_s"] + (s["t"] + 0.5) / 1000, "complete", True] for k, s in enumerate(trace["samples"]) if k not in skip]
+
+    def test_drop_in_a_margin_cut_by_the_drag_start_is_kept(self):
+        """One drag: the cut is at sample 10, the motion starts at 11, and the interval into sample 9 misses a refresh.
+        That is in the motion's 2-refresh margin and in no other part's window: it is a drop of drag 0, as without a
+        split (second review of #32976, case A)."""
+        xs = [100.0] * 11 + [100.0 + 2 * k for k in range(1, 9)] + [116.0] * 4
+        trace = two_pane_trace(xs, {9: 2 * R})
+        frames = self.frames_of(trace)
+        t = [s["t"] for s in trace["samples"]]
+        unsplit = self.drops(trace, frames, None)
+        split = self.drops(trace, frames, {"hid": [], "journal": [mouse_down(trace["t0_s"], t[10] - 0.5)]})
+        self.assertEqual([f for f, _ in unsplit[0]], [9], unsplit)
+        self.assertEqual(split[0], [(9, 0)], split)
+        self.assertEqual(len(split[1]), len(unsplit[1]), (split, unsplit))
+
+    def test_drop_after_a_drag_before_the_next_window_is_kept(self):
+        """Drag 0 moves on samples 2..14; drag 1 is cut at sample 15 and moves from 21. The interval into sample 16
+        misses a refresh: it is in drag 0's window (to 16) and not in drag 1's (from 19), so it is drag 0's drop
+        (second review of #32976, case B)."""
+        xs = [100.0] * 2 + [100.0 + 2 * k for k in range(1, 14)] + [126.0] * 6 + [126.0 - 2 * k for k in range(1, 9)] + [110.0] * 4
+        trace = two_pane_trace(xs, {16: 2 * R})
+        frames = self.frames_of(trace)
+        t = [s["t"] for s in trace["samples"]]
+        trace_drops, movie_drops = self.drops(trace, frames, {"hid": [], "journal": [mouse_down(trace["t0_s"], 0.5),
+                                                                                       mouse_down(trace["t0_s"], t[15] - 0.5)]})
+        self.assertEqual(trace_drops, [(16, 0)], trace_drops)
+
+    def test_events_that_are_not_a_dict_do_not_fail(self):
+        xs = [100.0] * 2 + [100.0 + 2 * k for k in range(1, 6)] + [110.0] * 3
+        report = self.jt.judge(two_pane_trace(xs), None, 2.0, [])
+        self.assertEqual(report["notes"], [])
+
     def test_drag_labels_name_the_drag_that_starts_the_part(self):
         """Two mouse-downs before the trace starts (-2000 and -1000 ms) both cut at sample 0, then drags at 34 ms and
         at 300 ms. Each part is labelled with the last drag that starts it: drags 1, 2, 3, at -1000, 34, 300 ms."""
