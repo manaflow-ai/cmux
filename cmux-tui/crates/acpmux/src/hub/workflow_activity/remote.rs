@@ -17,10 +17,11 @@ fn remote_request(
         format!("wf-{}", crate::workflow_runs::digest(&format!("{}:{brief_id}", run.id)));
     // A domain-separated, per-brief capability cannot authorize another brief
     // or recover the owner's general caller proof. Only its hash reaches the receipt.
-    let receipt_token = crate::workflow_runs::digest(&format!(
-        "workflow-dispatch-receipt-v1:{}:{brief_id}",
-        crate::hub::person::caller_token(&run.owner_session_id)
-    ));
+    let receipt_token =
+        cmux_local_auth::frontend_proof::hex(&cmux_local_auth::frontend_proof::hmac_sha256(
+            crate::hub::person::caller_token(&run.owner_session_id).as_bytes(),
+            format!("workflow-dispatch-receipt-v1:{brief_id}").as_bytes(),
+        ));
     let mut request = json!({"receiptToken":receipt_token,"durable":true,"briefId":brief_id,"host":host,"brief":text,
         "title":options.get("name").and_then(Value::as_str).unwrap_or(&run.name),
         "cwd":options.get("cwd").cloned().unwrap_or_else(||json!(run.cwd)),"policy":"ask","allowedTools":allowed,"wait":true});
@@ -88,6 +89,11 @@ impl Hub {
         options: &Value,
         host: &str,
     ) -> Result<Value, RpcError> {
+        if matches!(host, "ci" | "auto") {
+            return Err(RpcError::invalid_params(
+                "workflow agents require an explicit peer; ci and auto placement are unavailable",
+            ));
+        }
         if options.get("cwd").is_some_and(|cwd| !cwd.is_string()) {
             return Err(RpcError::invalid_params("remote agent cwd must be a path string"));
         }
