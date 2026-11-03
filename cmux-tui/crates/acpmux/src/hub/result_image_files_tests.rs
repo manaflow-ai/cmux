@@ -47,6 +47,7 @@ async fn result_images_media_routes_keep_complete_originals_and_session_handles(
     assert_eq!(opened["size"], source.len());
     assert_eq!(opened["mimeType"], "image/png");
     let handle = opened["handle"].as_str().unwrap();
+    assert_eq!(save_async(&owner.0, &data, "image/png").await.unwrap(), path);
     assert!(
         media_read::handle(
             &hub,

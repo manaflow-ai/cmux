@@ -44,7 +44,18 @@ impl Target {
     fn finish(mut self, hash: Sha256, mime: &str) -> Result<PathBuf> {
         self.file.take();
         let path = self.root.join(file_name(hash, mime));
-        std::fs::rename(&self.temporary, &path)?;
+        // Publish without replacing an equal original: replaying it must not invalidate a
+        // reader's existing descriptor/identity. A link appears only after every byte is synced.
+        match std::fs::hard_link(&self.temporary, &path) {
+            Ok(()) => std::fs::remove_file(&self.temporary)?,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                anyhow::ensure!(
+                    std::fs::symlink_metadata(&path)?.is_file(),
+                    "original image path is not a regular file"
+                );
+            }
+            Err(error) => return Err(error.into()),
+        }
         Ok(path)
     }
 }
