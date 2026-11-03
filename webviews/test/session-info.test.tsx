@@ -14,15 +14,21 @@ import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:t
 import { act, useMemo, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { transcriptColumn, type AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { translate } from "../src/agent-session/acpmux/i18n";
-import { SESSION_INFO_PLACEMENT_KEY, setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
+import {
+  resolveChatDisplay,
+  SESSION_INFO_PLACEMENT_KEY,
+  setChatDisplay,
+} from "../src/agent-session/acpmux/chatDisplay";
+import { chatColumnOf } from "../src/agent-session/acpmux/chatWidth";
 import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
 import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullRequestStore";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { resetChangesStatuses } from "../src/agent-session/acpmux/session-info/changesStatus";
 import {
+  FLOAT_MARGIN,
   SessionInfo,
   sessionInfoTopOffset,
   sessionInfoOverChat,
@@ -551,9 +557,11 @@ test("it floats while the right gutter holds it, and pushes the chat left where 
   expect(sessionInfoPushes("overlay", { width: 0, height: 0 }, 320)).toBe(false);
   // Settings Push always: even in a wide pane.
   expect(sessionInfoPushes("push", tall(1600), 320)).toBe(true);
-  // Pushed, it narrows to keep a readable chat and its 8px margin, down to its own narrowest width.
+  // Pushed, it narrows to keep the chat's column at its text width and its 8px margin, down to its
+  // own narrowest width.
   expect(pushedWidth(1200, 320)).toBe(320);
-  expect(pushedWidth(720, 320)).toBe(272);
+  expect(pushedWidth(1100, 320)).toBe(1100 - 832 - 8);
+  expect(pushedWidth(720, 320)).toBe(SESSION_INFO_WIDTH.min);
   expect(pushedWidth(500, 320)).toBe(SESSION_INFO_WIDTH.min);
   expect(pushedWidth(0, 320)).toBe(320);
 
@@ -585,6 +593,28 @@ test("it floats while the right gutter holds it, and pushes the chat left where 
   await act(async () => setChatDisplay({ [SESSION_INFO_PLACEMENT_KEY]: "overlay" }));
   expect(panel(container)?.dataset.placement).toBe("overlay");
   paneWidth = 0;
+});
+
+// Chat Text Width 1000: the chat with Session Info open is the width it is without it, unless the
+// pane truly lacks room. The pushed panel used to keep its own width and narrow the chat to 440px
+// first, so the same setting drew one chat 1000px wide and another, with the panel open, far narrower.
+test("a pushed panel narrows before the chat's column drops below its text width", () => {
+  const column = chatColumnOf("standard", resolveChatDisplay({ "agentPane.display.width": 1000 }), 1);
+  const chatBeside = (pane: number, width: number) =>
+    transcriptColumn(pane - pushedWidth(pane, width, column) - FLOAT_MARGIN, column).width;
+  for (const pane of [1300, 1400, 1600]) {
+    expect({ pane, chat: chatBeside(pane, 320) }).toEqual({ pane, chat: 1000 });
+    // A panel dragged wider gives way too.
+    expect({ pane, chat: chatBeside(pane, 560) }).toEqual({ pane, chat: 1000 });
+  }
+  // Only once the panel is at its narrowest does the chat narrow, by what the pane lacks.
+  expect(pushedWidth(1200, 320, column)).toBe(SESSION_INFO_WIDTH.min);
+  expect(chatBeside(1200, 320)).toBe(1200 - SESSION_INFO_WIDTH.min - FLOAT_MARGIN - 32);
+  // Room to spare: the panel keeps its own width.
+  expect(pushedWidth(1800, 320, column)).toBe(320);
+  // Full Width asks only for a readable chat.
+  const full = chatColumnOf("standard", resolveChatDisplay({ "agentPane.display.fullWidth": true }), 1);
+  expect(pushedWidth(1200, 320, full)).toBe(320);
 });
 
 test("a floating panel that would lie over the chat's text pushes the chat left, whatever the gutter's width", async () => {
