@@ -13,7 +13,7 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarFirstRowsBuildOnceTests {
     private static let count = 100, active = 80, height: CGFloat = 640
 
-    private static func host(active: Int = active) -> (SidebarView, NSWindow) {
+    private static func host(active: Int = active, height: CGFloat = height) -> (SidebarView, NSWindow) {
         _ = NSApplication.shared
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let ids = (0..<count).map { WorkspaceID("first-rows-\($0)") }
@@ -39,9 +39,9 @@ import Testing
 
     /// A window's first frame as WindowController makes it: the sidebar is made (its list reloads with no size), the
     /// window's frame lays it out, the first render runs, then the window shows and displays. Returns the row views made.
-    private static func firstFrame(active: Int) -> (SidebarView, NSWindow, Int) {
+    private static func firstFrame(active: Int, height: CGFloat = height) -> (SidebarView, NSWindow, Int) {
         _ = SidebarPerfCounters.report(reset: true)
-        let (sidebar, window) = host(active: active)
+        let (sidebar, window) = host(active: active, height: height)
         sidebar.layoutSubtreeIfNeeded()
         sidebar.renderNow()
         sidebar.layoutSubtreeIfNeeded()
@@ -89,13 +89,16 @@ import Testing
         probeWindow.close()
         let (lastWhole, bottom) = try #require(whole.max { $0.1 < $1.1 }, "no workspace row is wholly in the list")
         try #require(lastWhole > 2, "the list shows \(clipHeight) pt")
-        let (sidebar, window, _) = Self.firstFrame(active: lastWhole)
+        // A window just tall enough that the row ends 4 pt above the clip's bottom: wholly in view, inside the 8 pt padding.
+        let height = Self.height - (clipHeight - bottom) + 4
+        let (sidebar, window, _) = Self.firstFrame(active: lastWhole, height: height)
         defer { window.close() }
         let clip = try #require(sidebar.list.enclosingScrollView?.contentView)
         let row = try #require(sidebar.list.rowViews[.workspace(WorkspaceID("first-rows-\(lastWhole)"))])
+        #expect(clip.bounds.maxY - row.frame.maxY < SidebarLayout.revealPadding || clip.bounds.minY != 0,
+                "the setup did not put the row inside the reveal padding (\(Self.placement(sidebar)))")
         #expect(clip.bounds.contains(row.frame), "the active row is not wholly in view (\(Self.placement(sidebar)))")
-        #expect(clip.bounds.minY == 0,
-                "the first frame scrolled to \(clip.bounds.minY) for row \(lastWhole), already in view (bottom \(bottom) of \(clipHeight))")
+        #expect(clip.bounds.minY == 0, "the first frame scrolled to \(clip.bounds.minY) for row \(lastWhole), already in view")
     }
 
     /// Review of #34134 (P3): the app's usual order. The sidebar is made with no workspaces (`SidebarBridge`), the window
