@@ -444,9 +444,9 @@ export default agentPaneEntry({
           throw new Error("the inherited location slot moved after input");
       },
     },
-    // The model button opens its one menu (Leo 2026-10-20), whole: the card does not clip it
-    // (Lawrence 2026-10-13). Points near its top and bottom edges hit the menu, not the page. On New
-    // Tab More models shows its models in place, under its row (newTabComposer.ts), then Add harness….
+    // The model button opens its columns menu, whole: the card does not clip it (Lawrence
+    // 2026-10-13). Points near its top and bottom edges hit the menu, not the page. The models
+    // column ends on its Legacy models; Add harness… ends the rail.
     "computer-first-setup": {
       note: "Fresh home with Labs off and only Studio Mac: the machine menu lists This Mac and Cloud (signed out, with Sign in for Cloud); Add Machine… and New Cloud Machine… are its right-click menu.",
       ready: { ...newTab(), machineName: "Studio Mac" },
@@ -469,48 +469,46 @@ export default agentPaneEntry({
       },
     },
     "model-picker-open": {
-      note: "The New Tab model button's menu, open down: the harness rail and the models, never cut by the card; More models opens in place and ends on Add harness….",
+      note: "The New Tab model button's columns, open down: the harness rail and the models, never cut by the card; Legacy models follow the top ones, and the rail ends on Add harness….",
       ready: newTab(),
       snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         await ctx.click({ role: "button", name: "Model" });
         await ctx.waitFor(() => {
-          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-quick-menu");
-          if (!menu || !menu.querySelector('[role="menuitemradio"]')) return false;
+          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-cols");
+          if (!menu || !menu.querySelector('[role="listbox"] [role="option"]')) return false;
           const box = menu.getBoundingClientRect();
           if (box.height < 120) return false;
           const x = box.left + box.width / 2;
           return [box.top + 6, box.bottom - 6].every((y) => menu.contains(ctx.document.elementFromPoint(x, y)));
         });
-        // The row itself, by role: the menu's hidden width probe (QuickMenuSpacer) repeats its text
-        // later in the document, and a text target takes the last match.
-        // The symbols row (the default) names it Legacy models, with its count.
-        await ctx.click({ role: "menuitem", name: /^(Legacy|More) models/ });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list"));
-        const more = ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list")!;
-        if (more.querySelector('[aria-label="Add harness…"]'))
-          throw new Error("More models must contain models only; Add harness belongs in the rail");
-        if (!ctx.document.querySelector('.acpmux-quick-rail-add[aria-label="Add harness…"]'))
+        const models = ctx.find({ selector: '.acpmux-cols [role="listbox"]' });
+        if (![...models.querySelectorAll(".acpmux-cols-caption")].some((node) => node.textContent === "Legacy models"))
+          throw new Error("the models column must list its Legacy models under their caption");
+        if (models.querySelector('[aria-label="Add harness…"]'))
+          throw new Error("the models column must contain models only; Add harness belongs in the rail");
+        const rail = ctx.find({ selector: '.acpmux-cols [role="tablist"]' });
+        if (rail.lastElementChild?.getAttribute("aria-label") !== "Add harness…")
           throw new Error("the model menu's harness rail must end on Add harness…");
       },
     },
     // The effort is part of the one model button (Leo 2026-10-20: "Opus 5.5  Medium"), and its
-    // levels are the menu's Effort submenu (P0 #8: a live pick, never a picture): acpmux starts
+    // levels are the menu's Effort column (P0 #8: a live pick, never a picture): acpmux starts
     // Claude Code on Medium, so the button names it before any chat exists.
     "reasoning-chip": {
-      note: "Before any chat: the model button names the model and the level acpmux starts Claude Code on (Medium); its menu's Effort row opens the levels. No separate Reasoning chip.",
+      note: "Before any chat: the model button names the model and the level acpmux starts Claude Code on (Medium); its menu's Effort column lists the levels. No separate Reasoning chip.",
       ready: newTab(),
       snapshot: reasoningChat(),
     },
     "catalog-fast-menu": {
-      note: "Before a session reports config options: the New Tab model menu offers the model's catalog Fast mode beside Effort, as a started chat does.",
+      note: "Before a session reports config options: the New Tab model menu offers the model's catalog Fast mode under Effort, as a started chat does.",
       ready: newTab(),
       snapshot: reasoningChat(),
       play: async (ctx: PlayContext) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-picker-button") !== null);
         await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-fast") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-cols-tune [role="switch"]') !== null);
       },
     },
     "reasoning-chip-stage": {

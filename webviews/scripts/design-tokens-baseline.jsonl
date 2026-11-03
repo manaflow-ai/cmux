@@ -22,23 +22,13 @@
 {"file":"agent-session/acpmux/backgroundTasks/backgroundTasks.css","kind":"spacing","property":"margin-bottom","values":{"6px":1}}
 {"file":"agent-session/acpmux/backgroundTasks/backgroundTasks.css","kind":"spacing","property":"margin-left","values":{"-6px":1}}
 {"file":"agent-session/acpmux/bottomStack.css","kind":"height","property":"min-height","values":{"calc(44px + var(--acpmux-transcript-min, 96px))":1,"var(--acpmux-stack-row-min, 34px)":1}}
-{"file":"agent-session/acpmux/changes/changes.css","kind":"font-weight","property":"font-weight","values":{"500":1}}
-{"file":"agent-session/acpmux/changes/changes.css","kind":"height","property":"height","values":{"1px":2}}
-{"file":"agent-session/acpmux/changes/changes.css","kind":"height","property":"min-height","values":{"240px":1}}
-{"file":"agent-session/acpmux/changes/changes.css","kind":"spacing","property":"gap","values":{"6px":4,"2px":1}}
-{"file":"agent-session/acpmux/changes/changes.css","kind":"spacing","property":"margin","values":{"6px 12px":1,"0 6px":1}}
-{"file":"agent-session/acpmux/changes/changes.css","kind":"spacing","property":"margin-right","values":{"3px":1}}
-{"file":"agent-session/acpmux/changes/changes.css","kind":"spacing","property":"margin-top","values":{"10px":1,"6px":1,"2px":1}}
-{"file":"agent-session/acpmux/changes/changes.css","kind":"spacing","property":"padding","values":{"6px 12px":2}}
+{"file":"agent-session/acpmux/changes/changes.css","kind":"height","property":"height","values":{"1px":1}}
 {"file":"agent-session/acpmux/changes/git.css","kind":"height","property":"min-height","values":{"44px":1}}
 {"file":"agent-session/acpmux/changes/git.css","kind":"radius","property":"border-radius","values":{"10px":1}}
 {"file":"agent-session/acpmux/changes/git.css","kind":"spacing","property":"gap","values":{"2px":1,"6px":1}}
 {"file":"agent-session/acpmux/changes/git.css","kind":"spacing","property":"margin","values":{"6px 0 0":1}}
 {"file":"agent-session/acpmux/changes/git.css","kind":"spacing","property":"padding","values":{"0 10px":2,"7px 10px":1,"2px":1,"6px 12px":1}}
 {"file":"agent-session/acpmux/changes/GitActions.gallery.tsx","kind":"spacing","property":"gap","values":{"6px":1}}
-{"file":"agent-session/acpmux/changes/OptionsMenu.gallery.css","kind":"height","property":"min-height","values":{"180px":1}}
-{"file":"agent-session/acpmux/changes/OptionsMenu.gallery.css","kind":"spacing","property":"gap","values":{"14px":1}}
-{"file":"agent-session/acpmux/changes/OptionsMenu.gallery.css","kind":"spacing","property":"padding","values":{"28px":1}}
 {"file":"agent-session/acpmux/ChatDisplayMenu.gallery.tsx","kind":"color","property":"box-shadow","values":{"0 6px 24px rgb(0 0 0 / 0.25)":2}}
 {"file":"agent-session/acpmux/ChatDisplayMenu.gallery.tsx","kind":"radius","property":"border-radius","values":{"10px":2,"5px":2}}
 {"file":"agent-session/acpmux/ChatDisplayMenu.gallery.tsx","kind":"spacing","property":"gap","values":{"6px":1}}
