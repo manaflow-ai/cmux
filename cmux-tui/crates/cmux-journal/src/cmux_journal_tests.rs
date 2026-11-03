@@ -413,14 +413,15 @@ fn a_compaction_point_past_the_end_never_reuses_an_lsn() {
     assert_eq!(journal.append(1, Class::Ack, b"a"), Ok(1));
     assert_eq!(journal.seal(WAIT), Ok(1));
     drop(journal);
-    let (journal, report, _) =
-        open_at(&storage.restart(Crash::Process), quick(), 9).unwrap_or_else(|e| panic!("{e}"));
+    // The second process: its compaction point (9) is past the journal's end (1).
+    let second = storage.restart(Crash::Process);
+    let (journal, report, _) = open_at(&second, quick(), 9).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(report.damage, vec![Damage::Ahead { journal_end: 1, from: 9 }]);
     assert_eq!(journal.append(1, Class::Ack, b"b"), Ok(10));
     assert_eq!(journal.seal(WAIT), Ok(10));
     drop(journal);
     let (_, report, seen) =
-        open_at(&storage.restart(Crash::PowerLoss), quick(), 0).unwrap_or_else(|e| panic!("{e}"));
+        open_at(&second.restart(Crash::PowerLoss), quick(), 0).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(lsns(&seen), vec![1, 10]);
     assert!(report.damage.is_empty(), "{report:?}");
 }
