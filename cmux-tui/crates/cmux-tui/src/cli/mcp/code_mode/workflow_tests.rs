@@ -46,6 +46,7 @@ fn native_workflow_engine_forbids_clock_and_randomness_before_effects() {
         "return new Date();",
         "return Math.random();",
         "return performance.now();",
+        "return performance.timeOrigin;",
         "return crypto.getRandomValues(new Uint8Array(1));",
         "return crypto.randomUUID();",
         "return Temporal.Now.instant();",
