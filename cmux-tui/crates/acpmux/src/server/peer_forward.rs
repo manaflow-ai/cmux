@@ -249,8 +249,7 @@ pub(super) async fn forward(
 fn ask_back(peer: &crate::peer::Peer, m: &str, params: &Value, origin: Origin) {
     if m == method::SESSION_PROMPT {
         peer.wake();
-    } else if wake_if_composing(peer, m, params, origin) {
-    } else if origin != Origin::Peer {
+    } else if !wake_if_composing(peer, m, params, origin) && origin != Origin::Peer {
         peer.want();
     }
 }
