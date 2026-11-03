@@ -67,6 +67,10 @@ struct CloudLinkEndedHeaderTests {
         #expect(waiting.status == .connecting, "on its way while the list read runs, not Disconnected")
         #expect(waiting.status.linkState == .connecting)
         #expect(session.stage.failure == nil)
+        let services = MachineIconTests.services()
+        services.machines.add(session)
+        #expect(SidebarBridge.paneUse(session.machineID, in: services.machines) == .down,
+                "a send during the read reconnects (and so resumes) instead of waiting out the read")
         answer.yield()
         for await confirming in ObservationStream({ session.linkEndConfirming }) where !confirming { break }
         let header = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
