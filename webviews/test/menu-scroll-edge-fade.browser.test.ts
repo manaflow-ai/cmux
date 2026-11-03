@@ -205,10 +205,11 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
       await list.waitFor();
       await list.evaluate((node) => {
         const el = node as HTMLElement;
-        const height = el.scrollHeight;
         el.style.flex = "none";
         el.style.boxSizing = "content-box";
         el.style.paddingBlock = "0";
+        el.style.height = "auto";
+        const height = el.scrollHeight;
         el.style.height = `${height - 1}px`;
         el.scrollTop = 0;
       });
