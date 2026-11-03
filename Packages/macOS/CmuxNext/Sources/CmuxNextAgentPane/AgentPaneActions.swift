@@ -34,6 +34,18 @@ extension ActionID {
 public enum AgentPageCommand: String, CaseIterable, Sendable {
     case toggleFiles, togglePreview, toggleSideTabs
     case runInBackground, toggleQueueing, showSubagents, showBackgroundTasks
+
+    /// Whether this header toggle is on in `state` (the split it opens shows, the panes beside the
+    /// chat show); nil for a command that is no toggle the App can read. Queueing is the page's own
+    /// choice (its local storage), so the App does not know it.
+    public func isOn(in state: AgentPaneHeaderState) -> Bool? {
+        switch self {
+        case .toggleFiles: state.lit.contains(AgentPaneModel.filesAction)
+        case .togglePreview: state.lit.contains(AgentPaneModel.previewAction)
+        case .toggleSideTabs: state.sideTabs
+        case .runInBackground, .toggleQueueing, .showSubagents, .showBackgroundTasks: nil
+        }
+    }
 }
 
 extension ActionRegistry {
@@ -41,10 +53,13 @@ extension ActionRegistry {
     /// invocation resolves to (its target, else the focused pane; nil when it is no agent chat: `run`
     /// refuses then). A command that page does not list refuses with the reason, checked for the
     /// run's own target (``ActionTargetReasons``; the palette row is disabled with it), and one run
-    /// by automation without a focus request refuses too.
+    /// by automation without a focus request refuses too. `state` is the header's state of the
+    /// focused chat (nil: no chat, or not known): each header toggle's palette row shows whether it
+    /// is on (``AgentPageCommand/isOn(in:)``).
     @discardableResult
     public func bindAgentPageCommands(
         available: @escaping @MainActor (ActionInvocation) -> Set<String>?,
+        state: (@MainActor () -> AgentPaneHeaderState?)? = nil,
         run: @escaping @MainActor (AgentPageCommand, ActionInvocation) -> Void
     ) -> Bool {
         AgentPageCommand.allCases.map { command in
