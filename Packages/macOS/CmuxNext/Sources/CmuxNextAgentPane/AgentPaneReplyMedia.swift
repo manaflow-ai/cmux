@@ -16,8 +16,6 @@ final class AgentPaneMediaGrants {
         "mp4": "video/mp4", "m4v": "video/x-m4v", "mov": "video/quicktime", "webm": "video/webm",
         "mp3": "audio/mpeg", "m4a": "audio/mp4", "aac": "audio/aac", "wav": "audio/wav", "flac": "audio/flac",
     ]
-    /// Largest file the pane plays (it reads only the ranges the player asks for).
-    nonisolated static let maximumBytes = 4 << 30
     /// Most files granted at once; the oldest grant goes first.
     static let maximumGrants = 256
     static let pathPrefix = "/__media/"
@@ -105,14 +103,19 @@ final class AgentPaneMediaGrants {
 }
 
 extension AgentPaneModel {
-    /// A video or audio file inside the roots, as a URL the pane plays. Web media is refused
-    /// (the pane fetches nothing itself).
+    /// A video or audio file inside the roots (a video also in an attachment's read-only scope), of
+    /// any size, as a URL the pane plays. Web media is refused (the pane fetches nothing itself).
     func loadReplyMedia(_ src: String) async -> [String: Any] {
         if let url = URL(string: src), let scheme = url.scheme?.lowercased(), scheme != "file" { return await loadWebMedia(url) }
         // A chat on another machine never reads this Mac's disk (cx-k21v): its agent names paths
         // there, and a path here with the same spelling is not its file.
         guard !chatIsElsewhere else { return Self.replyFailure(.pathOutsideRoots) }
-        guard let resolved = replyPaths().resolve(src) else { return Self.replyFailure(.pathInvalid) }
+        let paths = replyPaths()
+        let inRoots = paths.resolve(src)
+        // An attached video (a screen recording on the Desktop, outside the project) plays inline
+        // from the same read-only scope its poster and Quick Look read (``AgentPaneReplyPaths/resolveVideo(_:)``).
+        let attached = inRoots?.place == .root ? nil : paths.resolveVideo(src).flatMap { $0.place == .root && !$0.isFolder ? $0 : nil }
+        guard let resolved = attached ?? inRoots else { return Self.replyFailure(.pathInvalid) }
         switch resolved.place {
         case .root: break
         case .denied: return Self.replyFailure(.pathDenied)
@@ -120,10 +123,22 @@ extension AgentPaneModel {
         case .missing: return Self.replyFailure(.pathInvalid)
         }
         let file = URL(fileURLWithPath: resolved.path)
+        // No size cap: the scheme handler serves the player byte ranges, never the whole file.
         guard AgentPaneMediaGrants.types[file.pathExtension.lowercased()] != nil,
-              let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true,
-              (values.fileSize ?? Int.max) <= AgentPaneMediaGrants.maximumBytes
+              let values = try? file.resourceValues(forKeys: [.isRegularFileKey]), values.isRegularFile == true
         else { return Self.replyFailure(.mediaRefused) }
+        // Outside the roots the pane plays a private snapshot (a clone, free on APFS), as Quick Look
+        // does, never the path: every range request reopens what it was granted, so a file rewritten
+        // or a folder swapped for a link after this check never reaches the player. A reference
+        // movie is refused, as Quick Look refuses it: the player would play the media it points at.
+        if attached != nil {
+            guard let copy = await videoSnapshot(src) else { return Self.replyFailure(.mediaRefused) }
+            guard await AgentPaneVideoInfo.isSelfContained(copy), !chatIsElsewhere else {
+                await AgentPaneVideoInfo.discard(copy)
+                return Self.replyFailure(.mediaRefused)
+            }
+            return AgentPaneReply.success(["src": AgentPaneMediaGrants.shared.grant(copy)])
+        }
         return AgentPaneReply.success(["src": AgentPaneMediaGrants.shared.grant(file)])
     }
 
