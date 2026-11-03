@@ -325,7 +325,19 @@ export function ComposerContext({
     [],
   );
   if (picked.key !== pickKey) setPicked({ key: pickKey });
-  const selectedComputer = picked.key === pickKey && picked.computer ? picked.computer : initialComputer;
+  // New Tab's saved environments that are only a folder on this computer: folders, not machines.
+  const savedFolders = useMemo(
+    () => (newChat ? (saved?.environments ?? []).filter(savedEnvironmentIsFolder) : []),
+    [newChat, saved?.environments],
+  );
+  const savedFolderPick = savedFolders.find((environment) => environment.id === saved?.current);
+  // One picked starts the chat on this Mac (NewTabScreen askInEnvironment), whatever machine was
+  // picked before it, so this Mac is the machine shown.
+  const selectedComputer = savedFolderPick
+    ? "local"
+    : picked.key === pickKey && picked.computer
+      ? picked.computer
+      : initialComputer;
   const setSelectedComputer = (computer: string) => setPicked({ key: pickKey, computer });
   // The chat's own machine (not this Mac) is picked, and its folders were listed for it.
   const ownMachine = selectedComputer !== "local" && selectedComputer === initialComputer && Boolean(machineFolders);
@@ -339,12 +351,6 @@ export function ComposerContext({
   if (waitingPick && !waitMachine) setWaiting(undefined);
   const waiting = waitMachine ? waitingPick : undefined;
   const waitFailed = waitMachine?.stage === "failed";
-  // New Tab's saved environments that are only a folder on this computer: folders, not machines.
-  const savedFolders = useMemo(
-    () => (newChat ? (saved?.environments ?? []).filter(savedEnvironmentIsFolder) : []),
-    [newChat, saved?.environments],
-  );
-  const savedFolderPick = savedFolders.find((environment) => environment.id === saved?.current);
   const folders = useMemo(() => {
     const known = availableFolders(summary, sessions, selectedComputer);
     if (selectedComputer === "local") {
