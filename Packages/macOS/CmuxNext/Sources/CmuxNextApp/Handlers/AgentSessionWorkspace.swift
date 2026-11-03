@@ -79,8 +79,8 @@ enum AgentSessionWorkspace {
         }
         let placed = expectPlacement(key.rawValue, group: group, top: top, parent: parent, windows: windows)
         // The caller's window (a Chief subagent's: the window the Chief was prompted from), never the most recent
-        // one when another window asked (#32989). Filed there quietly once the daemon reports it.
-        let claimedWindow = windows.claims.claimForCaller(key.rawValue, window: callerWindow, in: windows.registry.value) ? callerWindow : nil
+        // one when another window asked (#32989). Filed there once the daemon reports it, shown only when the run may change the view.
+        let claimedWindow = windows.claims.claimForCaller(key.rawValue, window: callerWindow, shows: focus, in: windows.registry.value) ? callerWindow : nil
         // The lineage parent before the row lists, so the row nests under its caller from its first frame, never moves under it later.
         SidebarSessionTreeFeed.shared.recordedParents.record(parent, of: AgentSessionParents.identity(host: targetHost, session: session))
         // No group: workspace and chat show now (P4) with Cmd-N's pending row at their slot, in a window whose space lists them (never drawn elsewhere first).

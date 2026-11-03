@@ -1084,9 +1084,17 @@ fn with_read_barrier(method: &str, mut params: Value) -> Value {
 /// inside the app's 2 s deadline; on a loaded app (2026-11-02, a Cloud
 /// `start-session` waiting on the person) it timed out `action describe` and
 /// `agents dialog list` ("timed out: identify (no reply within 2.0
-/// seconds)"), and the CLI's one retry doubled the wait.
-const NO_DAEMON_STATE: [&str; 5] =
-    ["system.ping", "system.capabilities", "action.list", "action.describe", "feed.list"];
+/// seconds)"), and the CLI's one retry doubled the wait. A `workspace create`'s
+/// announcement (`workspace.expect_window`) reads only the app's windows and
+/// the caller's place, and runs before every caller's create: it must not wait.
+const NO_DAEMON_STATE: [&str; 6] = [
+    "system.ping",
+    "system.capabilities",
+    "action.list",
+    "action.describe",
+    "feed.list",
+    super::create_window::METHOD,
+];
 
 /// The app methods that place a new tab or report where the caller is: the
 /// app opens an agent's tabs in the column right of its chat

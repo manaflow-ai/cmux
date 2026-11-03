@@ -55,7 +55,8 @@ struct CreateInCallerWindowTests {
 
         let reply = try services.windows.expectCreate(["idempotency_key": "cli-key-1", "window": .string(prompted.state.id)], topology: ControlSnapshotPublisher.topology(services))
         #expect(reply["window"] == .string(ControlWindowInfo.publicID(forKey: prompted.state.id)))
-        services.machines.local.store.apply(Self.added("ws-new", surface: 3, mutation: "cli-key-1"))
+        // A terminal create (the CLI default): the daemon names its workspace `<key>/workspace`.
+        services.machines.local.store.apply(Self.added("ws-new", surface: 3, mutation: "cli-key-1" + DaemonStore.workspaceReservationSuffix))
 
         #expect(services.windows.registry.value.owner(of: "ws-new") == prompted.state.id,
                 "it went to \(services.windows.registry.value.owner(of: "ws-new") ?? "no window"), not the window it was announced for")

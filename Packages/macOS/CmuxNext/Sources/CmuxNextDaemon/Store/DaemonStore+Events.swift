@@ -4,6 +4,9 @@ extension DaemonStore {
     /// The `origin` of a mutation made through the daemon's resource API (`cmux` CLI, MCP):
     /// its `mutation_id` is the request's idempotency key (cmux-tui resource_router.rs).
     public static let resourceAPIOrigin = "resource-api"
+    /// A terminal `workspace.create`'s workspace names `<key>/workspace` (cmux-tui
+    /// `WorkspaceMutation::workspace_reservation`); an empty create names the key itself.
+    public static let workspaceReservationSuffix = "/workspace"
 
     /// What the caller must do after `apply(_:)`.
     public enum Followup: Equatable, Sendable {
@@ -131,8 +134,10 @@ extension DaemonStore {
                     let workspace = store.confirmedWorkspace(delta.entity)
                     store.workspaces.insert(workspace, at: index)
                     store.indexed(workspace)
-                    if delta.origin == DaemonStore.resourceAPIOrigin, let key = delta.mutationID, !key.isEmpty {
-                        store.onResourceWorkspaceAdded?(workspace.id, key)
+                    if delta.origin == DaemonStore.resourceAPIOrigin, let id = delta.mutationID {
+                        let suffix = DaemonStore.workspaceReservationSuffix
+                        let key = id.hasSuffix(suffix) ? String(id.dropLast(suffix.count)) : id
+                        if !key.isEmpty { store.onResourceWorkspaceAdded?(workspace.id, key) }
                     }
                 }
                 store.sidebarNeedsRecompute = true
