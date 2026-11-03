@@ -1419,8 +1419,14 @@ def cmd_run(opts):
               f"blessed {json.dumps(then)}, now {json.dumps(now)}. Bless again with the new toolchain and a reason.",
               file=sys.stderr)
         return 2
-    if expected.get("calls") != CALLS:
-        print(f"NO VERDICT: the judges were blessed with other calls: {json.dumps(expected.get('calls'))}", file=sys.stderr)
+    blessed_calls = expected.get("calls") if isinstance(expected.get("calls"), dict) else None
+    changed = None if blessed_calls is None else \
+        {j: (c, CALLS.get(j)) for j, c in blessed_calls.items() if CALLS.get(j) != c}
+    if changed is None or changed:
+        # A changed call of a blessed judge changes its every input: NO VERDICT. A judge added since the bless has no
+        # blessed call: each of its results is a difference to bless ("no blessed result").
+        print(f"NO VERDICT: the judges were blessed with other calls: "
+              f"{json.dumps(changed if changed else expected.get('calls'))}", file=sys.stderr)
         return 2
     films = select(films_doc, opts.only)
     if not films:

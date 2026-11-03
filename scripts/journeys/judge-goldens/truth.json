@@ -90,6 +90,102 @@
      "absent_kind": "reverse"
     }
    ]
+  },
+  {
+   "id": "p11-page-right-edge-short-row514",
+   "film": "px-77e9a45-120x2/px-col-drag-2-s1r-s1",
+   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, PIXEL-PERFECT/ROOT-CAUSE.md P11, corrected the same day): in this film (FEAT DOGFOOD BUILD 4d9e624a, cmux22, 2x; the divider dragged 150 pt right in 1 s, then back fast) the page pane's right content edge is short of its rest end (x=2721 inclusive, ring 1 red) in every frame of the slow drag, 218-356 (2, 4 or 6 px; 16 px at 218), and in frame 513 of the fast drag back (1 px), and in no other frame; every pixel of the gap is shell class. Checked by the owner with a pixel ruler and with judge_pixel v7 (blob c22403233dd7): 'content edge off | p1 (page) hi on row@514 | 140 frames (218-356, 513)', row@1126 the same. R-HARNESS read the same rows from v7 on the stored copy (off_ranges '218-356,513'), and the judge-free ruler finds the shell run at x 2705-2721 of row 514 and 1126 in exactly frames 218-356.",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "pixel_row": {
+      "label": "p1",
+      "side": "hi",
+      "line": "row@514",
+      "what": "pane"
+     },
+     "off_frames": [
+      [
+       218,
+       356
+      ],
+      [
+       513,
+       513
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "p11-page-left-edge-cue-not-a-defect-row514",
+   "film": "px-77e9a45-120x2/px-col-drag-2-s1r-s1",
+   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, P11): the page pane's LEFT content edge is off its pane only in frames 513-515 (+12/+21/+46 px), the fast drag back, where the page lags its pane (the page-window check reports frame 513 too): REAL. Frames 211-358 of the slow drag are no left-edge defect: 214-356 are the divider's drag cue over the page's left rings (a design cue, 'a drag always lights the band'), 211-213 and 357-358 are 'not found'; v7 reports them as information only. So the row's off frames are exactly 513-515: a judge that reports the cue frames as off fails this fact.",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "pixel_row": {
+      "label": "p1",
+      "side": "lo",
+      "line": "row@514",
+      "what": "pane"
+     },
+     "off_frames": [
+      [
+       513,
+       515
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "p11-page-right-edge-short-row1126",
+   "film": "px-77e9a45-120x2/px-col-drag-2-s1r-s1",
+   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, PIXEL-PERFECT/ROOT-CAUSE.md P11, corrected the same day): in this film (FEAT DOGFOOD BUILD 4d9e624a, cmux22, 2x; the divider dragged 150 pt right in 1 s, then back fast) the page pane's right content edge is short of its rest end (x=2721 inclusive, ring 1 red) in every frame of the slow drag, 218-356 (2, 4 or 6 px; 16 px at 218), and in frame 513 of the fast drag back (1 px), and in no other frame; every pixel of the gap is shell class. Checked by the owner with a pixel ruler and with judge_pixel v7 (blob c22403233dd7): 'content edge off | p1 (page) hi on row@514 | 140 frames (218-356, 513)', row@1126 the same. R-HARNESS read the same rows from v7 on the stored copy (off_ranges '218-356,513'), and the judge-free ruler finds the shell run at x 2705-2721 of row 514 and 1126 in exactly frames 218-356.",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "pixel_row": {
+      "label": "p1",
+      "side": "hi",
+      "line": "row@1126",
+      "what": "pane"
+     },
+     "off_frames": [
+      [
+       218,
+       356
+      ],
+      [
+       513,
+       513
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "p11-page-left-edge-cue-not-a-defect-row1126",
+   "film": "px-77e9a45-120x2/px-col-drag-2-s1r-s1",
+   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, P11): the page pane's LEFT content edge is off its pane only in frames 513-515 (+12/+21/+46 px), the fast drag back, where the page lags its pane (the page-window check reports frame 513 too): REAL. Frames 211-358 of the slow drag are no left-edge defect: 214-356 are the divider's drag cue over the page's left rings (a design cue, 'a drag always lights the band'), 211-213 and 357-358 are 'not found'; v7 reports them as information only. So the row's off frames are exactly 513-515: a judge that reports the cue frames as off fails this fact.",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "pixel_row": {
+      "label": "p1",
+      "side": "lo",
+      "line": "row@1126",
+      "what": "pane"
+     },
+     "off_frames": [
+      [
+       513,
+       515
+      ]
+     ]
+    }
+   ]
   }
  ]
 }
