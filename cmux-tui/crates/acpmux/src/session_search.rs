@@ -173,7 +173,9 @@ impl Query {
 /// answers.
 pub fn search(store: &dyn Store, id: &str, query: &Query) -> anyhow::Result<Value> {
     let started = std::time::Instant::now();
-    let mut hits: Vec<(Entry, usize)> = Vec::new();
+    // Messages come oldest first: only the newest `limit` hits are kept, each as its snippet, so
+    // a search holds at most `limit` snippets however many messages match.
+    let mut hits: std::collections::VecDeque<Value> = std::collections::VecDeque::new();
     let mut entries = 0_u64;
     store.text_entries(id, &mut |entry: Entry| {
         entries = entries.saturating_add(1);
@@ -184,17 +186,18 @@ pub fn search(store: &dyn Store, id: &str, query: &Query) -> anyhow::Result<Valu
         }
         let flat = flatten(&entry.text);
         if let Some(at) = query.needle.find(&flat) {
-            hits.push((Entry { text: flat, ..entry }, at));
+            if hits.len() >= query.limit {
+                hits.pop_front();
+            }
+            hits.push_back(json!({
+                "seq": entry.seq,
+                "at": entry.at,
+                "role": entry.role,
+                "snippet": snippet(&flat, at),
+            }));
         }
     })?;
-    hits.sort_by(|a, b| b.0.seq.cmp(&a.0.seq));
-    hits.truncate(query.limit);
-    let hits: Vec<Value> = hits
-        .iter()
-        .map(|(e, at)| {
-            json!({"seq": e.seq, "at": e.at, "role": e.role, "snippet": snippet(&e.text, *at)})
-        })
-        .collect();
+    let hits: Vec<Value> = hits.into_iter().rev().collect();
     Ok(json!({
         "sessionId": id,
         "hits": hits,
