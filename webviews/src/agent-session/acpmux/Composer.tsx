@@ -414,6 +414,8 @@ type Props = {
   authBlock?: string;
   /// Keeps auth refusal blocking sends when its text is represented by another notice.
   authBlocked?: boolean;
+  /// A pending check disables Send and explains its tooltip without adding a temporary layout row.
+  authChecking?: boolean;
   /// Opens Session Info at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
 };
@@ -489,6 +491,7 @@ export function Composer({
   locked = false,
   authBlock,
   authBlocked = false,
+  authChecking = false,
   placeholder,
   onOpenContext,
 }: Props) {
@@ -2258,7 +2261,7 @@ export function Composer({
           {t(remote.note)}
         </p>
       )}
-      {!remote.note && authBlock && (
+      {!remote.note && authBlock && !authChecking && (
         <p className="acpmux-composer-remote-note acpmux-composer-trust-note" role="alert">
           {authBlock}
         </p>

@@ -14140,7 +14140,8 @@ function AcpmuxPane() {
             )}
             // A preflight still disables sending, but must not insert then remove a checking row
             // above the already-painted composer. Settled authentication failures keep their notice.
-            authBlock={signInNoticeVisible || authPreflightPending ? undefined : authBlock}
+            authBlock={signInNoticeVisible ? undefined : authBlock}
+            authChecking={authPreflightPending}
             authBlocked={Boolean(authBlock)}
             accessory={<DictationMic dictation={dictation} />}
             dictating={isWaitingForWords(dictation.state)}

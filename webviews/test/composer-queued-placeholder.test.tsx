@@ -93,6 +93,7 @@ async function render(
   extra: {
     blockSend?: boolean;
     authBlock?: string;
+    authChecking?: boolean;
     onOpenInWindow?: () => void;
     handle?: React.Ref<ComposerHandle>;
     onSend?: (text: string, attachments?: unknown, steer?: boolean) => boolean;
@@ -432,14 +433,16 @@ test("a pending folder choice is a hard stop even for a trust-resend handle", as
   expect(host.querySelector("[role=combobox]")!.textContent).toContain("Choose a folder first");
 });
 
-test("an auth refusal blocks a trust-read draft and the trust-resend handle", async () => {
+for (const authChecking of [false, true])
+  test(`auth ${authChecking ? "preflight" : "refusal"} blocks sends without a transient notice`, async () => {
   const sent: string[] = [];
   let handle: ComposerHandle | null = null;
   await render(
     started(),
     {},
     {
-      authBlock: "Sign in to send",
+      authBlock: authChecking ? "Checking…" : "Sign in to send",
+      authChecking,
       handle: (value) => void (handle = value),
       onSend: (text) => {
         sent.push(text);
@@ -450,6 +453,8 @@ test("an auth refusal blocks a trust-read draft and the trust-resend handle", as
   await act(async () => handle!.restore("Keep this draft", []));
   const send = host.querySelector<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)")!;
   expect(send.disabled).toBe(true);
+  expect(send.title).toBe(authChecking ? "Checking…" : "Sign in to send");
+  expect(host.querySelector(".acpmux-composer-trust-note") !== null).toBe(!authChecking);
   let accepted: boolean | undefined;
   await act(async () => {
     send.click();
