@@ -32,8 +32,10 @@ pub struct Copied {
 pub fn copied(store: &dyn Store) -> Option<Copied> {
     let bound: Bound = serde_json::from_str(&store.read(BOUND_FILE)?).ok()?;
     let bind = parse_bind_file(&store.read(BIND_FILE)?).ok()?;
-    (!bound.machine.is_empty() && bound.machine != bind.machine)
-        .then(|| Copied { from: bound.machine, to: bind.machine })
+    if bound.machine.is_empty() || bound.machine == bind.machine {
+        return None;
+    }
+    Some(Copied { from: bound.machine, to: bind.machine })
 }
 
 /// The marker's text for `copied`.
