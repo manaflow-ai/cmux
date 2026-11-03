@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4163036887701",
+  "notes": "notes/4163036887701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 33318,
+      "title": "cmux-tui: an identical frontend projection save writes nothing and wakes no one; a session registration reads only its row (idle CPU)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33735,
+      "title": "test: SidebarWorkspaceIconDensityTests uses the emoji case's default chip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33248,
+      "title": "Agent chat: the live line says what the turn does, and its time reads as the turn's total",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33686,
+      "title": "cmux-imessage: page by date, show stickers, report edits and unsends (#32896)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33648,
+      "title": "base red: release-notary guards after #33549 and #33586 (warm-sources entry, killpg EPERM)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33689,
+      "title": "merge_freeze: read freezes over GraphQL when REST is rate limited; skip PR reads with no freeze open",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33653,
+      "title": "fix(sidebar): public import Observation in GroupJoinHold (Release compile red from #33578)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33664,
+      "title": "base red: the notify Watcher import is macOS-only (unused on Linux after #33406)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33196,
+      "title": "cmux NEXT: the Dock icon's menu starts or continues a chat (New Chat, New Chat in, Continue, Unread, Recent)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33283,
+      "title": "Transcript: background task ends weighed from the event; silent ones go onto their call",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
