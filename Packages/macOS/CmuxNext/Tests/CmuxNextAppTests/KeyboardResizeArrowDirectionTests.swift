@@ -323,6 +323,7 @@ struct KeyboardResizeShownStepTests {
             guard case let .columnTrade(left, leftWidth, right, rightWidth)? = PaneResize.change(for: pane, direction: direction, in: layout,
                                                                                                     shown: shown) else { continue }
             let next = layout.settingWidth(leftWidth, for: left).settingWidth(rightWidth, for: right)
+            let full = ((viewport.width - style.stripGap) * CGFloat(PaneResize.step) * scale).rounded() / scale
             for (when, after) in [("at the press", next), ("after the echo", echoed(next))] {
                 let placed = ScreenGeometry.compute(after, viewport: viewport, style: style, scale: scale)
                 let l0 = try #require(before.columns[left]), r0 = try #require(before.columns[right])
@@ -335,12 +336,13 @@ struct KeyboardResizeShownStepTests {
                 for (id, frame) in before.columns where id != left && id != right {
                     #expect(placed.columns[id] == frame, "\(pane) \(direction) \(when): column \(id) moved")
                 }
-                #expect((step * scale).rounded() == step * scale, "\(pane) \(direction) \(when): a step of \(step) is no whole pixel")
+                #expect(abs(step) == full, "\(pane) \(direction) \(when): a step of \(step), want the whole step \(full)")
             }
             layout = echoed(next)
             moved += 1
         }
-        #expect(moved >= 4, "only \(moved) of \(presses.count) presses moved a divider")
+        // None of these presses is at a limit: each one moves the divider.
+        #expect(moved == presses.count, "only \(moved) of \(presses.count) presses moved a divider")
     }
 
     /// A screen whose only column is a dock shows it full width (`DockStripGeometry.docks`): no press moves it, so none
@@ -403,6 +405,70 @@ struct KeyboardResizeRefusedPressTests {
         rig.model.focus("p2", source: .keyboard)
         rig.root.syncWithModel()
         #expect(screen.scroll.target > 0, "the focus after a refused press did not reveal p2")
+    }
+}
+
+/// Codex re-review of #34123 (FIX at 7dc25a2a2dab): a trade is one change, all or nothing, on the screen and on the wire.
+/// - The app refused the trade's first width at once (no handle for its pane), which rolled the press back, and then
+///   the press set and sent the second width anyway: only one column changed, so every column after the pair moved.
+/// - A reply that came in the turn of the first width's command (a handler that settles at once) settled the trade
+///   before its second width was counted, so a daemon snapshot before the second width's event showed the first column
+///   at its old width.
+/// - A trade beside a column the daemon has not made yet (a stand-in, `ProvisionalPane`) sent the other column's width,
+///   which the daemon applied, and the stand-in's, which it refused: half a trade at the daemon. The press is refused
+///   at once instead, before anything moves, as other pane verbs on a stand-in are.
+@MainActor
+@Suite(.closesItsWindows)
+struct KeyboardResizeTradeAtomicTests {
+    @Test func aTradeWhoseFirstWidthIsRefusedShowsAndSendsNeither() throws {
+        let rig = KeyboardResizeArrowDirectionTests.Rig(KeyboardResizeArrowDirectionTests.columns([0.5, 0.5]), focus: "p1")
+        defer { rig.window.closeAfterTest() }
+        var sent: [LayoutColumnID] = []
+        rig.model.intentHandler = { [model = rig.model] intent in
+            guard case let .setColumnWidth(column, _, _, transaction, .ended) = intent else { return }
+            // c0's pane has no handle: the app refuses its width at once.
+            if column == "c0" { model.rejectTransaction(transaction) } else { sent.append(column) }
+        }
+        _ = rig.press("p1", .right)
+        #expect(sent.isEmpty, "a trade refused for c0 still sent \(sent)")
+        let widths = rig.model.screens[0].layout.columns.map(\.width)
+        #expect(widths == [0.5, 0.5], "a trade refused for c0 shows widths \(widths)")
+    }
+
+    @Test func aReplyInTheFirstWidthsTurnDoesNotSettleTheTrade() throws {
+        let rig = KeyboardResizeArrowDirectionTests.Rig(KeyboardResizeArrowDirectionTests.columns([0.5, 0.5]), focus: "p1")
+        defer { rig.window.closeAfterTest() }
+        rig.model.intentHandler = { [model = rig.model] intent in
+            // c0's command is answered in its own turn; c1's reply comes later.
+            if case .setColumnWidth("c0", _, _, let transaction, .ended) = intent { model.settleTransaction(transaction) }
+        }
+        #expect(rig.press("p1", .right))
+        let trade = rig.model.screens[0].layout.columns.map(\.width)
+        try #require(trade[0] > 0.5 && trade[1] < 0.5, "the press made no trade: \(trade)")
+        // A daemon snapshot from before either event.
+        rig.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(KeyboardResizeArrowDirectionTests.columns([0.5, 0.5])))])
+        #expect(rig.model.screens[0].layout.columns.map(\.width) == trade, "the snapshot undid half the trade before its second reply")
+    }
+
+    @Test func aTradeBesideAColumnTheDaemonHasNotMadeIsRefusedAndSendsNothing() throws {
+        // c11's pane is a stand-in: its handle is in the range no daemon pane has (`ProvisionalPane`, from 1 << 62).
+        let standIn: UInt64 = (1 << 62) + 7
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(DaemonPaneID(rawValue: 1)),
+                                    columns: [ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(DaemonPaneID(rawValue: 1))),
+                                              ColumnSnapshot(id: 11, width: 0.5, layout: .leaf(DaemonPaneID(rawValue: standIn)))],
+                                    panes: [PaneSnapshot(id: DaemonPaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")]),
+                                            PaneSnapshot(id: DaemonPaneID(rawValue: standIn), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 2), title: "~")])])
+        let shown = try PaneCloseControllerTests.Shown(tree: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w1", screens: [screen])]))
+        defer { shown.end() }
+        let content = try #require(shown.content)
+        let pane = LayoutPaneID(try shown.key(1))
+        try #require(content.layoutModel.screens.first?.layout.columns.count == 2, "the stand-in column does not show")
+        let first = content.gestureTransactions.latest
+        let before = content.layoutModel.screens.first?.layout.columns.map(\.width)
+        #expect(!PaneResize.press(pane, .right, model: content.layoutModel, view: content.layoutView),
+                "a trade with a column the daemon has not made went ahead")
+        #expect(content.gestureTransactions.latest == first, "the refused trade sent \(content.gestureTransactions.latest - first) transactions")
+        #expect(content.layoutModel.screens.first?.layout.columns.map(\.width) == before)
     }
 }
 
