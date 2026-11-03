@@ -262,48 +262,44 @@ impl Artifacts {
         Ok(url)
     }
 
-    /// One request, with the held token, and once more with a new one when the API answers 401.
+    /// Send with the account token pinned at the start of this tool invocation.
+    /// Re-minting after a 401 could silently change accounts mid-upload.
     async fn send(
         &self,
+        token: &str,
         what: &str,
         build: impl Fn(&reqwest::Client) -> reqwest::RequestBuilder,
     ) -> Result<reqwest::Response> {
-        let mut fresh = false;
-        loop {
-            let token = self.bearer.get(fresh).await?;
-            let response =
-                build(&self.http).bearer_auth(token.as_str()).send().await.map_err(|e| {
-                    anyhow!("{what}: the artifacts service did not answer: {}", e.without_url())
-                })?;
-            if response.status() == reqwest::StatusCode::UNAUTHORIZED && !fresh {
-                fresh = true;
-                continue;
-            }
-            if response.status().is_success() {
-                return Ok(response);
-            }
-            return Err(refusal(what, response).await);
+        let response = build(&self.http).bearer_auth(token).send().await.map_err(|e| {
+            anyhow!("{what}: the artifacts service did not answer: {}", e.without_url())
+        })?;
+        if response.status().is_success() {
+            Ok(response)
+        } else {
+            Err(refusal(what, response).await)
         }
     }
 
     async fn json(
         &self,
+        token: &str,
         what: &str,
         build: impl Fn(&reqwest::Client) -> reqwest::RequestBuilder,
     ) -> Result<Value> {
-        let response = self.send(what, build).await?;
+        let response = self.send(token, what, build).await?;
         let bytes = read_capped(response, MAX_JSON_BYTES).await?;
         serde_json::from_slice(&bytes).with_context(|| format!("{what}: the answer is not JSON"))
     }
 
-    pub async fn search(&self, q: &str, limit: u64) -> Result<Value> {
+    pub async fn search(&self, token: &str, q: &str, limit: u64) -> Result<Value> {
         let limit = limit.to_string();
         let url = self.url("/v1/artifacts/search", &[("q", q), ("limit", &limit)])?;
-        self.json("artifact search", |http| http.get(url.clone())).await
+        self.json(token, "artifact search", |http| http.get(url.clone())).await
     }
 
     pub async fn list(
         &self,
+        token: &str,
         prefix: &str,
         kind: Option<&str>,
         limit: Option<u64>,
@@ -321,18 +317,18 @@ impl Artifacts {
             query.push(("cursor", cursor));
         }
         let url = self.url("/v1/artifacts", &query)?;
-        self.json("artifact list", |http| http.get(url.clone())).await
+        self.json(token, "artifact list", |http| http.get(url.clone())).await
     }
 
     /// Stream the whole file to a private temporary file. Memory holds only a text page
     /// and a small binary preview; incomplete downloads are removed on error/cancellation.
-    pub async fn read(&self, path: &str, git_ref: Option<&str>, offset: usize) -> Result<Value> {
+    pub async fn read(&self, token: &str, path: &str, git_ref: Option<&str>, offset: usize) -> Result<Value> {
         let mut query = vec![("path", path)];
         if let Some(git_ref) = git_ref {
             query.push(("ref", git_ref));
         }
         let url = self.url("/v1/artifacts/file", &query)?;
-        let mut response = self.send("artifact read", |http| http.get(url.clone())).await?;
+        let mut response = self.send(token, "artifact read", |http| http.get(url.clone())).await?;
         let header = |name: &str| {
             response
                 .headers()
@@ -387,9 +383,9 @@ impl Artifacts {
 
     /// Effect 4 returns an empty 400 for schema failures. Confirm the advertised legacy
     /// schema before treating one as a missing blob-reference capability.
-    async fn legacy_create_schema(&self) -> bool {
+    async fn legacy_create_schema(&self, token: &str) -> bool {
         let Ok(url) = self.url("/openapi.json", &[]) else { return false };
-        let Ok(spec) = self.json("artifact schema", |http| http.get(url.clone())).await else {
+        let Ok(spec) = self.json(token, "artifact schema", |http| http.get(url.clone())).await else {
             return false;
         };
         let file = spec.pointer("/components/schemas/ArtifactFile");
@@ -416,6 +412,7 @@ impl Artifacts {
     /// never aggregate base64 data, and a failed upload leaves no incomplete artifact.
     pub async fn save(
         &self,
+        token: &str,
         title: &str,
         kind: &str,
         files: &[File],
@@ -424,13 +421,13 @@ impl Artifacts {
         let repo_url = self.url("/v1/artifacts/repo", &[])?;
         let create_url = self.url("/v1/artifacts", &[])?;
         let blob_url = self.url("/v1/artifacts/blobs", &[])?;
-        let repo = self.json("artifact repo", |http| http.post(repo_url.clone())).await?;
+        let repo = self.json(token, "artifact repo", |http| http.post(repo_url.clone())).await?;
         let mut head = repo.get("headSha").cloned().unwrap_or(Value::Null);
         let mut body_files = Vec::with_capacity(files.len());
         for file in files {
             // Bytes clones share storage, including a retry after refreshing the bearer.
             let blob = self
-                .json("artifact upload", |http| {
+                .json(token, "artifact upload", |http| {
                     http.post(blob_url.clone()).body(file.bytes.clone())
                 })
                 .await?;
@@ -455,7 +452,7 @@ impl Artifacts {
         let mut conflict_retried = false;
         loop {
             let body = json!({"title": title, "kind": kind, "files": body_files, "trailers": trailers, "expectedHeadSha": head});
-            match self.json("artifact save", |http| http.post(create_url.clone()).json(&body)).await
+            match self.json(token, "artifact save", |http| http.post(create_url.clone()).json(&body)).await
             {
                 Ok(v) => {
                     created = Some(v);
@@ -464,7 +461,7 @@ impl Artifacts {
                 Err(e)
                     if !legacy
                         && e.is::<EmptyCreateRefusal>()
-                        && self.legacy_create_schema().await =>
+                        && self.legacy_create_schema(token).await =>
                 {
                     let Some(inline) = legacy_inline_files(files) else { return Err(e) };
                     body_files = inline;
@@ -827,13 +824,20 @@ pub fn files(args: &Value, kind: &str) -> Result<Vec<File>> {
 
 /// A tool call, as the agent reads its answer.
 pub async fn call(client: &Artifacts, name: &str, args: &Value) -> Value {
-    match execute(client, name, args).await {
-        Ok(result) => result,
-        Err(e) => error_result(format!("{e:#}")),
+    // An MCP process can outlive a cmux sign-out or account switch. The mesh hub caches
+    // an install token until expiry, so refresh once per tool call and pin that bearer
+    // across all of its requests (including multi-blob saves).
+    let result = match client.bearer.get(true).await {
+        Ok(token) => execute(client, name, args, token.as_str()).await,
+        Err(error) => Err(error),
+    };
+    match result {
+        Ok(value) => value,
+        Err(error) => error_result(format!("{error:#}")),
     }
 }
 
-async fn execute(client: &Artifacts, name: &str, args: &Value) -> Result<Value> {
+async fn execute(client: &Artifacts, name: &str, args: &Value, token: &str) -> Result<Value> {
     match name {
         "artifact_search" => {
             let q = text_arg(args, "q")?;
@@ -841,7 +845,7 @@ async fn execute(client: &Artifacts, name: &str, args: &Value) -> Result<Value> 
                 bail!("q is at most 512 characters");
             }
             let limit = opt_count(args, "limit", 100)?.unwrap_or(20);
-            let found = client.search(q, limit).await?;
+            let found = client.search(token, q, limit).await?;
             let hits = found.get("hits").and_then(Value::as_array).map_or(0, Vec::len);
             Ok(data(format!("{hits} hit(s) for {q:?}; open one with artifact_read."), found))
         }
@@ -852,7 +856,7 @@ async fn execute(client: &Artifacts, name: &str, args: &Value) -> Result<Value> 
                 bail!("kind must be one of {}", KINDS.join(", "));
             }
             let limit = opt_count(args, "limit", 100)?;
-            let listed = client.list(prefix, kind, limit, opt_text(args, "cursor")?).await?;
+            let listed = client.list(token, prefix, kind, limit, opt_text(args, "cursor")?).await?;
             let items = listed.get("items").and_then(Value::as_array).map_or(0, Vec::len);
             let more = if listed.get("cursor").is_some_and(|c| c.is_string()) {
                 "; pass cursor for more"
@@ -873,7 +877,7 @@ async fn execute(client: &Artifacts, name: &str, args: &Value) -> Result<Value> 
                 Some(v) => usize::try_from(v.as_u64().context("offset must be a whole number")?)
                     .unwrap_or(usize::MAX),
             };
-            let result = client.read(path, git_ref, offset).await?;
+            let result = client.read(token, path, git_ref, offset).await?;
             let more = result
                 .get("nextOffset")
                 .and_then(Value::as_u64)
@@ -909,7 +913,7 @@ async fn execute(client: &Artifacts, name: &str, args: &Value) -> Result<Value> 
             {
                 map.insert("session".into(), json!(session));
             }
-            let (id, head) = client.save(title, kind, &files, &trailers).await?;
+            let (id, head) = client.save(token, title, kind, &files, &trailers).await?;
             let paths: Vec<String> =
                 files.iter().map(|f| format!("artifacts/{id}/{}", f.name)).collect();
             Ok(data(
