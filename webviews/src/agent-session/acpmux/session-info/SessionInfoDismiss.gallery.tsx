@@ -1,13 +1,14 @@
 // l10n-allow-file: synthetic gallery labels and pull requests, not shipped UI.
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
+import { Dialog } from "../../../ui/Dialog";
 import { ChangesSection } from "./ChangesSection";
 import { SessionInfoPanel } from "./SessionInfo";
 
-function SessionInfoDismiss() {
+function SessionInfoDismiss({ inDialog = false }: { inDialog?: boolean }) {
   const [open, setOpen] = useState(true);
-  return (
-    <section className="acpmux-shell" style={{ height: "100%" }}>
+  const content = (
+    <section className="acpmux-shell" style={{ height: "100%", minHeight: 240 }}>
       <button className="ui-button" data-outside-panel type="button" onClick={() => undefined}>
         Outside Session Info
       </button>
@@ -35,9 +36,16 @@ function SessionInfoDismiss() {
       )}
     </section>
   );
+  return inDialog ? (
+    <Dialog open onOpenChange={() => undefined} label="Session Info dialog">
+      {content}
+    </Dialog>
+  ) : (
+    content
+  );
 }
 
-export default componentEntry({
+export default componentEntry<{ inDialog?: boolean }>({
   id: "agent-pane.session-info-dismiss",
   title: "Session Info nested menu dismissal",
   area: "Agent pane",
@@ -48,6 +56,10 @@ export default componentEntry({
   load: async () => SessionInfoDismiss,
   variants: {
     panel: { props: {} },
+    "dialog-panel": {
+      note: "An ancestor dialog does not count as a child popup or prevent Session Info from dismissing.",
+      props: { inDialog: true },
+    },
     "menu-open": {
       note: "The PR menu is portalled outside Session Info. Dismissing it leaves Session Info open.",
       props: {},

@@ -27,27 +27,31 @@ await requireBrowserLane("session-info-nested-dismiss-browser.test.ts", async ()
     await vite?.close();
   });
 
-  for (const outside of [false, true]) {
-    test(`a press ${outside ? "outside" : "inside"} Session Info dismisses only its nested PR menu`, async () => {
-      const port = (vite!.httpServer!.address() as { port: number }).port;
-      const page = await browser!.newPage({ viewport: { width: 900, height: 420 } });
-      try {
-        await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant: "panel" })}`);
-        const panel = page.locator("aside.acpmux-session-info");
-        await panel.waitFor();
-        await page.locator(".acpmux-session-info-pr__more").click();
-        await page.locator('[role="menu"]').waitFor();
-        // Exercise the real portal, rather than a menu rendered inside the parent's DOM.
-        expect(await panel.locator('[role="menu"]').count()).toBe(0);
-        await page.locator(outside ? "[data-outside-panel]" : "[data-inside-panel]").click();
-        await page.locator('[role="menu"]').waitFor({ state: "detached" });
-        expect(await panel.count()).toBe(1);
-        // Once its child is gone, the next outside press dismisses the parent normally.
-        await page.locator("[data-outside-panel]").click();
-        await panel.waitFor({ state: "detached" });
-      } finally {
-        await page.close();
-      }
-    });
+  for (const inDialog of [false, true]) {
+    for (const outside of [false, true]) {
+      test(`${inDialog ? "in a dialog: " : ""}a press ${outside ? "outside" : "inside"} Session Info dismisses only its nested PR menu`, async () => {
+        const port = (vite!.httpServer!.address() as { port: number }).port;
+        const page = await browser!.newPage({ viewport: { width: 900, height: 420 } });
+        try {
+          await page.goto(
+            `http://127.0.0.1:${port}${galleryFrame(entry, { variant: inDialog ? "dialog-panel" : "panel" })}`,
+          );
+          const panel = page.locator("aside.acpmux-session-info");
+          await panel.waitFor();
+          await page.locator(".acpmux-session-info-pr__more").click();
+          await page.locator('[role="menu"]').waitFor();
+          // Exercise the real portal, rather than a menu rendered inside the parent's DOM.
+          expect(await panel.locator('[role="menu"]').count()).toBe(0);
+          await page.locator(outside ? "[data-outside-panel]" : "[data-inside-panel]").click();
+          await page.locator('[role="menu"]').waitFor({ state: "detached" });
+          expect(await panel.count()).toBe(1);
+          // Once its child is gone, the next outside press dismisses the parent normally.
+          await page.locator("[data-outside-panel]").click();
+          await panel.waitFor({ state: "detached" });
+        } finally {
+          await page.close();
+        }
+      });
+    }
   }
 });
