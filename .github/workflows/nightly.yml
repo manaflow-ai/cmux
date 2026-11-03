@@ -3437,10 +3437,11 @@ jobs:
     # only the bounded Linux outputs. The picker itself never uses a hosted or
     # non-Blacksmith label.
     continue-on-error: true
-    # The picker itself has no signing key. Keep its routing job on the
-    # allowlisted Blacksmith Linux set even when RUNNER_POOLS is stale or
-    # points at a non-Blacksmith fleet member.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # The picker itself has no signing key: GitHub-hosted Ubuntu first, the declared Linux 4 vCPU
+    # pool on a re-run (the signer pick route in tests/test_ci_self_hosted_guard.sh). The all-nightly
+    # reservation queued it 7-12 min behind the builds (runs 41561996502, 41563477649), and before
+    # that Blacksmith 16 vCPU queued it 5-14 min (#31642); it sits on the path to the feed.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && fromJSON(vars.RUNNER_POOLS).linux_4 || 'ubuntu-24.04' }}
     # The owned pick mints the routing token (GLAEDA_ROUTE_APP_KEY), so the key is read in the
     # routing environment, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
     environment: ci-routing-agent

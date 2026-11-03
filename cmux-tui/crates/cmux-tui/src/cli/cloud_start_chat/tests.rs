@@ -511,3 +511,59 @@ fn a_prompt_the_machine_did_not_take_whole_fails_with_the_chat_ids() {
     assert_eq!(error["details"]["answer"]["session_id"], "sess-1");
     assert!(fake.ran[3][5].contains("rm -f \"$f\""));
 }
+
+#[test]
+fn a_send_refused_after_the_upload_removes_the_prompt_file() {
+    let prompt = "x".repeat(200 * 1024);
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out(&format!("@@size {}\n", prompt.len())),
+        // The send: refused before it started.
+        Ran {
+            code: 1,
+            stdout: String::new(),
+            stderr: json!({"code": "vm_busy", "message": "retry shortly"}).to_string(),
+        },
+        // The cleanup.
+        exec_out(""),
+    ]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", prompt.as_str(), "--name", "dev"]))
+    else {
+        panic!()
+    };
+    assert_eq!(error["code"], "chat.unreachable");
+    assert_eq!(fake.ran.len(), 5);
+    let upload = &fake.ran[2][5];
+    let cleanup = &fake.ran[4][5];
+    assert!(cleanup.ends_with("rm -f \"$f\""));
+    // The same file the upload wrote.
+    let file = |script: &str| {
+        script.split("f=").nth(1).and_then(|s| s.split(';').next()).map(str::to_owned)
+    };
+    assert_eq!(file(cleanup), file(upload));
+}
+
+#[test]
+fn a_send_with_no_answer_keeps_the_prompt_file_for_a_send_still_reading_it() {
+    let prompt = "x".repeat(200 * 1024);
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out(&format!("@@size {}\n", prompt.len())),
+        Ran {
+            code: 1,
+            stdout: String::new(),
+            stderr: json!({"code": "vm_unavailable", "message": "the machine did not answer"})
+                .to_string(),
+        },
+    ]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", prompt.as_str(), "--name", "dev"]))
+    else {
+        panic!()
+    };
+    assert_eq!(error["code"], "chat.unreachable");
+    assert_eq!(fake.ran.len(), 4, "no cleanup exec");
+}
