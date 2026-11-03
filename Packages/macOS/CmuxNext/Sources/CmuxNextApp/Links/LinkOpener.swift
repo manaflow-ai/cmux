@@ -260,11 +260,9 @@ final class LinkOpener {
         }
     }
 
-    /// A web page at `url` (nil: the New Tab page) made straight in a new split, never in the source first (Leo 2026-11-03); nil, so the open
-    /// makes and moves, where the pane's daemon cannot or it has no split room (#23032 review). Its close gives the focus back to `from`.
+    /// A web page at `url` (nil: the New Tab page) made straight in a new split, never in the source first (Leo 2026-11-03); its close gives the focus back to `from`. Nil, so the open makes and moves (which refuses or opens a column), from a chat dock or a pane with no room (#23032 review); Home's dock alone needs no room.
     func browserSplit(_ url: URL?, profile: String? = nil, returningTo from: PaneController? = nil) -> SplitMake {
         { [weak self, weak from] (pane: PaneController, direction: SplitDirection, finished: @escaping @MainActor (SurfaceID?) -> Void) -> Bool? in
-            // As every split (#23032 review): a chat dock or a pane with no room keeps the move, which refuses or opens a column (Home's dock alone needs no room).
             let opener = PaneBrowserTabOpener(controller: pane), room = pane.services.splitRoom(for: pane.pane, edge: direction == .right ? .right : .bottom)
             guard direction == .right && opener.opensBesideDockInSplit || opener.opensInSplit && { if case .split = room { true } else { false } }() else { return nil }
             return pane.newBrowserTab(url: url, profile: profile, split: BrowserTabSplitRequest(direction: direction) { [weak self, weak from] surface in
