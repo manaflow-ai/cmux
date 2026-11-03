@@ -1110,7 +1110,7 @@ dependencies = [
 [[package]]
 name = "cmux-codex-acp"
 version = "0.1.0"
-source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a#ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a"
+source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=3ab8c1150f51d8ab51c29bcc17635b2e787d74d8#3ab8c1150f51d8ab51c29bcc17635b2e787d74d8"
 dependencies = [
  "serde_json",
 ]
@@ -2406,7 +2406,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 3.0.3",
+ "syn 1.0.109",
 ]
 
 [[package]]
