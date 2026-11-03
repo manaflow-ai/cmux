@@ -157,8 +157,18 @@ pub(super) fn resource(
     // names (create_window.rs, #32989).
     if super::super::create_window::applies(&plan) {
         let caller_route = global.socket.is_none() && global.session.is_none();
-        super::super::create_window::announce(global, &mut plan, key.as_deref(), &socket, caller_route)
-            .map_err(|error| CallFailure { kind: NotRun, error, idempotency_key: key.clone() })?;
+        super::super::create_window::announce(
+            global,
+            &mut plan,
+            key.as_deref(),
+            &socket,
+            caller_route,
+        )
+        .map_err(|error| CallFailure {
+            kind: NotRun,
+            error,
+            idempotency_key: key.clone(),
+        })?;
         request.set("params", plan.params.clone());
     }
     // A browser tab in a session a cmux app owns is the app's to render

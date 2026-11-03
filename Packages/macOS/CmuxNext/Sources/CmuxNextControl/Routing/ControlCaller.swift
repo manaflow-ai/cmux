@@ -1,4 +1,4 @@
-import CmuxNextSettings
+public import CmuxNextSettings
 import Foundation
 
 /// Who sent a control request (`caller`): the acpmux agent session the cmux

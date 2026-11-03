@@ -62,7 +62,12 @@ pub(super) fn expect_params(key: &str, window: Option<&str>, focus: bool) -> Val
 /// Whether the create should be announced: it names a window, or it runs
 /// for a caller in this machine's own session (`caller_route`, the request
 /// names no other session or machine).
-pub(super) fn announces(window: Option<&str>, caller_route: bool, this_machine: bool, has_caller: bool) -> bool {
+pub(super) fn announces(
+    window: Option<&str>,
+    caller_route: bool,
+    this_machine: bool,
+    has_caller: bool,
+) -> bool {
     window.is_some() || (caller_route && this_machine && has_caller)
 }
 
@@ -114,7 +119,11 @@ fn has_caller() -> bool {
 }
 
 #[cfg(unix)]
-fn send(global: &GlobalArgs, daemon_socket: &Path, params: Value) -> Result<Result<Value, Value>, String> {
+fn send(
+    global: &GlobalArgs,
+    daemon_socket: &Path,
+    params: Value,
+) -> Result<Result<Value, Value>, String> {
     let app = super::frontend_browser::owning_app_socket(global, daemon_socket)
         .ok_or_else(|| "no cmux app owns this session".to_owned())?;
     let mut stream = super::app::connect(&app)?;
@@ -150,7 +159,10 @@ mod tests {
     #[test]
     fn a_caller_in_its_own_session_is_announced() {
         assert!(announces(None, true, true, true));
-        assert!(!announces(None, true, true, false), "no caller: the most recent window, as before");
+        assert!(
+            !announces(None, true, true, false),
+            "no caller: the most recent window, as before"
+        );
         assert!(!announces(None, false, true, true), "another session's create");
         assert!(!announces(None, true, false, true), "another machine's create");
     }

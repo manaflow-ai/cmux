@@ -1,3 +1,5 @@
+public import CmuxNextSettings
+
 /// `workspace.expect_window` (#32989): the `cmux` CLI and MCP announce a `workspace create`
 /// before they send it to the daemon, so the workspace opens in the right window. The daemon
 /// has no windows; its workspace-added delta echoes the create's idempotency key

@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextSettings
 import Observation
 
 // Window membership transitions. Every change goes through `transition`,
@@ -612,7 +613,7 @@ extension WindowManager {
         }]
     }
 
-    func expectCreate(_ params: [String: JSONValue], topology: ControlTopology) throws -> JSONValue {
+    func expectCreate(_ params: [String: CmuxNextSettings.JSONValue], topology: ControlTopology) throws -> CmuxNextSettings.JSONValue {
         let expected = try ControlWorkspaceWindowExpectation(params: params, in: topology) { registry.value.window($0)?.isOpen == true }
         if let window = expected.window { claims.expected.expect(key: expected.key, window: window, shows: expected.shows) }
         return expected.reply

@@ -14,11 +14,20 @@ fn a_subagent_workspace_is_opened_from_the_chiefs_home_chat() {
     assert_eq!(request["method"], "action.run");
     assert_eq!(request["params"]["action"], OPEN_ACTION);
     assert_eq!(request["params"]["caller"], json!({"home_chat": true}));
-    assert_eq!(request["params"]["origin"], "script", "a script's run: it never takes focus");
+    assert_eq!(
+        request["params"]["origin"], "script",
+        "a script's run: it never takes focus"
+    );
 }
 
 #[test]
 fn a_named_chiefs_subagent_names_the_same_caller() {
-    let request = open_request_for(Path::new("/tmp/chief-home"), "s1", "Fix", "ws-key", Path::new("/tmp/repo"));
+    let request = open_request_for(
+        Path::new("/tmp/chief-home"),
+        "s1",
+        "Fix",
+        "ws-key",
+        Path::new("/tmp/repo"),
+    );
     assert_eq!(request["params"]["caller"], json!({"home_chat": true}));
 }
