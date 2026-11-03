@@ -20,7 +20,10 @@ await requireBrowserLane("chief-web-gallery-browser.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(vite, "chief-web.mobile", { browser, params: { variant: "phone-light" } });
+    await warmGalleryFrame(vite, "chief-web.mobile", {
+      browser,
+      params: { variant: "phone-light" },
+    });
   });
   afterAll(async () => {
     await browser?.close();
@@ -34,6 +37,9 @@ await requireBrowserLane("chief-web-gallery-browser.test.ts", async () => {
     ["empty", 390, 844, "light"],
     ["streaming", 390, 844, "dark"],
     ["expired", 390, 844, "light"],
+    ["machine-claude", 390, 844, "light"],
+    ["machine-claude-code", 390, 844, "dark"],
+    ["machine-codex", 390, 844, "light"],
   ] as const) {
     test(`${variant}: readable transcript and usable composer`, async () => {
       const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 2 });
@@ -53,6 +59,17 @@ await requireBrowserLane("chief-web-gallery-browser.test.ts", async () => {
           else if (variant === "streaming")
             await page.getByText("I’m building your hello page.", { exact: false }).waitFor();
           else await page.getByRole("link", { name: "Open your page" }).waitFor();
+          if (variant.startsWith("machine")) {
+            const card = page.getByTestId("chief-machine-login");
+            await card.waitFor();
+            if (variant === "machine-claude")
+              await card.getByRole("button", { name: "Sign in to Claude", exact: true }).waitFor();
+            else await card.getByRole("link", { name: "Open sign-in page" }).waitFor();
+            const box = await card.boundingBox();
+            expect(box!.x).toBeGreaterThanOrEqual(0);
+            expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+            expect(box!.y + box!.height).toBeLessThanOrEqual(height);
+          }
           const layout = await field.evaluate((element) => ({
             font: parseFloat(getComputedStyle(element).fontSize),
             bottom: element.getBoundingClientRect().bottom,
@@ -74,7 +91,9 @@ await requireBrowserLane("chief-web-gallery-browser.test.ts", async () => {
         }
         if (process.env.FAST_CHECKS_OUT) {
           await mkdir(process.env.FAST_CHECKS_OUT, { recursive: true });
-          await page.screenshot({ path: path.join(process.env.FAST_CHECKS_OUT, `chief-web-${variant}.png`) });
+          await page.screenshot({
+            path: path.join(process.env.FAST_CHECKS_OUT, `chief-web-${variant}.png`),
+          });
         }
         expect(errors).toEqual([]);
       } finally {

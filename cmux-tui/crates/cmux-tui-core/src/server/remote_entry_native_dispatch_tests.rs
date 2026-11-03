@@ -63,6 +63,8 @@ fn native_owner_provisions_trusts_starts_and_attaches_first_chat_over_real_entry
     let (mut stream, mut reader) = connect_as_link(&entry);
     send(&mut stream, &native_stamp(Some(VmKind::Owner)));
     let surface = provision(&entry, &mut stream, &mut reader);
+    let identity = ok(&mut stream, &mut reader, json!({"cmd":"identify"}));
+    assert!(identity["capabilities"].as_array().unwrap().contains(&json!("agent-session-content-v1")));
     let cwd = entry._directory.path().to_string_lossy().into_owned();
     ok(
         &mut stream,

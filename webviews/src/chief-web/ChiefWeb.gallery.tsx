@@ -7,7 +7,7 @@ import { memoryStorage } from "../agent-session/guest/fixtures/liveChat";
 const identity: ChiefIdentity = {
   handle: "alex",
   mainConversationId: "conv_chief",
-  chiefId: "chief_alex",
+  chiefId: "agent_chief",
 };
 const state = {
   id: identity.mainConversationId,
@@ -27,12 +27,33 @@ const message = (id: string, seq: number, author: string, text: string) => ({
   client_msg_id: id,
 });
 
-function fixture(mode: "reply" | "empty" | "streaming" | "reconnecting" = "reply"): ChiefWebProps {
+function fixture(
+  mode: "reply" | "empty" | "streaming" | "reconnecting" | "signin-claude" | "signin-code" | "signin-codex" = "reply",
+): ChiefWebProps {
+  const login = {
+    loginId: "gallery-login",
+    url: mode === "signin-codex" ? "https://auth.openai.com/codex/device" : "https://claude.ai/oauth/authorize",
+    needsCode: mode !== "signin-codex",
+    ...(mode === "signin-codex" ? { userCode: "ABCD-1234" } : {}),
+  };
   return {
     storage: memoryStorage(),
+    loginApi: {
+      status: async () => ({
+        waiting: true,
+        harness: mode === "signin-codex" ? "codex" : "claude",
+        login: mode === "signin-claude" ? null : login,
+      }),
+      start: async () => login,
+      finish: async () => ({ signedIn: true, resumed: true }),
+      cancel: async () => undefined,
+    },
     api: {
       me: async () => identity,
-      ticket: async () => ({ ticket: "gallery-ticket", websocketUrl: "wss://api.invalid/chief-wire" }),
+      ticket: async () => ({
+        ticket: "gallery-ticket",
+        websocketUrl: "wss://api.invalid/chief-wire",
+      }),
       send: async () => undefined,
     },
     openSocket: () => {
@@ -64,6 +85,16 @@ function fixture(mode: "reply" | "empty" | "streaming" | "reconnecting" = "reply
                         ),
                       ]),
                 ];
+          if (mode.startsWith("signin"))
+            rows.push({
+              ...message(
+                "machine-auth",
+                3,
+                identity.chiefId,
+                mode === "signin-codex" ? "Sign in to Codex to continue." : "Sign in to Claude to continue.",
+              ),
+              client_msg_id: `chief-machine-auth:${identity.chiefId}:run_42`,
+            });
           queueMicrotask(() => {
             if (!alive) return;
             void socket.onmessage?.({
@@ -94,7 +125,9 @@ function fixture(mode: "reply" | "empty" | "streaming" | "reconnecting" = "reply
       };
       queueMicrotask(() => {
         if (alive)
-          void socket.onmessage?.({ data: JSON.stringify({ t: "welcome", principal: { user: "user_alex" } }) });
+          void socket.onmessage?.({
+            data: JSON.stringify({ t: "welcome", principal: { user: "user_alex" } }),
+          });
       });
       return socket;
     },
@@ -111,13 +144,28 @@ export default componentEntry<ChiefWebProps>({
   pane: true,
   load: () => import("./ChiefWeb").then((module) => module.ChiefWeb),
   variants: {
-    "phone-light": { props: fixture(), note: "Selected: quiet header, readable replies, composer above the keyboard." },
+    "phone-light": {
+      props: fixture(),
+      note: "Selected: quiet header, readable replies, composer above the keyboard.",
+    },
     "phone-dark": { props: fixture(), note: "The same phone layout in dark appearance." },
     tablet: { props: fixture(), height: 1024 },
     desktop: { props: fixture(), height: 900 },
     empty: { props: fixture("empty") },
     streaming: { props: fixture("streaming") },
     reconnecting: { props: fixture("reconnecting") },
+    "machine-claude": {
+      props: fixture("signin-claude"),
+      note: "Selected: one quiet run-scoped sign-in card above the composer.",
+    },
+    "machine-claude-code": {
+      props: fixture("signin-code"),
+      note: "A validated provider link remains clickable while its one-use code is pasted.",
+    },
+    "machine-codex": {
+      props: fixture("signin-codex"),
+      note: "Device code and explicit continuation, without a code-paste field.",
+    },
     expired: {
       props: {
         storage: memoryStorage(),

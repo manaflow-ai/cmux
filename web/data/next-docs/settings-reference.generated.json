@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 560,
+  "count": 562,
   "sections": [
     {
       "id": "general",
@@ -247,6 +247,18 @@
             "deepseek/deepseek-v4.1-flash",
             "deepseek/deepseek-v4-flash",
             "deepseek/deepseek-v4-pro"
+          ]
+        },
+        {
+          "key": "agents.promptCache",
+          "title": "Prompt Cache",
+          "help": "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more.",
+          "kind": "choice",
+          "default": "1h",
+          "group": "Agent Chat",
+          "values": [
+            "1h",
+            "5m"
           ]
         },
         {

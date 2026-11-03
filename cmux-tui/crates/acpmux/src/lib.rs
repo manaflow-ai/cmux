@@ -160,12 +160,13 @@ pub mod turn_attestation;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;
-pub mod workflow_journal;
 pub mod watch_delta;
 pub mod web_modes;
 pub mod wire_size;
 pub mod wireguard;
+pub mod workflow_journal;
 pub mod workflow_reply;
+pub mod workflow_runs;
 pub mod worktree_sessions;
 
 pub mod model_catalog;
