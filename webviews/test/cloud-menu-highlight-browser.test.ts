@@ -61,6 +61,7 @@ await requireBrowserLane("cloud-menu-highlight-browser.test.ts", async () => {
             probe.remove();
             return {
               neutral,
+              selectedCount: popup.querySelectorAll('[aria-checked="true"], [data-current]').length,
               highlighted: [...popup.querySelectorAll("[data-highlighted]")].map((row) => ({ background: getComputedStyle(row).backgroundColor, shadow: getComputedStyle(row).boxShadow })),
               selected: [...popup.querySelectorAll('[aria-checked="true"], [data-current]')]
                 .map((row) => row.closest('[role="option"], [role="menuitemradio"], [role="menuitemcheckbox"]'))
@@ -68,6 +69,7 @@ await requireBrowserLane("cloud-menu-highlight-browser.test.ts", async () => {
                 .map((row) => getComputedStyle(row).backgroundColor),
             };
           });
+          expect(paints.selectedCount).toBeGreaterThan(0);
           if (!automatic) expect(paints.highlighted.length).toBeGreaterThan(0);
           for (const row of paints.highlighted) {
             expect(row.background).toBe(automatic ? "rgba(0, 0, 0, 0)" : paints.neutral);
