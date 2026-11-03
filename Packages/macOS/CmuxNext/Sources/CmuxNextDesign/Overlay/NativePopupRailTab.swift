@@ -189,6 +189,11 @@ final class NativePopupRailTab: NSView {
         performWithTheme {
             Palette.hoverFill.setFill()
             NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+            // The symbols row's accent bar under the checked mark: half the tab wide, half a grid step tall.
+            guard placement == .symbols, isSelected else { return }
+            let bar = NSRect(x: bounds.width / 4, y: bounds.maxY - Metrics.space1 / 2, width: bounds.width / 2, height: Metrics.space1 / 2)
+            Palette.accentFill.setFill()
+            NSBezierPath(roundedRect: bar, xRadius: 1, yRadius: 1).fill()
         }
     }
 
