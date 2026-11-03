@@ -28,10 +28,8 @@ final class UIInspectorController {
         self.services = services
         inspectNotification = NotificationCenter.default.addObserver(
             forName: .cmuxNextInspectUIElement, object: nil, queue: .main
-        ) { [weak self] note in
-            MainActor.assumeIsolated { // main-proof: the observer is registered on queue .main.
-                self?.inspectFromContextMenu(page: note.object as? AgentPaneView)
-            }
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.inspectFromContextMenu() }
         }
         observeToggle()
     }
@@ -56,13 +54,13 @@ final class UIInspectorController {
     }
 
     /// Starts the picker and highlights the element under the most recent
-    /// right-click in an app-owned web page (`page`, else the page whose menu
-    /// opened last). The page records that point itself, so no app-wide
-    /// right-click monitor runs. The web equivalent of DevTools' Inspect Element.
-    func inspectFromContextMenu(page: AgentPaneView? = nil) {
+    /// right-click in an app-owned web page (the page whose menu opened last).
+    /// The page records that point itself, so no app-wide right-click monitor
+    /// runs. The web equivalent of DevTools' Inspect Element.
+    func inspectFromContextMenu() {
         guard AgentPaneTunables.pointerInspector.value else { return }
         start()
-        let candidates = page.map { [$0] } ?? services.map { Array($0.agentTabs.views.values) } ?? []
+        let candidates = services.map { Array($0.agentTabs.views.values) } ?? []
         let menus = candidates.compactMap { page in page.lastContextMenu.map { (page: page, menu: $0) } }
         guard let latest = menus.max(by: { $0.menu.uptime < $1.menu.uptime }),
               latest.page.window?.isVisible == true else { return }

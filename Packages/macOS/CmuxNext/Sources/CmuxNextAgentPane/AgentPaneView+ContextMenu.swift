@@ -7,7 +7,7 @@ public import Foundation
 import WebKit
 
 public extension Notification.Name {
-    /// Posted by an app-owned web page's context menu (the page is the object) for Inspect Element.
+    /// Posted by an app-owned web page's context menu for Inspect Element (the page is the object).
     static let cmuxNextInspectUIElement = Notification.Name("cmux.next.inspect-ui-element")
 }
 
