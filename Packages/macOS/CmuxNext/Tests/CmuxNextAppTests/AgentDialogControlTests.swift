@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextControl
 import CmuxNextSettings
@@ -110,7 +111,7 @@ import Testing
     /// paging every chat took 4-9 s a page on a host mirroring 8,500, past the 5 s line.
     @Test func listAsksAnAcpmuxWithPendingOnlyForTheChatsWithAnAskOnce() async throws {
         let line = FakeLine()
-        line.capabilities = [AgentDialogDesk.pendingListCapability]
+        line.capabilities = [AgentDialogPrompt.pendingListCapability]
         let reply = try await call(router(desk(line)), "feed.list", ["pending_only": true]).get()
         #expect(reply["items"]?.arrayValue?.count == 2)
         let lists = line.sent.filter { $0.method == "_acpmux/sessions" }
