@@ -38,6 +38,7 @@ interface SignupChiefHost {
   readonly platform: DefaultMachinePlatform | undefined
   current(): UserState | undefined
   deliver(items: ReadonlyArray<TargetItem>): Promise<DeliverResult>
+  activate(agent: string, owner: string): Promise<{ ok: true } | { ok: false; reason: string }>
   bind(machine: ChiefCloudMachine, key: string): SubmitResult
 }
 
@@ -51,21 +52,38 @@ export const deliverSignupChief = async (entity: string, source: string, items: 
       throw provisioningFailure("chief.provision.invalid_item", false)
     }
   }
-  // A missing service binding is retryable deployment state. Do not create half of signup's resources.
-  if (!host.platform) throw provisioningFailure("chief.provision.platform_unbound")
+  const activate = async (agent: string) => {
+    let activated: Awaited<ReturnType<SignupChiefHost["activate"]>>
+    try { activated = await host.activate(agent, entity) } catch { throw provisioningFailure("chief.provision.brain_unreachable") }
+    // The settings object writes its initial enable only once. A later user disable wins.
+    if (!activated.ok && activated.reason !== "disabled") throw provisioningFailure(`chief.provision.${activated.reason}`, ["provisioning_pending", "owner.unreachable"].includes(activated.reason))
+  }
   const done: Array<number> = []
   for (const item of items) {
-    if (item.op !== DEFAULT_CHIEF_PROVISION) { done.push(...(await host.deliver([item])).done); continue }
+    if (item.op !== DEFAULT_CHIEF_PROVISION) {
+      const delivered = await host.deliver([item])
+      if (item.op === DEFAULT_CHIEF_ENSURE && delivered.done.includes(item.id)) {
+        const state = host.current()!
+        const chief = state.hosted_default ? state.chiefs?.[state.hosted_default] : undefined
+        if (chief && chief.archived_at === null && !chief.brain_place) await activate(chief.id)
+      }
+      done.push(...delivered.done)
+      continue
+    }
     const state = host.current()!
     const chief = state.hosted_default ? state.chiefs?.[state.hosted_default] : undefined
     // A person archived, deleted or moved their Chief while provisioning was outstanding.
-    if (!chief || chief.archived_at !== null || chief.brain_place || chief.cloud_machine) { done.push(item.id); continue }
+    if (!chief || chief.archived_at !== null || chief.brain_place) { done.push(item.id); continue }
+    if (chief.cloud_machine) { await activate(chief.id); done.push(item.id); continue }
+    // A missing service binding is retryable deployment state. The Chief ensure above remains committed.
+    if (!host.platform) throw provisioningFailure("chief.provision.platform_unbound")
     const machine = await ensureChiefMachine(host.platform, entity, () => host.current()!)
     const current = host.current()?.chiefs?.[chief.id]
     if (!current || current.archived_at !== null || current.brain_place) { done.push(item.id); continue }
     const reply = host.bind(machine, item.key).frames.find((f) => f.t === "reject" || f.t === "result")
     if (!reply) throw provisioningFailure("chief.provision.bind_unanswered")
     if (reply.t === "reject") throw provisioningFailure(reply.code, reply.retryable === true)
+    await activate(chief.id)
     done.push(item.id)
   }
   return { done }

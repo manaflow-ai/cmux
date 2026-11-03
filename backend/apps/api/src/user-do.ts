@@ -151,6 +151,7 @@ export class UserDO extends OwnerDO<UserState> {
       platform: this.signupPlatform(),
       current: () => this.isBound(entity) ? this.bind(entity).currentState : undefined,
       deliver: (batch) => super.systemDeliver(entity, source, batch),
+      activate: (agent, owner) => this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(agent)).activateDefault(agent, owner),
       bind: (machine, key) => this.submitSystem(DEFAULT_CHIEF_BIND, machine, key, defaultChiefIdentity(entity))
     })
   }

@@ -119,6 +119,7 @@ describe("signup default Chief", () => {
     const host = {
       platform: platform(),
       current: () => state,
+      activate: async () => ({ ok: true as const }),
       deliver: async (batch: ReadonlyArray<TargetItem>) => {
         for (const item of batch) state = decided(userDomain.reduce(state, item.op, item.params, context())).state
         return { done: batch.map((item) => item.id) }
@@ -158,7 +159,7 @@ describe("signup outbox integration", () => {
     const result = await (stub as unknown as { submit(e: string, p: Principal, f: unknown): Promise<{ frames: Array<{ t: string }> }> }).submit(user, request, { t: "op", op: "user.ensure", params: {}, idempotency_key: "signup", origin: "user" })
     expect(result.frames.some((f) => f.t === "result")).toBe(true)
     await fireAlarm(stub)
-    await runInDurableObject(stub, async (i, s) => {
+    const chiefId = await runInDurableObject(stub, async (i, s) => {
       await quiesce(i, s)
       const state = i.boundEngine.currentState as UserState
       const chief = state.chiefs?.[state.hosted_default!]
@@ -166,6 +167,23 @@ describe("signup outbox integration", () => {
       expect(chief?.cloud_machine?.install).toMatch(/^inst_[0-9a-f]{20}$/)
       expect(Object.values(state.chiefs ?? {})).toHaveLength(1)
       expect(i.boundEngine.outbox.allPending(100).filter((o: { kind: string }) => o.kind === DEFAULT_CHIEF_ENSURE || o.kind === DEFAULT_CHIEF_PROVISION)).toEqual([])
+      return chief!.id
     })
+    const brains = (env as unknown as { CHIEF_BRAIN_DO: DurableObjectNamespace }).CHIEF_BRAIN_DO
+    const brain = brains.get(brains.idFromName(chiefId)) as unknown as {
+      status(): Promise<{ config: { enabled: boolean } }>
+      configure(agent: string, owner: string, patch: { enabled: boolean }): Promise<{ ok: boolean }>
+      admit(agent: string, owner: string, turn: boolean): Promise<{ ok: boolean; reason?: string }>
+    }
+    expect((await brain.status()).config.enabled).toBe(true)
+    // Signup enabled the server-first Chief; machine execution's route stays pending until validated.
+    expect(await brain.admit(chiefId, user, true)).toEqual({ ok: false, reason: "provisioning_pending" })
+    expect(await brain.configure(chiefId, user, { enabled: false })).toMatchObject({ ok: true })
+    // A crash after activation can replay signup even after the owner deliberately turned it off.
+    await (stub as unknown as { systemDeliver(e: string, source: string, items: Array<TargetItem>): Promise<unknown> }).systemDeliver(user, `user:${user}`, [
+      { id: 100, op: DEFAULT_CHIEF_ENSURE, key: HOSTED_DEFAULT_KEY, params: {} }
+    ])
+    expect((await brain.status()).config.enabled).toBe(false)
+    expect(await brain.admit(chiefId, user, true)).toEqual({ ok: false, reason: "disabled" })
   }, 60_000)
 })
