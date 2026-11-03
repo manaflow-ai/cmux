@@ -23,7 +23,6 @@
   }
 }
 .lg-sheet.hc-chief-work {
-  --chief-work-spinner: 10px;
   animation: none;
 }
 .hc-chief-work__header {
@@ -153,20 +152,6 @@
   padding: 24px 0;
   margin: 0;
 }
-.hc-chief-work__spinner {
-  width: var(--chief-work-spinner);
-  height: var(--chief-work-spinner);
-  border: 1px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 50%;
-}
-/* motion: allow shared spinner only while authoritative state is working; removed with row/panel. */
-@media (prefers-reduced-motion: no-preference) {
-  :root:not([data-cmux-motion="off"]) .hc-chief-work__spinner {
-    animation: cmux-spin var(--cmux-spinner-period) linear infinite;
-  }
-}
-
 .hc-chief-work__finished > summary {
   min-height: var(--chief-work-touch);
   padding-block: 12px;

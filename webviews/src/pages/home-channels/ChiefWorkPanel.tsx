@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import { StatusGlyph } from "../../ui/StatusGlyph";
 import type { Strings } from "../shared/i18n";
@@ -159,7 +160,7 @@ function TaskRow({ task, strings }: { task: HomeChiefWork["tasks"][number]; stri
 }
 
 function Mark({ state }: { state: string }): ReactNode {
-  if (state === "working" || state === "running") return <span className="hc-chief-work__spinner" aria-hidden="true" />;
+  if (state === "working" || state === "running") return <Spinner size={10} />;
   return (
     <StatusGlyph
       name={state === "failed" ? "error" : state === "done" ? "done" : state === "waiting" ? "waiting" : "idle"}

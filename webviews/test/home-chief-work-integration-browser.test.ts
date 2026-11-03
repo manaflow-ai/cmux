@@ -60,6 +60,11 @@ await requireBrowserLane("home-chief-work-integration-browser.test.ts", async ()
         await panel.getByText("Build a hello page", { exact: true }).waitFor();
         await panel.getByText("Review the finished preview", { exact: true }).waitFor();
         await panel.getByText("Background commands", { exact: true }).waitFor();
+        const spinner = panel.locator(".cv-spinner").first();
+        expect(await spinner.evaluate((element) => getComputedStyle(element).animationName)).toBe("cmux-spin");
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        expect(await spinner.evaluate((element) => getComputedStyle(element).animationName)).toBe("none");
+        await page.emulateMedia({ reducedMotion: "no-preference" });
         expect(await toggle.getAttribute("aria-pressed")).toBe("true");
         expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
         if (width === 1600) {
