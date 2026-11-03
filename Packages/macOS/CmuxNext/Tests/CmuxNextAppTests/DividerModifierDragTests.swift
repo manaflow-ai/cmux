@@ -172,7 +172,7 @@ struct DividerModifierDragTests {
     @Test func shiftLandsADividerOnTheNearestSnapEvenFarFromIt() throws {
         let screen = Screen(.splits(.split("x", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2"))))
         defer { screen.window.closeAfterTest() }
-        // 0.3 + 230 pt of 1600 is about 0.44: free without Shift (8 pt snap reach), a half with it.
+        // 0.3 + 230 pt of 1600 is about 0.44: where the pointer lets go without Shift, a half with it.
         try screen.drag(.split("x"), by: 230, flags: .shift)
         #expect(screen.ratio("x") == 0.5)
     }

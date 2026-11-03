@@ -17,7 +17,7 @@ struct DividerDragState {
     /// began (rows.md Z1).
     var rows: RowDragStart?
     /// A split's snap ratios: halves, thirds and its chain's equal share
-    /// (cx-piioc), and the one the divider sits on now.
+    /// (cx-piioc), and the snap a Shift release lands on now (a split's ratio, a column edge's preset width).
     var snaps: [Double] = []
     var snapped: Double?
     /// The pointer along `axis` (content space) and its velocity in pt/s,
@@ -73,31 +73,41 @@ struct DividerDragState {
         return velocity
     }
 
-    /// How close, in points, a split divider comes to a snap before it lands there.
-    static let snapDistance: CGFloat = 8
     static func snaps(equalShare: Double?) -> [Double] {
         let thirds = [1.0 / 3, 0.5, 2.0 / 3]
         return thirds + [equalShare].compactMap { $0 }.filter { !thirds.contains($0) }
     }
 
-    /// The snap reach for the modifiers held: none with Control, any distance with Shift.
-    var snapReach: CGFloat {
-        if modifiers.fine { return 0 }
-        return modifiers.snap ? .infinity : Self.snapDistance
+    /// Shift without Control: the release lands on a snap (resize-modifiers.md). The drag itself follows the pointer
+    /// in every mode: no snap holds the divider and none pulls it (FRAME OWNER REFACTOR KEYS).
+    var landsOnSnap: Bool { modifiers.snap && !modifiers.fine }
+
+    /// A split divider's ratio with the pointer at `point` (content space): the pointer's own, and at a Shift release
+    /// the nearest snap that keeps both sides' minimums. While Shift is held, a change of the snap the release would
+    /// land on plays the alignment haptic.
+    mutating func splitRatio(at point: CGPoint, style: LayoutStyle, phase: LayoutGesturePhase) -> Double {
+        func ratio(snapping: Bool) -> Double {
+            SplitGeometry.ratio(forPointer: axis == .horizontal ? point.x : point.y, grabOffset: grabOffset, container: container,
+                                axis: axis, style: style, minimumA: minimumA, minimumB: minimumB,
+                                snaps: snapping ? snaps : [], snapDistance: snapping ? .infinity : 0)
+        }
+        let free = ratio(snapping: false)
+        guard landsOnSnap else {
+            snapped = nil
+            return free
+        }
+        let landing = ratio(snapping: true)
+        return land(on: snaps.contains(landing) ? landing : nil, phase: phase) ?? free
     }
 
-    /// A split divider's ratio with the pointer at `point` (content space),
-    /// snapped; entering a snap mid-drag plays the alignment haptic.
-    mutating func splitRatio(at point: CGPoint, style: LayoutStyle, phase: LayoutGesturePhase) -> Double {
-        let ratio = SplitGeometry.ratio(forPointer: axis == .horizontal ? point.x : point.y, grabOffset: grabOffset, container: container,
-                                        axis: axis, style: style, minimumA: minimumA, minimumB: minimumB,
-                                        snaps: snaps, snapDistance: snapReach)
-        let landed = snaps.contains(ratio) ? ratio : nil
-        if let landed, landed != snapped, phase != .ended {
+    /// Notes `snap` as the one a Shift release lands on (the alignment haptic when it changes mid-drag); returns it at
+    /// the release, nil before it (the drag follows the pointer).
+    mutating func land(on snap: Double?, phase: LayoutGesturePhase) -> Double? {
+        if let snap, snap != snapped, phase != .ended {
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
         }
-        snapped = landed
-        return ratio
+        snapped = snap
+        return phase == .ended ? snap : nil
     }
 }
 
