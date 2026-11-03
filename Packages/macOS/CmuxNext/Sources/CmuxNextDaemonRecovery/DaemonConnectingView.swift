@@ -18,6 +18,10 @@ public final class DaemonConnectingView: NSView {
     private let titleLabel = ChromeLabel(labelWithString: "")
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private let copyDetailsButton = ThemedBezelButton(title: "", target: nil, action: nil)
+    /// While the owner restores: how far its job is (shown only when the job knows its size; no
+    /// indeterminate animation), and the "don't quit" line.
+    private let progressBar = LongJobProgressBar()
+    private let guidanceLabel = NSTextField(wrappingLabelWithString: "")
     private let recoveryControls: DaemonRecoveryControls?
     /// The failure's raw text, for Copy Details.
     private var failureDetails = ""
@@ -60,7 +64,15 @@ public final class DaemonConnectingView: NSView {
         copyDetailsButton.target = self
         copyDetailsButton.action = #selector(copyDetails)
         copyDetailsButton.isHidden = true
-        var views: [NSView] = [mark, titleLabel, detailLabel]
+        progressBar.isHidden = true
+        progressBar.translatesAutoresizingMaskIntoConstraints = false
+        progressBar.widthAnchor.constraint(equalToConstant: 240).isActive = true
+        progressBar.setAccessibilityIdentifier("cmux.daemon.restoring.progress")
+        guidanceLabel.font = Typography.caption
+        guidanceLabel.alignment = .center
+        guidanceLabel.maximumNumberOfLines = 3
+        guidanceLabel.isHidden = true
+        var views: [NSView] = [mark, titleLabel, detailLabel, progressBar, guidanceLabel]
         if let recoveryControls { views.append(recoveryControls) }
         let stack = NSStackView(views: views + [copyDetailsButton])
         stack.orientation = .vertical
@@ -87,6 +99,7 @@ public final class DaemonConnectingView: NSView {
         performWithTheme {
             titleLabel.textColor = Palette.textSecondary
             detailLabel.textColor = Palette.textSecondary
+            guidanceLabel.textColor = Palette.textSecondary
         }
     }
 
@@ -126,10 +139,33 @@ public final class DaemonConnectingView: NSView {
             titleLabel.alphaValue = statusDue ? 1 : 0
             detailLabel.stringValue = ""
             detailLabel.isHidden = true
+            hideRestoring()
             copyDetailsButton.isHidden = true
             recoveryControls?.isOffered = false
             staggerIfConnecting()
+        case .restoring(let jobs):
+            // The owner is alive and busy: what it does, how far, and to wait. No failure, no Copy
+            // Details and no Restart (restarting it would start the job over).
+            cancelStagger()
+            statusDue = true
+            titleLabel.alphaValue = 1
+            if !mark.isRevealed { mark.reveal() }
+            let job = jobs.first { $0.holds(.startup) } ?? jobs.first
+            titleLabel.stringValue = job?.displayTitle ?? LongJob.restoringTerminals
+            detailLabel.stringValue = [job?.percentText, job?.detailText].compactMap(\.self).joined(separator: " · ")
+            detailLabel.isHidden = detailLabel.stringValue.isEmpty
+            if let fraction = job?.fraction {
+                progressBar.set(fraction: fraction)
+                progressBar.isHidden = false
+            } else {
+                progressBar.isHidden = true
+            }
+            guidanceLabel.stringValue = DaemonRecoveryStrings.dontQuit
+            guidanceLabel.isHidden = false
+            copyDetailsButton.isHidden = true
+            recoveryControls?.isOffered = false
         case .unavailable(let error):
+            hideRestoring()
             cancelStagger()
             statusDue = true
             titleLabel.alphaValue = 1
@@ -147,10 +183,20 @@ public final class DaemonConnectingView: NSView {
             copyDetailsButton.isHidden = false
             recoveryControls?.isOffered = true
         }
-        setAccessibilityLabel([titleLabel.stringValue, detailLabel.stringValue].filter { !$0.isEmpty }.joined(separator: ". "))
+        setAccessibilityLabel([titleLabel.stringValue, detailLabel.stringValue, guidanceLabel.isHidden ? "" : guidanceLabel.stringValue]
+            .filter { !$0.isEmpty }.joined(separator: ". "))
     }
 
     var titleText: String { titleLabel.stringValue }
+    var detailText: String { detailLabel.stringValue }
+    var guidanceText: String? { guidanceLabel.isHidden ? nil : guidanceLabel.stringValue }
+    var progressShown: Double? { progressBar.isHidden ? nil : progressBar.fraction }
+
+    private func hideRestoring() {
+        progressBar.isHidden = true
+        guidanceLabel.isHidden = true
+        guidanceLabel.stringValue = ""
+    }
 
     /// What the user can expect, in plain words, or nil when no advice would be true (another
     /// app serves the socket, a bad launch tag): Copy Details carries the specifics.

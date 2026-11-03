@@ -49,7 +49,7 @@ extension DaemonService {
                                                 terminalEnvironment: terminalEnvironment,
                                                 daemonEnvironment: firstPartyAppsEnvironment,
                                                 webSocketPageOrigins: pageOrigins) else { return nil }
-        return DaemonPrestart(launcher: launcher, configuration: launcher.handingOffIncompatibleOwners(localConfiguration(
+        return DaemonPrestart(launcher: launcher, configuration: launcher.localOwnerHooks(localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift,
             requestLatency: newRequestLatency())))

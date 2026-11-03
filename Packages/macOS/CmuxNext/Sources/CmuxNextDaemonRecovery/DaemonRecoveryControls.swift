@@ -13,6 +13,17 @@ enum DaemonRecoveryStrings {
     }
     static var reinstall: String { String(localized: "daemon.reinstall", defaultValue: "Reinstall cmux to fix this.", bundle: .module) }
     static var copyDetails: String { String(localized: "daemon.copyDetails", defaultValue: "Copy Details", bundle: .module) }
+    /// The Activity indicator's name and its popover's header (plans/cmux-next/long-jobs-DESIGN.md).
+    static var activityTitle: String { String(localized: "activity.title", defaultValue: "Activity", bundle: .module) }
+    /// Under a job in the Activity popover that quitting would interrupt.
+    static var activityQuitRestarts: String {
+        String(localized: "activity.quitRestarts", defaultValue: "Quitting cmux now restarts this.", bundle: .module)
+    }
+    /// Under a restoring owner's job on the launch window (plans/cmux-next/long-jobs-DESIGN.md).
+    static var dontQuit: String {
+        String(localized: "daemon.restoring.dontQuit",
+               defaultValue: "Don’t quit cmux. Your workspaces open when this finishes; quitting now starts it over.", bundle: .module)
+    }
     static var retrying: String { String(localized: "daemon.retrying", defaultValue: "Still retrying in the background.", bundle: .module) }
     static var retryNow: String { String(localized: "daemon.recovery.retryNow", defaultValue: "Retry Now", bundle: .module) }
     static var restart: String { String(localized: "daemon.recovery.restart", defaultValue: "Restart cmux-tui", bundle: .module) }

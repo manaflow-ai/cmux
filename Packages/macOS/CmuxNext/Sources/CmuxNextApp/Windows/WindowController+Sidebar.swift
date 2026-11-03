@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextDaemonRecovery
 import CmuxNextDesign
 import CmuxNextPages
+import CmuxNextSettings
 
 extension WindowController {
     /// The sidebar's shown state reaches the top row: the incognito badge after the traffic lights
@@ -20,6 +22,14 @@ extension WindowController {
         // The host pressure indicator joins the top row after the band and badge (cmuxterm-hq#2995).
         root.hostPressureIndicator = HostPressureIndicatorView(services: services) { [weak self] in
             // Shown or hidden: the top row places it (layoutTitlebarAccessories), then strips avoid it.
+            self?.root.needsLayout = true
+            self?.root.layoutSubtreeIfNeeded()
+            self?.relayoutTopRowStrips()
+        }
+        // The Activity indicator joins after it while long jobs run (plans/cmux-next/long-jobs-DESIGN.md).
+        root.activityIndicator = ActivityIndicatorView(jobs: services.longJobs, labeled: { [weak services] in
+            services?.settings?.snapshot.activityIndicator == .labeled
+        }) { [weak self] in
             self?.root.needsLayout = true
             self?.root.layoutSubtreeIfNeeded()
             self?.relayoutTopRowStrips()

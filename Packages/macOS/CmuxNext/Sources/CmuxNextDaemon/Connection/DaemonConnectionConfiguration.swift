@@ -70,6 +70,10 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// handoff. Only the app's own connections to its local daemon set it
     /// (`DaemonLauncher.handingOffIncompatibleOwners`).
     var incompatibleOwner: (@Sendable (DaemonIdentity, LineTransport) async -> Bool)?
+    /// Whether the owner behind an endpoint whose `identify` got no reply is alive and busy (restoring, a long
+    /// startup job): the handshake timeout then throws ``DaemonError/ownerRestoring(_:)``. Only the app's own
+    /// connections to its local daemon set it (`DaemonLauncher.localOwnerHooks`).
+    var parkedOwner: (@Sendable (DaemonEndpoint) async -> Bool)?
 
     public init(
         clientName: String = "cmux-next",

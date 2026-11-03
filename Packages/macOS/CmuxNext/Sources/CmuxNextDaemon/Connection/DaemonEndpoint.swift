@@ -512,6 +512,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// one closed-history group, so one Reopen Closed brings all of them back
     /// (`StateResourceClient.closeBulk`).
     case layoutBulk = "layout-bulk-v1"
+    /// `jobs-list` and the `jobs-changed` event: the owner's long jobs (cleanups, compaction, journal
+    /// maintenance), which the app's Activity surface shows (plans/cmux-next/long-jobs-DESIGN.md). An owner
+    /// without it shows no jobs after startup, never a dead end.
+    case longJobs = "long_jobs"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -561,7 +565,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
              .terminalSnapshotImages, .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
-             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk:
+             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .longJobs:
             return .optional
         }
     }

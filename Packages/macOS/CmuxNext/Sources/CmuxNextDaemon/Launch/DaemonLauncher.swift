@@ -107,11 +107,15 @@ public struct DaemonLauncher: Sendable {
     let handoff = DaemonHandoffState()
     /// How the last endpoint `ensure` ended: the gate of Restart cmux-tui (DaemonLauncher+Replace).
     public let ensureOutcome = EnsureOutcome()
+    /// What the owner said about its restore while an ensure or a connect waited for it (its jobs).
+    public let restoreProgress = OwnerRestoreProgress()
     let clock: any Clock<Duration>
     private let ensureTimeout: Duration
-    /// Hard cap on one `server ensure`. The daemon bounds a restore itself
-    /// (2 minutes, then `server.restore_timeout`), so this only has to be
-    /// longer than that bound plus the time to reach the owner.
+    /// Hard cap on one `server ensure` of a binary that reports no progress (an external one). With
+    /// `--restore-progress` there is no total cap: the owner's progress lines bound the wait
+    /// (`ensureTimeout` without a line), and the daemon fails only after its own stall bound with no
+    /// job progress (`server.restore_timeout`). A fixed cap here gave up on a 303 s output cleanup that
+    /// was still making progress (incident 2026-11-02, plans/cmux-next/long-jobs-DESIGN.md).
     static let ensureRestoreCap: Duration = .seconds(150)
     private let environmentProvider: @Sendable () async -> [String: String]
 
@@ -335,11 +339,46 @@ public struct DaemonLauncher: Sendable {
             arguments: arguments,
             environment: environment,
             stdin: configuration.installKey?.payload,
-            timeout: progress ? Self.ensureRestoreCap : max(ensureTimeout, Self.ensureRestoreCap),
+            timeout: progress ? nil : max(ensureTimeout, Self.ensureRestoreCap),
             progressIdle: progress ? ensureTimeout : nil,
+            stdoutLine: progress ? restoreLines() : nil,
             clock: clock
         )
         return try Self.parseEnsure(result)
+    }
+
+    /// Hands each restore progress line of a `server ensure --restore-progress` to ``restoreProgress``.
+    func restoreLines() -> @Sendable (String) -> Void {
+        let progress = restoreProgress
+        return { line in
+            guard let report = OwnerRestoreProgress.parse(progressLine: line) else { return }
+            progress.note(report)
+        }
+    }
+
+    /// The local owner behind `socketPath` parked a connection (no `identify` reply in time): the owner's
+    /// report when it is alive and busy, else nil (a real failure). Alive means its `long-jobs.json` names a
+    /// running process (whose jobs it reports), or its socket still accepts a connection (no jobs to name).
+    /// A report also goes to ``restoreProgress``. Runs off the main actor (a file read, a connect).
+    public func parkedOwner(socketPath: String) -> OwnerRestoreProgress.Report? {
+        let report = OwnerJobsFile.url(session: configuration.session, stateDirectory: configuration.stateDirectory)
+            .flatMap(OwnerJobsFile.read)
+            ?? (DaemonSocketMemory.acceptsConnections(socketPath) ? OwnerRestoreProgress.Report() : nil)
+        if let report { restoreProgress.note(report) }
+        return report
+    }
+
+    /// `configuration` with this launcher's hooks for its own local owner: the incompatible-owner
+    /// handoff (``handingOffIncompatibleOwners(_:)``) and the parked-owner check, which turns an
+    /// `identify` that got no reply from a live, busy owner into ``DaemonError/ownerRestoring(_:)``
+    /// instead of a failure.
+    public func localOwnerHooks(_ configuration: DaemonConnection.Configuration) -> DaemonConnection.Configuration {
+        var configuration = handingOffIncompatibleOwners(configuration)
+        let launcher = self
+        configuration.parkedOwner = { endpoint in
+            launcher.parkedOwner(socketPath: endpoint.socketPath) != nil
+        }
+        return configuration
     }
 
     /// The `server ensure` command line for `configuration`. `reapGrace`

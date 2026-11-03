@@ -101,6 +101,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var motionCategories = MotionCategoriesSetting()
     /// `ui.calm`; off when unset or invalid.
     public var calmMode: CalmMode = CalmModeSetting.fallback
+    /// `ui.activityIndicator`; "icon" when unset or invalid.
+    public var activityIndicator: ActivityIndicatorStyle = ActivityIndicatorSetting.fallback
     /// `ui.paneAnimations`; on when unset or invalid.
     public var paneAnimations: Bool = PaneAnimationsSetting.fallback
     /// `layout.centerFocusedColumn`; "never" when unset or invalid.
@@ -358,6 +360,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(MotionCategoriesSetting.parse(root), \.motionCategories)
         snapshot.take(PaneAnimationsSetting.parse(root), \.paneAnimations)
         snapshot.take(CalmModeSetting.parse(root), \.calmMode)
+        snapshot.take(ActivityIndicatorSetting.parse(root), \.activityIndicator)
         let (centering, centeringDiagnostic) = CenterFocusedColumnSetting.parse(root)
         snapshot.centerFocusedColumn = centering
         if let centeringDiagnostic { snapshot.diagnostics.append(centeringDiagnostic) }

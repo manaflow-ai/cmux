@@ -1,4 +1,5 @@
 import Foundation
+public import CmuxNextWakeups
 
 /// How the first connection to a daemon is going, for the window's
 /// connecting state and the control socket's errors.
@@ -12,10 +13,27 @@ public enum DaemonStartupState: Sendable, Equatable {
     /// incompatible. Carries the last failure. Retrying continues unless
     /// `isPermanent`.
     case unavailable(DaemonError)
+    /// The local session owner is alive and busy before it accepts clients: it restores the
+    /// session or runs a long startup job (`server ensure` progress lines, the owner's
+    /// `long-jobs.json`, or a parked `identify` on its live socket). Carries the jobs it named,
+    /// empty when it named none (an older daemon). Not a failure: the window shows the jobs and
+    /// says to wait, and nothing tells the person to quit (plans/cmux-next/long-jobs-DESIGN.md).
+    case restoring([LongJob])
 
     public var isUnavailable: Bool {
         if case .unavailable = self { return true }
         return false
+    }
+
+    public var isRestoring: Bool {
+        if case .restoring = self { return true }
+        return false
+    }
+
+    /// The jobs the restoring owner named (empty in every other state).
+    public var restoringJobs: [LongJob] {
+        if case .restoring(let jobs) = self { return jobs }
+        return []
     }
 
     /// Whether a failed connect attempt marks the store failed now (`DaemonStore.markFailed`). A launch's
@@ -23,8 +41,12 @@ public enum DaemonStartupState: Sendable, Equatable {
     /// read "Unreachable" and "offline" on every launch: while connecting only a failure no retry can fix
     /// shows (`DaemonStartup.isPermanent`, or `retries` false: no attempt follows). Past the deadline
     /// (`DaemonService` marks the last failure then) or after a connection was up, every failure shows.
+    /// A parked `identify` on the live local owner (``DaemonError/ownerRestoring(_:)``) never shows: the owner is alive
+    /// and the window shows its jobs instead. While restoring, only a failure no retry can fix shows at once.
     public func showsFailure(_ error: DaemonError, retries: Bool) -> Bool {
-        self != .connecting || !retries || DaemonStartup.shared.isPermanent(error)
+        if retries, case .ownerRestoring = error { return false }
+        if isRestoring { return !retries || DaemonStartup.shared.isPermanent(error) }
+        return self != .connecting || !retries || DaemonStartup.shared.isPermanent(error)
     }
 }
 
@@ -57,9 +79,13 @@ public struct DaemonStartup: Sendable {
     /// past the budget the loop would wait for an event only, while a restore
     /// that ends behind the same socket fires none, so a page stayed "not
     /// connected" next to a ready daemon (cx-4bd8m).
+    /// A parked `identify` on the live local owner (``DaemonError/ownerRestoring(_:)``) is the same: the owner is
+    /// alive and busy, so the next attempt waits for it again (the incident of 2026-11-02, long-jobs-DESIGN.md).
     public func ownerIsRestoring(_ error: DaemonError) -> Bool {
-        if case .sessionRestoreTimedOut = error { return true }
-        return false
+        switch error {
+        case .sessionRestoreTimedOut, .ownerRestoring: true
+        default: false
+        }
     }
 
     /// Makes a fresh connection per attempt and starts it until one

@@ -10,7 +10,7 @@ extension DaemonService {
     /// The socket for dedicated terminal attachments (re-read on reconnect).
     public func endpoint() async throws -> DaemonEndpoint {
         if policyBlock.isBlocked { throw DaemonError.endpointBlocked("turned off by your organization") }
-        if connection == nil, startup == .connecting, isStarting { await firstConnection() }
+        if connection == nil, startup == .connecting || startup.isRestoring, isStarting { await firstConnection() }
         guard let connection, let endpoint = await connection.endpoint else { throw DaemonError.notConnected }
         return endpoint
     }

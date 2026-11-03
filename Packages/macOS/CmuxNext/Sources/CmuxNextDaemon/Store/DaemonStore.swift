@@ -409,6 +409,12 @@ public final class DaemonStore: StateResourceQueries {
         connectionState = .failed(message)
     }
 
+    /// Takes back a failure mark: the owner turned out alive and restoring (`DaemonStartupState.restoring`), so the
+    /// store waits for it again instead of reading "unreachable".
+    public func clearFailure() {
+        if case .failed = connectionState { connectionState = .connecting }
+    }
+
     /// A remote machine's reconnect spent its timed retries and waits for an event only
     /// (`DaemonConnection.observeRetriesSpent`): its header reads offline, not connecting (HQ
     /// #4877 G4). Cleared by the next connect and by a new attempt.

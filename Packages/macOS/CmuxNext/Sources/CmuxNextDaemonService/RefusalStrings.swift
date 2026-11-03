@@ -126,9 +126,11 @@ public nonisolated enum RefusalStrings {
     public static var incognitoUnanswered: String {
         text("handlers.refusal.incognitoUnanswered", "The incognito window did not open: cmux’s background service did not answer.")
     }
-    /// The local daemon could not start (the window shows why).
+    /// The local daemon could not be reached (the window shows why, with Retry Now and Restart cmux-tui). Never
+    /// advice to quit: the owner may be alive and busy, and quitting would restart its work (long-jobs-DESIGN.md).
     static var daemonUnavailable: String {
-        text("handlers.refusal.daemonUnavailable", "cmux could not start its background service. Quit and reopen cmux to try again.")
+        text("handlers.refusal.daemonUnavailable",
+             "cmux can't reach its background service yet and keeps trying. To try now, use Retry Now or Restart cmux-tui in the window.")
     }
     /// Why a change or a start did not happen: the disk under cmux-tui's state is full (restore fuzz h2, h3).
     /// A reason after "<action> did not apply: " and inside cmux-tui's start notice.
@@ -144,6 +146,7 @@ public nonisolated enum RefusalStrings {
     public static func describe(_ error: any Error) -> String {
         if case DaemonError.missingCapabilities(let names) = error { return needsDaemonCapability(names.first ?? "") }
         if case DaemonError.sessionRestoreTimedOut = error { return daemonRestoreTimedOut }
+        if case DaemonError.ownerRestoring = error { return restoring([]) }
         return String(describing: error)
     }
     /// The home session's spaces and workspace groups are not loaded yet.

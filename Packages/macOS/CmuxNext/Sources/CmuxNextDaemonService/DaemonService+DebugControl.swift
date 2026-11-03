@@ -1,5 +1,6 @@
 public import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextWakeups
 
 #if DEBUG || CMUX_BENCH_HOOKS
 extension DaemonService {
@@ -68,6 +69,9 @@ extension DaemonService {
             switch startup {
             case .connecting: report["startup"] = .string("connecting")
             case .connected: report["startup"] = .string("connected")
+            case .restoring(let jobs):
+                report["startup"] = .string("restoring")
+                report["startup_jobs"] = .array(jobs.map { job in .string(job.percent.map { "\(job.kind) \($0)%" } ?? job.kind) })
             case .unavailable(let error):
                 report["startup"] = .string("unavailable")
                 report["startup_error"] = .string(String(describing: error))

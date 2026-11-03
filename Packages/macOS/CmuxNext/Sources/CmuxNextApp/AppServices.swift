@@ -184,6 +184,9 @@ final class AppServices {
     let registry: ActionRegistry
     /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking`, and its log sink (``BlockingLogSink``).
     let blocking = BlockingDetector.forProcess()
+    /// Every long job of every machine's daemon and of the app (plans/cmux-next/long-jobs-DESIGN.md): the window's
+    /// Activity indicator reads it, app work registers in it.
+    let longJobs = LongJobs()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater: UpdaterService
     /// The file picker made ahead of the click, the app's one: agent panes, page file inputs and Home's "+" take it.
@@ -587,6 +590,7 @@ final class AppServices {
         crashReporting = AppCrashReporting(environment: environment)
         DebugTimings.markLaunch("services.crash_reporting")
         machines = MachineRegistry(local: daemon, updates: daemonUpdates.board)
+        longJobs.daemonJobs = { [weak machines] in machines?.daemons.flatMap(\.jobs) ?? [] }
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         _ = cloud  // built here, as before
         _ = feed  // built here, as before
@@ -743,6 +747,7 @@ final class AppServices {
         _ = configActions  // built here, as before
         let updateSheet = self.updateSheet  // built here, as before
         updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
+        updater.trackLongJobs(in: longJobs)
         serverUpdates.start(registry: registry)
         cache.onBrowserReady = { [weak self] key in
             self?.keyRouter.creationInputCoordinator.holdEnds.pageArrived(key); for controller in self?.windows.controllers ?? [] {

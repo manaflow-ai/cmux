@@ -1,6 +1,530 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "handlers.refusal.restoringTerminals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is still restoring your terminals. Wait for it to finish."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال cmux يستعيد الطرفيات. انتظر حتى ينتهي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux još vraća vaše terminale. Sačekajte da završi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux gendanner stadig dine terminaler. Vent, til det er færdigt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux stellt deine Terminals noch wieder her. Warte, bis es fertig ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux todavía está restaurando tus terminales. Espera a que termine."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux restaure encore vos terminaux. Attendez la fin."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sta ancora ripristinando i terminali. Attendi che finisca."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はまだターミナルを復元しています。終わるまでお待ちください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux នៅតែកំពុងស្ដារស្ថានីយរបស់អ្នក។ សូមរង់ចាំរហូតដល់វាបញ្ចប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 아직 터미널을 복원하고 있습니다. 끝날 때까지 기다리세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux gjenoppretter fortsatt terminalene dine. Vent til det er ferdig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nadal przywraca terminale. Poczekaj, aż skończy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux ainda está restaurando seus terminais. Aguarde até terminar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ещё восстанавливает терминалы. Дождитесь окончания."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ยังคงกู้คืนเทอร์มินัลของคุณอยู่ โปรดรอจนกว่าจะเสร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux terminallerinizi hâlâ geri yüklüyor. Bitmesini bekleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ще відновлює термінали. Зачекайте, доки завершиться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux vẫn đang khôi phục các terminal của bạn. Hãy chờ đến khi xong."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 仍在恢复你的终端。请等待它完成。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 仍在還原你的終端機。請等待它完成。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.restoringOutputCleanup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is cleaning up stored terminal output (%@). Wait for it to finish; quitting now restarts it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يقوم cmux بتنظيف مخرجات الطرفية المخزّنة (%@). انتظر حتى ينتهي؛ الخروج الآن يعيد بدء العملية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux čisti sačuvani izlaz terminala (%@). Sačekajte da završi; ako sada zatvorite, počinje ispočetka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux rydder op i gemt terminaloutput (%@). Vent, til det er færdigt; hvis du afslutter nu, starter det forfra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bereinigt gespeicherte Terminalausgabe (%@). Warte, bis es fertig ist; wenn du jetzt beendest, beginnt es von vorn."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux está limpiando la salida de terminal guardada (%@). Espera a que termine; si sales ahora, vuelve a empezar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nettoie la sortie de terminal enregistrée (%@). Attendez la fin ; quitter maintenant la fait recommencer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sta pulendo l’output del terminale salvato (%@). Attendi che finisca; se esci ora, ricomincia da capo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は保存済みのターミナル出力を整理しています（%@）。終わるまでお待ちください。今終了すると最初からやり直しになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux កំពុងសម្អាតលទ្ធផលស្ថានីយដែលបានរក្សាទុក (%@)។ សូមរង់ចាំរហូតដល់វាបញ្ចប់; ការចាកចេញឥឡូវនេះនឹងចាប់ផ្ដើមវាឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 저장된 터미널 출력을 정리하고 있습니다(%@). 끝날 때까지 기다리세요. 지금 종료하면 처음부터 다시 시작합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux rydder opp i lagret terminalutdata (%@). Vent til det er ferdig; avslutter du nå, starter det på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux porządkuje zapisane dane wyjściowe terminala (%@). Poczekaj, aż skończy; zamknięcie teraz zacznie to od nowa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux está limpando a saída de terminal armazenada (%@). Aguarde até terminar; sair agora faz recomeçar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux очищает сохранённый вывод терминала (%@). Дождитесь окончания: если выйти сейчас, всё начнётся заново."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux กำลังล้างเอาต์พุตเทอร์มินัลที่จัดเก็บไว้ (%@) โปรดรอจนกว่าจะเสร็จ หากออกตอนนี้จะเริ่มใหม่ตั้งแต่ต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kayıtlı terminal çıktısını temizliyor (%@). Bitmesini bekleyin; şimdi çıkarsanız baştan başlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux очищує збережений вивід термінала (%@). Зачекайте, доки завершиться: якщо вийти зараз, усе почнеться спочатку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux đang dọn dẹp đầu ra terminal đã lưu (%@). Hãy chờ đến khi xong; thoát lúc này sẽ khiến nó chạy lại từ đầu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 正在清理已存储的终端输出（%@）。请等待它完成；现在退出会让它重新开始。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 正在清理已儲存的終端機輸出（%@）。請等待它完成；現在結束會讓它重新開始。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.restoringJobProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is busy: %1$@ (%2$@). Wait for it to finish; quitting now restarts it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux مشغول: %1$@ (%2$@). انتظر حتى ينتهي؛ الخروج الآن يعيد بدء العملية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux je zauzet: %1$@ (%2$@). Sačekajte da završi; ako sada zatvorite, počinje ispočetka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux er optaget: %1$@ (%2$@). Vent, til det er færdigt; hvis du afslutter nu, starter det forfra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ist beschäftigt: %1$@ (%2$@). Warte, bis es fertig ist; wenn du jetzt beendest, beginnt es von vorn."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux está ocupado: %1$@ (%2$@). Espera a que termine; si sales ahora, vuelve a empezar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux est occupé : %1$@ (%2$@). Attendez la fin ; quitter maintenant la fait recommencer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux è occupato: %1$@ (%2$@). Attendi che finisca; se esci ora, ricomincia da capo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は処理中です: %1$@（%2$@）。終わるまでお待ちください。今終了すると最初からやり直しになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux កំពុងរវល់៖ %1$@ (%2$@)។ សូមរង់ចាំរហូតដល់វាបញ្ចប់; ការចាកចេញឥឡូវនេះនឹងចាប់ផ្ដើមវាឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 작업 중입니다: %1$@(%2$@). 끝날 때까지 기다리세요. 지금 종료하면 처음부터 다시 시작합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux er opptatt: %1$@ (%2$@). Vent til det er ferdig; avslutter du nå, starter det på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux jest zajęty: %1$@ (%2$@). Poczekaj, aż skończy; zamknięcie teraz zacznie to od nowa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux está ocupado: %1$@ (%2$@). Aguarde até terminar; sair agora faz recomeçar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux занят: %1$@ (%2$@). Дождитесь окончания: если выйти сейчас, всё начнётся заново."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux กำลังทำงาน: %1$@ (%2$@) โปรดรอจนกว่าจะเสร็จ หากออกตอนนี้จะเริ่มใหม่ตั้งแต่ต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux meşgul: %1$@ (%2$@). Bitmesini bekleyin; şimdi çıkarsanız baştan başlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux зайнятий: %1$@ (%2$@). Зачекайте, доки завершиться: якщо вийти зараз, усе почнеться спочатку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux đang bận: %1$@ (%2$@). Hãy chờ đến khi xong; thoát lúc này sẽ khiến nó chạy lại từ đầu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 正忙：%1$@（%2$@）。请等待它完成；现在退出会让它重新开始。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 正忙：%1$@（%2$@）。請等待它完成；現在結束會讓它重新開始。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.restoringJob": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is busy: %@. Wait for it to finish; quitting now restarts it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux مشغول: %@. انتظر حتى ينتهي؛ الخروج الآن يعيد بدء العملية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux je zauzet: %@. Sačekajte da završi; ako sada zatvorite, počinje ispočetka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux er optaget: %@. Vent, til det er færdigt; hvis du afslutter nu, starter det forfra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ist beschäftigt: %@. Warte, bis es fertig ist; wenn du jetzt beendest, beginnt es von vorn."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux está ocupado: %@. Espera a que termine; si sales ahora, vuelve a empezar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux est occupé : %@. Attendez la fin ; quitter maintenant la fait recommencer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux è occupato: %@. Attendi che finisca; se esci ora, ricomincia da capo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は処理中です: %@。終わるまでお待ちください。今終了すると最初からやり直しになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux កំពុងរវល់៖ %@។ សូមរង់ចាំរហូតដល់វាបញ្ចប់; ការចាកចេញឥឡូវនេះនឹងចាប់ផ្ដើមវាឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 작업 중입니다: %@. 끝날 때까지 기다리세요. 지금 종료하면 처음부터 다시 시작합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux er opptatt: %@. Vent til det er ferdig; avslutter du nå, starter det på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux jest zajęty: %@. Poczekaj, aż skończy; zamknięcie teraz zacznie to od nowa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux está ocupado: %@. Aguarde até terminar; sair agora faz recomeçar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux занят: %@. Дождитесь окончания: если выйти сейчас, всё начнётся заново."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux กำลังทำงาน: %@ โปรดรอจนกว่าจะเสร็จ หากออกตอนนี้จะเริ่มใหม่ตั้งแต่ต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux meşgul: %@. Bitmesini bekleyin; şimdi çıkarsanız baştan başlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux зайнятий: %@. Зачекайте, доки завершиться: якщо вийти зараз, усе почнеться спочатку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux đang bận: %@. Hãy chờ đến khi xong; thoát lúc này sẽ khiến nó chạy lại từ đầu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 正忙：%@。请等待它完成；现在退出会让它重新开始。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 正忙：%@。請等待它完成；現在結束會讓它重新開始。"
+          }
+        }
+      }
+    },
     "handlers.refusal.noNewMessage": {
       "comment": "Refusal of Close New Message when no New Message draft is open.",
       "extractionState": "manual",
@@ -23334,127 +23858,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not start its background service. Quit and reopen cmux to try again."
+            "value": "cmux can't reach its background service yet and keeps trying. To try now, use Retry Now or Restart cmux-tui in the window."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "تعذّر على cmux بدء خدمته في الخلفية. أغلق cmux وافتحه من جديد للمحاولة مرة أخرى."
+            "state": "translated",
+            "value": "لا يستطيع cmux الوصول إلى خدمته في الخلفية بعد ويواصل المحاولة. للمحاولة الآن، استخدم «أعد المحاولة الآن» أو «أعد تشغيل cmux-tui» في النافذة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux nije mogao pokrenuti svoj pozadinski servis. Zatvorite i ponovo otvorite cmux da pokušate ponovo."
+            "state": "translated",
+            "value": "cmux još ne može doći do svog pozadinskog servisa i nastavlja pokušavati. Da pokušate odmah, koristite Pokušaj ponovo sada ili Ponovo pokreni cmux-tui u prozoru."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux kunne ikke starte sin baggrundstjeneste. Afslut og åbn cmux igen for at prøve igen."
+            "state": "translated",
+            "value": "cmux kan endnu ikke nå sin baggrundstjeneste og bliver ved med at prøve. Prøv nu med Prøv igen nu eller Genstart cmux-tui i vinduet."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux konnte seinen Hintergrunddienst nicht starten. Beende cmux und öffne es erneut, um es noch einmal zu versuchen."
+            "state": "translated",
+            "value": "cmux erreicht seinen Hintergrunddienst noch nicht und versucht es weiter. Um es jetzt zu versuchen, nutze „Jetzt erneut versuchen“ oder „cmux-tui neu starten“ im Fenster."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux no pudo iniciar su servicio en segundo plano. Cierra y vuelve a abrir cmux para intentarlo de nuevo."
+            "state": "translated",
+            "value": "cmux todavía no puede acceder a su servicio en segundo plano y sigue intentándolo. Para intentarlo ahora, usa Reintentar ahora o Reiniciar cmux-tui en la ventana."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux n’a pas pu démarrer son service d’arrière-plan. Quittez puis rouvrez cmux pour réessayer."
+            "state": "translated",
+            "value": "cmux ne parvient pas encore à joindre son service d’arrière-plan et continue d’essayer. Pour réessayer maintenant, utilisez Réessayer maintenant ou Redémarrer cmux-tui dans la fenêtre."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux non è riuscito ad avviare il servizio in background. Esci e riapri cmux per riprovare."
+            "state": "translated",
+            "value": "cmux non riesce ancora a raggiungere il suo servizio in background e continua a provare. Per riprovare ora, usa Riprova ora o Riavvia cmux-tui nella finestra."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux はバックグラウンドサービスを起動できませんでした。cmux を終了して再度開き、もう一度お試しください。"
+            "value": "cmux はまだバックグラウンドサービスに接続できず、再試行を続けています。今すぐ試すには、ウインドウの「今すぐ再試行」または「cmux-tui を再起動」を使ってください。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux មិនអាចចាប់ផ្តើមសេវាផ្ទៃខាងក្រោយរបស់វាបានទេ។ បិទ ហើយបើក cmux ម្តងទៀត ដើម្បីព្យាយាមម្តងទៀត។"
+            "state": "translated",
+            "value": "cmux មិនទាន់អាចភ្ជាប់ទៅសេវាផ្ទៃខាងក្រោយរបស់វាបានទេ ហើយនៅតែព្យាយាម។ ដើម្បីព្យាយាមឥឡូវនេះ សូមប្រើ ព្យាយាមឡើងវិញឥឡូវ ឬ ចាប់ផ្ដើម cmux-tui ឡើងវិញ នៅក្នុងបង្អួច។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux가 백그라운드 서비스를 시작하지 못했습니다. cmux를 종료한 후 다시 열어 다시 시도하세요."
+            "state": "translated",
+            "value": "cmux가 아직 백그라운드 서비스에 연결하지 못해 계속 시도하고 있습니다. 지금 시도하려면 창에서 지금 다시 시도 또는 cmux-tui 재시작을 사용하세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux kunne ikke starte bakgrunnstjenesten. Avslutt og åpne cmux på nytt for å prøve igjen."
+            "state": "translated",
+            "value": "cmux når ikke bakgrunnstjenesten sin ennå og fortsetter å prøve. Vil du prøve nå, bruker du Prøv igjen nå eller Start cmux-tui på nytt i vinduet."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux nie mógł uruchomić usługi w tle. Zamknij i ponownie otwórz cmux, aby spróbować jeszcze raz."
+            "state": "translated",
+            "value": "cmux nie może jeszcze połączyć się ze swoją usługą w tle i dalej próbuje. Aby spróbować teraz, użyj w oknie opcji Ponów teraz lub Uruchom ponownie cmux-tui."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "O cmux não conseguiu iniciar o serviço em segundo plano. Feche e abra o cmux novamente para tentar de novo."
+            "state": "translated",
+            "value": "O cmux ainda não consegue acessar seu serviço em segundo plano e continua tentando. Para tentar agora, use Tentar novamente agora ou Reiniciar cmux-tui na janela."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux не удалось запустить фоновую службу. Закройте и снова откройте cmux, чтобы повторить попытку."
+            "state": "translated",
+            "value": "cmux пока не может связаться со своей фоновой службой и продолжает попытки. Чтобы попробовать сейчас, используйте в окне «Повторить сейчас» или «Перезапустить cmux-tui»."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux เริ่มบริการเบื้องหลังไม่ได้ ปิดแล้วเปิด cmux ใหม่เพื่อลองอีกครั้ง"
+            "state": "translated",
+            "value": "cmux ยังเข้าถึงบริการเบื้องหลังไม่ได้และกำลังลองต่อไป หากต้องการลองตอนนี้ ให้ใช้ ลองใหม่ตอนนี้ หรือ รีสตาร์ท cmux-tui ในหน้าต่าง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux arka plan hizmetini başlatamadı. Yeniden denemek için cmux’tan çıkıp yeniden açın."
+            "state": "translated",
+            "value": "cmux arka plan hizmetine henüz ulaşamıyor ve denemeye devam ediyor. Şimdi denemek için penceredeki Şimdi Yeniden Dene veya cmux-tui’yi Yeniden Başlat seçeneğini kullanın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux не вдалося запустити фонову службу. Закрийте й знову відкрийте cmux, щоб спробувати ще раз."
+            "state": "translated",
+            "value": "cmux поки не може зв’язатися зі своєю фоновою службою й далі пробує. Щоб спробувати зараз, скористайтеся у вікні «Повторити зараз» або «Перезапустити cmux-tui»."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux không thể khởi động dịch vụ nền. Hãy thoát và mở lại cmux để thử lại."
+            "state": "translated",
+            "value": "cmux chưa kết nối được với dịch vụ nền và vẫn đang thử lại. Để thử ngay, hãy dùng Thử lại ngay hoặc Khởi động lại cmux-tui trong cửa sổ."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 无法启动后台服务。请退出并重新打开 cmux 后重试。"
+            "state": "translated",
+            "value": "cmux 暂时无法连接其后台服务，正在继续尝试。要立即重试，请使用窗口中的“立即重试”或“重新启动 cmux-tui”。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 無法啟動背景服務。請結束並重新開啟 cmux 後再試。"
+            "state": "translated",
+            "value": "cmux 暫時無法連線到其背景服務，正在持續嘗試。若要立即重試，請使用視窗中的「立即重試」或「重新啟動 cmux-tui」。"
           }
         }
       }
