@@ -6,7 +6,9 @@ from __future__ import annotations
 import copy
 import datetime as dt
 import json
+import os
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -55,6 +57,16 @@ class Declared(unittest.TestCase):
         self.assertEqual(runner_pools.load_pools()["linux"]["members"],
                          ["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"])
 
+    def test_every_blacksmith_linux_size_has_its_own_pool(self) -> None:
+        # Leo, 2026-10-28: "Where the f***ing are the generalized solution to all these problems that these
+        # incessant pins?" A job measured at one size reads that size's pool, so a stalled size moves by declaration.
+        pools = runner_pools.load_pools()
+        for size, name in ((2, "linux_2"), (4, "linux_4"), (8, "linux_8"), (16, "linux_16"), (32, "linux_32")):
+            with self.subTest(pool=name):
+                listed = runner_pools.members(pools[name])
+                self.assertEqual(listed[0], f"blacksmith-{size}vcpu-ubuntu-2404")
+                self.assertGreater(len(listed), 1, f"{name} needs a member to fail over to")
+
     def test_every_bounded_selector_accepts_every_linux_member(self) -> None:
         # Review of #30340: a member a bounded selector refuses (contains([...], vars.LINUX_RUNNER) && ... || '<4 vCPU>')
         # sends its readers back to the stalled size when the pool steps onto it.
@@ -99,6 +111,45 @@ class Declared(unittest.TestCase):
         self.assertEqual(step["env"]["RUNNER_POOLS"], "${{ vars.RUNNER_POOLS }}")
         self.assertIn("always()", str(step.get("if")))
         names = [s.get("name") for s in steps]
+        self.assertLess(names.index(step["name"]), names.index("End this run's stuck probe"))
+
+    def test_the_watch_runs_the_pinned_linux_pool_spill_with_main_as_fallback(self) -> None:
+        # cmux#31884: the queue-aware spill runs from a reviewed feat-cmux-next commit beside main's policy.
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
+        steps = workflow["jobs"]["watch"]["steps"]
+        [checkout] = [s for s in steps if s.get("id") == "spill-tooling"]
+        self.assertRegex(checkout["with"]["ref"], r"^[0-9a-f]{40}$")
+        self.assertEqual(checkout["with"]["persist-credentials"], False)
+        self.assertEqual(set(checkout["with"]["sparse-checkout"].split()),
+                         {"scripts/ci/linux_pool_spill.py", "scripts/ci/runner_pool_reconcile.py"})
+        self.assertTrue(checkout.get("continue-on-error"))
+        [step] = [s for s in steps if "runner_pools.py" in str(s.get("run", ""))]
+        self.assertIn('--policy-root "$GITHUB_WORKSPACE"', step["run"])
+        # Without the checkout, or when the spill fails, main's policy still runs alone.
+        self.assertEqual(step["run"].count("python3 scripts/ci/runner_pools.py"), 2)
+        names = [s.get("name") for s in steps]
+        self.assertLess(names.index(checkout["name"]), names.index(step["name"]))
+
+
+    def test_the_watch_runs_the_pinned_hosted_light_rescue_without_failing(self) -> None:
+        # cmux#32023, #32120: a hosted light job GitHub never assigns fails over to its re-run route.
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
+        steps = workflow["jobs"]["watch"]["steps"]
+        [checkout] = [s for s in steps if s.get("id") == "hosted-light-tooling"]
+        self.assertRegex(checkout["with"]["ref"], r"^[0-9a-f]{40}$")
+        self.assertEqual(checkout["with"]["persist-credentials"], False)
+        self.assertEqual(set(checkout["with"]["sparse-checkout"].split()),
+                         {"scripts/ci/hosted_light_rescue.py", ".github/runners.json"})
+        self.assertTrue(checkout.get("continue-on-error"))
+        [step] = [s for s in steps if "hosted_light_rescue.py" in str(s.get("run", ""))]
+        self.assertTrue(step.get("continue-on-error"))
+        self.assertIn("steps.hosted-light-tooling.outcome == 'success'", str(step.get("if")))
+        self.assertIn("--runners .hosted-light-tooling/.github/runners.json", step["run"])
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertIn("inputs.dry_run", step["env"]["DRY_RUN"])
+        self.assertEqual(workflow["jobs"]["watch"]["permissions"].get("actions"), "write")
+        names = [s.get("name") for s in steps]
+        self.assertLess(names.index(checkout["name"]), names.index(step["name"]))
         self.assertLess(names.index(step["name"]), names.index("End this run's stuck probe"))
 
 
@@ -332,7 +383,8 @@ class Main(unittest.TestCase):
         marked = runner_pools.iso(NOW - runner_pools.DEAD_TTL - dt.timedelta(minutes=10))
         pools = runner_pools.load_pools()
         first, second = runner_pools.members(pools["linux"])[:2]
-        held = {name: runner_pools.members(spec)[0] for name, spec in pools.items()}
+        # Every pool on its first member that is not the dead one (linux_4 lists the same 4 vCPU size first).
+        held = {name: next(m for m in runner_pools.members(spec) if m != first) for name, spec in pools.items()}
         held["linux"] = second
         held["_dead"] = {first: marked}
         held["_updated"] = marked
@@ -399,12 +451,13 @@ class Main(unittest.TestCase):
     def test_a_macos_only_overflow_record_does_not_freeze_linux_runner_on_a_dead_member(self) -> None:
         # 2026-11-01: the record (04:23Z) changed only macOS variables; RUNNER_POOLS marked 32 vCPU dead at
         # 05:30Z and moved linux to 16 vCPU, but LINUX_RUNNER stayed on 32 and its jobs queued there.
-        current, _ = runner_pools.parse_value(json.dumps({"linux": "blacksmith-32vcpu-ubuntu-2404"}),
+        # The declared linux pool is now 4 then 16 vCPU (32 vCPU left it on 2026-11-01), so the dead member is 4.
+        current, _ = runner_pools.parse_value(json.dumps({"linux": "blacksmith-4vcpu-ubuntu-2404"}),
                                               runner_pools.load_pools())
         value, _ = runner_pools.reconcile(current, runner_pools.load_pools(),
-                                          dead_now={"blacksmith-32vcpu-ubuntu-2404"}, served_now=(), now=NOW)
+                                          dead_now={"blacksmith-4vcpu-ubuntu-2404"}, served_now=(), now=NOW)
         self.assertEqual(value["linux"], "blacksmith-16vcpu-ubuntu-2404")
-        live = {"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}
+        live = {"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}
         self.assertEqual(runner_pools.mirror_writes(value, live, record=MACOS_ONLY_RECORD),
                          [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
         # The switch's own change stays the switch's, and an unreadable record still defers everything.
@@ -412,7 +465,7 @@ class Main(unittest.TestCase):
         self.assertEqual(runner_pools.mirror_writes(value, live, record="not json"), [])
         self.assertEqual(runner_pools.mirror_writes(value, live, record='{"since": "x"}'), [])
         env = {"RUNNER_POOLS": runner_pools.render(value)}
-        switch = self.Switch({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404",
+        switch = self.Switch({"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404",
                               "CI_CLOUD_OVERFLOW_SAVED": MACOS_ONLY_RECORD})
         self.assertEqual(runner_pools.main([], env, api=self.Api(None), switch=switch, now=NOW), 0)
         self.assertEqual(switch.writes, [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
@@ -426,6 +479,42 @@ class Main(unittest.TestCase):
             for name in (*runner_pools.MIRRORS, runner_pools.OVERFLOW_RECORD):
                 self.assertEqual(step["env"].get(name), "${{ vars.%s }}" % name)
 
+    def test_runner_pool_check_defers_once_for_a_new_declaration(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-repo-variables.yml").read_text())
+        steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
+        declaration = next(step for step in steps if step.get("id") == "declaration")
+        check = next(step for step in steps if "runner_pools.py --check" in str(step.get("run", "")))
+        self.assertIn("github.event_name == 'push'", declaration["if"])
+        self.assertIn("steps.declaration.outputs.pending != 'true'", check["if"])
+        # Review of #30627: a depth-1 clone lacks event.before, so the diff must have it or call it pending.
+        checkout = next(step for step in steps if step.get("name") == "Checkout")
+        self.assertEqual(checkout["with"].get("fetch-depth"), 2)
+        self.assertIn("BEFORE", declaration["env"])
+        self.assertIn("SHA", declaration["env"])
+        self.assertIn("check_runner_pool_declaration.sh", declaration["run"])
+        declaration_script = (ROOT / "scripts/ci/check_runner_pool_declaration.sh").read_text()
+        self.assertIn(".github/runners.json", declaration_script)
+
+    def test_runner_pool_declaration_diff_failure_fails_closed(self) -> None:
+        script = ROOT / "scripts/ci/check_runner_pool_declaration.sh"
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_git = Path(tmp) / "git"
+            fake_git.write_text("""#!/bin/sh
+if [ "$1" = diff ]; then
+  exit 128
+fi
+exit 0
+""", encoding="utf-8")
+            fake_git.chmod(0o755)
+            output = Path(tmp) / "github-output"
+            env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}", BEFORE="before", SHA="after",
+                       GITHUB_OUTPUT=str(output))
+            result = subprocess.run(["bash", str(script)], env=env, text=True,
+                                    capture_output=True, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(output.exists())
+            self.assertIn("git diff exited 128", result.stderr)
+
     def test_no_switch_token_and_a_correct_linux_runner_is_not_a_failure(self) -> None:
         # Review of #28864: with no token and the variables not handed in, the mirror is unknown, not unset.
         value, _ = runner_pools.reconcile({}, runner_pools.load_pools(), dead_now=(), served_now=(), now=NOW)
@@ -437,7 +526,7 @@ class Main(unittest.TestCase):
     def test_the_overflow_watch_hands_in_what_the_mirror_reads(self) -> None:
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
         steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])
-                 if str(step.get("run", "")).strip() == "python3 scripts/ci/runner_pools.py"]
+                 if "python3 scripts/ci/runner_pools.py" in str(step.get("run", ""))]
         self.assertTrue(steps)
         for step in steps:
             for name in (*runner_pools.MIRRORS, runner_pools.OVERFLOW_RECORD):
