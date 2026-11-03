@@ -317,6 +317,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             group("settings.group.subsessions"),
             // Whether a turn a rate limit or a lost connection ended is tried again, how often.
             group("settings.group.agentRetry"),
+            // Whether an idle Claude chat is compacted while its prompt cache is warm.
+            group("settings.group.agentCache"),
             // Folders that start an agent without the trust question.
             group("settings.group.folderTrust"),
         ],

@@ -183,6 +183,13 @@ SECTIONS = [
         "enums": {},
     },
     {
+        "source": "schemas/settings/source/agent-cache.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentCache.generated.swift",
+        "type": "AgentCacheSettingsSchema",
+        "lists": {"agentCache": ("descriptors", "AgentCacheSettings")},
+        "enums": {},
+    },
+    {
         "source": "schemas/settings/source/subsessions.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Subsessions.generated.swift",
         "type": "SubsessionSettingsSchema",

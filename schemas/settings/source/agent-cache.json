@@ -1,0 +1,67 @@
+{
+  "$comment": "HAND-EDITED source of the Compact Before the Cache Expires settings: the acpmux daemon's timer that compacts an idle Claude chat while its prompt cache is still warm (cmux-tui/crates/acpmux/src/hub/cache_compact.rs). The daemon reads these keys from the settings file each time it arms the timer and checks this file's defaults and ranges in its tests; gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "agentCache",
+      "section": "general",
+      "group": {
+        "key": "settings.group.agentCache",
+        "text": "Prompt Cache"
+      },
+      "note": "Settings > General > Prompt Cache (Leo, 2026-11-03: \"idk if we maybe also wanna be showing that/opt-in autocompact around that 5min mark\"; \"we ought to make these all accessibly toggle-able ofc\"). Off by default: a compaction is a model call that counts toward usage.",
+      "rows": [
+        {
+          "key": "agents.cacheCompact.enabled",
+          "name": "cacheCompactEnabled",
+          "note": "On: an idle Claude chat whose context is over agents.cacheCompact.minContextPercent runs /compact about 30 s before its prompt cache expires (once per idle stretch; never mid-turn, with a prompt queued, or while someone types). Off (the default): acpmux arms no timer.",
+          "title": {
+            "key": "settings.agents.cacheCompact.enabled",
+            "text": "Compact Before the Cache Expires"
+          },
+          "help": {
+            "key": "settings.agents.cacheCompact.enabled.help",
+            "text": "When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "cache",
+            "prompt cache",
+            "compact",
+            "autocompact",
+            "context",
+            "ttl",
+            "claude"
+          ]
+        },
+        {
+          "key": "agents.cacheCompact.minContextPercent",
+          "name": "cacheCompactMinContext",
+          "note": "The share of the context window (percent) a chat must be using before the timer compacts it.",
+          "title": {
+            "key": "settings.agents.cacheCompact.minContext",
+            "text": "Only Above Context Used (%)"
+          },
+          "help": {
+            "key": "settings.agents.cacheCompact.minContext.help",
+            "text": "Chats using less of their context window than this are left as they are."
+          },
+          "kind": "number",
+          "range": {
+            "min": 10,
+            "max": 95,
+            "step": 5,
+            "unit": "count"
+          },
+          "default": 50,
+          "keywords": [
+            "cache",
+            "compact",
+            "threshold",
+            "context"
+          ]
+        }
+      ]
+    }
+  ]
+}

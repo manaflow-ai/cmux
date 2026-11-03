@@ -352,6 +352,11 @@ pub struct Session {
     pub(super) silent_turn: StdMutex<Option<String>>,
     /// The turn cap's timer for the running turn (`turn_cap.rs`); the next turn aborts it.
     pub(super) turn_cap_timer: StdMutex<Option<tokio::task::AbortHandle>>,
+    /// The timer that compacts the idle chat before its prompt cache expires (`cache_compact.rs`);
+    /// a new usage report or prompt aborts it.
+    pub(super) cache_compact_timer: StdMutex<Option<tokio::task::AbortHandle>>,
+    /// That compaction ran in this idle stretch: none again until another prompt runs.
+    pub(super) cache_compacted: AtomicBool,
     /// Other agents' messages to this chat, in threads (`inbox.rs`).
     pub(super) inbox: StdMutex<super::inbox::Inbox>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
