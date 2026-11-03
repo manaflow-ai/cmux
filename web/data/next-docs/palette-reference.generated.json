@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1278,
+    "entries": 1279,
     "shortcuts": 189
   },
   "sections": [
@@ -1992,7 +1992,7 @@
         {
           "id": "newColumn",
           "title": "New Column Right",
-          "shortcut": "⌃⌘D",
+          "shortcut": "⌃⌘X",
           "command": "cmux pane new-column"
         },
         {
@@ -2004,7 +2004,7 @@
         {
           "id": "newRow",
           "title": "New Row",
-          "shortcut": "⌃⇧⌘D",
+          "shortcut": "⌃⇧⌘X",
           "command": "cmux pane new-row"
         },
         {
@@ -4812,13 +4812,13 @@
         {
           "id": "splitBrowserDown",
           "title": "Split Browser Down",
-          "shortcut": "⌥⇧⌘D",
+          "shortcut": "⌥⇧⌘X",
           "command": "cmux browser split-down"
         },
         {
           "id": "splitBrowserRight",
           "title": "Split Browser Right",
-          "shortcut": "⌥⌘D",
+          "shortcut": "⌥⌘X",
           "command": "cmux browser split-right"
         },
         {
@@ -6014,6 +6014,12 @@
           "title": "Integrate a Harness with an Agent…",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "agent.share.invite",
+          "title": "Invite People to Chat…",
+          "shortcut": null,
+          "command": "cmux share invite"
         },
         {
           "id": "palette.launchClaudeTeams",

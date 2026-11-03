@@ -437,10 +437,16 @@ fn build_of(line: &str) -> Option<&str> {
 /// whole and a pattern that matched nothing fails `-f`.
 const PROBE_BINS: &str = r#"seen=; for b in "$(command -v acpmux 2>/dev/null)" ~/.local/bin/acpmux /Applications/cmux*.app/Contents/Resources/bin/acpmux ~/.local/bin/cmux-tui ~/.cmux/bin/cmux-tui "$(command -v cmux-tui 2>/dev/null)"; do [ -n "$b" ] && [ -f "$b" ] && [ -x "$b" ] || continue; case "$seen" in *"|$b|"*) continue ;; esac; seen="$seen|$b|"; case "$b" in */acpmux) set -- "$b" ;; *) set -- "$b" acp ;; esac; printf 'bin\t%s\t%s\n' "$b" "$("$@" --version 2>/dev/null | head -n 1)"; printf 'real\t%s\t%s\n' "$b" "$(readlink -f "$b" 2>/dev/null)"; printf 'status\t%s\t%s\n' "$b" "$("$@" --json daemon status 2>/dev/null | tr -d '\n')"; done; printf '\0'; "#;
 
-/// [`PROBE_BINS`], then the remote daemon config.
+/// Whether a Linux host can make the sandbox every session another machine
+/// starts there runs in (`linux_sandbox::bwrap::probe`'s flags): `ok`,
+/// `broken` (installed, but too old or user namespaces are off), `missing`,
+/// or `n/a` off Linux.
+const PROBE_BWRAP: &str = r#"printf 'bwrap\t%s\n' "$(if [ "$(uname -s)" != Linux ]; then echo n/a; elif /usr/bin/bwrap --unshare-user --unshare-net --disable-userns --ro-bind / / true >/dev/null 2>&1; then echo ok; elif [ -x /usr/bin/bwrap ]; then echo broken; else echo missing; fi)"; "#;
+
+/// [`PROBE_BWRAP`], [`PROBE_BINS`], then the remote daemon config.
 fn probe_script() -> String {
     format!(
-        "printf 'uname\\t%s\\n' \"$(uname -sm)\"; {PROBE_BINS}cat {}/config.json 2>/dev/null",
+        "printf 'uname\\t%s\\n' \"$(uname -sm)\"; {PROBE_BWRAP}{PROBE_BINS}cat {}/config.json 2>/dev/null",
         hosts::REMOTE_HOME
     )
 }
@@ -466,6 +472,9 @@ struct Probe {
     /// `~/.local/bin/acpmux` link to that cmux-tui (`host setup`, enroll's
     /// daemon step) is not: its exe is the link's target.
     run_by_cmux_tui: bool,
+    /// [`PROBE_BWRAP`]'s answer on Linux (`ok`, `broken`, `missing`); None
+    /// off Linux or from a host that did not say.
+    bwrap: Option<String>,
     config: String,
 }
 
@@ -505,6 +514,11 @@ fn parse_probe(stdout: &str) -> Probe {
     for line in list.lines() {
         if let Some(uname) = line.strip_prefix("uname\t") {
             probe.uname = uname.trim().to_owned();
+            continue;
+        }
+        if let Some(state) = line.strip_prefix("bwrap\t") {
+            let state = state.trim();
+            probe.bwrap = (!state.is_empty() && state != "n/a").then(|| state.to_owned());
             continue;
         }
         let mut parts = line.splitn(3, '\t');

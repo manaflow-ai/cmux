@@ -37,6 +37,8 @@ final class CloudService {
     @ObservationIgnored let paths: CloudPaths
     /// One app-lifetime owner of confirmed, per-account Codex delivery.
     let codexBroker: CloudCodexBrokerAdapter
+    /// The Release login copy's remote off switch (CloudService+LoginCopy.swift).
+    @ObservationIgnored let harnessLoginCopySwitch = CloudHarnessLoginCopySwitch()
     @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
     /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
@@ -166,7 +168,7 @@ final class CloudService {
         self.machines = machines
         self.mainWork = mainWork
         self.work = work
-        configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
+        configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild) // a capture build's bench hooks: CloudConfiguration.benchHooksCompiled
         auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture)
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
         deviceID = CloudDeviceID(paths: paths, work: work)
@@ -340,8 +342,7 @@ final class CloudService {
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
                 if accountScope != nil {
                     AgentPaneTailCache.shared.resume()
-                    // Sign-out revoked the WireGuard peer and parked the hub.
-                    await self.hub?.resume()
+                    await self.hub?.resume() // sign-out revoked the WireGuard peer and parked the hub
                     // Another account's machines, connections and share installs end first (its next share binds this one).
                     let switched = await self.link.sessionBegan(user: self.auth.user?.id, team: self.auth.teamID)
                     if switched { self.dropAllMachines() }
@@ -444,8 +445,8 @@ final class CloudService {
     }
 
     /// The quit coordinator awaits this before AppKit may terminate the
-    /// process, while Cloud transports can still erase delivered access.
-    func prepareForTermination() async { await codexBroker.shutdown() }
+    /// process. Delivered Codex access stays on each Cloud machine (#33482).
+    func prepareForTermination() async { await codexBroker.detachForQuit() }
 
     /// Serves the `credential` family on the local daemon: answers its
     /// calls on the connection that sent them, and registers again after

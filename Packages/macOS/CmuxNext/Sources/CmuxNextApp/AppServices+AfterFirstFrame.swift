@@ -20,6 +20,7 @@ extension AppServices {
         if let feed = chatsFeed { AgentPageChats.wire(agentTabs, to: feed, opener: chatsOpener) }
         NewTabPlacesFeed.wire(agentTabs, services: self)
         NewTabWeather.wire(agentTabs, services: self)
+        dockMenu.start()
         DebugTimings.markLaunch("launch.post_frame_feeds")
     }
 
