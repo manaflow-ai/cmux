@@ -551,6 +551,7 @@ pub enum Command {
         leave_dirty: bool,
         cwd: Option<String>,
         dry_run: bool,
+        from: Option<String>,
     },
     #[command(hide = true)]
     Transfer {
@@ -958,6 +959,11 @@ pub enum SessionCmd {
         /// Say where each chat would go and change nothing.
         #[arg(long)]
         dry_run: bool,
+        /// The machine the chats are on, when not this one: this machine drives the move over
+        /// ssh to it and to the target, so two machines that cannot reach each other trade
+        /// chats. With it, `--machine local` brings them here.
+        #[arg(long, value_name = "MACHINE")]
+        from: Option<String>,
     },
     /// Move a chat, with its history, queue and draft, to the daemon at another socket.
     Transfer {
@@ -1316,17 +1322,25 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Transfer { session, to, cwd, name, interrupt } => {
                 Command::Transfer { session, to, cwd, name, interrupt }
             }
-            SessionCmd::Move { sessions, host, all_idle, interrupt, leave_dirty, cwd, dry_run } => {
-                Command::MoveSessions {
-                    sessions,
-                    host,
-                    all_idle,
-                    interrupt,
-                    leave_dirty,
-                    cwd,
-                    dry_run,
-                }
-            }
+            SessionCmd::Move {
+                sessions,
+                host,
+                all_idle,
+                interrupt,
+                leave_dirty,
+                cwd,
+                dry_run,
+                from,
+            } => Command::MoveSessions {
+                sessions,
+                host,
+                all_idle,
+                interrupt,
+                leave_dirty,
+                cwd,
+                dry_run,
+                from,
+            },
             SessionCmd::Tail { session, last, follow, since } => {
                 Command::Tail { session, last, follow, since }
             }
@@ -1818,6 +1832,29 @@ mod help_contract_tests {
     fn peer_alias_still_parses_after_host_becomes_canonical() {
         let parsed = Cli::try_parse_from(["acpmux", "peer", "status"]);
         assert!(parsed.is_ok(), "peer alias stopped working");
+    }
+
+    #[test]
+    fn first_contact_host_key_trust_is_an_explicit_enroll_option() {
+        for word in ["machine", "host", "hosts", "peer"] {
+            let argv = ["acpmux", word, "enroll", "user@box", "--accept-new-host-key"];
+            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
+            for verb in ["doctor", "setup", "update"] {
+                let argv = ["acpmux", word, verb, "box", "--accept-new-host-key"];
+                assert!(Cli::try_parse_from(argv).is_err(), "{argv:?} must not accept keys");
+            }
+            assert!(
+                Cli::try_parse_from([
+                    "acpmux",
+                    word,
+                    "doctor",
+                    "box",
+                    "--fix",
+                    "--accept-new-host-key"
+                ])
+                .is_err()
+            );
+        }
     }
 
     /// docs/naming.md: `machine` is the command; `host`, `hosts` and `peer` stay hidden aliases
