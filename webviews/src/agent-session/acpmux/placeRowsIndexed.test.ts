@@ -25,7 +25,17 @@ import {
 // total, the tail gap and the rest band, for random rows with zero-height runs, every mark, own
 // gaps, an origin, and the incremental passes App makes (an insert, a resize mid-list, a removal).
 
-const MARKS = [0, MARK_PROMPT, MARK_MESSAGE, MARK_INDICATOR, MARK_FOOTER, MARK_STEP, MARK_FOOTER_ROW, MARK_FOOTER_SLOT, MARK_STATUS];
+const MARKS = [
+  0,
+  MARK_PROMPT,
+  MARK_MESSAGE,
+  MARK_INDICATOR,
+  MARK_FOOTER,
+  MARK_STEP,
+  MARK_FOOTER_ROW,
+  MARK_FOOTER_SLOT,
+  MARK_STATUS,
+];
 /// Float rounding of a tree's sums against a left-to-right pass: far under a device pixel.
 const EPSILON = 1e-6;
 
@@ -104,7 +114,10 @@ describe("placeRowsIndexed matches placeRows", () => {
       for (const withMarks of [true, false])
         for (const origin of [0, 1234.5]) {
           const estimate = estimateOf(rows, withMarks);
-          expectSame(placeRowsIndexed(estimate, heightAt, undefined, origin), placeRows(estimate, heightAt, undefined, origin));
+          expectSame(
+            placeRowsIndexed(estimate, heightAt, undefined, origin),
+            placeRows(estimate, heightAt, undefined, origin),
+          );
         }
     }
   });
@@ -113,12 +126,25 @@ describe("placeRowsIndexed matches placeRows", () => {
     // A prompt, hidden rows, a message: the turn gap, not a gap from the hidden rows' marks.
     const rows: Rows = {
       heights: [40, 0, 0, 80, 0, 32, 22, 22, 0],
-      marks: [MARK_PROMPT, MARK_STEP, MARK_FOOTER, MARK_MESSAGE, MARK_STEP, MARK_FOOTER_ROW, MARK_STEP, MARK_STEP, MARK_FOOTER],
+      marks: [
+        MARK_PROMPT,
+        MARK_STEP,
+        MARK_FOOTER,
+        MARK_MESSAGE,
+        MARK_STEP,
+        MARK_FOOTER_ROW,
+        MARK_STEP,
+        MARK_STEP,
+        MARK_FOOTER,
+      ],
       gaps: [0, 0, 0, 0, 0, 0, 0, 0, 0],
     };
     const estimate = estimateOf(rows);
     const indexed = placeRowsIndexed(estimate, () => undefined);
-    expectSame(indexed, placeRows(estimate, () => undefined));
+    expectSame(
+      indexed,
+      placeRows(estimate, () => undefined),
+    );
     // A trailing empty footer: the tail takes the block gap and the rest band.
     expect(indexed.restBand).toBeGreaterThan(0);
     // A row that starts drawing changes the gap of the next drawn row.
@@ -134,7 +160,10 @@ describe("placeRowsIndexed matches placeRows", () => {
       { heights: [], marks: [], gaps: [] },
     ]) {
       const estimate = estimateOf(rows);
-      expectSame(placeRowsIndexed(estimate, () => undefined), placeRows(estimate, () => undefined));
+      expectSame(
+        placeRowsIndexed(estimate, () => undefined),
+        placeRows(estimate, () => undefined),
+      );
     }
   });
 
@@ -230,7 +259,10 @@ describe("placeRowsIndexed matches placeRows", () => {
       expect(reads).toBe(2);
       expect(after.geometry.heightAt(10)).toBe(99);
       expect(placed.geometry.heightAt(10)).toBe(rows.heights[10]!);
-      expectSame(after, placeRows(estimate, (index) => (index === 10 || index === count - 20 ? 99 : undefined)));
+      expectSame(
+        after,
+        placeRows(estimate, (index) => (index === 10 || index === count - 20 ? 99 : undefined)),
+      );
     }
   });
 
@@ -242,7 +274,7 @@ describe("placeRowsIndexed matches placeRows", () => {
     const before = layoutGeometry(placed).topAt(4_999);
     rows.heights[4_999] = 400;
     let reads = 0;
-    const grown = placeRowsIndexed(estimateOf(rows), () => (reads += 1, undefined), { layout: placed, kept: 4_999 });
+    const grown = placeRowsIndexed(estimateOf(rows), () => ((reads += 1), undefined), { layout: placed, kept: 4_999 });
     expect(reads).toBe(1);
     expect(grown.geometry.heightAt(4_999)).toBe(400);
     expect(layoutGeometry(placed).topAt(4_999)).toBe(before);

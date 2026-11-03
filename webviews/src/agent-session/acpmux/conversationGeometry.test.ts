@@ -34,7 +34,8 @@ describe("indexed conversation geometry", () => {
       expect(arrays.topAt(index)).toBe(indexed.topAt(index) + 5);
       expect(arrays.gapAt(index)).toBe(0);
     }
-    for (const target of [-1, 0, 5, 11, 17, 29, 40, 45]) expect(arrays.upperBoundTop(target + 5)).toBe(indexed.upperBoundTop(target));
+    for (const target of [-1, 0, 5, 11, 17, 29, 40, 45])
+      expect(arrays.upperBoundTop(target + 5)).toBe(indexed.upperBoundTop(target));
     const seen: number[] = [];
     arrays.scan(1, 4, (index, top) => void seen.push(index, top));
     expect(seen).toEqual([1, 17, 2, 17, 3, 29]);

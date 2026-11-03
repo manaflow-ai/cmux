@@ -2403,7 +2403,8 @@ export function placeRowsIndexed(
     index = reusable;
     const from = Math.max(kept, Math.min(previous!.from ?? kept, reusable.count, count));
     for (const at of previous!.changed ?? [])
-      if (at >= kept && at < from) index = index.update(at, resolve(at), marks?.[at], marks ? undefined : estimate.gaps?.[at]);
+      if (at >= kept && at < from)
+        index = index.update(at, resolve(at), marks?.[at], marks ? undefined : estimate.gaps?.[at]);
     const tail = new Float64Array(count - from);
     for (let at = from; at < count; at += 1) tail[at - from] = resolve(at);
     index = index.splice(

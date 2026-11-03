@@ -18,7 +18,11 @@ export type LayoutGeometry = {
   /// The first row whose top is greater than `target`, `count` when none is.
   readonly upperBoundTop: (target: number) => number;
   /// Visits rows `from` to `to` (exclusive) in order; `visit` returning false stops.
-  readonly scan: (from: number, to: number, visit: (index: number, top: number, height: number) => boolean | void) => void;
+  readonly scan: (
+    from: number,
+    to: number,
+    visit: (index: number, top: number, height: number) => boolean | void,
+  ) => void;
 };
 
 /** Geometry together with its persistent source, for bounded point updates. */
