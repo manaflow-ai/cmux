@@ -164,11 +164,13 @@ fn the_daemon_binary_is_the_socket_peers_and_only_for_its_pid() {
     let daemon = daemon_binary(&socket, pid).expect("the listener's binary");
     assert_eq!(std::fs::canonicalize(&daemon.path).unwrap(), std::fs::canonicalize(&own).unwrap());
     assert_eq!(Some(daemon.id), id(&own));
-    // Another pid (the Mac's stale read, or a pid reused since) is refused.
+    // Another pid (the Mac's stale read: the daemon restarted since) is the
+    // quiet `busy`, and nothing is read.
     let refused = daemon_binary(&socket, pid + 1).err().expect("another pid is refused");
-    assert_eq!(refused, "the daemon pid is not the one serving this machine");
+    assert_eq!(refused, ("busy", super::RESTARTED.to_owned()));
     // No listener: nothing is read.
-    assert!(daemon_binary(&folder.path().join("none.sock"), pid).is_err());
+    let missing = daemon_binary(&folder.path().join("none.sock"), pid).err().expect("no socket");
+    assert_eq!(missing.0, "failed");
 }
 
 #[test]

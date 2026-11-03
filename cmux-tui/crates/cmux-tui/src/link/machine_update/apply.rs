@@ -16,14 +16,17 @@
 //! binary adopts them (docs/cloud-guest-upgrades.md). A new daemon that does
 //! not serve within ten minutes is replaced by the previous binary, which is
 //! trusted only once it serves again. The outcome goes to `--result` as one
-//! JSON object: `{"state":"updated"|"rolled_back"|"pending"|"failed",
+//! JSON object: `{"state":"updated"|"rolled_back"|"pending"|"busy"|"foreign"|"failed",
 //! "detail":...}`.
 //!
 //! A daemon still running an earlier copy of this same install (a binary an
 //! earlier update or upgrade replaced while that daemon kept running, which
 //! the kernel names `<install> (deleted)`, or `cmux-tui.prev`) is updated
 //! like any other: stopping it is what that earlier update could not finish
-//! ([`runs_this_install`]).
+//! ([`runs_this_install`]). A daemon on any other binary (someone's
+//! own build run from another path) is `foreign`: left as it is, and no
+//! failure, since nothing went wrong with the update. A daemon that restarted
+//! since the Mac read its pid is `busy`: the next update reads it again.
 //!
 //! The step learns which binary the daemon runs only from the daemon socket
 //! itself: the kernel's peer of a connection to `CMUX_TUI_SOCKET` must be
@@ -178,7 +181,7 @@ fn apply(args: &Args) -> (&'static str, String) {
     let _ = write_atomically(&args.result, RUNNING.as_bytes());
     let own = match check(args) {
         Ok(own) => own,
-        Err(why) => return ("failed", why),
+        Err((state, why)) => return (state, why),
     };
     let previous = args.install.with_file_name("cmux-tui.prev");
     if let Err(error) = keep_previous(&args.install, &previous, &own.daemon.file, own.daemon.id) {
@@ -290,68 +293,73 @@ fn own_install(install: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Every check before anything changes.
-fn check(args: &Args) -> Result<Staged, String> {
-    own_install(&args.install)?;
-    let canonical =
-        |path: &Path| std::fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()));
-    let own = std::env::current_exe().map_err(|e| e.to_string())?;
+/// Every check before anything changes; a refusal is its outcome state
+/// (`failed`, or the quiet `foreign` and `busy`) and a detail line.
+fn check(args: &Args) -> Result<Staged, (&'static str, String)> {
+    let failed = |why: String| ("failed", why);
+    own_install(&args.install).map_err(failed)?;
+    let canonical = |path: &Path| {
+        std::fs::canonicalize(path).map_err(|e| failed(format!("{}: {e}", path.display())))
+    };
+    let own = std::env::current_exe().map_err(|e| failed(e.to_string()))?;
     if own.parent() != canonical(&args.install)?.parent() {
-        return Err("the new build is not staged beside the binary".into());
+        return Err(failed("the new build is not staged beside the binary".into()));
     }
     // Hash the file through one descriptor, and remember which file it was.
-    let mut file = std::fs::File::open(&own).map_err(|e| e.to_string())?;
-    let opened = file.metadata().map_err(|e| e.to_string())?;
+    let mut file = std::fs::File::open(&own).map_err(|e| failed(e.to_string()))?;
+    let opened = file.metadata().map_err(|e| failed(e.to_string()))?;
     let mut digest = Sha256::new();
-    std::io::copy(&mut file, &mut digest).map_err(|e| e.to_string())?;
+    std::io::copy(&mut file, &mut digest).map_err(|e| failed(e.to_string()))?;
     let sha256: String = digest.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
     if sha256 != args.sha256 {
-        return Err("the staged build does not match the pinned checksum".into());
+        return Err(failed("the staged build does not match the pinned checksum".into()));
     }
-    let socket = socket().ok_or("no daemon socket in this terminal")?;
+    let socket = socket().ok_or_else(|| failed("no daemon socket in this terminal".into()))?;
     // The file the daemon runs, even when no path names it any more.
     let daemon = daemon_binary(&socket, args.daemon_pid)?;
     let install = canonical(&args.install)?;
-    let installed = std::fs::metadata(&install).map_err(|e| e.to_string())?;
     if !runs_this_install(&daemon.path, &install, Some(daemon.id)) {
-        return Err(format!(
-            "the daemon (pid {}) runs {}, not this machine's {} (inode {}); restart the machine's cmux daemon from {}, then update again",
-            args.daemon_pid,
-            daemon.path.display(),
-            install.display(),
-            installed.ino(),
-            install.display(),
-        ));
+        // Someone's own build, run from another path: not this update's to
+        // replace, and nothing failed (the Mac shows nothing for it).
+        return Err(("foreign", foreign(args.daemon_pid, &daemon.path, &install)));
     }
     // The pid is the daemon serving this terminal's socket now, not a pid
-    // reused since the Mac read it.
-    let identity =
-        super::super::machine_gate::identify(&socket).ok_or("the daemon socket did not answer")?;
+    // reused since the Mac read it. A daemon that restarted since is `busy`:
+    // nothing changed, and the next update reads its pid again.
+    let identity = super::super::machine_gate::identify(&socket)
+        .ok_or_else(|| failed("the daemon socket did not answer".into()))?;
     if identity["pid"].as_i64() != Some(i64::from(args.daemon_pid)) {
-        return Err("the daemon pid is not the one serving this machine".into());
+        return Err(("busy", RESTARTED.into()));
     }
     Ok(Staged { path: own, dev: opened.dev(), ino: opened.ino(), daemon })
 }
+
+/// What a daemon restarted since the Mac read its pid gives (see [`check`]).
+const RESTARTED: &str = "the daemon restarted since the update read its pid";
 
 /// The binary of the daemon listening on `socket`, which must be `pid`: the
 /// kernel's peer of one connection to it (`SO_PEERCRED`, with the peer's
 /// start time), read through that connection's peer authentication
 /// (`platform::peer_executable_file`), so a pid reused by another process
-/// never answers. No process is enumerated or found by its pid alone.
-fn daemon_binary(socket: &Path, pid: i32) -> Result<DaemonBinary, String> {
+/// never answers. No process is enumerated or found by its pid alone. A peer
+/// of another pid is a daemon that restarted: `busy`.
+fn daemon_binary(socket: &Path, pid: i32) -> Result<DaemonBinary, (&'static str, String)> {
     use cmux_tui_core::platform::transport::Stream as _;
     let stream = std::os::unix::net::UnixStream::connect(socket)
-        .map_err(|e| format!("cannot reach the daemon socket: {e}"))?;
-    let key = stream.peer_process_key().ok_or("the daemon socket names no peer")?;
+        .map_err(|e| ("failed", format!("cannot reach the daemon socket: {e}")))?;
+    let key =
+        stream.peer_process_key().ok_or(("failed", "the daemon socket names no peer".into()))?;
     let peer = key
         .strip_prefix("token:")
         .and_then(|rest| rest.split_once('.'))
         .and_then(|(peer, _)| peer.parse::<i32>().ok());
     if peer != Some(pid) {
-        return Err("the daemon pid is not the one serving this machine".into());
+        return Err(("busy", RESTARTED.into()));
     }
-    let (path, file) = peer_binary(&key).ok_or("cannot read the daemon's binary")?;
-    let ran = file.metadata().map_err(|e| format!("cannot read the daemon's binary: {e}"))?;
+    let unreadable = |why: String| ("failed", format!("cannot read the daemon's binary: {why}"));
+    let (path, file) =
+        peer_binary(&key).ok_or_else(|| unreadable("its peer key is stale".into()))?;
+    let ran = file.metadata().map_err(|e| unreadable(e.to_string()))?;
     drop(stream);
     Ok(DaemonBinary { path, file, id: (ran.dev(), ran.ino()) })
 }
@@ -365,6 +373,15 @@ fn peer_binary(key: &str) -> Option<(PathBuf, std::fs::File)> {
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 fn peer_binary(_key: &str) -> Option<(PathBuf, std::fs::File)> {
     None
+}
+
+/// The detail of a daemon on another binary than this install.
+fn foreign(pid: i32, running: &Path, install: &Path) -> String {
+    format!(
+        "the daemon (pid {pid}) runs {}, not this machine's {}; left as it is",
+        running.display(),
+        install.display(),
+    )
 }
 
 /// What the kernel's link to a running binary reads for a deleted file.

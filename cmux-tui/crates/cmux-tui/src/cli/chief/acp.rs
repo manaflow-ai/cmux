@@ -522,7 +522,7 @@ impl ReplySink for Updates {
         self.streamed.clear();
     }
 
-    fn not_read(&mut self) {}
+    fn not_read(&mut self, _busy: bool) {}
 
     fn end(&mut self) {
         self.streamed.clear();

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1276,
+    "entries": 1278,
     "shortcuts": 189
   },
   "sections": [
@@ -20,6 +20,12 @@
           "title": "Add People to Group…",
           "shortcut": null,
           "command": "cmux home add-members"
+        },
+        {
+          "id": "home.agentMessagePlayground",
+          "title": "Agent Messages Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "home.attachFiles",
@@ -7418,6 +7424,12 @@
           "title": "Switch Update Channel…",
           "shortcut": null,
           "command": "cmux settings switch-update-channel"
+        },
+        {
+          "id": "debug.tabBarPlayground",
+          "title": "Tab Bar Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "tabs.overflow.scroll",
