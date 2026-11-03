@@ -6,8 +6,8 @@
 
 // The tool limits the schemas name are the kernel's (chief-kernel tools.rs).
 pub use chief_kernel::tools::{
-    AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, PLACES, SLEEP_MAX_SECONDS,
-    SLEEP_MIN_SECONDS, WATCH_DEFAULT_SECONDS, WATCH_MAX_SECONDS, WATCH_MIN_SECONDS, WATCHES_KEPT,
+    AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, PLACES, SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS,
+    WATCH_DEFAULT_SECONDS, WATCH_MAX_SECONDS, WATCH_MIN_SECONDS, WATCHES_KEPT,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -1246,6 +1246,8 @@ pub enum ControlRequest {
     /// chief.stop {restart: [ids]}: those subagents go on (Restart on the
     /// stop-all toast).
     Restart(Vec<String>),
+    /// The turn session's tool hook (rights.rs): answers the hook's JSON.
+    RightsHook { phase: String, payload: Value },
 }
 
 /// What the tools socket serves: the memory, the subagent tools when the
@@ -1368,6 +1370,28 @@ fn connection(conn: UnixStream, served: &Served) {
                     )
                     .is_err()
                     {
+                        return;
+                    }
+                    continue;
+                }
+                // The turn session's tool hook (`optchat-chief rights-hook`):
+                // only a caller under one of this Chief's turn sessions gets
+                // a decision; anyone else gets none (their own policy holds).
+                if tool == "rights_hook" {
+                    let phase = req.get("phase").and_then(Value::as_str).unwrap_or("");
+                    let answer = match (control, role(), phase) {
+                        (Some(control), crate::turn_caller::Role::Turn, "pre" | "post") => {
+                            match control(ControlRequest::RightsHook {
+                                phase: phase.to_owned(),
+                                payload: req.get("payload").cloned().unwrap_or(Value::Null),
+                            }) {
+                                Ok(text) => json!({"text": text}),
+                                Err(e) => json!({"error": e}),
+                            }
+                        }
+                        _ => json!({"text": "{}"}),
+                    };
+                    if writeln!(out, "{answer}").is_err() {
                         return;
                     }
                     continue;
@@ -1804,6 +1828,14 @@ pub fn ask_settings(path: &Path, set: Option<(&str, &str)>) -> Result<String, St
 pub fn ask_spawn_policy(path: &Path) -> Result<Option<String>, String> {
     let text = ask_json(path, &json!({"tool": "spawn_policy"}))?;
     Ok((!text.is_empty()).then_some(text))
+}
+
+/// The turn hook's answer from the live host (the JSON the hook prints).
+pub fn ask_rights_hook(path: &Path, phase: &str, payload: Value) -> Result<String, String> {
+    ask_json(
+        path,
+        &json!({"tool": "rights_hook", "phase": phase, "payload": payload}),
+    )
 }
 
 /// The browse page from the live host; Err when no host answers on `path`.

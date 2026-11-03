@@ -280,7 +280,7 @@ describe("a stopped subagent's line says why, and offers Restart", () => {
 });
 
 describe("the tray", () => {
-  test("lists running subagents, nested ones under their parent, then running commands", () => {
+  test("lists running subagents (nested ones under their parent) and running commands, newest first", () => {
     const agents = [
       agent("Tester", { startedAt: at(12) }),
       agent("Reviewer", { startedAt: at(10) }),
@@ -295,9 +295,9 @@ describe("the tray", () => {
     expect(
       trayItems(agents, commands, chats, true).map((item) => [item.id, item.kind === "agent" ? item.depth : -1]),
     ).toEqual([
+      ["Tester", 0],
       ["Reviewer", 0],
       ["Scout", 1],
-      ["Tester", 0],
       ["bg1", -1],
       ["c1", -1],
     ]);
@@ -980,7 +980,7 @@ describe("the tray tells the truth", () => {
     ];
     const items = trayItems(agents, commands, chats, true);
     const finished = finishedTrayItems(agents, chats);
-    expect(items.map((item) => item.id)).toEqual(["Reviewer", "Tester", "bg1", "c1", "c2"]);
+    expect(items.map((item) => item.id)).toEqual(["Tester", "Reviewer", "bg1", "c1", "c2"]);
     // What ended last comes first: the few the tray shows are the latest.
     // (c3 and c4 have no creation time: they keep their order, after any chat that has one.)
     expect(finished.map((item) => item.id)).toEqual(["Fuzzer", "Linter", "c3", "c4"]);
@@ -998,8 +998,8 @@ describe("the tray tells the truth", () => {
       const lines = liveLines(root);
       expect(lines.length).toBe(5);
       expect(names(lines)).toEqual([
-        "Reviewer",
         "Tester",
+        "Reviewer",
         "Start the dev server",
         "Port the history page",
         "Draft the notes",
@@ -1229,9 +1229,9 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       expect(tray.firstElementChild).toBe(head);
       expect(head.isConnected).toBe(true);
       expect(head.getAttribute("aria-expanded")).toBe("true");
-      // Running first, then what ended last.
+      // Running first, newest on top, then what ended last.
       const names = [...list.querySelectorAll(".acpmux-summary-agent__name")].map((node) => node.textContent);
-      expect(names.slice(0, 3)).toEqual(["Run 0", "Run 1", "Done 115"]);
+      expect(names.slice(0, 3)).toEqual(["Run 1", "Run 0", "Done 115"]);
       expect(names.at(-1)).toBe("Done 0");
     } finally {
       await done();
@@ -1399,7 +1399,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
           actionShell: true,
         }),
         // A progress summary is words, lowercase or not: never "Running find the bug".
-        agent("Planner", { startedAt: Date.now() + 1, action: "find the bug in the fold" }),
+        agent("Planner", { startedAt: Date.now() - 1, action: "find the bug in the fold" }),
       ],
       [],
       chats,

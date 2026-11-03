@@ -7,6 +7,7 @@ import { type ReactNode, useContext, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
+import { ApprovedMark } from "./ApprovedMark";
 import { ChevronRight, CodeBrackets, ToolGroup } from "./icons";
 import { menuPartRef } from "./menuParts";
 import {
@@ -154,6 +155,12 @@ function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
           {failure && <span className="cv-tool__failed"> {failureWord(t, failure)}</span>}
           <InlineFailureCause failure={failure} />
         </span>
+        {/* The person approved this call's ask: it says so on its row (ApprovedMark.tsx). */}
+        {tool.approved && (
+          <span className="cv-command__meta cv-tool__meta">
+            <ApprovedMark />
+          </span>
+        )}
         <ChevronRight
           size={14}
           strokeWidth={1.2}
