@@ -2022,6 +2022,11 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
   font-variant-numeric: tabular-nums;
 }
+/* A finished step's own time beside the label once the turn's clock reads as the total. */
+.cv-worked__own {
+  color: var(--cv-text-dim);
+  font-variant-numeric: tabular-nums;
+}
 .cv-worked__open {
   all: unset;
   min-width: 0;
@@ -2049,9 +2054,15 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cv-worked__time {
+.cv-worked__time,
+.cv-worked__own {
   flex: none;
   margin-inline-start: 6px;
+}
+/* Past the turn's first step its clock reads as the total ("· 4m total", Thinking.tsx): the words
+   around it sit at the count's own gap. */
+.cv-worked__total .cv-worked__time {
+  margin-inline: 0;
 }
 /* A command in flight leads with the terminal glyph (WorkingFor.tsx), still, like the tool rows'. */
 .cv-worked__glyph {
@@ -4200,6 +4211,17 @@ a.cv-sha:focus-visible {
   margin-inline-start: -2px;
   white-space: nowrap;
 }
+/* A stopped turn's one muted word (TurnRows.tsx `stoppedWord`), in the time's caption size and the
+   footer's resting ink: what ended the turn is its tooltip, never the transcript's text. */
+.cv-turn-actions .cv-turn-stopped {
+  display: inline-flex;
+  align-items: center;
+  height: var(--cv-footer-row);
+  color: var(--cv-footer-ink);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+}
 .cv-iconbtn.cv-turn-continue:disabled {
   opacity: 0.5;
   pointer-events: none;
@@ -5416,23 +5438,14 @@ a.cv-sha:focus-visible {
 .cv-plan__item[data-status="pending"] .cv-plan__mark {
   border-style: dashed;
 }
-/* A thin arc on a faint ring; it turns while the turn runs. */
-.cv-plan__item[data-status="in_progress"] .cv-plan__mark {
-  border-color: var(--cv-card-ring);
-  border-top-color: var(--agent-text);
+/* The step at work draws the shared Spinner inside the mark (PlanList.tsx), so the mark has no ring of
+   its own while the turn runs. */
+.cv-plan:not([data-ended]) .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+  border-width: 0;
 }
-/* Left in progress when its turn ended: a plain ring, not an arc frozen mid-turn. */
+/* Left in progress when its turn ended: a plain ring, not a spinner frozen mid-turn. */
 .cv-plan[data-ended] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
   border-color: var(--cv-text-muted);
-}
-/* Static status indicators and Reduce Motion: the arc holds still. */
-@media (prefers-reduced-motion: no-preference) {
-  :root:not([data-status-indicators="static"])
-    .cv-plan:not([data-ended])
-    .cv-plan__item[data-status="in_progress"]
-    .cv-plan__mark {
-    animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
-  }
 }
 
 /* The running turn's activity line under its todo list (ActivityLine.tsx, agent.sessionStatus,
@@ -5976,3 +5989,24 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);
 }
 .cv-repo-recovery button:hover { background: color-mix(in srgb, var(--agent-text) 15%, transparent); }
+/* A background task's result the person has not seen (ReactionMark.tsx): a 6px accent dot at the
+   row's edge, before its check and time, until the next prompt. It never pulses. */
+.cv-reaction-mark {
+  position: relative;
+  flex: none;
+  /* A dot, not a control: its size is the glyph's, and an aspect ratio keeps it round. */
+  width: 6px;
+  aspect-ratio: 1;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--agent-accent);
+  align-self: center;
+}
+/* The agent's reply to that result, under the opened call's output (ReactionReply). */
+.cv-reaction-reply {
+  margin: 4px 0 6px;
+  padding-left: var(--cv-tool-text-inset);
+  color: var(--cv-text-dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
