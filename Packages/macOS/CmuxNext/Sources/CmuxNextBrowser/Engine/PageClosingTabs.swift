@@ -30,11 +30,10 @@ public final class PageClosingTabs {
         }
     }
 
-    /// Whether `page` asks the person something it did not ask when this is called (a beforeunload
-    /// question that already shows counts as new): a tab hidden while its page decides comes back then.
+    /// Whether `page` asks the person its beforeunload question ("Leave site?") now: a tab hidden while
+    /// its page decides comes back then.
     public static func asksPerson(_ page: any BrowserTab) -> @MainActor @Sendable () -> Bool {
-        let known = Set(page.pendingPrompts.filter { !$0.kind.isBeforeUnload }.map(ObjectIdentifier.init))
-        return { [weak page] in page?.pendingPrompts.contains { !$0.isResolved && !known.contains(ObjectIdentifier($0)) } ?? false }
+        { [weak page] in page?.pendingPrompts.contains { $0.kind.isBeforeUnload && !$0.isResolved } ?? false }
     }
 
     /// Whether tab `id`'s page is still deciding a close no question shows for.

@@ -11,8 +11,8 @@ import CmuxNextWakeups
 /// and codex so we nede to be at least as fast"; 2026-10-25: a close never waits for the tab's close.
 ///
 /// The page's own close (no handler, or Leave) lifts the hide in the turn its close takes the tab out
-/// again (``lift(_:)``, no flash). A page that asks (beforeunload's "Leave site?", or any question it
-/// raises meanwhile) brings its tab back in place, selected, before the question (``restore(_:)``). A page
+/// again (``lift(_:)``, no flash). A page that asks (beforeunload's "Leave site?") brings its tab back
+/// in place, selected, before the question (``restore(_:)``). A page
 /// that has neither closed nor asked by ``deadline`` is closed without asking (`timedOut`): the close took
 /// effect on the click, so its tab never comes back unasked. `Pane` is the pane controller (compared by identity).
 @MainActor
@@ -96,8 +96,10 @@ public final class HiddenPageCloses<Pane: AnyObject> {
 
     /// The page of tab `id` neither closed nor asked in time: it closes without asking.
     public func expire(_ id: String) {
-        guard let pane = entries[id]?.pane, lift(id) else { return }
-        timedOut(pane, id)
+        guard let entry = entries[id] else { return }
+        let pane = entry.pane
+        lift(id) // a pane gone meanwhile still lets go of its hide
+        if let pane { timedOut(pane, id) }
     }
 
     /// The page of tab `id` asks the person: the tab comes back at its
