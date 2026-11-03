@@ -1517,9 +1517,9 @@
    the dot's own 6px box, so the strip never moves as paused turns to resuming and back to live. */
 .acpmux-location-button .acpmux-env-live-spinner {
   position: absolute;
-  inset: -2px;
-  width: 10px;
-  height: 10px;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
   color: var(--agent-muted);
 }
 /* The cloud toggle (stripLayout cloud-toggle) stands at the strip's end, before the branch. */
