@@ -10,14 +10,29 @@ import { useT, type Translate } from "../i18n";
 import { AgentMark } from "../../shared/AgentMark";
 import { agentTone } from "../subagents/agentTones";
 import { TonedIcon } from "../subagents/TonedIcon";
+import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { AcpmuxSessionEntry } from "../sessionList";
-import { byUsage, type SessionUsageStats, UNKNOWN, type UsageSort, usageCost, usageTokens } from "../usageStats";
+import {
+  byUsage,
+  cacheUsageRows,
+  type SessionUsageStats,
+  UNKNOWN,
+  type UsageCacheLayout,
+  type UsageSort,
+  usageCost,
+  usageTokens,
+} from "../usageStats";
 import "./UsageSection.css";
 
 const ROW_ICON = rowIconSize(12);
 /// Rows the list shows before View all.
 export const USAGE_SHOWN = 5;
+
+/// Gallery arms for the own-metrics leading column. The shared slot is the shipped treatment:
+/// it aligns this chat's metrics with peer-session rows without repeating a generic icon on every
+/// number. The other arms keep the prior flush treatment and show the icon alternative.
+export type UsageOwnRowLayout = "flush" | "slot" | "icon";
 
 /// The section's one-line value: this chat's 24h cost, else its 24h tokens.
 export function usageMeta(t: Translate, stats: SessionUsageStats | undefined, locale?: string): string | undefined {
@@ -40,7 +55,7 @@ const known = <T,>(value: T | undefined, format: (value: T) => string) =>
   value === undefined ? UNKNOWN : format(value);
 
 /// This chat's numbers, as name and value rows.
-function ownRows(t: Translate, stats: SessionUsageStats, locale?: string): OwnRow[] {
+function ownRows(t: Translate, stats: SessionUsageStats, locale?: string, cacheLayout?: UsageCacheLayout): OwnRow[] {
   const tokens = (value: number) => usageTokens(value, locale);
   const subagents = [stats.subagentsLive, stats.subagents1h, stats.subagents24h];
   const rows: OwnRow[] = [
@@ -49,6 +64,8 @@ function ownRows(t: Translate, stats: SessionUsageStats, locale?: string): OwnRo
       name: t("sessionInfo.usage.cost24h"),
       value: known(stats.costUsd24h, (cost) => usageCost(cost, locale)),
     },
+    // The prompt cache's share and the cost of one call, right after the cost they explain.
+    ...cacheUsageRows(t, stats, locale, cacheLayout),
     { id: "tokens", name: t("sessionInfo.usage.tokens24h"), value: known(stats.tokens24h, tokens) },
     {
       id: "context",
@@ -108,6 +125,8 @@ export const UsageSection = memo(function UsageSection({
   locale,
   sort: initialSort = "cost",
   expanded: initialExpanded = false,
+  ownRowLayout = "slot",
+  cacheLayout = "rows",
 }: {
   /// This chat's (`summary.usageStats`).
   own?: SessionUsageStats;
@@ -125,6 +144,10 @@ export const UsageSection = memo(function UsageSection({
   /// The gallery's starting states.
   sort?: UsageSort;
   expanded?: boolean;
+  /// Gallery-only alternatives for the own-metrics leading column.
+  ownRowLayout?: UsageOwnRowLayout;
+  /// Gallery-only alternatives for the prompt cache's numbers: two rows (shipped) or one.
+  cacheLayout?: UsageCacheLayout;
 }) {
   const t = useT();
   const [sort, setSort] = useState<UsageSort>(initialSort);
@@ -133,11 +156,13 @@ export const UsageSection = memo(function UsageSection({
   const folds = ranked.length > USAGE_SHOWN;
   const shown = folds && !expanded ? ranked.slice(0, USAGE_SHOWN) : ranked;
   return (
-    <div className="acpmux-session-info-usage" data-section="usage">
+    <div className="acpmux-session-info-usage" data-section="usage" data-own-row-layout={ownRowLayout}>
       {own && (
         <ul className="acpmux-session-info-list">
-          {ownRows(t, own, locale).map(({ id, name, value, action }) => (
+          {ownRows(t, own, locale, cacheLayout).map(({ id, name, value, action }) => (
             <li key={id} className="acpmux-session-info-row" data-usage={id}>
+              {ownRowLayout === "slot" && <span className="acpmux-session-info-usage__lead-slot" aria-hidden="true" />}
+              {ownRowLayout === "icon" && <Icon name="agent.activity" size={ROW_ICON} row />}
               <span className="acpmux-session-info-row__name">{name}</span>
               <span className="acpmux-session-info-row__end acpmux-session-info-usage__value">{value}</span>
               {action === "compact" && onCompact && (

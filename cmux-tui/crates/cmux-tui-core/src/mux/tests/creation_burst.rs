@@ -164,3 +164,71 @@ fn a_split_sent_again_during_its_group_gets_the_replay() {
     original.surface.kill();
     first.kill();
 }
+
+/// Creation groups take the creation fence in the order they started
+/// (third review of #32461): a leader that started later took the fence
+/// as soon as it was free, so a later creation could commit before an
+/// earlier group whose leader had not reached the fence yet.
+#[test]
+fn a_later_creation_group_commits_after_an_earlier_one() {
+    let mux = test_mux();
+    let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+    let before = mux.with_state(|state| state.resource_revision);
+    // The split's group leader stops after it joined and before the fence.
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    mux.set_creation_before_fence_hook_for_test(Box::new(move || {
+        entered_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+    }));
+    let split = {
+        let mux = mux.clone();
+        std::thread::spawn(move || mux.split(pane, SplitDir::Down, None).unwrap())
+    };
+    entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    // A workspace create starts the next group.
+    let workspace = {
+        let mux = mux.clone();
+        std::thread::spawn(move || mux.new_workspace(None, Some((80, 24))).unwrap())
+    };
+    // It waits for the fence's turn, or (before the fix) it ran at once.
+    wait_until("the workspace create to wait or end", || {
+        mux.creations_waiting_for_test() == 1 || workspace.is_finished()
+    });
+    release_tx.send(()).unwrap();
+    let split = split.join().unwrap();
+    let workspace = workspace.join().unwrap();
+    // The split's pane is stored at a lower revision than the new
+    // workspace's pane.
+    let (split_pane, workspace_pane) = mux.with_state(|state| {
+        let public = |surface: &Arc<Surface>| {
+            state
+                .resource_indexes
+                .pane_ids
+                .get(&state.pane_of(surface.id).unwrap())
+                .unwrap()
+                .clone()
+        };
+        (public(&split), public(&workspace))
+    });
+    let batches = mux.workspace_registry.lock().unwrap().resource_events_after(before).unwrap();
+    let stored_at = |pane: &str| {
+        batches.batches.iter().find_map(|batch| {
+            let changes = batch.changes.as_array()?;
+            changes
+                .iter()
+                .any(|change| change["resource"] == "pane" && change["id"].as_str() == Some(pane))
+                .then_some(batch.revision)
+        })
+    };
+    let (split_at, workspace_at) =
+        (stored_at(split_pane.as_str()), stored_at(workspace_pane.as_str()));
+    assert!(
+        split_at.is_some() && workspace_at.is_some() && split_at < workspace_at,
+        "the later workspace create committed first: split at {split_at:?}, workspace at {workspace_at:?}"
+    );
+    split.kill();
+    workspace.kill();
+    first.kill();
+}

@@ -49,11 +49,11 @@ public actor NativeDeviceEnrollment {
         try await check(context, epoch)
         guard context.account == saved.context.account, context.user == saved.context.user,
               context.install == saved.context.install, context.point == saved.context.point,
-              context.environment == saved.context.environment else { throw NativeDeviceEnrollmentError.invalidIdentity }
+              context.environment == saved.context.environment else { throw NativeDeviceEnrollmentError.identity() }
         let record = try currentRecord(saved.store)
         guard record.device == binding.device,
               try record.key.publicKey.rawRepresentation.base64EncodedString() == binding.wgPublicKey else {
-            throw NativeDeviceEnrollmentError.invalidIdentity
+            throw NativeDeviceEnrollmentError.identity()
         }
         let authorization: NativeDeviceProof?
         switch request.op {
@@ -90,20 +90,20 @@ public actor NativeDeviceEnrollment {
         let context = try await identity.nativeContext(team: scope.team)
         guard context.account == saved.context.account, context.user == saved.context.user,
               context.install == saved.context.install, context.point == saved.context.point,
-              context.environment == saved.context.environment else { throw NativeDeviceEnrollmentError.invalidIdentity }
+              context.environment == saved.context.environment else { throw NativeDeviceEnrollmentError.identity() }
         try await checkStartup(context: context, epoch: epoch, binding: binding)
         let target = try await identity.nativeNetworkTarget(team: scope.team, mesh: scope.mesh)
         try await checkStartup(context: context, epoch: epoch, binding: binding)
-        guard target.scope == scope, target.origin == nativeOrigin else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        guard target.scope == scope, target.origin == nativeOrigin else { throw NativeDeviceEnrollmentError.identity() }
         let policyProof = try await proof("overlay-policy", target: binding.device, context: context)
         let policy: NativeDevicePolicyIdentity = try await readNative("POST", "/v1/devices/\(binding.device)/signed/overlay-policy", body: JSONEncoder().encode(policyProof))
         try await checkStartup(context: context, epoch: epoch, binding: binding)
         guard policy.tenantId == scope.tenant, policy.meshId == scope.mesh, policy.deviceId == binding.device,
-              policy.wgPublicKey == binding.wgPublicKey, policy.installPublicKey == context.point else { throw NativeDeviceEnrollmentError.invalidIdentity }
+              policy.wgPublicKey == binding.wgPublicKey, policy.installPublicKey == context.point else { throw NativeDeviceEnrollmentError.identity() }
         let tunnelProof = try await proof("tunnel", target: binding.device, context: context)
         let tunnel: NativeTunnelConfiguration = try await readNative("POST", "/v1/devices/\(binding.device)/signed/tunnel", body: JSONEncoder().encode(tunnelProof))
         try await checkStartup(context: context, epoch: epoch, binding: binding)
-        guard tunnel.meshId == scope.mesh, tunnel.deviceId == binding.device else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        guard tunnel.meshId == scope.mesh, tunnel.deviceId == binding.device else { throw NativeDeviceEnrollmentError.identity() }
         let record = try currentRecord(saved.store)
         let bytes = try JSONEncoder().encode(LinkBootstrap(install: context.install, team: scope.team, mesh: scope.mesh,
             tenant: scope.tenant, ipv4_cidr: target.ipv4CIDR, device: binding.device, tunnel: tunnel, private_key: record.privateKey))
@@ -127,10 +127,10 @@ public actor NativeDeviceEnrollment {
 
     private func checkStartup(context: NativeInstallContext, epoch: UInt64, binding: NativeDeviceBinding) async throws {
         try await check(context, epoch)
-        guard self.binding == binding, let saved else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        guard self.binding == binding, let saved else { throw NativeDeviceEnrollmentError.identity() }
         let record = try currentRecord(saved.store)
         guard record.device == binding.device, try record.key.publicKey.rawRepresentation.base64EncodedString() == binding.wgPublicKey else {
-            throw NativeDeviceEnrollmentError.invalidIdentity
+            throw NativeDeviceEnrollmentError.identity()
         }
         try Task.checkCancellation()
     }
@@ -183,10 +183,10 @@ public actor NativeDeviceEnrollment {
         let wg = try record.key.publicKey.rawRepresentation.base64EncodedString()
         let host: NativeEnrollmentHost = try await owner("host.enroll", NativeHostParams(name: name), key: "native-host:\(hash(namespace + name))", context: context)
         try await check(context, epoch)
-        guard host.owner_user == context.user, host.enrolled_by == context.install, host.kind != "server", host.orphaned != true else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        guard host.owner_user == context.user, host.enrolled_by == context.install, host.kind != "server", host.orphaned != true else { throw NativeDeviceEnrollmentError.identity() }
         if let network = host.network {
             guard network.tenant == scope.tenant, network.mesh == scope.mesh, host.wg_public_key == wg,
-                  NativeDeviceScope.isDevice(network.device), record.device == nil || record.device == network.device else { throw NativeDeviceEnrollmentError.invalidIdentity }
+                  NativeDeviceScope.isDevice(network.device), record.device == nil || record.device == network.device else { throw NativeDeviceEnrollmentError.identity() }
             record.device = network.device
         }
         if record.device == nil {
@@ -195,7 +195,7 @@ public actor NativeDeviceEnrollment {
             let listed: NativeDeviceList = try await readNative("GET", "/v1/meshes/\(scope.mesh)/devices", bearer: bearer)
             try await check(context, epoch)
             let candidates = listed.items.filter { $0.wgPublicKey == wg }
-            guard candidates.count <= 1 else { throw NativeDeviceEnrollmentError.invalidIdentity }
+            guard candidates.count <= 1 else { throw NativeDeviceEnrollmentError.identity() }
             let device: NativeDeviceDescription
             if let found = candidates.first { device = found }
             else {
@@ -205,7 +205,7 @@ public actor NativeDeviceEnrollment {
                 let response: NativeDeviceReply = try await readNative("POST", "/v1/meshes/\(scope.mesh)/devices", body: JSONEncoder().encode(params), bearer: bearer)
                 device = response.device
             }
-            guard NativeDeviceScope.isDevice(device.id), device.meshId == scope.mesh, device.wgPublicKey == wg, device.installPublicKey == context.point else { throw NativeDeviceEnrollmentError.invalidIdentity }
+            guard NativeDeviceScope.isDevice(device.id), device.meshId == scope.mesh, device.wgPublicKey == wg, device.installPublicKey == context.point else { throw NativeDeviceEnrollmentError.identity() }
             record.device = device.id
             try store.save(record) // Checkpoint the locator before another await, including sign-out or a lost backend reply.
         }
@@ -215,7 +215,7 @@ public actor NativeDeviceEnrollment {
         let policy: NativeDevicePolicyIdentity = try await readNative("POST", "/v1/devices/\(device)/signed/overlay-policy", body: JSONEncoder().encode(readProof))
         try await check(context, epoch)
         guard policy.tenantId == scope.tenant, policy.meshId == scope.mesh, policy.deviceId == device,
-              policy.wgPublicKey == wg, policy.installPublicKey == context.point else { throw NativeDeviceEnrollmentError.invalidIdentity }
+              policy.wgPublicKey == wg, policy.installPublicKey == context.point else { throw NativeDeviceEnrollmentError.identity() }
         try store.save(record)
         // The policy read spent its nonce. Backend verification needs its own fresh proof.
         let bindProof = try await proof("overlay-policy", target: device, context: context)
@@ -223,7 +223,7 @@ public actor NativeDeviceEnrollment {
                                                    key: "native-bind:\(hash(namespace + host.id + device + wg))", context: context)
         try await check(context, epoch)
         guard ack.host == host.id, ack.network.state == "confirmed", ack.network.tenant == scope.tenant,
-              ack.network.mesh == scope.mesh, ack.network.device == device else { throw NativeDeviceEnrollmentError.invalidIdentity }
+              ack.network.mesh == scope.mesh, ack.network.device == device else { throw NativeDeviceEnrollmentError.identity() }
         let confirmed = NativeDeviceBinding(host: host.id, team: scope.team, tenant: scope.tenant, mesh: scope.mesh, device: device, wgPublicKey: wg)
         binding = confirmed
         return confirmed
@@ -255,15 +255,25 @@ public actor NativeDeviceEnrollment {
     }
     private func owner<T: Decodable & Sendable, P: Encodable & Sendable>(_ op: String, _ params: P, key: String, context: NativeInstallContext) async throws -> T {
         let response = try await identity.nativeOwnerPost(JSONEncoder().encode(NativeOwnerCall(op: op, params: params, idempotency_key: key)), context: context)
-        guard response.status == 200, response.body.count <= 1_048_576 else { throw NativeDeviceEnrollmentError.refused(response.status, step: op) }
+        guard response.status == 200, response.body.count <= 1_048_576 else {
+            NativeNetworkRefusal.log(op, status: response.status, body: response.body)
+            throw NativeDeviceEnrollmentError.refused(response.status, step: op)
+        }
         let decoded = try JSONDecoder().decode(NativeOwnerReply<T>.self, from: response.body)
-        guard decoded.ok, let value = decoded.value else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        guard decoded.ok, let value = decoded.value else {
+            // An owner refusal comes back as 200 with `ok: false` and its code under `error`.
+            let refused = try? JSONDecoder().decode(NativeOwnerRefusal.self, from: response.body)
+            NativeNetworkRefusal.log(op, status: response.status, code: refused?.error?.code, message: refused?.error?.message)
+            throw NativeDeviceEnrollmentError.identity()
+        }
         return value
     }
     private func readNative<T: Decodable & Sendable>(_ method: String, _ path: String, body: Data? = nil, bearer: String? = nil) async throws -> T {
         let reply = try await native.send(method: method, path: path, body: body, bearer: bearer, tenant: bearer == nil ? nil : scope.tenant)
         guard reply.status == 200 || reply.status == 201, reply.body.count <= 1_048_576 else {
-            throw NativeDeviceEnrollmentError.refused(reply.status, step: NativeDeviceScope.step(method, path))
+            let step = NativeDeviceScope.step(method, path)
+            NativeNetworkRefusal.log(step, status: reply.status, body: reply.body)
+            throw NativeDeviceEnrollmentError.refused(reply.status, step: step)
         }
         return try JSONDecoder().decode(T.self, from: reply.body)
     }

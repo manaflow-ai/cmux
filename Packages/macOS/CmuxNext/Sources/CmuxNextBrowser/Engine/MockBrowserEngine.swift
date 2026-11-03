@@ -50,6 +50,9 @@ public final class MockBrowserTab: BrowserTab {
     @ObservationIgnored public private(set) var restoredSessions: [BrowserSavedSession] = []
     /// How far the page says it is scrolled (tests set it; it may never answer).
     @ObservationIgnored public var scrollPosition: @MainActor () async -> Double? = { nil }
+    /// Where the chrome said native UI covers the page, as a child-window page is told (`BrowserOcclusionHosting`).
+    @ObservationIgnored public var occlusionRects: [CGRect] = []
+    @ObservationIgnored var roundedOcclusions: [CEFClipShape.RoundedRect] = []
     public enum Command: Hashable, Sendable {
         case load(URL)
         case goBack
@@ -95,6 +98,8 @@ public final class MockBrowserTab: BrowserTab {
     /// What the last `setContentVisible` said (shown until then).
     @ObservationIgnored public private(set) var isContentHidden = false
 
+    /// The hovered link's text (`BrowserTab.linkStatus`); tests set it.
+    public var linkStatus: String?
     /// Page text used by `find`.
     public var pageText = ""
     /// Canned result for `evaluate`.

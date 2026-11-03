@@ -42,6 +42,7 @@ owned-mini pool. Other callers write empty values and keep their Blacksmith rout
 
 LINUX_ONLY jobs (the nightly signer compiler emits a Linux executable) never
 take a mini. NIGHTLY_WAIT_FOR_FLEET=1 retries placement for at most three minutes
+(NIGHTLY_WAIT_SECONDS shortens that)
 before returning unplaced jobs to overflow. The process-wide deadline bounds
 reads too, and main always clears its alarm and restores the previous handler.
 REQUIRE_LIVE_CAPACITY=1 never emits an owned-mini label without a fresh
@@ -252,7 +253,10 @@ def read(env: Mapping[str, str], now: dt.datetime, *, use_state: bool = True
     """The runners (routing App, then cmux-bot) and the janitor's pool snapshot; None when unread."""
     repo = env.get("GITHUB_REPOSITORY", "")
     runners = snapshot = None
-    if not repo or eligible(env):
+    # The all-nightly reservation is no side label: a nightly run that offers it reads capacity even with no
+    # side label to offer (decide's reservation-route placement), still only on an attempt that may move.
+    reserved = env.get("NIGHTLY") == "1" and bool((env.get("NIGHTLY_ONLY_LABEL") or "").strip())
+    if not repo or (eligible(env) and not (reserved and not attempt_refusal(env))):
         return runners, snapshot
     retries = pool.RetryBudget(1)
     for name in ("ROUTE_TOKEN", "ROUTE_TOKEN_FALLBACK"):
@@ -300,6 +304,10 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         # This is placement only: it never cancels a started job or run. Other
         # callers keep their immediate placement behavior.
         wait_seconds = 180 if env.get("NIGHTLY_WAIT_FOR_FLEET") == "1" else 0
+        # A caller may shorten the window (never lengthen it): decide's light jobs
+        # wait on the feed's critical path (run 41655282358: 163 s of 2.9 min).
+        if wait_seconds and (env.get("NIGHTLY_WAIT_SECONDS") or "").isdigit():
+            wait_seconds = min(wait_seconds, int(env["NIGHTLY_WAIT_SECONDS"]))
         signal.setitimer(signal.ITIMER_REAL, DEADLINE_SECONDS + wait_seconds)
         runners, snapshot = read(env, now)
         # Waiting is safe only when both runner inventory and the janitor snapshot

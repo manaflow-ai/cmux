@@ -26,11 +26,17 @@ extension SidebarStyle {
     /// inset (Lawrence: the hover close is the row's × at the end of the title's line, inside the
     /// row's inset), and never nearer the edge than the resize band's reach plus Search's overhang
     /// (#27954: Search can be wider than the slot, and a trailing click must not grab the resize edge).
-    /// The grid's 24 pt line clears it at the default text size.
+    /// The grid's 24 pt line clears it at the default text size. Both are measured from the place the fill
+    /// ended before rows kept a gap from the edge (`trailingClearanceEdge`), so the gap moves the fill, never the
+    /// column: the marks stay on the grid's line at every density and text size, as before 2026-11-02.
     static var trailingColumnInset: CGFloat {
-        max(horizontalInset, Metrics.space1 + SidebarResizeBand.contentInset +
-            max(0, (searchHeight - trailingSlotSide) / 2))
+        max(0, trailingClearanceEdge - rowEdgeGap + max(horizontalInset, Metrics.space1 + SidebarResizeBand.contentInset +
+            max(0, (searchHeight - trailingSlotSide) / 2)))
     }
+
+    /// How far in from the sidebar's edge the trailing clearance above is measured: where a row's fill ended
+    /// until 2026-11-02 (1.5 pt, Leo 2026-10-27), kept so the slot's distance from the sidebar's edge is unchanged.
+    static let trailingClearanceEdge: CGFloat = 1.5
 
     /// The x every trailing indicator centers on, in a row (or header) of `rowWidth`: the grid's
     /// trailing line in the row's fill. Each caller passes the width of its actual fill, so no view
@@ -53,10 +59,11 @@ extension SidebarStyle {
     }
 
     /// A `side`-square frame centered on trailing slot `slot` (0 is the column) and on `centerY`, never
-    /// past the resize band's reach.
+    /// past the resize band's reach. The reach is measured from the sidebar's edge (the fill's end plus
+    /// `rowEdgeGap`), from `trailingClearanceEdge` as the column's clearance is, so the row gap moves no slot.
     static func trailingColumnFrame(rowWidth: CGFloat, centerY: CGFloat, side: CGFloat, slot: Int = 0) -> CGRect {
         let frame = columns(rowWidth: rowWidth).trailingFrame(index: slot, centerY: centerY, side: side)
-        let end = rowWidth - SidebarResizeBand.contentInset
+        let end = rowWidth + rowEdgeGap - trailingClearanceEdge - SidebarResizeBand.contentInset
         return CGRect(x: min(frame.minX, end - side), y: frame.minY, width: side, height: side)
     }
 

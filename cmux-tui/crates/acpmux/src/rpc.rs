@@ -418,6 +418,8 @@ pub mod method {
     pub const MUX_MESH_CONTROL: &str = "_acpmux/mesh_control";
     /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
+    /// The person takes a managed chat over, or hands it back (`hub/agent_hold.rs`).
+    pub const MUX_AGENT_HOLD: &str = "_acpmux/agent_hold";
     /// Retry a chat's failed last turn now (`hub/auto_resume/retry_turn.rs`).
     pub const MUX_RETRY: &str = "_acpmux/retry";
     /// What this daemon knows of a chat's sign-in (`hub/session_auth.rs`).
@@ -639,6 +641,10 @@ pub mod method {
     pub const MUX_SECRET_REQUEST: &str = "_acpmux/secret_request";
     pub const MUX_SECRET_SUBMIT: &str = "_acpmux/secret_submit";
     pub const MUX_SECRET_RUN: &str = "_acpmux/secret_run";
+    /// An agent asks to connect an MCP server (`hub/mcp_connect.rs`); only the person's card
+    /// answers, with `mcp_connect_answer`.
+    pub const MUX_MCP_CONNECT_REQUEST: &str = "_acpmux/mcp_connect_request";
+    pub const MUX_MCP_CONNECT_ANSWER: &str = "_acpmux/mcp_connect_answer";
     /// An agent offers the person a parallel chat (`hub/offers.rs`): a chip
     /// the person accepts or dismisses with `offer_respond`.
     pub const MUX_OFFER_SESSION: &str = "_acpmux/offer_session";

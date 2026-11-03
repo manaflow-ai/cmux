@@ -71,7 +71,10 @@ public final class CmuxToastButton: ClickableButton {
         guard style == .action else { return NSSize(width: Self.closeSide, height: Self.closeSide) }
         let text = attributedTitle.size()
         let chevron = image.map { ceil($0.size.width) + Self.chevronGap } ?? 0
-        return NSSize(width: ceil(text.width) + chevron + Self.titlePadding * 2, height: Self.closeSide + 2)
+        // Never narrower than the cell needs to draw the whole title: the cell's own insets clipped a title sized
+        // to its text alone to "Restart cmux-tui…" (Leo, 2026-11-03).
+        let drawn = cell.map { ceil($0.cellSize.width) } ?? 0
+        return NSSize(width: max(ceil(text.width) + chevron + Self.titlePadding * 2, drawn), height: Self.closeSide + 2)
     }
 
     /// The frame is the alignment rect: the toast's row centres the frames, so Details (22 pt) and

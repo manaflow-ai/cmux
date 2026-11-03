@@ -6244,7 +6244,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "d",
+        "key" : "x",
         "modifiers" : [
           "ctrl",
           "cmd"
@@ -6306,7 +6306,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "d",
+        "key" : "x",
         "modifiers" : [
           "ctrl",
           "shift",
@@ -10649,6 +10649,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "home primary-chief",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.setPrimaryChief",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "noTargetSurface",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Make Primary Chief",
+      "title_key" : "action.home.setPrimaryChief",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "home delete-chief",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
@@ -11393,6 +11421,34 @@
       "palette_suggested" : null,
       "title" : "Save Last 10 Seconds",
       "title_key" : "action.home.saveFlightRecording",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "devOnly",
+      "cli_name" : "action home-agent-message-playground",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.agentMessagePlayground",
+      "main_menu" : "debug",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Agent Messages Playground",
+      "title_key" : "action.home.agentMessagePlayground",
       "title_table" : "HomeActions"
     },
     {
@@ -15622,7 +15678,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "d",
+        "key" : "x",
         "modifiers" : [
           "opt",
           "cmd"
@@ -15656,7 +15712,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "d",
+        "key" : "x",
         "modifiers" : [
           "opt",
           "shift",
@@ -25436,6 +25492,62 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "share invite",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agent.share.invite",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Invite People to Chat…",
+      "title_key" : "action.agent.share.invite",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "share uninvite",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agent.share.uninvite",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Remove Invited Person",
+      "title_key" : "action.agent.share.uninvite",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "clipboard",
       "cli_name" : "action agent-chat-copy-name",
       "context_menu" : "guiOnly",
@@ -27774,6 +27886,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "accounts github-connect",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "accounts.githubConnect",
+      "main_menu" : null,
+      "mcp" : "credentials",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Connect GitHub",
+      "title_key" : "action.accounts.githubConnect",
+      "title_table" : "AccountsActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "accounts show",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -29192,6 +29332,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "settings install-earlier-nightly",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "updates.installEarlierBuild",
+      "main_menu" : "app",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Install an Earlier Nightly…",
+      "title_key" : "action.updates.installEarlierBuild",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "settings upgrade-to-pro",
       "context_menu" : "noObject",
@@ -30533,6 +30701,34 @@
       "palette_suggested" : null,
       "title" : "Hide Host Pressure Warning",
       "title_key" : "action.hostPressure.hideWarning",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "devOnly",
+      "cli_name" : "action debug-tab-bar-playground",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.tabBarPlayground",
+      "main_menu" : "debug",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Tab Bar Playground",
+      "title_key" : "action.debug.tabBarPlayground",
       "title_table" : "ActionCatalog"
     },
     {

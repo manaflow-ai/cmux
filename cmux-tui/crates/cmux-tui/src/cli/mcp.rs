@@ -51,6 +51,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
+use super::cloud_workspaces;
 use super::command::RequestPlan;
 use super::{GlobalArgs, OutputMode};
 use action_tools::ActionTool;
@@ -218,6 +219,13 @@ pub(super) trait Backend {
         on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
     ) -> Result<(), CallFailure>;
 
+    /// Whether this server's default route is the session the cmux app owns
+    /// (no `--session`, `--socket` or `--machine`), so `workspace_list` adds
+    /// the app's Cloud workspaces.
+    fn app_session(&self) -> bool {
+        true
+    }
+
     /// A `cmux agents chat` verb: the daemon (agent messages, workspaces)
     /// and acpmux (chats) together. A backend without both runs none.
     fn chat(
@@ -280,6 +288,12 @@ impl LiveBackend {
 }
 
 impl Backend for LiveBackend {
+    fn app_session(&self) -> bool {
+        self.global.session.is_none()
+            && self.global.socket.is_none()
+            && self.global.machine.is_none()
+    }
+
     fn cloud_repo(&self, action: &str, args: Value) -> Result<Value, CallFailure> {
         super::cloud_repo::call(&self.global, action, args)
     }
@@ -1137,6 +1151,9 @@ impl<B: Backend> Server<B> {
         images: &mut Vec<Value>,
     ) -> Value {
         match request {
+            code_mode::Request::ActivityStart { .. } | code_mode::Request::ActivityWait { .. } => {
+                json!({"ok": false, "message": "workflow activities require a daemon-owned run"})
+            }
             code_mode::Request::Call { name, .. } if name == code_mode::EXEC => {
                 code_mode::script_answer(
                     Err((-32602, "a script cannot start another script".into())),
@@ -1176,6 +1193,23 @@ impl<B: Backend> Server<B> {
     }
 
     fn call_v2(&self, tool: &v2_tools::V2Tool, arguments: &Map<String, Value>) -> Value {
+        // `workspace_list {machine}`: one Cloud machine's workspaces, from the app.
+        let mut arguments = std::borrow::Cow::Borrowed(arguments);
+        let mut cloud = tool.wire == "workspace.list";
+        if cloud && let Some(machine) = arguments.to_mut().remove("machine") {
+            match machine.as_str().filter(|machine| !machine.is_empty()) {
+                Some("current" | "local") => cloud = false,
+                Some(machine) => return self.cloud_workspaces(machine, &arguments),
+                None => {
+                    return tool_error(envelope(
+                        v2_tools::invalid("machine must be a non-empty string"),
+                        "not_run",
+                        None,
+                    ));
+                }
+            }
+        }
+        let arguments = &*arguments;
         let arguments = match self.place_beside(tool, arguments) {
             Ok(arguments) => arguments,
             Err(answer) => return answer,
@@ -1211,6 +1245,7 @@ impl<B: Backend> Server<B> {
                     .zip(call.plan.params.get("text").and_then(Value::as_str).map(str::to_owned))
             })
             .flatten();
+        let call_session = call.session.clone();
         match self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes) {
             Ok(value) if typed.is_some() => success(
                 {
@@ -1229,6 +1264,19 @@ impl<B: Backend> Server<B> {
                 success(value, tool.mutation)
             }
             Ok(value) if plain_history => success(history_text(value), tool.mutation),
+            // The session the app owns lists the app's Cloud workspaces too.
+            Ok(value) if cloud && call_session.is_none() && self.backend.app_session() => success(
+                {
+                    let rows =
+                        self.cloud_machines().map(|machines| cloud_workspaces::rows(&machines));
+                    let value = cloud_workspaces::append(value, rows.unwrap_or_default());
+                    match page {
+                        Some(page) => v2_tools::paginate(value, page),
+                        None => value,
+                    }
+                },
+                tool.mutation,
+            ),
             Ok(value) => success(
                 match page {
                     Some(page) => v2_tools::paginate(value, page),
@@ -1237,6 +1285,47 @@ impl<B: Backend> Server<B> {
                 tool.mutation,
             ),
             Err(failure) => failure_result(failure),
+        }
+    }
+
+    /// The app's Cloud machines (`cloud.machines`), or `None` when the app has
+    /// none to give (no app, Cloud off, an older app): the list stands alone.
+    fn cloud_machines(&self) -> Option<Vec<Value>> {
+        let reply = self
+            .backend
+            .app("cloud.machines", json!({}), CLOUD_MACHINES_TIMEOUT, None, false)
+            .ok()?;
+        cloud_workspaces::machines_of(&reply)
+    }
+
+    /// `workspace_list {machine}` for a Cloud machine: its workspaces as the
+    /// app's store has them, one page as the daemon's list pages.
+    fn cloud_workspaces(&self, selector: &str, arguments: &Map<String, Value>) -> Value {
+        let page = match cloud_page(arguments) {
+            Ok(page) => page,
+            Err(error) => return tool_error(envelope(error, "not_run", None)),
+        };
+        let machines = self.cloud_machines().unwrap_or_default();
+        match cloud_workspaces::find(&machines, selector) {
+            Ok(Some(machine)) => success(
+                v2_tools::paginate(Value::Array(cloud_workspaces::machine_rows(machine)), page),
+                false,
+            ),
+            Ok(None) => tool_error(envelope(
+                json!({
+                    "code": "selector.not_found",
+                    "message": format!(
+                        "no Cloud machine matches {selector:?}; `app_cloud_list_machines` (cmux cloud \
+                         list-machines) lists their ids, and workspace_list without machine lists \
+                         every machine's workspaces"
+                    ),
+                    "details": {"scope": "machine", "selector": selector},
+                    "retryable": false,
+                }),
+                "rejected",
+                None,
+            )),
+            Err(ambiguous) => tool_error(envelope(ambiguous, "rejected", None)),
         }
     }
 
@@ -1420,6 +1509,34 @@ pub(super) fn failure_result(failure: CallFailure) -> Value {
         .unwrap_or(failure.kind.state())
         .to_owned();
     tool_error(envelope(failure.error, &state, failure.idempotency_key.as_deref()))
+}
+
+/// How long `workspace_list` waits for the app's `cloud.machines`, a short
+/// main-actor read (the CLI's `machine list` bound).
+const CLOUD_MACHINES_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// The page `workspace_list {machine, offset, limit}` answers.
+fn cloud_page(arguments: &Map<String, Value>) -> Result<v2_tools::Page, Value> {
+    let count = |name: &str, maximum: usize| match arguments.get(name) {
+        None => Ok(None),
+        Some(value) => value
+            .as_u64()
+            .and_then(|value| usize::try_from(value).ok())
+            .filter(|value| *value <= maximum)
+            .map(Some)
+            .ok_or_else(|| {
+                v2_tools::invalid(format!("{name} must be an integer from 0 to {maximum}"))
+            }),
+    };
+    if let Some(name) = arguments.keys().find(|name| !matches!(name.as_str(), "offset" | "limit")) {
+        return Err(v2_tools::invalid(format!(
+            "workspace_list with a Cloud machine has no argument {name:?}"
+        )));
+    }
+    Ok(v2_tools::Page {
+        offset: count("offset", usize::MAX)?.unwrap_or(0),
+        limit: count("limit", v2_tools::MAX_PAGE)?.unwrap_or(v2_tools::DEFAULT_PAGE).max(1),
+    })
 }
 
 fn tool_error(envelope: Value) -> Value {

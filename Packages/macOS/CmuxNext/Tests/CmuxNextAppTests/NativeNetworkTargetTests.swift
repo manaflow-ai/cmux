@@ -21,6 +21,8 @@ import Testing
         #expect(target.scope == scope)
         #expect(target.origin == world.origin && target.project == NativeDeviceTestWorld.project)
         #expect(target.ipv4CIDR == "10.128.0.0/20")
+        // The platform's route, not a /v1/read of the op (TeamDO answers that "unknown read").
+        #expect(await world.targetPaths == [explicit ? "/v1/host/network/target?mesh=\(scope.mesh)" : "/v1/host/network/target"])
         #expect(await world.enrollments == 0)
         #expect(await world.binds == 0)
         let enrollment = try NativeDeviceEnrollment(scope: target.scope, identity: identity, paths: CloudPaths(root: root.appendingPathComponent("network")), native: world,

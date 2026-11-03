@@ -196,11 +196,37 @@ public struct CloudConfiguration: Sendable, Equatable {
     /// The cmux APIs a share room takes tokens from (cmux-tui `platform::share_owner_api`).
     static let shareAPIHosts: Set<String> = ["cloud-api.cmux.dev", "cloud-api-staging.cmux.dev", "cmux-api-development.debussy.workers.dev"]
 
-    public static func current(bundle: Bundle = .main, isDebugBuild: Bool) -> CloudConfiguration {
-        let bundled = bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String] ?? [:]
-        return resolve(bundleID: bundle.bundleIdentifier, bundled: bundled,
-                       process: ProcessInfo.processInfo.environment, isDebugBuild: isDebugBuild)
+    /// Whether this compile has the bench hooks (`reload.sh --config bench`: `CMUX_BENCH_HOOKS`, never in a
+    /// shipped app). With them, a `cap<sha10>` capture build's Cloud is configured as a Debug build's (``isCaptureBuild(bundleID:benchHooks:)``).
+    public static var benchHooksCompiled: Bool {
+        #if CMUX_BENCH_HOOKS
+        true
+        #else
+        false
+        #endif
     }
+
+    /// `benchHooks`: whether this compile has the bench hooks (``benchHooksCompiled`` unless a test says).
+    public static func current(bundle: Bundle = .main, isDebugBuild: Bool, benchHooks: Bool = benchHooksCompiled) -> CloudConfiguration {
+        let bundled = bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String] ?? [:]
+        let debug = isDebugBuild || isCaptureBuild(bundleID: bundle.bundleIdentifier, benchHooks: benchHooks)
+        return resolve(bundleID: bundle.bundleIdentifier, bundled: bundled,
+                       process: ProcessInfo.processInfo.environment, isDebugBuild: debug)
+    }
+
+    /// Whether this is a PR capture's Release build: the bench configuration (`CMUX_BENCH_HOOKS`, which the
+    /// release and nightly pipelines refuse to ship, scripts/cmux-next/check-no-bench-hooks.sh) of the tag
+    /// `cap<sha10>` (cmuxterm-hq build-fleet/pr-capture `--release`). Its Cloud is configured as a Debug build's:
+    /// the development backend and the capture account's automatic sign-in, so a capture can drive the Release
+    /// paths (`DevTools.isEnabled` false, which this does not change) against a test account. A shipped build
+    /// has neither the hooks nor that bundle identifier, so it keeps production.
+    public static func isCaptureBuild(bundleID: String?, benchHooks: Bool) -> Bool {
+        guard benchHooks, let bundleID, bundleID.hasPrefix(captureBundlePrefix) else { return false }
+        let tag = bundleID.dropFirst(captureBundlePrefix.count)
+        return tag.count == 10 && tag.allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
+    }
+
+    static let captureBundlePrefix = "com.cmuxterm.app.debug.cap"
 
     static func isLoopback(_ url: URL) -> Bool {
         guard let host = url.host?.lowercased() else { return true }

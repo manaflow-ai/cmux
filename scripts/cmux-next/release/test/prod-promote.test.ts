@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { candidateRuns, gh, guardedVarGate, holdPinned, holdReleases, isPromotableLineage, main, missingSecrets, pickCandidate, rollbackPlan, serving, SOAK_MINUTES, type Approvals, type GitRunner } from "../prod-promote.ts"
+import { candidateRuns, gh, guardedVarGate, holdPinned, holdReleases, isPromotableLineage, main, missingSecrets, pickCandidate, rollbackPlan, serving, stagingRuns, SOAK_MINUTES, type Approvals, type GitRunner } from "../prod-promote.ts"
 
 const SHA = "0123456789abcdef0123456789abcdef01234567"
 const OTHER = "89abcdef0123456789abcdef0123456789abcdef"
@@ -334,6 +334,22 @@ describe("paid Cloud entitlements (CLOUD_PLAN_ENTITLEMENTS) in production", () =
   })
 })
 
+describe("the platform cutover (PLATFORM_SURFACES) in production", () => {
+  const approvals = (guarded: Record<string, string> = {}): Approvals => ({ required_secrets: [], do_tags: {}, guarded_vars: guarded })
+  const env = (vars: Record<string, string>) => ({ vars: { ENVIRONMENT: "production", ...vars }, migrations: [] })
+
+  it("G7: forwarding a surface to cmux-platform needs an approved value; leaving it unchanged does not", () => {
+    const off = env({})
+    const on = env({ PLATFORM_SURFACES: "cloud" })
+    expect(guardedVarGate(off, on, approvals())).toEqual(["PLATFORM_SURFACES=cloud: not in scripts/cmux-next/release/production-approvals.json guarded_vars"])
+    expect(guardedVarGate(off, on, approvals({ "PLATFORM_SURFACES=cloud": "reviewed" }))).toEqual([])
+    expect(guardedVarGate(on, on, approvals())).toEqual([])
+    expect(guardedVarGate(on, env({ PLATFORM_SURFACES: "cloud,chat" }), approvals({ "PLATFORM_SURFACES=cloud": "reviewed" }))).toEqual([
+      "PLATFORM_SURFACES=cloud,chat: not in scripts/cmux-next/release/production-approvals.json guarded_vars",
+    ])
+  })
+})
+
 const lineageRepo = () => {
   const root = mkdtempSync(join(tmpdir(), "prod-promote-lineage-"))
   const run: GitRunner = (args, input) => execFileSync("git", ["-C", root, ...args], { encoding: "utf8", ...(input === undefined ? {} : { input }) }).trim()
@@ -422,5 +438,40 @@ describe("gh() retries GitHub 5xx", () => {
     const calls = stub([502, 200])
     await expect(gh("/issues", { method: "POST", body: "{}" }, [0, 0, 0])).rejects.toThrow("HTTP 502")
     expect(calls.length).toBe(1)
+  })
+})
+
+
+describe("G1 excludes a source-fenced staging skip", () => {
+  it("a superseded push neither proves green nor poisons another commit's soak; real smoke failures still count", async () => {
+    const savedFetch = globalThis.fetch
+    const savedToken = process.env.GITHUB_TOKEN
+    process.env.GITHUB_TOKEN = "test-token"
+    const jobs = (kind: "green" | "red" | "superseded") => [
+      { name: "test", conclusion: "success" },
+      { name: "migrations-push-guard", conclusion: "success" },
+      { name: "deploy-staging", conclusion: kind === "red" ? "failure" : "success", completed_at: "2026-11-03T10:00:00Z", steps: [
+        { name: "Newer deployment inputs already queued; skip", conclusion: kind === "superseded" ? "success" : "skipped" },
+        { name: "Smoke the API Worker; roll back on red", conclusion: kind === "green" ? "success" : kind === "red" ? "failure" : "skipped" },
+      ] },
+    ]
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = new URL(String(input))
+      if (url.host !== "api.github.com") throw new Error(`unexpected host ${url.host}`)
+      if (url.pathname.endsWith("/backend.yml/runs")) return Response.json({ workflow_runs: [{ id: 3, head_sha: "stale" }, { id: 2, head_sha: "red" }, { id: 1, head_sha: "green" }] })
+      const id = /\/runs\/(\d+)\/jobs$/.exec(url.pathname)?.[1]
+      if (!id) throw new Error(`unexpected GitHub path ${url.pathname}`)
+      return Response.json({ jobs: jobs(id === "3" ? "superseded" : id === "2" ? "red" : "green") })
+    }) as typeof fetch
+    try {
+      expect(await stagingRuns()).toEqual([
+        { sha: "red", at: Date.parse("2026-11-03T10:00:00Z"), green: false },
+        { sha: "green", at: Date.parse("2026-11-03T10:00:00Z"), green: true },
+      ])
+    } finally {
+      globalThis.fetch = savedFetch
+      if (savedToken === undefined) delete process.env.GITHUB_TOKEN
+      else process.env.GITHUB_TOKEN = savedToken
+    }
   })
 })

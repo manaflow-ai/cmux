@@ -96,14 +96,6 @@ final class DaemonAppsTransport: AppsTransport {
         return capabilities.contains(capability) ? nil : .needsNewerDaemon
     }
 
-    /// The `apps-run` origin: `user` only for a user origin on a connection
-    /// the daemon verified as the cmux app (`client-hello`
-    /// `user_origin_allowed`, P8), as `CloudAppLinks.wireOrigin` does;
-    /// `script` for everything else.
-    nonisolated static func wireOrigin(_ origin: AppOrigin, userOriginAllowed: Bool) -> AppsRunRequest.Origin {
-        origin == .user && userOriginAllowed ? .user : .script
-    }
-
     // MARK: Commands
 
     private func send<R: DaemonRequest>(_ request: R, timeout: Duration? = nil,
@@ -129,6 +121,8 @@ final class DaemonAppsTransport: AppsTransport {
         AppsWireDecoding().list(try await send(AppsListRequest()))
     }
 
+    func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel] { try await AppSessionInfoPanel.list(AppJSON(send(AppsStoreRequest.panelsList))) }
+
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
         let request = AppsSetRequest(idempotencyKey: idempotencyKey, app: app, origin: origin.rawValue, installed: change.installed,
                                      enabled: change.enabled, hidden: change.hidden, sandboxed: change.sandboxed,
@@ -153,7 +147,7 @@ final class DaemonAppsTransport: AppsTransport {
 
     func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON {
         let userAllowed = await daemon.connection?.userOriginAllowed == true
-        let wire = Self.wireOrigin(origin, userOriginAllowed: userAllowed)
+        let wire = origin.wire(userOriginAllowed: userAllowed)
         Self.logger.info("apps-run \(app, privacy: .public) \(op, privacy: .public) origin=\(wire.rawValue, privacy: .public)")
         let request = AppsRunRequest(app: app, op: op, args: args.daemonValue, idempotencyKey: idempotencyKey, origin: wire)
         return AppJSON(try await send(request, timeout: Self.runTimeout).value)

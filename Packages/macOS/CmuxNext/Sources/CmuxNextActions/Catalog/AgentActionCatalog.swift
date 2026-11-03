@@ -129,7 +129,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "agentPane.showSubagents",
                 title: String(localized: "action.agentPane.showSubagents", defaultValue: "Show Subagents in Session Info", bundle: .module),
-                keywords: ["agent", "chat", "subagents", "agents", "session info", "inspector", "children"],
+                keywords: ["agent", "chat", "subagents", "agents", "session info", "children"],
                 category: .agents, symbol: "person.2", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent show-subagents",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
@@ -137,7 +137,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "agentPane.showBackgroundTasks",
                 title: String(localized: "action.agentPane.showBackgroundTasks", defaultValue: "Show Background Tasks in Session Info", bundle: .module),
-                keywords: ["agent", "chat", "background", "tasks", "commands", "servers", "session info", "inspector"],
+                keywords: ["agent", "chat", "background", "tasks", "commands", "servers", "session info"],
                 category: .agents, symbol: "gearshape", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent show-background-tasks",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
@@ -166,14 +166,8 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "scope", surfaces: [.palette, .keyboard, .contextMenu],
                 cliName: "agent toggle-ui-pointer",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
+                    // Web content only (the agent chat's HTML/React page): native menus never offer it.
                     ContextMenuPlacement(.agentChat, .inspect, 1, folder: .tools, label: "Inspect Element"),
-                    ContextMenuPlacement(.tab, .inspect, 510, label: "Inspect Element"),
-                    ContextMenuPlacement(.pane, .inspect, 510, label: "Inspect Element"),
-                    ContextMenuPlacement(.newTab, .inspect, 510, label: "Inspect Element"),
-                    ContextMenuPlacement(.workspaceRow, .inspect, 510, label: "Inspect Element"),
-                    ContextMenuPlacement(.sidebarItem, .inspect, 510, label: "Inspect Element"),
-                    ContextMenuPlacement(.sidebarSection, .inspect, 510, folder: .options, label: "Inspect Element"),
-                    ContextMenuPlacement(.windowBackground, .inspect, 510, label: "Inspect Element"),
                 ])
             ),
             ActionDescriptor(
@@ -493,6 +487,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                     ActionArgument(name: "session", title: String(localized: "argument.agent.session", defaultValue: "Session", bundle: .module),
                                    kind: .string),
                     ActionArgument(name: "name", title: String(localized: "argument.agent.workspaceName", defaultValue: "Workspace Name", bundle: .module),
+                                   kind: .string, isRequired: false),
+                    // The name a workspace with no `name` takes (an unnamed launch's session name); never a predecessor's.
+                    ActionArgument(name: "defaultName", title: String(localized: "argument.agent.workspaceDefaultName", defaultValue: "Default Workspace Name", bundle: .module),
                                    kind: .string, isRequired: false),
                     ActionArgument(name: "key", title: String(localized: "argument.agent.workspaceKey", defaultValue: "Workspace Key", bundle: .module),
                                    kind: .string, isRequired: false),
