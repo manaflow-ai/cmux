@@ -61,9 +61,9 @@ extension CEFTab {
             restored.documentLoaded()
             // Mixed content shows up while the page loads subresources.
             syncSecurityFromChromium()
-            // Extensions finish loading after the first window exists and
-            // badges are per page; refresh cheaply on each document load.
-            refreshExtensionActions()
+            // Extensions finish loading after the first window exists and badges are per page: a
+            // document load reads them, at once only on screen (`CEFExtensionActionReads`).
+            runtime.extensionActionReads.refresh(self)
         case .loadError(_, let code, let text, let url, let chromiumInterstitial):
             clearTitleBeforeCommit()
             guard let navigation else { return }
