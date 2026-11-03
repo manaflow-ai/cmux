@@ -887,6 +887,30 @@ fn store_accounts_are_scoped_to_their_daemon_home() {
 }
 
 #[test]
+#[cfg(unix)]
+fn the_pool_stamp_changes_on_every_vault_change() {
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let first = super::stamp_in(home.path(), live());
+    let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+    let granted = super::stamp_in(home.path(), live());
+    assert_ne!(first, granted, "a pull");
+    assert_no_value(&granted);
+    assert!(!granted.contains(CRED), "the credential is digested");
+    assert_eq!(granted, super::stamp_in(home.path(), live()), "stable");
+    pull::hold(home.path()).unwrap();
+    assert_ne!(granted, super::stamp_in(home.path(), live()), "a hold");
+    pull::release(home.path());
+    assert_ne!(granted, super::stamp_in(home.path(), Some((CRED.into(), true))), "a revocation");
+    assert_ne!(granted, super::stamp_in(home.path(), Some(("cmm_new".into(), false))), "a rejoin");
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    pull::settle(home.path(), "https://hub.test", CRED, Answer::NotGranted, &store, &live, 2)
+        .unwrap();
+    assert_ne!(granted, super::stamp_in(home.path(), live()), "a withdrawal");
+}
+
+#[test]
 fn a_new_join_pulls_before_the_first_spawn() {
     assert!(super::needs_initial_pull(false, true));
     assert!(!super::needs_initial_pull(true, true), "a cached state serves the first spawn");

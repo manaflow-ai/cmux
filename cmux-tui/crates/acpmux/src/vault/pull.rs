@@ -85,7 +85,7 @@ pub(super) fn hold(home: &Path) -> Result<(), &'static str> {
     std::fs::write(hold_path(home), b"").map_err(|_| "vault.state_write_failed")
 }
 
-fn release(home: &Path) {
+pub(super) fn release(home: &Path) {
     let _ = std::fs::remove_file(hold_path(home));
 }
 

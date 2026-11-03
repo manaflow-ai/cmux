@@ -251,6 +251,43 @@ fn given(loaded: &Loaded, current: Option<(String, bool)>) -> Vec<(String, Strin
         .collect()
 }
 
+/// What the vault env a spawn gets depends on, as metadata (never a value):
+/// the state file's identity, the hold, and a digest of the machine
+/// credential and its revoked flag. `None` outside a daemon. The agent pool
+/// keys on it (`login_env::machine_stamp`).
+pub fn stamp() -> Option<String> {
+    if !ACTIVE.load(Ordering::SeqCst) {
+        return None;
+    }
+    Some(stamp_in(&crate::config::home(), pull::current_credential()))
+}
+
+pub(crate) fn stamp_in(home: &std::path::Path, credential: Option<(String, bool)>) -> String {
+    use sha2::{Digest, Sha256};
+    let file = stamp_of(&pull::state_path(home));
+    let mut h = Sha256::new();
+    if let Some((credential, revoked)) = &credential {
+        h.update(credential.as_bytes());
+        h.update([u8::from(*revoked)]);
+    }
+    let credential: String = h.finalize().iter().take(8).map(|b| format!("{b:02x}")).collect();
+    let file = match file {
+        None => "none".to_owned(),
+        Some(s) => {
+            #[cfg(unix)]
+            let ino = s.ino;
+            #[cfg(not(unix))]
+            let ino = 0u64;
+            let at = s
+                .modified
+                .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_nanos());
+            format!("{}:{at}:{ino}", s.len)
+        }
+    };
+    format!("{file};held={};cred={credential}", pull::held(home))
+}
+
 /// The longest the first agent spawn waits for the first pull of a joined
 /// machine that has no vault state yet.
 pub const INITIAL_WAIT: Duration = Duration::from_secs(5);

@@ -1292,9 +1292,17 @@ fn delivered_names() -> Vec<String> {
 }
 
 /// The machine files' metadata stamp (never a value), for keys that must
-/// change when a delivery or revocation does (the agent pool's).
+/// change when a delivery or revocation does (the agent pool's). It covers
+/// the vault too (`vault::stamp`): a pooled agent started before a vault pull,
+/// a hold or a credential change is discarded at its claim.
 pub fn machine_stamp() -> Option<String> {
-    machine_files_stamp()
+    let vault = crate::vault::stamp();
+    match (machine_files_stamp(), vault) {
+        (None, None) => None,
+        (files, vault) => {
+            Some(format!("{}|vault:{}", files.unwrap_or_default(), vault.unwrap_or_default()))
+        }
+    }
 }
 
 fn machine_files_stamp() -> Option<String> {
