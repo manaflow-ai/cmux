@@ -253,7 +253,13 @@ fn a_secret_with_a_non_utf8_name_is_left_out() {
     let f = Fixture::new();
     let secret = std::ffi::OsStr::from_bytes(b".env-\xff");
     std::fs::write(f.work.join(secret), "SECRET=1\n").unwrap();
-    let hashed = Command::new("git").arg("-C").arg(&f.work).arg("hash-object").arg(secret).output().unwrap();
+    let hashed = Command::new("git")
+        .arg("-C")
+        .arg(&f.work)
+        .arg("hash-object")
+        .arg(secret)
+        .output()
+        .unwrap();
     assert!(hashed.status.success());
     let secret_oid = String::from_utf8_lossy(&hashed.stdout).trim().to_string();
     assert!(!git_has_blob(&f.work, &secret_oid));
@@ -262,7 +268,10 @@ fn a_secret_with_a_non_utf8_name_is_left_out() {
     assert_eq!(planned.skipped.len(), 1, "{:?}", planned.skipped);
     let names = git(&f.work, &["ls-tree", "-r", "--name-only", &planned.params.work]);
     assert!(!names.contains(".env"), "{names}");
-    assert!(!git_has_blob(&f.work, &secret_oid), "non-UTF8 secret blob was written locally");
+    assert!(
+        !git_has_blob(&f.work, &secret_oid),
+        "non-UTF8 secret blob was written locally"
+    );
 }
 
 #[test]
@@ -284,7 +293,7 @@ fn a_seed_plan_never_writes_skipped_secret_blobs_into_local_git_objects() {
         ("secrets/id_rsa", "FAKE_SSH_KEY_UNTRACKED\n"),
         (".npmrc", "//registry.example.invalid/:_authToken=FAKE_ONLY\n"),
     ];
-    for (path, contents) in excluded {
+    for &(path, contents) in &excluded {
         write(&work.join(path), contents);
     }
     let secret_ids: Vec<String> = excluded
@@ -308,7 +317,10 @@ fn a_seed_plan_never_writes_skipped_secret_blobs_into_local_git_objects() {
             "{path} was not classified as skipped"
         );
         assert!(!work_paths.lines().any(|present| present == *path), "{path} entered WORK");
-        assert!(!object_exists(id), "{path} left a blob in the local Git object store");
+        assert!(
+            !git_has_blob(work, id),
+            "{path} left a blob in the local Git object store"
+        );
     }
 
     let machine = f.machine(&planned, &bundle, "machine");
