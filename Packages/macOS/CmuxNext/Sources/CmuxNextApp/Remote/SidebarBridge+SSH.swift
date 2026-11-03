@@ -37,18 +37,12 @@ extension SidebarBridge {
     }
 
     /// What a chat that needs machine `machineID` finds its link doing: only a link that dropped
-    /// or never came up, or a paused Cloud machine, reconnects on use (``MachineLinkState/reconnectsOnUse(_:)``), never an SSH session in use (G5).
+    /// or never came up reconnects on use (``MachineLinkState/reconnectsOnUse(_:)``), never an SSH session in use (G5).
     static func paneUse(_ machineID: String, in machines: MachineRegistry) -> AgentPaneMachineLink.Use {
         guard machines.sshSession(machineID)?.waitsForUser != true, let status = machineHeader(machineID, in: machines)?.status else { return .stuck }
-        // A Cloud link that just ended reads as on its way while its list read runs, but it is down:
-        // a use reconnects it now (a connect resumes a paused machine and redials a dropped one).
-        if let cloud = machines.session(machineID), cloud.appLink != nil, cloud.linkEndConfirming, cloud.linkEnded != nil { return .down }
         switch status.linkState {
         case .connected: return .up
         case .connecting: return .coming
-        // A paused Cloud machine resumes on use: its Reconnect connects the app link, which starts
-        // it, so a send to a paused chat wakes it and goes once it runs (the pause reads as thinking).
-        case .paused where machines.session(machineID)?.appLink != nil: return .down
         case .offline, .paused, .attention: return MachineLinkState.reconnectsOnUse(status) ? .down : .stuck
         }
     }
