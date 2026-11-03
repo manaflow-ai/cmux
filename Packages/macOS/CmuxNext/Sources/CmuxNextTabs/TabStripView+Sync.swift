@@ -20,18 +20,22 @@ extension TabStripView {
             modelChangedWhileHidden = true
             return
         }
-        // One tab or more: the pane lays out again, since a one-tab pane's row is no band over its chat
-        // (`TabStripModel.holdsOneTab`, the pane's `PaneTabRowSharing.offerTabRow(soloTab:)`).
-        if model.holdsOneTab != laidOutOneTab {
-            laidOutOneTab = model.holdsOneTab
-            superview?.needsLayout = true
-        }
+        layOutPaneIfOneTabChanged()
         let input = ModelSnapshot(model)
         if hasSynced, window != nil, let last = lastSyncedInput, isAtRest {
             if input == last { return }
             if input.differsOnlyInSelection(from: last) { return syncSelection(input) }
         }
         sync(fromModel: true)
+    }
+
+    /// One tab or more: the pane lays out again, since a one-tab pane's row is no band over its chat
+    /// (`TabStripModel.holdsOneTab`, the pane's `PaneTabRowSharing.offerTabRow(soloTab:)`). Also on a
+    /// strip shown again after its tabs changed out of sight (`syncShown`).
+    func layOutPaneIfOneTabChanged() {
+        guard model.holdsOneTab != laidOutOneTab else { return }
+        laidOutOneTab = model.holdsOneTab
+        superview?.needsLayout = true
     }
 
     /// No gesture, drop, close or override in flight: `displayed` is the model's order.
