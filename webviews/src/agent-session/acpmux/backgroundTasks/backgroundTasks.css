@@ -90,8 +90,8 @@
   flex: 0 0 44px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 8px 0 16px;
+  gap: var(--ds-space-2);
+  padding: 0 var(--ds-space-2) 0 var(--ds-space-4);
   box-sizing: border-box;
   /* No rule under the header. It drew `inset 0 -1px 0 var(--cmux-hairline)`, and --cmux-hairline is
      a length (desktop.css), not a colour: a 1px spread in currentColor, the white line Leo saw. */
@@ -107,12 +107,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--text-body);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 .acpmux-bg__tools {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 .acpmux-bg__list,
 .acpmux-bg__transcript {
@@ -120,30 +120,30 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 8px 8px 12px;
+  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
 }
 .acpmux-bg__empty {
-  margin: 16px 8px;
+  margin: var(--ds-space-4) var(--ds-space-2);
   color: var(--agent-muted);
 }
 
 /* An agent's block: its line, then its counts line, then its tasks. */
 .acpmux-bg__group {
-  border-radius: 10px;
+  border-radius: var(--grid-cards-radius);
   background: color-mix(in srgb, var(--agent-text) 3%, transparent);
-  padding: 4px;
+  padding: var(--ds-space-1);
 }
 .acpmux-bg__group + .acpmux-bg__group {
-  margin-top: 8px;
+  margin-top: var(--ds-space-2);
 }
 .acpmux-bg__agent,
 .acpmux-bg__task {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   min-height: 28px;
-  padding-right: 4px;
-  border-radius: 8px;
+  padding-right: var(--ds-space-1);
+  border-radius: var(--ds-radius-popup);
 }
 .acpmux-bg__agent {
   min-height: 32px;
@@ -169,10 +169,10 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   align-self: stretch;
-  padding: 0 0 0 8px;
-  border-radius: 8px;
+  padding: 0 0 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-popup);
 }
 .acpmux-bg__name:disabled,
 .acpmux-bg__task-open:disabled {
@@ -204,7 +204,7 @@
   white-space: nowrap;
 }
 .acpmux-bg__agent .acpmux-bg__label {
-  font-weight: 500;
+  font-weight: var(--weight-emphasis);
 }
 .acpmux-bg__chevron,
 .acpmux-bg__disclosure {
@@ -236,7 +236,7 @@
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background: color-mix(in srgb, var(--agent-text) 10%, transparent);
   color: var(--agent-text);
   cursor: default;
@@ -255,10 +255,10 @@
 .acpmux-bg__counts {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   min-height: 28px;
-  padding: 0 8px;
-  border-radius: 8px;
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-popup);
   color: var(--agent-muted);
 }
 .acpmux-bg__fold {
@@ -273,7 +273,7 @@
   color: var(--agent-status-failure);
 }
 .acpmux-bg__tasks {
-  padding: 0 0 4px 16px;
+  padding: 0 0 var(--ds-space-1) var(--ds-space-4);
 }
 .acpmux-bg__task {
   color: var(--agent-muted);
@@ -285,12 +285,12 @@
   color: var(--agent-status-failure);
 }
 .acpmux-bg__finished {
-  padding-left: 16px;
+  padding-left: var(--ds-space-4);
 }
 .acpmux-bg__more {
   min-height: 28px;
-  padding: 0 8px;
-  border-radius: 8px;
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-popup);
   color: var(--agent-muted);
 }
 /* The list's two headings, "Running N" and "Finished N" (BackgroundTasksPanel.tsx `panelSections`),
@@ -314,15 +314,15 @@
 }
 
 .acpmux-bg__list[data-look="flat"] .acpmux-bg__tasks {
-  padding-left: 8px;
+  padding-left: var(--ds-space-2);
 }
 
 /* ---------- A subagent's transcript ---------- */
 .acpmux-bg__transcript {
-  padding: 12px 16px 16px;
+  padding: var(--ds-space-3) var(--ds-space-4) var(--ds-space-4);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--ds-space-2);
   overflow-anchor: none;
 }
 .acpmux-bg__sentinel {
@@ -331,8 +331,8 @@
 }
 .acpmux-bg__prompt {
   margin: 0;
-  padding: 8px 12px;
-  border-radius: 10px;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--grid-cards-radius);
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -340,7 +340,7 @@
 /* A workflow agent's transcript state line: Loading, or why it is short. */
 .acpmux-bg__notice {
   margin: 0;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-1);
   color: var(--agent-muted);
 }
 .acpmux-bg__reply {
@@ -353,28 +353,28 @@
 .acpmux-bg__line--fold {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   max-width: 100%;
   min-height: 24px;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-1);
   margin-left: -4px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   color: var(--agent-muted);
 }
 .acpmux-bg__tool[data-failed] .acpmux-bg__line--fold {
   color: var(--agent-status-failure);
 }
 .acpmux-bg__thought-text {
-  margin: 4px 0 0;
+  margin: var(--ds-space-1) 0 0;
   color: var(--agent-muted);
   white-space: pre-wrap;
 }
 .acpmux-bg__output {
-  margin: 4px 0 0;
-  padding: 8px 12px;
+  margin: var(--ds-space-1) 0 0;
+  padding: var(--ds-space-2) var(--ds-space-3);
   max-height: 240px;
   overflow: auto;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-popup);
   background: color-mix(in srgb, var(--agent-text) 5%, transparent);
   font-family: var(--cv-mono, ui-monospace, monospace);
   font-size: var(--text-detail);
@@ -383,12 +383,12 @@
 }
 .acpmux-bg__ran {
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: var(--ds-space-2);
   color: var(--agent-muted);
 }
 .acpmux-bg__working {
   display: flex;
-  padding: 4px 0;
+  padding: var(--ds-space-1) 0;
   color: var(--agent-accent);
 }
 @media (prefers-reduced-motion: reduce) {
