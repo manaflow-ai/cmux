@@ -274,16 +274,17 @@ test("arrows move the highlight without landing; Return lands it and closes", as
 
 const chip = () => document.querySelector<HTMLButtonElement>("button[data-menu='model']")!;
 
-test("a click on a model checks it at once, keeps the menu open, and lands it as the menu closes", async () => {
+test("a click on a model lands it at once and keeps the menu open", async () => {
   const calls = await openMenu();
   await click(tab("Codex"));
   await click(row("Sol"));
   expect(row("Sol").getAttribute("aria-selected")).toBe("true");
   expect(calls.open).toBe(true);
-  expect(calls.picks).toHaveLength(0);
+  expect(calls.picks.map((pick) => pick.id)).toEqual(["codex-Sol"]);
+  // A close lands nothing more.
   await click(chip());
   expect(calls.open).toBe(false);
-  expect(calls.picks.map((pick) => pick.id)).toEqual(["codex-Sol"]);
+  expect(calls.picks).toHaveLength(1);
 });
 
 test("a picked model keeps the chat's level when it has it, else takes its recommended one", async () => {
@@ -295,12 +296,12 @@ test("a picked model keeps the chat's level when it has it, else takes its recom
     { name: "High", checked: false },
     { name: "Low", checked: true },
   ]);
+  expect(calls.picks[0]).toMatchObject({ id: "codex-Sol", effort: "low" });
   // Astra has Medium: it keeps it.
   await click(row("Astra"));
   expect(levels().find((level) => level.checked)?.name).toBe("Medium");
-  await click(chip());
-  expect(calls.picks).toHaveLength(1);
-  expect(calls.picks[0]).toMatchObject({ id: "codex-Astra", effort: "medium" });
+  expect(calls.picks).toHaveLength(2);
+  expect(calls.picks[1]).toMatchObject({ id: "codex-Astra", effort: "medium" });
 });
 
 test("a level picked on one model carries to the next model clicked", async () => {
@@ -312,9 +313,7 @@ test("a level picked on one model carries to the next model clicked", async () =
   // Astra has High: it takes the level just picked, not the chat's Medium or its own default.
   await click(row("Astra"));
   expect(levels().find((level) => level.checked)?.name).toBe("High");
-  await click(chip());
-  expect(calls.picks).toHaveLength(1);
-  expect(calls.picks[0]).toMatchObject({ id: "codex-Astra", effort: "high" });
+  expect(calls.picks.at(-1)).toMatchObject({ id: "codex-Astra", effort: "high" });
 });
 
 test("a chat on Ultracode carries Extra High to a model that has it", async () => {
@@ -322,11 +321,10 @@ test("a chat on Ultracode carries Extra High to a model that has it", async () =
   const calls = await openMenu([claude, { ...codex, models: [...codex.models, nova] }, gemini], "ultracode");
   await click(tab("Codex"));
   await click(row("Nova"));
-  await click(chip());
   expect(calls.picks[0]).toMatchObject({ id: "codex-Nova", effort: "xhigh" });
 });
 
-test("another model, then a level, then Fast land once, together", async () => {
+test("another model, then a level, then Fast each land at once, the level kept with Fast", async () => {
   const calls = await openMenu();
   await click(tab("Codex"));
   await click(row("Sol"));
@@ -337,10 +335,14 @@ test("another model, then a level, then Fast land once, together", async () => {
     { name: "High", checked: true },
     { name: "Low", checked: false },
   ]);
-  expect(calls.picks).toHaveLength(0);
+  expect(calls.picks.map((pick) => [pick.id, pick.effort, !!pick.fast])).toEqual([
+    ["codex-Sol", "low", false],
+    ["codex-Sol", "high", false],
+    ["codex-Sol", "high", true],
+  ]);
+  // Return on the picked model only closes: it lands nothing again.
   await press("Enter");
-  expect(calls.picks).toHaveLength(1);
-  expect(calls.picks[0]).toMatchObject({ id: "codex-Sol", effort: "high", fast: true });
+  expect(calls.picks).toHaveLength(3);
 });
 
 test("a tab without the running model shows its first model's catalog levels", async () => {

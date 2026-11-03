@@ -206,8 +206,7 @@ function Columns({
   const newTab = useContext(OnNewTab);
   const { open: sideOpen, setOpen: setSideOpen, side } = useOpenSide(trigger, newTab ? "bottom" : "top", 280);
   if (sideOpen !== open) setSideOpen(open);
-  // Every close lands the held pick first: Return, Escape, a press outside, the chip.
-  // Where the keyboard goes as the menu closes: a close that lands a pick leaves it to the picker,
+  // Where the keyboard goes as the menu closes: a close after a pick leaves it to the picker,
   // which focuses the prompt; any other close gives it to the chip, once the popup has gone (after
   // a pointerup's own focus), unless the press put it somewhere else (the prompt, another control).
   // Each open counts one: a menu reopened before the chip takes the keyboard (⌘⌃M right after
@@ -236,14 +235,7 @@ function Columns({
   /// `back`: a key closed the menu (Escape, Return, a digit), so the keyboard goes back to the chip.
   /// A press elsewhere (another chip, the prompt) keeps the focus it gave.
   const finish = (next: boolean, back = false) => {
-    const pick = pendingRef.current;
-    if (!next && !pick && back) returnToChip();
-    if (!next && pick) {
-      pendingRef.current = undefined;
-      setPendingState(undefined);
-      if (pick.viaSearch && menu.search) menu.search.pick(pick.model);
-      else menu.families.onPick(pick.model);
-    }
+    if (!next && !pendingRef.current && back) returnToChip();
     onOpenChange(next);
   };
   const press = usePopoverTrigger(open, finish);
@@ -259,9 +251,24 @@ function Columns({
     const chip = button.current ?? trigger.current;
     if (open && chip) setAlign(rowPackedToEnd(chip) ? "end" : "start");
   }, [open, trigger]);
+  // The menu stays where it opened while it is open: a pick lands at once and renames the chip, and a
+  // longer or shorter name never moves the menu under the pointer. A resized window places it again.
+  const pinned = useRef<{ rect: DOMRect; width: number; height: number } | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!open) pinned.current = undefined;
+  }, [open]);
   const anchor = useMemo<UiVirtualAnchor>(
     () => ({
-      getBoundingClientRect: () => (button.current ?? trigger.current)?.getBoundingClientRect() ?? new DOMRect(),
+      getBoundingClientRect: () => {
+        const chip = button.current ?? trigger.current;
+        const view = chip?.ownerDocument.defaultView;
+        const size = { width: view?.innerWidth ?? 0, height: view?.innerHeight ?? 0 };
+        const pin = pinned.current;
+        if (pin && pin.width === size.width && pin.height === size.height) return pin.rect;
+        const rect = chip?.getBoundingClientRect() ?? new DOMRect();
+        pinned.current = rect.width > 0 ? { rect, ...size } : undefined;
+        return rect;
+      },
       get contextElement() {
         return button.current ?? trigger.current ?? undefined;
       },
@@ -287,8 +294,8 @@ function Columns({
   const [profileOpen, setProfileOpen] = useState(false);
   // The running model's level or Fast shows at once, until the session reports its own.
   const [held, setHeld] = useState<{ key: string; effort?: string; fast?: boolean }>();
-  // A pick of another model (with its level, Fast or provider) shows at once and lands once, as the
-  // menu closes: one harness switch, never one per click (a model, then High, then Fast).
+  // A pick of another model (with its level, Fast or provider) lands at once and keeps the menu open;
+  // its check shows until the session reports the model.
   type Pending = { model: QuickModel; viaSearch: boolean };
   const [pending, setPendingState] = useState<Pending>();
   const pendingRef = useRef<Pending | undefined>(undefined);
@@ -487,14 +494,18 @@ function Columns({
   useRowInView(railList, tab);
 
   const close = () => finish(false, true);
-  /// Holds `model` as the pick, with a level and Fast set exactly (never copied from a searched row).
+  /// Lands `model` at once, with a level and Fast set exactly (never copied from a searched row); the
+  /// menu stays open.
   const hold = (model: QuickModel, choice: { effort?: string; fast?: boolean }) => {
     if (model.disabled) return;
     const { effort: _effort, fast: _fast, ...base } = model;
-    setPending({
+    const pick: Pending = {
       model: { ...base, ...(choice.effort ? { effort: choice.effort } : {}), ...(choice.fast ? { fast: true } : {}) },
       viaSearch: !!query,
-    });
+    };
+    setPending(pick);
+    if (pick.viaSearch && menu.search) menu.search.pick(pick.model);
+    else menu.families.onPick(pick.model);
   };
   /// The level another model lands with: the carried one. None when there is no way to land one
   /// with the model.
