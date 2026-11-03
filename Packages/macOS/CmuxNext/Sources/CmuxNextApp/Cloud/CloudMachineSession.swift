@@ -337,7 +337,7 @@ final class CloudMachineSession {
     private func showEnded(_ error: any Error) {
         CloudAppLinks.logEnded(error)
         let message = CloudAppLinks.endedMessage(error)
-        linkEndedDetail = String(describing: error)
+        linkEndedDetail = daemon.endedDetail(error)
         daemon.shutdownConnection()
         daemon.store.markFailed(message)
         linkEnded = message

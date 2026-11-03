@@ -254,7 +254,7 @@ private final class RecordingWatcher: FolderWatching {
 /// lists with no second click, and no folder is detected until the first click.
 @MainActor @Suite struct ScreenshotsGateTests {
     @Test func nothingIsUnlockedOrDetectedBeforeTheClickAndTheClickIsRememberedPerTab() {
-        let gate = ScreenshotsGate()
+        let gate = ScreenshotsGate(defaults: UserDefaults(suiteName: "ScreenshotsGateTests.\(UUID().uuidString)") ?? UserDefaults())
         #expect(!gate.mayDetect)
         #expect(!gate.isUnlocked("tab-a"))
         gate.unlock("tab-a")
