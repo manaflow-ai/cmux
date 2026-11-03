@@ -73,7 +73,8 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
   const start = performance.now();
   // When the watch began on the wall clock, so a caller times its frames from its own action: the call may
   // reach the page well after it was asked (a Chromium page still starting, PageWebView.callPageScript).
-  const startedWallMs = Math.round(performance.timeOrigin + start);
+  // Date.now(), not timeOrigin + now(): a page that lived through a sleep has a monotonic clock behind the wall.
+  const startedWallMs = Date.now();
   const frames: Frame[] = [];
   while (performance.now() - start < ms) {
     frames.push(read(start));
