@@ -80,8 +80,14 @@ pub(super) fn run(global: GlobalArgs, run_id: String, generation: u64) -> i32 {
             .into_iter()
             .map(|spec| upstream::Proxied::new(upstream::Upstream::new(spec)))
             .collect();
-        let mut journal = Journal::open(std::path::Path::new(directory), source, FRESH_CALL_LIMIT)
-            .map_err(|error| error.to_string())?;
+        let mut journal = Journal::open_handoff(
+            std::path::Path::new(directory),
+            source,
+            FRESH_CALL_LIMIT,
+            Duration::from_secs(60),
+        )
+        .map_err(|error| error.to_string())?;
+        proof.request(&server.backend, "check")?;
         let mut pending = BTreeMap::new();
         let mut tools = None;
         let mut images = Vec::new();
