@@ -1524,7 +1524,7 @@ body[data-loading="true"] #status::before {
 }
 .file-tree-context-anchor {
   position: fixed;
-  z-index: -1;
+  z-index: var(--layer-backdrop);
   width: 0;
   height: 0;
   pointer-events: none;

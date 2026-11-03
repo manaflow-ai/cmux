@@ -135,10 +135,7 @@ export function FilesSidebar({
     }
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
     const maximumWidth = Math.max(220, Math.min(520, Math.floor(viewportWidth * 0.55)));
-    const nextWidth = Math.max(
-      180,
-      Math.min(maximumWidth, Math.round(start.startWidth - (clientX - start.startX))),
-    );
+    const nextWidth = Math.max(180, Math.min(maximumWidth, Math.round(start.startWidth - (clientX - start.startX))));
     dispatch({ type: "set-files-width", width: nextWidth });
   };
   return (
@@ -192,9 +189,7 @@ export function FilesSidebar({
           aria-label={label("filterFiles")}
           autoComplete="off"
           spellCheck={false}
-          onChange={(event) =>
-            dispatch({ type: "set-file-filter", filter: { query: event.currentTarget.value } })
-          }
+          onChange={(event) => dispatch({ type: "set-file-filter", filter: { query: event.currentTarget.value } })}
         />
         {filterActive ? (
           <button
@@ -350,9 +345,7 @@ function PierreFileTree({
   usePierreFileTreeSource(model, source, measureStats);
   usePierreFileTreeSelection(model, selectedPath, syncingSelection);
 
-  const [contextMenu, setContextMenu] = useState<{ path: string; x: number; y: number } | null>(
-    null,
-  );
+  const [contextMenu, setContextMenu] = useState<{ path: string; x: number; y: number } | null>(null);
   const contextModel = useMemo<NativePopupDescription>(() => {
     const path = contextMenu?.path;
     const viewed = path ? viewedStateByPath.get(path) === "viewed" : false;
@@ -411,7 +404,7 @@ function PierreFileTree({
             style={{ left: contextMenu.x, top: contextMenu.y }}
             aria-hidden="true"
           >
-            <MenuButton label="" />
+            <MenuButton label="">{null}</MenuButton>
           </span>
         ) : null}
         <FileTree model={model} style={{ height: "100%" }} renderContextMenu={() => null} />
@@ -422,13 +415,7 @@ function PierreFileTree({
               setContextMenu(null);
             }}
           >
-            <Icon
-              name={
-                contextMenu && viewedStateByPath.get(contextMenu.path) === "viewed"
-                  ? "eye"
-                  : "check"
-              }
-            />
+            <Icon name={contextMenu && viewedStateByPath.get(contextMenu.path) === "viewed" ? "eye" : "check"} />
             {contextMenu && viewedStateByPath.get(contextMenu.path) === "viewed"
               ? label("markNotViewed")
               : label("markViewed")}
@@ -468,12 +455,7 @@ function usePierreFileTreeSource(
     }
     // Setting the icons re-renders the rows, so new counts show, and adds the
     // count symbols of new files (file-tree-stats.ts).
-    if (
-      useFullGitStatus ||
-      plan.kind !== "append" ||
-      plan.addedPaths.length > 0 ||
-      source.statsChanged === true
-    ) {
+    if (useFullGitStatus || plan.kind !== "append" || plan.addedPaths.length > 0 || source.statsChanged === true) {
       model.setGitStatus(nameColoredGitStatus(source.gitStatus, source.paths));
       model.setIcons(fileTreeIcons(source, measureStats));
     }

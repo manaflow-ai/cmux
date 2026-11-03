@@ -71,7 +71,7 @@ input {
 /* Native popup anchors carry the pointer's page coordinates without adding a box to the page. */
 .page-menu-native-anchor {
   position: fixed;
-  z-index: -1;
+  z-index: var(--layer-backdrop);
   width: 0;
   height: 0;
   pointer-events: none;

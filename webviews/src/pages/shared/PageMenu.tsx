@@ -51,9 +51,7 @@ function NativePageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
       align: "start",
       width: 220,
       rows: items.flatMap((item) => [
-        ...(item.separatorBefore
-          ? [{ id: `separator:${item.id}`, kind: "separator" as const, label: "" }]
-          : []),
+        ...(item.separatorBefore ? [{ id: `separator:${item.id}`, kind: "separator" as const, label: "" }] : []),
         { id: item.id, kind: "action" as const, label: item.label, disabled: item.disabled },
       ]),
     }),
