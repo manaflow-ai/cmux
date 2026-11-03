@@ -67,7 +67,7 @@ final class CloseUndoToasts {
         hidden: { pane in pane.apply(pane.snapshot()); return pane.stripModel.tabs.isEmpty ? pane.showPaneClose() : nil },
         lifted: { pane, close in pane.workspace?.layoutModel.cancelPaneClose(close) },
         restored: { pane, close, id in pane.finishPaneClose(close, failed: true); pane.apply(pane.snapshot()); pane.select(StripTabID(id)) },
-        timedOut: { pane, id in _ = pane.services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .script)) }) // no question
+        timedOut: { pane, id in pane.services.closedTabs?.undoToasts.pageClosing.end(id); pane.close([StripTabID(id)]) }) // the daemon's close: never asks
     /// Closes of several tabs waiting for their pages, so each stays one Reopen Closed step.
     let pageDecidedCloses = PageDecidedCloses<PaneController, PreparedTabClose>(
         prepare: { pane, ids in pane.prepareClose(ids) }, send: { PaneController.send($0, from: $1, userClose: $2) })
