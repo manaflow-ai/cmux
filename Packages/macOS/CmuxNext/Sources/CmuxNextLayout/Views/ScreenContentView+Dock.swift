@@ -145,6 +145,8 @@ extension ScreenContentView {
             if host.pane == zoomMotion.pane { return 10 }
             // A zoom's covered panes stay under every pane.
             if covered.contains(host.pane) { return -1 }
+            // A closing pane keeps the rank it had: a strip pane's, or a docked one's (FRAME OWNER S3c).
+            if let closing = closingPanes.entries[host.pane] { return closing.scrolls ? 0 : 3 }
             return geometry.scrolls(pane: host.pane) ? 0 : 3 + cornerRank(geometry.dockFrame(containing: host.pane))
         case let divider as DividerHandleView:
             guard !scrolls(divider.kind) else { return 1 }

@@ -20,7 +20,7 @@ final class PaneHostView: NSView, RestingPlacement {
     let pane: PaneID
     let content: NSView
     let chrome = PaneOverlayView()
-    private let clipView = PaneClipView()
+    let clipView = PaneClipView()
     private(set) var padding: CGFloat = 0
     private(set) var cornerRadius: CGFloat = 0
     /// Floating panes: the whole padded rect, header included, is the
@@ -29,15 +29,15 @@ final class PaneHostView: NSView, RestingPlacement {
     private var reporter: PaneContentChrome? { content as? PaneContentChrome }
     private var lastWindowFrame: CGRect?
 
-    /// Whether content keeps its size while the host is on a layout spring (`motion.pane.holdContent`, off by
-    /// default: live resize). Injected so tests pin it without the shared tunable store.
+    /// Whether content keeps its size while the host is on a split, close or zoom spring: the provider's rule (an agent
+    /// chat holds: page pixels, S5/S6), live resize otherwise. Injected so tests pin it.
     private let holdsContentInMotion: () -> Bool
     /// True only for a content handoff: its first spring frame already has the narrower
     /// destination size, so the held page must start at that target. Ordinary moves (including
     /// an unzooming chat) keep their painted size even when their rest offset is nonzero.
     var isContentHandoff = false
 
-    init(pane: PaneID, content: NSView, holdsContentInMotion: @escaping () -> Bool = { LayoutTunables.holdsContentInMotion.value }) {
+    init(pane: PaneID, content: NSView, holdsContentInMotion: @escaping () -> Bool = { false }) {
         self.pane = pane
         self.content = content
         self.holdsContentInMotion = holdsContentInMotion
@@ -83,13 +83,19 @@ final class PaneHostView: NSView, RestingPlacement {
             if isOnLayoutSpring {
                 // A keyboard resize holds every pane's content at its START size, growing or shrinking (RESIZE KEYS K3):
                 // no content layout in the key's turn or in any spring frame; it lays out once after the landing.
-                if (superview as? ScreenContentView)?.holdsContentForKeyResize == true {
+                if let screen = superview as? ScreenContentView, screen.holdsContentForKeyResize {
                     // A hold still waiting for its release keeps its size and edge (a press during the last one's tail).
                     if !holdsUntilAfterLanding {
                         holdsUntilAfterLanding = true
                         heldContentSize = content.frame.size
                         heldPin = nil
                         heldArea = DesignTunables.frameOwnerTabStrip.value ? (content as? PaneMotionHolding)?.paneMotionHoldArea : nil
+                        // FRAME OWNER S3, latched here: a flip of the switch applies from the next hold, never inside one.
+                        heldAreaFollows = heldArea != nil && screen.context.followsContentPolicy
+                        // The area hears the hold in the key's turn, before the press's rest size goes to the content
+                        // (`announceRest`): the surface takes its final size at the edge that stays, never at another
+                        // edge for one frame. No frame changes here: the host is still at its start size.
+                        if heldAreaFollows { layoutClip() }
                     }
                     return
                 }
@@ -125,7 +131,7 @@ final class PaneHostView: NSView, RestingPlacement {
 
     /// A structural change (a split, a close, a zoom) took over the screen while its key-resize spring ran: a pane
     /// already on that spring keeps moving without a new start, so it leaves the key hold here and follows the
-    /// structural spring as any spring does (live, or held with `motion.pane.holdContent`).
+    /// structural spring as any spring does (live, or held when the provider holds it).
     func endKeyResizeHold() {
         guard holdsUntilAfterLanding else { return }
         guard isOnLayoutSpring else { return releaseHeldContent() }
@@ -158,13 +164,17 @@ final class PaneHostView: NSView, RestingPlacement {
     /// of a key-resize hold, its tab strip with it, and only this area of it holds, on ``heldPin``. Nil: the whole content
     /// holds (the switch off, or content whose chrome is part of what it holds).
     private weak var heldArea: PaneContentAreaView?
+    /// FRAME OWNER S3 (`motion.frameOwner.contentPolicy`, latched when the hold begins): the containers in ``heldArea`` (a
+    /// terminal's host, a browser's chrome) follow the pane too and only their producers hold, fixed at the pane edges
+    /// that do not move (``heldPin`` then reads those edges only, not the content's anchor).
+    private var heldAreaFollows = false
 
     /// The host's size at rest (its spring rect's target), set with ``restOffset`` on every
     /// presented frame; nil before the screen first places it.
     var restSize: CGSize?
 
-    /// The content's size when the current layout spring started; nil at rest or with
-    /// `LayoutTunables.holdsContentInMotion` off.
+    /// The content's size when the current layout spring started (a key hold, or a split, close or zoom of content
+    /// the provider holds); nil at rest or for content that resizes live.
     private var heldContentSize: CGSize?
 
     /// The content's frame in the clip: the clip's bounds at rest. On a layout spring it keeps the
@@ -180,7 +190,8 @@ final class PaneHostView: NSView, RestingPlacement {
             // release: on a 2x screen the last frames are half a point from rest, too close to say which edge moved.
             if heldPin == nil, let restSize, restOffset != .zero || frame.size != restSize {
                 let trailing = abs(restOffset.dx + restSize.width - frame.width) < abs(restOffset.dx) - 0.5
-                let bottom = heldAnchor.map { $0 == .bottom } ?? (abs(restOffset.dy + restSize.height - frame.height) < abs(restOffset.dy) - 0.5)
+                let still = abs(restOffset.dy + restSize.height - frame.height) < abs(restOffset.dy) - 0.5
+                let bottom = heldAreaFollows ? still : heldAnchor.map { $0 == .bottom } ?? still
                 heldPin = (trailing, bottom)
             }
             // Content whose area holds follows the pane: `syncHeldArea` gives that area the edges.
@@ -230,9 +241,13 @@ final class PaneHostView: NSView, RestingPlacement {
         applyDockFill()
     }
 
-    private func applyDockFill() {
+    func applyDockFill() {
+        guard !showsClosingGround else { return }
         clipView.layer?.backgroundColor = isDocked ? performWithTheme { Palette.surfaceOverride(.docks)?.cgColor } : nil
     }
+
+    /// FRAME OWNER S3c: the host shows only its pane's ground on its close spring (`PaneHostView+ClosingGround`).
+    var showsClosingGround = false
 
     /// Height of the content's header (tab strip, toolbar); 0 without one.
     var headerHeight: CGFloat { reporter?.paneHeaderHeight ?? 0 }
@@ -286,7 +301,7 @@ final class PaneHostView: NSView, RestingPlacement {
         return PaneChromeGeometry.contentRect(forCell: cell, style: style)
     }
 
-    private func layoutClip() {
+    private func layoutClip() { // perf-hot: 4ms motion-frame
         clipLayouts += 1
         let rect = clipRect(forCell: bounds)
         if clipView.frame != rect { clipView.frame = rect }
@@ -295,7 +310,8 @@ final class PaneHostView: NSView, RestingPlacement {
         // pass when the clip view is resized manually, so keep the content
         // frame in lockstep with the clip bounds here.
         let content = contentFrame(in: clipView.bounds)
-        if self.content.frame != content { self.content.frame = content }
+        // A closing pane's hidden content keeps its frame: only its ground follows the collapsing frame.
+        if !showsClosingGround, self.content.frame != content { self.content.frame = content }
         syncHeldArea()
         applyChromeShape()
     }
@@ -305,12 +321,12 @@ final class PaneHostView: NSView, RestingPlacement {
     private func syncHeldArea() {
         guard let heldArea else { return }
         guard holdsUntilAfterLanding else {
-            self.heldArea = nil
+            (self.heldArea, heldAreaFollows) = (nil, false)
             heldArea.hold = nil
             return
         }
         let pin = heldPin ?? (trailing: false, bottom: false)
-        heldArea.hold = PaneMotionHold(trailing: pin.trailing, bottom: pin.bottom)
+        heldArea.hold = PaneMotionHold(trailing: pin.trailing, bottom: pin.bottom, containersFollow: heldAreaFollows)
     }
 
     /// The content's rounded corners and the ring's shape from the current
@@ -401,6 +417,7 @@ final class PaneHostView: NSView, RestingPlacement {
     var areaHitClip: CGRect?
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        if showsClosingGround { return nil }
         if let areaHitClip, !areaHitClip.contains(convert(point, from: superview)) { return nil }
         return super.hitTest(point)
     }

@@ -325,8 +325,11 @@ final class CEFHostView: NSView {
 final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFollowing {
     weak var tab: CEFTab?
     private let snapshotView = NSImageView()
-    /// The page's size through a person's resize drag (`paneResizeGestureDidChange`); nil otherwise.
+    /// The page's size through a person's resize drag (`paneResizeGestureDidChange`) or a key resize's hold
+    /// (``holdPage(for:)``); nil otherwise.
     private(set) var heldPageSize: CGSize?
+    /// The edges a key resize's hold keeps the page on (FRAME OWNER S3); nil: a drag's top-leading corner.
+    var pageMotionHold: PaneMotionHold?
     /// The page windows told of a resize-sync drag (`BrowserDragResize.resizeSync`), to tell its end wherever the
     /// page is by then; empty otherwise.
     private(set) var syncedDragHostings: [CEFLayerHosting] = []
@@ -437,9 +440,9 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
             } else if subview is CEFDevToolsDivider {
                 frame = frames.grab
             } else if fitPage == nil, let held = heldPageSize, subview === tab?.host.hostView {
-                // A resize drag: the page keeps its size at the page frame's top-left corner, and the
-                // pane clips it (`CEFClipShape` and the fork's visible rect read the held host).
-                frame = CGRect(x: frames.page.minX, y: frames.page.maxY - held.height, width: held.width, height: held.height)
+                // A resize drag: the page keeps its size at the page frame's top-left corner (a key hold: on its
+                // edges), and the pane clips it (`CEFClipShape` and the fork's visible rect read the held host).
+                frame = (pageMotionHold ?? PaneMotionHold(trailing: false, bottom: false)).producerFrame(held, in: frames.page)
             } else {
                 frame = fitPage ?? frames.page
             }
@@ -482,16 +485,23 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
             startSyncedDrag()
             return
         }
-        guard BrowserResizeTunables.dragResize.value == .hold, heldPageSize == nil, window != nil, pageCanHold,
-              let tab else { return }
+        guard BrowserResizeTunables.dragResize.value == .hold else { return }
+        startPageHold()
+    }
+
+    /// The page keeps the size it has now; false when it cannot (not a plain page here, no size, out of a window).
+    @discardableResult
+    func startPageHold() -> Bool {
+        guard heldPageSize == nil, window != nil, pageCanHold, let tab else { return false }
         let size = tab.host.hostView.frame.size
-        guard size.width > 0, size.height > 0 else { return }
+        guard size.width > 0, size.height > 0 else { return false }
         heldPageSize = size
         // The held page is cut at this view's edges: its layer here, and the page window by the
         // fork's visible rect, which follows every ancestor whose layer masks to its bounds.
         layer?.masksToBounds = true
         // A see-through page (a cmux page) shows the pane under it, so its gap does too.
         layer?.backgroundColor = tab.host.hostView.pageSeeThrough ? nil : tab.pageBackdropColor
+        return true
     }
 
     /// Every page window over this pane waits for its frame at each size of the drag: the pane's shared one from
@@ -530,7 +540,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
 
     /// A plain page shown here: no docked DevTools taking room, side panel or device fit, which place the page
     /// themselves. Views kept hidden after an unreported DevTools open take no room (#32253): the page still holds.
-    private var pageCanHold: Bool {
+    var pageCanHold: Bool {
         guard let tab else { return false }
         return tab.host.hostView.superview === self && !tab.devToolsController.reservesRoom
             && !(tab.devToolsController.deviceModeOn && tab.devToolsController.views != nil)
@@ -538,7 +548,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     }
 
     /// Lets go of a held page size; the next layout gives the page its frame.
-    private func dropHold() {
+    func dropHold() {
+        pageMotionHold = nil
         guard heldPageSize != nil else { return }
         heldPageSize = nil
         layer?.masksToBounds = false
