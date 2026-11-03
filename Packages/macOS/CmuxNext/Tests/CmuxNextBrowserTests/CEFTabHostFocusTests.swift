@@ -188,7 +188,7 @@ import Testing
     /// document, or on an error page. Events in CEF's order.
     @Test func aTabIsReadyForKeysOnlyOnceLoadingStoppedOnARealDocument() throws {
         let runtime = try Self.runtime(hostMode: false)
-        let (_, tab) = try Self.livePane(runtime)
+        let tab = try Self.restoredLivePane(runtime, url: "https://example.com/")
         var reported = 0
         tab.onReadyForKeys = { reported += 1 }
         let browser = Self.firstBrowser
@@ -212,6 +212,30 @@ import Testing
         runtime.handle(.loadError(browser: browser, code: -105, text: "net::ERR_NAME_NOT_RESOLVED", url: "https://nowhere.invalid/", chromiumInterstitial: false))
         runtime.handle(.loadingState(browser: browser, loading: false, canGoBack: false, canGoForward: false))
         #expect(tab.pageReady && reported == 2, "an error page takes keys: the hold must not wait for its bound")
+    }
+
+    /// Review of #32633: a Chromium New Tab page (a blank document) never counted as ready, so Cmd-L after Escape waited
+    /// the whole bound, and every new page waited for its document. Only a tab back from the session (a reopen, a
+    /// hibernation wake) waits for its first document; another takes keys once Chromium created it. A restored blank
+    /// tab is ready once its blank document loaded.
+    @Test func onlyARestoredTabWaitsForItsDocumentAndABlankOneCountsWhenItIsTheTabs() throws {
+        let runtime = try Self.runtime(hostMode: false)
+        let (_, fresh) = try Self.livePane(runtime)
+        #expect(fresh.pageReady, "a New Tab page was not ready once Chromium created it")
+        let blank = try Self.restoredLivePane(runtime, url: "about:blank", browser: Self.firstBrowser + 1)
+        #expect(!blank.pageReady)
+        Self.load(runtime, Self.firstBrowser + 1, "about:blank")
+        #expect(blank.pageReady, "a restored blank tab never got ready: its keys waited the whole bound")
+    }
+
+    /// A tab back from the session that shows `url`, whose browser Chromium created.
+    private static func restoredLivePane(_ runtime: CEFRuntime, url: String, browser: Int32 = firstBrowser) throws -> CEFTab {
+        let (host, tab) = pane(runtime)
+        (tab.awaitsFirstDocument, tab.pendingURL) = (true, URL(string: url))
+        host.ensureCreated(tab)
+        let request = try #require(runtime.pendingWindows.keys.first { runtime.pendingWindows[$0] === host })
+        runtime.handle(.afterCreated(browser: browser, request: request, window: 1))
+        return tab
     }
 
     /// One whole load of `url` in CEF's order.

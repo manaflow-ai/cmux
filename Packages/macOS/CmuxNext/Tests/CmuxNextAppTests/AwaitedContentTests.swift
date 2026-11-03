@@ -73,4 +73,16 @@ import Testing
         _ = log.end(in: 1, forced: .focusLeft, pageTab: "c")
         #expect(!log.pageExpired.contains("c"), "a hold the focus left is not a page that never comes")
     }
+
+    /// Review of #32633: a page hold waits for the restored document, which can take seconds on a slow page. Cmd-L needs
+    /// only the page's address bar: with no key held before it, it goes on once Chromium created the page. A plain key,
+    /// a chord the page takes, and Cmd-L behind held keys still wait.
+    @Test func aPageActionPassesAnEmptyPageHoldOnceThePageExists() {
+        #expect(!AwaitedContent.pageHoldKeeps(isChord: true, holdIsEmpty: true, command: "focusLocation", pageCreated: true),
+                "Cmd-L waited for the restored document although the page existed")
+        #expect(AwaitedContent.pageHoldKeeps(isChord: true, holdIsEmpty: true, command: "focusLocation", pageCreated: false))
+        #expect(AwaitedContent.pageHoldKeeps(isChord: true, holdIsEmpty: false, command: "focusLocation", pageCreated: true), "Cmd-L passed held keys")
+        #expect(AwaitedContent.pageHoldKeeps(isChord: true, holdIsEmpty: true, command: nil, pageCreated: true), "a page's chord ran into no document")
+        #expect(AwaitedContent.pageHoldKeeps(isChord: false, holdIsEmpty: true, command: nil, pageCreated: true))
+    }
 }
