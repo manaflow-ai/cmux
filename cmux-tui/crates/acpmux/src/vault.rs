@@ -184,30 +184,71 @@ pub fn env_for_children() -> Vec<(String, String)> {
         return Vec::new();
     }
     refresh(&store::OsStore);
-    delivered(pull::current_credential())
+    let held = pull::held(&crate::config::home());
+    delivered(pull::current_credential(), held)
 }
 
-/// The loaded values, given only while the credential they were pulled with
-/// is still this machine's and not revoked (`current`).
-fn delivered(current: Option<(String, bool)>) -> Vec<(String, String)> {
-    let loaded = LOADED.read().unwrap_or_else(|e| e.into_inner());
-    let bound = loaded.state.as_ref().is_some_and(|state| {
-        state.delivers_under(current.as_ref().map(|(c, revoked)| (c.as_str(), *revoked)))
-    });
-    if !bound {
+/// The loaded values agents get: none while a removal is held (`held`, the
+/// state not yet saved after one), else each entry whose authorizing answer
+/// came for the machine's credential now, while it is not revoked (`current`).
+fn delivered(current: Option<(String, bool)>, held: bool) -> Vec<(String, String)> {
+    if held {
         return Vec::new();
     }
-    loaded.vars.iter().map(|(k, v)| (k.clone(), v.as_str().to_owned())).collect()
+    let loaded = LOADED.read().unwrap_or_else(|e| e.into_inner());
+    let Some(state) = loaded.state.as_ref() else { return Vec::new() };
+    let names = state.delivered_names(current.as_ref().map(|(c, revoked)| (c.as_str(), *revoked)));
+    loaded
+        .vars
+        .iter()
+        .filter(|(k, _)| names.contains(k))
+        .map(|(k, v)| (k.clone(), v.as_str().to_owned()))
+        .collect()
 }
 
-/// Start the daemon's pull loop once: a pull at start when the machine is
-/// joined, then every [`EVERY`], with backoff after a failure.
-pub fn start_worker() {
+/// The longest the first agent spawn waits for the first pull of a joined
+/// machine that has no vault state yet.
+pub const INITIAL_WAIT: Duration = Duration::from_secs(5);
+
+/// Whether the daemon pulls before letting agents spawn: a joined machine
+/// with no saved vault state (its first start after `machine join`).
+pub fn needs_initial_pull(state_saved: bool, joined: bool) -> bool {
+    joined && !state_saved
+}
+
+/// `first`, bounded by `wait`: `None` when it did not finish in time.
+pub async fn bounded<T>(wait: Duration, first: impl std::future::Future<Output = T>) -> Option<T> {
+    tokio::time::timeout(wait, first).await.ok()
+}
+
+/// Start the daemon's pull loop once. A joined machine with no vault state
+/// pulls first, for at most [`INITIAL_WAIT`], before this returns (agent
+/// spawns wait for startup); then every [`EVERY`], with backoff after a failure.
+pub async fn start_worker() {
     if ACTIVE.swap(true, Ordering::SeqCst) {
         return;
     }
+    let saved = pull::state_path(&crate::config::home()).exists();
+    let joined = matches!(crate::cli::cloud_join::machine_credential(), Ok(Some(_)));
+    let mut failures = 0u32;
+    let mut first_delay = Duration::ZERO;
+    if needs_initial_pull(saved, joined) {
+        match bounded(INITIAL_WAIT, run_once()).await {
+            Some(Ok(result)) => {
+                tracing::info!(result, "vault pull");
+                first_delay = EVERY;
+            }
+            Some(Err(code)) => {
+                failures = 1;
+                tracing::warn!(code = %code, failures, "vault pull failed");
+                first_delay = backoff(failures);
+            }
+            // Still running: the loop's first round finds it (`busy`) or retries.
+            None => tracing::warn!(code = "vault.initial_timeout", "vault pull failed"),
+        }
+    }
     tokio::spawn(async move {
-        let mut failures = 0u32;
+        tokio::time::sleep(first_delay).await;
         loop {
             let delay = match run_once().await {
                 Ok(result) => {

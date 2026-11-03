@@ -48,6 +48,57 @@ impl Failure {
 /// The code of a pull whose store writes or deletes did not all succeed.
 pub const PARTIAL: &str = "vault.partial";
 
+/// Present while a removal is not yet saved: the daemon gives agents no vault
+/// value while it exists, so a state file that could not be written (a full
+/// disk) never leaves revoked values deliverable. Removed once the state is saved.
+pub const HOLD_FILE: &str = "vault-hold";
+
+pub fn hold_path(home: &Path) -> PathBuf {
+    home.join(HOLD_FILE)
+}
+
+/// Whether a removal is waiting to be saved (or the hold cannot be checked).
+pub fn held(home: &Path) -> bool {
+    match std::fs::symlink_metadata(hold_path(home)) {
+        Ok(_) => true,
+        Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+    }
+}
+
+/// Put the hold down before a removal. An empty file: it needs no free blocks.
+fn hold(home: &Path) -> Result<(), &'static str> {
+    crate::config::private_state_dir(home).map_err(|_| "vault.state_write_failed")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(hold_path(home))
+            .map(drop)
+            .map_err(|_| "vault.state_write_failed")
+    }
+    #[cfg(not(unix))]
+    std::fs::write(hold_path(home), b"").map_err(|_| "vault.state_write_failed")
+}
+
+fn release(home: &Path) {
+    let _ = std::fs::remove_file(hold_path(home));
+}
+
+/// Save `state`; a removal in it is held first and released only once saved.
+fn save(home: &Path, state: &State, removing: bool) -> Result<(), &'static str> {
+    if removing {
+        hold(home)?;
+    }
+    write_state(home, state)?;
+    release(home);
+    Ok(())
+}
+
 pub fn state_path(home: &Path) -> PathBuf {
     home.join(STATE_FILE)
 }
@@ -71,7 +122,17 @@ pub fn read_state(home: &Path) -> State {
     State::parse(Some(&bytes))
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: the next state writes fail, as on a full disk.
+    pub static FAIL_STATE_WRITE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 pub fn write_state(home: &Path, state: &State) -> Result<(), &'static str> {
+    #[cfg(test)]
+    if FAIL_STATE_WRITE.with(std::cell::Cell::get) {
+        return Err("vault.state_write_failed");
+    }
     crate::config::private_state_dir(home).map_err(|_| "vault.state_write_failed")?;
     let bytes = serde_json::to_vec_pretty(state).map_err(|_| "vault.state_write_failed")?;
     crate::config::write_atomic(&state_path(home), &bytes).map_err(|_| "vault.state_write_failed")
@@ -141,10 +202,13 @@ pub async fn fetch(hub: &str, credential: &str) -> Answer {
 /// Run `steps` against the store and record each success in `state`. A failed
 /// store keeps the old record; a failed delete keeps the record, so the next
 /// pull deletes it again. Returns stored, deleted and failed names.
+/// `binding` is what a stored entry records as its authorizing credential
+/// ([`State::binding`]; empty when nothing is stored).
 pub fn apply(
     state: &mut State,
     steps: Vec<Step>,
     store: &dyn SecretStore,
+    binding: &str,
 ) -> (Vec<String>, Vec<String>, Vec<(String, &'static str)>) {
     let (mut stored, mut deleted, mut failed) = (Vec::new(), Vec::new(), Vec::new());
     for step in steps {
@@ -154,7 +218,11 @@ pub fn apply(
                 Ok(()) => {
                     state.pending_delete.remove(&name);
                     let fingerprint = state.fingerprint(&name, &value);
-                    state.env.insert(name.clone(), plan::EnvRecord { revision, fingerprint });
+                    let credential = binding.to_owned();
+                    state.env.insert(
+                        name.clone(),
+                        plan::EnvRecord { revision, fingerprint, credential },
+                    );
                     stored.push(name);
                 }
                 Err(code) => failed.push((name, code)),
@@ -221,6 +289,19 @@ pub fn settle(
     if granted && !is_current(credential, current) {
         return Err(Failure::code(CREDENTIAL_CHANGED));
     }
+    let binding = state.binding(credential);
+    let before: std::collections::BTreeSet<String> = state.env.keys().cloned().collect();
+    // Entries another credential's answer authorized are never rebound to this one.
+    if !matches!(answer, Answer::Revoked) {
+        state.drop_foreign(credential);
+    }
+    // Hold before saving a state that no longer delivers an entry it did.
+    let hold_if_removing = |state: &State| -> Result<(), Failure> {
+        if !before.iter().all(|n| state.env.contains_key(n)) {
+            hold(home).map_err(Failure::code)?;
+        }
+        Ok(())
+    };
     let mut unavailable = false;
     let (steps, result, refused) = match answer {
         Answer::Granted { env, refused } => {
@@ -236,35 +317,44 @@ pub fn settle(
         // The person no longer shares the vault with this machine: its entries go.
         Answer::NotGranted => (plan::wipe(&state), "not_granted", 0),
         Answer::Revoked => {
-            let steps = plan::wipe(&state);
-            let (_, deleted, _) = apply(&mut state, steps, store);
             state.unbind_all();
+            hold_if_removing(&state)?;
+            let steps = plan::wipe(&state);
+            let (_, deleted, _) = apply(&mut state, steps, store, "");
             state.last_result = Some("vault.revoked".to_owned());
             state.hub = hub.to_owned();
-            let _ = write_state(home, &state);
+            save(home, &state, false).map_err(Failure::code)?;
             return Err(Failure { code: "vault.revoked".to_owned(), deleted, outcome: None });
         }
-        Answer::Off => (Vec::new(), "off", 0),
+        // No vault on this hub: only the cleanup records are worked off.
+        Answer::Off => (plan::cleanup(&state), "off", 0),
         Answer::Retry(code) | Answer::Refused(code) => {
+            hold_if_removing(&state)?;
             state.last_result = Some(code.clone());
-            let _ = write_state(home, &state);
+            save(home, &state, false).map_err(Failure::code)?;
             return Err(Failure::code(code));
         }
     };
-    let (stored, deleted, failed) = apply(&mut state, steps, store);
+    // Every removal (revoked, gone, foreign, not granted) is held before the
+    // store deletes run, so it takes effect even if the state cannot be saved.
+    if steps.iter().any(|s| matches!(s, Step::Delete { .. })) {
+        hold(home).map_err(Failure::code)?;
+    }
+    hold_if_removing(&state)?;
+    let (stored, deleted, failed) = apply(&mut state, steps, store, &binding);
     // The store writes can take seconds: a credential replaced or revoked
     // meanwhile gets nothing of this answer. What it stored is cleaned up.
     if !is_current(credential, current) {
+        hold(home).map_err(Failure::code)?;
         state.unbind_all();
         state.last_result = Some(CREDENTIAL_CHANGED.to_owned());
-        let _ = write_state(home, &state);
+        save(home, &state, false).map_err(Failure::code)?;
         return Err(Failure::code(CREDENTIAL_CHANGED));
     }
-    state.bind(credential);
     state.hub = hub.to_owned();
     if unavailable {
         state.last_result = Some(UNAVAILABLE.to_owned());
-        write_state(home, &state).map_err(Failure::code)?;
+        save(home, &state, false).map_err(Failure::code)?;
         return Err(Failure { code: UNAVAILABLE.to_owned(), deleted, outcome: None });
     }
     // A pull that could not store or delete everything fails, keeping what it did.
@@ -272,7 +362,7 @@ pub fn settle(
     state.pulled_at = Some(now_ms);
     state.last_result =
         Some(if failed.is_empty() { result.to_owned() } else { PARTIAL.to_owned() });
-    write_state(home, &state).map_err(Failure::code)?;
+    save(home, &state, false).map_err(Failure::code)?;
     let outcome = Outcome {
         state: result,
         hub: hub.to_owned(),
@@ -348,8 +438,11 @@ pub fn forget(home: &Path, store: &dyn SecretStore) -> Result<Outcome, Failure> 
     let _lock = lock(home, true).map_err(Failure::code)?;
     let mut state = read_state(home);
     let hub = state.hub.clone();
+    if !state.env.is_empty() {
+        hold(home).map_err(Failure::code)?;
+    }
     let steps = plan::wipe(&state);
-    let (_, deleted, failed) = apply(&mut state, steps, store);
+    let (_, deleted, failed) = apply(&mut state, steps, store, "");
     let mut outcome = Outcome {
         state: "forgotten",
         hub,
@@ -361,8 +454,14 @@ pub fn forget(home: &Path, store: &dyn SecretStore) -> Result<Outcome, Failure> 
     };
     if outcome.failed.is_empty() {
         match std::fs::remove_file(state_path(home)) {
-            Ok(()) => Ok(outcome),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(outcome),
+            Ok(()) => {
+                release(home);
+                Ok(outcome)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                release(home);
+                Ok(outcome)
+            }
             Err(_) => Err(Failure {
                 code: "vault.state_write_failed".into(),
                 deleted: outcome.deleted,
@@ -371,7 +470,7 @@ pub fn forget(home: &Path, store: &dyn SecretStore) -> Result<Outcome, Failure> 
         }
     } else {
         // Keep the cleanup records of items still in the store, so a retry finds them.
-        write_state(home, &state).map_err(Failure::code)?;
+        save(home, &state, false).map_err(Failure::code)?;
         outcome.state = "partial";
         Err(Failure { code: PARTIAL.to_owned(), deleted: Vec::new(), outcome: Some(outcome) })
     }

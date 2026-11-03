@@ -21,6 +21,11 @@ pub struct EnvRecord {
     /// sha256 hex of the state's salt, the name and the value: tells a changed
     /// value at the same revision, and a secret store item edited since.
     pub fingerprint: String,
+    /// The salted fingerprint of the machine credential whose answer
+    /// authorized this entry: it is given to agents only while that
+    /// credential is still this machine's and not revoked.
+    #[serde(default)]
+    pub credential: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,11 +44,6 @@ pub struct State {
     /// Random per machine, so a fingerprint is never a plain hash of a value.
     #[serde(default)]
     pub salt: String,
-    /// The salted fingerprint of the machine credential the entries were
-    /// pulled with: the daemon gives them to agents only while that credential
-    /// is still this machine's and not revoked.
-    #[serde(default)]
-    pub credential: String,
     /// Entries this machine may give agents.
     #[serde(default)]
     pub env: BTreeMap<String, EnvRecord>,
@@ -79,23 +79,39 @@ impl State {
         h.finalize().iter().map(|b| format!("{b:02x}")).collect()
     }
 
-    /// Whether the entries may be given to agents under the machine's
-    /// credential now (`current`: the stored credential and whether it is
-    /// revoked).
-    pub fn delivers_under(&self, current: Option<(&str, bool)>) -> bool {
-        !self.credential.is_empty()
-            && current.is_some_and(|(credential, revoked)| {
-                !revoked && self.fingerprint("\0credential", credential) == self.credential
-            })
+    /// The salted fingerprint an entry records for `credential`.
+    pub fn binding(&self, credential: &str) -> String {
+        self.fingerprint("\0credential", credential)
     }
 
-    /// Bind the state to `credential` (empty: bound to none).
-    pub fn bind(&mut self, credential: &str) {
-        self.credential = if credential.is_empty() {
-            String::new()
-        } else {
-            self.fingerprint("\0credential", credential)
-        };
+    /// The entries that may be given to agents under the machine's credential
+    /// now (`current`: the stored credential and whether it is revoked): those
+    /// whose authorizing answer came for that same live credential.
+    pub fn delivered_names(&self, current: Option<(&str, bool)>) -> Vec<String> {
+        let Some((credential, false)) = current else { return Vec::new() };
+        let binding = self.binding(credential);
+        self.env
+            .iter()
+            .filter(|(_, record)| !record.credential.is_empty() && record.credential == binding)
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    /// Entries authorized under another credential (or none) are never
+    /// rebound to `credential`: they become cleanup records. True when any moved.
+    pub fn drop_foreign(&mut self, credential: &str) -> bool {
+        let binding = self.binding(credential);
+        let foreign: Vec<String> = self
+            .env
+            .iter()
+            .filter(|(_, record)| record.credential != binding)
+            .map(|(name, _)| name.clone())
+            .collect();
+        for name in &foreign {
+            self.env.remove(name);
+            self.pending_delete.insert(name.clone());
+        }
+        !foreign.is_empty()
     }
 
     /// No entry may be delivered: every one becomes a cleanup record.
@@ -103,7 +119,6 @@ impl State {
         let names: Vec<String> = self.env.keys().cloned().collect();
         self.pending_delete.extend(names);
         self.env.clear();
-        self.credential.clear();
     }
 
     /// Names and revisions, in order: the daemon reloads its values when this
@@ -111,8 +126,7 @@ impl State {
     pub fn signature(&self) -> String {
         self.env
             .iter()
-            .map(|(name, r)| format!("{name}={}:{}", r.revision, r.fingerprint))
-            .chain(std::iter::once(format!("credential={}", self.credential)))
+            .map(|(name, r)| format!("{name}={}:{}:{}", r.revision, r.fingerprint, r.credential))
             .collect::<Vec<_>>()
             .join(",")
     }
@@ -193,4 +207,9 @@ pub fn wipe(state: &State) -> Vec<Step> {
         .chain(state.pending_delete.iter().filter(|n| !state.env.contains_key(*n)))
         .map(|name| Step::Delete { name: name.clone() })
         .collect()
+}
+
+/// The deletes of the cleanup records alone.
+pub fn cleanup(state: &State) -> Vec<Step> {
+    state.pending_delete.iter().map(|name| Step::Delete { name: name.clone() }).collect()
 }

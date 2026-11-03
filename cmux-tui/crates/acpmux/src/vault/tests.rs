@@ -484,11 +484,12 @@ fn an_incomplete_load_is_read_again_without_a_state_change() {
     assert!(super::loaded_names().is_empty(), "no store read per spawn");
     super::refresh_at(&path, &store, start + super::RETRY_INCOMPLETE);
     assert_eq!(super::loaded_names(), ["API_TOKEN"]);
-    let given = super::delivered(live());
+    let given = super::delivered(live(), false);
     assert_eq!(given.len(), 1);
     assert_eq!(given[0].1, SECRET_A);
-    assert!(super::delivered(Some(("cmm_replaced".into(), false))).is_empty());
-    assert!(super::delivered(Some((CRED.into(), true))).is_empty());
+    assert!(super::delivered(Some(("cmm_replaced".into(), false)), false).is_empty());
+    assert!(super::delivered(Some((CRED.into(), true)), false).is_empty());
+    assert!(super::delivered(live(), true).is_empty(), "a held removal delivers nothing");
 
     // Revoked: dropped from memory on the next spawn's check.
     pull::settle(home.path(), "https://hub.test", CRED, Answer::NotGranted, &store, &live, 2)
@@ -588,7 +589,7 @@ fn a_credential_replaced_during_a_blocked_store_write_gets_nothing() {
     let state = pull::read_state(home.path());
     assert!(state.env.is_empty(), "nothing of the old answer is published");
     assert!(state.pending_delete.contains("API_TOKEN"), "what it stored is cleaned up");
-    assert!(!state.delivers_under(Some(("cmm_synthetic-replacement", false))));
+    assert!(state.delivered_names(Some(("cmm_synthetic-replacement", false))).is_empty());
 }
 
 #[test]
@@ -599,10 +600,10 @@ fn delivery_follows_the_credential_the_state_was_pulled_with() {
     let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
     pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
     let state = pull::read_state(home.path());
-    assert!(state.delivers_under(Some((CRED, false))));
-    assert!(!state.delivers_under(Some((CRED, true))), "revoked after the pull");
-    assert!(!state.delivers_under(Some(("cmm_other", false))), "replaced after the pull");
-    assert!(!state.delivers_under(None), "unjoined after the pull");
+    assert_eq!(state.delivered_names(Some((CRED, false))), ["API_TOKEN"]);
+    assert!(state.delivered_names(Some((CRED, true))).is_empty(), "revoked after the pull");
+    assert!(state.delivered_names(Some(("cmm_other", false))).is_empty(), "replaced");
+    assert!(state.delivered_names(None).is_empty(), "unjoined after the pull");
     assert!(!std::fs::read_to_string(pull::state_path(home.path())).unwrap().contains(CRED));
     // An answer asked with a credential that is no longer current is not applied at all.
     let gone = || Some(("cmm_other".to_owned(), false));
@@ -644,4 +645,83 @@ fn empty_and_multiline_values_go_through_the_real_store_commands() {
     );
     let env = granted(answer);
     assert_eq!(env[0].value.as_deref().map(String::as_str), Some(""));
+}
+
+#[test]
+#[cfg(unix)]
+fn entries_of_a_replaced_credential_are_never_rebound_to_the_new_one() {
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let answer = Answer::Granted { env: vec![active("A_KEY", 1, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+
+    // `machine join --replace`: credential B's first pull finds no vault (404).
+    const B: &str = "cmm_synthetic-b";
+    let b_live = || Some((B.to_owned(), false));
+    let outcome =
+        pull::settle(home.path(), "https://hub.test", B, Answer::Off, &store, &b_live, 2).unwrap();
+    assert_eq!(outcome.state, "off");
+    assert!(outcome.env.is_empty(), "A's entry is not B's");
+    let state = pull::read_state(home.path());
+    assert!(state.delivered_names(Some((B, false))).is_empty());
+    assert!(store.get("A_KEY").unwrap().is_none(), "A's item is deleted");
+    assert!(!pull::held(home.path()));
+
+    // Same with a store write that fails under B: nothing of A's carries over.
+    let answer = Answer::Granted { env: vec![active("A_KEY", 1, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 3).unwrap();
+    let broken = MemoryStore { fail_put: Some("B_KEY".into()), ..MemoryStore::default() };
+    broken.put("A_KEY", SECRET_A).unwrap();
+    let answer = Answer::Granted { env: vec![active("B_KEY", 1, SECRET_B)], refused: 0 };
+    let error =
+        pull::settle(home.path(), "https://hub.test", B, answer, &broken, &b_live, 4).unwrap_err();
+    assert_eq!(error.code, pull::PARTIAL);
+    let state = pull::read_state(home.path());
+    assert!(state.delivered_names(Some((B, false))).is_empty());
+    assert!(!state.env.contains_key("A_KEY"));
+}
+
+#[test]
+#[cfg(unix)]
+fn a_removal_that_cannot_be_saved_stays_held_and_delivers_nothing() {
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+    assert!(!pull::held(home.path()));
+
+    // A full disk: the state file cannot be replaced after not_granted.
+    pull::FAIL_STATE_WRITE.with(|f| f.set(true));
+    let error =
+        pull::settle(home.path(), "https://hub.test", CRED, Answer::NotGranted, &store, &live, 2)
+            .unwrap_err();
+    pull::FAIL_STATE_WRITE.with(|f| f.set(false));
+    assert_eq!(error.code, "vault.state_write_failed");
+    // The old state still lists the entry, but the hold stops delivery.
+    assert_eq!(pull::read_state(home.path()).delivered_names(Some((CRED, false))), ["API_TOKEN"]);
+    assert!(pull::held(home.path()));
+    assert!(super::delivered(live(), pull::held(home.path())).is_empty());
+
+    // The next pull saves; the hold is lifted with nothing left to give.
+    pull::settle(home.path(), "https://hub.test", CRED, Answer::NotGranted, &store, &live, 3)
+        .unwrap();
+    assert!(!pull::held(home.path()));
+    assert!(pull::read_state(home.path()).env.is_empty());
+}
+
+#[test]
+fn a_new_join_pulls_before_the_first_spawn() {
+    assert!(super::needs_initial_pull(false, true));
+    assert!(!super::needs_initial_pull(true, true), "a cached state serves the first spawn");
+    assert!(!super::needs_initial_pull(false, false), "not joined: nothing to pull");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_initial_pull_is_bounded() {
+    let slow = async {
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        "late"
+    };
+    assert_eq!(super::bounded(super::INITIAL_WAIT, slow).await, None);
+    assert_eq!(super::bounded(super::INITIAL_WAIT, async { "ok" }).await, Some("ok"));
 }
