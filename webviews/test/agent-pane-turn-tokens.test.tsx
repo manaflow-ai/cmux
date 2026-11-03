@@ -612,3 +612,40 @@ test("tokens are compact in the pane's language", () => {
   }).format(2_140_000);
   expect(workingTokens(translatorFor("de"), "de", 2_140_000)).toContain(german);
 });
+
+/// Claude Code's /context after a turn (acpmux claude_stdio), naming a 400K compact window.
+const contextInfo = (maxTokens: number): Step => [
+  "in",
+  "session_info_update",
+  update({
+    sessionUpdate: "session_info_update",
+    _meta: {
+      acpmux: {
+        contextBreakdown: {
+          categories: [{ name: "Messages", tokens: 100_000, kind: "used" }],
+          memoryFiles: [],
+          mcpTools: [],
+          totalTokens: 100_000,
+          maxTokens,
+        },
+      },
+    },
+  }),
+];
+
+test("a model's new window drops the last /context; the same window keeps it (#32639 review)", async () => {
+  const daemon = fakeDaemon(record([held(100_000, 1_000_000), contextInfo(400_000)]));
+  const { client, snapshot } = await connect(daemon);
+  try {
+    await until(() => snapshot().summary?.contextBreakdown?.maxTokens === 400_000, "the /context");
+    daemon.push(record([held(110_000, 1_000_000)], 3));
+    await until(() => snapshot().summary?.usage?.used === 110_000, "the next usage");
+    expect(snapshot().summary?.contextBreakdown?.maxTokens).toBe(400_000);
+    // A switch to a 200K model: the 400K /context was the old model's.
+    daemon.push(record([held(120_000, 200_000)], 4));
+    await until(() => snapshot().summary?.usage?.size === 200_000, "the new window");
+    expect(snapshot().summary?.contextBreakdown).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});
