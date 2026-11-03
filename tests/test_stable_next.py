@@ -86,6 +86,19 @@ class Pick(unittest.TestCase):
             stable_next.pick(feed(item(200)), None, set(), lambda b: None, 150)
 
 
+class Soak(unittest.TestCase):
+    def test_a_build_off_the_feed_passes_the_soak(self):
+        """The feed keeps 2 builds; the picked one is gone by the time the gates end (run 41419773317)."""
+        stable_next.soak(200, set(), lambda b: "pass")
+        stable_next.soak(200, set(), lambda b: None)
+
+    def test_a_pulled_or_failed_build_is_refused(self):
+        with self.assertRaises(stable_next.Refused):
+            stable_next.soak(200, {200}, lambda b: "pass")
+        with self.assertRaises(stable_next.Refused):
+            stable_next.soak(200, set(), lambda b: "fail")
+
+
 class PublishedTonight(unittest.TestCase):
     def test_compares_the_newest_items_pub_date(self):
         start = dt.datetime(2026, 10, 30, 4, tzinfo=dt.timezone.utc)

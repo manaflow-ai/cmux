@@ -489,7 +489,12 @@ async function main() {
       return (await file.exists()) ? new Response(file) : new Response("Not found", { status: 404 });
     },
   });
-  const browser = await chromium.launch({ channel: "chrome", headless: true });
+  const browser = await chromium.launch({
+    ...(process.env.CMUX_CHROME_HEADLESS_SHELL
+      ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
+      : { channel: "chrome" }),
+    headless: true,
+  });
   try {
     if (temporary) {
       const { build } = await import("vite");

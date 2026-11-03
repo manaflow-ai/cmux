@@ -6,7 +6,13 @@
 # new section complete, and the runs. Run alone on a worker, once per commit to compare:
 #   cmux-ci run --class exclusive --measurement --script scripts/measure/settings-section-switch.sh --ref SHA
 # CMUX_SETTINGS_SWITCH_RUNS: runs per action and engine (default 40).
+# It drives Playwright's engines, so it never runs on a Mac (Lawrence's rule, 2026-11-02: no Playwright,
+# Puppeteer or downloaded Chromium on his Mac or a fleet Mac); run it on a Linux cloud VM.
 set -euo pipefail
+if [ "${GITHUB_ACTIONS:-}" != true ] && [ "$(uname -s)" = Darwin ]; then
+  echo "settings-section-switch.sh: not on a Mac (Lawrence's rule: no Playwright on Macs); run it in CI or on a cloud VM" >&2
+  exit 1
+fi
 cd "$(git rev-parse --show-toplevel)"
 bun_pin="$(python3 -c 'import json; print(json.load(open("webviews/package.json"))["devEngines"]["packageManager"]["version"])')"
 bun_dir="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/tools/bun-$bun_pin/bin"
