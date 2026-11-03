@@ -115,7 +115,76 @@ class WaitTests(unittest.TestCase):
                 del os.environ["GITHUB_OUTPUT"]
             self.assertEqual(slept, [800.0])
             self.assertEqual(json.loads(out.read_text()), {"sha": A, "started": 1900.0, "covered": {A: B}})
-            self.assertEqual(output.read_text(), f"base={B}\n")
+            record = {"sha": A, "started": 1900.0, "covered": {A: B}}
+            self.assertEqual(json.loads(out.read_text()), record)
+            self.assertEqual(output.read_text(), f"base={B}\nrecord={json.dumps(record, separators=(',', ':'))}\n")
+
+    def test_a_rerun_and_the_off_switch_record_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker, output = Path(tmp, "last.json"), Path(tmp, "output")
+            marker.write_text(json.dumps({"sha": D, "started": 2000.0, "covered": {A: C, D: A}}))
+            for extra in ({"attempt": 2}, {"off": True}):
+                output.write_text("")
+                args = SimpleNamespace(**{"off": False, "hold_minutes": 15, "last": str(marker), "sha": A,
+                                          "before": B, "out": str(Path(tmp, "o.json")), **extra})
+                with unittest.mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), \
+                        redirect_stdout(io.StringIO()):
+                    coalesce.wait(args, sleep=lambda s: None, clock=lambda: 2100.0)
+                self.assertIn("record=\n", output.read_text(), extra)
+
+    def simulate(self, arrivals, marker, record_delay=30.0, hold=900.0, grace=coalesce.GRACE_SECONDS):
+        """The coalesce group as GitHub runs it (cancel-in-progress): each push's coalesce job starts on arrival and
+        replaces the one before it, pending or sleeping; it reads the newest marker saved GRACE seconds later and
+        waits; one not replaced runs the web checks, and its `coalesce record` job saves the marker RECORD_DELAY
+        later. ARRIVALS: (time, sha, push base). Returns the runs: (start time, sha, the base they route from)."""
+        saved = [(marker["started"], marker)]
+        runs = []
+        with tempfile.TemporaryDirectory() as tmp:
+            for i, (at, sha, before) in enumerate(arrivals):
+                read = at + grace
+                last = max((m for t, m in saved if t <= read), key=lambda m: m["started"])
+                seconds, _ = coalesce.plan_wait(last, sha, before, read, hold)
+                end = read + seconds
+                if i + 1 < len(arrivals) and arrivals[i + 1][0] < end:
+                    continue  # replaced: no check ran and nothing is recorded
+                Path(tmp, "last.json").write_text(json.dumps(last))
+                output = Path(tmp, "output")
+                output.write_text("")
+                args = SimpleNamespace(off=False, hold_minutes=hold / 60, last=str(Path(tmp, "last.json")), sha=sha,
+                                       before=before, out=str(Path(tmp, "new.json")), attempt=1)
+                clock = iter([read, end])
+                with unittest.mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), \
+                        redirect_stdout(io.StringIO()):
+                    coalesce.wait(args, sleep=lambda s: None, clock=lambda: next(clock))
+                got = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                runs.append((end, sha, got["base"]))
+                saved.append((end + record_delay, json.loads(got["record"])))
+        return runs
+
+    def test_a_push_arriving_while_a_coalesce_job_sleeps_runs_when_the_window_ends(self):
+        # #33872: A ran at 0; B lands at 60 and C at 120. C replaces B's sleeping job and runs at 900 from A: one run,
+        # every landing since A, and no push waits a second window (before: B at 900, C at 1800).
+        e, f = "e" * 40, "f" * 40
+        marker = {"sha": A, "started": 0.0, "covered": {A: D}}
+        runs = self.simulate([(60.0, B, A), (120.0, C, B)], marker)
+        self.assertEqual(runs, [(900.0, C, A)])
+        # A push just after that run reads its record after the grace and waits for the next window, from C.
+        runs = self.simulate([(60.0, B, A), (120.0, C, B), (905.0, e, C), (1000.0, f, e)], marker)
+        self.assertEqual(runs, [(900.0, C, A), (1800.0, f, C)])
+
+    def test_a_record_slower_than_the_grace_costs_a_run_never_a_commit(self):
+        # C's record lands after the next push read the marker: that push runs from A again, so C's range is checked
+        # twice and no commit is skipped.
+        marker = {"sha": A, "started": 0.0, "covered": {A: D}}
+        runs = self.simulate([(60.0, B, A), (120.0, C, B), (905.0, "e" * 40, C)], marker,
+                             record_delay=coalesce.GRACE_SECONDS + 60)
+        self.assertEqual([(sha, base) for _, sha, base in runs], [(C, A), ("e" * 40, A)])
+
+    def test_grace_sleeps_its_seconds(self):
+        slept = []
+        with unittest.mock.patch.object(coalesce.time, "sleep", slept.append), redirect_stdout(io.StringIO()):
+            self.assertEqual(coalesce.main(["grace"]), 0)
+        self.assertEqual(slept, [coalesce.GRACE_SECONDS])
 
     def test_the_off_switch_never_waits(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -436,18 +505,37 @@ class WorkflowTests(unittest.TestCase):
         self.web = yaml.safe_load(WEB.read_text())
         self.lint = yaml.safe_load(LINT.read_text())
 
-    def test_the_coalesce_job_waits_one_at_a_time_and_never_cancels_a_started_one(self):
+    def test_a_newer_push_replaces_the_waiting_coalesce_job_and_nothing_else(self):
+        # #33872: a newer push's coalesce job replaces the waiting one, pending or sleeping, so the window ends on the
+        # newest push. Only that wait is ever cancelled: the run's own group and every check keep cancel-in-progress
+        # off.
         job = self.web["jobs"]["coalesce"]
-        self.assertIs(job["concurrency"]["cancel-in-progress"], False)
+        self.assertIs(job["concurrency"]["cancel-in-progress"], True)
         self.assertIn("'cmux-next-web-coalesce'", job["concurrency"]["group"])
-        # A dispatch, another branch and the off switch get a group of their own.
+        # A dispatch, another branch, the off switch and a re-run get a group of their own: a re-run never replaces
+        # a newer push's wait.
         self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
                       job["concurrency"]["group"])
         self.assertIn("vars.NEXT_WEB_COALESCE", job["concurrency"]["group"])
+        self.assertIn("github.run_attempt == '1'", job["concurrency"]["group"])
+        self.assertIn("github.run_attempt", job["concurrency"]["group"].split("||", 1)[1])
         self.assertIn("--hold-minutes 15", next(s for s in job["steps"] if s.get("id") == "wait")["run"])
-        self.assertLessEqual(job["timeout-minutes"], 20)
+        self.assertLessEqual(job["timeout-minutes"], 22)
         self.assertIs(self.web["concurrency"]["cancel-in-progress"], False)
-        self.assertNotIn("cancel-in-progress: true", WEB.read_text())
+        self.assertEqual(WEB.read_text().count("cancel-in-progress: true"), 1)
+        # The marker is saved only once the coalesce job can no longer be replaced.
+        self.assertFalse([s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/cache/save@")])
+        record = self.web["jobs"]["coalesce-record"]
+        self.assertEqual(record["needs"], "coalesce")
+        self.assertNotIn("concurrency", record)
+        self.assertIn("needs.coalesce.outputs.record != ''", record["if"])
+        # The grace comes before the marker is read.
+        names = [s.get("name") for s in job["steps"]]
+        self.assertLess(names.index("Let a just-started run record its push"),
+                        names.index("Restore the last covered push"))
+        grace = job["steps"][names.index("Let a just-started run record its push")]
+        self.assertIn("web_coalesce.py grace", grace["run"])
+        self.assertIn("github.run_attempt == '1'", grace["if"])
 
     def test_the_bisect_copies_its_scripts_in_the_layout_they_resolve(self):
         # web_subareas.py finds the bundle key at parents[1]/cmux-next/web-bundle-key.py: a flat copy loses it, and
@@ -473,13 +561,16 @@ class WorkflowTests(unittest.TestCase):
         # Actions keys a cache's version by its path, so a save at another path is never restored, even by prefix.
         steps = self.web["jobs"]["coalesce"]["steps"]
         restore = next(s for s in steps if str(s.get("uses", "")).startswith("actions/cache/restore@"))
-        save = next(s for s in steps if str(s.get("uses", "")).startswith("actions/cache/save@"))
+        saves = self.web["jobs"]["coalesce-record"]["steps"]
+        save = next(s for s in saves if str(s.get("uses", "")).startswith("actions/cache/save@"))
         wait = next(s for s in steps if s.get("id") == "wait")["run"]
         self.assertEqual(restore["with"]["path"], save["with"]["path"])
         self.assertTrue(save["with"]["key"].startswith(restore["with"]["restore-keys"]))
         marker = restore["with"]["path"].replace("${{ runner.temp }}", "$RUNNER_TEMP")
         self.assertIn(f'--last "{marker}"', wait)
-        self.assertIn(f'--out "{marker}"', wait)
+        write = next(s for s in saves if s.get("name") == "Write the marker")
+        self.assertIn(f'> "{marker}"', write["run"])
+        self.assertEqual(self.web["jobs"]["coalesce"]["outputs"]["record"], "${{ steps.wait.outputs.record }}")
 
     def test_the_web_checks_route_from_the_last_covered_commit(self):
         web = self.web["jobs"]["web"]

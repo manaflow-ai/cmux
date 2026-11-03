@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Coalesce cmux-next-web.yml's feat-cmux-next push runs, and bisect a coalesced run's new webview reds.
 
+    web_coalesce.py grace
+        the coalesce job's first step, before it restores the marker: sleep GRACE_SECONDS (see "How the waiting works")
     web_coalesce.py wait --last LAST.json --sha SHA [--before SHA] [--hold-minutes 15] [--off] --out OUT.json
         the coalesce job: sleep until HOLD minutes after the last push that ran the web checks, then name this push
         the newest covered one (OUT) and print `base=<the last covered sha>` to $GITHUB_OUTPUT
@@ -21,12 +23,17 @@ everything since. Three rules from the decision (claude-sr2-coord, 2026-11-03):
    the first red commit and its pull request are still named (test_reds.py bisect_report reads its lines).
 3. Pull requests are untouched: react-apps-base-check and everything else ci.yml runs is the same.
 
-How the waiting works: the coalesce job has its own concurrency group with cancel-in-progress false. One coalesce
-job runs (waits) at a time; a newer push's coalesce job replaces a pending one, which never started, so that run
-ends cancelled with no job run (readers skip such runs: base_red_excuse.coalesced). Nothing that started is ever
-cancelled. The last covered push is kept in the Actions cache (one small entry a run, newest restored by prefix);
-with none (evicted, the first run) the push runs at once and runs every web check (push base EVERYTHING): a
-push replaced before it may have changed web/ outside its own push range (#33892).
+How the waiting works: the coalesce job has its own concurrency group, and a newer push's coalesce job replaces it,
+pending or sleeping (cancel-in-progress), so the push that runs when the window ends is the newest one, from the last
+covered commit (#33872: a sleeping job that kept its own push made a push arriving during its sleep wait two windows).
+A replaced run ends cancelled with no check run (readers skip such runs: base_red_excuse.coalesced); only a coalesce
+job's wait is ever cancelled, never a check. The last covered push is kept in the Actions cache (one small entry a
+run, newest restored by prefix), saved by a job after the coalesce one (`coalesce record`), so a coalesce job
+replaced at any point, even in its last second, never records a push whose checks did not run; the coalesce job
+first waits GRACE seconds, so the record of a run that just started is restored. With no marker (evicted, the first
+run) the push runs at once and runs every web check (push base EVERYTHING): a push replaced before it may have
+changed web/ outside its own push range (#33892). A re-run gets a group of its own: it never waits and never
+replaces a newer push's wait.
 
 Bisect, cheaply: a webview test's verdict changes only with its inputs (webviews_test_history.py inputs: the paths
 the router runs the suite on), so only commits that change those inputs can be a test's first red, and most
@@ -50,6 +57,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 HOLD_MINUTES = 15.0
 EVERYTHING = "all"  # the push base that runs every web check (web_subareas.EVERY_SUBAREA)
+# Seconds a coalesce job waits before it reads the marker: the time a just-started run's `coalesce record` job takes
+# to get a runner and save it. Longer only costs a first push after a quiet spell this much; a record slower than
+# this costs one extra run, routed from the older marker, so never a commit left unchecked.
+GRACE_SECONDS = 120
 SHA = re.compile(r"[0-9a-f]{40}")
 # A coalesced run covers about 15 minutes of landings (9 commits at p50, 26 at most on 2026-11-02); past this many
 # the range is not bisected (a force push, a long outage): its reds keep the run's range.
@@ -110,7 +121,7 @@ def wait(args, sleep=time.sleep, clock=time.time) -> int:
     seconds, base = plan_wait(last, args.sha, args.before or "", clock(), hold_s, attempt, off=args.off)
     if seconds > 0:
         print(f"the last web checks started on {last['sha'][:12]}; waiting {seconds:.0f} s, so they run at most once "
-              f"every {args.hold_minutes:g} minutes (a newer push's run replaces this wait only while it is pending)")
+              f"every {args.hold_minutes:g} minutes (a newer push's coalesce job replaces this wait and runs instead)")
         sleep(seconds)
     started = clock()
     if rerun and last is not None:
@@ -131,6 +142,9 @@ def wait(args, sleep=time.sleep, clock=time.time) -> int:
     if output:
         with open(output, "a", encoding="utf-8") as stream:
             stream.write(f"base={base}\n")
+            # The new marker, for `coalesce record` to save once this job can no longer be replaced. A re-run and
+            # the off switch record nothing.
+            stream.write(f"record={'' if rerun or args.off else json.dumps(record, separators=(',', ':'))}\n")
     return 0
 
 
@@ -387,6 +401,7 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--attempt", type=int, default=1, help="the run's attempt: a re-run never waits")
     w.add_argument("--off", action="store_true", help="no coalescing: run at once, from the push's own base")
     w.add_argument("--out", required=True)
+    sub.add_parser("grace")
     b = sub.add_parser("bisect")
     b.add_argument("--base", default="")
     b.add_argument("--head", required=True)
@@ -396,6 +411,11 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--report", required=True)
     b.add_argument("--max-probes", type=int, default=MAX_PROBES)
     args = parser.parse_args(argv)
+    if args.command == "grace":
+        print(f"waiting {GRACE_SECONDS} s before reading the last covered push, so a run that just started has "
+              "recorded it")
+        time.sleep(GRACE_SECONDS)
+        return 0
     return wait(args) if args.command == "wait" else bisect(args)
 
 
