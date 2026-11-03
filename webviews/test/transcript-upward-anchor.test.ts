@@ -303,6 +303,18 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       const card = page.locator('[data-row-id="gap-incoming"]');
       await card.waitFor();
       await card.evaluate((node) => node.scrollIntoView({ block: "start" }));
+      // Off the very bottom: the card sits in the last turns, so scrolling it to the top lands at
+      // the physical end, and there opening a line pushes the text above it up (#32644, Leo
+      // 2026-11-02: "YOU EXPAND UP WHILE YOUR SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE").
+      // This trace is about a fold that keeps its place while the reply streams, so start 48px up.
+      const fromEnd = await page.locator(".acpmux-scroll").evaluate(async (node) => {
+        node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight - 48);
+        node.dispatchEvent(new Event("scroll"));
+        await window.cmuxPaintFrame();
+        await window.cmuxPaintFrame();
+        return node.scrollHeight - node.clientHeight - node.scrollTop;
+      });
+      expect(fromEnd).toBeGreaterThan(8);
       const result = await page.evaluate(traceUpwardAnchors, {
         steps: Array.from({ length: 112 }, () => 0),
         foldStream: true,
