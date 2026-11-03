@@ -368,6 +368,30 @@ fn the_flag_then_the_stored_choice_decide() {
 }
 
 #[test]
+fn a_kept_pass_is_the_persons_consent_and_none_reads_nothing() {
+    let headless = Inputs { headless: true, ..owner() };
+    // Sign in at most once per user: the pass they chose before installs on a later headless start.
+    let kept = Inputs { stored: Some(Choice::Pass), ..headless.clone() };
+    assert_eq!((decide(&kept).step, decide(&kept).reason), (Step::Install, Reason::InstallChosen));
+    let agent_with_kept = Inputs { requested: Some(Choice::Pass), ..kept };
+    assert_eq!(decide(&agent_with_kept).step, Step::Install);
+    let agent_over_machine =
+        Inputs { requested: Some(Choice::Pass), stored: Some(Choice::Machine), ..headless };
+    assert_eq!(decide(&agent_over_machine).reason, Reason::NeedsLoginChoice);
+    // A fresh `--login none` decides before the owner or the guest is read.
+    let fresh = Inputs {
+        gate: true,
+        provider: Some(Provider::Claude),
+        signed_in: true,
+        requested: Some(Choice::None),
+        headless: true,
+        ..Inputs::default()
+    };
+    let d = decide(&fresh);
+    assert_eq!((d.step, d.reason, d.reads_machine), (Step::Skip, Reason::ChoseNone, false));
+}
+
+#[test]
 fn the_choice_is_on_the_wire() {
     let request: Inputs = serde_json::from_str(
         r#"{"gate":true,"provider":"claude","signedIn":true,"callerOwns":true,"guestKind":"owner","machineLogin":"none","requested":"pass","requestedByPerson":true,"headless":true}"#,

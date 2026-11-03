@@ -261,6 +261,11 @@ fn step_and_reason(d: &Inputs) -> (Step, Reason) {
     if !d.signed_in {
         return (Step::Skip, Reason::SignedOut);
     }
+    let choice = choice(d);
+    // `none` passes nothing, so it reads neither the owner nor the machine.
+    if choice == Some(Choice::None) {
+        return (Step::Skip, Reason::ChoseNone);
+    }
     if d.caller_owns != Some(true) {
         return (Step::Skip, Reason::CallerNotOwner);
     }
@@ -272,10 +277,6 @@ fn step_and_reason(d: &Inputs) -> (Step, Reason) {
     if !guest_takes_login(Some(kind)) {
         return (Step::Skip, Reason::GuestNotOwner);
     }
-    let choice = choice(d);
-    if choice == Some(Choice::None) {
-        return (Step::Skip, Reason::ChoseNone);
-    }
     // A machine that already has a working login keeps it, whatever the choice.
     if !d.machine_login.is_none_or(MachineLogin::needs_login) {
         return (Step::Skip, Reason::MachineLoginKept);
@@ -285,7 +286,11 @@ fn step_and_reason(d: &Inputs) -> (Step, Reason) {
     }
     if d.cached {
         (Step::Install, Reason::InstallCached)
-    } else if d.requested == Some(Choice::Pass) && d.requested_by_person {
+    } else if choice == Some(Choice::Pass)
+        && (d.requested_by_person || d.stored == Some(Choice::Pass))
+    {
+        // The person's own --login pass, or the pass they chose before (kept per user): their consent.
+        // An agent's --login pass alone is not.
         (Step::Install, Reason::InstallChosen)
     } else if d.headless {
         (Step::Refuse, Reason::NeedsLoginChoice)
