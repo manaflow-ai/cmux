@@ -66,7 +66,9 @@ for b in "$CHIEF" "$TUI" "$ACPMUX"; do [[ -x "$b" ]] || die "not an executable: 
 [[ "$OWNER" =~ ^user_[A-Za-z0-9_-]+$ ]] || die "--owner must be the owner's cmux account id, user_... (got '$OWNER')"
 [[ "$U" =~ ^[a-z_][a-z0-9_-]{0,31}$ && "$U" != root ]] || die "--user must be a plain system user name, not root (got '$U')"
 [[ "$PREFIX" =~ ^/[A-Za-z0-9._/-]*$ ]] || die "--prefix must be an absolute path without spaces (got '$PREFIX')"
+[[ "$PREFIX" == / ]] || PREFIX="${PREFIX%/}"
 case "$PREFIX" in /|/usr|/usr/*|/etc|/etc/*|/bin|/sbin|/lib*|/boot*|/proc*|/sys*|/dev*|/root|/root/*|/home|/home/*) die "--prefix '$PREFIX' is a system or home directory (the units hide /home)" ;; esac
+case "$PREFIX/" in */./*|*/../*|*//*) die "--prefix must be a plain absolute path, without . or .. components or //" ;; esac
 [[ "$CPU" =~ ^[1-9][0-9]*%$ ]] || die "--cpu-quota must be a percent like 400% (got '$CPU')"
 [[ "$MEM" =~ ^[1-9][0-9]*[KMGT]$ ]] || die "--memory-max must be like 16G (got '$MEM')"
 [[ "$TASKS" =~ ^[1-9][0-9]*$ ]] || die "--tasks-max must be a number (got '$TASKS')"
@@ -99,7 +101,9 @@ nolink() {
     [[ ! -L "$p" ]] || die "refusing to write through a symlink: $p"
   done
 }
-for p in "$PREFIX" "$BIN" "$PREFIX/chief-box.env" "$PREFIX/model.env" "$CH" "$PREFIX/ws" "$B" "$UNIT_DIR" "$BIN_DIR" "$BIN_DIR/chief-box"; do nolink "$p"; done
+for p in "$PREFIX" "$BIN" "$PREFIX/chief-box.env" "$PREFIX/model.env" "$CH" "$PREFIX/ws" "$B" "$UNIT_DIR" "$BIN_DIR" "$BIN_DIR/chief-box" \
+  "$UNIT_DIR/chief-box.slice" "$UNIT_DIR/chief-box-daemon.service" "$UNIT_DIR/chief-box-acpmux.service" \
+  "$UNIT_DIR/chief-box-host.service"; do nolink "$p"; done
 for n in optchat-chief cmux-tui acpmux cmux; do nolink "$BIN/$n"; done
 # A kept model.env must be a plain file the Chief cannot write: owned by root (by the
 # installing user with --no-system), mode 0600. Anything else is refused, never repaired.
@@ -138,8 +142,9 @@ for pair in "optchat-chief:$CHIEF" "cmux-tui:$TUI" "acpmux:$ACPMUX" "cmux:${CLI:
 done
 # The non-secret settings the units read. Written as a fresh root-owned file and renamed over
 # the old one, so a file the Chief once owned is replaced, never reused.
-put() { # dest mode: stdin to a new file in the root-owned PREFIX, then rename over dest
-  local t; t="$(mktemp "$PREFIX/.chief-box.XXXXXX")"
+put() { # dest mode: stdin to a new file beside dest (a root-owned dir), then rename over it.
+  # The rename replaces a symlink or another owner's file; it never writes through one.
+  local t; t="$(mktemp "$(dirname "$1")/.chief-box.XXXXXX")"
   cat > "$t"; chmod "$2" "$t"
   if ((SYSTEM)); then chown root:root "$t"; fi
   mv -f "$t" "$1"
@@ -161,11 +166,11 @@ for d in "$CH" "$PREFIX/ws" "$B"; do
   [[ -d "$d" ]] || install -d -m 0700 "$d"
   if ((SYSTEM)); then chown -h "$U:$U" "$d"; fi
 done
-as_user mkdir -p -m 0700 "$CH/.local/bin" "$CH/.claude" "$B/mux" "$B/acpmux" "$B/daemon" "$B/cloud" "$B/logs"
+as_user mkdir -p -m 0700 "$CH/.local/bin" "$CH/.claude" "$B/mux" "$B/acpmux" "$B/daemon" "$B/cloud" "$B/logs" "$B/tmp"
 
 # Every Chief process and every agent acpmux starts lives in this slice, so the caps hold
 # for the whole Chief together and a runaway agent cannot starve the box's other work.
-cat > "$UNIT_DIR/$P.slice" <<EOF
+put "$UNIT_DIR/$P.slice" 0644 <<EOF
 [Unit]
 Description=Chief on a shared Linux box (all its processes and agents)
 
@@ -185,6 +190,11 @@ unit() { # name description exec [Key=Value lines...]
     echo "After=network-online.target${UNIT_AFTER:+ $UNIT_AFTER}"
     echo "Wants=network-online.target${UNIT_AFTER:+ $UNIT_AFTER}"
     [[ -z "${UNIT_COND:-}" ]] || echo "ConditionPathExists=$UNIT_COND"
+    if [[ "$n" != "$P-daemon" ]]; then
+      echo "Requires=$P-daemon.service"
+      echo "PartOf=$P-daemon.service"
+      echo "JoinsNamespaceOf=$P-daemon.service"
+    fi
     echo
     echo "[Service]"
     echo "User=$U"
@@ -204,7 +214,11 @@ unit() { # name description exec [Key=Value lines...]
     echo "ProtectSystem=strict"
     echo "ProtectHome=yes"
     echo "ReadWritePaths=$PREFIX"
+    # One private /tmp for the three units together: the host makes the compactor's dirs
+    # and acpmux's socket aliases (/tmp/acpmux-UID) that acpmux must see. The daemon owns
+    # it; the others join it and stop and restart with it.
     echo "PrivateTmp=yes"
+    echo "Environment=TMPDIR=$B/tmp"
     echo "PrivateDevices=yes"
     echo "ProtectKernelTunables=yes"
     echo "ProtectKernelModules=yes"
@@ -221,8 +235,7 @@ unit() { # name description exec [Key=Value lines...]
     echo
     echo "[Install]"
     echo "WantedBy=multi-user.target"
-  } > "$UNIT_DIR/$n.service"
-  chmod 0644 "$UNIT_DIR/$n.service"
+  } | put "$UNIT_DIR/$n.service" 0644
   echo "wrote $UNIT_DIR/$n.service"
 }
 
@@ -253,7 +266,7 @@ UNIT_AFTER="$P-daemon.service $P-acpmux.service" UNIT_COND="$B/cloud/install.jso
   "${host_env[@]}"
 
 # `chief-box`: the owner's commands on the box, run as the Chief's user.
-cat > "$BIN_DIR/chief-box" <<EOF
+put "$BIN_DIR/chief-box" 0755 <<EOF
 #!/usr/bin/env bash
 # The Chief on this box (deploy/linux-box/README.md). Written by install.sh.
 set -euo pipefail
@@ -279,7 +292,6 @@ case "\${1:-}" in
   *) echo "usage: chief-box pair --api-base URL | status | start | stop | reload-model | rights ... | audit [verify|head] | usage | logs [N]" >&2; exit 2 ;;
 esac
 EOF
-chmod 0755 "$BIN_DIR/chief-box"
 echo "wrote $BIN_DIR/chief-box"
 
 ((SYSTEM)) || { echo "files only (--no-system)"; exit 0; }

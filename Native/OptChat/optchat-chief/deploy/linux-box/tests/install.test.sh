@@ -33,6 +33,15 @@ for u in daemon acpmux host; do
     "Environment=HOME=$ch" "EnvironmentFile=$pre/chief-box.env" "WorkingDirectory=$pre/ws"; do has "$f" "$line"; done
   lacks "$f" "ANTHROPIC_API_KEY"
 done
+for u in acpmux host; do
+  for line in "Requires=chief-box-daemon.service" "PartOf=chief-box-daemon.service" "JoinsNamespaceOf=chief-box-daemon.service"; do
+    has "chief-box-$u.service" "$line"
+  done
+done
+lacks chief-box-daemon.service "JoinsNamespaceOf"
+for u in daemon acpmux host; do has "chief-box-$u.service" "Environment=TMPDIR=$b/tmp"; done
+# JoinsNamespaceOf is a [Unit] key: it must come before [Service].
+awk '/^\[Service\]/{s=1} /^JoinsNamespaceOf=/{ if (s) exit 1 }' "$units/chief-box-host.service" || fail "JoinsNamespaceOf is not in [Unit]"
 has chief-box-daemon.service "ExecStart=$bin/cmux-tui --headless --socket $sock"
 has chief-box-daemon.service "Environment=ACPMUX_HOME=$b/acpmux"
 has chief-box-acpmux.service "ExecStart=$bin/acpmux daemon run"
@@ -109,10 +118,28 @@ ln -s "$tmp/elsewhere" "$tmp/pre-link"
 if "$here/install.sh" "${base[@]/$pre/$tmp/pre-link}" > "$tmp/out.log" 2>&1; then fail "install.sh accepted a symlinked prefix"; fi
 grep -q "refusing to write through a symlink" "$tmp/out.log" || fail "symlinked prefix refused for another reason: $(cat "$tmp/out.log")"
 
+# A unit path that is a symlink (a masked unit, -> /dev/null) is refused and its target untouched.
+echo keep > "$tmp/masked"; chmod 0600 "$tmp/masked"
+mv "$units/chief-box-acpmux.service" "$tmp/acpmux.unit.real"; ln -s "$tmp/masked" "$units/chief-box-acpmux.service"
+if "$here/install.sh" "${base[@]}" > "$tmp/out.log" 2>&1; then fail "install.sh wrote over a symlinked unit"; fi
+grep -q "refusing to write through a symlink: $units/chief-box-acpmux.service" "$tmp/out.log" || fail "symlinked unit refused for another reason: $(cat "$tmp/out.log")"
+[[ "$(cat "$tmp/masked")" == keep && "$(stat -c %a "$tmp/masked" 2>/dev/null || stat -f %Lp "$tmp/masked")" == 600 ]] || fail "install.sh changed a symlinked unit's target"
+rm "$units/chief-box-acpmux.service"; mv "$tmp/acpmux.unit.real" "$units/chief-box-acpmux.service"
+mv "$units/chief-box.slice" "$tmp/slice.real"; ln -s "$tmp/masked" "$units/chief-box.slice"
+if "$here/install.sh" "${base[@]}" > "$tmp/out.log" 2>&1; then fail "install.sh wrote over a symlinked slice"; fi
+[[ "$(cat "$tmp/masked")" == keep ]] || fail "install.sh wrote through a symlinked slice"
+rm "$units/chief-box.slice"; mv "$tmp/slice.real" "$units/chief-box.slice"
+# Units are replaced by rename, never rewritten in place.
+ino_before="$(ls -i "$units/chief-box-host.service" | awk '{print $1}')"
+run "${base[@]}"
+[[ "$(ls -i "$units/chief-box-host.service" | awk '{print $1}')" != "$ino_before" ]] || fail "a unit was rewritten in place"
+[[ -z "$(ls -A "$units" "$bins" | grep '^\.chief-box\.')" ]] || fail "temp files left beside the units or chief-box"
+
 # Bad input is refused before anything is written.
 cp -R "$units" "$tmp/units.before"
 for bad in "--owner ann|--owner must be" "--owner user_x;rm|--owner must be" "--prefix /|system or home" \
-  "--prefix /home/chief|system or home" "--prefix /etc/chief|system or home" "--user root|--user must be" \
+  "--prefix /home/chief|system or home" "--prefix /etc/chief|system or home" "--prefix /srv/../etc|without . or .." "--prefix /srv/./chief|without . or .." \
+  "--prefix /srv//chief|without . or .." "--user root|--user must be" \
   "--cpu-quota 4|--cpu-quota must be" "--memory-max lots|--memory-max must be" \
   "--claude-base-url http://r.test/?a=1&b=2|must be an http(s) URL" \
   "--claude-base-url http://r.test --harness claude-sr|both set the Claude route"; do
