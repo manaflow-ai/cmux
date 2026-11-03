@@ -11,8 +11,9 @@ Two phases: `idle`, then `load` (every core busy with `yes`, plus `--storm` work
 tag's CLI against its daemon). With `--budget-frames N` (which times the warm arm alone unless `--arms` says otherwise) the run fails when any command's p95
 display frame of visibility (1 = the first frame drawn after the key) is above N or a key's main-thread time is above `--budget-key-ms`.
 
-`--commands` picks the commands (default all; `link_right`, a web link opened to the right as a new split, runs only when
-named, warm arm); `--workspaces 10,100` runs every phase again at
+`--commands` picks the commands (default all; `link_right`, a web link opened to the right as a new split,
+`link_home`, the same link from Home's dock alone (a new column beside it), and `split_browser`, Split Browser Right,
+run only when named, warm arm); `--workspaces 10,100` runs every phase again at
 each workspace count (the app holds that many terminal workspaces; the bench's is the shown one).
 
 Three arms of each command (`--arms`, default all; bench_arms.py), each reported with p50/p95/p99/max of
@@ -163,8 +164,25 @@ def undo(command, window, before_panes):
         rpc("action.run", {"action": "closeWorkspace"})
         wait(lambda: (focused() or {}).get("kind") == "terminal", 10)
         return
+    if command == "link_home":  # the new column's tab has the focus: its close leaves Home's dock alone again
+        rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
+        wait(lambda: len(panes()) <= before_panes, 10)
+        return
     rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
     wait(lambda: len(panes()) <= before_panes and (focused() or {}).get("kind") == "terminal", 10)
+
+
+def home_dock():
+    """Home shown with its dock alone and focused (`link_home`): `home.show` from a script, as the sidebar's Home row."""
+    if len(panes()) == 1 and (focused() or {}).get("kind") != "terminal":
+        return True
+    rpc("action.run", {"action": "home.show", "wait": True})
+    return wait(lambda: len(panes()) == 1 and (focused() or {}).get("kind") != "terminal", 10)
+
+
+def ready(command, settle=True):
+    """The pane a timed press starts from: Home's dock for `link_home`, else a shown terminal."""
+    return home_dock() if command == "link_home" else ensure_terminal(settle)
 
 
 def focused():
@@ -186,9 +204,10 @@ def ensure_terminal(settle=True):
 
 def timed(command, phase, index, arm=None):
     """One timed `bench_create` of `command` (the key goes through the real key path in the app), printed."""
-    result = rpc("debug.new_tab", {"action": "bench_create", "command": command}, timeout=20) or {}
-    result.update({"phase": phase, "run": index})
-    result.setdefault("command", command)
+    # `link_home` is the app's `link_right` from Home's dock (LinkOpener reads the source, not the command).
+    sent = "link_right" if command == "link_home" else command
+    result = rpc("debug.new_tab", {"action": "bench_create", "command": sent}, timeout=20) or {}
+    result.update({"phase": phase, "run": index, "command": command})
     if arm:
         result["arm"] = arm
     marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
@@ -204,7 +223,7 @@ def arm_quick(window):
     rows = []
     for command in COMMANDS:
         if command not in KEYS:
-            continue  # no key (link_right): timed by the warm arm alone
+            continue  # no key (link_right, split_browser): timed by the warm arm alone
         for index in range(opts.quick_runs):
             if not ensure_terminal():
                 rows.append({"phase": "quick", "run": index, "command": command, "arm": "quick", "error": "no focused terminal"})
@@ -240,8 +259,8 @@ def arm_cold(relaunch):
                 print(f"cold {command} #{index}: launch failed: {error}", flush=True)
                 rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": f"launch: {error}"})
                 continue
-            if command != "new_workspace" and not ensure_terminal(settle=False):
-                rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": "no focused terminal"})
+            if command != "new_workspace" and not ready(command, settle=False):
+                rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": "no focused start pane"})
                 continue
             rows.append(timed(command, "cold", index, arm="cold"))
     return rows
@@ -267,8 +286,8 @@ def bench(phase, window):
         sys.exit("no focused terminal: " + json.dumps(panes())[:800])
     for command in COMMANDS:
         for index in range(opts.runs):
-            if command != "new_workspace" and not ensure_terminal():
-                sys.exit("no focused terminal: " + json.dumps(panes())[:800])
+            if command != "new_workspace" and not ready(command):
+                sys.exit("no focused start pane: " + json.dumps(panes())[:800])
             before = len(panes())
             if opts.hang_stacks:
                 rpc("debug.hangs", {"clear": True})

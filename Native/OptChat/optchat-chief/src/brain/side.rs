@@ -206,6 +206,14 @@ impl Brain {
             matches!(part, Part::Attachment { mime_type, .. } if mime_type.starts_with("image/"))
         });
         let has_files = message.parts.iter().any(super::files::is_file_part);
+        if self.try_command(summary, &message, &text, Some(conversation)) {
+            let waiting = self.queued_messages_of(Some(conversation));
+            let floor = self.state.side.entry(conversation.to_owned()).or_default();
+            let seq = if waiting { floor.seq } else { message.seq };
+            floor.handled(seq, &message.id);
+            self.save();
+            return;
+        }
         if (!text.trim().is_empty() || has_images || has_files)
             && chief_wakes(
                 &self.settings.membership.rule(true),
@@ -225,6 +233,28 @@ impl Brain {
             } else {
                 labelled(summary, &text)
             };
+            // The rights table first (rights_gate.rs), as in the Chief's
+            // own conversation; another Chief is a `chief:` person.
+            let owner_msg = self.settings.membership.is_owner_message(summary, &message);
+            let lifts_floor =
+                match self.admit(summary, &message, &text, owner_msg, Some(conversation)) {
+                    super::rights_gate::Admit::Answered => {
+                        // Answered by the host: never read again. The floor moves
+                        // past it only when nothing earlier waits; else its id
+                        // alone is kept, so a restart still reads what waits.
+                        let waiting = self.queued_messages_of(Some(conversation));
+                        let floor = self.state.side.entry(conversation.to_owned()).or_default();
+                        if waiting {
+                            let seq = floor.seq;
+                            floor.handled(seq, &message.id);
+                        } else {
+                            floor.handled(message.seq, &message.id);
+                        }
+                        self.save();
+                        return;
+                    }
+                    super::rights_gate::Admit::Queue { lifts_floor } => lifts_floor,
+                };
             let remote = message
                 .origin
                 .as_ref()
@@ -274,10 +304,7 @@ impl Brain {
                     seq: message.seq,
                     id: message.id.clone(),
                     remote,
-                    requires_approval: !self
-                        .settings
-                        .membership
-                        .is_owner_message(summary, &message),
+                    requires_approval: !owner_msg && !lifts_floor,
                 },
             );
             return;
