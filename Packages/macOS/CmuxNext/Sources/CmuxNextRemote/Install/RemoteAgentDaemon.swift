@@ -38,6 +38,16 @@ public struct RemoteAgentDaemonStatus: Sendable, Equatable {
         !running || (ready && agentHosts && liveAgents == 0 && remoteSessions == 0)
     }
 
+    /// The POSIX script (for `SSHCommandLine.script`) that stops the machine's agent daemon for a handoff, as an update restart
+    /// (`--restart`): hosted agents keep running for the new run, and a chat waiting on a provider
+    /// retry resumes there (a plain shutdown records `auto_resume_stopped`). An older CLI that does
+    /// not know `--restart` gets `--keep-agents` alone, the way acpmux's own host update falls back
+    /// (`SHUTDOWN_KEEPING_AGENTS` in acpmux `cli/hosts.rs`); any other failure is not retried.
+    public static func shutdownKeepingAgents(binary: String) -> String {
+        "out=$(\(binary) acp daemon shutdown --keep-agents --restart </dev/null 2>&1) || case \"$out\" in "
+            + "*\"unexpected argument '--restart'\"*) \(binary) acp daemon shutdown --keep-agents </dev/null ;; esac"
+    }
+
     /// cx-brq9m: why the handoff after an install leaves this daemon as it is; nil when the keyed
     /// restart may hand it over to the new binary (it keeps agent hosts: every hosted agent is
     /// adopted). A session proxied from a peer acpmux would end with this run, so it stays.
