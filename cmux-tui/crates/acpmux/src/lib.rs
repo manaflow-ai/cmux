@@ -107,6 +107,7 @@ pub mod placement;
 mod platform;
 pub mod probe_cleanup;
 pub mod probe_prompt;
+pub mod prompt_cache_env;
 pub mod prompt_class;
 pub mod prompt_context;
 pub mod prompt_provenance;
