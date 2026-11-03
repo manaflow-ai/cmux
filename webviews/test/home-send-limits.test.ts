@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { DaemonHomeClient } from "../src/pages/home-channels/daemonHome";
+import { TextUpload } from "../src/pages/home-channels/textUpload";
+import { AttachmentService } from "../src/pages/home-channels/attachmentService";
 import { HomeOps, type HomeAttachment } from "../src/pages/home-channels/types";
 import type { DaemonSocket } from "../src/pages/shared/daemonSocket";
 
@@ -73,7 +75,15 @@ function owner(cloud = false) {
     onEvent: () => () => {},
     onClose: () => () => {},
   } as unknown as DaemonSocket;
-  return { client: new DaemonHomeClient(socket), messages, blobs, chunks, commands, interrupt: () => (interrupt = true) };
+  return {
+    socket,
+    client: new DaemonHomeClient(socket),
+    messages,
+    blobs,
+    chunks,
+    commands,
+    interrupt: () => (interrupt = true),
+  };
 }
 
 const file = (index: number): HomeAttachment => ({
@@ -129,7 +139,7 @@ test("direct sends group 257 files, preserve thread targets, and resume after a 
   };
   await expect(state.client.call(HomeOps.send, params)).rejects.toThrow("answer lost");
   expect(state.messages.size).toBe(2);
-  const reconnect = new DaemonHomeClient((state.client as unknown as { daemon: DaemonSocket }).daemon);
+  const reconnect = new DaemonHomeClient(state.socket);
   await reconnect.call(HomeOps.send, params);
   const parts = [...state.messages.values()].flatMap((message) => message.parts as Json[]);
   expect(parts.filter((part) => part.type === "text")).toEqual([{ type: "text", text: "caption" }]);
@@ -150,4 +160,44 @@ test("small Unicode text stays inline and empty sends still refuse", async () =>
   expect(state.messages.get("small")!.parts).toEqual([{ type: "text", text: "é😀" }]);
   expect(state.commands.some((command) => command.endsWith("attachment-upload"))).toBe(false);
   await expect(state.client.call(HomeOps.send, { conversation: "conv_test", text: " " })).rejects.toThrow("text");
+});
+
+test("text upload encodes bounded pieces, reports byte progress and preserves arbitrary byte slices", async () => {
+  const encode = TextEncoder.prototype.encode;
+  let largest = 0;
+  let source: TextUpload;
+  let slice: Blob;
+  try {
+    TextEncoder.prototype.encode = function (input = "") {
+      largest = Math.max(largest, input.length);
+      return encode.call(this, input);
+    };
+    source = new TextUpload(largeText);
+    slice = source.slice(16_382, 1024 * 1024 + 13);
+  } finally {
+    TextEncoder.prototype.encode = encode;
+  }
+  expect(largest).toBeLessThanOrEqual(16 * 1024);
+  expect(source!.size).toBe(Buffer.byteLength(largeText));
+  expect(Buffer.from(await slice!.arrayBuffer())).toEqual(Buffer.from(largeText).subarray(16_382, 1024 * 1024 + 13));
+  const state = owner();
+  const progress: number[] = [];
+  const attachment = await new AttachmentService(state.client).uploadText("conv_test", source!, (next) => {
+    expect(next.total).toBe(source!.size);
+    progress.push(next.sent);
+  });
+  expect(progress.at(-1)).toBe(source!.size);
+  expect(progress.length).toBeGreaterThan(4);
+  expect(state.blobs.get(attachment.hash)!.toString("utf8")).toBe(largeText);
+});
+
+test("an aborted long send commits no message", async () => {
+  const state = owner();
+  const abort = new AbortController();
+  abort.abort();
+  await expect(
+    state.client.call(HomeOps.send, { conversation: "conv_test", text: largeText }, { signal: abort.signal }),
+  ).rejects.toThrow();
+  expect(state.messages.size).toBe(0);
+  expect(state.chunks.length).toBe(0);
 });

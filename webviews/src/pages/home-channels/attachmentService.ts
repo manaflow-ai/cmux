@@ -8,6 +8,7 @@
 // from a short-lived URL on the daemon's listener, which answers byte ranges (seeking); a page
 // whose policy has no `media-src` for that origin (the app's page scheme today) cannot play it.
 import type { PageClient } from "../shared/pageClient";
+import type { UploadSource } from "./textUpload";
 import { imageSize, MAX_DECODE_PIXELS, MAX_UNSIZED_DECODE_BYTES } from "../../agent-session/acpmux/composer/imageWork";
 import {
   HomeOps,
@@ -259,7 +260,7 @@ async function sha256(bytes: ArrayBuffer | Uint8Array): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export async function hashFile(file: File, signal?: AbortSignal): Promise<string> {
+export async function hashFile(file: Pick<Blob, "size" | "slice">, signal?: AbortSignal): Promise<string> {
   const hash = new StreamingSha256();
   for (let offset = 0; offset < file.size; offset += READ_BYTES) {
     if (signal?.aborted) throw new DOMException("cancelled", "AbortError");
@@ -412,6 +413,29 @@ export class AttachmentService {
     const kind = attachmentClass(mimeType);
     const facts: Facts =
       kind === "image" ? await imageFacts(file, mimeType) : kind === "video" ? await videoFacts(file) : {};
+    return this.uploadSource(conversation, file, mimeType, facts, onProgress, signal);
+  }
+
+  /** Upload a sliced text source with the same content hash, deduplication and bounded chunks as
+   * a file. No whole-file UTF-8 buffer or preview decode is needed. */
+  uploadText(
+    conversation: string,
+    file: UploadSource,
+    onProgress: (progress: UploadProgress) => void,
+    signal?: AbortSignal,
+  ): Promise<HomeAttachment> {
+    return this.uploadSource(conversation, file, "text/plain", {}, onProgress, signal);
+  }
+
+  private async uploadSource(
+    conversation: string,
+    file: UploadSource,
+    mimeType: string,
+    facts: Facts,
+    onProgress: (progress: UploadProgress) => void,
+    signal?: AbortSignal,
+  ): Promise<HomeAttachment> {
+    const kind = attachmentClass(mimeType);
     const derived = facts.preview ?? facts.poster;
     const part: HomeAttachment = {
       type: "attachment",
