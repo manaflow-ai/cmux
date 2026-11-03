@@ -145,6 +145,8 @@ export const machineLogin = async (b: ChiefBrainDO, owner: string, run: string, 
   const admission = await b.admitted(cfg.agent, owner, false)
   if (!admission.ok || !admission.machine) throw new Error("chief.machine.login_refused")
   const scope = { ...admission.machine.binding, owner, chief: cfg.agent }
+  if (state.hand !== defaultHandId(scope)) throw new Error("chief.machine.binding_changed")
+  await authorizeMachineHand(b.doEnv, scope, state.cwd)
   const loginKey = `machine-login:${run}`
   const stored = b.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, loginKey).toArray()[0]?.value
   const current = stored ? JSON.parse(stored) as LoginStart : null
@@ -281,6 +283,7 @@ export const machineTurn = async (b: ChiefBrainDO, id: string, route: MachineRou
   const scope = { ...record.cloud_machine, owner, chief: agent }
   if (!await wakeDefaultMachine(b, scope)) return { pending: "provisioning" }
   const carried = readMachineState(b.sql, id)
+  if (carried && carried.hand !== defaultHandId(scope)) return { ok: false, reason: "chief.machine.binding_changed" }
   const ready = carried ? { hand: carried.hand, cwd: carried.cwd } : await ensureDefaultHand(b.doEnv, owner, agent, record.cloud_machine)
   const hand = handStub(b.doEnv, ready.hand)
   const caller = { kind: "chief" as const, user: owner, agent, conversation: b.turnConversation }
