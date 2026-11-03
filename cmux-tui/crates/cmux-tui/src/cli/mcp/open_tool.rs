@@ -54,6 +54,31 @@ pub(super) fn descriptor() -> Value {
     })
 }
 
+/// The `open` arguments for an app action that opens a viewer (`file open`, the diff viewer,
+/// `tab new-browser`) called with no target: placed right of the chat, as `open` places it.
+/// With no target the app opens it in the pane the person looks at, which with many
+/// workspaces is often another workspace (Lawrence 2026-11-02: splits and browser tabs leaked
+/// into other workspaces). `None` keeps the call as it is: a target, an argument `open` does
+/// not take, or a viewer with nothing to show.
+pub(super) fn untargeted(
+    cli_name: &str,
+    arguments: &Map<String, Value>,
+) -> Option<Map<String, Value>> {
+    let (kind, needs) = match cli_name {
+        "file open" => ("file", Some("path")),
+        "browser open-diff-viewer" => ("diff", None),
+        "tab new-browser" => ("page", Some("url")),
+        _ => return None,
+    };
+    let plain = |key: &String| matches!(key.as_str(), "path" | "url" | "focus" | "idempotency_key");
+    if !arguments.keys().all(plain) || needs.is_some_and(|key| text(arguments, key).is_none()) {
+        return None;
+    }
+    let mut open = arguments.clone();
+    open.insert("kind".into(), json!(kind));
+    Some(open)
+}
+
 fn invalid(message: impl Into<String>) -> Value {
     tool_error(envelope(v2_tools::invalid(message), "not_run", None))
 }

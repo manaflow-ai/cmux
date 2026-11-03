@@ -993,6 +993,14 @@ impl<B: Backend> Server<B> {
         let Some(tool) = self.actions.iter().find(|tool| tool.name == name) else {
             return Err((-32602, self.unknown_tool(name)));
         };
+        // A viewer an agent opens with no target goes beside its chat, in its own workspace,
+        // not where the person looks ([`open_tool::untargeted`]); a call outside a chat keeps
+        // the app's own placement.
+        if let Some(open) = open_tool::untargeted(&tool.cli_name, &arguments)
+            && matches!(self.backend.identity(), Ok(Some(_)))
+        {
+            return Ok(self.call_open(&open));
+        }
         Ok(self.call_action(tool, &arguments))
     }
 
