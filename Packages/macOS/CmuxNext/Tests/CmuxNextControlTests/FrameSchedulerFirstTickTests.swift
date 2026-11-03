@@ -27,7 +27,7 @@ import Testing
     private static func elapsed(frames: Int, interval: Double, on scheduler: FrameScheduler, media: Media) -> [Double] {
         var seen: [Double] = []
         let client = FrameClient(owner: "spring", on: scheduler) { tick in
-            seen.append(tick.frameElapsed)
+            seen.append(tick.elapsed)
             return true
         }
         client.activate()
@@ -58,7 +58,7 @@ import Testing
         let scheduler = FrameScheduler.testing(mediaTime: media.read) { _ in Link() }
         var seen: [Double] = []
         let client = FrameClient(owner: "spring", on: scheduler) { tick in
-            seen.append(tick.frameElapsed)
+            seen.append(tick.elapsed)
             return true
         }
         client.activate()

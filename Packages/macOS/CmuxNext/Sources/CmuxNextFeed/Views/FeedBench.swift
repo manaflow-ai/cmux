@@ -121,7 +121,7 @@ final class FeedBench {
         if name != "live", let scroll, let document = scroll.documentView {
             let clip = scroll.contentView
             let maxY = max(0, document.frame.height - clip.bounds.height)
-            var y = clip.bounds.origin.y + direction * CGFloat(settings.speed * tick.frameElapsed)
+            var y = clip.bounds.origin.y + direction * CGFloat(settings.speed * tick.elapsed)
             if y >= maxY { y = maxY; direction = -1 }
             if y <= 0 { y = 0; direction = 1 }
             clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: y))
