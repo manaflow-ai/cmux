@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4167014501001",
+  "notes": "notes/4167014501001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 33811,
+      "title": "workflow: dispatch durable agents to paired machines",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33939,
+      "title": "ci(cmux-next web): bisect probes read run states and use the shards' headless shell",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34009,
+      "title": "cmux daemon: the share room learns an invitee role on redeem",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33989,
+      "title": "Cloud Codex broker: renewal and erasure pick back up after a relaunch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33947,
+      "title": "perf(acpmux): a streamed chunk wakes no open wait",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
