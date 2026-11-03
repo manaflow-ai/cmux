@@ -55,7 +55,9 @@ const bench = tool("cargo bench -p orders", "execute", "failed", {
 });
 
 const opening = [
-  user("Run the tests and the orders bench in the background, and have a subagent review the PR", 14),
+  user("Run the tests and the orders bench in the background, and have a subagent review the PR", 14, {
+    id: "gallery-react-prompt",
+  }),
   activity([suite, bench], 13.9),
   assistant("Started both, and a reviewer.", 13.8),
   summary(13.8, { status: "completed", durationMs: 6_000 }),
@@ -125,7 +127,11 @@ const loudResult: AcpmuxRow[] = [
   ),
 ];
 
+/// The finished turn folds its calls under "Worked for" (turns.ts): open it, then the suite's call.
 const openSuite = async (ctx: import("../../../gallery/play").PlayContext) => {
+  const worked = { selector: '[data-row-id="worked-gallery-react-prompt"] button.cv-worked' };
+  await ctx.click(worked);
+  await ctx.waitFor(() => ctx.document.querySelector('[data-tool-id="gallery-react-suite"]'));
   const call = { selector: '[data-tool-id="gallery-react-suite"]' };
   await ctx.click(call);
   await ctx.waitFor(() => ctx.find(call).getAttribute("aria-expanded") === "true");
