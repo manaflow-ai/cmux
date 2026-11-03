@@ -1,4 +1,5 @@
 /** worker-release.ts with a fake Worker (Bun.serve) and a fake wrangler (a script that logs its argv). */
+import { execFileSync } from "node:child_process"
 import { afterAll, describe, expect, it } from "bun:test"
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -16,6 +17,7 @@ writeFileSync(
 echo "$*" >> "${calls}"
 case "$1" in
   deployments) [ -n "$STATUS_JSON" ] && { printf '%s' "$STATUS_JSON"; exit 0; }; echo "no deployments" >&2; exit 1 ;;
+  versions) [ -n "$VERSION_JSON" ] && { printf '%s' "$VERSION_JSON"; exit 0; }; exit 1 ;;
   rollback) [ "$ROLLBACK_FAIL" = 1 ] && { echo "rollback refused" >&2; exit 1; }; echo "rolled back"; exit 0 ;;
 esac
 exit 2
@@ -48,7 +50,7 @@ writeFileSync(routesFile, JSON.stringify({ routes }))
 const run = async (argv: Array<string>, env: Record<string, string> = {}) => {
   const logs: Array<string> = []
   const errors: Array<string> = []
-  const vars = { STATUS_JSON: "", ROLLBACK_FAIL: "", ...env }
+  const vars = { STATUS_JSON: "", VERSION_JSON: "", ROLLBACK_FAIL: "", ...env }
   for (const [k, v] of Object.entries(vars)) process.env[k] = v
   try {
     const code = await main(argv, { log: (l) => logs.push(l), error: (l) => errors.push(l) })
@@ -85,6 +87,50 @@ describe("previous", () => {
       { created_on: "2026-10-01T02:00:00Z", versions: [{ version_id: "v-older", percentage: 100 }] },
     ]
     expect(currentVersion(JSON.stringify(list))).toBe("v-new")
+  })
+})
+
+describe("advance", () => {
+  const repo = join(dir, "source")
+  const git = (...args: Array<string>) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim()
+  execFileSync("git", ["init", "-q", repo])
+  git("config", "user.email", "test@example.invalid"); git("config", "user.name", "test"); git("config", "commit.gpgsign", "false")
+  writeFileSync(join(repo, "code"), "A"); git("add", "code"); git("commit", "-qm", "A")
+  const a = git("rev-parse", "HEAD")
+  writeFileSync(join(repo, "code"), "B"); git("commit", "-qam", "B")
+  const b = git("rev-parse", "HEAD")
+  git("checkout", "--detach", a)
+  writeFileSync(join(repo, "code"), "C"); git("commit", "-qam", "C")
+  const c = git("rev-parse", "HEAD")
+  const check = async (candidate: string, serving: string | null) => {
+    git("checkout", "--detach", candidate)
+    const out = join(dir, "advance-output")
+    writeFileSync(out, "")
+    const before = wranglerCalls().length
+    const result = await run(["advance", "--worker", "cmux-api-development", "--wrangler", wrangler, "--source-dir", repo, "--github-output", out], {
+      STATUS_JSON: JSON.stringify({ versions: [{ version_id: "serving-version", percentage: 100 }] }),
+      VERSION_JSON: JSON.stringify({ annotations: serving === null ? {} : { "workers/tag": serving.slice(0, 12), "workers/message": `source ${serving} run 123` } }),
+    })
+    return { ...result, output: readFileSync(out, "utf8"), calls: wranglerCalls().slice(before) }
+  }
+  it("skips older A after B published, before any migration, deployment or rollback", async () => {
+    const r = await check(a, b)
+    expect(r.code).toBe(0)
+    expect(r.output).toBe("deploy=false\n")
+    expect(r.logs.join()).toContain("newer source")
+    expect(r.calls).toEqual(["deployments status --name cmux-api-development --json", "versions view serving-version --name cmux-api-development --json"])
+  })
+  it("admits forward A to B and an explicit same-source retry", async () => {
+    expect((await check(b, a)).output).toBe("deploy=true\n")
+    expect((await check(b, b)).output).toBe("deploy=true\n")
+  })
+  it("refuses unknown, unresolvable and divergent serving source without mutation", async () => {
+    for (const serving of [null, "f".repeat(40), c]) {
+      const r = await check(b, serving)
+      expect(r.code).toBe(1)
+      expect(r.output).toBe("")
+      expect(r.calls.every((call) => call.startsWith("deployments status ") || call.startsWith("versions view "))).toBe(true)
+    }
   })
 })
 
