@@ -487,6 +487,60 @@ class RecorderWaitTests(unittest.TestCase):
         self.assertEqual(j.px["films"][-1]["bytes"], {"movie": 1234, "scan": 56789})
 
 
+class AgentPaneTests(unittest.TestCase):
+    """px_agent: palette.newAgentChat aimed at the named pane (target pane:<id>, no focus: the app's targeted path opens
+    the chat tab in that pane, AgentHandlers.openTargetedChat; with focus or no target a script's chat goes to a new
+    left chat dock, NewChatPlacement .newDock), then the pane's selected tab is the chat (debug.surfaces kind
+    conversation) and the pane is focused again."""
+
+    def test_opens_the_chat_in_its_pane(self):
+        class App(FakeApp):
+            def __init__(self):
+                super().__init__()
+                self.kind = "terminal"
+
+            def rpc(self, method, params=None, timeout=None):
+                params = params or {}
+                if method == "action.run" and params.get("action") == "palette.newAgentChat":
+                    self.calls.append((method, params))
+                    self.kind = "conversation"
+                    return {"ran": True, "tab": "tab_chat"}
+                if method == "debug.surfaces":
+                    self.calls.append((method, params))
+                    return {"windows": [{"window": 1, "panes": [{"pane": "pane-b", "focused": True, "kind": self.kind,
+                                                                 "selected_tab": "tab_chat"}]}]}
+                return super().rpc(method, params, timeout)
+
+        app = App()
+        j = FakeJourney(app, tempfile.mkdtemp())
+        out = X.step_px_agent(j, {"pane": "p1", "timeout": 5})
+        run = next(p for m, p in app.calls if m == "action.run")
+        self.assertEqual(run["target"], "pane:pane-b")
+        self.assertNotIn("focus", run)
+        self.assertEqual(run["args"], {})
+        self.assertEqual(out["kind"], "conversation")
+        self.assertIn(("cmux", ("pane", "pane-b", "focus")), app.calls)
+
+    def test_a_chat_that_never_shows_fails(self):
+        class App(FakeApp):
+            def rpc(self, method, params=None, timeout=None):
+                if method == "action.run":
+                    return {"ran": True}
+                if method == "debug.surfaces":
+                    return {"windows": [{"window": 1, "panes": [{"pane": "pane-b", "focused": True, "kind": "terminal"}]}]}
+                return super().rpc(method, params, timeout)
+
+        clock = FakeClock()
+        saved = (X.D.now, X.time)
+        X.D.now, X.time = clock.monotonic, clock
+        try:
+            with self.assertRaises(D.StepError) as caught:
+                X.step_px_agent(FakeJourney(App(), tempfile.mkdtemp()), {"pane": "p1", "timeout": 5})
+        finally:
+            X.D.now, X.time = saved
+        self.assertIn("p1", str(caught.exception))
+
+
 class WindowFrameTests(unittest.TestCase):
     """px_window_frame: the window's bottom-right corner moved through ext_window's window_drag (debug.mouse into AppKit's
     resize tracking, the path the R3a journeys use), its frame read back."""
@@ -596,6 +650,16 @@ class PixelCasesTests(unittest.TestCase):
                 self.assertEqual(after[0]["pane"], "p0")
                 self.assertEqual(after[1]["unset"], ["appearance.themeEdits", "appearance.surfaces"])
                 self.assertEqual(dos[-1], "expect")
+                # cmux22 2026-11-03 (sweep c7cef08): the echo was typed 0.28 s after the real HID Ctrl-C, before zsh had
+                # redrawn its prompt; the daemon showed "J> cho rv-done-..." (the 'e' lost). The line is typed only once
+                # the daemon's screen ends with the bare prompt again, and the final check is unchanged.
+                i = dos.index("hid_key")
+                self.assertEqual(dos[i + 1:i + 3], ["expect", "type"], s["id"])
+                ready = after[i + 1]
+                self.assertEqual(ready["all"], [{"daemon_prompt": True}, {"app_prompt": True}])
+                self.assertEqual(ready["since"], "ctrlc")
+                self.assertEqual(after[-1]["all"], [{"daemon_line": "rv-done-${nonce}"}, {"app_text_line": "rv-done-${nonce}"},
+                                                    {"frame_text": "rv-done-${nonce}"}])
             # The 6-pane layout fits the 1361 x 792 pt window (cmux22: the third splitDown had no room): 3 columns of 2
             # rows by newColumn, newRow, each column's width preset, and a full-width window.
             six = next(s for s in specs if s["id"] == "px-keys-single-6-s1r")
@@ -606,6 +670,20 @@ class PixelCasesTests(unittest.TestCase):
             self.assertIn("column.widthOneThird", acts)
             place = next(st for st in six["steps"] if st["do"] == "window_place")
             self.assertEqual(place["fraction"], [0.0, 0.05, 1.0, 0.9])
+            # An agent chat opens in its own pane (cmux22 2026-11-03, sweep c7cef08: palette.newAgentChat with no target
+            # docked the chat in a new left column and left a bare terminal in its pane, so p3's splitDown split the
+            # wrong column). Every agent pane: a px_agent step with its pane named, never a bare palette.newAgentChat.
+            for s in specs:
+                for st in s["steps"]:
+                    self.assertFalse(st["do"] == "action" and st.get("action") == "palette.newAgentChat", s["id"])
+            t4 = next(s for s in specs if s["id"] == "px-col-drag-4-s1r")
+            agents = [st for st in t4["steps"] if st["do"] == "px_agent"]
+            self.assertEqual([st["pane"] for st in agents], ["p2"])
+            # T4's build: p3 splits p2 (focused first), so p2 and p3 share the third column.
+            names = [(st["do"], st.get("action") or st.get("as") or st.get("pane")) for st in t4["steps"]
+                     if st["do"] in ("action", "adopt_pane", "rk_focus", "px_agent", "px_page")]
+            i = names.index(("adopt_pane", "p3"))
+            self.assertEqual(names[i - 2:i + 1], [("rk_focus", "p2"), ("action", "splitDown"), ("adopt_pane", "p3")], names)
             # The window resize is the app's own window frame, animated (ext_pixel px_window_frame): a CuaDriver drag never
             # reached the window's corner on cmux22.
             wr = next(s for s in specs if s["id"] == "px-window-resize-4-s1r")

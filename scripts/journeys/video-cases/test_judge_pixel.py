@@ -62,8 +62,15 @@ def has_strip(variant):
     return variant.startswith("strip") or variant.startswith("pill")
 
 
+DIV_TOUCH = 0              # strip-touch: no divider band at all, the two strips touch
+
+
 def rows_of(variant):
     return ([STRIP_ROW] if has_strip(variant) else []) + ROWS
+
+
+def touching(variant):
+    return variant == "strip-touch"
 
 
 def draw_strip(img, x0, x1, pill_x0):
@@ -172,6 +179,9 @@ def frame(k, variant):
         draw_strip(img, 0, aw, 0)
         strip_x = late if variant == "strip-lag" else b_x
         draw_strip(img, strip_x, W, late if variant in ("strip-lag", "pill-lag") else b_x)
+        if touching(variant):
+            # The divider band on the strip row is the neighbour's strip ground, not the shell: the strips touch.
+            img[:STRIP_PX, int(round(aw)):int(round(b_x))] = BLACK
     if variant == "backdrop" and 15 <= k <= 18:
         # B grows and its page is one frame late, with its backdrop: B's own green from its pane edge to its late rings.
         late = a_width(max(k - 2, 0), variant) + DIV_PX
@@ -267,7 +277,8 @@ class JudgePixelTests(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-")
         cls.reports = {v: jp.judge(build(cls.tmp, v, v)) for v in ("clean", "lag1", "gap2", "hidden", "spring", "spring-slow", "cut",
                                                                     "backdrop", "strip", "strip-lag", "pill-lag", "d4-cover", "glyph",
-                                                                    "samefill", "cue", "held", "reduce-drag", "reduce-keys")}
+                                                                    "samefill", "cue", "held", "reduce-drag", "reduce-keys",
+                                                                    "strip-touch")}
 
     @classmethod
     def tearDownClass(cls):
@@ -398,6 +409,19 @@ class JudgePixelTests(unittest.TestCase):
         self.assertEqual(strips[("pill p1", "hi")]["rest"]["offset"], 216.0)
         self.assertEqual([m["travel_px"] for m in strips[("strip p1", "lo")]["motions"]], [40.0])
         self.assertEqual(strips[("strip p1", "lo")]["ground"], [0, 0, 0])
+
+    def test_a_strip_stays_inside_its_pane(self):
+        """The strips of two panes touch on the strip row (no shell between them: narrow panes, a column edge). Each
+        strip is read inside its own pane's rect of the shown sample: cmux22 base films showed -300 px x155 and
+        +1146 px x54 for strip p0 lo (the walk ran into the neighbour's strip)."""
+        r = self.reports["strip-touch"]
+        for label in ("strip p0", "strip p1"):
+            for which in ("lo", "hi"):
+                st = side(r, label, "row@12", which)
+                self.assertLessEqual(abs(st["max_edge_dev_px"]), 1.0, (label, which, st["dev_top"]))
+        self.assertNotIn("tab strip edge off", [f["check"] for f in r["findings"]])
+        # The strip still moves with its pane (B's left edge travels 40 px).
+        self.assertEqual([m["travel_px"] for m in side(r, "strip p1", "row@12", "lo")["motions"]], [40.0])
 
     def test_tab_strip_lag_found(self):
         r = self.reports["strip-lag"]
@@ -564,6 +588,14 @@ class TuiBorderFrameTest(unittest.TestCase):
         self.assertEqual(picture[2], "12" + "3" * 16 + "21")
         self.assertEqual(picture[5], "123" + "." * 14 + "321")
         self.assertEqual(picture[9], "1" * 20)
+
+    def test_ctrl_c_leaves_no_typed_input_behind(self):
+        """The fixture puts the tty back with TCSAFLUSH: keys typed while it ended are dropped, never read by the shell
+        with its echo off (zsh then showed "cho" for "echo", cmux22 2026-11-03)."""
+        text = (HERE.parent / "pixel" / "tui_border.py").read_text()
+        restore = text[text.index("def restore_tty"):text.index("def run(")]
+        self.assertIn("TCSAFLUSH", restore)
+        self.assertNotIn("TCSADRAIN", restore)
 
     def test_glyph_inks_are_never_a_fixture_class(self):
         """Every glyph's color (the ruler, the centre text) on every fill is "other" for the judge: a black-class ink
