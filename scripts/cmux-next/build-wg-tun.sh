@@ -6,8 +6,10 @@
 # in ARCHS and lipos the slices. A developer Mac never runs cargo: it uses the
 # last library a fleet or CI build left in cmux-tui/target/wg-tun-app, and a
 # Debug build with none gets a stub whose start fails with "engine not built",
-# so the app still builds and the tunnel reports why it cannot start. Release
-# refuses the stub.
+# so the app still builds and the tunnel reports why it cannot start. A Release
+# build that ships the tunnel (CMUX_CLOUD_TUNNEL=YES) refuses the stub; any
+# other Release build gets the stub too, since embed-cloud-tunnel.sh removes
+# the extension from it, so it never spends a cargo build on boringtun.
 #
 # Usage: build-wg-tun.sh OUTPUT_DIR
 # Environment: ARCHS (Xcode; default: host), CONFIGURATION (Xcode)
@@ -21,12 +23,13 @@ cache="$repo_root/cmux-tui/target/wg-tun-app"
 mkdir -p "$out_dir" "$cache"
 
 build_allowed() { [[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}${NX_JOB_ID:-}" ]]; }
+shipped() { [[ "${CONFIGURATION:-Debug}" != "Release" || "${CMUX_CLOUD_TUNNEL:-NO}" == "YES" ]]; }
 
 archs="${ARCHS:-$(uname -m)}"
 archs="${archs//,/ }"
 key="$(git -C "$repo_root" rev-parse HEAD:cmux-tui/crates/cmux-wg-tun 2>/dev/null || echo unknown)-$(git -C "$repo_root" rev-parse HEAD:cmux-tui/crates/cmux-wg 2>/dev/null || echo unknown)-${archs// /+}"
 
-if build_allowed; then
+if shipped && build_allowed; then
   slices=()
   for arch in $archs; do
     case "$arch" in
@@ -58,12 +61,12 @@ if [[ -f "$cache/$lib" && "$(cat "$cache/$lib.key" 2>/dev/null)" == "$key" ]]; t
   exit 0
 fi
 
-if [[ "${CONFIGURATION:-Debug}" == "Release" ]]; then
+if [[ "${CONFIGURATION:-Debug}" == "Release" && "${CMUX_CLOUD_TUNNEL:-NO}" == "YES" ]]; then
   echo "error: no cmux-wg-tun library for $key; a Release build needs a build host (CI or the fleet)" >&2
   exit 1
 fi
 
-echo "note: building the Cloud Tunnel engine stub (cargo runs only on build hosts)"
+echo "note: building the Cloud Tunnel engine stub (cargo runs only on build hosts, for a build that ships the tunnel)"
 stub="$(mktemp -d "${TMPDIR:-/tmp}/cmux-wg-tun-stub.XXXXXX")"
 trap 'rm -rf "$stub"' EXIT
 cat > "$stub/stub.c" <<'C'

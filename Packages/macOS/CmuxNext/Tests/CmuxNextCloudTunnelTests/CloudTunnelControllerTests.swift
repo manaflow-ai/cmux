@@ -205,4 +205,45 @@ import Testing
         #expect(activator.requests.isEmpty)
         #expect(manager.calls.isEmpty)
     }
+
+    /// Lets the follow task apply what the setting stream yielded.
+    func drain(until predicate: () -> Bool) async {
+        for _ in 0..<500 where !predicate() { await Task.yield() }
+    }
+
+    @Test func followingTheSettingAppliesTheLaunchValueThenEachChange() async {
+        let tunnel = controller()
+        let (values, setting) = AsyncStream<Bool>.makeStream()
+        tunnel.follow(values)
+        setting.yield(false)
+        setting.yield(false)
+        await drain { false }
+        #expect(activator.requests.isEmpty, "a launch with the setting off touches nothing")
+        #expect(manager.calls.isEmpty)
+
+        setting.yield(true)
+        await drain { manager.calls.contains("start") }
+        #expect(activator.requests == [Self.identifier], "turning the setting on asks for activation")
+        #expect(manager.calls == ["load", "install \(Self.identifier)", "start"])
+
+        setting.yield(false)
+        await drain { tunnel.status == .off }
+        #expect(manager.calls.suffix(2) == ["stop", "remove"])
+        #expect(tunnel.status == .off)
+        setting.finish()
+    }
+
+    @Test func aBundleWithoutTheExtensionIsUnavailableOnceProbed() async throws {
+        let bundle = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cloud-tunnel-probe-\(UUID().uuidString).app", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        let probe = CloudTunnelBundleProbe(bundle: try #require(Bundle(url: bundle)))
+        let tunnel = CloudTunnelController(probe: probe, activator: activator, manager: manager, enroller: enroller)
+        #expect(tunnel.status == .off, "the status is off until an entry point applies the probe")
+        await tunnel.enable()
+        #expect(tunnel.status.name == "unavailable")
+        #expect(activator.requests.isEmpty)
+        #expect(manager.calls.isEmpty)
+    }
 }

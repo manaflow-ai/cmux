@@ -1240,8 +1240,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextCloud",
             dependencies: [
                 "CmuxNextCompat",
-                // The opt-in Cloud Tunnel's enrollment seam (CloudTunnelBrowserEnroller).
-                "CmuxNextCloudTunnel",
                 // CloudMoveCLI runs cmux-tui through the daemon's ProcessRunner.
                 "CmuxNextDaemon",
                 "CmuxNextWakeups",

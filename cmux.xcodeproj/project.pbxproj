@@ -940,6 +940,7 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/embed-cloud-tunnel.sh",
 				"$(SRCROOT)/scripts/cmux-next/stamp-cloud-tunnel-identity.sh",
 				"$(SRCROOT)/scripts/cmux-next/check-cloud-tunnel-bundle.sh",
 			);
@@ -950,7 +951,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\napp=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\n\"${SRCROOT}/scripts/cmux-next/stamp-cloud-tunnel-identity.sh\" \"$app\"\n# The stamp rewrote the extension's Info.plist; a local build re-signs it ad hoc\n# (release signing is scripts/sign-cmux-bundle.sh).\nfor ext in \"$app\"/Contents/Library/SystemExtensions/*.systemextension; do\n  [ -d \"$ext\" ] && /usr/bin/codesign --force --sign - \"$ext\" >/dev/null\ndone\nexec \"${SRCROOT}/scripts/cmux-next/check-cloud-tunnel-bundle.sh\" \"$app\"\n";
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/embed-cloud-tunnel.sh\" \"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

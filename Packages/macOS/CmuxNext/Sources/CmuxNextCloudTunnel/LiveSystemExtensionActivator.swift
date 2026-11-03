@@ -12,7 +12,7 @@ public final class LiveSystemExtensionActivator: SystemExtensionActivating {
     public init() {}
 
     public func activate(identifier: String) -> AsyncStream<SystemExtensionActivationEvent> {
-        let (stream, continuation) = AsyncStream<SystemExtensionActivationEvent>.makeStream()
+        let (stream, continuation) = AsyncStream<SystemExtensionActivationEvent>.makeStream(bufferingPolicy: .bufferingNewest(4))
         let request = OSSystemExtensionRequest.activationRequest(forExtensionWithIdentifier: identifier, queue: .main)
         let delegate = RequestDelegate(continuation: continuation)
         let key = ObjectIdentifier(delegate)
@@ -26,10 +26,9 @@ public final class LiveSystemExtensionActivator: SystemExtensionActivating {
     }
 }
 
-/// Bridges one request's delegate callbacks (delivered on the main queue) to its stream.
-private final class RequestDelegate: NSObject, OSSystemExtensionRequestDelegate, @unchecked Sendable {
-    // Safe: the request was created with `queue: .main`, so every callback runs on the main
-    // queue, one at a time; the continuation itself is Sendable.
+/// Bridges one request's delegate callbacks (delivered on the main queue) to its stream. It
+/// holds only the Sendable continuation and never crosses an isolation boundary.
+private final class RequestDelegate: NSObject, OSSystemExtensionRequestDelegate {
     private let continuation: AsyncStream<SystemExtensionActivationEvent>.Continuation
 
     init(continuation: AsyncStream<SystemExtensionActivationEvent>.Continuation) {

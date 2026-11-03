@@ -1,4 +1,3 @@
-import CmuxNextCloudTunnel
 import CryptoKit
 public import Foundation
 
@@ -6,7 +5,7 @@ public import Foundation
 /// `POST /api/vm/tunnel` with this Mac's device id (the hub's, so cmux.com shows one Mac), and
 /// the server's config completed with the key and every network route. The key exists only in
 /// the returned text, which the caller hands to NetworkExtension.
-public struct CloudTunnelBrowserEnroller: CloudTunnelEnrolling {
+public struct CloudTunnelBrowserEnroller: Sendable {
     private let api: CloudAPIClient
     private let paths: CloudPaths
     private let deviceName: String
@@ -21,6 +20,7 @@ public struct CloudTunnelBrowserEnroller: CloudTunnelEnrolling {
         self.deviceName = deviceName
     }
 
+    /// Enrolls a fresh peer and returns its completed wg-quick config.
     public func enrollBrowserPeer() async throws -> String {
         let key = Curve25519.KeyAgreement.PrivateKey()
         var request = CloudTunnelEnrollment.Request(

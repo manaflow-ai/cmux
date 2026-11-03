@@ -10,6 +10,7 @@ import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextPhoneAccess
 import CmuxNextRemoteLocalhost
+import CmuxNextSettings
 import Foundation
 import Observation
 import os
@@ -43,15 +44,20 @@ final class CloudService {
     @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
     /// The opt-in Cloud Tunnel (plans/cmux-next/cloud-tunnel-DESIGN.md), off by default. Built on first
-    /// use; building it reads only the bundle and this process's signature.
+    /// use; its bundle probe runs off the main thread.
     @ObservationIgnored private(set) lazy var systemTunnel = CloudTunnelController(
-        availability: CloudTunnelBundleProbe(bundle: .main).availability(),
+        probe: CloudTunnelBundleProbe(bundle: .main),
         activator: LiveSystemExtensionActivator(),
         manager: LiveTunnelManager(),
-        enroller: CloudTunnelBrowserEnroller(api: api, paths: paths, deviceName: Self.deviceName)
+        enroller: CloudTunnelEnroller { [browser = CloudTunnelBrowserEnroller(api: api, paths: paths, deviceName: Self.deviceName)] in
+            try await browser.enrollBrowserPeer()
+        }
     )
-    /// Applies `cloud.tunnel.enabled` to ``systemTunnel``.
-    @ObservationIgnored let systemTunnelSync = CloudTunnelSettingSync()
+
+    /// Applies `cloud.tunnel.enabled` to ``systemTunnel``, the one path for Settings, the CLI and MCP.
+    func followTunnelSetting(_ settings: SettingsController) {
+        systemTunnel.follow(ObservationStream { CloudTunnelSetting().enabled(in: settings.snapshot.root) })
+    }
     /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
     @ObservationIgnored var proOfferOpen = false
     /// Each machine list that carries the plan (`limits.planId`) reports it: the paid-plan welcome step

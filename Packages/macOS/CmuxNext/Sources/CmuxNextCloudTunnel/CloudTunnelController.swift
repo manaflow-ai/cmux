@@ -33,7 +33,10 @@ public final class CloudTunnelController {
     /// The tunnel's status, updated as it changes.
     public private(set) var status: CloudTunnelStatus = .off
 
-    private let availability: Availability
+    private var availability: Availability
+    /// The launch probe of the bundle, until its answer is applied.
+    private var probing: Task<Availability, Never>?
+    private var following: Task<Void, Never>?
     private let activator: any SystemExtensionActivating
     private let manager: any TunnelManaging
     private let enroller: any CloudTunnelEnrolling
@@ -62,9 +65,65 @@ public final class CloudTunnelController {
         if case .unavailable(let reason) = availability { status = .unavailable(reason) }
     }
 
+    /// The app's controller: its availability comes from `probe`, run off the main thread; every
+    /// entry point waits for that answer first.
+    /// - Parameters:
+    ///   - probe: Decides whether this build bundles a usable extension.
+    ///   - activator: Submits the activation request.
+    ///   - manager: The saved VPN configuration.
+    ///   - enroller: Enrolls the `browser` peer.
+    public convenience init(
+        probe: CloudTunnelBundleProbe,
+        activator: any SystemExtensionActivating,
+        manager: any TunnelManaging,
+        enroller: any CloudTunnelEnrolling
+    ) {
+        self.init(availability: .unavailable(""), activator: activator, manager: manager, enroller: enroller)
+        status = .off
+        // task-owner: the controller; one probe, awaited by every entry point.
+        probing = Task { await probe.availability() }
+    }
+
+    /// Follows the `cloud.tunnel.enabled` setting: its first value is the launch value
+    /// (``restore(enabled:)``: off touches nothing, on never asks for approval); each later change
+    /// calls ``enable()`` or ``disable()``. Settings, `cmux cloud tunnel on|off` and MCP all change
+    /// the setting, so this is their one path here. A second call replaces the first.
+    /// - Parameter values: The setting's values, current one first.
+    public func follow<Values: AsyncSequence & Sendable>(_ values: Values) where Values.Element == Bool {
+        following?.cancel()
+        // task-owner: the controller; ends with the sequence or the next follow.
+        following = Task { [weak self] in
+            var applied: Bool?
+            do {
+                for try await enabled in values where enabled != applied {
+                    guard let self, !Task.isCancelled else { return }
+                    if applied == nil {
+                        await self.restore(enabled: enabled)
+                    } else if enabled {
+                        await self.enable()
+                    } else {
+                        await self.disable()
+                    }
+                    applied = enabled
+                }
+            } catch {}
+        }
+    }
+
+    /// Applies the launch probe's answer once.
+    private func settleAvailability() async {
+        guard let probing else { return }
+        let answer = await probing.value
+        guard self.probing != nil else { return }
+        self.probing = nil
+        availability = answer
+        if case .unavailable(let reason) = answer { status = .unavailable(reason) }
+    }
+
     /// Turns the tunnel on: activation (asking the user when needed), a fresh peer, start.
     /// Returns once the tunnel is starting, waiting for approval, or failed.
     public func enable() async {
+        await settleAvailability()
         await start(reuseSaved: false)
     }
 
@@ -72,6 +131,7 @@ public final class CloudTunnelController {
     /// previous opt-in saved; when there is none (the user quit before approving), it waits for
     /// an explicit ``enable()`` instead of asking at launch.
     public func restore(enabled: Bool) async {
+        await settleAvailability()
         guard enabled, case .available = availability else { return }
         let saved: Bool
         do {
@@ -94,6 +154,7 @@ public final class CloudTunnelController {
     /// Turns the tunnel off and removes its VPN configuration. The extension stays installed
     /// (removing it needs the user's password), idle.
     public func disable() async {
+        await settleAvailability()
         wantsUp = false
         stateWatch?.cancel()
         stateWatch = nil

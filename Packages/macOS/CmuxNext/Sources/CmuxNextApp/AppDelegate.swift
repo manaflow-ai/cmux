@@ -360,7 +360,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         services.configActions.start(settings: settings)
-        services.cloud.systemTunnelSync.start(settings: settings, tunnel: services.cloud.systemTunnel) // opt-in Cloud Tunnel
+        services.cloud.followTunnelSetting(settings) // opt-in Cloud Tunnel
         services.personInput.start()
         services.joinConsent.follow(settings: settings)
         // Agent-launched builds never take system-wide keys from the person's app.

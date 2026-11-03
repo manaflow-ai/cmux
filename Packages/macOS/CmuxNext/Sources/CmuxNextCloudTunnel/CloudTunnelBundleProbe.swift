@@ -1,22 +1,32 @@
-import CmuxNextCloudTunnel
-import Foundation
+public import Foundation
 import Security
 
-/// Decides once, at launch, whether this build can run the opt-in Cloud Tunnel: it bundles the
-/// system extension and is signed with the entitlement to install it. Reads only the bundle and
-/// the process's own signature, never SystemExtensions or NetworkExtension.
-struct CloudTunnelBundleProbe {
-    let bundle: Bundle
+/// Decides whether this build can run the opt-in Cloud Tunnel: it bundles the system extension
+/// and is signed with the entitlement to install it. Reads only the bundle and the process's own
+/// signature, never SystemExtensions or NetworkExtension.
+///
+/// ```swift
+/// let tunnel = CloudTunnelController(probe: CloudTunnelBundleProbe(bundle: .main), ...)
+/// ```
+public struct CloudTunnelBundleProbe: Sendable {
+    /// The app bundle whose `Contents/Library/SystemExtensions` holds the extension.
+    public let bundleURL: URL
 
-    func availability() -> CloudTunnelController.Availability {
-        let directory = bundle.bundleURL.appendingPathComponent("Contents/Library/SystemExtensions", isDirectory: true)
+    /// - Parameter bundle: The app bundle to inspect (`.main` in the app).
+    public init(bundle: Bundle) {
+        bundleURL = bundle.bundleURL
+    }
+
+    /// The build's availability. Reads the bundle directory, so it runs off the main thread.
+    @concurrent
+    public func availability() async -> CloudTunnelController.Availability {
+        let directory = bundleURL.appendingPathComponent("Contents/Library/SystemExtensions", isDirectory: true)
         let extensions = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         guard let url = extensions.first(where: { $0.pathExtension == "systemextension" }),
               let identifier = Bundle(url: url)?.bundleIdentifier else {
             return .unavailable(String(
                 localized: "cloudTunnel.unavailable.notBundled",
                 defaultValue: "This build of cmux does not include the Cloud Tunnel.",
-                table: "Cloud",
                 bundle: .module
             ))
         }
@@ -24,7 +34,6 @@ struct CloudTunnelBundleProbe {
             return .unavailable(String(
                 localized: "cloudTunnel.unavailable.notSigned",
                 defaultValue: "This build of cmux is not signed to install the Cloud Tunnel. Use cmux or cmux NIGHTLY.",
-                table: "Cloud",
                 bundle: .module
             ))
         }
