@@ -31,8 +31,19 @@ nonisolated struct XCTestPhaseTests {
     /// phase (xctest itself, not through the xcrun shim, which is SIP-protected and drops the
     /// DYLD_* paths; SWIFT_TESTING_ENABLED=0, so XCTest runs no Swift Testing test in it). On the
     /// base the guard held the child's main thread, and it was killed here at the limit.
-    @Test(.timeLimit(.minutes(3)))
-    func anXCTestWaitInTheXCTestPhaseReturns() async throws {
+    ///
+    /// Both ways SwiftPM starts that phase (swift-package-manager release/6.3,
+    /// Sources/Commands/SwiftTestCommand.swift): with a `--filter`, `xctest -XCTest <tests> <bundle>`
+    /// (`xctestArguments`, line 938); with no filter, a whole-package `swift test`, plain
+    /// `xctest <bundle>` (`xctestArgs` returns no arguments at line 402; `args(forTestAt:)`, lines
+    /// 1008-1014). #33023 stopped the hold only when argv had `-XCTest`, so the second way still hung
+    /// until the guard was limited to swiftpm-testing-helper (#33013). XCTestPhaseRunLoopProbe is the
+    /// only XCTestCase in the bundle, so both ways run exactly that one test.
+    @Test(.timeLimit(.minutes(5)), arguments: [
+        ["-XCTest", "CmuxNextAppTests.XCTestPhaseRunLoopProbe"],
+        [],
+    ])
+    func anXCTestWaitInTheXCTestPhaseReturns(selection: [String]) async throws {
         let bundle = try #require(Self.testBundle(), "the test bundle that holds this test")
         let find = await Self.run("/usr/bin/xcrun", ["--find", "xctest"], environment: ProcessInfo.processInfo.environment,
                                   limit: .seconds(60))
@@ -41,10 +52,9 @@ nonisolated struct XCTestPhaseTests {
 
         var environment = ProcessInfo.processInfo.environment
         environment["SWIFT_TESTING_ENABLED"] = "0"
-        let phase = await Self.run(xctest, ["-XCTest", "CmuxNextAppTests.XCTestPhaseRunLoopProbe", bundle.path],
-                                   environment: environment, limit: .seconds(120))
+        let phase = await Self.run(xctest, selection + [bundle.path], environment: environment, limit: .seconds(120))
         let tail = String(phase.output.suffix(4000))
-        #expect(phase.status == 0, "xctest: \(phase.status.map { "exit \($0)" } ?? "still running after 120 s, killed"); its output ends: \(tail)")
+        #expect(phase.status == 0, "xctest \(selection.joined(separator: " ")): \(phase.status.map { "exit \($0)" } ?? "still running after 120 s, killed"); its output ends: \(tail)")
         #expect(phase.output.contains("Executed 1 test, with 0 failures"), "the probe did not run and pass; output ends: \(tail)")
         #expect(!phase.output.contains("holding the main run loop open"), "the run-loop guard held xctest's main thread")
     }
@@ -105,10 +115,12 @@ nonisolated struct XCTestPhaseTests {
     }
 }
 
-/// Run by ``XCTestPhaseTests`` in a child `xctest`, and by the XCTest phase of a whole-package
-/// `swift test`, where it passes in about 50 ms. It waits on an expectation the way XCTest's
-/// start-up does: the wait turns the main run loop until the expectation is met. `nonisolated`:
-/// this target defaults to the main actor, and XCTestCase's initializers are not isolated.
+/// Run by ``XCTestPhaseTests`` in a child `xctest` (with and without `-XCTest`), and by the XCTest
+/// phase of a whole-package `swift test`, where it passes in about 50 ms. It must stay the only
+/// XCTestCase in this bundle: the child without `-XCTest` runs every XCTest test and expects one.
+/// It waits on an expectation the way XCTest's start-up does: the wait turns the main run loop until
+/// the expectation is met. `nonisolated`: this target defaults to the main actor, and XCTestCase's
+/// initializers are not isolated.
 nonisolated final class XCTestPhaseRunLoopProbe: XCTestCase {
     func testAnXCTestWaitReturns() {
         let turned = expectation(description: "the main run loop turned")
