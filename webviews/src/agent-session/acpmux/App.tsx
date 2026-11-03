@@ -313,6 +313,7 @@ import {
   withSubagentLines,
 } from "./subagents/runningTray";
 import { configureSubagentTrayPlacement, useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
+import { configureSelectionReply, SelectionReplyChip, setQuoteReplySink } from "./conversation/SelectionReply";
 import { AgentTonesContext, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
@@ -9632,6 +9633,9 @@ function AcpmuxPane() {
     (quotes: string[]) => handBackQuotes(composerHandle, heldQuotes, quotes),
     [],
   );
+  // The selection's Reply chip and a row's Reply quote through the same Quote in Reply as the
+  // right-click menu (`chat.quoteReply`, conversation/SelectionReply.tsx).
+  useEffect(() => setQuoteReplySink((markdown) => quoteIntoComposer(composerHandle, heldQuotes, markdown)), []);
   useComposerKeyboard(() => {
     if (!prompt.current) return false;
     prompt.current.focus();
@@ -10367,6 +10371,7 @@ function AcpmuxPane() {
         configureTurnActionsPlacement(theme.turnActionsPlacement);
         configureSubagentTray(theme.subagentTray);
         configureSubagentTrayPlacement(theme.subagentTrayPlacement);
+        configureSelectionReply(theme.selectionReply);
       },
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));
@@ -13220,6 +13225,7 @@ function AcpmuxPane() {
                                                       />
                                                     )}
                                                   </ChatFindScope>
+                                                  <SelectionReplyChip />
                                                 </FailedSendsContext.Provider>
                                               </StartedMentionsContext.Provider>
                                             </SubsessionContext.Provider>

@@ -16,6 +16,7 @@ import { exactTime, relativeTime, replyTime } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
+import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
 
@@ -366,6 +367,7 @@ export function ReplyActions({ row }: { row: AcpmuxRow }) {
         <MessageCopy text={text} />
         <PinButton rowId={row.id} />
         <ReadAloudButton id={row.id} text={text} />
+        <RowReplyButton text={text} />
         <MessageMore rowId={row.id} />
       </span>
       <ReplyTime at={row.at} />
