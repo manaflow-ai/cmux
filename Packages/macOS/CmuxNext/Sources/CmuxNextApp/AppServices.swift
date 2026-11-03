@@ -460,6 +460,8 @@ final class AppServices {
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
     /// The `cmux://session/<id>` question before a link opens a new agent tab.
     private(set) lazy var sessionLinks = SessionLinkGate.app(self)
+    /// The Dock icon's menu: New Chat, Continue, Unread and Recent chats, built from cached rows only.
+    private(set) lazy var dockMenu = DockMenuController(host: self)
     let terminalTheme = TerminalThemeSetting(backdropScope: .app)
     /// This Mac's layout templates (Save Layout as Template, New Workspace from Template).
     private(set) lazy var layoutTemplates = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: environment.layoutTemplatesFile))
