@@ -11,6 +11,30 @@ impl Mux {
         *self.terminal_create_after_terminal_reservation.lock().unwrap() = hook;
     }
 
+    /// Runs `hook` in a terminal creation after its workspace exists and
+    /// before the terminal's durable reservation.
+    #[cfg(test)]
+    pub(crate) fn set_terminal_create_after_workspace_reservation_hook_for_test(
+        &self,
+        hook: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) {
+        *self.terminal_create_after_workspace_reservation.lock().unwrap() = hook;
+    }
+
+    /// Runs `hook` in a reserved terminal spawn after the terminal is
+    /// durably running and before its surface joins the topology.
+    #[cfg(test)]
+    pub(crate) fn set_terminal_ready_hook_for_test(
+        &self,
+        hook: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) {
+        let hook = hook.map(|hook| {
+            let wrapped: TerminalSpawnBeforeCellPixelReconcileHook = Arc::new(move |_| hook());
+            wrapped
+        });
+        *self.terminal_spawn_before_cell_pixel_reconcile.lock().unwrap() = hook;
+    }
+
     #[cfg(test)]
     pub(crate) fn set_resource_patch_failure_for_test(&self, enabled: bool) {
         self.workspace_registry.lock().unwrap().set_resource_patch_failure(enabled).unwrap();
@@ -19,6 +43,27 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn set_resource_patch_failures_remaining_for_test(&self, failures: u64) {
         self.workspace_registry.lock().unwrap().set_resource_patch_failures_remaining(failures);
+    }
+
+    /// Runs `hook` in each state mutation after its apply step (inside its
+    /// open registry transaction) and in each terminal progress publish
+    /// after its session read.
+    #[cfg(test)]
+    pub(crate) fn set_state_commit_after_apply_hook_for_test(
+        &self,
+        hook: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) {
+        *self.state_commit_after_apply.lock().unwrap() = hook;
+    }
+
+    /// Runs `hook` in a resource close after its intent is stored and
+    /// before the close takes the commit locks.
+    #[cfg(test)]
+    pub(crate) fn set_resource_close_before_commit_hook_for_test(
+        &self,
+        hook: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) {
+        *self.resource_close_before_commit.lock().unwrap() = hook;
     }
 
     #[cfg(test)]

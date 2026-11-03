@@ -61,6 +61,8 @@ public final class SettingsApplier {
         if design.homeChiefPetEnabled != snapshot.homeChiefPetEnabled { design.homeChiefPetEnabled = snapshot.homeChiefPetEnabled }
         if design.centerFocusedColumn != snapshot.centerFocusedColumn { design.centerFocusedColumn = snapshot.centerFocusedColumn }
         if design.tabOverflow != snapshot.tabOverflow { design.tabOverflow = snapshot.tabOverflow }
+        if design.verticalTabs != snapshot.verticalTabs { design.verticalTabs = snapshot.verticalTabs }
+        if design.verticalTabsExpandOnHover != snapshot.verticalTabsExpandOnHover { design.verticalTabsExpandOnHover = snapshot.verticalTabsExpandOnHover }
         if design.stripScrollbar != snapshot.stripScrollbar { design.stripScrollbar = snapshot.stripScrollbar }
         if design.sidebarSections != snapshot.sidebarSections { design.sidebarSections = snapshot.sidebarSections }
         if design.hoverCardsEnabled != snapshot.hoverCards.enabled { design.hoverCardsEnabled = snapshot.hoverCards.enabled }
@@ -91,7 +93,10 @@ public final class SettingsApplier {
         if design.focusRing != snapshot.focusRing { design.focusRing = snapshot.focusRing }
         if design.sidebarBorder != snapshot.sidebarBorder { design.sidebarBorder = snapshot.sidebarBorder }
         if design.attention != snapshot.attention { design.attention = snapshot.attention }
-        if design.statusIndicator != snapshot.statusIndicator { design.statusIndicator = snapshot.statusIndicator }
+        if design.statusIndicator != snapshot.statusIndicator {
+            design.statusIndicator = snapshot.statusIndicator
+            if design === DesignSettings.shared { StatusIndicatorAppearance.shared.refresh() }
+        }
         if design.statusBehavior != snapshot.statusBehavior { design.statusBehavior = snapshot.statusBehavior }
         let titlebar = ChromePlacementSetting.effectiveTitlebar(snapshot)
         if design.titlebar != titlebar { design.titlebar = titlebar }

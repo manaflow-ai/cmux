@@ -1,12 +1,13 @@
 @testable import CmuxNextPages
 import AppKit
 import CmuxNextPagesTestSupport
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// A ``PageWebView`` in Chromium mode, with a fake Chromium host: it sets the page up, loads the
 /// document there, takes the page's messages, and falls back to WebKit when Chromium fails.
-@MainActor
+@MainActor @Suite(.closesItsWindows)
 struct PageWebViewChromiumTests {
     private let root: URL
     private let descriptor = PageDescriptor(id: "test.chromium-page", resource: "chromium-page", namespaces: [])

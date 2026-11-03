@@ -6,15 +6,17 @@ public import SwiftUI
 public struct AutomationsPageView: View {
     /// What the page's buttons do; the app routes each to the shared automation op.
     public struct Actions: Sendable {
-        public var new: @MainActor @Sendable () -> Void
-        public var runNow: @MainActor @Sendable (AutomationRow) -> Void
-        public var setEnabled: @MainActor @Sendable (AutomationRow, Bool) -> Void
-        public var edit: @MainActor @Sendable (AutomationRow) -> Void
+        /// The header's New button; nil hides it (no create form yet).
+        public var new: (@MainActor @Sendable () -> Void)?
+        /// Omit an operation until the hosting app supplies a real handler.
+        public var runNow: (@MainActor @Sendable (AutomationRow) -> Void)?
+        public var setEnabled: (@MainActor @Sendable (AutomationRow, Bool) -> Void)?
+        public var edit: (@MainActor @Sendable (AutomationRow) -> Void)?
 
-        public init(new: @escaping @MainActor @Sendable () -> Void = {},
-                    runNow: @escaping @MainActor @Sendable (AutomationRow) -> Void = { _ in },
-                    setEnabled: @escaping @MainActor @Sendable (AutomationRow, Bool) -> Void = { _, _ in },
-                    edit: @escaping @MainActor @Sendable (AutomationRow) -> Void = { _ in }) {
+        public init(new: (@MainActor @Sendable () -> Void)? = nil,
+                    runNow: (@MainActor @Sendable (AutomationRow) -> Void)? = nil,
+                    setEnabled: (@MainActor @Sendable (AutomationRow, Bool) -> Void)? = nil,
+                    edit: (@MainActor @Sendable (AutomationRow) -> Void)? = nil) {
             self.new = new
             self.runNow = runNow
             self.setEnabled = setEnabled
@@ -46,6 +48,7 @@ public struct AutomationsPageView: View {
         VStack(spacing: 0) {
             header
             Divider().overlay(palette.separator)
+            problemLines
             if page.rows.isEmpty {
                 Text(strings.empty).font(palette.body).foregroundStyle(palette.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -65,9 +68,21 @@ public struct AutomationsPageView: View {
             Text(strings.title).font(palette.header).foregroundStyle(palette.text)
             AutomationChip(text: strings.active(page.rows.filter(\.enabled).count), palette: palette)
             Spacer()
-            Button(strings.new) { actions.new() }.buttonStyle(.borderedProminent).controlSize(.small)
+            if let new = actions.new {
+                Button(strings.new) { new() }.buttonStyle(.borderedProminent).controlSize(.small)
+            }
         }
         .padding(.horizontal, 16).frame(height: 44)
+    }
+
+    /// One line per source that did not load, so a failure never reads as "no automations".
+    @ViewBuilder private var problemLines: some View {
+        ForEach([AutomationRow.Target.thisMac, .cloud], id: \.self) { target in
+            if let code = page.problems[target] {
+                Text(strings.problem(target, code: code)).font(palette.caption).foregroundStyle(palette.attention)
+                    .padding(.horizontal, 16).padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 
     private var list: some View {
@@ -101,12 +116,20 @@ public struct AutomationsPageView: View {
                     .padding(10).frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 8).fill(palette.card))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.separator))
-                HStack(spacing: 6) {
-                    Button(strings.runNow) { actions.runNow(row) }.buttonStyle(.borderedProminent)
-                    Button(row.enabled ? strings.pause : strings.resume) { actions.setEnabled(row, !row.enabled) }
-                    Button(strings.edit) { actions.edit(row) }
+                if actions.runNow != nil || actions.setEnabled != nil || actions.edit != nil {
+                    HStack(spacing: 6) {
+                        if let runNow = actions.runNow {
+                            Button(strings.runNow) { runNow(row) }.buttonStyle(.borderedProminent)
+                        }
+                        if let setEnabled = actions.setEnabled {
+                            Button(row.enabled ? strings.pause : strings.resume) { setEnabled(row, !row.enabled) }
+                        }
+                        if let edit = actions.edit {
+                            Button(strings.edit) { edit(row) }
+                        }
+                    }
+                    .controlSize(.small)
                 }
-                .controlSize(.small)
                 Text(strings.history.uppercased()).font(palette.caption).foregroundStyle(palette.tertiary).padding(.top, 6)
                 if row.runs.isEmpty {
                     Text(strings.noRuns).font(palette.caption).foregroundStyle(palette.secondary)

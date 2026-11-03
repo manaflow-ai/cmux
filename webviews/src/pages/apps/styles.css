@@ -538,7 +538,7 @@
 /* A deployed app's instance under its id: where it runs, as the owner reports it. */
 .apps-instance {
   color: var(--page-text-2);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 
 .apps-version {

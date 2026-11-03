@@ -95,6 +95,21 @@ public final class LinkRouter {
         NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
     }
 
+    /// Opens a link a terminal program asked a browser for (`browser.open_link`) in cmux: in a cmux
+    /// browser tab whatever the rule when `explicit` (a `target` or a `terminal.linkOpener` rule
+    /// names cmux), else where the rule sends it, beside `source`, the tab of the caller's terminal.
+    /// Returns where it went (an app link counts as cmux), or nil when it opened nothing because
+    /// `terminal` was named but no tab shows it (`source` nil) and the link would open in a cmux
+    /// tab: that tab never lands beside whichever pane has focus, which may be another window or
+    /// browser profile (#29224). With no `terminal` the focused pane is meant.
+    public func openTerminalLink(_ url: URL, terminal: String?, source: String?, explicit: Bool,
+                                 background: Bool) -> LinkRouting.Target? {
+        if terminal != nil, source == nil, routing().browserEnabled, explicit || target(for: url) == .cmuxBrowser { return nil }
+        guard explicit else { return open(url, background: background, source: source) ?? .cmuxBrowser }
+        open(url, in: .cmuxBrowser, background: background, source: source)
+        return routing().browserEnabled ? .cmuxBrowser : .system
+    }
+
     /// Opens `file` (or a web link) with the app at `app`.
     public func open(_ url: URL, withApplicationAt app: URL) {
         if recordsInstead("app:\(app.deletingPathExtension().lastPathComponent):\(url.isFileURL ? url.path : url.absoluteString)") { return }

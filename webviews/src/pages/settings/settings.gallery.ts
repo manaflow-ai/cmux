@@ -206,7 +206,8 @@ const input = (selector: string, value: string): PageFixtureStep => ({ selector,
 const wait = (selector: string): PageFixtureStep => ({ selector, action: "wait" });
 const row = (key: string) => `[data-row-key="${key}"]`;
 const focusComputerUse: PageFixtureStep = {
-  selector: '[data-card="computer-use"] [data-action="palette.computerUse.accessibility"]',
+  // Guided Setup's button (Restart Helper when the helper failed): it shows in every phase.
+  selector: '[data-card="computer-use"] [data-action-row] button',
   action: "focus",
 };
 const customValues: Record<string, unknown> = Object.fromEntries(
@@ -245,7 +246,19 @@ const variant = (section: string, extra: Omit<SettingsPageVariant, "section"> = 
   accounts: accounts(),
   ...extra,
 });
-const variants: Record<string, SettingsPageVariant> = {};
+const variants: Record<string, SettingsPageVariant> = {
+  "model-picker-placement-inherited": variant("agents", {
+    focus: "agentPane.display.harnessPlacement",
+    host: { ...host, harness_placement: "left" },
+    note: "The normal placement row shows the existing left rail preference before a new choice is saved.",
+  }),
+  "model-picker-placement-symbols": variant("agents", {
+    focus: "agentPane.display.harnessPlacement",
+    host: { ...host, harness_placement: "left" },
+    options: { values: { "agentPane.display.harnessPlacement": "symbols" } },
+    note: "An explicit top symbols choice wins over the old left rail and offers Reset.",
+  }),
+};
 for (const category of categories) {
   const allThemes = category.id === "theme";
   variants[category.id] = variant(category.id, { allThemes });
@@ -343,6 +356,12 @@ Object.assign(variants, {
       { selector: "[data-appearance-bar] [data-undo]", action: "focus" },
     ],
     note: "Appearance's floating bar at the bottom right after picking Shuffle Paintings: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
+  }),
+  // The floating bar's Presets menu open: Solid, Frosted, Glass and Clear, the current one checked.
+  "appearance-presets": variant("appearance", {
+    options: { values: { "appearance.backgroundOpacity": 0.8, "appearance.backgroundBlur": "frosted" } },
+    steps: [wait("[data-appearance-bar]"), click('[data-menu="appearance-presets"]'), wait('[role="menuitemradio"]')],
+    note: "Presets at the bottom right beside Undo, Redo and Reset: one pick sets the window's Opacity and Material and every surface's opacity, as one undoable step; Frosted is checked.",
   }),
   // The terminal font list open: recent fonts first under a Recent tag, every family in its own face.
   "font-picker-open": variant("appearance", {
@@ -690,6 +709,18 @@ Object.assign(variants, {
     allThemes: true,
     steps: [click("[data-theme-picker]"), input(".theme-popover input", "solarized"), wait("[data-theme-option]")],
   }),
+  "theme-picker-starred": variant("theme", {
+    allThemes: true,
+    options: {
+      values: {
+        "appearance.theme": "Rose Pine",
+        "appearance.favoriteThemes": ["Rose Pine", "Catppuccin Mocha", "Tokyo Night"],
+        "appearance.rotateFavoriteThemes": "daily",
+      },
+    },
+    steps: [click("[data-theme-picker]"), wait(".theme-popover [data-starred-row]")],
+    note: "Starred themes first under Starred, then All Themes; each starred row's star is lit. Rotate Starred Themes shows in the card.",
+  }),
   "theme-picker-empty": variant("theme", {
     allThemes: true,
     steps: [click("[data-theme-picker]"), input(".theme-popover input", "no-such-theme")],
@@ -870,7 +901,7 @@ Object.assign(variants, {
   "computer-use-off": variant("agents", {
     host: { ...host, computer_use: { phase: "off", accessibility: null, screen_recording: null, helper: null } },
     steps: [wait('[data-card="computer-use"]'), focusComputerUse],
-    note: "Computer Use off: both grants Unknown, the card says to turn it on.",
+    note: "Computer Use off: the switch, then Guided Setup offering to turn it on; no grant rows.",
   }),
   "computer-use-failed": variant("agents", {
     host: { ...host, computer_use: { phase: "failed", accessibility: null, screen_recording: null, helper: null } },
@@ -983,6 +1014,44 @@ Object.assign(variants, {
     ],
     note: "Harness health with an in-app Codex update and a separate manual command for an elevated Claude Code install.",
   }),
+  "agents-harness-sign-in-expired": variant("agents", {
+    harnesses: {
+      loading: false,
+      problem: null,
+      harnesses: [
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.4.0",
+          latest: "0.4.0",
+          outdated: false,
+          auth: "expired",
+          update: null,
+        },
+        {
+          id: "claude",
+          name: null,
+          kind: "claude-stdio",
+          source: "path",
+          problem: null,
+          version: "2.0.9",
+          latest: "2.0.9",
+          outdated: false,
+          auth: "signedIn",
+          update: null,
+        },
+      ],
+    },
+    steps: [
+      wait('[data-harness="codex"]'),
+      // Scrolls the Codex row into view; the control exists before and after the change.
+      { selector: '[data-harness="codex"] [data-harness-action="check"]', action: "focus" },
+    ],
+    note: "Codex's sign-in expired: Agents gets its badge and the row says Signed out, as for a signed-out harness.",
+  }),
   "agents-harness-update-manual": variant("agents", {
     harnesses: {
       loading: false,
@@ -1081,6 +1150,19 @@ Object.assign(variants, {
     steps: [wait("[data-registry-agent]")],
     note: "Add Agent from ACP Registry…: one click per agent; Added when it is a harness, disabled when it cannot start here.",
   }),
+  "agents-stable-check-idle": variant("agents", {
+    note: "Check actions at rest, reserving their translated Checking label width.",
+    agents: { doctor: {} },
+  }),
+  "agents-stable-check-busy": variant("agents", {
+    note: "The same Check actions while diagnostics run; button widths stay fixed.",
+    agents: { doctor: { "acme-agent": { running: true } } },
+  }),
+  "agents-stable-added": variant("agents", {
+    focus: "agents.registry",
+    steps: [wait('[data-registry-agent="goose"]'), click('[data-registry-agent="goose"] button')],
+    note: "The registry action after Add becomes Added, with its original width preserved.",
+  }),
   "agents-doctor": variant("agents", {
     steps: [click('[data-agent-harness="acme-agent"] button'), wait("[data-agent-doctor]")],
     note: "Check: the doctor's steps inline, a failed step with its fix, later steps skipped.",
@@ -1169,6 +1251,36 @@ Object.assign(variants, {
       teams.run({ action: "team.confirmDelete", team: "team-personal" });
     }),
     note: "A team with an active subscription cannot be deleted: the confirmation says why.",
+  }),
+  "accounts-team-invited": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.received = [
+        {
+          id: "inv-1",
+          teamId: "team-research",
+          team: "Sample team 3",
+          invitedBy: "Sample Person",
+          email: "you@example.com",
+        },
+        { id: "inv-2", teamId: "team-design", team: "Sample team 4", invitedBy: null, email: "you@example.com" },
+      ];
+    }),
+    note: "Invitations to You: teams that invited one of your verified emails, each with Join Team and Decline.",
+  }),
+  "accounts-team-joined": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.received = [
+        {
+          id: "inv-1",
+          teamId: "team-research",
+          team: "Sample team 3",
+          invitedBy: "Sample Person",
+          email: "you@example.com",
+        },
+      ];
+      teams.run({ action: "team.accept", team: "inv-1" });
+    }),
+    note: "Join Team: the team joins your list as a member and becomes your active team.",
   }),
   "accounts-team-create": variant("accounts", {
     accounts: withTeams((teams) => teams.run({ action: "team.new" })),
@@ -1280,6 +1392,83 @@ const resetAnchors = Object.values(RESET_SAMPLES).flatMap((key) => [
   { selector: `${row(key)} .row-title` },
   { selector: `${row(key)} + [data-row-key] .row-title` },
 ]);
+
+const githubConnection = {
+  title: "GitHub",
+  detail: "Connected",
+  busy: false,
+  connect: "Connect GitHub",
+  disconnect: "Disconnect",
+  confirm: "Disconnect GitHub? Agents will lose access through this connection.",
+  cancel: "Cancel",
+  refresh: "Refresh",
+  canConnect: false,
+  connections: [
+    {
+      id: "sample-github",
+      canDisconnect: true,
+      account: "sample-team",
+      status: "Connected",
+      permissions: ["contents:write", "pull_requests:write"],
+    },
+  ],
+};
+for (const treatment of ["balanced", "compact", "inline"]) {
+  variants[`github-connect-${treatment}`] = variant("accounts", {
+    accounts: accounts({}, { github: githubConnection }),
+    note: `GitHub App connection: ${treatment} treatment. Balanced uses the existing Accounts spacing.`,
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector('[data-card="github-connection"]'));
+      const card = ctx.document.querySelector<HTMLElement>('[data-card="github-connection"]')!;
+      card.scrollIntoView({ block: "center" });
+      if (treatment !== "balanced") {
+        const style = ctx.document.createElement("style");
+        style.textContent =
+          treatment === "compact"
+            ? '[data-card="github-connection"] .row { padding-block: 4px; } [data-card="github-connection"] .accounts-body { margin-top: 4px; }'
+            : '[data-card="github-connection"] .row { display: flex; align-items: center; gap: 16px; } [data-card="github-connection"] .accounts-body { margin: 0; padding: 0; }';
+        card.append(style);
+      }
+    },
+  });
+}
+variants["github-connect-comparison"] = variant("accounts", {
+  accounts: accounts({}, { github: githubConnection }),
+});
+variants["github-connect-empty"] = variant("accounts", {
+  accounts: accounts(
+    {},
+    {
+      github: {
+        ...githubConnection,
+        connections: [],
+        canConnect: true,
+        detail: "Connect the cmux GitHub App. Choose repositories and review permissions in GitHub.",
+      },
+    },
+  ),
+});
+variants["github-connect-pending"] = variant("accounts", {
+  accounts: accounts(
+    {},
+    {
+      github: {
+        ...githubConnection,
+        connections: [],
+        canConnect: true,
+        detail: "Finish connecting in your browser, then refresh.",
+      },
+    },
+  ),
+});
+variants["github-connect-confirm"] = variant("accounts", {
+  accounts: accounts({}, { github: githubConnection }),
+  play: async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector('[data-github-action="disconnect"]'));
+    await ctx.click({ selector: '[data-github-action="disconnect"]' });
+    await ctx.waitFor(() => ctx.document.querySelector('[data-card="github-connection"] output'));
+  },
+});
 
 export default settingsPageEntry({
   id: "pages.settings",

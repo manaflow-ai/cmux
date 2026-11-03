@@ -1,9 +1,10 @@
 import AppKit
 import CmuxHomeCore
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import Testing
 
-@MainActor @Suite(.serialized) struct HomeStarterTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HomeStarterTests {
     @Test func suggestionsReflectAvailableWorkAndStayBounded() {
         let context = HomeStarterContext(workspaces: ["todo-app", "docs", "docs", "site"], working: ["Add search"],
                                          failures: ["Run tests"], pullRequests: ["sample/todo#42"])

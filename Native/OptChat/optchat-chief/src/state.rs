@@ -83,6 +83,10 @@ pub struct HostState {
     /// a reply posts, the owner stops its turn, or the failure note posts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub awaiting: Vec<Awaiting>,
+    /// Messages closed by the most recent owner Stop, until another message
+    /// or turn. Explicit Continue alone reopens them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped_reply: Option<StoppedReply>,
     /// The outcome ledger (brain/outcome_ledger.rs): finished subagents whose
     /// outcome no Chief post has told the person yet.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -356,6 +360,19 @@ pub enum SubStatus {
     Reported,
 }
 
+/// What opens a subagent's workspace later (`control show`): the key it
+/// opens under, its sidebar group and its terminal's folder on this machine.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceSlot {
+    /// The key it opens under: at first the one its session carries as
+    /// CMUX_WORKSPACE_ID; a fresh one after `control hide` closed it (the
+    /// daemon replays a mutation id it has seen, so a closed key never
+    /// opens again).
+    pub key: String,
+    pub group: String,
+    pub cwd: std::path::PathBuf,
+}
+
 /// One subagent.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubRecord {
@@ -364,12 +381,24 @@ pub struct SubRecord {
     /// Its acpmux session, once created.
     #[serde(default)]
     pub session_id: Option<String>,
+    /// The harness its session runs on (`subagent.start`'s), kept so its
+    /// spend is still attributed after a host restart (usage.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
     /// Its cmux workspace, once created.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// Where `control show` opens its workspace while it has none (hidden,
+    /// `subagents.showWorkspaces` off, #26386, or closed by `control hide`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_slot: Option<WorkspaceSlot>,
     /// That workspace's public id (`ws_…`), when its place can name it: its
     /// report's work is shown there (show.rs `block_in`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "workspace_id",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub ws_id: Option<String>,
     /// The acpmux peer (a cloud VM) it runs on; None: this machine. Only
     /// local subagents count against the live cap.
@@ -506,6 +535,12 @@ pub struct InboxMessage {
 pub struct PendingPermission {
     pub id: String,
     pub request: Value,
+    /// The conversation owner acknowledged this request's Home card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home_message: Option<String>,
+    /// A disabled rollout retired this card; the same request must not reopen it.
+    #[serde(default)]
+    pub home_closed: bool,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -535,6 +570,18 @@ pub struct QueuedLaunch {
     /// account hit a usage limit); None: the engine of now.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness: Option<String>,
+    /// The model its spawn chose (`spawn(model)`); None: the engine's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+/// Files awaiting a streamed upload. The manifest survives a Chief restart;
+/// the bytes remain on disk instead of entering the outbox JSON.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingMedia {
+    pub path: std::path::PathBuf,
+    pub mime_type: String,
+    pub image_syntax: Option<std::ops::Range<usize>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -564,6 +611,8 @@ pub struct OutboxEntry {
     /// new key (a reply is never dropped).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plain_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_media: Vec<PendingMedia>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -672,6 +721,10 @@ pub struct Item {
     /// that is cut again.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cut: Vec<String>,
+    /// A host note (a watch that fired, a wake, another Chief's message): a
+    /// turn it woke and a restart cut runs again, as for a human message.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub note: bool,
 }
 
 /// A cut turn to run again (`HostState::resumes`).
@@ -1260,4 +1313,11 @@ pub struct Awaiting {
     /// error, a refused post), for the retry note and the failure note.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub why: Option<String>,
+}
+
+/// The stopped reply batch retains the original turn's permission floor.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct StoppedReply {
+    pub messages: Vec<Awaiting>,
+    pub requires_approval: bool,
 }

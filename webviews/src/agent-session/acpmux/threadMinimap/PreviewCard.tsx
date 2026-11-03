@@ -8,18 +8,20 @@
 // where the card's x and y count from, so it lands where it always did. The wheel over the card and
 // a scrolling key on its bookmark still scroll the transcript, and reach the scroller's own
 // listeners first (wheelPassThrough.ts), as they did when the card was inside it.
-import React, { useCallback, useLayoutEffect, useRef } from "react";
+import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { forwardWheel } from "../wheelPassThrough";
 import { BookmarkIcon } from "./BookmarkIcon";
 import { cardOffset, type MinimapTurnMetadata, type ReplyBlock } from "./model";
+import { sliceWhole, sliceWholeEnd } from "../../../ui/wholeChars";
+import { type CoveredCandidates, useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
 
 const middleEllipsis = (value: string, max = 36) => {
   if (value.length <= max) return value;
   const side = Math.max(4, Math.floor((max - 1) / 2));
-  return `${value.slice(0, side)}…${value.slice(-side)}`;
+  return `${sliceWhole(value, side)}…${sliceWholeEnd(value, side)}`;
 };
 
 const linkLabel = (href: string) => {
@@ -71,6 +73,15 @@ function forwardScrollKey(scroller: HTMLElement, event: React.KeyboardEvent): vo
   scroller.scrollTop += by;
 }
 
+/// What the card covers when it draws in the scroller's parent: the transcript scroller alone, never
+/// the rail or a Find bar beside it. In a see-through Chromium page the card's backdrop blur draws
+/// over the rows, not in their place, so they read sharp through its tint (Lawrence via Leo,
+/// 2026-10-28: "popovers in general need glassier bg blur"); the scroller blurs its own rows under
+/// the card instead (ui/glass/seeThroughBlur.ts). In place (no layer) the card is inside the
+/// scroller and covers nothing.
+const underCard: CoveredCandidates = (surface) =>
+  surface.parentElement?.querySelectorAll(":scope > .acpmux-scroll") ?? [];
+
 export type PreviewBookmark = { marked: boolean; toggle(): void };
 
 export const PreviewCard = React.forwardRef<
@@ -89,6 +100,12 @@ export const PreviewCard = React.forwardRef<
     scroller?: HTMLElement | null;
     /// The prompt's line; a reply's card has none.
     prompt?: string;
+    /// The prompt is not loaded yet (a pending tick, model.ts `pendingTurns`): the card holds a blank
+    /// line where its words go, and they fade in there when they arrive.
+    pending?: boolean;
+    /// The prompt's sender, when another session sent it (model.ts `promptSender`): a line above it
+    /// names them, so it never reads as the person's own words.
+    from?: string;
     reply: readonly ReplyBlock[];
     metadata?: MinimapTurnMetadata;
     /// The rail's unshifted left edge, for the same pane-edge clamp in both CSS translations.
@@ -110,6 +127,8 @@ export const PreviewCard = React.forwardRef<
     viewportHeight,
     scroller,
     prompt,
+    pending = false,
+    from,
     reply,
     metadata,
     railLeft = 0,
@@ -124,6 +143,15 @@ export const PreviewCard = React.forwardRef<
 ) {
   const t = useT();
   const layer = scroller?.parentElement;
+  /// The words of a prompt that was pending under the open card arrived: they fade in (opacity only,
+  /// threadMinimap.css `[data-arrived]`), in the place the blank line held. Set before paint.
+  const [arrived, setArrived] = useState(false);
+  const wasPending = useRef(pending);
+  useLayoutEffect(() => {
+    if (wasPending.current && !pending) setArrived(true);
+    else if (pending) setArrived(false);
+    wasPending.current = pending;
+  }, [pending]);
   const anchor = useRef<HTMLSpanElement>(null);
   const self = useRef<HTMLDivElement | null>(null);
   /// Where the card goes, as of the last render: read by `place`, which a commit or a resize runs.
@@ -165,6 +193,8 @@ export const PreviewCard = React.forwardRef<
   }, []);
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose: the rail can move under the card with any render.
   useLayoutEffect(() => place());
+  // After the card is placed, so the blur's first measure finds it where it draws.
+  useSeeThroughBlur(self, !!layer, underCard);
   // The text budget is six lines: the old two-line prompt plus four-line reply. Measure the
   // prompt's actual wrapped lines when the card opens (and when its width changes), then give the
   // reply the remaining whole lines. Metadata and failure details keep their old natural rows.
@@ -184,16 +214,21 @@ export const PreviewCard = React.forwardRef<
       } else {
         const lineHeight = Number.parseFloat(style.lineHeight) || 20;
         const promptLines = Math.max(1, Math.min(3, Math.ceil(promptNode.getBoundingClientRect().height / lineHeight)));
-        const naturalReply = replyNode.cloneNode(true) as HTMLElement;
-        naturalReply.style.cssText =
-          "position:absolute; visibility:hidden; display:block; height:auto; max-height:none; -webkit-line-clamp:unset;";
-        naturalReply.style.width = `${replyNode.getBoundingClientRect().width}px`;
-        node.append(naturalReply);
+        // The reply's natural height, read from the reply itself with its clamp lifted for the read
+        // (an inline style, put back before anything paints). A measuring copy appended to the card
+        // and removed again was two DOM insertions under the page's `:has()` rules on every row the
+        // pointer crossed, and each restyled the whole page (about 1,100 elements) twice per move.
+        const clamp = replyNode.getAttribute("style");
+        replyNode.style.setProperty("display", "block");
+        replyNode.style.setProperty("height", "auto");
+        replyNode.style.setProperty("max-height", "none");
+        replyNode.style.setProperty("-webkit-line-clamp", "unset");
         const naturalReplyLines = Math.max(
           1,
-          Math.min(4, Math.ceil(naturalReply.getBoundingClientRect().height / lineHeight)),
+          Math.min(4, Math.ceil(replyNode.getBoundingClientRect().height / lineHeight)),
         );
-        naturalReply.remove();
+        if (clamp === null) replyNode.removeAttribute("style");
+        else replyNode.setAttribute("style", clamp);
         // Match the old two-line prompt + four-line reply text budget for this same content. A
         // longer prompt spends only the reply lines it needs, so the card never grows because of it.
         const oldTextLines = Math.min(2, promptLines) + naturalReplyLines;
@@ -206,18 +241,38 @@ export const PreviewCard = React.forwardRef<
     },
     [place],
   );
+  /// The card's kind as of the last render, for the observer below, which outlives a content change.
+  const promptCard = useRef(prompt !== undefined);
+  promptCard.current = prompt !== undefined;
+  /// The card's size as of its last fit: a resize notification of that size (the observer's first,
+  /// or the one the fit's own budget change causes) fits nothing again.
+  const fitted = useRef({ width: -1, height: -1 });
+  const refit = useCallback(
+    (node: HTMLElement) => {
+      fit(node, promptCard.current);
+      // Laid out by the fit's own reads: these read no new layout.
+      fitted.current = { width: node.offsetWidth, height: node.offsetHeight };
+    },
+    [fit],
+  );
+  // A new prompt, reply or failure (the pointer reaching another row), or a change of kind: fit once.
+  useLayoutEffect(() => {
+    if (self.current) refit(self.current);
+  }, [metadata?.failure, metadata?.failed, prompt, from, reply, refit]);
+  // Content that grows or shrinks without a render (a font or an image loading, a wrap) fits again.
+  // One observer for the card's life, not one per row the pointer crosses (each new one notifies on
+  // observe, which fitted the card a second time per move). It stops with the card: disconnected in
+  // the cleanup when the card goes.
   useLayoutEffect(() => {
     const node = self.current;
-    if (!node) return;
-    const promptCard = prompt !== undefined;
-    const update = () => fit(node, promptCard);
-    update();
-    // Stops with the card's content (a new prompt, reply or failure, or a change of kind) or the
-    // card going: disconnected in the cleanup either way.
-    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
-    observer?.observe(node);
-    return () => observer?.disconnect();
-  }, [metadata?.failure, metadata?.failed, prompt, reply, fit]);
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (node.offsetWidth === fitted.current.width && node.offsetHeight === fitted.current.height) return;
+      refit(node);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [refit]);
   const own = useCallback(
     (node: HTMLDivElement | null) => {
       self.current = node;
@@ -237,6 +292,10 @@ export const PreviewCard = React.forwardRef<
       id={id}
       className="acpmux-minimap__card"
       data-prompt={prompt !== undefined ? "" : undefined}
+      data-incoming={from !== undefined || undefined}
+      data-pending={pending || undefined}
+      data-arrived={arrived || undefined}
+      aria-busy={pending || undefined}
       // Its transform is `place`'s, written before paint; on the right with no layer it is pinned to
       // the right edge (left: auto; right: 0) and `place` counts `x` in from there.
       style={cardStyle}
@@ -246,9 +305,16 @@ export const PreviewCard = React.forwardRef<
       onFocus={onFocus}
       onBlur={onBlur}
     >
+      {prompt !== undefined && from !== undefined && (
+        <div className="acpmux-minimap__from">{t("minimap.from", { name: from })}</div>
+      )}
       {prompt !== undefined && (
         <div className="acpmux-minimap__title">
-          <span className="acpmux-minimap__prompt">{prompt}</span>
+          {pending ? (
+            <span className="acpmux-minimap__prompt" data-pending="" aria-hidden />
+          ) : (
+            <span className="acpmux-minimap__prompt">{prompt}</span>
+          )}
           {bookmark && (
             <button
               type="button"

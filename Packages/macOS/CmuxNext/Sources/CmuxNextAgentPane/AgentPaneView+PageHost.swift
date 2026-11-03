@@ -51,6 +51,7 @@ extension AgentPaneView {
         // IME composition, unsent chips): a crash shows the notice, and Reload is the person's.
         page.reloadsAfterCrash = false
         page.onCrash = { [weak self] _, reloading in self?.pageCrashed(reloading: reloading) }
+        page.onDocumentLoaded = { [weak self] in self?.pageLoadedAgain() }
         pageEvents?.replay = { [weak self] in
             // A new subscriber is a page that loaded again: its registry renderers are gone.
             guard let self else { return [] }
@@ -85,6 +86,7 @@ extension AgentPaneView {
     /// Runs `body` as an async function body in the chat's page, in whichever engine shows it
     /// (``PageWebView/callPageScript(_:arguments:)``).
     public func callPageScript(_ body: String, arguments: [String: Any] = [:]) async throws -> Any? {
+        model.transport.beforePageWork?()
         if let page { return try await page.callPageScript(body, arguments: arguments) }
         return try await webView.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
     }

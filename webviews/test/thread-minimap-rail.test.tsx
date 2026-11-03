@@ -1,4 +1,4 @@
-// The thread minimap as the Codex desktop app's prompt rail (minimap-ref SPEC): it shows from four
+// The thread minimap as the Codex desktop app's prompt rail (minimap-ref SPEC): it shows from one
 // prompts at any pane width (a narrow one: thread-minimap-narrow.test.tsx); hover magnifies like
 // the Dock and opens a preview card at once; every row is a tab stop whose focus opens
 // the card at once; a click or Return jumps; a drag scrubs; bookmarks show as a dot past the tick,
@@ -18,6 +18,7 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   virtualConsole: new VirtualConsole(),
 });
 const scope = globalThis as Record<string, unknown>;
+const observed: Element[] = [];
 const replacements: Record<string, unknown> = {
   window: dom.window,
   document: dom.window.document,
@@ -35,8 +36,11 @@ const replacements: Record<string, unknown> = {
     unobserve() {}
     disconnect() {}
   },
+  // Each observed element is recorded, so a test can bound the observers a hover sweep puts on the card.
   ResizeObserver: class {
-    observe() {}
+    observe(target: Element) {
+      observed.push(target);
+    }
     unobserve() {}
     disconnect() {}
   },
@@ -159,9 +163,12 @@ const landing = (index: number) => {
   return Math.max(0, Math.min(16 + rowTop(`user-${index + 1}`) - 35, total - VIEWPORT));
 };
 
-test("the rail shows from four prompts, at any pane width", async () => {
+test("the rail shows from one prompt, at any pane width", async () => {
   for (const [prompts, width, shown] of [
-    [3, 1040, false],
+    [0, 1040, false],
+    [1, 1040, true],
+    [1, 800, true],
+    [3, 1040, true],
     [4, 1040, true],
     // An 800 px pane starts the column 40 px in: the narrow rail (thread-minimap-narrow.test.tsx).
     [6, 800, true],
@@ -232,6 +239,39 @@ test("the card opens with the hover, follows the pointer at once, and goes as th
     // Cooled: still at once.
     await enter(6);
     expect(card()).not.toBeNull();
+  } finally {
+    await view.unmount();
+  }
+});
+
+// Leo, 2026-10-31: "the left scroll rail still lags when i hover over a lot of it it needs to be
+// faster". Each row the pointer crosses changes the card's content. A measuring copy of the reply
+// appended to the card and removed again, and a fresh ResizeObserver per row (each notifying on
+// observe), restyled the whole page twice more per move under the page's `:has()` rules
+// (test/latency/rail-sweep.ts). The card now measures its reply in place and keeps one observer.
+test("sweeping the pointer across the rail adds no measuring node to the card and makes no observer per row", async () => {
+  const view = await mount(40);
+  try {
+    await enter(4);
+    const shown = card()!;
+    expect(shown).not.toBeNull();
+    const inserted: string[] = [];
+    const watch = new dom.window.MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes)
+          if (node instanceof dom.window.HTMLElement) inserted.push(node.className || node.tagName);
+    });
+    watch.observe(shown, { childList: true });
+    const observersBefore = observed.length;
+    for (let index = 5; index < 25; index += 1) {
+      await enter(index);
+      expect(card()!.textContent).toContain(`Question ${index}`);
+    }
+    watch.disconnect();
+    // The card is the same element throughout, and its own children never come and go to measure it.
+    expect(card()).toBe(shown);
+    expect(inserted).toEqual([]);
+    expect(observed.slice(observersBefore).filter((target) => target === shown)).toEqual([]);
   } finally {
     await view.unmount();
   }
@@ -342,6 +382,56 @@ test("wheel browsing belongs to the rail and is not snapped back by transcript s
       view.scroller.dispatchEvent(new dom.window.Event("scroll"));
     });
     expect(list.scrollTop).toBe(240);
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("the wheel over the rail's pane-edge padding scrolls the rail, not the transcript", async () => {
+  // Leo, 2026-10-28: "I said me scroll on it, cover area, it scroll, plus the padding". The strip
+  // between the pane edge and the rail reveals it on hover, so the wheel over it is the rail's too.
+  const view = await mount(70);
+  try {
+    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    const strip = document.querySelector<HTMLElement>(".acpmux-minimap__strip")!;
+    expect(list.hasAttribute("data-rail-scrolls")).toBe(true);
+    expect(strip.hasAttribute("data-rail-scrolls")).toBe(true);
+    const before = view.scroller.scrollTop;
+    const heard: string[] = [];
+    view.scroller.addEventListener("wheel", () => heard.push("transcript"));
+    const down = new dom.window.WheelEvent("wheel", { deltaY: 120, bubbles: true, cancelable: true });
+    await act(async () => {
+      strip.dispatchEvent(down);
+    });
+    expect(list.scrollTop).toBe(120);
+    expect(down.defaultPrevented).toBe(true);
+    expect(heard).toEqual([]);
+    expect(view.scroller.scrollTop).toBe(before);
+    // A line-mode wheel moves it by lines, and back up.
+    await act(async () => {
+      strip.dispatchEvent(
+        new dom.window.WheelEvent("wheel", { deltaY: -3, deltaMode: 1, bubbles: true, cancelable: true }),
+      );
+    });
+    expect(list.scrollTop).toBe(72);
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("the wheel over the padding of a rail that fits its prompts reaches the transcript", async () => {
+  const view = await mount(4);
+  try {
+    const strip = document.querySelector<HTMLElement>(".acpmux-minimap__strip")!;
+    expect(strip.hasAttribute("data-rail-scrolls")).toBe(false);
+    const heard: number[] = [];
+    view.scroller.addEventListener("wheel", (event) => heard.push((event as WheelEvent).deltaY));
+    const wheel = new dom.window.WheelEvent("wheel", { deltaY: 120, bubbles: true, cancelable: true });
+    await act(async () => {
+      strip.dispatchEvent(wheel);
+    });
+    expect(heard).toEqual([120]);
+    expect(wheel.defaultPrevented).toBe(false);
   } finally {
     await view.unmount();
   }
@@ -681,6 +771,22 @@ test("the wheel and the scrolling keys over the card reach the transcript's own 
     expect(heard).toEqual(["key PageDown"]);
   } finally {
     input.mockRestore();
+    await view.unmount();
+  }
+});
+
+test("a layout correction rebases an in-flight rail jump", async () => {
+  const { animateScroll, stopScroll } = await import("../src/agent-session/acpmux/threadMinimap/scrollMotion");
+  const view = await mount(8);
+  try {
+    view.scroller.scrollTop = 1000;
+    animateScroll(view.scroller, () => 5000, 60_000, [0, 0, 1, 1]);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    view.scroller.scrollTop += 10_000;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    expect(view.scroller.scrollTop).toBeGreaterThan(9000);
+  } finally {
+    stopScroll(view.scroller);
     await view.unmount();
   }
 });

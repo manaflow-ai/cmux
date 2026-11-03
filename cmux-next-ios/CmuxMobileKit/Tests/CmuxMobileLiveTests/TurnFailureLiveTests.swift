@@ -26,7 +26,7 @@ import Testing
         let feed = LiveFeed(store: FeedStore(items: []), hub: AcpmuxHub(), place: { _ in nil })
         let item = feed.turnItem(session, fallbackKey: "t2", at: Date())
         #expect(item.kind == .failed)
-        #expect(item.markdown == "cmux's model service isn't available for this team yet.")
+        #expect(item.markdown == "cmux's model service isn't available for this team.")
     }
 }
 

@@ -7,6 +7,9 @@
 # means a cap was crossed; cut the size or raise the cap with a reason.
 # It does not block the publish; a slow runner must not hold the job
 # (run 39481846284: 13 min, then the job hit its limit).
+#
+# The step's notes, moved from nightly.yml:
+# Chromium on demand ships no engine in the app (bundle-size-DESIGN.md 6).
 set -euo pipefail
 # The Linux checks job skips this macOS-only test of the release strip.
 /bin/bash tests/test_strip_release_bundle_atom_info.sh

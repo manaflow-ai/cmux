@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Some separator between tabs, minimal but noticeable (Leo 2026-10-14): a short 1 pt line in
@@ -9,7 +10,7 @@ import Testing
 /// hovered tab (Safari, Chrome), so it never cuts into the selected tab's shape. Read from the
 /// strip as drawn, in the default and the compact strip. Behind the Debug Settings toggle
 /// `tabs.separators`, off by default.
-@MainActor @Suite(.serialized) struct TabSeparatorTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabSeparatorTests {
     /// What the eye gets in the gap after each tab: the luminance step (0-255) a line there makes
     /// over the strip's background, 0 with no visible line. A line is a sublayer of the tab at most
     /// 1 pt wide, on the pixel grid, inside the gap after the pill, shown and colored.
@@ -51,7 +52,7 @@ import Testing
     /// and stay clear; the gap after tab 4 (to the +) shows the line, as does none other.
     func checkSeparators() throws {
         let (strip, window) = Self.strip(tabs: 5)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let hovered = try #require(strip.cells[TabID("tab3")])
         let frame = strip.convert(hovered.frame, from: strip.tabsClip)
         TabStripDebug.pointerMoved(in: strip, to: CGPoint(x: frame.midX, y: frame.midY))
@@ -95,7 +96,7 @@ import Testing
     @Test func theStripDrawsNoLinesWhileTheToggleIsOff() throws {
         try withOverrides(separators: false, compact: false) {
             let (strip, window) = Self.strip(tabs: 5)
-            defer { window.orderOut(nil) }
+            defer { window.closeAfterTest() }
             let contrast = try Self.gapContrast(strip, tabs: 5)
             #expect(contrast.allSatisfy { $0 <= 4 }, "a line between tabs with the toggle off: \(contrast)")
         }

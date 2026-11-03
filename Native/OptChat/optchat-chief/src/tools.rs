@@ -6,8 +6,8 @@
 
 // The tool limits the schemas name are the kernel's (chief-kernel tools.rs).
 pub use chief_kernel::tools::{
-    AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, MAX_SEND_ATTACHMENTS, PLACES, SLEEP_MAX_SECONDS,
-    SLEEP_MIN_SECONDS, WATCH_DEFAULT_SECONDS, WATCH_MAX_SECONDS, WATCH_MIN_SECONDS, WATCHES_KEPT,
+    AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, PLACES, SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS,
+    WATCH_DEFAULT_SECONDS, WATCH_MAX_SECONDS, WATCH_MIN_SECONDS, WATCHES_KEPT,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -88,6 +88,41 @@ pub trait Orchestrator: Send + Sync {
     ) -> Result<String, String> {
         let _ = place;
         self.spawn_with_effort(tasks, cwd, effort)
+    }
+    /// `spawn_placed` on `harness` (`codex`, `claude`, ...; None: the
+    /// calling turn's). A host that cannot route refuses a named one.
+    fn spawn_routed(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+        place: Option<String>,
+        harness: Option<String>,
+    ) -> Result<String, String> {
+        match harness {
+            Some(h) => Err(format!(
+                "spawn: this Chief host cannot route subagents to {h}; leave out harness"
+            )),
+            None => self.spawn_placed(tasks, cwd, effort, place),
+        }
+    }
+    /// `spawn_routed` on `model` too (None: the harness's). A host that
+    /// cannot route refuses a named one.
+    fn spawn_with_route(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+        place: Option<String>,
+        harness: Option<String>,
+        model: Option<String>,
+    ) -> Result<String, String> {
+        match model {
+            Some(m) => Err(format!(
+                "spawn: this Chief host cannot route subagents to model {m}; leave out model"
+            )),
+            None => self.spawn_routed(tasks, cwd, effort, place, harness),
+        }
     }
     /// Sends `message` to subagent `id`.
     fn tell(&self, id: &str, message: &str) -> Result<String, String>;
@@ -210,6 +245,9 @@ pub struct SendCall {
     pub attachments: Vec<String>,
     /// The view line id of the user message whose thread it goes into.
     pub reply_to: Option<u64>,
+    /// Chief knows the reply is long (a list the person asked for): the
+    /// length gate lets its first send post (chief_kernel::replies).
+    pub long: bool,
 }
 
 impl SendCall {
@@ -235,11 +273,6 @@ impl SendCall {
             Some(Value::String(one)) if !one.trim().is_empty() => vec![one.trim().to_owned()],
             Some(_) => return Err("send: `attachments` must be a list of paths or URLs".into()),
         };
-        if attachments.len() > MAX_SEND_ATTACHMENTS {
-            return Err(format!(
-                "send: at most {MAX_SEND_ATTACHMENTS} attachments per message"
-            ));
-        }
         if text.is_none() && attachments.is_empty() {
             return Err("send: give `text`, `attachments` or both".into());
         }
@@ -251,10 +284,16 @@ impl SendCall {
                     .ok_or("send: `reply_to` must be a message's line id")?,
             ),
         };
+        let long = match args.get("long") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => return Err("send: `long` must be true or false".into()),
+        };
         Ok(SendCall {
             text,
             attachments,
             reply_to,
+            long,
         })
     }
 
@@ -268,6 +307,9 @@ impl SendCall {
         }
         if let Some(id) = self.reply_to {
             v["reply_to"] = json!(id);
+        }
+        if self.long {
+            v["long"] = json!(true);
         }
         v
     }
@@ -620,7 +662,7 @@ pub fn usage(tool: &str) -> String {
             "chiefs" =>
                 "['{\"action\": \"create\", \"display_name\": \"...\", \"role\": \"...\"}']",
             "control" =>
-                "status [ID] | interrupt ID [\"message\"] | answer ID OPTION|deny | pause ID | resume ID [\"message\"] | cancel ID | restart ID [\"message\"] | priority ID | cap N | cloud [PEER[,PEER...]|off]",
+                "status [ID] | sessions [OFFSET] | interrupt ID [\"message\"] | answer ID OPTION|deny | pause ID | resume ID [\"message\"] | cancel ID | restart ID [\"message\"] | priority ID | cap N | cloud [PEER[,PEER...]|off]",
             "tell" => "[--queue] ID \"message\"",
             _ => "ID \"message\"",
         }
@@ -734,6 +776,10 @@ pub enum Call {
         effort: Option<String>,
         /// `cloud` or `local`; None: the saved default (`control cloud`).
         place: Option<String>,
+        /// The harness they run on (`codex`, `claude`, ...); None: the turn's.
+        harness: Option<String>,
+        /// The model they run on; None: the harness's.
+        model: Option<String>,
     },
     Tell {
         id: String,
@@ -872,21 +918,33 @@ impl Call {
                     .filter(|e| !e.is_empty())
                     .map(str::to_owned);
                 if let Some(p) = place.as_deref()
-                    && !PLACES.contains(&p)
-                    && !p
-                        .strip_prefix("cloud:")
-                        .is_some_and(|s| crate::subagents::SIZES.contains(&s))
+                    && let Some(size) = p.strip_prefix("cloud:")
+                    && !crate::subagents::SIZES.contains(&size)
                 {
                     return Err(format!(
-                        "spawn: no place {p}; one of {}, or cloud:small|medium|large",
-                        PLACES.join(", ")
+                        "spawn: no Cloud size {size}; one of {}",
+                        crate::subagents::SIZES.join(", ")
                     ));
                 }
+                let harness = args
+                    .get("harness")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|h| !h.is_empty())
+                    .map(str::to_owned);
+                let model = args
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|m| !m.is_empty())
+                    .map(str::to_owned);
                 Ok(Call::Spawn {
                     tasks,
                     cwd,
                     effort,
                     place,
+                    harness,
+                    model,
                 })
             }
             "tell" => {
@@ -1067,8 +1125,16 @@ impl Call {
                 cwd,
                 effort,
                 place,
+                harness,
+                model,
             } => {
                 let mut v = json!({"tool": "spawn", "tasks": tasks});
+                if let Some(harness) = harness {
+                    v["harness"] = json!(harness);
+                }
+                if let Some(model) = model {
+                    v["model"] = json!(model);
+                }
                 if let Some(place) = place {
                     v["place"] = json!(place);
                 }
@@ -1178,6 +1244,10 @@ pub enum ControlRequest {
     Engine(crate::brain::EngineRequest),
     /// chief.stop: answers `{"stopped": bool}`.
     Stop,
+    /// Reopen the last owner-stopped reply batch.
+    Continue,
+    /// Re-answer one owner message in the Chief conversation.
+    Retry(String),
     /// chief.stop {name}: stops that one subagent.
     StopSubagent(String),
     /// chief.stop {all: true}: the turn and every subagent ("Stop all
@@ -1186,6 +1256,8 @@ pub enum ControlRequest {
     /// chief.stop {restart: [ids]}: those subagents go on (Restart on the
     /// stop-all toast).
     Restart(Vec<String>),
+    /// The turn session's tool hook (rights.rs): answers the hook's JSON.
+    RightsHook { phase: String, payload: Value },
 }
 
 /// What the tools socket serves: the memory, the subagent tools when the
@@ -1294,6 +1366,8 @@ fn connection(conn: UnixStream, served: &Served) {
                         | "spawn_policy"
                         | "engine"
                         | "stop"
+                        | "continue"
+                        | "retry"
                         | "inspect"
                         | "grant"
                         | "browse"
@@ -1306,6 +1380,28 @@ fn connection(conn: UnixStream, served: &Served) {
                     )
                     .is_err()
                     {
+                        return;
+                    }
+                    continue;
+                }
+                // The turn session's tool hook (`optchat-chief rights-hook`):
+                // only a caller under one of this Chief's turn sessions gets
+                // a decision; anyone else gets none (their own policy holds).
+                if tool == "rights_hook" {
+                    let phase = req.get("phase").and_then(Value::as_str).unwrap_or("");
+                    let answer = match (control, role(), phase) {
+                        (Some(control), crate::turn_caller::Role::Turn, "pre" | "post") => {
+                            match control(ControlRequest::RightsHook {
+                                phase: phase.to_owned(),
+                                payload: req.get("payload").cloned().unwrap_or(Value::Null),
+                            }) {
+                                Ok(text) => json!({"text": text}),
+                                Err(e) => json!({"error": e}),
+                            }
+                        }
+                        _ => json!({"text": "{}"}),
+                    };
+                    if writeln!(out, "{answer}").is_err() {
                         return;
                     }
                     continue;
@@ -1341,9 +1437,24 @@ fn connection(conn: UnixStream, served: &Served) {
                 let model_stop = tool == "stop"
                     && (req.get("end_turn").and_then(Value::as_bool) == Some(true)
                         || role() == crate::turn_caller::Role::Turn);
-                if tool == "engine" || (tool == "stop" && !model_stop) {
+                if matches!(tool, "continue" | "retry") && role() != crate::turn_caller::Role::Other
+                {
+                    let _ = writeln!(
+                        out,
+                        "{}",
+                        json!({"error": {"code": "forbidden", "message": "owner control only"}})
+                    );
+                    continue;
+                }
+                if matches!(tool, "engine" | "continue" | "retry")
+                    || (tool == "stop" && !model_stop)
+                {
                     let field = |k: &str| req.get(k).and_then(Value::as_str).map(str::to_owned);
                     let ask = match (tool, field("action").as_deref()) {
+                        ("continue", _) => Some(ControlRequest::Continue),
+                        ("retry", _) => field("message")
+                            .filter(|id| !id.trim().is_empty())
+                            .map(ControlRequest::Retry),
                         ("stop", _) => {
                             let restart = req.get("restart").and_then(Value::as_array).map(|ids| {
                                 ids.iter()
@@ -1376,6 +1487,7 @@ fn connection(conn: UnixStream, served: &Served) {
                                 compactor_speed: field("compactor_speed"),
                                 compactor_harness: field("compactor_harness"),
                                 compactor_model: field("compactor_model"),
+                                turn_routing: field("turn_routing"),
                                 reactions: Box::new(crate::brain::ReactionFields {
                                     classifier_harness: field("classifier_harness"),
                                     classifier_model: field("classifier_model"),
@@ -1388,7 +1500,7 @@ fn connection(conn: UnixStream, served: &Served) {
                     };
                     let answer = match (ask, control) {
                         (None, _) => {
-                            json!({"error": {"code": "bad_request", "message": "engine action is show or set"}})
+                            json!({"error": {"code": "bad_request", "message": "engine action is show or set; retry requires message"}})
                         }
                         (Some(_), None) => {
                             json!({"error": {"code": "unavailable", "message": "the engine control is not served here"}})
@@ -1555,8 +1667,10 @@ fn connection(conn: UnixStream, served: &Served) {
                         cwd,
                         effort,
                         place,
+                        harness,
+                        model,
                     }) => match &served.orchestrator {
-                        Some(o) => o.spawn_placed(tasks, cwd, effort, place),
+                        Some(o) => o.spawn_with_route(tasks, cwd, effort, place, harness, model),
                         None => Err("this Chief host runs no subagents".to_owned()),
                     },
                     Ok(Call::Tell {
@@ -1724,6 +1838,14 @@ pub fn ask_settings(path: &Path, set: Option<(&str, &str)>) -> Result<String, St
 pub fn ask_spawn_policy(path: &Path) -> Result<Option<String>, String> {
     let text = ask_json(path, &json!({"tool": "spawn_policy"}))?;
     Ok((!text.is_empty()).then_some(text))
+}
+
+/// The turn hook's answer from the live host (the JSON the hook prints).
+pub fn ask_rights_hook(path: &Path, phase: &str, payload: Value) -> Result<String, String> {
+    ask_json(
+        path,
+        &json!({"tool": "rights_hook", "phase": phase, "payload": payload}),
+    )
 }
 
 /// The browse page from the live host; Err when no host answers on `path`.

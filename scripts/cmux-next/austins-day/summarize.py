@@ -158,7 +158,51 @@ def stall_sites(stalls):
     return sorted(sites.values(), key=lambda s: -s["total_ms"])
 
 
+# Every chat that got no answer is ranked last, at one value above any possible answer: the 150 s a wave
+# waits for its chats (driver.py waves(), thread.join(timeout=150); a chat still running then is recorded as
+# unanswered). Then p50 and p95 over all chats are exact
+# order statistics: no-answer is "slower than every answer", whatever way the chat failed (review of
+# bcbeee46824: a time-to-failure bound differed by failure path and could flip the sign of an A/B).
+NO_ANSWER_MS = 150_000.0
+
+
+def first_answers_all_chats(waves):
+    """Every chat attempt: an answered chat at its first-answer time, every other chat at NO_ANSWER_MS."""
+    out = []
+    for w in waves:
+        chats = w.get("chats")
+        if not isinstance(chats, list):
+            continue
+        for chat in chats:
+            if not isinstance(chat, list):
+                continue
+            answered = first_answers([{"chats": [chat]}])
+            out.append(min(answered[0], NO_ANSWER_MS) if answered else NO_ANSWER_MS)
+    return out
+
+
+def first_answers(waves):
+    """Per chat that got an answer: session/new ms + the prompt's first agent_message_chunk ms."""
+    out = []
+    for w in waves:
+        chats = w.get("chats")
+        if not isinstance(chats, list):
+            continue
+        for chat in chats:
+            if not isinstance(chat, list):
+                continue
+            new = next((a for a in chat if a.get("method") == "session/new" and not a.get("error")), None)
+            prompt = next((a for a in chat if a.get("method") == "session/prompt"), None)
+            if new and prompt and isinstance(prompt.get("first_chunk_ms"), (int, float)):
+                out.append(new["ms"] + prompt["first_chunk_ms"])
+    return out
+
+
 def lock_held_share(first, last, window_s):
+    """Share of the window the registry lock was held: the change of count x mean hold between two server-stats
+    reads, over the window. The daemon's mean is a whole number of microseconds (rounded down), so the result
+    is low by up to about 1 µs per hold in the window (an exact value needs the daemon to report its hold sum);
+    a daemon restart in the window resets its counters (clamped at 0)."""
     def held_us(snapshot):
         hold = stat(snapshot, "registry_lock", "hold_us") or {}
         return (hold.get("count") or 0) * (hold.get("mean") or 0)
@@ -269,6 +313,11 @@ def run_metrics(run):
         "workspace_close_not_done": sum(1 for c in closes if c.get("app_gone_ms") is None or c.get("daemon_gone_ms") is None),
         "workspace_close_attempts": len(series["closes"]),
         "acpmux_new_ms": dist(a["ms"] for a in answers if a["method"] == "session/new"),
+        # Time to first answer per chat (#28442): from the chat's session/new to its prompt's first answer
+        # text, for chats whose prompt got one (session/new time + the prompt's first-chunk time).
+        "acpmux_first_answer_ms": dist(first_answers(series["waves"])),
+        "acpmux_answered_chats": len(first_answers(series["waves"])),
+        "acpmux_first_answer_all_chats_ms": dist(first_answers_all_chats(series["waves"])),
         "acpmux_prompt_ms": dist(a["ms"] for a in answers if a["method"] == "session/prompt"),
         "acpmux_errors": counts(a["error"][:80] for a in answers if a.get("error")),
         # pa-b10's measure: each chat of a Chief wave is one attempt (its session/new, or the connection
@@ -317,10 +366,68 @@ def run_metrics(run):
     if crashed:
         faults.append(f"{len(crashed)} hook runs hit a harness error ({crashed[0][:120]})")
     m["harness_faults"] = faults
+    # The daemon's lock detail after the load (server-stats `locks`, #28147 and later): the top sites of the
+    # registry lock and mux.state by total hold and by p99 hold, since the daemon's start. Descriptive.
+    detail = next((x.get("locks") for x in reversed(series.get("locks") or []) if x.get("locks")), None)
+    # Named sites (lead 2026-10-30, B3 1d): each one's hold p99 and total hold of a lock, from the post-load
+    # lock detail. A site is named by its file and the function that holds the lock (NAMED_LOCK_SITES), so a
+    # fix that moves the lock to another line of the same function still pairs; the line(s) each arm used are
+    # recorded. Several lines of one function add up (total) or take the largest (p99). A site in neither
+    # top-20 list counts as 0 when the lock's `sites` count shows every site was listed; else it is unknown.
+    def site_value(lock, name, key):
+        if not detail:
+            return None, []
+        lock_detail = detail.get(lock) or {}
+        rows = {}
+        for listing in ("by_hold_total", "by_hold_p99"):
+            for s in lock_detail.get(listing) or []:
+                rows[s.get("site")] = s
+        lines = NAMED_LOCK_SITES[name]
+        hits = [s for site, s in rows.items() if any((site or "").endswith(f"{path}:{line}") for path, line in lines)]
+        if hits:
+            values = [s.get(key) or 0 for s in hits]
+            return (sum(values) if key == "hold_total_us" else max(values)), sorted(s.get("site") for s in hits)
+        complete = isinstance(lock_detail.get("sites"), int) and lock_detail["sites"] <= len(lock_detail.get("by_hold_total") or [])
+        return (0 if complete else None), []
+
+    def site_bound(lock, key):
+        """Upper bound for a site in neither top-20 list: the smallest value in the list ranked by that key
+        (review of 7b1d2cd248a). Reported apart from the value, never mixed with a measured one."""
+        lock_detail = (detail or {}).get(lock) or {}
+        listing = lock_detail.get("by_hold_total" if key == "hold_total_us" else "by_hold_p99") or []
+        values = [s.get(key) for s in listing if isinstance(s.get(key), (int, float))]
+        return min(values) if values else None
+    m["lock_sites"] = {}
+    for lock in ("registry",):
+        for name in NAMED_LOCK_SITES:
+            p99, used = site_value(lock, name, "hold_p99_us")
+            total, _ = site_value(lock, name, "hold_total_us")
+            m["lock_sites"][f"{lock}:{name}"] = {
+                "hold_p99_us": p99, "hold_total_us": total, "sites": used,
+                # When the site is in neither list (value None), at most this: the smallest listed value.
+                "hold_p99_us_at_most": site_bound(lock, "hold_p99_us") if p99 is None else None,
+                "hold_total_us_at_most": site_bound(lock, "hold_total_us") if total is None else None}
+    m["lock_top_sites"] = None if not detail else {
+        name: {"by_hold_total": [{k: s.get(k) for k in ("site", "acquisitions", "hold_total_us", "hold_p99_us", "hold_max_us")}
+                                 for s in (detail.get(name) or {}).get("by_hold_total") or []],
+               "by_hold_p99": [{k: s.get(k) for k in ("site", "acquisitions", "hold_total_us", "hold_p99_us", "hold_max_us")}
+                               for s in (detail.get(name) or {}).get("by_hold_p99") or []]}
+        for name in ("registry", "state")}
     # Who fills the connection pool (descriptive): median per load sample of the daemon's own client list by
     # label, and of the live client processes by role; plus the refusals each client kind saw itself.
     holders = load(series.get("holders", []))
     labels = sorted({k for h in holders for k in (h.get("by_label") or {})})
+    kinds = {}
+    for h in holders:
+        for role, shapes in (h.get("process_kinds") or {}).items():
+            for shape, n in shapes.items():
+                kinds.setdefault(role, {}).setdefault(shape, []).append(n)
+    m["process_kinds_median"] = {role: {shape: statistics.median(ns + [0] * (len(holders) - len(ns)))
+                                        for shape, ns in sorted(shapes.items(), key=lambda kv: -sum(kv[1]))[:8]}
+                                 for role, shapes in kinds.items()}
+    end_list = next((h for h in reversed(series.get("holders", [])) if h.get("phase") == "end" and h.get("listed") is not None), None)
+    m["pool_holders_after_load"] = None if not end_list else {
+        "listed": end_list.get("listed"), "by_label": end_list.get("by_label"), "max_age_s": end_list.get("max_age_s")}
     m["pool_holders"] = {
         "samples": len(holders), "listed_ok": sum(1 for h in holders if h.get("listed") is not None),
         "listed_median": {k: statistics.median([(h.get("by_label") or {}).get(k, 0) for h in holders if h.get("listed") is not None] or [0])
@@ -388,6 +495,24 @@ def pick(metrics, path):
 
 
 HARNESS_DIR = "scripts/cmux-next/austins-day"
+# Lock sites reported by name (B3), each a function and the (file, line) of its lock calls in the builds
+# measured: the terminal revision read (line 9 before B3 1d; its fallback at line 20 after) and the progress
+# report.
+NAMED_LOCK_SITES = {
+    "terminal_registry_revision": (("mux/frontend_projection.rs", 9), ("mux/frontend_projection.rs", 20)),
+    "terminal progress report": (("mux/terminal_progress.rs", 18),),
+}
+def scenario_note(runs):
+    """The scenario's agent CLI rate, from the runs' own options."""
+    rates = sorted({(r.get("opts") or {}).get("cli_every") for r in runs if isinstance(r, dict)} - {None})
+    if rates == [0]:
+        return "main arm: no agent cmux CLI calls (hooks and the app only)"
+    if not rates:
+        rates = [3]  # runs from before the option was recorded: their default was one call per 3 tool calls
+    return ("assumed sensitivity arm, not from Austin's data: one cmux workspace list per " + "/".join(map(str, rates))
+            + " tool calls; it fills the 64-slot pool with CLI calls, so hook-path fixes cannot show in refused connections")
+
+
 AGENT_CLI_RATE_NOTE = ("assumed, not from Austin's data: one cmux workspace list per 3 tool calls; it fills the 64-slot pool with CLI calls, so hook-path fixes cannot show in refused connections")
 CONFIDENCE = 0.95
 
@@ -413,6 +538,42 @@ def base_is_ancestor(base_sha, head_sha, repo=REPO):
     except (OSError, subprocess.SubprocessError):
         return None
     return {0: True, 1: False}.get(done.returncode)
+
+
+def is_revert_pair(base_sha, head_sha, repo=REPO):
+    """True when the base is the head plus exactly one commit that reverts a commit of the head's history (a
+    "before" ref made by reverting the fix on the fix's own tree, as for B3 1d): the base has one parent, the
+    head; its message says "This reverts commit X"; X is an ancestor of the head; and the base-to-head diff is
+    X's own diff. Then base..head is the fix alone."""
+    if not base_sha or not head_sha:
+        return None
+
+    def git(*args):
+        # Bytes, not text: a file in the reverted commit need not be UTF-8 (review of 7b1d2cd248a).
+        done = subprocess.run(["git", "-C", repo, *args], capture_output=True, timeout=60)
+        return done.stdout.decode("utf-8", "surrogateescape") if done.returncode == 0 else None
+    try:
+        parents = git("rev-list", "--parents", "-n", "1", base_sha)
+        head = git("rev-parse", head_sha)
+        body = git("log", "-1", "--format=%B", base_sha)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if parents is None or head is None or body is None:
+        return None
+    ids = parents.split()
+    if len(ids) != 2 or ids[1] != head.strip():
+        return False
+    found = re.search(r"This reverts commit ([0-9a-f]{7,40})", body)
+    if not found:
+        return False
+    reverted = found.group(1)
+    try:
+        ancestor = subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor", reverted, head_sha], capture_output=True, timeout=60)
+        own = git("diff", f"{reverted}^", reverted)
+        pair = git("diff", base_sha, head_sha)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return ancestor.returncode == 0 and own is not None and pair is not None and own == pair and bool(own)
 
 
 def measured_commits(base_sha, head_sha, repo=REPO):
@@ -539,6 +700,45 @@ def compare(runs):
     return out
 
 
+# Paired comparisons a lead or fix author asked for, outside the verdict set: the same paired t-interval,
+# but no verdict and no A/A check (some are descriptive estimates). Label -> path in metrics.
+REQUESTED = [
+    ("registry lock held share", ("registry_lock_held_share",)),
+    ("registry lock wait p99 us", ("daemon_lock_wait_us", "p99")),
+    ("app request p99 ms", ("app_requests", "p99")),
+    # #28442 (pa-b10): the time to first answer per chat (the 90 s agent_start time-outs are a verdict row).
+    ("acpmux first answer median ms (answered chats only)", ("acpmux_first_answer_ms", "p50")),
+    ("acpmux first answer p95 ms (answered chats only)", ("acpmux_first_answer_ms", "p95")),
+    ("acpmux answered chats", ("acpmux_answered_chats",)),
+    ("acpmux first answer median ms (all chats; no answer ranked last at 150 s)",
+     ("acpmux_first_answer_all_chats_ms", "p50")),
+    ("acpmux first answer p95 ms (all chats; no answer ranked last at 150 s)",
+     ("acpmux_first_answer_all_chats_ms", "p95")),
+] + [(f"{lock} lock {suffix} {what}", ("lock_sites", f"{lock}:{suffix}", key))
+     for lock in ("registry",) for suffix in NAMED_LOCK_SITES
+     for what, key in (("hold p99 us", "hold_p99_us"), ("hold total us", "hold_total_us"))]
+
+
+def requested_comparisons(runs):
+    by_round = {}
+    for r in runs:
+        if "metrics" in r and r.get("arm") in ("base", "head"):
+            by_round.setdefault(r.get("round"), {})[r["arm"]] = r
+    rounds = [v for _, v in sorted(by_round.items(), key=lambda kv: str(kv[0]))
+              if "base" in v and "head" in v and v["base"].get("host") == v["head"].get("host")]
+    out = {}
+    for label, path in REQUESTED:
+        raw = [(pick(v["base"]["metrics"], path), pick(v["head"]["metrics"], path)) for v in rounds]
+        pairs = [(b, h) for b, h in raw if isinstance(b, (int, float)) and isinstance(h, (int, float))]
+        mean, low, high = paired_t_interval(pairs)
+        # Rounds dropped because a value was unknown (for a lock site: in neither top-20 list while the lock had
+        # more sites than listed). A dropped round can hide a change, so the count is shown next to n.
+        out[label] = {"n": len(pairs), "dropped": len(raw) - len(pairs), "base_median": statistics.median([b for b, _ in pairs]) if pairs else None,
+                      "head_median": statistics.median([h for _, h in pairs]) if pairs else None,
+                      "mean_diff": mean, "ci_low": low, "ci_high": high}
+    return out
+
+
 def validity(runs):
     """Why this A/B gives no verdict, or None. A run counts only when the base reproduced Austin's day
     (cmux-ad 2026-10-30): any base run that showed none of Austin's failures makes the whole A/B invalid. A
@@ -558,8 +758,9 @@ def validity(runs):
     if quiet:
         return f"invalid: base did not reproduce ({', '.join(quiet)} showed none of Austin's failures)"
     ancestor = base_is_ancestor(base[0].get("sha"), head[0].get("sha"))
-    if ancestor is False:
-        return "invalid: base is not an ancestor of head (the base must be the PR's parent commit)"
+    if ancestor is False and not is_revert_pair(base[0].get("sha"), head[0].get("sha")):
+        return ("invalid: base is not an ancestor of head (the base must be the PR's parent commit, or the head "
+                "plus one revert commit)")
     edits = head_edits_harness(base[0].get("sha"), head[0].get("sha"))
     if edits is None:
         return "invalid: cannot check the head for harness edits (fetch both commits into this checkout)"
@@ -588,6 +789,7 @@ def main():
         args = args[1:]
     out_path, run_dirs = args[0], args[1:]
     runs = []
+    raw_runs = []
     for d in run_dirs:
         try:
             arm = json.load(open(os.path.join(d, "arm.json")))
@@ -599,11 +801,12 @@ def main():
             runs.append({"dir": d, **arm, "error": f"no run.json: {error}"})
             continue
         runs.append({"dir": d, **arm, "host": arm.get("host") or run.get("host"), "metrics": run_metrics(run)})
+        raw_runs.append(run)
     arms = {}
     for r in runs:
         if "metrics" in r:
             arms.setdefault(r["arm"], []).append(r)
-    summary = {"schema": 2, "runs": runs, "arms": {}, "scenario_note": "agent CLI rate: " + AGENT_CLI_RATE_NOTE}
+    summary = {"schema": 2, "runs": runs, "arms": {}, "scenario_note": scenario_note(raw_runs)}
     for name, members in arms.items():
         medians = {}
         for label, path in KEY:
@@ -617,18 +820,34 @@ def main():
         rounds.setdefault(r.get("round"), set()).add(r.get("host"))
     summary["same_host_per_round"] = {str(k): len(v) == 1 for k, v in rounds.items()}
     summary["invalid"] = validity(runs)
+    rates = {(r.get("opts") or {}).get("cli_every") for r in raw_runs}
+    if len(rates) > 1:
+        summary["invalid"] = f"invalid: the runs use different agent CLI rates ({sorted(map(str, rates))}): different scenarios"
     if "base" in arms and "head" in arms:
-        summary["measured_commits"] = measured_commits(arms["base"][0].get("sha"), arms["head"][0].get("sha"))
+        b, h = arms["base"][0].get("sha"), arms["head"][0].get("sha")
+        if is_revert_pair(b, h):
+            summary["measured_commits"] = ["(revert pair) the base reverts on the head:"] + (measured_commits(h, b) or ["?"])
+        else:
+            summary["measured_commits"] = measured_commits(b, h)
     if aa_mode:
         shas = {r.get("sha") for r in runs if "metrics" in r}
         if len(shas) != 1:
             summary["invalid"] = f"invalid: an A/A needs one build in both arms, got {sorted(map(str, shas))}"
     if "base" in arms and "head" in arms and not summary["invalid"]:
+        summary["requested"] = requested_comparisons(runs)
         summary["comparison"] = compare(runs)
         known = aa_failures()
+        # Runs that recorded no rate are from before the option existed: their default was one call per 3.
+        rate = (lambda r: 3 if r is None else r)(next(iter(rates))) if len(rates) == 1 else None
+        tested = known.get("scenarios", {}).get(str(rate)) if isinstance(known.get("scenarios"), dict) else None
+        if not aa_mode and tested is None:
+            # No A/A for this scenario yet (aa-failures.json "scenarios", keyed by the agent CLI rate).
+            summary["aa_note"] = f"no A/A yet for this scenario (agent CLI rate {rate}): verdicts are not A/A-checked"
+            for row in summary["comparison"]["metrics"].values():
+                row["verdict"] = f"not A/A-checked: {row['verdict']}"
         for label, row in summary["comparison"]["metrics"].items():
-            if label in known.get("metrics", {}) and not aa_mode:
-                row["verdict"] = f"invalid (fails A/A {known.get('date', '')}): {row['verdict']}"
+            if tested is not None and label in tested.get("metrics", {}) and not aa_mode:
+                row["verdict"] = f"invalid (fails A/A {tested.get('date', '')}): {row['verdict']}"
         if aa_mode:
             # An A/A passes a metric when its interval contains 0 (an exact [0, 0] passes; no pairs: not tested).
             failed = {label: {"ci_low": row["ci_low"], "ci_high": row["ci_high"]}
@@ -643,13 +862,15 @@ def main():
     names = list(summary["arms"])
     lines = [f"Austin's day: {len(runs)} runs; arms {', '.join(f'{n} ({summary['arms'][n]['sha'] or '?'}, {summary['arms'][n]['runs']} runs)' for n in names)}"]
     lines.append(f"same host per round: {summary['same_host_per_round']}")
-    lines.append("scenario note: the agent CLI rate is " + AGENT_CLI_RATE_NOTE)
+    lines.append("scenario: " + summary["scenario_note"])
     if summary.get("measured_commits") is not None:
         commits = summary["measured_commits"]
         lines.append(f"measured commits (base..head): {len(commits)}; check they are the PR's own (base = the PR's parent)")
         lines.extend(f"   {c}" for c in commits[:30])
     if summary["invalid"]:
         lines.append(f"{summary['invalid']} -- NO VERDICT")
+    if summary.get("aa_note"):
+        lines.append(summary["aa_note"])
     width = max(len(label) for label, _ in KEY)
     comparison = summary.get("comparison")
     header = " " * width + "  " + "  ".join(f"{n:>12}" for n in names)
@@ -667,12 +888,20 @@ def main():
         lines.append(line)
     if comparison:
         lines.append(f"({comparison['method']}; {comparison['rounds']} rounds)")
+    if summary.get("requested"):
+        lines.append("requested paired comparisons (no verdict, not A/A-checked; head - base, paired t-interval 95 %):")
+        for label, c in summary["requested"].items():
+            fmt = lambda v: "?" if v is None else f"{v:.4g}"
+            lines.append(f"   {label}: n={c['n']}" + (f" (dropped {c['dropped']}: value unknown)" if c.get("dropped") else "")
+                         + f" base median {fmt(c['base_median'])} head median {fmt(c['head_median'])} "
+                         f"diff {fmt(c['mean_diff'])} [{fmt(c['ci_low'])}, {fmt(c['ci_high'])}]")
     if summary.get("aa"):
         aa = summary["aa"]
         lines.append(f"A/A self-test of {aa['build']}: {len(aa['passed'])} metrics pass (CI contains 0), "
                      f"{len(aa['failed'])} FAIL: {', '.join(aa['failed']) or 'none'}; not tested: {', '.join(aa['not_tested']) or 'none'}")
-        lines.append("Record it: copy summary.json's 'aa' block into scripts/cmux-next/austins-day/aa-failures.json "
-                     "({\"date\", \"build\", \"metrics\": failed}) in the harness owner's PR.")
+        lines.append("Record it: add summary.json's 'aa' block to scripts/cmux-next/austins-day/aa-failures.json under "
+                     "\"scenarios\" -> the agent CLI rate (\"0\" main arm, \"3\" assumed arm) as "
+                     "{\"date\", \"build\", \"harness\", \"metrics\": failed}, in the harness owner's PR.")
     for r in runs:
         if "metrics" not in r:
             lines.append(f"{r['dir']}: {r['error']}")
@@ -682,9 +911,27 @@ def main():
         lines.append(f"{r.get('arm')} round {r.get('round')} on {r.get('host')}: agents {m['agents_started']}/{m['agents']} "
                      f"(hooked {m['agents_hooked']}), hooks {m['agent_hooks']}; Austin's failures seen: {', '.join(seen) or 'NONE'}"
                      + (f"; HARNESS FAULTS: {'; '.join(m['harness_faults'])}" if m["harness_faults"] else ""))
+        if m.get("lock_top_sites"):
+            for lock in ("registry", "state"):
+                top = (m["lock_top_sites"].get(lock) or {}).get("by_hold_total") or []
+                if top:
+                    lines.append(f"   {lock} lock, top holders by total hold (since the daemon started; read after the load): " + "; ".join(
+                        f"{s['site'].rsplit('/', 1)[-1]} {round((s.get('hold_total_us') or 0) / 1e6, 1)} s"
+                        f" p99 {round((s.get('hold_p99_us') or 0) / 1000, 1)} ms" for s in top[:3]))
+        for site, v in ((m.get("lock_sites") or {}).items() if m.get("lock_top_sites") else ()):
+            def show(value, bound, unit):
+                if value is not None:
+                    return f"{round(value / unit, 1)}"
+                # A bound is rounded up, never down (review of 748dc589635: 40,000 us printed as 0.0 s).
+                return (f"absent from the top 20, so at most {math.ceil(bound / unit * 10) / 10}"
+                        if bound is not None else "?")
+            lines.append(f"   {site}: total hold {show(v.get('hold_total_us'), v.get('hold_total_us_at_most'), 1e6)} s, "
+                         f"hold p99 {show(v.get('hold_p99_us'), v.get('hold_p99_us_at_most'), 1000)} ms"
+                         + (f" (lines {', '.join(s.rsplit(':', 1)[-1] for s in v['sites'])})" if v.get("sites") else ""))
         if m.get("registry_lock_held_share") is not None:
             lines.append(f"   registry lock held {m['registry_lock_held_share']:.1%} of the run's server-stats window "
-                         "(descriptive, no verdict: not yet A/A-tested; integer-mean estimate, up to ~1-2 points low)")
+                         "(descriptive, no verdict: not yet A/A-tested; the daemon's mean hold is a whole number of "
+                         "microseconds, so this is low by up to about 1 µs per hold in the window)")
         lines.append(f"   stalls >100 ms: CODE {m['stall_code_count']} ({m['stall_code_total_ms']} ms), "
                      f"WAIT {m['stall_wait_count']} ({m['stall_wait_total_ms']} ms, max CPU share {m['stall_wait_cpu_share_max']}) "
                      f"next to swap max {m['swap_used_mb']['max']} MB, memory level min {m['memory_level_min']}; WAITs: owner B8 (memory)")

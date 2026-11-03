@@ -45,6 +45,7 @@ extension UpdaterService {
         case .update: downloadClicked()
         case .retry: checkForUpdates()
         case .details: presentUpdateUI?()
+        case .cancelDownload: cancelDownloadClicked()
         case .releaseNotes: break
         }
     }

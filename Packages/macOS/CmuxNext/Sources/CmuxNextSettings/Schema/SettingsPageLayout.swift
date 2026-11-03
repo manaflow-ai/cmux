@@ -19,6 +19,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case importSuggestions
         /// Every release channel's recent builds, with the one this Mac runs (Settings > Updates).
         case channels
+        /// The app update's status: a check, a download's progress and Cancel, Restart to Update, a
+        /// failure's Try Again (Settings > Updates; the sidebar shows only the staged update).
+        case appUpdate
         /// The web UI served now, its last check and Roll Back (plans/cmux-next/web-ota.md); NIGHTLY only.
         case webUpdates
         /// Settings > Chief's Voice input row: the Debug toggle home.voiceInput, only where it exists.
@@ -184,7 +187,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         ],
         trail: [.spaces], actions: [.general, .rooms], aliases: [.general, .rooms])
 
-    // How this Mac updates, then every channel's recent builds (docs/release-rings.md in hq).
+    // The app update's status, how this Mac updates, then every channel's recent builds (docs/release-rings.md in hq).
     private static let updates = CategorySpec(
         id: "updates", title: SettingsText.keyed("settings.category.updates", "Updates"), symbol: "icloud.and.arrow.down",
         groups: [
@@ -193,7 +196,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                       title: SettingsText.keyed("settings.pageGroup.updatesAdvanced", "Updates: Advanced")),
         ],
         // After the groups: the Web UI card (the web half of Updates; NIGHTLY only), then the channels.
-        trail: [.webUpdates, .channels])
+        lead: [.appUpdate], trail: [.webUpdates, .channels])
 
     private static let theme = CategorySpec(
         id: "theme", title: SettingsText.keyed("settings.category.theme", "Theme"), symbol: "paintpalette",
@@ -203,25 +206,28 @@ public nonisolated struct SettingsPageLayout: Sendable {
         lead: [.themeStudio])
 
     /// Settings > Sidebar (#28663): the sidebar's size and spacing lead, then the cards that were in
-    /// Appearance (Sidebar, Sidebar Workspaces, Buttons and Spaces, hover cards, Workspace Rows).
+    /// Appearance (Sidebar, Sidebar Workspaces, Sidebar Layout, Buttons and Spaces, hover cards, Workspace Rows).
     private static let sidebar = CategorySpec(
         id: "sidebar", title: SettingsText.keyed("settings.category.sidebar", "Sidebar"), symbol: "sidebar.left",
         groups: [
             card("settings.pageGroup.sidebarSize", "Size and Spacing", [
                 "sidebar.textSize", "sidebar.density", "sidebar.rowSpacing",
             ]),
-            // Show Workspace Tabs leads the Sidebar card: it is off by default, and this is
-            // where a person turns each workspace's tabs back on (#26384).
-            GroupSpec(group: "settings.group.sidebar", leadKeys: ["sidebar.showWorkspaceTabs"]),
+            GroupSpec(group: "settings.group.sidebar"),
             card("settings.pageGroup.sidebarWorkspaces", "Sidebar Workspaces", [
                 "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
                 "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
                 "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
                 "sidebar.groupHeader.unreadCount", "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
             ]),
+            // The three list shapes (#31140) get their own card so Sidebar Workspaces stays under
+            // `maxRowsPerCard`.
+            card("settings.pageGroup.sidebarLayout", "Sidebar Layout", [
+                "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide",
+            ]),
             card("settings.pageGroup.sidebarExtras", "Sidebar Buttons and Spaces", [
                 "sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl",
-                "sidebar.showSearchButton", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps",
+                "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps",
                 "home.channelsEnabled",
             ]),
             card("settings.pageGroup.workspaceCards", "Workspace Hover Cards", [
@@ -298,7 +304,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
             card("settings.pageGroup.chatLayout", "Chat Layout", [
                 "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap",
-                "agentPane.display.vscodeMinimap", "agentPane.display.rail.side", "agentPane.display.inspector.placement",
+                "agentPane.display.vscodeMinimap", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement",
                 "agentPane.display.environment.placement",
             ]),
             card("settings.pageGroup.chatText", "Chat Text", [
@@ -307,7 +313,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             ]),
             card("settings.pageGroup.messageBox", "Message Box", [
                 "agentPane.showContextUsage", "agentPane.showDictation", "agentPane.spellChecking",
-                "agentPane.attachmentView", "agentPane.scrollToBottomOnSend",
+                "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement",
             ]),
             card("settings.pageGroup.filesLinks", "Files and Links", [
                 "agentPane.links.outsideRoots", "agentPane.images.remote", "agentPane.editedFiles.show",
@@ -320,13 +326,18 @@ public nonisolated struct SettingsPageLayout: Sendable {
             group("settings.group.sessions"),
             // Whether agent sessions may start sub-sessions, how many and how deep.
             group("settings.group.subsessions"),
+            // Whether a turn a rate limit or a lost connection ended is tried again, how often.
+            group("settings.group.agentRetry"),
             // Folders that start an agent without the trust question.
             group("settings.group.folderTrust"),
         ],
-        // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
-        // removes the ones you added. Agent integrations (optional help, collapsed) installs the
-        // hooks that report an agent's state, through `cmux agent hook`.
-        trail: [.harnesses, .agentHarnesses, .computerUse, .agentIntegrations])
+        // Computer Use (#28997) comes first: its card draws the on/off switch, the guided setup
+        // and the helper's grants together, and the `settings.group.computerUse` rows (the page
+        // does not draw that group a second time). Harnesses lists every harness; Your Agents
+        // (BRING-YOUR-OWN-HARNESS) adds, checks and removes the ones you added. Agent integrations
+        // (optional help, collapsed) installs the hooks that report an agent's state, through
+        // `cmux agent hook`.
+        trail: [.computerUse, .harnesses, .agentHarnesses, .agentIntegrations])
 
     // Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick
     // version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening
@@ -346,6 +357,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             group("settings.group.chiefEngine"),
             // Whether a tapback on a Chief message can start a turn, and the classifier that decides (a416).
             group("settings.group.chiefReactions"),
+            // Whether the Chief may route each subagent to the harness best at its task (spawn harness).
+            group("settings.group.chiefSubagents"),
         ],
         lead: [.chiefs, .chiefPet, .voiceInput], trail: [.notices])
 
@@ -411,7 +424,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         id: "accounts", title: section(.accounts), symbol: "person.crop.circle",
         // Phone access sits beside the account it signs in with and the machines list. The
         // Machines card draws Machine Colors on its rows (a color well per machine).
-        groups: [group("settings.group.phone"), group("settings.group.messagesServer"), group("settings.group.machineColors")],
+        groups: [group("settings.group.phone"), group("settings.group.messagesServer"), group("settings.group.machineColors"),
+                 group("settings.group.cloudWorkspaces")],
         lead: [.accounts, .machines, .cloudEnvironments], actions: [.accounts, .machines], aliases: [.accounts, .machines])
 
     // Phones reaching this Mac: the iPhone host's switch, then its live status and phones.

@@ -196,9 +196,11 @@ extension BrowserPageService {
             guard let raw, raw != .null else { return nil }
             guard let text = raw.stringValue else { throw wrongType("url") }
             if text.isEmpty { return nil }
-            guard let url = URL(string: text), let host = url.host, !host.isEmpty else {
+            guard let url = URL(string: text),
+                  let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+                  let host = url.host, !host.isEmpty else {
                 throw ControlError(code: "invalid_params",
-                                   message: ControlStrings.format("control.error.cookieURL", "params.url needs a scheme and a host, such as https://%@/", text),
+                                   message: ControlStrings.format("control.error.cookieURL", "params.url needs an http(s) scheme and a host, such as https://%@/", text),
                                    data: ["param": "url"])
             }
             return url

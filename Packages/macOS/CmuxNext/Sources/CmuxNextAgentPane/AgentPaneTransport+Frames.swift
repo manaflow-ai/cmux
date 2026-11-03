@@ -369,6 +369,11 @@ extension AgentPaneTransport {
                 granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
                     && facts.sessionId.map(sessions.contains) == true
                 ticketPick = granted
+                // A prompt that goes with its own ticket spends the start's credit too, as one
+                // without a ticket does: the credit never grants a later prompt (#23031).
+                if granted, facts.method == "session/prompt" {
+                    _ = startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime)
+                }
                 if redeemedQuestion, let credit = questionCredit {
                     guard let before = decisions.context(session: credit.target.sessionID, permission: credit.target.permissionID), before == credit.context,
                           await credit.redeem(), id == current, self.socket === socket,
@@ -399,8 +404,11 @@ extension AgentPaneTransport {
                 let credit = facts.method == "session/prompt"
                     && startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime) == true
                 // A prompt spends the person's gesture however old it is (``AgentPaneUserGestures/consumeForSend()``).
+                // Computer use acting as the person (``AgentPaneActAsMe``, on only by the person's own grant)
+                // backs Send, Retry and Approve, nothing else (``AgentPaneUserGestures/consumePosted(for:)``).
                 granted = redeemedQuestion || !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures)
                     && (facts.method == "session/prompt" ? gestures.consumeForSend() : gestures.consume())) || credit
+                    || gestures.consumePosted(for: facts.method)
                 // A new chat on this Mac needs no gesture, but its send's (or the folder pick's) goes with its first
                 // prompt however long the start takes, past ``AgentPaneUserGestures/lifetime`` (hq#2569 item 5).
                 // A folder pick that took the Send's gesture (``grantPicked(_:)``) gives it to this start.
@@ -414,6 +422,7 @@ extension AgentPaneTransport {
                 }
             }
             if !granted {
+                gestures.noteRefused(facts.method)
                 Self.logger.info("agent pane transport gesture refused method=\(facts.method ?? "-", privacy: .public) \(self.gestures.debugDescription, privacy: .public)")
                 return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
             }
@@ -490,10 +499,14 @@ extension AgentPaneTransport {
             localAppToken = nil
         } else {
             noteSent(facts, relayID: relayID)
-            // The switch's queued prompt goes out: the switch has ended, its tickets with it.
-            // A prompt went out: a seed ticket it did not redeem and the start's credit end too.
+            // A Sign in that took the person's click opens its page too, with no second click.
+            if facts.needsGesture, facts.method == "_acpmux/agent_login/start" {
+                signInPageCredit.give(connection: id, at: gestures.uptime)
+            }
+            // The switch's queued prompt goes out: its pick tickets end, but each other prompt
+            // keeps its own send proof for the rapid-send case.
             if facts.method == "session/prompt" {
-                gestures.clearTickets(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
+                gestures.clearTicketsKeepingPrompts(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
             }
         }
         // Whether this answer carries this Mac's signed allow, by its page id (one request at a

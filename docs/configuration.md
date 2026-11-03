@@ -154,21 +154,6 @@ What Cmd-W does on a pinned tab.
 
 A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs false`.
 
-## `tabs.terminalFirst`
-
-What a new tab, split, workspace or window opens. Settings shows it as **cmux Classic Mode**.
-
-```json
-{
-  "tabs": { "terminalFirst": true }
-}
-```
-
-- `false` (default): Cmd-T and Cmd-N open the New Tab page, and a split from a browser tab, the New Tab page or an agent chat opens the New Tab page in the new pane.
-- `true`: new tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic.
-
-With it on, Cmd-T always opens a tab in the focused pane, even with `newTerminal.opensWorkspace` or `layout.newPanePlacement: split`, and a new or emptied workspace starts on a terminal instead of the New Tab page. To open the New Tab page anyway, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P); Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab. Scripts (`cmux tab new`, `cmux pane split-right`, MCP) are not affected. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.terminalFirst true`.
-
 ## `tabs.swapCmdTAndCmdN`
 
 Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
@@ -199,9 +184,30 @@ What Cmd-1 to Cmd-9 select.
 
 A key you bind yourself in `shortcuts.bindings` for `selectWorkspaceByNumber` or `selectSurfaceByNumber` wins, and then neither moves. Change it in **Settings > Keyboard > Sidebar Navigation** or with `cmux settings set tabs.commandDigits tabs`.
 
+## `tabs.verticalTabs` and `tabs.verticalTabsExpandOnHover`
+
+Whether workspaces show their tabs as a vertical list beside their panes, as in Edge and Chrome, instead of the horizontal tab bar.
+
+```json
+{
+  "tabs": { "verticalTabs": true, "verticalTabsExpandOnHover": false }
+}
+```
+
+- `tabs.verticalTabs`: `false` (default) keeps the horizontal tab bar. `true` shows vertical tabs in every workspace. This is **Use Vertical Tabs for All Workspaces**.
+- `tabs.verticalTabsExpandOnHover`: `true` (default) widens a list collapsed to icons to show the titles while the pointer is over it.
+
+One workspace can turn vertical tabs on or off for itself: right-click the empty part of its tab bar or tab list and choose **Turn On Vertical Tabs** or **Turn Off Vertical Tabs**. That workspace's own choice wins over `tabs.verticalTabs`. Changing **Use Vertical Tabs for All Workspaces** clears every workspace's own choice.
+
+The same menu has **New Tab**, **Reopen Closed Tab**, **Bookmark All Tabs**, **Move All Tabs to a New Workspace**, **Collapse Tabs** (icons only, for every workspace), **Auto-Expand Tabs on Hover** and **Task Manager**.
+
+The list has pinned tabs at the top, tab groups with their color bar, the speaker to mute a tab, drag to reorder and the same tab right-click menu as the tab bar. A workspace showing vertical tabs lists no tab rows under its row in the sidebar, even with `sidebar.showWorkspaceTabs` on: its own list shows them.
+
+Change both in **Settings > General > Tabs** or with `cmux settings set tabs.verticalTabs true`.
+
 ## Tab bar (removed: `tabs.tabBar`)
 
-Every pane shows its horizontal tab bar: terminals, browsers, agent chats and the chat dock. A workspace is a vertical tab in the sidebar, and a pane's tab bar holds tabs inside it.
+Every pane shows its horizontal tab bar: terminals, browsers, agent chats and the chat dock. The exception is a workspace showing vertical tabs (`tabs.verticalTabs`), whose panes list their tabs on their leading edge. A workspace is a vertical tab in the sidebar, and a pane's tab bar holds tabs inside it.
 
 The only way to hide one pane's tab bar is **Hide Tab Bar** in the command palette (Cmd-Shift-P) or the pane's right-click menu. While the bar is hidden, the same entry reads **Show Tab Bar**. The CLI keeps `cmux pane toggle-tab-bar`. Cmd-T always opens a tab in the current workspace, also in a pane that hides its tab bar (the tab bar then shows); Cmd-N opens a new workspace. **New Horizontal Tab** (no default key) turns the focused pane's tab bar on and opens a tab there.
 

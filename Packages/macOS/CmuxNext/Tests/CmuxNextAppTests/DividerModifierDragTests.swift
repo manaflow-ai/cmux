@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// Modifier keys held while dragging a divider or a column edge pick how the drag resizes
@@ -8,6 +9,7 @@ import Testing
 /// moves at a quarter of the pointer's speed. A modifier pressed or let go mid-drag changes the mode
 /// at once, and Escape cancels the drag back to where it began.
 @MainActor
+@Suite(.closesItsWindows)
 struct DividerModifierDragTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
@@ -58,10 +60,12 @@ struct DividerModifierDragTests {
             return (view, from)
         }
 
-        /// Moves a pressed handle `dx` points right of where it was pressed, in two steps.
+        /// Moves a pressed handle `dx` points right of where it was pressed, in two steps, then shows one display
+        /// frame: the frame tick writes a drag's newest pointer.
         func move(_ view: DividerHandleView, from: CGPoint, by dx: CGFloat, flags: NSEvent.ModifierFlags = []) {
             view.mouseDragged(with: event(.leftMouseDragged, CGPoint(x: from.x + dx / 2, y: from.y), flags))
             view.mouseDragged(with: event(.leftMouseDragged, CGPoint(x: from.x + dx, y: from.y), flags))
+            _ = root.advanceFrame(1.0 / 120)
         }
 
         func release(_ view: DividerHandleView, at point: CGPoint, flags: NSEvent.ModifierFlags = []) {
@@ -75,11 +79,14 @@ struct DividerModifierDragTests {
             release(view, at: CGPoint(x: from.x + dx, y: from.y), flags: flags)
         }
 
+        /// Presses or lets go of modifier keys mid-drag, then shows one display frame (the frame tick writes the drag's
+        /// new mode).
         func flags(_ view: DividerHandleView, _ flags: NSEvent.ModifierFlags) {
             let event = NSEvent.keyEvent(with: .flagsChanged, location: .zero, modifierFlags: flags, timestamp: 0,
                                          windowNumber: window.windowNumber, context: nil, characters: "",
                                          charactersIgnoringModifiers: "", isARepeat: false, keyCode: 58)!
             view.flagsChanged(with: event)
+            _ = root.advanceFrame(1.0 / 120)
         }
 
         private func event(_ type: NSEvent.EventType, _ point: CGPoint, _ flags: NSEvent.ModifierFlags) -> NSEvent {
@@ -100,6 +107,7 @@ struct DividerModifierDragTests {
 
     @Test func optionDraggingASplitDividerGrowsItsColumnAndPushesTheColumnsAfterIt() throws {
         let screen = Screen(Self.threeColumns())
+        defer { screen.window.closeAfterTest() }
         let divider = try #require(screen.screen.geometry.dividers.first { $0.id == "x" })
         let t = screen.screen.context.style.dividerThickness
         let rightPane = (divider.container.width - t) * 0.5
@@ -119,6 +127,7 @@ struct DividerModifierDragTests {
 
     @Test func optionDraggingAColumnEdgeTradesWidthWithTheNextColumn() throws {
         let screen = Screen(Self.threeColumns())
+        defer { screen.window.closeAfterTest() }
         let start = screen.points(0.4)
 
         try screen.drag(.columnEdge("c0"), by: 50, flags: .option)
@@ -131,6 +140,7 @@ struct DividerModifierDragTests {
 
     @Test func withoutAModifierAColumnEdgeResizesOnlyItsColumn() throws {
         let screen = Screen(Self.threeColumns())
+        defer { screen.window.closeAfterTest() }
         try screen.drag(.columnEdge("c0"), by: 50)
         #expect(screen.width("c1") == 0.4)
         #expect(screen.width("c2") == 0.4)
@@ -140,6 +150,7 @@ struct DividerModifierDragTests {
 
     @Test func commandDraggingAColumnEdgeGivesEveryColumnThatWidth() throws {
         let screen = Screen(Self.threeColumns([0.4, 0.3, 0.6]))
+        defer { screen.window.closeAfterTest() }
         try screen.drag(.columnEdge("c0"), by: 40, flags: .command)
         let first = try #require(screen.width("c0"))
         #expect(abs(screen.points(first) - (screen.points(0.4) + 40)) < 1)
@@ -152,6 +163,7 @@ struct DividerModifierDragTests {
         let tree: SplitNode = .split("x", axis: .horizontal, ratio: 0.4, a: .leaf("p1"),
                                      b: .split("y", axis: .horizontal, ratio: 0.2, a: .leaf("p2"), b: .leaf("p3")))
         let screen = Screen(.splits(tree))
+        defer { screen.window.closeAfterTest() }
         let divider = try #require(screen.screen.geometry.dividers.first { $0.id == "x" })
         let available = divider.container.width - screen.screen.context.style.dividerThickness
         try screen.drag(.split("x"), by: 30, flags: .command)
@@ -164,19 +176,22 @@ struct DividerModifierDragTests {
 
     @Test func shiftLandsADividerOnTheNearestSnapEvenFarFromIt() throws {
         let screen = Screen(.splits(.split("x", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2"))))
-        // 0.3 + 230 pt of 1600 is about 0.44: free without Shift (8 pt snap reach), a half with it.
+        defer { screen.window.closeAfterTest() }
+        // 0.3 + 230 pt of 1600 is about 0.44: where the pointer lets go without Shift, a half with it.
         try screen.drag(.split("x"), by: 230, flags: .shift)
         #expect(screen.ratio("x") == 0.5)
     }
 
     @Test func shiftLandsAColumnEdgeOnAPresetWidth() throws {
         let screen = Screen(Self.threeColumns())
+        defer { screen.window.closeAfterTest() }
         try screen.drag(.columnEdge("c0"), by: 60, flags: .shift)
         #expect(screen.width("c0") == 0.5)
     }
 
     @Test func controlMovesADividerAtAQuarterOfThePointersSpeed() throws {
         let screen = Screen(.splits(.split("x", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2"))))
+        defer { screen.window.closeAfterTest() }
         let divider = try #require(screen.screen.geometry.dividers.first { $0.id == "x" })
         let available = divider.container.width - screen.screen.context.style.dividerThickness
         try screen.drag(.split("x"), by: 80, flags: .control)
@@ -188,6 +203,7 @@ struct DividerModifierDragTests {
 
     @Test func lettingGoOfCommandMidDragPutsTheOtherColumnsBack() throws {
         let screen = Screen(Self.threeColumns([0.4, 0.3, 0.6]))
+        defer { screen.window.closeAfterTest() }
         let (view, from) = try screen.press(.columnEdge("c0"), flags: .command)
         screen.move(view, from: from, by: 40, flags: .command)
         #expect(screen.width("c1") == screen.width("c0"))
@@ -202,6 +218,7 @@ struct DividerModifierDragTests {
 
     @Test func pressingOptionMidDragSwitchesToPushWithoutMovingTheDivider() throws {
         let screen = Screen(Self.threeColumns())
+        defer { screen.window.closeAfterTest() }
         let divider = try #require(screen.screen.geometry.dividers.first { $0.id == "x" })
         let t = screen.screen.context.style.dividerThickness
         let column = screen.points(0.4)
@@ -222,6 +239,7 @@ struct DividerModifierDragTests {
 
     @Test func escapeCancelsADragAndRestoresTheStart() throws {
         let screen = Screen(Self.threeColumns())
+        defer { screen.window.closeAfterTest() }
         let (view, from) = try screen.press(.split("x"), flags: .option)
         screen.move(view, from: from, by: 80, flags: .option)
         #expect(screen.width("c0") != 0.4)

@@ -14,7 +14,8 @@ name: cmux NEXT Stable
 # Gates, all on the candidate's exact nightly-next commit or on the signed stable DMG itself:
 #   crash-class   the cmux-next-crash-class.yml rules on the whole tree (Linux)
 #   swift-suites  every CmuxNext test target, package-test-lane.sh suite, as build-fleet steps on
-#                 macOS 27 M4 Pro workers (labels macos-27 + ram48; no M6 mini has ram48)
+#                 macOS 27 workers (labels macos-27 + ram48: no M6 mini has ram48; two 16 GB M4
+#                 minis keep ram48 for old clients, which is fine for tests)
 #   perf-budgets  scripts/cmux-next/perf-budgets.py --gate (split-spring.sh --suite=budgets) on an
 #                 exclusive macOS 27 M4 Pro measure worker, against apple-m4-pro-macos27's baseline
 #   smoke-27      UI tests of the signed stable app on an owned M4 Pro mini, macOS 27: fresh-home
@@ -94,7 +95,7 @@ jobs:
   # main's copy, every hour of the night: dispatch one publish run on nightly-next.
   tick:
     if: github.event_name == 'schedule' && github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 10
     permissions:
       actions: write
@@ -163,7 +164,7 @@ jobs:
 
   plan:
     if: github.event_name != 'schedule' && github.repository == 'manaflow-ai/cmux' && (github.ref == 'refs/heads/nightly-next' || github.event_name == 'push' || inputs.mode == 'dry-run')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 15
     permissions:
       actions: read
@@ -261,7 +262,7 @@ jobs:
   crash-class:
     needs: plan
     if: needs.plan.outputs.go == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -318,10 +319,9 @@ jobs:
           echo "stable serves $served ($base); candidate $COMMIT"
           python3 -I .stable-tooling/scripts/ci/stable_next.py crash-delta --base-tree "$RUNNER_TEMP/base-tree" --head-tree "$RUNNER_TEMP/head-tree"
 
-  # Every CmuxNext test target, four shards, each on an owned M4 Pro GUI mini (macOS 27, a console
-  # session: the suites that need a display run). The same runs-on as cmux-next.yml's swift test:
-  # the gui pool on attempt 1, Blacksmith macOS on a re-run. package-test-lane.sh suite runs the same
-  # way under Actions as in a fleet step (it fetches GhosttyKit, the web bundles and the cmux-tui tree).
+  # Every CmuxNext test target, four shards, each a build-fleet step (package-test-lane.sh suite) on a
+  # macOS 27 worker (never an M6), submitted from an owned GUI-pool runner (a fleet client); a re-run lands on
+  # Blacksmith, where cmux-ci is missing, and fails closed.
   swift-suites:
     needs: plan
     if: needs.plan.outputs.go == 'true'
@@ -329,8 +329,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 150
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 330
     permissions:
       contents: read
     env:
@@ -342,60 +342,102 @@ jobs:
           chip="$(sysctl -n machdep.cpu.brand_string)"
           echo "runner $RUNNER_NAME: $chip, macOS $(sw_vers -productVersion)"
           case "$chip" in *M6*) echo "::error::stable-next never uses an M6 mini ($RUNNER_NAME)"; exit 1 ;; esac
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.plan.outputs.commit }}
-          persist-credentials: false
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-      - name: Every CmuxNext suite of shard ${{ matrix.shard }}
+      # The shard runs as a build-fleet step (package-test-lane.sh suite), not on this runner: run on a
+      # GUI runner directly, each suite's XCTest pass hung ~10 min on the runner account's own Contacts
+      # store after its Swift tests passed (run 41582798853: every suite "failed" at ~659 s). The fleet
+      # routes display suites to its console workers itself. macos-27 + ram48: never an M6 (no M6 has ram48).
+      - name: Every CmuxNext suite of shard ${{ matrix.shard }} (build fleet, macOS 27)
         env:
+          COMMIT: ${{ needs.plan.outputs.commit }}
           FILTERS: ${{ matrix.filters }}
+          KEY: stable-next-${{ needs.plan.outputs.build }}-suites-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error::$client is not installed on $RUNNER_NAME"
+            exit 1
+          fi
           # One retry: one flaky suite does not lose the night; a suite red twice is red.
+          # CmuxNextAppTests runs about 15 min, so each suite gets 2400 s (the lane's default is 900).
           for attempt in 1 2; do
             status=0
-            ./scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext "$FILTERS" || status=$?
+            "$client" run --class light --script scripts/ci/package-test-lane.sh --ref "$COMMIT" \
+              --label macos-27 --label ram48 --key "$KEY-$attempt" \
+              --arg=suite --arg=Packages/macOS/CmuxNext --arg="$FILTERS" \
+              --env "CMUX_CI_XCODE_APP=$STABLE_XCODE_APP" --env CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26 \
+              --env CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=2400 \
+              --timeout 6000 --queue-timeout 3600 || status=$?
             [ "$status" = 0 ] && exit 0
+            # 75: the step is still queued and keeps its place; a new key would queue a duplicate that
+            # nobody waits on (fleet rule: never resubmit). Only a finished red or a timeout retries.
+            if [ "$status" = 75 ]; then
+              echo "::error title=stable swift suites::shard ${{ matrix.shard }} still queued after 60 min (step kept; not resubmitted)"
+              exit 75
+            fi
             echo "::warning title=stable swift suites::shard ${{ matrix.shard }} attempt $attempt exited $status"
           done
           exit "$status"
 
-  # scripts/cmux-next/perf-budgets.py --gate through split-spring.sh on an owned M4 Pro GUI mini
-  # (macOS 27): fails when a row's p95 is over 10 % above the apple-m4-pro-macos27 baseline.
+  # scripts/cmux-next/perf-budgets.py --gate through split-spring.sh, as a build-fleet measurement: an
+  # exclusive step on an idle macOS 27 M4 Pro measure worker (measure + macos-27 + ram48 + cmux: ram48 rules
+  # out every M6, and cmux the two 16 GB M4 lent minis, which have no perf baseline for their chip),
+  # the same host class and quiet the apple-m4-pro-macos27 baseline was taken in. Fails when a row's p95
+  # is over 10 % above that baseline. Measured on a busy GUI runner instead (run 41613684939), 9 benches
+  # gave no numbers and the rest regressed against an idle baseline, so the numbers judged nothing.
   perf-budgets:
     needs: plan
     if: needs.plan.outputs.go == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 120
-    permissions:
-      contents: read
-    env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 600
+    permissions: {}
     steps:
       - name: This runner is not an M6 mini
         run: |
           chip="$(sysctl -n machdep.cpu.brand_string)"
           echo "runner $RUNNER_NAME: $chip, macOS $(sw_vers -productVersion)"
           case "$chip" in *M6*) echo "::error::stable-next never uses an M6 mini ($RUNNER_NAME)"; exit 1 ;; esac
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.plan.outputs.commit }}
-          persist-credentials: false
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-      - name: Perf budgets gate
-        run: CI_SHARED_CACHE_DIR="$RUNNER_TEMP/stable-perf-cache" bash scripts/measure/split-spring.sh --suite=budgets --gate --vdisplay=120
-      - name: Upload the perf report
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: stable-next-perf
-          path: artifacts/split-spring
-          if-no-files-found: ignore
-          retention-days: 3
+      - name: Perf budgets gate (exclusive macOS 27 M4 Pro measure worker)
+        env:
+          COMMIT: ${{ needs.plan.outputs.commit }}
+          # Keys per build, numbered: a later run or re-run walks the same keys and re-attaches to each
+          # step (queued, running or done) instead of queuing a second whole-host measurement. A step that
+          # ended with no verdict (cancelled, timed out, killed by a host fault) moves on to the next key,
+          # so one fault never leaves the build's gate red; a finished gate verdict (0 or 1) is final.
+          KEY: stable-next-${{ needs.plan.outputs.build }}-perf
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error::$client is not installed on $RUNNER_NAME"
+            exit 1
+          fi
+          log="$RUNNER_TEMP/perf-step.log"
+          # Attempt 1 may wait 3 h for an idle M4 Pro; a retry after a fault gets 1 h (fits the job's 600 min).
+          for n in 1 2 3; do
+            status=0
+            queue=$([ "$n" = 1 ] && echo 10800 || echo 3600)
+            "$client" run --class exclusive --measurement --script scripts/measure/split-spring.sh --ref "$COMMIT" \
+              --label measure --label macos-27 --label ram48 --label cmux --key "$KEY-$n" \
+              --artifact artifacts/split-spring/report.json \
+              --arg=--suite=budgets --arg=--gate --arg=--vdisplay=120 \
+              --timeout 7200 --queue-timeout "$queue" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+            case "$status" in
+              0) exit 0 ;;
+              # Still queued: the step keeps its place; never resubmit it.
+              75) echo "::error title=stable perf::step $KEY-$n still queued after 3 h (kept; not resubmitted)"; exit 75 ;;
+              124) echo "::warning title=stable perf::step $KEY-$n ran past its time limit; measuring again" ;;
+              *)
+                # A gate verdict printed its PERF-BUDGETS lines; a step that never measured did not.
+                if grep -q -E 'cmux-ci: step [0-9a-f]+ (cancelled|failed)' "$log" && ! grep -q 'PERF-BUDGETS rows=' "$log"; then
+                  echo "::warning title=stable perf::step $KEY-$n ended without a verdict; measuring again"
+                else
+                  exit "$status"
+                fi ;;
+            esac
+          done
+          echo "::error title=stable perf::three perf steps for this build ended without a verdict"
+          exit 1
 
   sign:
     needs: plan
@@ -442,6 +484,9 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags --depth=1 origin "$COMMIT"
+          # An owned Mac keeps its workspace between jobs while RUNNER_TEMP is emptied:
+          # drop an earlier job's build-src registration whose folder is gone.
+          git worktree prune
           git worktree add --detach "$RUNNER_TEMP/build-src" "$COMMIT"
           (cd "$RUNNER_TEMP/build-src" && bash scripts/ci/init-submodule.sh ghostty-next)
           bash scripts/ci/init-submodule.sh ghostty-next
@@ -567,7 +612,7 @@ jobs:
   smoke-27:
     needs: [plan, sign]
     if: needs.plan.outputs.go == 'true' && needs.sign.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -614,7 +659,7 @@ jobs:
   smoke-26:
     needs: [plan, sign]
     if: needs.plan.outputs.go == 'true' && needs.sign.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -661,7 +706,7 @@ jobs:
     needs: [plan, sign]
     if: needs.plan.outputs.go == 'true'
     environment: ${{ github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'release-next' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -671,17 +716,17 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/ci/stable_next.py
           sparse-checkout-cone-mode: false
-      - name: The build is still on the cmux NEXT feed and was never pulled
+      # Not "still on the feed": the feed keeps 2 builds, so newer nightlies drop the picked one long
+      # before the gates finish (run 41419773317: build 4141347814401 refused for that alone).
+      - name: The build was never pulled and has no fail verdict
         env:
           BUILD: ${{ needs.plan.outputs.build }}
         run: |
           set -euo pipefail
-          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/next.xml" "$NEXT_FEED_BASE/appcast-arm64.xml"
-          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json" \
-            || echo '[]' > "$RUNNER_TEMP/pulled.json"
-          python3 -I scripts/ci/stable_next.py pick --feed "$RUNNER_TEMP/next.xml" --pulled "$RUNNER_TEMP/pulled.json" \
-            --verdicts "$NEXT_FEED_BASE/verdicts" --build "$BUILD" > /dev/null
-          echo "build $BUILD: on the feed, not pulled, no fail verdict"
+          # Fail closed: with the feed check gone, an unreadable pulled.json must never read as "nothing pulled".
+          curl -fsS --retry 5 --retry-all-errors -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json"
+          python3 -I scripts/ci/stable_next.py soak --build "$BUILD" --pulled "$RUNNER_TEMP/pulled.json" \
+            --verdicts "$NEXT_FEED_BASE/verdicts"
       - name: No new unhandled Sentry issue first seen in this release
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -711,7 +756,7 @@ jobs:
       cancel-in-progress: false
     if: needs.plan.outputs.go == 'true' && !cancelled() && needs.crash-class.result == 'success' && needs.swift-suites.result == 'success' && needs.perf-budgets.result == 'success' && needs.sign.result == 'success' && needs.smoke-27.result == 'success' && needs.smoke-26.result == 'success' && needs.soak.result == 'success'
     environment: ${{ github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'release-next' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -742,6 +787,13 @@ jobs:
             [ "$tested" = "$actual" ] || { echo "smoked $tested, publishing $actual: refused" >&2; exit 1; }
           done
           [ "$actual" = "$DMG_SHA256" ] || { echo "the DMG is not the one the sign job made" >&2; exit 1; }
+      # Again right before the feed write: a rollback may have pulled the build while the gates ran.
+      - name: The build is still not pulled and has no fail verdict
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 5 --retry-all-errors -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json"
+          python3 -I scripts/ci/stable_next.py soak --build "$BUILD" --pulled "$RUNNER_TEMP/pulled.json" \
+            --verdicts "$NEXT_FEED_BASE/verdicts"
       - name: Dry run - compose the feed the publish would write
         if: env.PUBLISH != 'true'
         run: |
@@ -790,7 +842,7 @@ jobs:
   report:
     needs: [plan, crash-class, swift-suites, perf-budgets, sign, smoke-27, smoke-26, soak, publish]
     if: always() && github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && needs.plan.outputs.go != 'false'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 10
     permissions:
       issues: write

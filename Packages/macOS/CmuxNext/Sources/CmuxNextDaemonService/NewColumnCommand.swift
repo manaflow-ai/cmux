@@ -39,7 +39,7 @@ public struct NewColumnCommand: Sendable {
     }
 
     /// The optimistic column in two steps: `provisional` (made with
-    /// ``ProvisionalPane/init(columnWidth:widths:treeWidth:)``) is in the store's visible records
+    /// ``ProvisionalPane/init(columnWidth:left:)``) is in the store's visible records
     /// when this returns, in the caller's turn; the returned work sends `new-pane-right` under its
     /// client-minted ids, so the daemon's pane replaces it under the same public id. A refusal
     /// removes it exactly; a close of the provisional pane first cancels it (``PaneSplitCancelled``).
@@ -51,20 +51,18 @@ public struct NewColumnCommand: Sendable {
         options.tabID = provisional.tabID
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, width = width, left = left, sent = options
-        let intent = Intent.splitPane(pane: pane, direction: .right, ratio: 0.5, provisional: provisional)
+        // The stand-in's terminal opens in the folder this create sends: its tab shows it from the key's frame.
+        let intent = Intent.splitPane(pane: pane, direction: .right, ratio: 0.5, provisional: provisional.opening(in: options.cwd))
         // The target at send time: a stand-in (a create pressed on a create in flight) has become the
         // daemon's pane by then (``DaemonStore/daemonHandle(showing:)``; creates of one workspace go
         // out in order, each once the store holds the one before).
-        let target: @MainActor @Sendable () throws -> PaneID = { try daemon.store.daemonTarget(pane) }
+        let target: @MainActor @Sendable () async throws -> PaneID = { try await daemon.store.daemonTarget(pane) }
         let send = daemon.intendNowReporting("new-pane-right", intent, transaction: transaction) { connection in
             try await connection.newColumn(beside: try await target(), left: left, width: width, options: sent)
         }
         return {
-            let answer = await send()
-            // A pane still opening (``PaneNotReady``): the real refusal, already shown once where the command ended
-            // (or answered by a capturing caller), never the generic failure on top of it.
-            if case .failure(let notReady as PaneNotReady) = answer { throw notReady }
-            guard case .success(let created) = answer else { throw PaneSplitFailure() }
+            // A failure is the real one (``NewTerminalTabCommand``, FC-1), never a fixed text that hides it.
+            let created = try await send().get()
             daemon.store.creations.noteReply(transaction, surface: created.surface)
             guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }
             await daemon.store.applied(transaction, connection: daemon.connection)

@@ -1,0 +1,75 @@
+name: PR cloud backend check
+
+# New cloud backend code (control plane, provider drivers, metering and billing, the hand-off server,
+# entitlements, the NEXT Worker) goes to the private repository manaflow-ai/cmux-platform; the backend code
+# still here moves there one PR-sized move at a time. A pull request that adds or changes a path in
+# .github/cloud-backend-paths.json gets a warning naming cmux-platform unless its description has a
+# `cmux-platform:` line (the platform PR, or why the change belongs here). Leo, 2026-10-31: "WHY DO WE HAVE
+# SO MANY PRS IN CMUX INSTEAD OF CMUX-PLATFORM!?". It only warns: the job never fails on what it finds.
+# scripts/ci/pr_cloud_backend_check.py and the map run from the base branch, never the pull request's code,
+# so a PR cannot shrink the map to skip the warning. Editing the description re-runs it.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: pr-cloud-backend-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  cloud-backend:
+    name: pr-cloud-backend-check
+    # A Linux-class path check (git, bash, python3). It reads the live Linux pool (RUNNER_POOLS, which
+    # runner_pools.py moves off a size that starts nothing), not the capability map's one fixed
+    # blacksmith-4vcpu label: on 2026-10-31 it sat 46 min queued there (tests/test_ci_runner_set.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout the check from the base branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/pr_cloud_backend_check.py
+            .github/cloud-backend-paths.json
+          sparse-checkout-cone-mode: false
+
+      # The changed paths with their status (added, modified, deleted), from the event's merge commit
+      # without blobs. Any failure leaves `listed` unset and the check is skipped.
+      - name: List the changed paths
+        id: paths
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          MERGE_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$MERGE_SHA"
+          [ "$(git rev-parse "$MERGE_SHA^2")" = "$HEAD_SHA" ]
+          git diff --name-status --no-renames "$MERGE_SHA^1" "$MERGE_SHA" > "$RUNNER_TEMP/status.txt"
+          echo "listed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Check where the cloud backend change belongs
+        if: ${{ steps.paths.outputs.listed == 'true' }}
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/ci/pr_cloud_backend_check.py ] || [ ! -f .github/cloud-backend-paths.json ]; then
+            # The pull request that adds the check: its base has no check or map yet.
+            echo "::notice::The base branch has no cloud backend check or path map yet; nothing to check."
+            exit 0
+          fi
+          printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
+          python3 scripts/ci/pr_cloud_backend_check.py --body-file "$RUNNER_TEMP/body.md" \
+            --status-file "$RUNNER_TEMP/status.txt" --map .github/cloud-backend-paths.json \
+            || echo "::warning title=Cloud backend belongs in cmux-platform::the check could not run (exit $?); see this job's log"

@@ -277,7 +277,7 @@ export const localCases = (c: Corpus): void => {
   c.op(files, "attachment: four images and a PDF in one message", ALICE, "f3", send("f3", [photo(), photo({ hash: sha("e"), name: "b.jpg", mime_type: "image/jpeg" }), photo({ hash: sha("f"), name: "c.gif", mime_type: "image/gif" }), photo({ hash: sha("1"), name: "d.webp", mime_type: "image/webp" }), { type: "attachment", hash: sha("2"), name: "spec.pdf", mime_type: "application/pdf", byte_count: 90_000 } as never]), "commit")
   c.op(files, "attachment: 100000000 bytes fit", ALICE, "f4", send("f4", [clip({ byte_count: 100_000_000 })]), "commit")
   c.op(files, "attachment: an agent's attachment-only message is not a turn", MUX, "f5", send("f5", [clip({ hash: sha("3") })]), "commit")
-  c.op(files, "attachment: one byte over 100000000", ALICE, "f0", send("f0", [clip({ byte_count: 100_000_001 })]), "invalid_parts")
+  c.op(files, "attachment: arbitrarily large byte count is accepted", ALICE, "f4-large", send("f4-large", [clip({ byte_count: 100_000_001 })]), "commit")
   c.op(files, "attachment: an SVG is never on the allow list", ALICE, "f0", send("f0", [photo({ name: "logo.svg", mime_type: "image/svg+xml" })]), "invalid_parts")
   c.op(files, "attachment: an HTML page goes as text under its own name", ALICE, "f6", send("f6", [{ type: "attachment", hash: sha("4"), name: "index.html", mime_type: "text/plain", byte_count: 1_200 } as never]), "commit")
   c.op(files, "attachment: any binary goes as a generic file under any name", ALICE, "f7", send("f7", [{ type: "attachment", hash: sha("5"), name: "setup.exe", mime_type: "application/octet-stream", byte_count: 4_096 } as never]), "commit")

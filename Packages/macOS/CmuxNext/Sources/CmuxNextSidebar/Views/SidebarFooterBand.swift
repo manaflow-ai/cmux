@@ -71,6 +71,14 @@ final class SidebarFooterBand {
         return (frame, maxX)
     }
 
+    /// Whether an overfull pinned row needs the separate footer line reserved for Search.
+    var needsDedicatedSearchRow: Bool {
+        guard let host, host.design.sidebarSections.showSearchButton, !host.design.sidebarSections.noFade,
+              let row = bandFirstRow else { return false }
+        return Self.searchPlacement(sidebarWidth: host.bounds.width, side: Self.searchButtonSide,
+                                    itemsMaxX: row.itemsMaxX).needsDedicatedRow
+    }
+
     /// Puts the dots in their row at `top` (`height` > 0), after the footer
     /// band's items in its first row, or in the footer when the band is empty.
     func placeSpaces(top: CGFloat, height: CGFloat) {
@@ -110,6 +118,14 @@ final class SidebarFooterBand {
     /// 28 pt HIG minimum that added 2 pt under the line). Lawrence 2026-10-27: footer too tall.
     static var searchButtonSide: CGFloat { Metrics.sidebarRowHeight }
 
+    /// Resolves Search's horizontal placement. An empty or fitting pinned row stays on the shared
+    /// trailing column; an overfull row keeps the column on a dedicated footer line.
+    static func searchPlacement(sidebarWidth: CGFloat, side: CGFloat,
+                                itemsMaxX: CGFloat?) -> (x: CGFloat, needsDedicatedRow: Bool) {
+        let frame = SidebarStyle.trailingColumnFrame(sidebarWidth: sidebarWidth, centerY: 0, side: side)
+        return (frame.minX, itemsMaxX.map { $0 + Metrics.space2 > frame.minX } ?? false)
+    }
+
     /// The pinned footer section's padding under its last row. The footer is one line, the
     /// account control and the Search button centered on it, whose taller control ends on
     /// `SidebarStyle.bottomInset` (Leo 2026-10-20: the line sat too high, the section's own
@@ -146,13 +162,27 @@ final class SidebarFooterBand {
         let side = Self.searchButtonSide
         let x: CGFloat, midY: CGFloat
         if let row = bandFirstRow {
-            // The avatar's left inset, mirrored at the right, the lens on its center line.
-            let rightEnd = host.bounds.maxX - row.frame.minX - side
-            (x, midY) = (max(row.itemsMaxX, rightEnd), row.frame.midY + searchLensDrop)
+            // The search button shares the list rows' trailing column. Preserve the footer's
+            // no-overlap guarantee for a customized row whose leading items are wider than the
+            // normal avatar slot; ordinary rows keep the shared column exactly.
+            let placement = Self.searchPlacement(sidebarWidth: host.bounds.width,
+                                                 side: side, itemsMaxX: row.itemsMaxX)
+            guard !placement.needsDedicatedRow else {
+                // There is no horizontal slot in an overfull customized row. Keep Search
+                // reachable on its own footer line rather than hiding it or placing it outside.
+                let footer = host.footer.frame
+                let fallbackY = footer.height > 0 ? footer.midY : host.bounds.maxY - SidebarStyle.bottomInset - side / 2
+                let scale = host.window?.backingScaleFactor ?? 2
+                button.frame = NSRect(x: (placement.x * scale).rounded() / scale,
+                                      y: ((fallbackY - side / 2) * scale).rounded() / scale,
+                                      width: side, height: side)
+                return button.frame.minX
+            }
+            (x, midY) = (placement.x, row.frame.midY + searchLensDrop)
         } else {
             let footer = host.footer.frame
             // An empty band: the footer row, or on the bottom inset when the footer has no height.
-            (x, midY) = (host.bounds.maxX - Metrics.space4 - side, footer.height > 0 ? footer.midY
+            (x, midY) = (Self.searchPlacement(sidebarWidth: host.bounds.width, side: side, itemsMaxX: nil).x, footer.height > 0 ? footer.midY
                 : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
         }
         let scale = host.window?.backingScaleFactor ?? 2
@@ -177,11 +207,11 @@ final class SidebarFooterBand {
         let midY: CGFloat, end: CGFloat
         if let row = bandFirstRow {
             midY = row.frame.midY
-            end = searchMinX.map { $0 - Metrics.space1 } ?? host.bounds.maxX - row.frame.minX
+            end = searchMinX.map { $0 - Metrics.space1 } ?? SidebarStyle.trailingColumnFrame(sidebarWidth: host.bounds.width, centerY: 0, side: side).maxX
         } else {
             let footer = host.footer.frame
             midY = footer.height > 0 ? footer.midY : host.bounds.maxY - SidebarStyle.bottomInset - side / 2
-            end = searchMinX.map { $0 - Metrics.space1 } ?? host.bounds.maxX - Metrics.space4
+            end = searchMinX.map { $0 - Metrics.space1 } ?? SidebarStyle.trailingColumnFrame(sidebarWidth: host.bounds.width, centerY: 0, side: side).maxX
         }
         let x = end - side
         guard x >= leadingMaxX + Metrics.space1 else {

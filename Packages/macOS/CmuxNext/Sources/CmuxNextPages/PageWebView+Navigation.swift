@@ -36,5 +36,6 @@ extension PageWebView {
         applyTheme(force: true)
         applyLiveDocumentAttributes()
         resumeLoadWaiters()
+        onDocumentLoaded?()
     }
 }

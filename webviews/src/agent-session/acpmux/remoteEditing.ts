@@ -18,10 +18,14 @@ export type RemoteComposer = {
 /// A remote connection showing a Codex or opencode chat cannot send: acpmux refuses it. An
 /// acpmux too old to name the connection's origin cannot be trusted to refuse it, so sending to
 /// those chats is off there too. The family is the session's own, else its profile name, as
-/// acpmux decides it. A snapshot without an origin (no client built it) is unchanged.
-export function remoteComposer(snapshot: Pick<AcpmuxSnapshot, "origin" | "summary">): RemoteComposer {
+/// acpmux decides it. A snapshot without an origin (no client built it) is unchanged. A chat on
+/// the person's own Cloud machine (`ownerCloud`, the app's wire) sends: that machine is a
+/// disposable sandbox of their own, and its daemon starts the chat only on the Cloud API's owner
+/// answer.
+export function remoteComposer(snapshot: Pick<AcpmuxSnapshot, "origin" | "summary" | "ownerCloud">): RemoteComposer {
   const family = snapshot.summary?.family || snapshot.summary?.harness;
   if (!family || !REMOTE_REFUSED_FAMILIES.includes(family)) return { canSend: true };
+  if (snapshot.origin === "remote" && snapshot.ownerCloud === true) return { canSend: true };
   if (snapshot.origin === "remote") return { note: "composer.remoteUnavailable", canSend: false };
   if (snapshot.origin === "unknown") return { note: "composer.originUnknown", canSend: false };
   return { canSend: true };

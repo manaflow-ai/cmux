@@ -49,6 +49,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         AgentPaneView.finishWarmup()
         let pid = PageTermination.webContentPid(of: webView)
         if pid != 0 { view?.knownWebContentPid = pid }
+        view?.pageLoadedAgain()
         view?.applyTheme(force: true)
         // The initial zoom can run before WebKit has a document. Reapply it after the
         // document exists so the interface scale and page scale are visible on first paint.
@@ -59,6 +60,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         if let view { AgentPaneSuggestedTasks.shared.push(to: view) }
         view?.applyEditedFiles()
         view?.replayCustomization()
+        view?.announceSessionInfo()
     }
 
     /// A crashed web content process leaves a blank pane; the view shows the crash notice, whose

@@ -36,7 +36,7 @@
 //! would hear the digest's answer for it).
 //!
 //! The digest's provenance (hub-set, never a client's): `{kind: "inbox_digest", digestId,
-//! parts: [{promptId, from, fromName, class, receivedAt, bytes, duplicateOf?}], counts: {block,
+//! parts: [{promptId, from, fromName, class, receivedAt, bytes, duplicateOf?, notice?}], counts: {block,
 //! question, result, fyi}}`. A message's class is the one its queue entry holds
 //! (`prompt_class.rs`), a result when it has none.
 //!
@@ -102,6 +102,8 @@ pub(crate) struct Part {
     pub class: Class,
     pub received_at: u64,
     pub text: String,
+    /// The tool's notice it is (`prompt_provenance::notice`), which its digest part keeps.
+    pub notice: Option<Value>,
 }
 
 /// A digest: the prompt's text and its provenance.
@@ -197,6 +199,9 @@ pub(crate) fn render(digest_id: &str, parts: &[Part]) -> Rendered {
             if let Some(kept) = folded_into(part) {
                 crate::no_panic::JsonExt::set(&mut v, "duplicateOf", json!(kept.prompt_id));
             }
+            if let Some(notice) = &part.notice {
+                crate::no_panic::JsonExt::set(&mut v, "notice", notice.clone());
+            }
             v
         })
         .collect();
@@ -246,6 +251,8 @@ fn one_line(text: &str) -> String {
 fn digestible(q: &QueuedPrompt) -> bool {
     let run = &q.run;
     run.agent.is_some()
+        // One that waits for the owner runs only once approved, in its place (`queue_approve.rs`).
+        && !q.awaiting_owner
         && !is_digest(run.provenance.as_ref())
         && !q.steer
         && !q.sent_now
@@ -295,6 +302,13 @@ fn part_of(q: &QueuedPrompt) -> Part {
             q.run.provenance.as_ref(),
         )
         .to_owned(),
+        notice: q
+            .run
+            .provenance
+            .as_ref()
+            .filter(|p| crate::prompt_provenance::is_notice(Some(p)))
+            .and_then(|p| p.get("notice"))
+            .cloned(),
     }
 }
 
@@ -392,6 +406,8 @@ impl Hub {
             q
         });
         *digest.taken.lock().unwrap_or_else(|e| e.into_inner()) = back.collect();
+        // Out of the queue, they still wait: charged under this lock (`queue_admission.rs`).
+        digest.charge(session, &queue, &taken);
         // Its turn takes them over (`take_joined`).
         let digests = &session.inbox_digests;
         digests.lock().unwrap_or_else(|e| e.into_inner()).insert(digest_id.clone(), digest.clone());
@@ -403,9 +419,11 @@ impl Hub {
         let steer = steer && !stop_held;
         let blocks = vec![json!({"type": "text", "text": text})];
         let run = PromptRun {
+            size: super::queue_admission::content_bytes(&blocks, None).into(),
             blocks: blocks.clone(),
             display_parts: None,
             control,
+            cloud_mobile: false,
             trust_gate: false,
             provenance: Some(provenance.clone()),
             agent: Some(SENDER.to_owned()),
@@ -430,6 +448,9 @@ impl Hub {
                 resume: false,
                 steer,
                 held: stop_held,
+                awaiting_owner: false,
+                revision: 0,
+                declined: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 sent_now: false,
                 joined: Arc::new(StdMutex::new(None)),
                 requeued: false,
@@ -502,6 +523,12 @@ impl Hub {
                     let msg = json!({"promptId": id, "turnId": turn, "client": who, "error": e.message, "data": e.data});
                     hub.append(&s, "mux", "prompt_refused", msg);
                 }
+            }
+            // Whatever way it ended, its messages wait with it no more (`queue_admission.rs`):
+            // its turn took them over, or `requeue_joined` put them back. Once only.
+            {
+                let queue = s.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                digest.release(&s, &queue);
             }
             digest.answer.send_replace(Some(result));
         });

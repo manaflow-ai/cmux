@@ -3,9 +3,10 @@ import CmuxNextDesign
 
 /// The quit question as one cmux dialog (R96, R138: no system alerts;
 /// #17501: never a second step). "Quit cmux?" keeps the terminals by
-/// default (Keep Sessions Running, Return), Cancel (Escape), and Quit
-/// Everything ends them (no key). "Don't ask again" is a
-/// check box. The dialog blocks the window `QuitCoordinator` picks, or
+/// default (Keep Sessions Running, Return), Cancel (Escape), and End
+/// Sessions, Keep Layout and End Everything end them (no key), drawn as quiet
+/// red text under the two (`CmuxDialogSpec.Layout.safeDefault`). "Don't ask
+/// again" is a check box under the buttons that writes `app.quitBehavior`. The dialog blocks the window `QuitCoordinator` picks, or
 /// shows app-wide when no window is open (the app host, which activates
 /// the app).
 @MainActor
@@ -58,7 +59,7 @@ final class QuitAlert {
         let fields: [CmuxDialogField] = content.showsSuppression
             ? [.check(id: rememberField, title: QuitStrings.dontAskAgain, on: remember)] : []
         return CmuxDialogSpec(title: content.title, lines: content.lines, fields: fields, buttons: ordered,
-                              identifier: "cmux.dialog.quit")
+                              identifier: "cmux.dialog.quit", layout: .init(alertFor: buttons))
     }
 
     /// Keep (or Quit) answers Return, Cancel answers Escape, every end choice
@@ -67,7 +68,7 @@ final class QuitAlert {
         switch id {
         case .keep, .quit: .default
         case .cancel: .cancel
-        case .confirmQuitEverything, .endEverything: .destructive
+        case .endKeepLayout, .endEverything: .destructive
         }
     }
 
@@ -87,27 +88,20 @@ final class QuitAlert {
         finish(.quit(.keep, remember: false))
     }
 
-    /// Clicks the button `id` ("keep", "quit", "cancel",
-    /// "confirm-quit-everything", "end-everything"; the old "end-keep-layout"
-    /// and "quit-everything" press Quit Everything). "end" opened the old
-    /// second step: it now only reports whether Quit Everything shows, so
-    /// scripts that press "end" and then an end choice still work;
-    /// "end-everything" answers End Everything, which has no button. False
-    /// when the dialog shown has no such choice.
+    /// Clicks the button `id` ("keep", "quit", "cancel", "end-keep-layout",
+    /// "end-everything"; the old "confirm-quit-everything" and
+    /// "quit-everything" press End Sessions, Keep Layout). "end" only reports
+    /// whether the end choices show, so older scripts that press "end" and
+    /// then an end choice still work. False when the dialog shown has no
+    /// such choice.
     @discardableResult
     func press(_ id: String) -> Bool {
         guard let dialogID else { return false }
         let ids = buttons.map(\.id)
-        let ends = ids.contains(QuitAlertContent.Button.confirmQuitEverything.rawValue)
-        if id == "end" { return ends }
-        if id == QuitAlertContent.Button.endEverything.rawValue {
-            guard ends else { return false }
-            finish(.quit(.endEverything, remember: false))
-            return true
-        }
+        if id == "end" { return ids.contains(QuitAlertContent.Button.endKeepLayout.rawValue) || ids.contains("end-everything") }
         let resolved = switch id {
         case "quit" where !ids.contains("quit"): "keep"
-        case "end-keep-layout", "quit-everything": "confirm-quit-everything"
+        case "confirm-quit-everything", "quit-everything": QuitAlertContent.Button.endKeepLayout.rawValue
         default: id
         }
         return center.press(dialogID, button: resolved)
@@ -125,7 +119,7 @@ final class QuitAlert {
         switch QuitAlertContent.Button(rawValue: answer.button) {
         case .keep: finish(.quit(.keep, remember: remembers))
         case .quit: finish(.quit(prompt.defaultChoice, remember: remembers))
-        case .confirmQuitEverything: finish(.quit(.endKeepLayout, remember: remembers))
+        case .endKeepLayout: finish(.quit(.endKeepLayout, remember: remembers))
         case .endEverything: finish(.quit(.endEverything, remember: remembers))
         case .cancel, nil: finish(.cancel)
         }

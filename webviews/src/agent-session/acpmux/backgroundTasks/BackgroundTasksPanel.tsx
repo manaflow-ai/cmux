@@ -22,8 +22,11 @@
 // page lands, then the agent's rows; its progress refreshes it while it is open, and closing it
 // disposes the reader. Workflow agents open only where the app reads workflows (Labs), as elsewhere.
 //
-// What runs turns the shared spinner, never a pulsing dot. Its one clock ticks each second only
-// while something runs and the pane shows (SubagentGroup.tsx `useNow`), and stops with the panel.
+// What runs draws no running symbol (no spinner, no pulsing dot), only its ticking time and its
+// filled square Stop, as Claude Desktop's panel reads (Leo, 2026-11-03: "do we really need a
+// running symbol vs just having the time and a square stop button?"). Its one clock ticks each
+// second only while something runs and the pane shows (SubagentGroup.tsx `useNow`), and stops
+// with the panel.
 import {
   createContext,
   useCallback,
@@ -35,7 +38,7 @@ import {
   type ReactNode,
 } from "react";
 import { formatDuration } from "../conversation/turns";
-import { ChevronLeft, Close, Expand, Spinner } from "../conversation/icons";
+import { ChevronLeft, Close, Expand } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
@@ -138,6 +141,7 @@ export function BackgroundTasksPanel({
     ),
   };
   const finished = useMemo(() => finishedGroupIds(groups), [groups]);
+  const sections = useMemo(() => panelSections(groups), [groups]);
   const drilled = drill && agentOf(groups, drill.agentId);
   return (
     <StopsAgents.Provider value={stopsAgents}>
@@ -155,18 +159,22 @@ export function BackgroundTasksPanel({
             {groups.length === 0 ? (
               <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
             ) : (
-              groups.map((group, index) => (
-                <GroupBlock
-                  key={group.id}
-                  group={group}
-                  look={look}
-                  now={now}
-                  startsOpen={index === 0 && isLive(group)}
-                  onDrill={open}
-                  onStop={onStop}
-                  onOpenSession={onOpenSession}
-                  onOpenCommand={onOpenCommand}
-                />
+              sections.map((section) => (
+                <Section key={section.id} id={section.id} count={section.groups.length}>
+                  {section.groups.map((group, index) => (
+                    <GroupBlock
+                      key={group.id}
+                      group={group}
+                      look={look}
+                      now={now}
+                      startsOpen={section.id === "running" && index === 0}
+                      onDrill={open}
+                      onStop={onStop}
+                      onOpenSession={onOpenSession}
+                      onOpenCommand={onOpenCommand}
+                    />
+                  ))}
+                </Section>
               ))
             )}
           </div>
@@ -196,6 +204,43 @@ export function BackgroundTasksPanel({
         </PanelFrame>
       </Workflows.Provider>
     </StopsAgents.Provider>
+  );
+}
+
+export type PanelSection = { id: "running" | "finished"; groups: BackgroundGroup[] };
+
+/// The list under its two headings, as Claude Desktop's panel splits it: "Running N", then
+/// "Finished N" (Leo, 2026-11-03, on its "Finished 28"). The groups keep their order
+/// (backgroundTasks.ts: running first, oldest first; then ended, latest first); a group that still
+/// runs a nested agent is a running one (`isLive`). An empty heading is left out.
+export function panelSections(groups: readonly BackgroundGroup[]): PanelSection[] {
+  const running = groups.filter(isLive);
+  const ended = groups.filter((group) => !isLive(group));
+  return [
+    { id: "running" as const, groups: running },
+    { id: "finished" as const, groups: ended },
+  ].filter((section) => section.groups.length > 0);
+}
+
+/// A heading that folds its groups, open at first; its fold is the panel's own state, so Back from a
+/// transcript finds it as it was.
+function Section({ id, count, children }: { id: PanelSection["id"]; count: number; children: ReactNode }) {
+  const t = useT();
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="acpmux-bg__section" data-section={id}>
+      <button
+        type="button"
+        className="acpmux-bg__fold acpmux-bg__section-head"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <Disclosure open={open} />
+        <span>{t(id === "running" ? "backgroundTasks.section.running" : "backgroundTasks.section.finished")}</span>
+        <span className="acpmux-bg__section-count">{count}</span>
+      </button>
+      {open && children}
+    </div>
   );
 }
 
@@ -363,6 +408,7 @@ function GroupBlock({
   onOpenSession?(sessionId: string): void;
   onOpenCommand?(task: BackgroundTask): void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(startsOpen || look === "flat");
   const agentId = group.agentId;
   const sessionId = group.sessionId;
@@ -378,7 +424,6 @@ function GroupBlock({
     <div className="acpmux-bg__group" data-state={live ? "running" : group.state} data-group={group.id}>
       <div className="acpmux-bg__agent">
         <button type="button" className="acpmux-bg__name" disabled={!opens} onClick={opens}>
-          {live && <Spinner size={12} loading />}
           <span className="acpmux-bg__label">{group.name}</span>
           {opens && (
             <span className="acpmux-bg__chevron" aria-hidden="true">
@@ -391,7 +436,11 @@ function GroupBlock({
             {counts}
           </button>
         )}
-        <span className="acpmux-bg__time">{time(group.startedAt, group.endedAt, now, live)}</span>
+        {!live && group.state === "failed" ? (
+          <span className="acpmux-bg__time acpmux-bg__failed">{t("subagents.state.failed")}</span>
+        ) : (
+          <span className="acpmux-bg__time">{time(group.startedAt, group.endedAt, now, live)}</span>
+        )}
         <StopSlot target={group.stop} name={group.name} onStop={onStop} />
       </div>
       {look === "nested" && group.total > 0 && (
@@ -429,7 +478,7 @@ function Counts({ total, failed }: { total: number; failed: number }) {
 
 const Disclosure = ({ open }: { open: boolean }) => (
   <span className="acpmux-bg__disclosure" aria-hidden="true">
-    <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={10} row />
+    <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />
   </span>
 );
 
@@ -508,13 +557,10 @@ function TaskRow({
   return (
     <div className="acpmux-bg__task" data-state={task.state}>
       <button type="button" className="acpmux-bg__task-open" disabled={!opens} onClick={opens}>
-        {task.state === "running" ? (
-          <Spinner size={10} loading />
-        ) : (
-          <span className="acpmux-bg__disclosure" aria-hidden="true">
-            <Icon name="disclosure.collapsed" size={10} row />
-          </span>
-        )}
+        {/* A running task's time and Stop say it runs: it leads with the same mark as one that ended. */}
+        <span className="acpmux-bg__disclosure" aria-hidden="true">
+          <Icon name="disclosure.collapsed" size={12} row />
+        </span>
         <span className="acpmux-bg__label">{task.title}</span>
       </button>
       <span className="acpmux-bg__time">{time(task.startedAt, task.endedAt, now, task.state === "running")}</span>
@@ -555,7 +601,7 @@ function StopSlot({
           onStop(target).catch(() => setState("failed"));
         }}
       >
-        <Icon name="action.stop" size={10} />
+        <Icon name="action.stop" size={12} selected />
       </button>
     </span>
   );

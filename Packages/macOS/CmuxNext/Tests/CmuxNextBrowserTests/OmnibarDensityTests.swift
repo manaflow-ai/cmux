@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// The omnibar follows density and `browser.omnibar.height` / `fontSize`
@@ -8,7 +9,7 @@ import Testing
 /// stays today's 28 pt bar with 14 pt text, Comfortable is Chrome's roomier 34 pt bar with 15 pt
 /// text, an override beats density and is clamped, and at every density and override the bar's
 /// text, chip, star, toolbar buttons and suggestion rows stay inside their bounds.
-@MainActor @Suite(.serialized) struct OmnibarDensityTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct OmnibarDensityTests {
     // MARK: Tokens
 
     /// Fractional sizes round to whole points, so the bar stays on the pixel grid.
@@ -64,6 +65,25 @@ import Testing
 
     // MARK: Overrides
 
+    @Test func currentTextFollowsInterfaceSizeWhilePureMetricsKeepTheirReferenceSize() {
+        let design = DesignSettings.shared
+        let previous = design.overrides[.chromeFontSize]
+        defer { design.setOverride(.chromeFontSize, previous) }
+        OmnibarGlassAppearance.$scoped.withValue(OmnibarGlassAppearance()) {
+            DensityTokens.$scoped.withValue(.compact) {
+                design.setOverride(.chromeFontSize, nil)
+                let original = OmnibarMetrics.current
+                design.setOverride(.chromeFontSize, 16)
+                let enlarged = OmnibarMetrics.current
+                #expect(enlarged.fontSize == original.fontSize * Typography.userScale)
+                #expect(enlarged.barHeight >= OmnibarMetrics.minimumBarHeight(fontSize: enlarged.fontSize))
+                #expect(OmnibarMetrics(tokens: .compact).fontSize == original.fontSize)
+                design.setOverride(.chromeFontSize, nil)
+                #expect(OmnibarMetrics.current == original)
+            }
+        }
+    }
+
     @Test func overridesBeatDensity() {
         let metrics = OmnibarMetrics(tokens: DensityPreset.comfortable.tokens, height: 30, fontSize: 13)
         #expect(metrics.barHeight == 30)
@@ -114,6 +134,7 @@ import Testing
 
         func tearDown() {
             chrome.addressBar.dismissRows()
+            chrome.closePopupPanels()
             window.orderOut(nil)
             window.close()
             page.close()

@@ -1299,7 +1299,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         kept.reverse()
         var rows: [RowSpec] = []
         rows.reserveCapacity(kept.count + 8)
-        var rest = kept[...], fresh = 0
+        var rest = ArraySlice(kept), fresh = 0
         for r in ranges + [tailFrom..<msgs.count] {
             while let row = rest.first, row.owner < r.lowerBound { rows.append(row.spec); rest.removeFirst() }
             if r.upperBound == msgs.count { rest.removeAll() }
@@ -1367,8 +1367,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         if receiptsMove {
             let before = RowBuilder.receiptTargets(old.conversation.messages, me: old.me)
             let after = RowBuilder.receiptTargets(msgs, me: s.me)
-            for (id, r) in before where after[id].map({ $0 != r }) ?? true { if let i = index(id) { local.append(i) } }
-            for (id, r) in after where before[id].map({ $0 != r }) ?? true { if let i = index(id) { local.append(i) } }
+            for (id, r) in before where after.value(for: id).map({ $0 != r }) ?? true { if let i = index(id) { local.append(i) } } // dictionary read
+            for (id, r) in after where before.value(for: id).map({ $0 != r }) ?? true { if let i = index(id) { local.append(i) } } // dictionary read
         }
         switch action {
         case .send, .receive, .streamEnd(_, _?):
@@ -2225,7 +2225,12 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let dy = y - lastScrollOffset
         lastScrollOffset = y
         if dy != 0 { morphs.values.forEach { $0.scroll(by: dy) }; fadingMorphs.values.forEach { $0.0.scroll(by: dy) } }
-        let back = max(0, pinnedOffset - y)
+        // cmux: an empty transcript is at its newest message wherever the clip is. A layout pass that
+        // moves the clip before a chat's first page (an unpinned Chief opened from Home's list) must
+        // not unpin it, or that page's rebuild lands at the top (https://github.com/manaflow-ai/cmux/issues/26397).
+        // A streaming first reply is something to scroll back through, so it does not count as empty.
+        let empty = store.state.conversation.messages.isEmpty && store.state.ui.streams.isEmpty
+        let back = empty ? 0 : max(0, pinnedOffset - y)
         let pinned = back < 1 && store.state.atNewest
         if pinned != store.state.ui.scroll.pinnedToBottom || abs(back - store.state.ui.scroll.offset) > 0.5 {
             store.dispatch(.setScroll(offset: back, pinned: pinned))

@@ -115,7 +115,7 @@ fn facts_json(facts: &cmux_agent_pane_policy::Facts) -> Value {
 #[test]
 fn full_check_order() {
     let all = cases("check.json");
-    assert_eq!(all.as_array().unwrap().len(), 55, "check.json: the full order's 55 cases");
+    assert_eq!(all.as_array().unwrap().len(), 63, "check.json: the full order's 63 cases");
     for c in all.as_array().unwrap() {
         let s = &c["state"];
         let modes: Option<BTreeSet<String>> = s["mode_fields"]
@@ -484,11 +484,9 @@ fn the_built_in_policy_parses() {
     let v: Value = serde_json::from_str(&text).unwrap();
     let p = policy();
     assert!(!p.requests.is_empty() && p.maximum_frame_bytes > 0, "policy() fell back to deny-all");
-    assert_eq!(
-        p.reply_shapes.len(),
-        v["reply_shapes"].as_object().unwrap().len(),
-        "every reply shape parsed"
-    );
+    // Whether each shape parsed is every_reply_shape_parses's question (a
+    // shape that does not parse is kept as an empty filter).
+    assert_eq!(p.reply_shapes.len(), v["reply_shapes"].as_object().unwrap().len());
     assert_eq!(p.requests.len(), v["requests"].as_array().unwrap().len());
 }
 
@@ -532,5 +530,43 @@ fn question_permissions() {
         ("never", false),
     ] {
         assert_eq!(options.question_keys(id).is_some(), question, "{id}");
+    }
+}
+
+/// The keys a question's `answers` may use (tests/cases/question_keys.json):
+/// the normalized question's item ids and prompts, else Claude Code's own
+/// AskUserQuestion's `toolCall.rawInput.questions[].question`
+/// (AgentPaneUserGestures.swift `questionKeys`, #28129); None for a request
+/// that is no question.
+#[test]
+fn question_answer_keys() {
+    for c in cases("question_keys.json").as_array().unwrap() {
+        let options = PermissionOptions::new();
+        let pending = serde_json::json!({"method": "_acpmux/permission_pending",
+            "params": {"permissionId": "p", "request": c["request"]}});
+        options.observe(pending.as_object().unwrap(), None);
+        let want: Option<BTreeSet<String>> = c["keys"]
+            .as_array()
+            .map(|a| a.iter().map(|k| k.as_str().unwrap().to_owned()).collect());
+        assert_eq!(options.question_keys("p"), want, "{}", name(c));
+    }
+}
+
+/// A prompt block's upload reference (tests/cases/prompt_uploads.json, the
+/// Swift `AgentPanePromptUploadMetaTests` cases): a top-level `image` or
+/// `resource_link` block keeps exactly `_meta.acpmux.upload {uploadId,
+/// fileName}` when it is a valid reference with no bytes; every other block
+/// `_meta`, at every depth, goes (AcpmuxPaneMethods+Uploads.swift
+/// `promptUploadMeta`, #25979).
+#[test]
+fn prompt_upload_references() {
+    let all = cases("prompt_uploads.json");
+    for c in all.as_array().unwrap() {
+        assert_eq!(
+            stripping_prompt_meta(&object(&c["frame"])).map(Value::Object),
+            c["prompt_stripped"].as_object().cloned().map(Value::Object),
+            "{}",
+            name(c)
+        );
     }
 }

@@ -92,6 +92,16 @@ nonisolated enum PaletteStrings {
     static var kindMarkdown: String { String(localized: "palette.kind.markdown", defaultValue: "Markdown", bundle: .module) }
     static var kindFile: String { String(localized: "palette.kind.file", defaultValue: "File", bundle: .module) }
     static var kindPage: String { String(localized: "palette.kind.page", defaultValue: "Page", bundle: .module) }
+    static var kindWorkspace: String { String(localized: "palette.kind.workspace", defaultValue: "Workspace", bundle: .module) }
+    /// A row's kind with its state after it ("Agent Chat · Current"), the kind alone without one.
+    static func kindWithState(_ kind: String, state: String?) -> String {
+        guard let state else { return kind }
+        return String(localized: "palette.kind.withState", defaultValue: "\(kind) · \(state)", bundle: .module)
+    }
+    /// A tab that only repeats its workspace's name, told apart by its kind and place ("Agent Chat 2").
+    static func numberedKind(_ kind: String, _ number: Int) -> String {
+        String(localized: "palette.kind.numbered", defaultValue: "\(kind) \(number)", bundle: .module)
+    }
     static var switchToWorkspace: String { String(localized: "palette.command.switchToWorkspace", defaultValue: "Switch to Workspace", bundle: .module) }
     static var renameWorkspace: String { String(localized: "palette.command.renameWorkspace", defaultValue: "Rename Workspace…", bundle: .module) }
     static var closeWorkspace: String { String(localized: "palette.command.closeWorkspace", defaultValue: "Close Workspace", bundle: .module) }
@@ -111,6 +121,16 @@ nonisolated enum PaletteStrings {
     }
     static func openIn(_ app: String) -> String {
         String(localized: "palette.openIn", defaultValue: "Open in \(app)", bundle: .module)
+    }
+    static var added: String { String(localized: "palette.accessory.added", defaultValue: "Added", bundle: .module) }
+    static func continueWith(_ names: String) -> String {
+        String(localized: "palette.members.continue", defaultValue: "Continue with \(names)", bundle: .module)
+    }
+    static func addTyped(_ text: String) -> String {
+        String(localized: "palette.members.add", defaultValue: "Add “\(text)”", bundle: .module)
+    }
+    static func removeToken(_ name: String) -> String {
+        String(localized: "palette.members.remove", defaultValue: "Remove \(name)", bundle: .module)
     }
     static func chooseArgument(_ name: String) -> String {
         String(localized: "palette.chooseArgument", defaultValue: "Choose \(name)…", bundle: .module)

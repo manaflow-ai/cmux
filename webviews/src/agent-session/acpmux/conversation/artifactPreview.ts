@@ -9,6 +9,9 @@ export type Artifact = {
   code: string;
   /// The render card it came from (its key, renderCall.ts `renderPages`), whose pages are its versions.
   render?: string;
+  /// Stable row/fence identity and the accepted source revision while a reply streams.
+  identity?: string;
+  revision?: number;
   /** Full file identity when the artifact came from a completed write. */
   path?: string;
 };
