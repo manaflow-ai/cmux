@@ -630,6 +630,27 @@ fn a_host_that_goes_away_during_the_push_is_unreachable() {
     }
 }
 
+/// A push that fails on the host itself, not on the way there, still shows.
+#[test]
+fn only_ssh_losing_the_host_reads_as_unreachable() {
+    for why in [
+        "ssh fake failed: Timeout, server fake not responding.",
+        "ssh fake failed: ssh: Could not resolve hostname fake: Name or service not known",
+        "ssh fake failed: kex_exchange_identification: Connection reset by peer",
+        "ssh fake failed: Connection closed by 10.0.0.7 port 22",
+        "scp to fake failed: lost connection",
+    ] {
+        assert!(lost_the_host(&anyhow!("{why}")), "{why}");
+    }
+    for why in [
+        "ssh fake failed: the pushed acpmux does not run on this host",
+        "ssh fake failed: mkdir: cannot create directory: No space left on device",
+        "scp to fake failed: scp: ~/.local/bin/.acpmux-new/acpmux: Permission denied",
+    ] {
+        assert!(!lost_the_host(&anyhow!("{why}")), "{why}");
+    }
+}
+
 /// A cmux Cloud VM's daemon as cmux runs it: no `acpmux.service` of acpmux's
 /// own, or one the `~/.acpmux` daemon does not run under, or a unit someone
 /// else wrote. `cmux link machine update --to-bundled` owns that daemon.
