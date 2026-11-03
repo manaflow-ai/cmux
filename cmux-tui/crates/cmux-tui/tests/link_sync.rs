@@ -273,10 +273,15 @@ fn a_repo_that_borrows_objects_arrives_standing_alone() {
 }
 
 /// Every file below `dir`, by path, with its bytes.
+/// The regular files below `dir` with their bytes (symlinks are not
+/// followed or listed).
 fn files_below(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     let mut found = Vec::new();
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
+        if path.is_symlink() {
+            continue;
+        }
         if path.is_dir() {
             found.extend(files_below(&path));
         } else {
@@ -924,8 +929,9 @@ fn machine_home(root: &Path) -> (tempfile::TempDir, PathBuf, PathBuf) {
     (sockets, socket, home)
 }
 
-/// Outside git, dependency and build folders, secrets, symlinks and special
-/// files stay on this Mac, and the answer names each with why.
+/// Outside git, dependency and build folders, secrets, symlinks that leave
+/// the folder and special files stay on this Mac, and the answer names each
+/// with why; a symlink inside the folder arrives as a symlink.
 #[test]
 fn outside_git_heavy_folders_secrets_and_links_stay_and_are_named() {
     let root = tempfile::tempdir().unwrap();
@@ -990,14 +996,16 @@ fn outside_git_heavy_folders_secrets_and_links_stay_and_are_named() {
     assert_eq!(named[".env.local"], "secret: .env files are shared only on purpose");
     assert_eq!(named["id_ed25519"], "secret: key files are shared only on purpose");
     assert_eq!(named["src/cert.pem"], "secret: key files are shared only on purpose");
-    assert_eq!(named["inside-link"], "a symlink (to a place inside the folder)");
+    assert!(!named.contains_key("inside-link"), "{summary}");
+    assert_eq!(std::fs::read_link(remote.join("inside-link")).unwrap(), Path::new("src/main.rs"));
     assert_eq!(named["outside-link"], "a symlink (to a place outside the folder)");
+    assert!(std::fs::symlink_metadata(remote.join("outside-link")).is_err());
     assert_eq!(named["pipe"], "a socket, FIFO or device");
-    assert_eq!(named.len(), 11, "{summary}");
-    assert_eq!(summary["skipped"], json!(11));
+    assert_eq!(named.len(), 10, "{summary}");
+    assert_eq!(summary["skipped"], json!(10));
     assert_eq!(summary["skipped_counts"]["heavy"], json!(4));
     assert_eq!(summary["skipped_counts"]["secret"], json!(4));
-    assert_eq!(summary["skipped_counts"]["symlink"], json!(2));
+    assert_eq!(summary["skipped_counts"]["symlink"], json!(1));
     assert_eq!(summary["skipped_counts"]["special"], json!(1));
 }
 
@@ -1074,4 +1082,121 @@ fn a_full_disk_on_the_machine_answers_disk_full() {
     assert!(!ok);
     assert_eq!(answer["error_code"], json!("disk_full"), "{answer}");
     assert_eq!(answer["error"], json!("The Cloud machine's disk is full"));
+}
+
+/// The `skipped_files` of an answer by path: why each was left out.
+fn skipped_by_path(answer: &Value) -> std::collections::BTreeMap<String, String> {
+    answer["skipped_files"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no skipped_files: {answer}"))
+        .iter()
+        .map(|entry| {
+            (
+                entry["path"].as_str().unwrap().to_string(),
+                entry["why"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect()
+}
+
+/// Symlinks that stay inside the folder go to the machine as symlinks with
+/// their text (an absolute one rewritten relative), and come back as
+/// symlinks: one the machine pointed elsewhere and one it made are here
+/// after a pull, with exactly the machine's text. One that points outside
+/// the folder is skipped and named with why, by the push and by the pull,
+/// and nothing of it is made on either side.
+#[test]
+fn an_inside_symlink_round_trips_and_an_outside_one_is_skipped_and_named() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let folder = root.join("site");
+    std::fs::create_dir_all(folder.join("src/deep")).unwrap();
+    std::fs::write(folder.join("src/a.txt"), "a\n").unwrap();
+    std::fs::write(folder.join("src/b.txt"), "b\n").unwrap();
+    std::os::unix::fs::symlink("src", folder.join("lib")).unwrap();
+    std::os::unix::fs::symlink(folder.join("src/a.txt"), folder.join("abs")).unwrap();
+    std::os::unix::fs::symlink("../a.txt", folder.join("src/deep/up")).unwrap();
+    std::os::unix::fs::symlink("/etc", folder.join("out")).unwrap();
+    let (_sockets, socket, home) = machine_home(&root);
+    serve_fs(&socket, &home);
+    let remote = home.join("work/site");
+
+    let (ok, summary, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{summary}");
+    let link = |path: PathBuf| std::fs::read_link(path).ok().map(|text| text.display().to_string());
+    assert_eq!(link(remote.join("lib")).as_deref(), Some("src"));
+    assert_eq!(link(remote.join("abs")).as_deref(), Some("src/a.txt"));
+    assert_eq!(link(remote.join("src/deep/up")).as_deref(), Some("../a.txt"));
+    assert!(std::fs::symlink_metadata(remote.join("out")).is_err(), "an outside link was made");
+    let named = skipped_by_path(&summary);
+    assert_eq!(named["out"], "a symlink (to a place outside the folder)", "{summary}");
+    assert_eq!(named.len(), 1, "{summary}");
+    // Nothing changed: a second push makes nothing.
+    let (ok, again, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{again}");
+    assert_eq!(again["written"], json!(0), "{again}");
+
+    // On the machine: `lib` now points at one file, a new inside link, and
+    // links that leave the folder by an absolute path or by climbing.
+    std::fs::remove_file(remote.join("lib")).unwrap();
+    std::os::unix::fs::symlink("src/b.txt", remote.join("lib")).unwrap();
+    std::os::unix::fs::symlink("deep", remote.join("src/near")).unwrap();
+    std::os::unix::fs::symlink("/etc/passwd", remote.join("evil")).unwrap();
+    std::os::unix::fs::symlink("../../../..", remote.join("src/climb")).unwrap();
+    std::os::unix::fs::symlink(".git/hooks", remote.join("hooks")).unwrap();
+
+    let (ok, pulled) = pull(&socket, &folder, &remote);
+    assert!(ok, "{pulled}");
+    assert_eq!(link(folder.join("lib")).as_deref(), Some("src/b.txt"), "{pulled}");
+    assert_eq!(link(folder.join("src/near")).as_deref(), Some("deep"), "{pulled}");
+    assert_eq!(
+        link(folder.join("abs")).as_deref(),
+        Some(folder.join("src/a.txt").to_str().unwrap())
+    );
+    assert_eq!(std::fs::read_to_string(folder.join("lib")).unwrap(), "b\n");
+    for gone in ["evil", "src/climb", "hooks"] {
+        assert!(std::fs::symlink_metadata(folder.join(gone)).is_err(), "{gone} came back");
+    }
+    let named = skipped_by_path(&pulled);
+    for outside in ["evil", "src/climb"] {
+        assert_eq!(named[outside], "a symlink (to a place outside the folder)", "{pulled}");
+    }
+    assert_eq!(named["hooks"], "a symlink (into the repository folder)", "{pulled}");
+    // The pull is the next base: pulling again changes nothing, and a push
+    // after it makes nothing new.
+    let (ok, again) = pull(&socket, &folder, &remote);
+    assert!(ok, "{again}");
+    assert_eq!(again["written"], json!(0), "{again}");
+    let (ok, pushed, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{pushed}");
+    assert_eq!(pushed["written"], json!(0), "{pushed}");
+}
+
+/// A symlink changed on both sides is a conflict, and the pull changes
+/// nothing here: this Mac's link keeps its text.
+#[test]
+fn a_symlink_changed_on_both_sides_is_a_conflict_that_changes_nothing() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let folder = root.join("site");
+    std::fs::create_dir_all(folder.join("src")).unwrap();
+    std::fs::write(folder.join("src/a.txt"), "a\n").unwrap();
+    std::fs::write(folder.join("src/b.txt"), "b\n").unwrap();
+    std::os::unix::fs::symlink("src", folder.join("lib")).unwrap();
+    let (_sockets, socket, home) = machine_home(&root);
+    serve_fs(&socket, &home);
+    let remote = home.join("work/site");
+    let (ok, summary, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{summary}");
+
+    std::fs::remove_file(remote.join("lib")).unwrap();
+    std::os::unix::fs::symlink("src/a.txt", remote.join("lib")).unwrap();
+    std::fs::remove_file(folder.join("lib")).unwrap();
+    std::os::unix::fs::symlink("src/b.txt", folder.join("lib")).unwrap();
+
+    let (ok, pulled) = pull(&socket, &folder, &remote);
+    assert!(!ok, "{pulled}");
+    assert_eq!(pulled["error_code"], "sync_conflict", "{pulled}");
+    assert_eq!(pulled["conflicts"], json!(["lib"]), "{pulled}");
+    assert_eq!(std::fs::read_link(folder.join("lib")).unwrap(), Path::new("src/b.txt"));
 }

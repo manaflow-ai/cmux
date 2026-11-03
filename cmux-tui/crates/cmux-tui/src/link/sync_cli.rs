@@ -17,6 +17,11 @@
 //! made or changed itself are never deleted. This Mac keeps a copy of the
 //! manifest ([`base`]); a pull trusts only that copy.
 //!
+//! A symlink whose target stays inside the folder is kept as a symlink both
+//! ways, its text in the manifest's `links` ([`links`]); one pointing
+//! outside, at nothing or into a repository folder is skipped and named.
+//! A machine without `fs-symlink-v1` gets none, each named as skipped.
+//!
 //! The manifest is also saved as a push goes (every [`SAVE_EVERY_FILES`]
 //! files or [`SAVE_EVERY_BYTES`] written), so a push cut off partway is
 //! resumed by the next one into the same folder: what already landed is
@@ -37,6 +42,7 @@ use cmux_json::JsonSet as _;
 
 mod base;
 mod git_back;
+mod links;
 mod local;
 mod names;
 mod place;
@@ -74,6 +80,16 @@ struct Manifest {
     /// The git state the push left; None outside git and from older pushes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     git: Option<git_back::GitBase>,
+    /// The symlinks kept as symlinks ([`links`]), by path; none from older
+    /// pushes.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    links: BTreeMap<String, Linked>,
+}
+
+/// A symlink the sync keeps: its text, relative and inside the folder.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct Linked {
+    target: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -471,6 +487,12 @@ fn push_inner(
     let in_git = set.git;
     set.files.retain(|relative, _| keep(relative, in_git));
     set.skipped += (before - set.files.len()) as u64;
+    // A share of files (`cmux link access`) takes no symlink.
+    if files_only {
+        for relative in std::mem::take(&mut set.links).into_keys() {
+            set.skips.note(&relative, skips::Why::SymlinkInside);
+        }
+    }
     let git_record = set.git && !files_only;
     let manifest_name = if git_record { ".git/cmux-sync.json" } else { ".cmux-sync.json" };
     // The manifest's own name is never pushed over it.
@@ -501,7 +523,9 @@ fn push_inner(
     // A key that is not a plain relative path (empty, absolute, `.` or `..`
     // parts) names nothing this push made: it is dropped, never deleted.
     previous.files.retain(|relative, _| plain_relative(relative));
+    previous.links.retain(|relative, _| plain_relative(relative));
     let mut listings = Listings::default();
+    let mut links = LinkSync::default();
 
     // Deletes first, so a file that became a folder (or the reverse) is out
     // of the way. Only a file still as this push left it goes; one the
@@ -518,10 +542,24 @@ fn push_inner(
         let (parent, name) = remote::split(&target)?;
         remote.delete(&[format!("{parent}/.{name}.cmux-sync-part")])?;
     }
+    // A symlink this push made that is gone here (or points elsewhere now)
+    // goes, while the machine still has it as this push left it.
+    for (relative, linked) in &previous.links {
+        if set.links.get(relative) == Some(&linked.target) {
+            continue;
+        }
+        let target = format!("{remote_root}/{relative}");
+        if links.ours(&mut remote, &target, &linked.target)? {
+            remote.delete(std::slice::from_ref(&target))?;
+            if !set.links.contains_key(relative) && !set.files.contains_key(relative) {
+                summary.deleted += 1;
+            }
+        }
+    }
     listings.clear();
 
     let mut made: BTreeSet<String> = BTreeSet::new();
-    let mut next = Manifest { version: 1, files: BTreeMap::new(), git };
+    let mut next = Manifest { version: 1, files: BTreeMap::new(), git, links: BTreeMap::new() };
     let save_every_files = SAVE_EVERY_FILES.max(done.files_total / 20);
     let (mut files_since_save, mut bytes_since_save) = (0u64, 0u64);
     for (relative, file) in &set.files {
@@ -561,6 +599,27 @@ fn push_inner(
         }
     }
 
+    for (relative, text) in &set.links {
+        let target = format!("{remote_root}/{relative}");
+        match links.place(&mut remote, &target, text)? {
+            Placed::Made => {
+                summary.written += 1;
+                next.links.insert(relative.clone(), Linked { target: text.clone() });
+            }
+            Placed::Already => {
+                summary.unchanged += 1;
+                next.links.insert(relative.clone(), Linked { target: text.clone() });
+            }
+            Placed::Skipped(why) => set.skips.note(relative, why),
+        }
+    }
+    if !set.links.is_empty() {
+        let (skipped_files, skipped_counts) = set.skips.json();
+        summary.skipped = set.skips.total();
+        summary.skipped_files = skipped_files;
+        summary.skipped_counts = skipped_counts;
+    }
+
     let manifest = serde_json::to_vec(&next)?;
     remote
         .write(&manifest_path, &mut manifest.as_slice(), 0o600)
@@ -589,12 +648,76 @@ fn save_partway(
         .map(|(relative, pushed)| (relative.clone(), pushed.clone()))
         .collect();
     files.extend(next.files.iter().map(|(relative, pushed)| (relative.clone(), pushed.clone())));
-    let partway = Manifest { version: 1, files, git: previous.git.clone() };
+    let partway =
+        Manifest { version: 1, files, git: previous.git.clone(), links: previous.links.clone() };
     let bytes = serde_json::to_vec(&partway)?;
     remote
         .write(manifest_path, &mut bytes.as_slice(), 0o600)
         .context("cannot save the sync manifest")?;
     Ok(())
+}
+
+/// What [`LinkSync::place`] did with one symlink.
+enum Placed {
+    Made,
+    /// The machine already has it with this text.
+    Already,
+    Skipped(skips::Why),
+}
+
+/// The symlinks of one push on the machine, through `fs-symlink-v1`; once
+/// the machine shows it lacks those ops, every symlink is skipped with why.
+#[derive(Default)]
+struct LinkSync {
+    unsupported: bool,
+}
+
+impl LinkSync {
+    /// Whether the machine's entry at `target` is a symlink with `text`.
+    fn ours(&mut self, remote: &mut Remote, target: &str, text: &str) -> anyhow::Result<bool> {
+        if self.unsupported || remote.kind(target)?.as_deref() != Some("symlink") {
+            return Ok(false);
+        }
+        match remote.readlink(target) {
+            Ok(found) => Ok(found.as_deref() == Some(text)),
+            Err(error) if is_refusal(&error) => {
+                self.unsupported |= remote::lacks_symlinks(&error);
+                Ok(false)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Makes the symlink `target` with `text` on the machine, unless it is
+    /// there already. Something else there (the machine's own) stays.
+    fn place(&mut self, remote: &mut Remote, target: &str, text: &str) -> anyhow::Result<Placed> {
+        if self.unsupported {
+            return Ok(Placed::Skipped(skips::Why::SymlinkUnsupported));
+        }
+        match remote.kind(target)?.as_deref() {
+            None => {}
+            Some("symlink") if self.ours(remote, target, text)? => return Ok(Placed::Already),
+            // A folder that became a symlink here leaves an empty one.
+            Some("dir") if remote.list(target)?.is_some_and(|entries| entries.is_empty()) => {
+                remote.delete(&[target.to_string()])?;
+            }
+            _ if self.unsupported => return Ok(Placed::Skipped(skips::Why::SymlinkUnsupported)),
+            _ => return Ok(Placed::Skipped(skips::Why::SymlinkTaken)),
+        }
+        let (parent, _) = remote::split(target)?;
+        remote.mkdir_all(parent)?;
+        match remote.symlink(target, text) {
+            Ok(()) => Ok(Placed::Made),
+            Err(error) if remote::refusal_code(&error) == Some("fs.exists") => {
+                Ok(Placed::Skipped(skips::Why::SymlinkTaken))
+            }
+            Err(error) if is_refusal(&error) => {
+                self.unsupported |= remote::lacks_symlinks(&error);
+                Ok(Placed::Skipped(skips::Why::SymlinkUnsupported))
+            }
+            Err(error) => Err(error),
+        }
+    }
 }
 
 /// Writes `file` to `target`. An empty folder in the way (left by a folder
