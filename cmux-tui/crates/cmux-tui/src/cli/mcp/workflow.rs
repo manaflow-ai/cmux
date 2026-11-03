@@ -255,6 +255,20 @@ fn handle<B: Backend>(
                     if let Some(refusal) = server.tool_refusal(name) {
                         return Ok(code_mode::script_answer(Ok(refusal), images));
                     }
+                    // A tool's provider can be revoked without narrowing the
+                    // name allowlist. Replay must obey the current catalog too.
+                    if name != code_mode::DOCS
+                        && name != code_mode::EXEC
+                        && !tools
+                            .get_or_insert_with(|| server.list())
+                            .iter()
+                            .any(|tool| tool["name"] == name.as_str())
+                    {
+                        return Ok(refused(
+                            "tool.unavailable",
+                            &format!("{name} is outside the current tool catalog"),
+                        ));
+                    }
                     (name.as_str(), json!(arguments))
                 }
                 code_mode::Request::Docs { query } => ("cmux.docs", json!({"query":query})),
