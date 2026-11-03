@@ -5625,7 +5625,11 @@ export class AcpmuxDirectClient {
             version: 1,
             at: event.at,
             kind: "recap",
-            recap: { text: msg.text.trim(), awayMs: typeof msg.awayMs === "number" ? msg.awayMs : undefined },
+            recap: {
+              text: msg.text.trim(),
+              awayMs: typeof msg.awayMs === "number" ? msg.awayMs : undefined,
+              key: `${this.selectedSessionId ?? ""}:${event.seq}`,
+            },
           });
         }
       } else if (event.kind === BACKGROUND_TURN_KIND) {

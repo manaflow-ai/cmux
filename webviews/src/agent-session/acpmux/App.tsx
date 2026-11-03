@@ -1694,7 +1694,7 @@ const FailoverRow = memo(
 );
 const RecapRow = memo(
   function RecapRow({ row }: RowProps) {
-    return row.recap ? <RecapNote id={`${row.id}-${row.at}`} recap={row.recap} /> : null;
+    return row.recap ? <RecapNote id={row.recap.key} recap={row.recap} /> : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
