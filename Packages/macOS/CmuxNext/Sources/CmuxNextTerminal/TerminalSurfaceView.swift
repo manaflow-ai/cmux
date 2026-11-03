@@ -113,6 +113,8 @@ public final class TerminalSurfaceView: NSView {
     private var windowObservers: [any NSObjectProtocol] = []
     private var appliedContentScale: NSSize?
     private var appliedDisplayID: UInt32?
+    /// The display scale a test puts this view at (its window moved to a display of another scale); nil: AppKit's.
+    var backingScaleOverride: CGFloat?
     var trackingArea: NSTrackingArea?
     var cursor: NSCursor = .iBeam
 
@@ -360,16 +362,17 @@ public final class TerminalSurfaceView: NSView {
     /// Applies only what changed since the last call (a terminal shown again calls it).
     private func updateContentScale() {
         guard let surface else { return }
-        let scale = convertToBacking(NSSize(width: 1, height: 1))
+        let scale = toBacking(NSSize(width: 1, height: 1))
         if scale != appliedContentScale {
             appliedContentScale = scale
             ghostty_surface_set_content_scale(surface, scale.width, scale.height)
         }
         if let window {
-            if layer?.contentsScale != window.backingScaleFactor {
+            let backing = backingScaleOverride ?? window.backingScaleFactor
+            if layer?.contentsScale != backing {
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
-                layer?.contentsScale = window.backingScaleFactor
+                layer?.contentsScale = backing
                 CATransaction.commit()
             }
             if let screenNumber = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
@@ -378,6 +381,12 @@ public final class TerminalSurfaceView: NSView {
                 ghostty_surface_set_display_id(surface, screenNumber.uint32Value)
             }
         }
+    }
+
+    /// `size` in this view's backing pixels: AppKit's conversion, or ``backingScaleOverride``'s.
+    private func toBacking(_ size: NSSize) -> NSSize {
+        guard let scale = backingScaleOverride else { return convertToBacking(size) }
+        return NSSize(width: size.width * scale, height: size.height * scale)
     }
 
     /// Locks the mirror to the owner's grid on the output lane, behind every
@@ -435,7 +444,7 @@ public final class TerminalSurfaceView: NSView {
             return
         }
         // The size asked of Ghostty and not shown yet, else the view's (``place(_:anchor:)``).
-        let pixels = convertToBacking(frameOwnership.inFlight ?? bounds.size)
+        let pixels = toBacking(frameOwnership.inFlight ?? bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         defer { copyMode.syncCursor() }
         ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))

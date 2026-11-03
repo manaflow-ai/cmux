@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextSignposts
 @testable import CmuxNextTerminal
 import CmuxNextTestSupport
+import GhosttyNextKit
 import IOSurface
 import Testing
 
@@ -40,6 +41,43 @@ struct TerminalSurfaceCommitSizeTests {
                 "\(fixture.mismatches.count) turns ended with the layer at one size and its frame at another: \(fixture.mismatches.prefix(8))")
         let stats = TerminalFramePresenter.forWindow(fixture.window).stats
         #expect(stats.presented > 0 && stats.fallbacks == 0, "presenter: \(stats)")
+    }
+
+    /// Its window moved to a display of another scale (1x and 2x): the terminal keeps its layer's scale and its frame
+    /// until the frame drawn at the new scale is ready, and both change in that one commit (Codex review of
+    /// b9bafbda1e0: the new `contentsScale` went to the layer at once, so the old frame showed at the new scale for
+    /// 1-4 refreshes). The landing's commit is then reported, so output goes to the screen off the main thread again.
+    @Test func aNewDisplayScaleLandsWithTheFrameDrawnAtIt() async throws {
+        let fixture = try await Fixture()
+        defer { fixture.close() }
+        let view = fixture.session.surfaceView
+        let old = try #require(view.layer?.contentsScale, "the terminal has no layer")
+        let new: CGFloat = old == 2 ? 1 : 2
+        let presenter = TerminalFramePresenter.forWindow(fixture.window)
+        let presentedBefore = presenter.stats.presented
+        let fallbacksBefore = presenter.stats.fallbacks
+        // What AppKit does when the window moves to a display of another scale.
+        view.backingScaleOverride = new
+        view.viewDidChangeBackingProperties()
+        let landed = await fixture.waitShown(width: 600, scale: new)
+        #expect(landed, "the frame drawn at \(new)x never showed (shown \(fixture.shownPixels.map { "\($0)" } ?? "nothing"))")
+        #expect(view.layer?.contentsScale == new, "the layer's scale is \(view.layer?.contentsScale ?? 0), the display's is \(new)")
+        #expect(fixture.mismatches.isEmpty,
+                "\(fixture.mismatches.count) turns ended with the layer at one size and its frame at another: \(fixture.mismatches.prefix(8))")
+        #expect(presenter.stats.presented > presentedBefore, "the new scale's frame did not come through the presenter: \(presenter.stats)")
+        #expect(presenter.stats.fallbacks == fallbacksBefore,
+                "the new scale's frame came after the keep limit and fell back (\(presenter.stats.fallbacks - fallbacksBefore))")
+        // The landing's commit is reported: output at the new scale goes to the screen off the main thread again.
+        let offMain = fixture.offMainPresents
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        var line = 0
+        while ContinuousClock.now < deadline, fixture.offMainPresents == offMain {
+            fixture.io.send(.output(Data("\r\nscale \(line)".utf8)))
+            line += 1
+            await fixture.commits(1)
+        }
+        #expect(fixture.offMainPresents > offMain,
+                "no frame went to the screen off the main thread after the new scale landed (host_off_main_presents stays \(offMain))")
     }
 
     /// A terminal hidden while its new size waits for its frame (a tab switched away mid-drag) takes the size its
@@ -388,15 +426,22 @@ struct TerminalSurfaceCommitSizeTests {
             }
         }
 
-        /// Waits, commit by commit (at most 10 s), until the shown frame is `width` points wide at the layer's scale.
-        func waitShown(width: CGFloat) async -> Bool {
+        /// Waits, commit by commit (at most 10 s), until the shown frame is `width` points wide at `scale` (default:
+        /// the layer's scale).
+        func waitShown(width: CGFloat, scale: CGFloat? = nil) async -> Bool {
             let deadline = ContinuousClock.now.advanced(by: .seconds(10))
             while ContinuousClock.now < deadline {
-                let scale = session.surfaceView.layer?.contentsScale ?? 2
+                let scale = scale ?? session.surfaceView.layer?.contentsScale ?? 2
                 if shownPixels?.width == Int((width * scale).rounded()) { return true }
                 await commits(1)
             }
             return false
+        }
+
+        /// Ghostty's frames of this surface that went to the screen off the main thread.
+        var offMainPresents: UInt64 {
+            guard let surface = session.surfaceView.surface else { return 0 }
+            return ghostty_surface_render_counters(surface).host_off_main_presents
         }
     }
 }
