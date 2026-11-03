@@ -220,8 +220,11 @@ impl Hub {
             }
             Ok(outcome) => outcome,
         };
+        // A resend: the client said so, or the log holds the id already (a retry after a lost
+        // connection or a restart, which may not say so; `prompt_ids.rs`).
+        let resend = opts.resend || self.prompt_id_logged(session, &prompt_id);
         // A resent inbox message answers as its notice did, a failure as the same error.
-        if opts.resend
+        if resend
             && let Some(answer) = self.logged_inbox_answer(session, &prompt_id)
         {
             if let Some(f) = opts.on_accepted.take() {
@@ -232,7 +235,7 @@ impl Hub {
             prompt_ledger::prune(&mut ledger);
             return answer;
         }
-        if opts.resend
+        if resend
             && let Some(logged) = self.logged_prompt(session, &prompt_id)
         {
             if let Some(f) = opts.on_accepted.take() {
@@ -826,7 +829,9 @@ impl Hub {
         // finishes later. Do not let the stale compaction flag cancel the
         // next, explicit prompt immediately.
         session.compacting.store(false, Ordering::SeqCst);
-        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
+        // Its control goes with it: a restart that finds its turn never started queues it again
+        // as it came (`unstarted_prompt.rs`).
+        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str()});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
         self.append_prompt(session, msg, &blocks, display_parts.as_ref());
         if trigger {
