@@ -9,7 +9,7 @@
 // Then the call's locations, a path field in a cut-off input, and a path in the title. A row never
 // shows the raw input: no path found is an empty list (the card says "Unknown file").
 import { cmuxTitle } from "./conversation/cmuxExec";
-import { mcpCall, mcpUsing } from "./conversation/mcpCalls";
+import { mcpCall, mcpDescription, mcpUsing } from "./conversation/mcpCalls";
 import { harnessToolLabel } from "./harnessToolLabels";
 import { currentLanguage, translatorFor } from "./i18n";
 import { ROW_WIDTH, shortCommand } from "./conversation/shortCommand";
@@ -74,7 +74,9 @@ export function toolLabel(
   if (call) {
     const t = translatorFor(currentLanguage());
     return (
-      cmuxTitle(t, [call], [tool]) ?? mcpUsing(t, call, tool.status === "pending" || tool.status === "in_progress")
+      mcpDescription(call) ??
+      cmuxTitle(t, [call], [tool]) ??
+      mcpUsing(t, call, tool.status === "pending" || tool.status === "in_progress")
     );
   }
   // An edit of several files keeps a title that says more than its verb ("Edit 2 files"): naming

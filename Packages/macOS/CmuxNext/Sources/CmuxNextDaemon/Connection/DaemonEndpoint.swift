@@ -245,6 +245,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// column and leaves a fresh tab of the same kind (Dock Column on a
     /// screen with one tab).
     case tabColumnRespawn = "tab-column-respawn-v1"
+    /// `move-tab-to-column` `pane_id`: the new column's pane takes the
+    /// client-minted public id, so the dock shows in the input's turn.
+    case tabColumnClientPane = "tab-column-client-pane-v1"
     /// `restart-tab`: a terminal tab whose shell ended restarts under the
     /// same terminal id (Unix daemons).
     case tabRestart = "tab-restart-v1"
@@ -315,6 +318,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// permissions through that machine's session daemon (cmux-tui/spec/commands.md
     /// "Agent session attach").
     case agentSessionAttach = "agent-session-attach-v1"
+    /// Ordered ACP prompt blocks, including image and file content, on an owning connection.
+    case agentSessionContent = "agent-session-content-v1"
     /// The `mobile-chat-*` relay the Mac's mobile host offers a phone (cmux-tui mobile_chat.rs).
     case cloudChatRelay = "cloud_chat_relay.v1"
     /// Read-only observation of a remote agent session. An observer never falls back to the
@@ -549,13 +554,13 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
-             .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
+             .tabColumnRespawn, .tabColumnClientPane, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
              .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .treeSelectionDeltas,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind, .agentSessionFolders,
-             .agentSessionChildren, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,

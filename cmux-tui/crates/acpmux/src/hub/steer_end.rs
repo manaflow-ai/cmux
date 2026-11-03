@@ -18,6 +18,48 @@ fn ends_turn(answer: &Value) -> bool {
     answer.get("stopReason").and_then(Value::as_str).is_some_and(|reason| reason != "steered")
 }
 
+/// The refusal [`agent_prompt_hook`] gives a steer a Stop ended the turn of before the agent
+/// read it (its `data.answer` is the turn's answer).
+const STEER_STOPPED_UNREAD: &str = "steer: the turn was stopped before the agent read it";
+
+/// Whether `answer` is the end acpmux gave a turn whose agent never answered its Stop
+/// (`cancel.rs` `forced_answer`).
+fn forced(answer: &Value) -> bool {
+    answer.pointer("/_meta/acpmux/cancelForced") == Some(&Value::Bool(true))
+}
+
+/// `sent`: the steer was written to the agent (it may hold it unread, or have read it).
+fn stopped_unread(answer: Value, sent: bool) -> RpcError {
+    RpcError::invalid_params(STEER_STOPPED_UNREAD)
+        .with_data(json!({"reason": "stopped_unread", "answer": answer, "sent": sent}))
+}
+
+/// The turn's answer, and whether the steer was written, if `answer` is [`stopped_unread`]'s
+/// refusal.
+fn stopped_unread_answer(answer: &Result<Value, RpcError>) -> Option<(Value, bool)> {
+    match answer {
+        Err(e) if e.message.starts_with(STEER_STOPPED_UNREAD) => {
+            let data = e.data.as_ref();
+            let turn = data.and_then(|d| d.get("answer")).cloned().unwrap_or(Value::Null);
+            Some((turn, data.and_then(|d| d.get("sent")) != Some(&Value::Bool(false))))
+        }
+        _ => None,
+    }
+}
+
+/// The refusal of another agent's steer a Stop kept out of the turn it stops: it goes in as a
+/// turn of its own instead, with no backoff (`inbox.rs` `notice_done`).
+pub(super) fn stopped_steer_refused() -> RpcError {
+    RpcError::invalid_params(crate::claude_stdio::STEER_NO_TURN)
+        .with_data(json!({"reason": "stopped"}))
+}
+
+/// Whether `result` is [`stopped_steer_refused`]'s refusal.
+pub(super) fn is_stopped_steer_refused(result: &Result<Value, RpcError>) -> bool {
+    matches!(result, Err(e) if e.data.as_ref().and_then(|d| d.get("reason")) == Some(&json!("stopped"))
+        && e.message.starts_with(crate::claude_stdio::STEER_NO_TURN))
+}
+
 /// The agent's `session/prompt` for a prompt of turn `turn_id` (its own, or
 /// a `steer` into it): the agent's answer, or the answer of a steer that
 /// ended this turn first. With `confirm_written`, `on_sent` requires the harness writer
@@ -51,11 +93,14 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     // again, under this prompt's turn (a carried turn's forced end, review 5 of #27536).
     let published = std::sync::atomic::AtomicBool::new(false);
     let settled = |answer: Value| {
-        if steer
-            && !delivery_started.load(std::sync::atomic::Ordering::SeqCst)
-            && answer["stopReason"] != "cancelled"
-        {
+        let sent = delivery_started.load(std::sync::atomic::Ordering::SeqCst);
+        if steer && !sent && answer["stopReason"] != "cancelled" {
             Err(RpcError::invalid_params(crate::claude_stdio::STEER_NO_TURN))
+        } else if steer && (!sent || forced(&answer)) {
+            // A Stop ended the turn before the agent answered this steer: never written, or
+            // written and the agent, which answers a steer as it reads it, never did
+            // (`steer_turn` decides what becomes of it).
+            Err(stopped_unread(answer, sent))
         } else {
             Ok(answer)
         }
@@ -173,8 +218,14 @@ impl Hub {
         let fallback = (!opts.steer_only).then(|| blocks.clone());
         let wire_blocks = super::turns::agent_blocks(self, session, &blocks).await?;
         // Stopped while its copies were made: written now, it would reach no turn, and its
-        // fallback would start one after the Stop.
-        if session.cancels.load(std::sync::atomic::Ordering::SeqCst) != cancels {
+        // fallback would start one after the Stop. Another agent's message goes on: it is kept
+        // out of the stopping turn, or comes back if that turn ends before its agent read it
+        // (below), and starts the next turn.
+        let from_agent = super::inbox::is_notice(opts.provenance.as_ref())
+            || (!opts.send_now
+                && super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref())
+                    .is_some());
+        if !from_agent && session.cancels.load(std::sync::atomic::Ordering::SeqCst) != cancels {
             return Err(super::turns::stopped_before_prompt());
         }
         let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
@@ -252,9 +303,18 @@ impl Hub {
         let family = super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
         // Set when the person's waiting prompt is what held it, so a steer-only one says so.
         let prompt_held = std::sync::atomic::AtomicBool::new(false);
+        // Another agent's message (an inbox notice too) never goes into a turn a Stop is ending:
+        // its agent may never read it, and the forced end would answer it unread. It starts the
+        // next turn instead (2026-11-02: a coordinator's message sent a second after Stop went
+        // into the cancelling turn and was answered by its forced end; the chat sat idle).
+        let agent_message = agent_steer || inbox_notice;
+        let stop_held = std::sync::atomic::AtomicBool::new(false);
         let trigger = crate::prompt_provenance::is_trigger(opts.provenance.as_ref());
         let held = || {
-            if trigger || session.turn().is_some_and(|t| t.trigger) {
+            if agent_message && super::cancel::is_stopping(session, turn_id) {
+                stop_held.store(true, std::sync::atomic::Ordering::SeqCst);
+                true
+            } else if trigger || session.turn().is_some_and(|t| t.trigger) {
                 true
             } else if inbox_notice {
                 super::inbox::notice_held(session)
@@ -288,6 +348,29 @@ impl Hub {
             },
         )
         .await;
+        // A Stop ended the turn before its agent answered another agent's message. Never
+        // written (it waited behind the Stop), it comes back and starts the next turn (module
+        // docs of `cancel.rs`). Written, it comes back only once its agent confirms it dropped it
+        // unread (Claude Code's `cancel_async_message`): an agent that answers steers only at
+        // the turn's end (codex-acp), one whose line went in batched with others, or one that
+        // does not answer may have read it, and a second copy would repeat its work.
+        let stopped = stopped_unread_answer(&answer);
+        let forced_err = super::cancel::forced_turn(session, turn_id)
+            && answer.is_err()
+            && steer_entered_turn(&answer)
+            && stopped.is_none();
+        let unread = agent_message
+            && match &stopped {
+                Some((_, false)) => true,
+                Some((_, true)) => self.steer_taken_back(session, &child, &prompt_id).await,
+                None => forced_err && self.steer_taken_back(session, &child, &prompt_id).await,
+            };
+        let answer = match (answer, stopped) {
+            // Anyone else's (the person's) steer a Stop ended, and one its agent may have read,
+            // ends with the turn, as before.
+            (Err(_), Some((turn, _))) if !unread => Ok(turn),
+            (answer, _) => answer,
+        };
         // Read in a turn its agent ran on after the one it was steered into ended: it went into
         // that turn, which the turn before named as it ended (`carried_turn.rs`).
         let into = match super::carried_turn::steer_carry(&answer) {
@@ -307,17 +390,36 @@ impl Hub {
         }
         let turn_id = into.as_deref().unwrap_or(turn_id);
         if let Some(count) = count {
-            count.done(steer_entered_turn(&answer));
+            count.done(!unread && steer_entered_turn(&answer));
         }
         // An inbox digest's steer that went into the turn and failed with it: the messages it
-        // took go back held, as messages that joined a failed turn do (`inbox_digest.rs`).
+        // took go back held, as messages that joined a failed turn do (`inbox_digest.rs`). One a
+        // Stop kept from its agent goes back unheld: its messages start the next turn.
         if answer.is_err() && steer_entered_turn(&answer) {
             let made =
                 session.inbox_digests.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
             if let Some(made) = made {
-                self.requeue_joined(session, &made, true);
+                self.requeue_joined(session, &made, !unread);
+                if unread {
+                    self.steer_stopped_unread(session, &prompt_id, turn_id);
+                    return Err(stopped_steer_refused());
+                }
             }
         }
+        let answer = if unread {
+            self.steer_stopped_unread(session, &prompt_id, turn_id);
+            if inbox_notice {
+                // Its messages are new again and go in as the next turn (`notice_done`).
+                self.inbox_notice_unwritten(session, &prompt_id);
+            }
+            Err(stopped_steer_refused())
+        } else if stop_held.load(std::sync::atomic::Ordering::SeqCst)
+            && matches!(&answer, Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN))
+        {
+            Err(stopped_steer_refused())
+        } else {
+            answer
+        };
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                 let Some(blocks) = fallback else {
@@ -367,6 +469,31 @@ impl Hub {
         };
         merge_mux_meta(&mut r, json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}));
         Ok(r)
+    }
+
+    /// Another agent's steer a Stop ended the turn of before its agent read it (`steer_turn`):
+    /// the log says it came back (`steer_returned`) and starts the next turn.
+    fn steer_stopped_unread(&self, session: &Arc<Session>, prompt_id: &str, turn_id: &str) {
+        let msg = json!({"promptId": prompt_id, "turnId": turn_id, "reason": "stopped"});
+        self.append(session, "mux", "steer_returned", msg);
+    }
+
+    /// Whether the agent dropped steer `prompt_id` unread when asked (`MUX_STEER_WITHDRAW`,
+    /// Claude Code's `cancel_async_message`). False when it read it, holds it batched with other
+    /// messages, cannot take one back (codex-acp), or its process ends first. No timeout, as for
+    /// the person's take-back (`queue_edit.rs` `withdraw_steer`): the drop is on its way once
+    /// asked, so only the agent's answer, or its end, says whether the message left it; one
+    /// given up on early could still be dropped after, and be in neither place.
+    async fn steer_taken_back(
+        &self,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+        prompt_id: &str,
+    ) -> bool {
+        let Some(sid) = session.meta().agent_session_id else { return false };
+        let params = json!({"sessionId": sid, "promptId": prompt_id});
+        let answer = child.request(method::MUX_STEER_WITHDRAW, params).await;
+        matches!(&answer, Ok(v) if v["withdrawn"] == true)
     }
 }
 
