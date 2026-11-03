@@ -246,6 +246,7 @@ export function Combobox({
   const held = keep && tallest > 0;
   const hasPinned = Boolean(pinnedSuggestions?.length);
   const edges = useScrollEdges();
+  const pinnedEdges = useScrollEdges();
   const attachList = useCallback(
     (node: HTMLDivElement | null) => {
       listRef.current = node;
@@ -383,7 +384,7 @@ export function Combobox({
       style={held ? { minHeight: tallest, boxSizing: "border-box" } : undefined}
     >
       {hasPinned && (
-        <div className="ui-combobox-pinned">
+        <div ref={pinnedEdges} className="ui-combobox-pinned ui-scroll-edge-fade">
           {pinnedSuggestions!.map((item) => renderOption(item, enabledSuggestions.indexOf(item)))}
         </div>
       )}
