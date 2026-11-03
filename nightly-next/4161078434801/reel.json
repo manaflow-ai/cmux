@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "build": "4161078434801",
+  "notes": "notes/4161078434801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 33321,
+      "title": "docs(defaults guard): name the Tunable helper forms the exact match does not see",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33355,
+      "title": "base red: move the App lines of #33132, #33193, #33011 and #33273 into their packages (arch app_lines +18)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32876,
+      "title": "perf(browser): closing a Chromium tab, or a pane's last one, takes effect on the click (beforeunload still asks)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33345,
+      "title": "bench: idle-chats scenario for the idle-CPU stop condition (40 open chats, 5% per process)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33396,
+      "title": "Cloud Codex broker: a delivery that fails after a good refresh takes the backoff",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33348,
+      "title": "ci(nightly): every nightly-only slot builds warm, without the builder label",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33377,
+      "title": "base red: RowBadgeSpinnerDensityTests' argument table is nonisolated (@Test(arguments:) reads it off the main actor; from #33120)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33434,
+      "title": "base red: acpmux send --status and the Cloud activity line set JSON fields with JsonSet (panic ratchet indexing_slicing after #33168, #33274)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33340,
+      "title": "ci(nightly): publication and prepare jobs leave 32 vCPU for the measured 4 vCPU",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33237,
+      "title": "cmux NEXT perf: the launch restore no longer hangs 2.5 s cancelling piled-up observation trackers (hq#6338 stack 2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33439,
+      "title": "Test: an approved live ask's mark is checked once its call ran",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33424,
+      "title": "cloud: the root Native receiver logs each new bootstrap failure once, with its retry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32795,
+      "title": "Prompt rail: full length on the first frame from the prompt count, no shift as history loads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33266,
+      "title": "perf(cef quit): commit the cookie stores before CefShutdown with the main thread free; hide the windows before it blocks (hang #1, cmuxterm-hq#6338)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33154,
+      "title": "acpmux: github_status tells every harness which GitHub account cmux can see, never a token",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33323,
+      "title": "cmux NEXT: cmux app renderers names the page, tab and agent session behind each Chromium renderer pid",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33344,
+      "title": "acpmux: the context usage warning holds each session to its own window",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
