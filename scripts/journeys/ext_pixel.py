@@ -55,7 +55,10 @@ Steps (`do`):
                ext_video's 8 s): waits until the app's recorder is idle (record_read: nothing capturing, the last
                recording written; after a failed start the app has dropped it), starts with the app's own bound
                (START_TIMEOUT: its two ScreenCaptureKit calls of at most 10 s each) and tries a start that did not take
-               once more; each attempt's reason and each idle wait are in the note (`recorder`).
+               once more; each attempt's reason and each idle wait are in the note (`recorder`). A film whose start
+               does not take the second time either (cmux22 2026-11-03: 4 of 40 starts stalled at the app's 10 s
+               bound) is that film's "not run" line: px_film skips its motion and its rebuild (before the recorder a
+               film only focuses and waits) and the journey goes on; the second such film ends the journey (not run).
   px_film also records each film's movie and scan bytes (`bytes`), so a round whose fetch fails still says how big
   its films were.
   px_agent     {pane, timeout?: 20}
@@ -108,11 +111,22 @@ START_ATTEMPTS = 2
 IDLE_TIMEOUT = 35.0  # the last recording's stop (at most 10 s) and its files
 IDLE_AFTER_ERROR_S = 0.5  # after a failed start the app has dropped it; its files close within milliseconds
 RECORDER_RETRY = ("ScreenCaptureKit did not start", "still being written")
+# The second film of a journey whose recorder does not start ends the journey (not run): the recorder is unreliable on
+# this run, and each such film costs START_ATTEMPTS app bounds of 10 s.
+FILMS_NOT_STARTED_MAX = 2
+
+FilmNotStarted = None  # install(): a driver NotRun (this file must not import the driver, which runs as __main__)
 
 
 def install(driver):
-    global D, V, W
+    global D, V, W, FilmNotStarted
     D = driver
+
+    class FilmNotStarted(driver.NotRun):  # the module's name (global above), bound once the driver is
+        """The recorder did not start a film in START_ATTEMPTS tries (a retryable reason, RECORDER_RETRY, every time).
+        px_film makes that film one "not run" line and the journey goes on: before its recorder starts a film only
+        focuses and waits (gen_pixel.py), so the layout is still the one the next film expects. Elsewhere a NotRun."""
+
     import ext_video
     import ext_window
     V, W = ext_video, ext_window
@@ -415,11 +429,15 @@ def start_film(j, step):
             return V.step_video_start(j, dict(step, start_timeout=float(step.get("start_timeout", START_TIMEOUT)))), recorder
         except (D.NotRun, D.StepError) as error:
             retry = any(text in str(error) for text in RECORDER_RETRY)
-            if not retry or attempt == START_ATTEMPTS - 1:
+            if not retry:
                 if recorder["attempts"]:
                     raise type(error)(f"{error} (after {len(recorder['attempts'])} earlier start(s): "
                                       f"{' | '.join(recorder['attempts'])[:400]})")
                 raise
+            if attempt == START_ATTEMPTS - 1:
+                earlier = f" (after {len(recorder['attempts'])} earlier start(s): {' | '.join(recorder['attempts'])[:400]})" \
+                    if recorder["attempts"] else ""
+                raise FilmNotStarted(f"{error}{earlier}")
             recorder["attempts"].append(str(error)[:300])
     raise D.NotRun("unreachable")
 
@@ -540,6 +558,8 @@ def step_px_film(j, step):
         t = D.now()
         try:
             out = handler(sub)
+        except FilmNotStarted as error:
+            return film_not_started(j, name, reduce, switch, done, error)
         except D.StepError as error:
             raise D.StepError(f"px_film {name}: {sub['do']} ({sub.get('title', '')[:60]}): {error}")
         done.append({"do": sub["do"], "title": sub.get("title", ""), "seconds": round(D.now() - t, 3), "result": _short(out)})
@@ -548,6 +568,21 @@ def step_px_film(j, step):
     if switch:
         line["switch"] = switch
     st["films"].append({k: line[k] for k in ("film", "status", "speed", "reduce", "springs_source", "bytes", "switch") if k in line})
+    return line
+
+
+def film_not_started(j, name, reduce, switch, done, error):
+    """The film's "not run" line when its recorder did not start (FilmNotStarted): its motion and its rebuild are
+    skipped. The second such film of the journey ends it (NotRun)."""
+    st = _state(j)
+    st["not_started"] = st.get("not_started", 0) + 1
+    if st["not_started"] >= FILMS_NOT_STARTED_MAX:
+        raise D.NotRun(f"{error} ({st['not_started']} films of this journey did not start)")
+    line = {"film": name, "status": "not run", "speed": None if reduce else st["speed"], "reduce": reduce,
+            "reason": f"not run: the recorder did not start: {error}", "steps": done}
+    if switch:
+        line["switch"] = switch
+    st["films"].append({k: line[k] for k in ("film", "status", "speed", "reduce", "reason", "switch") if k in line})
     return line
 
 

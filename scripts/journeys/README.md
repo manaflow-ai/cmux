@@ -287,7 +287,7 @@ Reduce Motion; where the tunable store stays inactive, even after `debug.tunable
 Reduce Motion films play and each other speed is a "not run" line), `px_springs`, `px_tunable`, `px_page`,
 `px_agent` (an agent chat aimed at its pane, never a chat dock; it selects the chat tab the targeted open leaves unselected, `tab.focus`, and waits for kind `agent`), `px_window_frame`, `px_agent_css` and `px_record_start` (ext_video's recorder with a scan row through every tab strip and lines
 across every pane border, and the judge's note; it waits for the app's recorder to be idle and tries a start that
-did not take once more). Each case has a six-speed journey and a `-s1r` journey (x1 and Reduce Motion, three to a
+did not take once more; a film that still does not start is that film's "not run" line, the journey goes on, and a second such film ends it). Each case has a six-speed journey and a `-s1r` journey (x1 and Reduce Motion, three to a
 lease). run.py fetches the films compressed (`tar cz`: a scan of flat fixture colors shrinks about 30x). `video-cases/judge_pixel.py` judges the films from the exact scan lines;
 tests: `test_ext_pixel.py` (stdlib) and `video-cases/test_judge_pixel.py` (numpy).
 
