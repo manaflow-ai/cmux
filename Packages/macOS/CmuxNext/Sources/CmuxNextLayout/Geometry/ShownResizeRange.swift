@@ -45,44 +45,77 @@ public nonisolated struct ShownResizeRange {
         return lower...max(lower, ColumnWidthPreset.widthRange.upperBound)
     }
 
-    /// The widths of two neighbor strip columns after a keyboard press moves the divider between them by `delta` (a
-    /// share of the strip; right is positive): `left` takes what `right` gives, or gives what it takes, so the columns
-    /// after them and the strip stay where they are (the trade of an Option-drag, ``StripStart/trading(_:to:)``). The
-    /// move is whole device pixels, so both widths round the same way and neither outer edge moves by a pixel. It stops
-    /// where a column reaches its minimum or the widest share, and where the divider would leave the part of the strip
-    /// the window shows (``stripOffset``): past it the press would move nothing a person sees. Each column counts from
-    /// the width it shows: a stored width below its minimum shows at the minimum rounded up to a pixel
-    /// (`ColumnStripGeometry.frames`), so the trade starts there. Nil when
+    /// The widths of two neighbor strip columns of `layout` after a keyboard press moves the divider between them by
+    /// `delta` (a share of the strip; right is positive): `left` takes what `right` gives, or gives what it takes, so the
+    /// columns after them and the strip stay where they are (the trade of an Option-drag, ``StripStart/trading(_:to:)``).
+    ///
+    /// The move is whole device pixels from the widths the columns show, and stops where a column reaches its minimum
+    /// (shown rounded up to a pixel) or the widest share, and where the divider would leave the part of the strip the
+    /// window shows (``stripOffset``): past it the press would move nothing a person sees. The new widths keep the
+    /// pair's ideal (unrounded) sum, so the columns after it and the cut of a column that ends at the window's edge
+    /// (`ColumnStripGeometry.frames`) do not change, and put both ideal widths the same way from their shown pixels, as
+    /// far from a rounding tie as that allows. They are what the daemon keeps (`f32`), so its echo moves nothing. The
+    /// result is checked by placing it: the press moves exactly the divider by the step, or it is refused (nil), as when
     /// nothing would move.
-    public func trade(_ left: LayoutColumn, _ right: LayoutColumn, by delta: Double) -> (left: Double, right: Double)? {
+    public func trade(_ left: LayoutColumn, _ right: LayoutColumn, by delta: Double, in layout: ScreenLayout) -> (left: Double, right: Double)? {
         guard geometry.isColumns, let leftFrame = geometry.columns[left.id], let rightFrame = geometry.columns[right.id],
               case let unit = geometry.stripWidth - style.stripGap, unit > 0, delta != 0 else { return nil }
-        let range = ColumnWidthPreset.widthRange
-        let widest = max(1, geometry.stripWidth - style.stripGap * 2)
-        func floor(_ column: LayoutColumn) -> Double {
-            let minimum = SplitGeometry.ceilToPixel(min(column.minimumSize(style: style).width, widest), scale: scale)
-            return max(range.lowerBound, ColumnStripGeometry.fraction(forPixelWidth: minimum, viewportWidth: geometry.stripWidth,
-                                                                      gap: style.stripGap))
+        let strip = geometry.stripWidth, gap = style.stripGap, range = ColumnWidthPreset.widthRange
+        let pixel = scale > 0 ? scale : 1
+        let widest = max(1, strip - gap * 2)
+        func ideal(_ fraction: Double) -> CGFloat { ColumnStripGeometry.pixelWidth(fraction: fraction, viewportWidth: strip, gap: gap) }
+        /// The narrowest width a column shows: its minimum rounded up to a pixel, and never below the narrowest share.
+        func floor(_ column: LayoutColumn) -> CGFloat {
+            max(SplitGeometry.ceilToPixel(min(column.minimumSize(style: style).width, widest), scale: scale),
+                SplitGeometry.ceilToPixel(ideal(range.lowerBound), scale: scale))
         }
-        let shownLeft = min(max(left.width, floor(left)), range.upperBound)
-        let shownRight = min(max(right.width, floor(right)), range.upperBound)
         // How far the divider may go, in points: right until a column reaches a bound, left the same.
-        var most = CGFloat(min(range.upperBound - shownLeft, shownRight - floor(right))) * unit
-        var least = -CGFloat(min(shownLeft - floor(left), range.upperBound - shownRight)) * unit
+        var most = min(widest - leftFrame.width, rightFrame.width - floor(right))
+        var least = -min(leftFrame.width - floor(left), widest - rightFrame.width)
         if let stripOffset {
             let leading = max(0, geometry.uncoveredMinX - geometry.stripMinX)
             let trailing = max(0, geometry.stripMinX + geometry.stripWidth - geometry.uncoveredMaxX)
-            most = min(most, stripOffset + geometry.stripWidth - trailing - rightFrame.minX)
+            most = min(most, stripOffset + strip - trailing - rightFrame.minX)
             least = max(least, stripOffset + leading - leftFrame.maxX)
         }
         // Toward the arrow only, in whole pixels: the step to the nearest one, the room to the last one inside it
         // (`edgeTolerance` of a pixel of float slack), so a press never passes a bound.
-        let pixel = scale > 0 ? scale : 1
         let room = max(0, delta > 0 ? most : -least)
         let pixels = min((abs(CGFloat(delta)) * unit * pixel).rounded(), (room * pixel + ColumnStripGeometry.edgeTolerance).rounded(.down))
         guard pixels > 0 else { return nil }
-        let share = Double((delta > 0 ? pixels : -pixels) / pixel / unit)
-        return (min(max(shownLeft + share, range.lowerBound), range.upperBound), min(max(shownRight - share, range.lowerBound), range.upperBound))
+        let move = (delta > 0 ? pixels : -pixels) / pixel
+        let (leftShown, rightShown) = (leftFrame.width + move, rightFrame.width - move)
+        // The ideal widths that show those: the pair's ideal sum kept, both the same way from their pixels; else (a pair
+        // whose ideal widths are both on a tie, where that way is the tie itself) the shown widths themselves.
+        let (leftIdeal, rightIdeal) = (ideal(left.width), ideal(right.width))
+        let shift = (leftShown - leftIdeal + rightIdeal - rightShown) / 2
+        for (a, b) in [(leftIdeal + shift, rightIdeal - shift), (leftShown, rightShown)] {
+            let widths = (kept(fraction(a)), kept(fraction(b)))
+            if movesOnlyTheDivider(layout.settingWidth(widths.0, for: left.id).settingWidth(widths.1, for: right.id),
+                                   left: left.id, right: right.id, by: move) {
+                return widths
+            }
+        }
+        return nil
+    }
+
+    /// The share of the strip whose ideal width is `width` points.
+    private func fraction(_ width: CGFloat) -> Double {
+        ColumnStripGeometry.fraction(forPixelWidth: width, viewportWidth: geometry.stripWidth, gap: style.stripGap)
+    }
+
+    /// `width` as the daemon keeps a column width (`f32`, cmux-tui `LayoutColumn.width`): the value its echo brings back.
+    private func kept(_ width: Double) -> Double { Double(Float(width)) }
+
+    /// Whether `candidate`, placed as the screen places it, shows every column where it shows now but the divider between
+    /// `left` and `right`, moved by `move` points.
+    private func movesOnlyTheDivider(_ candidate: ScreenLayout, left: ColumnID, right: ColumnID, by move: CGFloat) -> Bool {
+        let placed = ScreenGeometry.compute(candidate, viewport: geometry.viewport, style: style, scale: scale)
+        guard let l0 = geometry.columns[left], let r0 = geometry.columns[right], let l1 = placed.columns[left],
+              let r1 = placed.columns[right] else { return false }
+        func same(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) < 0.001 }
+        guard same(l1.minX, l0.minX), same(r1.maxX, r0.maxX), same(l1.maxX, l0.maxX + move), same(r1.minX, r0.minX + move) else { return false }
+        return geometry.columns.allSatisfy { id, frame in id == left || id == right || placed.columns[id] == frame }
     }
 
     /// The width fractions of a side dock the screen shows as different widths (`DockStripGeometry.place`):

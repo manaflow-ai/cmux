@@ -21,4 +21,11 @@ extension LayoutRootView {
         view.holdsContentForKeyResize = true
         view.scrollState.keptColumn = column
     }
+
+    /// The press's own sync ran, or had nothing to show (its widths were refused at once): the column it kept in place
+    /// applies to no later sync.
+    public func keyboardResizeDidChange(screenContaining pane: PaneID) {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return }
+        view.scrollState.keptColumn = nil
+    }
 }

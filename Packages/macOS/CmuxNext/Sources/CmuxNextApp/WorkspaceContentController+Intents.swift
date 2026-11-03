@@ -200,9 +200,6 @@ extension WorkspaceContentController {
         }
     }
 
-    /// The daemon transaction number the newest layout transaction took (``GestureTransactionNumbers/latest``).
-    var nextGestureTransaction: UInt64 { gestureTransactions.latest }
-
     /// Sends a gesture's one command; its result settles or rolls back the layout's override.
     private func sendGesture(_ transaction: LayoutTransactionID, label: String, _ body: @escaping DaemonCommandBody) {
         Task { [daemon, layoutModel] in

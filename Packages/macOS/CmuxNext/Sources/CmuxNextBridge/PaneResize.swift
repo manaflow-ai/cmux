@@ -69,7 +69,7 @@ public nonisolated enum PaneResize {
             return stepped(column.width, by: delta, within: range, shown: shown?.width(of: column)).map { .columnWidth(column.id, $0) }
         }
         let (left, right) = index + 1 < strip.count ? (strip[index], strip[index + 1]) : (strip[index - 1], strip[index])
-        return shown?.trade(left, right, by: delta).map { .columnTrade(left.id, $0.left, right.id, $0.right) }
+        return shown?.trade(left, right, by: delta, in: layout).map { .columnTrade(left.id, $0.left, right.id, $0.right) }
     }
 
     /// `value` moved by `delta` inside `range` cut to `shown`, from where the screen shows it: a value past what the
@@ -114,6 +114,7 @@ public nonisolated enum PaneResize {
         // The spring starts in the key's own turn (as a split's frame does, `LayoutRootView.syncWithModel`): the very
         // next display frame moves, never one that ran before the layout's observation turn.
         view.syncWithModel()
+        view.keyboardResizeDidChange(screenContaining: pane)
         return true
     }
 
