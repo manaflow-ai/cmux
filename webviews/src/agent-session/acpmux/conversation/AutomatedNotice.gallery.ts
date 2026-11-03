@@ -93,6 +93,6 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 760,
   widths: { narrow: 520, normal: 760, wide: 900 },
-  covers: ["agent-session/acpmux/conversation/agentNotice.ts#automatedNotice"],
+  covers: ["agent-session/acpmux/conversation/IncomingMessageCard.tsx#IncomingMessageLine"],
   variants,
 });

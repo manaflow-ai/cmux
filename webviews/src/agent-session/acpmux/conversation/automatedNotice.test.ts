@@ -99,13 +99,19 @@ test("in an adopted or watched Claude session's history, each draws as a notice'
     if (incoming?.kind === "message") expect(incoming.message.notice?.sender).toBe("stall-reconciler");
     const hook = incomingPrompt(HOOK, msg);
     expect(hook?.kind === "message" && hook.message.notice?.sender).toBe("hook");
-    // acpmux's inbox notice, which the history keeps no provenance for: the inbox's message, as the
-    // same text from a shell reads (laneReport.ts draws it as the inbox line).
-    const inbox = incomingPrompt(INBOX, msg);
-    expect(inbox).toEqual({
-      kind: "message",
-      message: { name: "inbox", text: INBOX.slice("[inbox] ".length), raw: INBOX },
-    });
+    // acpmux's inbox notice, which the history keeps no provenance for: the inbox's notice line, its
+    // text whole behind the chevron, never parsed into thread rows (a topic with spaces parsed into
+    // none, and the message drew nothing: router-review on cmux#34320).
+    const spaced = "[inbox] New messages from other agents in 1 thread.\n- lane-a (thread topic:picker plan): done";
+    for (const text of [INBOX, spaced]) {
+      const inbox = incomingPrompt(text, msg);
+      expect(inbox?.kind).toBe("message");
+      if (inbox?.kind !== "message") continue;
+      expect(inbox.message.name).toBe("inbox");
+      expect(inbox.message.notice?.title).toStartWith("New messages from other agents in ");
+      expect(noticeRowText(inbox.message.notice!, inbox.message.text)).toContain(text.split("\n")[1]!);
+    }
+    // From a shell it stays the inbox line laneReport.ts draws, as on base.
     expect(incomingPrompt(INBOX, cli)).toMatchObject({ kind: "message", message: { name: "inbox" } });
   }
 });
