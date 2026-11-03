@@ -86,7 +86,7 @@ pub(super) fn run(global: GlobalArgs, run_id: String, generation: u64) -> i32 {
         let mut pending = BTreeMap::new();
         let mut tools = None;
         let mut images = Vec::new();
-        let mut fatal = None;
+        let mut fatal: Option<String> = None;
         let outcome = code_mode::workflow_exec(
             source,
             claim["args"].clone(),
