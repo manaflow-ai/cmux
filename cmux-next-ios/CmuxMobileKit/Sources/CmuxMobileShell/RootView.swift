@@ -812,6 +812,9 @@ struct ShellTabs: View {
         .tabBarMinimizeBehavior(.never)
         .tint(theme.colors.label.color)
         .cmuxMobileSensoryFeedback(.selection, trigger: shell.tab)
+        // A closed ask's notification leaves Notification Center; only when an ask opens or
+        // closes, or the Feed finishes reading its Macs.
+        .task(id: NeedsYouNotices.key(FeedStore.shared)) { await NeedsYouNotices.sync(FeedStore.shared) }
     }
 }
 

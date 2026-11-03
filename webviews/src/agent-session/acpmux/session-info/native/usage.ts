@@ -2,7 +2,7 @@
 // The page formats and orders values; the App only draws rows and forwards actions.
 import type { Translate } from "../../i18n";
 import type { AcpmuxSessionEntry } from "../../sessionList";
-import { byUsage, type SessionUsageStats, UNKNOWN, usageCost, usageTokens } from "../../usageStats";
+import { byUsage, cacheUsageRows, type SessionUsageStats, UNKNOWN, usageCost, usageTokens } from "../../usageStats";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 
 export const USAGE_SYMBOL = "waveform.path";
@@ -34,6 +34,7 @@ function ownRows(
       name: t("sessionInfo.usage.cost24h"),
       value: known(stats.costUsd24h, (cost) => usageCost(cost, locale)),
     },
+    ...cacheUsageRows(t, stats, locale),
     {
       id: "tokens",
       name: t("sessionInfo.usage.tokens24h"),
