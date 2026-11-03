@@ -28,28 +28,28 @@ pub(crate) fn is_original(root: &Path, path: &Path) -> bool {
 }
 
 struct Target {
-    path: PathBuf,
+    root: PathBuf,
     temporary: PathBuf,
     file: Option<std::fs::File>,
 }
 
 impl Target {
-    fn open(root: PathBuf, name: String) -> Result<Self> {
+    fn open(root: PathBuf) -> Result<Self> {
         crate::config::private_state_dir(&root)?;
-        let path = root.join(name);
         let temporary = root.join(format!(".image-{}", uuid::Uuid::now_v7()));
         let file = crate::config::private_state_rw(&temporary)?;
-        Ok(Self { path, temporary, file: Some(file) })
+        Ok(Self { root, temporary, file: Some(file) })
     }
 
-    fn finish(mut self) -> Result<PathBuf> {
+    fn finish(mut self, hash: Sha256, mime: &str) -> Result<PathBuf> {
         self.file.take();
-        std::fs::rename(&self.temporary, &self.path)?;
-        Ok(self.path.clone())
+        let path = self.root.join(file_name(hash, mime));
+        std::fs::rename(&self.temporary, &path)?;
+        Ok(path)
     }
 }
 
-fn file_name(data: &str, mime: &str) -> String {
+fn file_name(hash: Sha256, mime: &str) -> String {
     let extension = match mime {
         "image/png" => "png",
         "image/jpeg" => "jpg",
@@ -57,7 +57,7 @@ fn file_name(data: &str, mime: &str) -> String {
         "image/webp" => "webp",
         _ => "bin",
     };
-    format!("{:x}.{extension}", Sha256::digest(data.as_bytes()))
+    format!("{:x}.{extension}", hash.finalize())
 }
 
 impl Drop for Target {
@@ -74,27 +74,36 @@ fn chunks(data: &str) -> impl Iterator<Item = Result<Vec<u8>>> + '_ {
 
 /// Transcript adoption already runs on a blocking worker.
 pub(crate) fn save(session: &str, data: &str, mime: &str) -> Result<PathBuf> {
-    let mut target =
-        Target::open(root(session).context("invalid image session")?, file_name(data, mime))?;
+    let mut target = Target::open(root(session).context("invalid image session")?)?;
     let file = target.file.as_mut().context("image file is closed")?;
+    let mut hash = Sha256::new();
     for bytes in chunks(data) {
-        file.write_all(&bytes?)?;
+        let bytes = bytes?;
+        hash.update(&bytes);
+        file.write_all(&bytes)?;
     }
     file.sync_all()?;
-    target.finish()
+    target.finish(hash, mime)
 }
 
 /// Live translation yields between each bounded write. The provider's already-parsed base64
 /// is borrowed throughout; tokio's file adapter sends writes to blocking workers.
 pub(crate) async fn save_async(session: &str, data: &str, mime: &str) -> Result<PathBuf> {
     let root = root(session).context("invalid image session")?;
-    let name = file_name(data, mime);
-    let mut target = tokio::task::spawn_blocking(move || Target::open(root, name)).await??;
+    let mut target = tokio::task::spawn_blocking(move || Target::open(root)).await??;
     let mut file = tokio::fs::File::from_std(target.file.take().context("image file is closed")?);
+    let mut hash = Sha256::new();
     for bytes in chunks(data) {
-        file.write_all(&bytes?).await?;
+        let bytes = bytes?;
+        hash.update(&bytes);
+        file.write_all(&bytes).await?;
     }
     file.sync_all().await?;
     drop(file);
-    tokio::task::spawn_blocking(move || target.finish()).await?
+    let mime = mime.to_owned();
+    tokio::task::spawn_blocking(move || target.finish(hash, &mime)).await?
 }
+
+#[cfg(test)]
+#[path = "result_image_files_tests.rs"]
+mod tests;
