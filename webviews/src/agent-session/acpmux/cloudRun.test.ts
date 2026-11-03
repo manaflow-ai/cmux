@@ -276,6 +276,17 @@ test("the cap card's Run on This Mac ends the start; a changed prompt, folder or
   expect(keys.keyFor(start)).not.toBe(first);
 });
 
+test("a refused plan keeps the retry key until the person chooses Run Here inline", () => {
+  const keys = cloudStartKeys(memoryStore(), () => 1_000, counter());
+  const start = { task: "fix it", home: true };
+  const first = keys.keyFor(start);
+  keys.ended(start, { ok: false, code: "cloud_plan_required" });
+  expect(keys.keyFor(start)).toBe(first);
+  // The inline action must send the same explicit local-choice answer as the native cap card.
+  keys.ended(start, { ok: false, code: "run_on_this_mac" });
+  expect(keys.keyFor(start)).not.toBe(first);
+});
+
 test("a kept key expires after a day, and a store that refuses writes still dedupes this page's retries", () => {
   let now = 1_000;
   const store = memoryStore();
