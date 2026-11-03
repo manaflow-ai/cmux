@@ -111,23 +111,30 @@ class ViewerRoutingTargetTests(unittest.TestCase):
                     )
                     go = home / "go"
                     result_file = home / "viewer-result.json"
+                    stop_file = home / "viewer-stop"
                     helper = home / "viewer_helper.py"
                     helper.write_text(
                         "import json,os,subprocess,sys,time\n"
-                        "cli,sock,go,result,attachment,worker=sys.argv[1:7]\n"
+                        "cli,sock,go,result,stop,attachment,worker=sys.argv[1:8]\n"
                         "while not os.path.exists(go): time.sleep(0.01)\n"
                         "p=subprocess.run([cli,'--socket',sock,'__claude-viewer','attached'],\n"
                         " input=json.dumps({'attach_id':attachment,'job_id':worker[:8],\n"
                         " 'viewer_pid':os.getpid()}),capture_output=True,text=True,timeout=8)\n"
                         "open(result,'w').write(json.dumps({'pid':os.getpid(),'code':p.returncode,'err':p.stderr}))\n"
+                        "while not os.path.exists(stop): time.sleep(0.01)\n"
                     )
                     viewer = subprocess.Popen(
                         [os.sys.executable, str(helper), cli, server.socket_path, str(go),
-                         str(result_file), attachment, worker_session],
+                         str(result_file), str(stop_file), attachment, worker_session],
                         env=env, start_new_session=True)
                     server.pid_surfaces[viewer.pid] = (viewer_workspace, viewer_surface)
                     go.write_text("1")
-                    viewer.wait(timeout=10)
+                    for _ in range(500):
+                        if result_file.exists():
+                            break
+                        time.sleep(0.01)
+                    else:
+                        self.fail("viewer helper did not finish the attach call")
                     outcome = json.loads(result_file.read_text())
                     self.assertEqual(outcome["code"], 0, outcome["err"])
                     state = json.loads(state_path.read_text())
