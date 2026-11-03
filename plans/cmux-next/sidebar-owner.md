@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-03: app panels can occupy the existing band below the workspace list. Leo (2026-11-02):
+  "let’s do all these" — "A sidebar panel slot plus ’an agent writes the app, it hot-reloads’. This covers his PR view,
+  makes Session Info extensible, and is mostly built." Only app sections draw there; cx-n0i9 still keeps ordinary
+  item sections hidden and the footer separate. Existing band caps, scrolling and scene mounts apply. A header
+  drag forwards the document move within bottom or between top and bottom. Regression: `SidebarAppBottomBandTests`.
+
 - 2026-11-03: a row's working spinner draws at the row's status glyph size, not the warning's. Leo, verbatim: "i think
   the spinners are maybe a bit too big in this situation" (the compact sidebar). Since #30236's follow-up (Leo
   2026-11-01, "every icon is still f***ing small") every non-dot row badge drew in a 14 pt box, so at compact the
@@ -1194,6 +1200,16 @@ An empty group now keeps only its header at rest. The header's existing + appear
   unchanged. Gallery: `ProfileBarVariantGalleryTests` (sidebar-space-variants): one space, four spaces, overflow with
   the + pinned (chosen) and overflow with the + riding the end of the dots, each at rest, pointer in the row and over
   the +, light/dark at 2x. Test: `ProfileBarPlusPlacementTests`.
+
+## A new row appears once, in its final place (2026-11-03)
+
+- Leo 2026-11-03 06:19Z: "i hate it when you guys make new worksapces or whatever and they appear for a split second
+  and it's just bloop and then it goes into presumably whichever group... it's just weird how it flickers into some
+  top level group or whatever then goes away"
+- A workspace opened into a named group (`acpmux new --group`, `cmux agent open --group`) draws first in that group.
+  The daemon's create lists it loose and its join is a document move a hop later, so the sidebar leaves the row out
+  while it lists loose (`GroupJoinHold`, at most 2 s from its first loose listing, then it shows where it lists). No
+  other row moves. #30583 removed the current-group stop; this removes the loose one. Test: `GroupJoinHoldTests`.
 
 ## Reviewed behavior-only commits
 

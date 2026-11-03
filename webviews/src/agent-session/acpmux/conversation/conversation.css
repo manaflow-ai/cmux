@@ -5416,23 +5416,14 @@ a.cv-sha:focus-visible {
 .cv-plan__item[data-status="pending"] .cv-plan__mark {
   border-style: dashed;
 }
-/* A thin arc on a faint ring; it turns while the turn runs. */
-.cv-plan__item[data-status="in_progress"] .cv-plan__mark {
-  border-color: var(--cv-card-ring);
-  border-top-color: var(--agent-text);
+/* The step at work draws the shared Spinner inside the mark (PlanList.tsx), so the mark has no ring of
+   its own while the turn runs. */
+.cv-plan:not([data-ended]) .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+  border-width: 0;
 }
-/* Left in progress when its turn ended: a plain ring, not an arc frozen mid-turn. */
+/* Left in progress when its turn ended: a plain ring, not a spinner frozen mid-turn. */
 .cv-plan[data-ended] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
   border-color: var(--cv-text-muted);
-}
-/* Static status indicators and Reduce Motion: the arc holds still. */
-@media (prefers-reduced-motion: no-preference) {
-  :root:not([data-status-indicators="static"])
-    .cv-plan:not([data-ended])
-    .cv-plan__item[data-status="in_progress"]
-    .cv-plan__mark {
-    animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
-  }
 }
 
 /* The running turn's activity line under its todo list (ActivityLine.tsx, agent.sessionStatus,

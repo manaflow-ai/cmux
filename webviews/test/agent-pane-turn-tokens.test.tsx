@@ -612,3 +612,24 @@ test("tokens are compact in the pane's language", () => {
   }).format(2_140_000);
   expect(workingTokens(translatorFor("de"), "de", 2_140_000)).toContain(german);
 });
+
+test("usage carries acpmux's cache expiry to the card, and a finished compaction drops it", async () => {
+  const expiresAt = START + 300_000;
+  const cached = (used: number): Step => [
+    "in",
+    "usage_update",
+    update({ sessionUpdate: "usage_update", used, size: 400_000, _meta: { acpmux: { cacheExpiresAt: expiresAt } } }),
+  ];
+  const daemon = fakeDaemon(record([prompt("fix the build"), started, cached(300_000)]));
+  const { client, snapshot } = await connect(daemon);
+  try {
+    await until(() => snapshot().summary?.usage !== undefined, "the usage");
+    expect(snapshot().summary.usage).toEqual({ used: 300_000, size: 400_000, cacheExpiresAt: expiresAt });
+    // A compaction whose boundary named no size sends no usage: the expiry still goes.
+    daemon.push(record([["in", "compaction", update({ sessionUpdate: "compaction", state: "completed" })]], 4));
+    await until(() => snapshot().summary.usage.cacheExpiresAt === undefined, "the compaction");
+    expect(snapshot().summary.usage).toEqual({ used: 300_000, size: 400_000 });
+  } finally {
+    client.close();
+  }
+});
