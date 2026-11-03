@@ -65,7 +65,7 @@ export default agentPaneEntry({
   height: 900,
   covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
   variants: {
-    standard: variant("standard", "Today: 720px, widening to an 800px cap, for everything."),
+    standard: variant("standard", "The default: the pane's width, at least 720px, to an 800px cap, for everything."),
     wide: variant("wide", 'Debug Settings chat width "wide": a 960px cap for everything.'),
     "wide-blocks": variant(
       "wideBlocks",

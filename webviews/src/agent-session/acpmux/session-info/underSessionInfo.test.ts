@@ -6,7 +6,7 @@ import { SESSION_INFO_STACK_GAP, underSessionInfo, underSessionInfoRoom } from "
 
 /// The live preview card's width (computerUse/computerUsePreview.css).
 const CARD_WIDTH = 180;
-const column = { min: 720, max: 800, share: 0.625, prose: Infinity };
+const column = { min: 720, max: 800, share: 1, prose: Infinity };
 
 describe("underSessionInfo", () => {
   test("floating, the card sits the gap under the panel's foot, at the panel's right margin", () => {

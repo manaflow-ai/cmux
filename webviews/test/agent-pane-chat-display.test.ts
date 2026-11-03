@@ -16,6 +16,7 @@ import {
   resolveChatDisplay,
 } from "../src/agent-session/acpmux/chatDisplay";
 import { chatColumnOf } from "../src/agent-session/acpmux/chatWidth";
+import { transcriptColumn } from "../src/agent-session/acpmux/model";
 
 describe("chat display resolution", () => {
   test("no keys: today's look, every variable left to the stylesheet", () => {
@@ -137,5 +138,19 @@ describe("chat display drawing", () => {
     expect(chatDisplayVariables(full)["--cv-column"]).toBe("100%");
     // No width of the user's own: the Debug Settings trial still picks the column.
     expect(chatColumnOf("wide", resolveChatDisplay({})).max).toBe(960);
+  });
+
+  // https://github.com/manaflow-ai/cmux/issues/31510: out of the box the column sat at 720px on
+  // any pane under 1280px while Settings said Chat Text Width 800, and 810 jumped to 810px.
+  test("the default column is the one Chat Text Width 800 promises", () => {
+    const defaults = chatColumnOf("standard", resolveChatDisplay({}));
+    const near = (width: number) => chatColumnOf("standard", resolveChatDisplay({ "agentPane.display.width": width }));
+    for (const pane of [760, 900, 1000, 1200, 1600]) {
+      const at = transcriptColumn(pane, defaults).width;
+      expect({ pane, width: at }).toEqual({ pane, width: transcriptColumn(pane, near(800)).width });
+      expect(at).toBeLessThanOrEqual(transcriptColumn(pane, near(810)).width);
+      expect(at).toBeGreaterThanOrEqual(transcriptColumn(pane, near(790)).width);
+    }
+    expect(transcriptColumn(1000, defaults).width).toBe(800);
   });
 });

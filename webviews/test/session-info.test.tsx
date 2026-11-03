@@ -16,7 +16,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { transcriptColumn, type AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { translate } from "../src/agent-session/acpmux/i18n";
-import { SESSION_INFO_PLACEMENT_KEY, setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
+import {
+  resolveChatDisplay,
+  SESSION_INFO_PLACEMENT_KEY,
+  setChatDisplay,
+} from "../src/agent-session/acpmux/chatDisplay";
+import { chatColumnOf } from "../src/agent-session/acpmux/chatWidth";
 import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
 import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullRequestStore";
@@ -648,18 +653,21 @@ test("pushing, the chat narrows gradually from the gutter's edge and never below
   // 1200px: it pushes by only part of its width, so the chat keeps most of the pane.
   expect(pushedRoom(1200, 320)).toBeGreaterThan(0);
   expect(pushedRoom(1200, 320)).toBeLessThan(320 + FLOAT_MARGIN);
-  // 740px: the whole room, the panel narrowed so the chat keeps exactly 440px.
-  expect(pushedWidth(740, 320)).toBe(292);
-  expect(740 - pushedRoom(740, 292)).toBe(PUSH_MIN_CHAT);
+  // 740px: the whole room. The panel narrows to the drag's narrowest first, so the chat keeps more
+  // than 440px (#31510: the panel gives way before the chat's column narrows).
+  expect(pushedWidth(740, 320)).toBe(SESSION_INFO_WIDTH.min);
+  expect(740 - pushedRoom(740, SESSION_INFO_WIDTH.min)).toBe(740 - SESSION_INFO_WIDTH.min - FLOAT_MARGIN);
   // 648px, the last pushing width: the panel at its 200px floor, the chat 440px.
   expect(pushedWidth(648, 320)).toBe(PUSH_PANEL_MIN);
   expect(648 - pushedRoom(648, PUSH_PANEL_MIN)).toBe(PUSH_MIN_CHAT);
   // Content under where it would float, and Settings Push always, take the whole room.
   expect(pushedRoom(1200, 320, undefined, 400)).toBe(320 + FLOAT_MARGIN);
   expect(pushedRoom(1200, 320, undefined, 0, true)).toBe(320 + FLOAT_MARGIN);
-  // Pushed, it narrows to keep a readable chat and its 8px margin, down to PUSH_PANEL_MIN.
+  // Pushed, it narrows to keep the chat's column at its text width, down to the drag's narrowest, then
+  // to keep a readable chat and its 8px margin, down to PUSH_PANEL_MIN.
   expect(pushedWidth(1200, 320)).toBe(320);
-  expect(pushedWidth(720, 320)).toBe(272);
+  expect(pushedWidth(1100, 320)).toBe(1100 - 832 - 8);
+  expect(pushedWidth(720, 320)).toBe(SESSION_INFO_WIDTH.min);
   expect(pushedWidth(500, 320)).toBe(PUSH_PANEL_MIN);
   expect(pushedWidth(0, 320)).toBe(320);
   expect(PUSH_PANEL_MIN).toBeLessThan(SESSION_INFO_WIDTH.min);
@@ -712,6 +720,30 @@ test("the panel takes each stage's place as the pane narrows and widens", async 
   expect(panel(container)?.hasAttribute("data-popover")).toBe(false);
   expect(panel(container)?.style.width).toBe("320px");
   paneWidth = 0;
+});
+
+// Chat Text Width 1000: the chat with Session Info open is the width it is without it, unless the
+// pane truly lacks room. The pushed panel used to keep its own width and narrow the chat to 440px
+// first, so the same setting drew one chat 1000px wide and another, with the panel open, far narrower.
+test("a pushed panel narrows before the chat's column drops below its text width", () => {
+  const column = chatColumnOf("standard", resolveChatDisplay({ "agentPane.display.width": 1000 }), 1);
+  /// The chat's column beside the pushed panel: the pane less the room the panel takes (pushedRoom).
+  const chatBeside = (pane: number, width: number) =>
+    transcriptColumn(pane - pushedRoom(pane, pushedWidth(pane, width, column), column), column).width;
+  // The full 1000px, less at most the pixel the centered inset's rounding takes.
+  for (const pane of [1300, 1400, 1600]) {
+    expect({ pane, chat: chatBeside(pane, 320) >= 999 }).toEqual({ pane, chat: true });
+    // A panel dragged wider gives way too.
+    expect({ pane, chat: chatBeside(pane, 560) >= 999 }).toEqual({ pane, chat: true });
+  }
+  // Only once the panel is at its narrowest does the chat narrow, by what the pane lacks.
+  expect(pushedWidth(1200, 320, column)).toBe(SESSION_INFO_WIDTH.min);
+  expect(chatBeside(1200, 320)).toBe(1200 - SESSION_INFO_WIDTH.min - FLOAT_MARGIN - 32);
+  // Room to spare: the panel keeps its own width.
+  expect(pushedWidth(1800, 320, column)).toBe(320);
+  // Full Width asks only for a readable chat.
+  const full = chatColumnOf("standard", resolveChatDisplay({ "agentPane.display.fullWidth": true }), 1);
+  expect(pushedWidth(1200, 320, full)).toBe(320);
 });
 
 test("a floating panel that would lie over the chat's text pushes the chat left, whatever the gutter's width", async () => {

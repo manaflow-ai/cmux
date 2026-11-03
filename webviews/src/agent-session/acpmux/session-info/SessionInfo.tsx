@@ -57,7 +57,7 @@ import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
+import { columnRoom, transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { compactingUsage } from "../usageStats";
 import { registerPicker } from "../pickerOpeners";
 import { opensProcessTerminal } from "../processTerminal";
@@ -139,20 +139,28 @@ export const pushes = (placement: SessionInfoPlacement) => placement === "push";
 /// FUCKING PUSH THE LAYOUT LEFT").
 export const PUSH_PANEL_MIN = 200;
 
-/// A pushed panel's width: its own, narrowed so the chat keeps PUSH_MIN_CHAT beside it and its
-/// right margin, down to PUSH_PANEL_MIN, and never past the pane less its margins. The chat takes the
-/// rest of the pane beside it: the two never overlap.
-export const pushedWidth = (paneWidth: number, width: number) =>
-  paneWidth <= 0
-    ? width
-    : Math.max(
-        0,
-        Math.min(
-          width,
-          Math.max(PUSH_PANEL_MIN, paneWidth - PUSH_MIN_CHAT - FLOAT_MARGIN),
-          paneWidth - 2 * FLOAT_MARGIN,
-        ),
-      );
+/// A pushed panel's width: its own, narrowed first so the chat keeps the room its column needs at the
+/// chat's text width (`column`, Settings Chat Text Width; columnRoom) down to the drag's narrowest
+/// (SESSION_INFO_WIDTH.min), so a chat with Session Info open is the width it is without it unless the
+/// pane truly lacks room; then so the chat keeps PUSH_MIN_CHAT, down to PUSH_PANEL_MIN; and never past
+/// the pane less its margins. A column with no cap (Full Width) asks only for PUSH_MIN_CHAT. The chat
+/// takes the rest of the pane beside it: the two never overlap.
+export const pushedWidth = (paneWidth: number, width: number, column?: ChatColumn) => {
+  if (paneWidth <= 0) return width;
+  const room = columnRoom(column);
+  const textWidth = Number.isFinite(room)
+    ? Math.max(SESSION_INFO_WIDTH.min, paneWidth - Math.max(PUSH_MIN_CHAT, room) - FLOAT_MARGIN)
+    : width;
+  return Math.max(
+    0,
+    Math.min(
+      width,
+      textWidth,
+      Math.max(PUSH_PANEL_MIN, paneWidth - PUSH_MIN_CHAT - FLOAT_MARGIN),
+      paneWidth - 2 * FLOAT_MARGIN,
+    ),
+  );
+};
 
 /// Whether the pane holds a readable chat (PUSH_MIN_CHAT) beside the panel at its narrowest: the
 /// boundary between pushing and lying over the chat (sessionInfoStage). Below it, Session Info does not
@@ -863,7 +871,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const overChat = stage === "overlay";
   // Pushing, its width (narrowed to keep a readable chat) and the room it takes from the chat's right
   // end: by default only what the gutter lacks, so the chat narrows gradually (pushedRoom).
-  const panelWidth = push ? pushedWidth(paneWidth, width) : width;
+  const panelWidth = push ? pushedWidth(paneWidth, width, column) : width;
   const room = push ? pushedRoom(paneWidth, panelWidth, column, overflow, pushes(display.sessionInfo)) : 0;
   // In a short pane, over the chat it is a popover that a click elsewhere hides (POPOVER_BELOW_HEIGHT).
   const popover = sessionInfoPopover(paneHeight, overChat);
