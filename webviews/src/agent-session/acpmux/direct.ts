@@ -3104,7 +3104,12 @@ export class AcpmuxDirectClient {
     const replayed = this.turnOpen;
     this.turnOpen = this.summaryRuns(listed) || (replayed && this.namesOpenTurn(listed));
     this.turnAdopted = this.turnOpen && !replayed;
-    this.turnStartedAtMs = typeof this.summary?.turn?.startedAt === "number" ? this.summary.turn.startedAt : undefined;
+    // A replayed turn keeps the start its own events (and the replay's `adoptSummaryTurn`, which
+    // takes only a newer, valid summary start) gave it. Only a turn the summary alone opens is
+    // dated by the summary.
+    if (!this.turnOpen) this.turnStartedAtMs = undefined;
+    else if (this.turnAdopted)
+      this.turnStartedAtMs = typeof this.summary?.turn?.startedAt === "number" ? this.summary.turn.startedAt : undefined;
     // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history
     // here. The marks it left on its own rows (an edit "awaiting permission") stand until the
     // attach replays the page, as they do on a page whose decision it does not hold either.
@@ -4396,7 +4401,16 @@ export class AcpmuxDirectClient {
     const latestIsNew =
       latest !== undefined &&
       (latest.seq === undefined || typeof detail.lastSeq !== "number" || latest.seq >= detail.lastSeq);
-    if (latestIsNew) this.summary = { ...this.summary, ...latest.session };
+    if (latestIsNew) {
+      this.summary = { ...this.summary, ...latest.session };
+      // The replay's lifecycle was read against the attach's summary: a newer one may end a turn it
+      // alone opened, or name a newer one (as `sessionChanged` does).
+      this.summaryEndsAdoptedTurn(this.summary);
+      this.adoptSummaryTurn();
+    }
+    // A page that holds no `status` record (an attach mid-turn) leaves the status the summary
+    // names as the last one read, so a live `idle` after it still ends a running turn (`liveIdle`).
+    this.liveStatus ??= typeof this.summary?.status === "string" ? this.summary.status : undefined;
     this.queue = mergeQueue(
       this.queue,
       (latestIsNew ? latest?.session.queue : detail.queue) ?? [],
@@ -4959,8 +4973,10 @@ export class AcpmuxDirectClient {
     const permission = this.pendingPermission;
     const waiting = this.waitingPermissions;
     const secret = this.pendingSecret;
+    const liveStatus = this.liveStatus;
     this.rebuild();
     this.summary = summary;
+    this.liveStatus ??= liveStatus;
     // `rebuild()` replayed every recovered event, including terminal and subsequent start events.
     // Keep lifecycle state derived from that replay; only summary-only turns are adopted below.
     this.adoptSummaryTurn();

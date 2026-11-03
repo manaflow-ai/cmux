@@ -21,7 +21,11 @@ const record = (steps: Step[], from = 1) =>
 type Recorded = ReturnType<typeof record>[number];
 
 /// A daemon over a fake socket: attach answers with `history`; `push` sends live events.
-function fakeDaemon(history: Recorded[], details: Record<string, unknown> = {}) {
+function fakeDaemon(
+  history: Recorded[],
+  details: Record<string, unknown> = {},
+  hooks: { onAttach?: () => void } = {},
+) {
   let socket: any;
   const calls: string[] = [];
   const session = {
@@ -55,8 +59,12 @@ function fakeDaemon(history: Recorded[], details: Record<string, unknown> = {}) 
         };
       case "_acpmux/watch":
         return { sessions: [session] };
-      case "_acpmux/attach":
-        return { session, lastSeq: lastSeq(), events: history, hasMore: false };
+      case "_acpmux/attach": {
+        // The summary as the attach read it; `onAttach` may change the chat before it answers.
+        const asked = { ...session };
+        hooks.onAttach?.();
+        return { session: asked, lastSeq: lastSeq(), events: history, hasMore: false };
+      }
       case "_acpmux/events":
         return { events: [], hasMore: false, more: false, lastSeq: lastSeq() };
       default:
@@ -198,7 +206,7 @@ test("an attach in the middle of a turn uses the summary start when its event is
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => snapshot?.chatRead === true, "the attach");
     expect(snapshot.isWorking).toBe(true);
     expect(snapshot.turnStartedAtMs).toBe(START + 30_000);
     daemon.push(record([["mux", "turn_end", { turnId: "t2" }]], 2));
@@ -218,7 +226,7 @@ test("a newer summary start replaces a previous live turn before its start event
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => snapshot?.chatRead === true, "the attach");
     expect(snapshot.turnStartedAtMs).toBeUndefined();
     daemon.change({ title: "next", turn: { turnId: "t2", startedAt: START + 30_000 } });
     await until(() => snapshot.summary?.title === "next", "the newer summary");
@@ -271,7 +279,7 @@ test("a summary naming the next turn keeps the live turn until the stream reache
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => snapshot?.chatRead === true, "the attach");
     expect(snapshot.isWorking).toBe(true);
     expect((client as any).runningTurnId).toBe("t1");
     daemon.change({ title: "next", turn: { turnId: "t2", startedAt: START + 30_000 } });
@@ -304,7 +312,7 @@ test("an idle summary ends a summary-only turn when its terminal event was misse
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => snapshot?.chatRead === true, "the attach");
     expect(snapshot.isWorking).toBe(true);
     await client.cancel();
     daemon.change({ status: "idle", turn: null });
@@ -332,7 +340,7 @@ test.each(["running", "waiting"])("a %s attach keeps the turn active while waiti
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => snapshot?.chatRead === true, "the attach");
     daemon.change({ status: "waiting", turn: { turnId: "t2", startedAt: START + 30_000 } });
     await until(() => snapshot.summary?.status === "waiting", "the waiting summary");
     expect(snapshot.isWorking).toBe(true);
@@ -367,7 +375,7 @@ test("a turn-less waiting row after the turn's end does not count as working", a
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => snapshot?.chatRead === true, "the attach");
     expect(snapshot.isWorking).toBe(true);
     daemon.push(record([["mux", "turn_result", { turnId: "t1", status: "completed" }]], 3));
     daemon.change({ status: "waiting", turn: null });
@@ -391,7 +399,7 @@ test("an attach to a turn-less waiting chat does not count as working", async ()
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => snapshot?.chatRead === true, "the attach");
     expect(snapshot.isWorking).toBe(false);
     expect(client.turnRunning()).toBe(false);
   } finally {
@@ -409,7 +417,7 @@ test("resync rebuild derives lifecycle from a recovered end and next start", asy
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => snapshot?.chatRead === true, "the attach");
     const recovered = record(
       [
         ["mux", "turn_result", { turnId: "t2", status: "completed" }],
@@ -444,7 +452,7 @@ test("a cold start's idle and ready rows keep the turn its prompt opened", async
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => snapshot?.chatRead === true, "the attach");
     expect(snapshot.isWorking).toBe(false);
     daemon.push(record([["mux", "user_message", { text: "fix the build", turnId: "t5", promptId: "p5" }]], 1));
     await until(() => snapshot.isWorking === true, "the prompt's turn");
@@ -493,10 +501,85 @@ test("a live idle after the turn ran ends it, with no result", async () => {
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => snapshot?.chatRead === true, "the attach");
     expect(snapshot.isWorking).toBe(true);
     daemon.push(record([["mux", "status", { status: "idle" }]], 4));
     await until(() => snapshot.isWorking === false, "the live idle");
+    expect(client.turnRunning()).toBe(false);
+    expect(snapshot.turnStartedAtMs).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});
+
+test("a kept tail keeps its replayed turn start over an older summary stamp", async () => {
+  const history = record([["mux", "user_message", { text: "fix", turnId: "t1" }], started]);
+  const daemon = fakeDaemon([...history], { turn: { turnId: "t1", startedAt: START + 500 } });
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.chatRead === true, "the attach");
+    expect(snapshot.turnStartedAtMs).toBe(START + 2_000);
+    (client as any).drawKeptTail(CHAT, {
+      summary: { sessionId: CHAT, status: "running", turn: { turnId: "t1", startedAt: START + 500 } },
+      events: history,
+      turnOpener: undefined,
+      historyExhausted: true,
+      configSeq: 0,
+      usageFromSeq: Infinity,
+      queue: [],
+    });
+    expect((client as any).turnOpen).toBe(true);
+    expect((client as any).turnStartedAtMs).toBe(START + 2_000);
+  } finally {
+    client.close();
+  }
+});
+
+test("an attach mid-turn whose page holds no status ends the turn on a live idle", async () => {
+  const daemon = fakeDaemon(record([["mux", "user_message", { text: "fix", turnId: "t1" }], started]), {
+    status: "running",
+    turn: { turnId: "t1", startedAt: START + 2_000 },
+  });
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.chatRead === true, "the attach");
+    expect(snapshot.isWorking).toBe(true);
+    daemon.push(record([["mux", "status", { status: "idle" }]], 3));
+    await until(() => snapshot.isWorking === false, "the live idle");
+    expect(client.turnRunning()).toBe(false);
+  } finally {
+    client.close();
+  }
+});
+
+test("a newer summary read during the attach ends the turn the attach's summary alone opened", async () => {
+  const daemon = fakeDaemon(
+    record([["mux", "user_message", { text: "old prompt" }]]),
+    { turn: { turnId: "t2", startedAt: START + 30_000 } },
+    { onAttach: () => daemon.change({ status: "idle", turn: null, queue: [] }) },
+  );
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.chatRead === true, "the attach");
+    await until(() => snapshot.isWorking === false, "the newer idle summary");
     expect(client.turnRunning()).toBe(false);
     expect(snapshot.turnStartedAtMs).toBeUndefined();
   } finally {

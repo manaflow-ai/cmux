@@ -336,6 +336,7 @@ export function turnViewFrom(
       now,
       working,
       clockOffset,
+      turnStartedAtMs,
       liveRuns,
       sessionStatus,
       lineBelow,
