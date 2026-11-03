@@ -12,6 +12,9 @@ use super::render::wrap;
 use super::turn::TurnWatch;
 use super::{Args, parse_args};
 
+#[path = "attachment_tests.rs"]
+mod attachment_tests;
+
 const CONV: &str = "conv_01J0000000000000000000000A";
 
 fn strings(args: &[&str]) -> Vec<String> {

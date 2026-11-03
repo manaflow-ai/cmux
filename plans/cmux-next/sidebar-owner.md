@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-03: a row's working spinner draws at the row's status glyph size, not the warning's. Leo, verbatim: "i think
+  the spinners are maybe a bit too big in this situation" (the compact sidebar). Since #30236's follow-up (Leo
+  2026-11-01, "every icon is still f***ing small") every non-dot row badge drew in a 14 pt box, so at compact the
+  spinner outweighed the 8 pt unread dot and the 10 pt status marks of badge-less rows. A working or loading badge now
+  takes `RowBadgeView.spinnerSide` (`SidebarStyle.statusGlyphSize`: 10 pt compact, 12 comfortable) on the same cell
+  center; the red warning and needs-you marks keep 14 pt. Regression: `RowBadgeSpinnerDensityTests` (every density and
+  minimal mode), `RowBadgeMarkSizeTests.theSpinnerIsSmallerThanTheWarning`.
 - 2026-11-03: the update and notice cards take the theme. Leo, verbatim, on the Downloading Update card: "will this
   be themeed properly?". The download bar was the fixed secondary-text gray (`Palette.textSecondary`) and the Update
   Ready and notice cards' veil the neutral gray; the bar is now the theme's accent (`Palette.accentFill`, the primary

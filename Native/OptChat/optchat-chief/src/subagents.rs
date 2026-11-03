@@ -1005,6 +1005,10 @@ impl Spawner {
         })?;
         let (tx, rx) = channel();
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());
+        self.trace.emit(
+            "subagent.start",
+            json!({"id": id, "spawn": spawn, "session": session, "peer": peer, "prompt_id": prompt_id, "harness": s.harness, "harness_profile": admitted.profile, "harness_kind": admitted.kind, "harness_argv0": admitted.argv0, "ms": began.elapsed().as_millis() as u64}),
+        );
         self.agents.start_prompt(
             &session,
             crate::prompt::subagent_blocks(view, task),
@@ -1013,10 +1017,6 @@ impl Spawner {
         )?;
         let _ = self.to_brain(Input::SubagentPrompted { id: id.to_owned() });
         self.forward_answer(id, &session, &prompt_id, rx);
-        self.trace.emit(
-            "subagent.start",
-            json!({"id": id, "spawn": spawn, "session": session, "harness": s.harness, "harness_profile": admitted.profile, "harness_kind": admitted.kind, "harness_argv0": admitted.argv0, "ms": began.elapsed().as_millis() as u64}),
-        );
         // The chat replays its history when the tab attaches, so the
         // workspace can follow the prompt.
         let Some(workspaces) = &self.workspaces else {
@@ -1197,7 +1197,12 @@ impl Spawner {
                         }
                     }
                     TurnSignal::Streamed => {}
-                    TurnSignal::Done(answer) => {
+                    TurnSignal::Done(mut answer) => {
+                        if let Ok(value) = &mut answer
+                            && let Some(fields) = value.as_object_mut()
+                        {
+                            fields.insert("chief_prompt_id".into(), json!(prompt_id));
+                        }
                         let _ = tx.send(Input::SubagentAnswer { id, answer });
                         return;
                     }
@@ -1614,6 +1619,7 @@ impl Orchestrator for Spawner {
             json!({
                 "spawn": plan.spawn,
                 "ids": plan.ids,
+                "peers": plan.peers,
                 "tasks": tasks.iter().map(|t| self.trace.text(t)).collect::<Vec<_>>(),
                 "settle_ms": began.elapsed().as_millis() as u64,
                 "view": {"bytes": view.len(), "hash": crate::trace::hash(&view)},
@@ -2141,6 +2147,7 @@ pub fn answer_fields(answer: &Result<Value, String>) -> Value {
             "usage": crate::fold::answer_usage(v).map(|(u, _)| crate::trace::usage(&u)),
             "cost_usd": crate::turn::answer_cost(v),
             "stop": v.get("stopReason"),
+            "prompt_id": v.get("chief_prompt_id"),
         }),
         Err(e) => json!({"error": crate::trace::prefix(e)}),
     }
