@@ -56,6 +56,13 @@ fn message(text: &str, client: &str, provenance: Option<&Value>) -> Option<(Stri
         provenance?.get(key)?.as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned)
     };
     match provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) {
+        // A tool's notice reads as its sender and its title, not the rendered `[notice from …]`
+        // line its agent got (`prompt_provenance::notice_text`).
+        Some(crate::prompt_provenance::NOTICE_KIND) => {
+            let name = field("fromName")?;
+            let title = provenance?.pointer("/notice/title")?.as_str()?.trim().to_owned();
+            Some((name, title))
+        }
         Some("session_message" | "subsession_message") => {
             let name =
                 field("fromShortName").or_else(|| field("fromName")).or_else(|| field("from"))?;

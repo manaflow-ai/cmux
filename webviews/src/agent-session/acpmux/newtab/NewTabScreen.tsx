@@ -1649,6 +1649,8 @@ export function NewTabScreen(props: Props) {
                   projectChoice.current += 1;
                   setBrowseError(undefined);
                   touch();
+                  // A local one starts on this Mac: a machine picked before is no longer where.
+                  if (saved.list.find((other) => other.id === id)?.kind === "local") setMachine(undefined);
                   saved.pick(id);
                   requestAnimationFrame(() => field.current?.focus());
                 },
