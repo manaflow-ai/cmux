@@ -28,6 +28,10 @@ struct DragMarginTriggerProbeTests {
         probe.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(next))])
         for _ in 0..<4 { await Task.yield() }
         // On screen, so AppKit runs its display cycle (and its drag-margin observer) for each commit.
+        probe.window.styleMask.insert(.fullSizeContentView)
+        probe.window.titlebarAppearsTransparent = true
+        NSApp.activate(ignoringOtherApps: true)
+        probe.window.makeKeyAndOrderFront(nil)
         probe.window.orderFrontRegardless()
         print("HPA-MARGIN on_screen=\(probe.window.isVisible) occlusion_visible=\(probe.window.occlusionState.contains(.visible))")
         MarginSpy.reset()
@@ -43,9 +47,11 @@ struct DragMarginTriggerProbeTests {
         for (name, count) in MarginSpy.counts.sorted(by: { $0.key < $1.key }) {
             print("HPA-MARGIN calls \(name)=\(count) per_frame=\(String(format: "%.2f", Double(count) / Double(max(frames, 1))))")
         }
-        for (name, stack) in MarginSpy.firstStacks.sorted(by: { $0.key < $1.key }) {
-            print("HPA-MARGIN stack \(name):")
-            for line in stack.prefix(24) { print("HPA-MARGIN   \(line)") }
+        print("HPA-MARGIN key=\(probe.window.isKeyWindow) occlusion_visible=\(probe.window.occlusionState.contains(.visible))")
+        for (name, callers) in MarginSpy.callers.sorted(by: { $0.key < $1.key }) {
+            for (caller, n) in callers.sorted(by: { $0.value > $1.value }).prefix(8) {
+                print("HPA-MARGIN caller \(name) <- \(n)x \(caller.prefix(180))")
+            }
         }
     }
 
@@ -74,11 +80,14 @@ struct DragMarginTriggerProbeTests {
 enum MarginSpy {
     static var counts: [String: Int] = [:]
     static var firstStacks: [String: [String]] = [:]
+    /// Per method: the calling frames (the first two frames outside the spy and AppKit's own region code), counted.
+    static var callers: [String: [String: Int]] = [:]
     private static var originals: [(Method, IMP)] = []
 
     static func reset() {
         counts = [:]
         firstStacks = [:]
+        callers = [:]
     }
 
     /// Swizzles every NSWindow method whose name mentions drag margins, structural regions or the constrained min
@@ -132,6 +141,14 @@ enum MarginSpy {
 
     private static func note(_ name: String) {
         counts[name, default: 0] += 1
+        let frames = Thread.callStackSymbols.map { line in
+            line.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).dropLast(2).joined(separator: " ")
+        }
+        let outside = frames.filter { frame in
+            !frame.contains("MarginSpy") && !frame.contains("assumeIsolated") && !frame.hasPrefix("$sx") && !frame.hasPrefix("$sy")
+                && !frame.contains("Regions)") && !frame.contains("StructuralRegions") && !frame.contains("DragMargins")
+        }
+        callers[name, default: [:]][outside.prefix(2).joined(separator: " <- "), default: 0] += 1
         let lower = name.lowercased()
         if firstStacks[name] == nil, lower.contains("set") || lower.contains("invalidate") || lower.contains("needs") {
             firstStacks[name] = Thread.callStackSymbols.map { line in
