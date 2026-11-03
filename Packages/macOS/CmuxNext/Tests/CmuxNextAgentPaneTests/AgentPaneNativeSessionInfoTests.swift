@@ -938,4 +938,18 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(toggle.frame.height <= remote.frame.height - 2 * LayoutGrid.pillInset)
         #expect(abs(remote.frame.minX + toggle.frame.maxX - right) < 0.5)
     }
+
+    /// Changes' rows name cmux pack icons (`cmux:git.pullrequest.merged`, native/changes.ts): the panel draws the pack's template
+    /// glyph for them, at 1.2 x the label, and keeps SF Symbols for every other name.
+    @Test func changesGlyphsDrawFromTheIconPack() throws {
+        for name in ["cmux:git.pullrequest", "cmux:git.pullrequest.merged", "cmux:git.pullrequest.draft", "cmux:git.pullrequest.closed"] {
+            let image = try #require(SessionInfoLineView.packIcon(name, font: Typography.body))
+            #expect(image.isTemplate)
+            #expect(image.size.width == (Typography.body.pointSize * 1.2).rounded())
+        }
+        #expect(SessionInfoLineView.packIcon("arrow.triangle.merge", font: Typography.body) == nil)
+        // A bare name stays an SF Symbol even where the pack has one (Environment's `folder`).
+        #expect(SessionInfoLineView.packIcon("folder", font: Typography.body) == nil)
+        #expect(SessionInfoLineView.packIcon("cmux:no.such.icon", font: Typography.body) == nil)
+    }
 }
