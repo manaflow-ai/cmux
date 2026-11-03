@@ -32,6 +32,11 @@ struct SidebarStatesPlaygroundRenderer {
         design.sidebarSections.density = column.density
         design.sidebarSections.textSize = column.textSize
         defer { design.sidebarSections = saved }
+        // The favicon styles sheet's column draws with its `sidebar.faviconStyle`; the person's own comes back after.
+        let styleKey = SidebarFaviconStyle.tunable.key
+        let savedStyle = TunableStore.shared.override(styleKey)
+        if let style = column.faviconStyle { _ = TunableStore.shared.set(styleKey, style.tunableValue) }
+        defer { if column.faviconStyle != nil { _ = TunableStore.shared.set(styleKey, savedStyle) } }
         let fixture = SidebarStatesPlaygroundFixture()
         let window = NSWindow(contentRect: NSRect(x: -40_000, y: -40_000, width: width, height: height), styleMask: [.borderless],
                               backing: .buffered, defer: false)
