@@ -41,6 +41,10 @@ final class WindowKeyStateWalk {
     private(set) var walks = 0
     private(set) var skipped = 0
 
+    /// Test seams only (red run): the base gate reads neither.
+    var isPageWindow: @MainActor (NSWindow) -> Bool = { _ in false }
+    var walkContent: @MainActor (NSView) -> Void = WindowKeyStateWalk.walk
+
     init(environment: WindowKeyEnvironment = .live) {
         self.environment = environment
     }
