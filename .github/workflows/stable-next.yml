@@ -318,10 +318,9 @@ jobs:
           echo "stable serves $served ($base); candidate $COMMIT"
           python3 -I .stable-tooling/scripts/ci/stable_next.py crash-delta --base-tree "$RUNNER_TEMP/base-tree" --head-tree "$RUNNER_TEMP/head-tree"
 
-  # Every CmuxNext test target, four shards, each on an owned M4 Pro GUI mini (macOS 27, a console
-  # session: the suites that need a display run). The same runs-on as cmux-next.yml's swift test:
-  # the gui pool on attempt 1, Blacksmith macOS on a re-run. package-test-lane.sh suite runs the same
-  # way under Actions as in a fleet step (it fetches GhosttyKit, the web bundles and the cmux-tui tree).
+  # Every CmuxNext test target, four shards, each a build-fleet step (package-test-lane.sh suite) on a
+  # macOS 27 M4 Pro worker, submitted from an owned GUI-pool runner (a fleet client); a re-run lands on
+  # Blacksmith, where cmux-ci is missing, and fails closed.
   swift-suites:
     needs: plan
     if: needs.plan.outputs.go == 'true'
@@ -330,7 +329,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
-    timeout-minutes: 240
+    timeout-minutes: 330
     permissions:
       contents: read
     env:
@@ -369,6 +368,12 @@ jobs:
               --env CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=2400 \
               --timeout 6000 --queue-timeout 3600 || status=$?
             [ "$status" = 0 ] && exit 0
+            # 75: the step is still queued and keeps its place; a new key would queue a duplicate that
+            # nobody waits on (fleet rule: never resubmit). Only a finished red or a timeout retries.
+            if [ "$status" = 75 ]; then
+              echo "::error title=stable swift suites::shard ${{ matrix.shard }} still queued after 60 min (step kept; not resubmitted)"
+              exit 75
+            fi
             echo "::warning title=stable swift suites::shard ${{ matrix.shard }} attempt $attempt exited $status"
           done
           exit "$status"
