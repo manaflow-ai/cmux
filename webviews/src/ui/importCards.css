@@ -183,6 +183,11 @@
   color: var(--import-text);
 }
 
+.import-card-button:active:not(:disabled) {
+  background: color-mix(in srgb, var(--import-text) 22%, transparent);
+  color: var(--import-text);
+}
+
 .import-card-button:focus-visible {
   outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--import-accent));
   outline-offset: 1px;

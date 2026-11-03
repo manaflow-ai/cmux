@@ -73,6 +73,11 @@
 .acpmux-dock {
   --acpmux-stack-gap: 0px;
   --acpmux-stack-radius: 10px;
+  /* The composer's 8px narrow outset (composerLocation.css, under 298px of content width), for the
+     other parts on the card's edges: the recap card (summary.css) and the host's line (styles.css)
+     take --cv-inset and --cv-inset-end less this, as the running tray does above. The percentage
+     resolves where it is used, against the part's own width. */
+  --acpmux-stack-outset: clamp(0px, calc((297.5px - (100% - var(--cv-inset) - var(--cv-inset-end, var(--cv-inset)))) * 1000), 8px);
 }
 :root[data-bottom-stack="cards"] .acpmux-dock {
   --acpmux-stack-gap: var(--ds-space-1, 4px);

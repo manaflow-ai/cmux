@@ -72,7 +72,9 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     const panel = page.locator("aside.acpmux-session-info");
     const toggle = page.locator("button.acpmux-session-info-toggle");
     await toggle.waitFor({ timeout: 10_000 });
-    if ((await panel.count()) === 0) await toggle.click({ force: true });
+    // Pressed while it shows: a pane that waits for the person (SessionInfo.tsx sessionInfoFits, a short
+    // pane's popover) leaves it closed, its card possibly still leaving.
+    if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click({ force: true });
     await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
     // The chat's shift beside it settles.
     await page.evaluate(() =>
@@ -100,10 +102,9 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
         );
         const toggle = page.locator("button.acpmux-session-info-toggle");
         await toggle.waitFor({ timeout: 10_000 });
-        if ((await page.locator("aside.acpmux-session-info").count()) > 0) {
-          await toggle.click();
-          await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
-        }
+        // Pressed while it shows; a pane that waits for the person (SessionInfo.tsx sessionInfoFits) has it closed already.
+        if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
+        await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
         const before = await transcript(page);
         const { panel } = await openSessionInfo(page);
         const box = await rect(page);
@@ -138,10 +139,9 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
             ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
           );
           await toggle.waitFor({ timeout: 10_000 });
-          if ((await page.locator("aside.acpmux-session-info").count()) > 0) {
-            await toggle.click();
-            await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
-          }
+          // Pressed while it shows; a pane that waits for the person (SessionInfo.tsx sessionInfoFits) has it closed already.
+          if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
+          await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
           const before = await chat();
           const { panel } = await openSessionInfo(page);
           const box = await rect(page);
@@ -154,6 +154,63 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
             underHeader: box.top >= header.y + header.height - 0.5,
             covers: rows.filter((row) => meets(row, box)),
           }).toEqual({ placement: "push", narrower: true, underHeader: true, covers: [] });
+        } finally {
+          await page.close();
+        }
+      });
+    }
+
+    // cmuxterm-hq#6137, Leo 2026-11-02: "THE FUCKING SESSION INFO NOT FUCKING PUSH THE LAYOUT LEFT". A new
+    // chat in a 370px agent pane opened with the panel at its 260px narrowest, the chat's "Not sent" line,
+    // Retry and composer under it. In a pane that narrow, or a 528px one, a saved open state leaves the
+    // chat alone; opened, the panel narrows (PUSH_PANEL_MIN) and sits right of the chat, which reflows
+    // beside it: no row and not the composer lies under it or is cut off. A 740px pane opens it unasked.
+    for (const width of [370, 528, 740]) {
+      test(`${name}: in a ${width}px pane it sits right of the chat, whose last row and composer show whole`, async () => {
+        current = browsers.get(name)!;
+        const page = await pane!.open({ width, height: 900 });
+        try {
+          await page.evaluate(() =>
+            (
+              window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
+            ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
+          );
+          const toggle = page.locator("button.acpmux-session-info-toggle");
+          await toggle.waitFor({ timeout: 10_000 });
+          // Session Info's saved state is open (the default): only a pane with room shows it unasked.
+          const unasked = (await toggle.getAttribute("aria-pressed")) === "true";
+          const { panel } = await openSessionInfo(page);
+          const box = await rect(page);
+          const main = await page.evaluate(() => {
+            const { left, right, top, bottom } = document.querySelector(".acpmux-main")!.getBoundingClientRect();
+            return { left, right, top, bottom };
+          });
+          const rows = await transcript(page);
+          const composer = await page.evaluate(() => {
+            const { left, right, top, bottom } = document
+              .querySelector(".acpmux-composer-box")!
+              .getBoundingClientRect();
+            return { left, right, top, bottom };
+          });
+          const last = rows.reduce((a, b) => (b.bottom > a.bottom ? b : a), rows[0]!);
+          expect(rows.length).toBeGreaterThan(0);
+          expect({
+            unasked,
+            placement: await panel.getAttribute("data-placement"),
+            besideChat: box.left >= main.right - 0.5,
+            insidePane: box.right <= width,
+            covers: rows.filter((row) => meets(row, box)),
+            composerWhole: composer.left >= main.left - 0.5 && composer.right <= main.right + 0.5,
+            lastRowWhole: last.left >= main.left - 0.5 && last.right <= main.right + 0.5,
+          }).toEqual({
+            unasked: width >= 740,
+            placement: "push",
+            besideChat: true,
+            insidePane: true,
+            covers: [],
+            composerWhole: true,
+            lastRowWhole: true,
+          });
         } finally {
           await page.close();
         }

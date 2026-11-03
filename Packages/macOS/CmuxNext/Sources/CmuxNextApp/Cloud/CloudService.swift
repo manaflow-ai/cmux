@@ -70,7 +70,7 @@ final class CloudService {
     @ObservationIgnored let hands: HandsService
     @ObservationIgnored private let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
-    var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits) }
+    var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits, makesRoom: configuration.linkSource == .appServer) }
     /// The plan's machine sizes a person's create offers, from the last machine list: its limits'
     /// sizes and the rates the server gave listed machines of the same size. Read from the list
     /// itself, so a machine this Mac could not connect to still gives its size a rate.
@@ -113,6 +113,9 @@ final class CloudService {
     /// The person's confirmation of a create (set by AppServices: a sheet in the active window, or the
     /// sidebar card for an agent's or a script's request while that sidebar shows); none answers false.
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
+    /// At the plan's cap: the card's pick for a person's create (nil: Not now), and the notice naming the machine paused to make room.
+    @ObservationIgnored var chooseAtCap: (@MainActor (CloudMachineCap) async -> CloudMachineCap.Choice?)?
+    @ObservationIgnored var madeRoom: (@MainActor (String) -> Void)?
     @ObservationIgnored let approvalHolds = CloudApprovalHolds()  // the holds the person's feed shows answered
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
@@ -718,7 +721,7 @@ final class CloudService {
     /// Creates a machine and connects to it. Returns its session.
     /// `creation` moves to its `creating` stage when the request is sent.
     /// `startedByPerson`: the person's own gesture in this app; any other
-    /// create goes out at once on a paid plan (a Free or full plan gets the upgrade card; the opt-in `cloud.askBeforeAgentCreate` asks first) (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
+    /// create goes out at once on a paid plan (a person's create at the cap gets the cap card, ``CloudMachineCap``; the opt-in `cloud.askBeforeAgentCreate` asks first) (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
     /// `request`: `cloud new-machine`'s size and idle pause, sent with the create (the legacy
     /// `/api/vm` create only; the app server's create refuses them for now). A server that did
     /// not store the idle pause gets it through `PUT /api/vm/{id}/idle-pause` right after.
@@ -763,11 +766,18 @@ final class CloudService {
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
         let idlePause = request.persistent ? 0 : nil
-        var machine = configuration.linkSource == .appServer
+        var machine = try await CloudMachineCap.creating(person: startedByPerson, cap: { [weak self] error in
+            guard case CloudMachineCreateFlow.Failure.upgradeRequired(let reason) = error else { return CloudMachineCap.refusal(error) }
+            return self.map { CloudMachineCap.plan(freePlan: reason == .freePlan, machines: $0.machines.cloud.map(\.machine), user: $0.auth.user?.id) }
+        }, choose: { [weak self] in await self?.chooseAtCap?($0) },
+                                                         pause: { [weak self] in try await self?.pauseMachine($0) }) { again in
+            var request = request // after a Pause, a new key: the first one's stored answer is the refusal
+            if again { request.idempotencyKey = UUID().uuidString }
+            return configuration.linkSource == .appServer
             ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent, persistSent: onAppServerSent)
             : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"),
-                                                      // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
-                                                      gate: { [weak self, weak creation] in creation?.request.wasSent == true ? .allowed : self?.createGate ?? .allowed },
+                                                      // A request already sent once (its Retry), or the create after a Pause, goes to the server past the local plan gate.
+                                                      gate: { [weak self, weak creation] in again || creation?.request.wasSent == true ? .allowed : self?.createGate ?? .allowed },
                                                       confirm: { [weak self] in await self?.confirmCreate?($0) ?? false },
                                                       create: { [api, weak creation] in
                                                           // The first send's team, for every later call about this machine; a
@@ -777,6 +787,7 @@ final class CloudService {
                                                           creation?.markRequestSent(team: team)
                                                           return try await api.pinningTeam(team).createWithKey(name: name, request: request, idlePause: idlePause, onSent: onSent)
                                                       })
+        }
         logger.info("created machine \(machine.id, privacy: .public)")
         try proceed()
         // The machine exists either way: a failed write leaves its idle pause as the server says,

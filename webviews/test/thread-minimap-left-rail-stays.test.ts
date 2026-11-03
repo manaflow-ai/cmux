@@ -69,10 +69,9 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
   };
   const closeSessionInfo = async (page: Page) => {
     const toggle = await showToggle(page);
-    if ((await page.locator("aside.acpmux-session-info").count()) > 0) {
-      await toggle.click({ force: true });
-      await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
-    }
+    // Pressed while it shows; a pane that waits for the person (SessionInfo.tsx sessionInfoFits) has it closed already.
+    if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click({ force: true });
+    await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
     await settle(page);
   };
   const openSessionInfo = async (page: Page, push: boolean) => {

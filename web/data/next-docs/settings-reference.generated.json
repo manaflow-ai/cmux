@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 557,
+  "count": 559,
   "sections": [
     {
       "id": "general",
@@ -2242,6 +2242,14 @@
           "group": "Window Background"
         },
         {
+          "key": "appearance.favoriteThemes",
+          "title": "Starred Themes",
+          "help": "Themes starred in a theme picker. The picker lists them first.",
+          "kind": "string_list",
+          "default": [],
+          "group": "App Theme"
+        },
+        {
           "key": "appearance.focusIndicator",
           "title": "Focused Pane",
           "help": "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither.",
@@ -2377,6 +2385,19 @@
           "values": [
             "shared",
             "perPane"
+          ]
+        },
+        {
+          "key": "appearance.rotateFavoriteThemes",
+          "title": "Rotate Starred Themes",
+          "help": "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on.",
+          "kind": "choice",
+          "default": "off",
+          "group": "App Theme",
+          "values": [
+            "off",
+            "launch",
+            "daily"
           ]
         },
         {
@@ -5449,8 +5470,8 @@
         },
         {
           "key": "feed.github.enabled",
-          "title": "Connect GitHub",
-          "help": "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first.",
+          "title": "GitHub Inbox",
+          "help": "Inbox shows your GitHub notifications",
           "kind": "toggle",
           "default": false,
           "group": "GitHub Inbox"

@@ -5399,6 +5399,10 @@ export class AcpmuxDirectClient {
       }
       if (Number.isFinite(used) && Number.isFinite(size) && size > 0) {
         const setup = usageSetup(update, used);
+        // A new model window (a model switch) makes the last /context's window stale until the
+        // next one arrives: the meter reads the model's own until then (compactingUsage).
+        if (this.usage && this.usage.size !== size && this.summary?.contextBreakdown)
+          this.summary = { ...this.summary, contextBreakdown: undefined };
         this.usage = setup === undefined ? { used, size } : { used, size, setup };
       }
       return;
@@ -7415,6 +7419,13 @@ export class AcpmuxDirectClient {
     const sessionId = this.actingSessionId;
     if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
     return this.request("_acpmux/agent_pair_resume", { sessionId, peerSessionId: peer });
+  }
+  /// Take over (`held`) or Hand back the shown chat its manager runs (acpmux `hub/agent_hold.rs`):
+  /// while held, acpmux holds the manager's messages to it; Hand back delivers them in order.
+  agentHold(held: boolean): Promise<{ held?: boolean; delivered?: number }> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    return this.request("_acpmux/agent_hold", { sessionId, held });
   }
   /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
   /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).

@@ -79,11 +79,12 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
       "focus-visible",
       "disabled",
     ] as const) {
-      // Plain in every state: no plate at rest, on hover, with its menu open, focused, disabled or pressed
-      // (Leo, 2026-10-31: "AND THE FUCKING BACKGROUND ON THIS FUCKING BUILD ON THESE BUTTONS STILL ISN'T
-      // FUCKING REMOVESD"). Pressed (its panel open), it reads as on by the lit ink alone, as the App's pane
-      // toolbar toggles do (Leo, 2026-10-29: "i literally meant the ui depicting it as toggled or not").
-      test(`${host} keeps plain icons in its ${state} state`, async () => {
+      // Nothing behind an icon at rest, focused or disabled; the hover pill only under the pointer; the filled
+      // rounded square only while its panel or menu is open (Leo, 2026-11-02: "FOR THE FUCKING STUPID BACKGROUND
+      // ON THE FUCKING TOP RIGHT ICONS TO BE REMOVED"; his reference fills only the toggled-on button). Pressed
+      // (its panel open), the glyph also takes the lit ink, as the App's pane toolbar toggles do (Leo, 2026-10-29:
+      // "i literally meant the ui depicting it as toggled or not").
+      test(`${host} draws no background behind its icons in its ${state} state`, async () => {
         // Match the shipped cascade: the shared pane sheet supplies the important focus gradient.
         const shellCss = [
           read("agent-session/shared/styles.css"),
@@ -99,6 +100,8 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
               --agent-soft: rgb(100, 110, 120); --agent-accent: rgb(200, 120, 80);
               --agent-lit-glyph: rgb(210, 130, 90);
               --acpmux-motion-hover: 0ms; --cmux-selection: rgba(255, 255, 255, 0.12);
+              --agent-page-bg: rgb(20, 30, 40);
+              --acpmux-header-tool-hover: rgb(1, 2, 3); --acpmux-header-tool-on: rgb(4, 5, 6);
             }
           </style></head><body>
             ${wrap(`<button class="acpmux-header-tool" aria-label="Panel">
@@ -115,7 +118,7 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
               (node.firstElementChild as HTMLElement).style.color = "var(--agent-lit-glyph, var(--agent-accent))";
             });
           }
-          // Hovering an open panel's toggle keeps its lit ink and gains no fill.
+          // Hovering an open panel's toggle keeps its lit ink and its on fill.
           if (state === "pressed-hover") await button.hover();
           if (state === "popup-open") await button.evaluate((node) => node.setAttribute("data-popup-open", ""));
           if (state === "focus-visible") {
@@ -143,8 +146,14 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
                 : state === "hover" || state === "popup-open"
                   ? "rgb(240, 240, 240)"
                   : "rgb(150, 160, 170)";
+          const background =
+            state === "pressed" || state === "pressed-hover" || state === "popup-open"
+              ? "rgb(4, 5, 6)"
+              : state === "hover"
+                ? "rgb(1, 2, 3)"
+                : "rgba(0, 0, 0, 0)";
           expect(computed).toMatchObject({
-            background: "rgba(0, 0, 0, 0)",
+            background,
             image: "none",
             color,
             outline: state === "focus-visible" ? "solid" : "none",
@@ -161,6 +170,49 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
       });
     }
   }
+
+  // The tools in the tab row sit on the row's own surface, as the tabs do: the shell paints no band of the page's
+  // color behind them, only below the row (Leo, 2026-11-02: "FOR THE FUCKING STUPID BACKGROUND ON THE FUCKING TOP
+  // RIGHT ICONS TO BE REMOVED").
+  test("the tab row shell paints nothing behind the tools", async () => {
+    const shellCss = [
+      read("styles.css"),
+      read("agent-session/shared/styles.css"),
+      read("agent-session/acpmux/styles.css"),
+      read("agent-session/acpmux/header/header.css"),
+    ].join("\n");
+    const page = await browser.newPage({ viewport: { width: 320, height: 120 } });
+    try {
+      // The native row under the page is green; the page's own color is red.
+      await page.setContent(`<!doctype html><html style="background:rgb(0,255,0)"><head><style>
+        ${shellCss}
+        :root { --agent-page-bg: rgb(255, 0, 0); --agent-muted: rgb(150, 160, 170); }
+        html:has(.acpmux-shell[data-tab-row]) { background: rgb(0, 255, 0) !important; }
+        body { margin: 0; height: 120px; }
+      </style></head><body>
+        <section class="acpmux-shell" data-tab-row style="--acpmux-tab-row-height:40px;height:120px">
+          <div class="acpmux-stage" style="flex:1;display:flex;flex-direction:column">
+            <header class="acpmux-header" data-tab-row><div class="acpmux-handoff-header-tools">
+              <div class="acpmux-header-tools"><button class="acpmux-header-tool" aria-label="Panel"></button></div>
+            </div></header>
+          </div>
+        </section>
+      </body></html>`);
+      const shot = await page.screenshot({ type: "png" });
+      const { PNG } = await import("pngjs");
+      const png = PNG.sync.read(shot);
+      const at = (x: number, y: number) => {
+        const i = (png.width * y + x) * 4;
+        return [png.data[i], png.data[i + 1], png.data[i + 2]];
+      };
+      // Behind the tools (inside the 40px row): the row's green. Below the row: the page's red.
+      expect(at(300, 10)).toEqual([0, 255, 0]);
+      expect(at(10, 20)).toEqual([0, 255, 0]);
+      expect(at(10, 80)).toEqual([255, 0, 0]);
+    } finally {
+      await page.close();
+    }
+  });
 
   test("the loading shell carries the offered row state before the handshake", () => {
     const app = read("agent-session/acpmux/App.tsx");

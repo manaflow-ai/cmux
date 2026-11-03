@@ -10,13 +10,20 @@
 //! socket, and `--result` is an outcome file next to it. Then it hard-links
 //! the running binary as `cmux-tui.prev`, renames itself over the binary
 //! (one atomic rename in the same folder, of the very file it hashed) and sends
-//! the daemon SIGTERM, which ends only the daemon: every terminal host and
+//! the daemon SIGTERM (SIGKILL once [`STOP_TIMEOUT`] passes: a daemon resumes
+//! what it interrupted), which ends only the daemon: every terminal host and
 //! chat keeps running, and the daemon the supervisor starts from the new
 //! binary adopts them (docs/cloud-guest-upgrades.md). A new daemon that does
 //! not serve within ten minutes is replaced by the previous binary, which is
 //! trusted only once it serves again. The outcome goes to `--result` as one
 //! JSON object: `{"state":"updated"|"rolled_back"|"pending"|"failed",
 //! "detail":...}`.
+//!
+//! A daemon still running an earlier copy of this same install (a binary an
+//! earlier update or upgrade replaced while that daemon kept running, which
+//! `/proc/<pid>/exe` names `<install> (deleted)`, or `cmux-tui.prev`) is
+//! updated like any other: stopping it is what that earlier update could not
+//! finish ([`runs_this_install`]).
 //!
 //! The lock orders this mode's own runs only; the image's root fleet
 //! upgrade script keeps its own lock.
@@ -33,8 +40,10 @@ use sha2::{Digest as _, Sha256};
 
 /// The private argv mode (crate::private_mode).
 pub(crate) const MODE: &str = "__machine-update-apply";
-/// How long the old daemon may take to stop after SIGTERM.
+/// How long the old daemon may take to stop after SIGTERM, before SIGKILL.
 const STOP_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long the kernel may take to end it after SIGKILL.
+const KILL_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a daemon may take to serve: it replays its journal and adopts
 /// every terminal host before it listens.
 const SERVE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
@@ -180,10 +189,11 @@ fn apply(args: &Args) -> (&'static str, String) {
             ),
         };
     }
-    if !wait(STOP_TIMEOUT, || !alive(args.daemon_pid)) {
+    if !stop(args.daemon_pid, STOP_TIMEOUT, KILL_TIMEOUT) {
         return (
             "pending",
-            "the daemon did not stop; the new build runs after its next restart".into(),
+            "the daemon did not stop, even after SIGKILL; the new build runs after its next restart"
+                .into(),
         );
     }
     let own_build = cmux_build_identity::BUILD_IDENTITY;
@@ -230,10 +240,22 @@ fn check(args: &Args) -> Result<Staged, String> {
     if sha256 != args.sha256 {
         return Err("the staged build does not match the pinned checksum".into());
     }
-    let running = std::fs::read_link(format!("/proc/{}/exe", args.daemon_pid))
-        .map_err(|e| format!("cannot read the daemon's binary: {e}"))?;
-    if running != canonical(&args.install)? {
-        return Err("the daemon does not run the installed binary".into());
+    let exe = format!("/proc/{}/exe", args.daemon_pid);
+    let running =
+        std::fs::read_link(&exe).map_err(|e| format!("cannot read the daemon's binary: {e}"))?;
+    let install = canonical(&args.install)?;
+    let installed = std::fs::metadata(&install).map_err(|e| e.to_string())?;
+    // The file the daemon runs, even when no path names it any more.
+    let ran = std::fs::metadata(&exe).ok().map(|ran| (ran.dev(), ran.ino()));
+    if !runs_this_install(&running, &install, ran) {
+        return Err(format!(
+            "the daemon (pid {}) runs {}, not this machine's {} (inode {}); restart the machine's cmux daemon from {}, then update again",
+            args.daemon_pid,
+            running.display(),
+            install.display(),
+            installed.ino(),
+            install.display(),
+        ));
     }
     // The pid is the daemon serving this terminal's socket now, not a pid
     // reused since the Mac read it.
@@ -244,6 +266,44 @@ fn check(args: &Args) -> Result<Staged, String> {
         return Err("the daemon pid is not the one serving this machine".into());
     }
     Ok(Staged { path: own, dev: opened.dev(), ino: opened.ino() })
+}
+
+/// What `/proc/<pid>/exe` reads for a deleted file.
+const DELETED: &str = " (deleted)";
+
+/// Whether a daemon whose `/proc/<pid>/exe` reads `running` (and whose
+/// file is `ran`, its device and inode) runs `install` (canonical) or an
+/// earlier copy of it: the same path with the kernel's ` (deleted)` mark (a
+/// binary replaced under a running daemon, by an earlier update whose stop
+/// did not finish or by another upgrade), `cmux-tui.prev` or the rollback
+/// link in the same folder (or either deleted), or the very file now at
+/// `cmux-tui.prev`. Anything else, another folder or another name, is not
+/// this install's daemon.
+fn runs_this_install(running: &Path, install: &Path, ran: Option<(u64, u64)>) -> bool {
+    if running == install {
+        return true;
+    }
+    let Some(text) = running.to_str() else { return false };
+    let path = Path::new(text.strip_suffix(DELETED).unwrap_or(text));
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else { return false };
+    let same_folder = path.parent().is_some() && path.parent() == install.parent();
+    if same_folder && matches!(name, "cmux-tui" | "cmux-tui.prev" | ".cmux-tui.rollback") {
+        return true;
+    }
+    let previous = install.with_file_name("cmux-tui.prev");
+    ran.zip(std::fs::metadata(previous).ok())
+        .is_some_and(|((dev, ino), previous)| previous.dev() == dev && previous.ino() == ino)
+}
+
+/// Ends the daemon that was sent SIGTERM: waits `term` for it to exit, then
+/// sends SIGKILL and waits `kill` more. True once it is gone.
+fn stop(pid: i32, term: Duration, kill: Duration) -> bool {
+    if wait(term, || !alive(pid)) {
+        return true;
+    }
+    // SAFETY: as in apply; the pid was checked to serve this machine.
+    unsafe { libc::kill(pid, libc::SIGKILL) };
+    wait(kill, || !alive(pid))
 }
 
 /// The folder's update lock, held while this process lives.
@@ -353,3 +413,7 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::write(&temporary, bytes)?;
     std::fs::rename(&temporary, path)
 }
+
+#[cfg(test)]
+#[path = "apply_tests.rs"]
+mod tests;
