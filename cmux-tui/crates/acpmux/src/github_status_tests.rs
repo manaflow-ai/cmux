@@ -180,8 +180,9 @@ async fn both_sources_are_returned_labelled_with_the_local_login_first() {
 }
 
 #[tokio::test]
-async fn nothing_connected_says_so_and_a_failed_source_is_passed_over() {
+async fn a_failed_check_is_not_reported_as_disconnected() {
     let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("b")).unwrap();
     let (socket, _agent) = fake_agent(
         dir.path(),
         json!({"ok": false, "error": {"code": "auth.refused", "message": TOKEN}}),
@@ -196,11 +197,24 @@ async fn nothing_connected_says_so_and_a_failed_source_is_passed_over() {
     let status = resolve(&sources).await;
     assert_eq!(
         status,
-        json!({"connected": false, "source": "none", "via": "cmux", "accounts": []})
+        json!({"connected": false, "source": "none", "via": "cmux", "accounts": [],
+               "unavailable": true})
     );
     let mcp = result(&status);
     no_token(&mcp);
-    assert!(mcp["content"][0]["text"].as_str().unwrap().starts_with("No GitHub account"));
+    let text = mcp["content"][0]["text"].as_str().unwrap();
+    assert!(text.starts_with("cmux could not check the GitHub connection"), "{text}");
+    // A cmux source that answers "not connected" is not a failed check.
+    let (socket, _agent) =
+        fake_agent(&dir.path().join("b"), json!({"ok": true, "connected": false}));
+    let sources = Sources { cloud_socket: Some(socket), ..Default::default() };
+    let status = resolve(&sources).await;
+    assert_eq!(
+        status,
+        json!({"connected": false, "source": "none", "via": "cmux", "accounts": []})
+    );
+    let text = result(&status)["content"][0]["text"].as_str().unwrap().to_owned();
+    assert!(text.starts_with("No GitHub account"), "{text}");
 }
 
 #[test]

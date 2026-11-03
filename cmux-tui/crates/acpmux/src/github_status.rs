@@ -142,6 +142,10 @@ pub async fn resolve(sources: &Sources) -> Value {
         }
     };
     let (cloud, platform, gh) = tokio::join!(cloud, platform, gh);
+    // A cmux source that was asked and gave no answer (unreachable, refused, timed out) is not
+    // "not connected": with no account found, the answer says the check failed.
+    let unavailable = (sources.cloud_socket.is_some() && cloud.is_none())
+        || (sources.platform.is_some() && platform.is_none());
     let cmux_first = sources.cloud_socket.is_some();
     let ordered = if cmux_first { [cloud, gh, platform] } else { [gh, cloud, platform] };
     let accounts: Vec<Value> =
@@ -152,7 +156,11 @@ pub async fn resolve(sources: &Sources) -> Value {
         .filter(|a| seen.insert((a["login"].to_string(), a["source"].to_string())))
         .collect();
     let Some(first) = accounts.first() else {
-        return json!({"connected": false, "source": "none", "via": "cmux", "accounts": []});
+        let mut out = json!({"connected": false, "source": "none", "via": "cmux", "accounts": []});
+        if unavailable {
+            out["unavailable"] = json!(true);
+        }
+        return out;
     };
     let mut out = first.clone();
     out["connected"] = json!(true);
@@ -200,7 +208,12 @@ fn describe(account: &Value) -> String {
 /// The MCP result: a sentence for the model and the object as `structuredContent`.
 pub fn result(status: &Value) -> Value {
     let accounts = status["accounts"].as_array().cloned().unwrap_or_default();
-    let text = if accounts.is_empty() {
+    let text = if accounts.is_empty() && status["unavailable"] == true {
+        "cmux could not check the GitHub connection right now (its service did not answer), and \
+         this machine has no GitHub CLI login. Say the connection could not be checked, not that \
+         GitHub is disconnected, and suggest trying again."
+            .to_owned()
+    } else if accounts.is_empty() {
         "No GitHub account is connected to cmux for this chat, and this machine has no GitHub          CLI login. The person can connect GitHub in cmux Settings."
             .to_owned()
     } else {
@@ -214,6 +227,14 @@ pub fn result(status: &Value) -> Value {
 }
 
 /// The Cloud agent's answer (it already checked the fields; they are checked again here).
+/// Cloud machines are Linux; elsewhere there is no agent socket.
+#[cfg(not(unix))]
+async fn from_cloud(_socket: &std::path::Path) -> Option<Value> {
+    None
+}
+
+/// The Cloud agent's answer (it already checked the fields; they are checked again here).
+#[cfg(unix)]
 async fn from_cloud(socket: &std::path::Path) -> Option<Value> {
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
     let ask = async {
@@ -290,6 +311,6 @@ async fn from_gh(gh: &OsString) -> Option<Value> {
     Some(status)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "github_status_tests.rs"]
 mod tests;
