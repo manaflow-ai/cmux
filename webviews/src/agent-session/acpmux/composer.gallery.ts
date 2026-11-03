@@ -21,6 +21,7 @@ import type { AcpmuxSnapshot } from "./model";
 import type { SessionPullRequest } from "./sessionList";
 import { composerStatePlays } from "./composerStatePlays";
 import { SCREEN_RECORDING_POSTER_JPEG } from "../../gallery/fixtures/videoPoster";
+import { LOGIN_TESTS_MP4 } from "../../gallery/fixtures/toolImages";
 import { parseProbes, pickFrameTimes } from "./composer/videoFramePick";
 
 /// A screen recording on the Desktop, as the host's `video.info` reads it (AgentPaneVideoInfo.swift).
@@ -1243,7 +1244,7 @@ export default agentPaneEntry({
       },
     },
     "video-dropped": {
-      note: 'Leo, 2026-10-25: "also why dont we have previews of videos we should". A screen recording dropped from the Desktop beside a screenshot, in a chat on this Mac: the host knows its path (chat.attach.dropped) and reads its poster and length off its main thread (video.info), so its chip is the poster in the image\'s tile with a play glyph and "0:42"; a click plays it in Quick Look. Before, it was a bare file name.',
+      note: 'Leo, 2026-10-25: "also why dont we have previews of videos we should". A screen recording dropped from the Desktop beside a screenshot, in a chat on this Mac: the host knows its path (chat.attach.dropped) and reads its poster and length off its main thread (video.info), so its chip is the poster in the image\'s tile with a play glyph and "0:42"; a click plays it in the pane (video-playing). Before, it was a bare file name.',
       snapshot: chat(finished),
       native: {
         "chat.attach.dropped": {
@@ -1258,6 +1259,31 @@ export default agentPaneEntry({
       play: async (ctx) => {
         dropScreenshotAndVideo(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video img"));
+      },
+    },
+    "video-playing": {
+      note: "Leo, 2026-11-02: \"this i can't play a video preview inside cmux next? i feel like i should be able to\". A click on the dropped recording's ▶ plays it in the pane: the composer's tile is too small for a player's controls, so the player opens large over the pane, playing with sound and its scrub, mute and pause, on the URL the host streams the file by in byte ranges (`media.load`). Held still at 1 s for the capture. Before, a click handed it to Quick Look.",
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+            { path: VIDEO_PATH, folder: false },
+          ],
+        },
+        "video.info": VIDEO_INFO,
+        "video.frames": VIDEO_FRAMES,
+        "media.load": { src: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` },
+      },
+      play: async (ctx) => {
+        dropScreenshotAndVideo(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video img"));
+        await ctx.click({ selector: ".acpmux-attachment-video-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-image-viewer .cv-media__frame.is-playing"));
+        const video = ctx.document.querySelector<HTMLVideoElement>(".acpmux-image-viewer video")!;
+        video.pause();
+        video.currentTime = 1;
+        await ctx.waitFor(() => !video.seeking && video.readyState >= 2);
       },
     },
     "video-reading": {

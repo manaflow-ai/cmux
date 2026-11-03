@@ -321,6 +321,8 @@ fn the_release_record_says_consent_and_switch() {
     assert!(line.ends_with(", release consent -, switch yes"), "{line}");
     let line = decide(&Inputs { remote_switch: Some(false), ..release() }).summary;
     assert!(line.starts_with("skip (remote-switch-off): gate off"), "{line}");
+    assert_eq!(decide(&d(false, None)).reason, Reason::BuildGateOff);
+    assert_eq!(decide(&d(false, Some(true))).reason, Reason::BuildGateOff);
 }
 
 /// The chat's harness, the guest probe's output and the machine probe's output go into the one
