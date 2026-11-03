@@ -32,12 +32,20 @@ public struct GroupJoinHold: Sendable {
     /// Its create ended without the workspace (or was taken back): nothing to hold.
     public mutating func release(_ id: String) { held[id] = nil }
 
+    /// How long until the earliest loose-listed hold reaches `limit` (nil: none has listed loose). A later hold's
+    /// redraw is due then, not a full `limit` after the earlier one's.
+    public func nextLimit(now: ContinuousClock.Instant) -> Duration? {
+        held.values.compactMap(\.loose).min().map { max(.zero, $0 + Self.limit - now) }
+    }
+
     /// The held workspaces `sections` lists outside any group, to leave out of them in this pass. A held workspace
     /// listed in a group is released (its row draws there from its first frame), so is one that has listed loose for
     /// `limit`: the caller asks again once `limit` has passed while it leaves one out.
     public mutating func hiding(in sections: [SidebarSection], now: ContinuousClock.Instant) -> Set<String> {
         guard !held.isEmpty else { return [] }
-        held = held.filter { $0.value.loose != nil || now - $0.value.at < Self.createLimit }
+        // Past its bound a hold goes whether or not this pass lists it (a row closed after it listed loose), so the
+        // next limit is never one already past.
+        held = held.filter { entry in entry.value.loose.map { now - $0 < Self.limit } ?? (now - entry.value.at < Self.createLimit) }
         var hidden: Set<String> = []
         for section in sections {
             for node in section.nodes {
@@ -63,9 +71,9 @@ public struct GroupJoinHold: Sendable {
     }
 }
 
-/// The app's ``GroupJoinHold`` for its sidebar passes: what a pass leaves out, and one redraw at the hold's limit while
-/// it leaves a row out (a one-shot deadline, set again only by a pass that still leaves one out), so a row whose join
-/// never landed shows with no other change to wake the sidebar.
+/// The app's ``GroupJoinHold`` for its sidebar passes: what a pass leaves out, and one redraw at the earliest hold's
+/// limit while it leaves a row out (a one-shot deadline, set again only by a pass that still leaves one out), so a row
+/// whose join never landed shows with no other change to wake the sidebar.
 @MainActor @Observable
 public final class GroupJoinRows {
     @ObservationIgnored private var state = GroupJoinHold()
@@ -82,8 +90,11 @@ public final class GroupJoinRows {
     public func hidden(in listed: [SidebarSection]) -> Set<String> {
         _ = checks
         guard !state.isEmpty else { return [] }
-        let hidden = state.hiding(in: listed, now: .now)
-        if !hidden.isEmpty { limit.scheduleIfIdle(after: GroupJoinHold.limit) { @MainActor [weak self] in self?.checks &+= 1 } }
+        let now = ContinuousClock.now
+        let hidden = state.hiding(in: listed, now: now)
+        if !hidden.isEmpty, let due = state.nextLimit(now: now) {
+            limit.scheduleIfIdle(after: due) { @MainActor [weak self] in self?.checks &+= 1 }
+        }
         return hidden
     }
 }

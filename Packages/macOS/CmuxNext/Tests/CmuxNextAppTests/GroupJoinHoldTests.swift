@@ -80,6 +80,24 @@ import Testing
         #expect(hold.isEmpty)
     }
 
+    /// Two holds first listed loose a second apart: the redraw after the first one's limit is due at the second
+    /// one's limit, not a full limit later (Codex review of #33578).
+    @Test func staggeredHoldsAreDueAtTheirOwnLimit() {
+        var hold = GroupJoinHold()
+        let start = ContinuousClock.now
+        hold.hold("n", now: start)
+        hold.hold("m", now: start)
+        let one = [SidebarSection(kind: .machine(Self.local), nodes: [.workspace(Self.row("n"))])]
+        let both = [SidebarSection(kind: .machine(Self.local), nodes: [.workspace(Self.row("n")), .workspace(Self.row("m"))])]
+        #expect(hold.nextLimit(now: start) == nil, "nothing listed loose yet")
+        #expect(hold.hiding(in: one, now: start) == ["n"])
+        #expect(hold.hiding(in: both, now: start + .seconds(1)) == ["n", "m"])
+        #expect(hold.nextLimit(now: start + .seconds(1)) == GroupJoinHold.limit - .seconds(1))
+        #expect(hold.hiding(in: both, now: start + GroupJoinHold.limit) == ["m"])
+        #expect(hold.nextLimit(now: start + GroupJoinHold.limit) == .seconds(1), "m is due one second later, not a full limit")
+        #expect(hold.hiding(in: both, now: start + GroupJoinHold.limit + .seconds(1)).isEmpty)
+    }
+
     @Test func aReleasedCreateIsNotHeld() {
         var hold = GroupJoinHold()
         hold.hold("n")
