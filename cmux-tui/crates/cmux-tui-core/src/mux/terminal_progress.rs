@@ -25,8 +25,9 @@ impl Mux {
         // writer commit could land between the reads below and this
         // publish's commit (#32326 review). The second hold is taken under
         // the session lock's own pin (re-entrant), after lock_state_pinned
-        // settled earlier answers, so it outlives the session lock only.
-        let (current, _connection) = {
+        // settled earlier answers, so it outlives the session lock only. It is
+        // released with the registry, before the publish below (#32408).
+        let (current, connection) = {
             let state = self.lock_state_pinned(&registry).unwrap();
             let connection = registry.connection.pin();
             (state.terminal_catalog.get(id).cloned(), connection)
@@ -66,6 +67,9 @@ impl Mux {
         )?;
         self.state.lock().unwrap_or_else(PoisonError::into_inner).resource_revision =
             commit.revision;
+        // Released in reverse order of acquisition, both before the publish: it publishes the
+        // terminals' pending directories, which take the registry (registry -> connection -> state).
+        drop(connection);
         drop(registry);
         self.publish_resource_event();
         Ok(())

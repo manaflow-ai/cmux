@@ -14,6 +14,8 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func events(_ page: AgentSessionPage) async throws -> Data
     /// Sends one text prompt; answers `{prompt_id, turn_id, queued}` once acpmux recorded it.
     func prompt(id: String, text: String) async throws -> Data
+    /// Sends ordered ACP content, including images and file links, to the owning session.
+    func prompt(id: String, content: Data) async throws -> Data
     func cancel() async throws
     /// Answers a permission request the daemon announced on this attachment, with a question's
     /// `answers` and `annotations` (JSON) and the person's decision proof of a relayed allow when
@@ -47,6 +49,14 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
 }
 
 extension AgentSessionRemoteClient {
+    /// Older clients retain their text-only behavior; multimodal content requires the new relay.
+    public func prompt(id: String, content: Data) async throws -> Data {
+        guard let blocks = try JSONSerialization.jsonObject(with: content) as? [[String: Any]],
+              let text = RemoteAcpmuxWire.text(blocks) else {
+            throw AgentSessionRemoteError(code: "agent_session.content_unsupported", message: "Update cmux on that machine to send attachments.")
+        }
+        return try await prompt(id: id, text: text)
+    }
     /// A daemon without `agent-session-children-v1` lists none.
     public func children() async throws -> Data { Data(#"{"sessions":[]}"#.utf8) }
     /// A daemon without `agent-session-presence-v1` shows no one: typing and view go nowhere.

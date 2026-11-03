@@ -109,6 +109,92 @@ import Testing
         #expect(FocusSpyShim.granted == [11])
     }
 
+    /// browser-click-then-type (STATUS 7374): the grant gave the page focus but its page window did not become key
+    /// (a fresh launch, a page loaded from the address bar). The cmux window kept the keys with itself as first
+    /// responder, and every plain key typed for the page reached no view. The page window takes the keys from the cmux
+    /// window that shows it: one key change.
+    @Test func aGrantThatMovesNoKeyHandsTheKeysFromTheCmuxWindowToThePageWindow() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 12)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        try #require(window.contentView).addSubview(tab.contentView)
+        let page = pageWindow(over: tab, in: window)
+        defer { page.closeAfterTest() }
+        let keys = KeyRecorder(key: window)
+        tab.keyWindows = keys.seam
+
+        tab.setFocused(true)
+        #expect(FocusSpyShim.granted == [12])
+        #expect(keys.key === page, "the page has focus but the cmux window kept the keys")
+        #expect(keys.made.count == 1, "one focus request made \(keys.made.count) key changes")
+    }
+
+    /// The same hand-over for a grant that waited for the page to show (``CEFTab/grantPendingFocusIfShown()``): a
+    /// hidden page takes neither focus nor the keys, and gets both when it shows.
+    @Test func aDelayedGrantThatMovesNoKeyAlsoHandsTheKeysToThePageWindow() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 13)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        try #require(window.contentView).addSubview(tab.contentView)
+        let page = pageWindow(over: tab, in: window)
+        defer { page.closeAfterTest() }
+        let keys = KeyRecorder(key: window)
+        tab.keyWindows = keys.seam
+        tab.setContentVisible(false)
+
+        tab.setFocused(true)
+        #expect(FocusSpyShim.granted.isEmpty)
+        #expect(keys.made.isEmpty, "a hidden page took the keys")
+
+        tab.setContentVisible(true)
+        #expect(FocusSpyShim.granted == [13])
+        #expect(keys.key === page, "the delayed grant left the keys on the cmux window")
+        #expect(keys.made.count == 1)
+    }
+
+    /// A grant whose page window became key (CEF moved the keys itself) gets no second key change; an inactive app
+    /// (no key window) and another window that has the keys keep them.
+    @Test func aGrantTakesNoKeysWhenCEFMovedThemOrAnotherWindowOrNoneHasThem() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 14)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        try #require(window.contentView).addSubview(tab.contentView)
+        let page = pageWindow(over: tab, in: window)
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { page.closeAfterTest(); other.closeAfterTest() }
+        let keys = KeyRecorder(key: window)
+        tab.keyWindows = keys.seam
+
+        FocusSpyShim.onGrant = { MainActor.assumeIsolated { keys.key = page } }
+        defer { FocusSpyShim.onGrant = nil }
+        tab.setFocused(true)
+        #expect(keys.made.isEmpty, "CEF moved the keys and the grant moved them again")
+
+        FocusSpyShim.onGrant = nil
+        for key in [nil, other] {
+            tab.setFocused(false)
+            keys.key = key
+            tab.setFocused(true)
+            #expect(keys.key === key, "the page took the keys from \(key.map { String(describing: $0) } ?? "an inactive app")")
+        }
+        #expect(keys.made.isEmpty)
+    }
+
+    /// A Chromium page window over `tab`'s view, a child of `window`, as the fork places it.
+    private func pageWindow(over tab: CEFTab, in window: NSWindow) -> NSWindow {
+        let frame = window.convertToScreen(tab.host.hostView.convert(tab.host.hostView.bounds, to: nil))
+        let page = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: true)
+        page.setFrame(frame, display: false)
+        window.addChildWindow(page, ordered: .above)
+        return page
+    }
+
     /// A tab whose browser Chromium made (`afterCreated`), its view in no window yet.
     private func createdTab(_ runtime: CEFRuntime, browser: Int32) throws -> (CEFTab, CEFPaneHost) {
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
@@ -120,6 +206,21 @@ import Testing
         #expect(tab.browserID == browser)
         FocusSpyShim.granted = []
         return (tab, host)
+    }
+}
+
+/// The app's key window in a test: every change a grant makes is recorded.
+@MainActor private final class KeyRecorder {
+    var key: NSWindow?
+    private(set) var made: [NSWindow] = []
+
+    init(key: NSWindow?) { self.key = key }
+
+    var seam: CEFKeyWindows {
+        CEFKeyWindows(keyWindow: { [unowned self] in key }, makeKey: { [unowned self] window in
+            key = window
+            made.append(window)
+        })
     }
 }
 
@@ -137,6 +238,8 @@ private final class HideSpyView: NSView {
 /// `cmux_shim_create_window` reports the browser started; every other function does nothing.
 private nonisolated enum FocusSpyShim {
     nonisolated(unsafe) static var granted: [Int32] = []
+    /// Runs inside a grant (CEF's SetFocus), as a page window becoming key would.
+    nonisolated(unsafe) static var onGrant: (() -> Void)?
     /// Tabs hold their runtime unowned and may outlive a test's locals: every runtime lives on.
     @MainActor static var runtimes: [CEFRuntime] = []
 
@@ -150,7 +253,9 @@ private nonisolated enum FocusSpyShim {
 
     static func library() throws -> CEFShimLibrary {
         let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, _, _ in 1 }
-        let setFocus: @convention(c) (Int32, Int32) -> Void = { browser, focused in if focused == 1 { FocusSpyShim.granted.append(browser) } }
+        let setFocus: @convention(c) (Int32, Int32) -> Void = { browser, focused in
+            if focused == 1 { FocusSpyShim.granted.append(browser); FocusSpyShim.onGrant?() }
+        }
         let nothing: @convention(c) () -> Int = { 0 }
         return try CEFShimLibrary.resolving { name in
             switch name {

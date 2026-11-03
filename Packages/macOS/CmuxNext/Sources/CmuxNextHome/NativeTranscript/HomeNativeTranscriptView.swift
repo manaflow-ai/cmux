@@ -19,6 +19,14 @@ public import MessagesLabHome
 /// `HomeStoreBinding` (refusals, unanswered ops, attachment fetches, Cancel
 /// Upload), so no host can leave those unwired.
 public final class HomeNativeTranscriptView: NSView {
+    public var isPersonApprovalEvent: (NSEvent) -> Bool {
+        get { transcript.isPersonApprovalEvent }
+        set { transcript.isPersonApprovalEvent = newValue }
+    }
+    public var approvals: (any HomeApprovalDeciding)? {
+        get { transcript.approvals }
+        set { transcript.approvals = newValue }
+    }
     let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
     var starterSent = false
@@ -149,6 +157,8 @@ public final class HomeNativeTranscriptView: NSView {
     public var onHeaderPanel: (String) -> Void = { _ in }
     /// The header's top-right panel toggles (HomeNativeTranscriptView+HeaderPanels.swift).
     let headerPanels = HomeHeaderPanelBar()
+    /// The section pinned under the header (HomeNativeTranscriptView+PinnedSection.swift) and its measured height.
+    var pinned: (view: NSView, height: CGFloat?)?
     /// The window's key and occlusion observers; each token removes itself when released (on any thread).
     private var observers: [MainActorObservation] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
@@ -382,10 +392,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// Whether ``paste(_:)`` has text, files or pictures for the message box.
     public var canPasteIntoPrimaryInput: Bool { transcript.canPasteIntoPrimaryInput }
 
-    /// The Chief chat's size at Agent Chat Zoom 100%: MessagesLab's metrics (text, bubbles, field) drawn 1.5 times
-    /// larger, the size 150% drew before (https://github.com/manaflow-ai/cmux/issues/28715). The zoom steps from here,
-    /// and Cmd-0 comes back to it.
-    static let defaultChatScale: CGFloat = 1.5
+    /// The Chief chat's size at Agent Chat Zoom 100%: MessagesLab's native text, bubble and field metrics.
+    /// The zoom steps from here, and Cmd-0 comes back to it.
+    static let defaultChatScale: CGFloat = 1
 
     /// The Chief chat's scale: its default size times Agent Chat Zoom.
     private static var chatScale: CGFloat { defaultChatScale * DesignSettings.shared.agentPaneZoom }
@@ -458,7 +467,8 @@ public final class HomeNativeTranscriptView: NSView {
         // Every pass: the field can grow (a multi-line draft) without a size
         // change (`onFieldTopChange` asks for this pass), and the first-run
         // panel fits what it shows above it, under the header.
-        let top = transcript.headerHeight
+        layoutPinnedSection()
+        let top = transcript.headerHeight + pinnedSectionClearance
         let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
         if firstRun.frame != panel { firstRun.frame = panel }
         layoutNotice()

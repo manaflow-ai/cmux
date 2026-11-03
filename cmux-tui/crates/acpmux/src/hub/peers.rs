@@ -593,6 +593,9 @@ impl Hub {
             match notice {
                 PeerNotice::Connected => {
                     tracing::info!(peer = %peer, "peer ready");
+                    // The link takes requests again: messages waiting for a peer go now, not
+                    // after the rest of their retry delay (`server/outbox.rs` `deliver`).
+                    self.outbox.peer_ready.notify_waiters();
                     // Sessions can be saved before the handshake marks the link ready.
                     // Persist its cleared outage once, without rewriting an already-clear cache.
                     if self.peer(&peer).is_some_and(|p| {
@@ -659,7 +662,9 @@ impl Hub {
                             |r: &RemoteSession| r.summary.get("createdAt").and_then(Value::as_u64);
                         let listed = map.of_peer(&peer).map(|(_, r)| r);
                         let listed = listed.map(|r| (r.receipt.mux_session_id.clone(), created(r)));
-                        self.peer_snapshots.listed(&peer, listed.collect(), true);
+                        if self.peer_snapshots.allows(generation) {
+                            self.peer_snapshots.listed(&peer, listed.collect(), true);
+                        }
                         (changed, old.into_values().collect::<Vec<_>>())
                     };
                     // A notice before this list may have changed a row while its
@@ -733,7 +738,13 @@ impl Hub {
                             RemoteSession { peer: peer.clone(), summary: summary.clone(), receipt },
                         );
                         let created = summary.get("createdAt").and_then(Value::as_u64);
-                        self.peer_snapshots.listed(&peer, vec![(mux_id.clone(), created)], false);
+                        if self.peer_snapshots.allows(generation) {
+                            self.peer_snapshots.listed(
+                                &peer,
+                                vec![(mux_id.clone(), created)],
+                                false,
+                            );
+                        }
                     }
                     self.save_peer_cache(&peer, generation, false);
                     let _ = self.events.send(HubEvent {
@@ -1187,6 +1198,27 @@ impl Hub {
                 visit(if with_tools { row } else { super::views::without_summary_tools(row) });
             },
         );
+    }
+
+    /// The sessions with a pending permission or question, local and remote, newest first and
+    /// without tools, summarizing no other chat: `_acpmux/sessions {pendingOnly}`
+    /// (`server/list_reply.rs`). A local one is a live chat with an ask; a peer's is a row whose
+    /// `pendingPermissions` is above zero. It reads no list snapshot, so no list pace holds it:
+    /// a host mirroring 8,500 chats paced its list pages 4-9 s each, and the app's dialog list
+    /// (`cmux agents dialog list`) read every page before it found one ask.
+    pub(crate) fn pending_session_summaries(&self) -> Vec<Value> {
+        let mut rows: Vec<Value> = self
+            .indexed_live_sessions()
+            .iter()
+            .filter(|session| session.has_pending_permissions())
+            .map(|session| self.session_list_summary(session))
+            .collect();
+        self.visit_remote_rows(
+            |row| row.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0,
+            |row| rows.push(super::views::without_summary_tools(row)),
+        );
+        super::session_pages::sort_session_summaries(&mut rows);
+        rows
     }
 
     /// Every session, local and remote, newest first.

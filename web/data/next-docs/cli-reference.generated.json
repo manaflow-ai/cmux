@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 792,
-    "mcp": 708
+    "verbs": 795,
+    "mcp": 710
   },
   "nouns": [
     {
@@ -12,6 +12,13 @@
           "command": "cmux accounts connect",
           "title": "Connect Account to CodeRouter…",
           "id": "accounts.connect",
+          "mcp": false,
+          "mcpTool": null
+        },
+        {
+          "command": "cmux accounts github-connect",
+          "title": "Connect GitHub",
+          "id": "accounts.githubConnect",
           "mcp": false,
           "mcpTool": null
         },
@@ -2024,6 +2031,13 @@
           "mcpTool": "app_home_pin_unpin"
         },
         {
+          "command": "cmux home primary-chief",
+          "title": "Make Primary Chief",
+          "id": "home.setPrimaryChief",
+          "mcp": true,
+          "mcpTool": "app_home_primary_chief"
+        },
+        {
           "command": "cmux home remove-member",
           "title": "Remove from Group…",
           "id": "home.removeMember",
@@ -3187,6 +3201,13 @@
           "id": "palette.installCLI",
           "mcp": false,
           "mcpTool": null
+        },
+        {
+          "command": "cmux settings install-earlier-nightly",
+          "title": "Install an Earlier Nightly…",
+          "id": "updates.installEarlierBuild",
+          "mcp": true,
+          "mcpTool": "app_settings_install_earlier_nightly"
         },
         {
           "command": "cmux settings keep-1-neighbor-tab-awake",
@@ -5781,7 +5802,7 @@
     }
   ],
   "mcpExempt": {
-    "credentials": 6,
+    "credentials": 7,
     "endsApp": 4,
     "systemChange": 74
   }

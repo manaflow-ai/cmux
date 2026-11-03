@@ -12,6 +12,9 @@ use super::render::wrap;
 use super::turn::TurnWatch;
 use super::{Args, parse_args};
 
+#[path = "attachment_tests.rs"]
+mod attachment_tests;
+
 const CONV: &str = "conv_01J0000000000000000000000A";
 
 fn strings(args: &[&str]) -> Vec<String> {
@@ -754,4 +757,21 @@ fn chat_rows_name_the_chief_and_unread() {
     let line = chat_row_text(1, &row);
     assert!(line.starts_with("*  1  "), "{line}");
     assert!(line.contains("#9  unread 3"), "{line}");
+}
+
+/// `cmux chief primary CHIEF` runs the app's `home primary-chief` with the Chief (the same path as
+/// Chief Settings' Primary row and the `/primary` text); no Chief, or two, is a usage error.
+#[test]
+fn chief_primary_runs_the_home_action_with_the_chief() {
+    use super::primary::{ACTION, action_args};
+    assert_eq!(ACTION, "home primary-chief");
+    assert_eq!(action_args(&strings(&["muse"])), Ok(Some(strings(&["--chief", "muse"]))));
+    assert_eq!(
+        action_args(&strings(&["agent_7J78"])),
+        Ok(Some(strings(&["--chief", "agent_7J78"])))
+    );
+    assert_eq!(action_args(&strings(&["--help"])), Ok(None));
+    assert!(action_args(&strings(&[])).is_err());
+    assert!(action_args(&strings(&["muse", "codex"])).is_err());
+    assert!(action_args(&strings(&["--force"])).is_err());
 }

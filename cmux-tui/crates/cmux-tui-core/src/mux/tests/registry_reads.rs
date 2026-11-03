@@ -182,6 +182,48 @@ fn a_progress_report_frees_the_session_lock_while_it_writes_the_registry() {
     published.unwrap();
 }
 
+/// #32408: a progress report published with the registry connection still pinned. Its last step,
+/// `publish_resource_event`, publishes every terminal's pending working directory, which takes the
+/// workspace registry: a connection -> registry acquisition, against the order registry -> connection.
+/// On a 512-workspace classic upgrade a shell's progress report held the connection waiting for the
+/// registry while the app's window-record commit held the registry waiting for the connection: the
+/// daemon stopped answering (fleet step e8529d2ce806772390e184ec). Here a second terminal has a
+/// directory pending when the first one's progress publishes: the directory publish must run with no
+/// registry connection held (debug builds check the lock order and panic otherwise).
+#[test]
+fn a_progress_report_publishes_pending_directories_after_it_releases_the_connection() {
+    let mux = test_mux();
+    let reporting = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let other = mux.new_workspace(None, Some((80, 24))).unwrap();
+    other.set_test_pwd(Some(format!("file://localhost{}", std::env::temp_dir().display())));
+    let published = {
+        let mux = mux.clone();
+        std::thread::spawn(move || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                mux.publish_terminal_progress(&reporting, "terminal.progress.test")
+                    .map_err(|error| error.to_string())
+            }))
+            .map_err(|panic| {
+                panic
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
+                    .unwrap_or_default()
+            })
+        })
+        .join()
+        .unwrap()
+    };
+    let published = published.unwrap_or_else(|panic| {
+        panic!("the progress report's directory publish broke the lock order: {panic}")
+    });
+    published.unwrap();
+    assert!(
+        !mux.registry_connection.is_held_by_current_thread(),
+        "the progress report left the registry connection held"
+    );
+}
+
 /// CLI-1 / TUL-F7 (STATUS 6838): under the L1 storm a state commit held the
 /// registry lock up to 281 ms, and `workspace.list`, `session.ping` and the
 /// scoped pane and tab lists read committed rows only but queued behind it.

@@ -23,7 +23,7 @@ import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
 import { toolFailure } from "./toolFailure";
-import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord, InlineFailureCause, InStep, ToolFailureCause } from "./ToolFailureCause";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -104,9 +104,9 @@ function entryNodes(
       const node = !item.tool ? (
         <ThoughtRow key={key} id={key as string} item={item} />
       ) : kind === "commands" ? (
-        <CommandRow key={key} item={item} grouped />
+        <CommandRow key={key} item={item} />
       ) : (
-        <ToolRow key={key} item={item} grouped />
+        <ToolRow key={key} item={item} />
       );
       entry = { kind, key, node };
       entryCache.set(item, entry);
@@ -143,9 +143,9 @@ const Step = memo(
       <div className={item.tool ? "cv-step" : lead ? "cv-step is-thought is-lead" : "cv-step is-thought"}>
         {item.tool ? (
           commands ? (
-            <CommandRow item={item} grouped />
+            <CommandRow item={item} />
           ) : (
-            <ToolRow item={item} grouped />
+            <ToolRow item={item} />
           )
         ) : (
           <StepThought id={thoughtId} item={item} lead={lead} />
@@ -280,16 +280,19 @@ export function ToolGroupRow({
               data-kind={kind}
               data-tool-group-items={disclosureKey}
             >
-              {entries.map(({ at, key, thought }) => (
-                <Step
-                  key={thought < 0 ? key : thoughtId(thought)}
-                  probeKey={key}
-                  item={items[at]!}
-                  commands={kind === "commands"}
-                  thoughtId={thought < 0 ? "" : thoughtId(thought)}
-                  lead={at === 0 && thought === 0}
-                />
-              ))}
+              {/* Every call here is a step: a failure reads as one plain line (InStep). */}
+              <InStep.Provider value>
+                {entries.map(({ at, key, thought }) => (
+                  <Step
+                    key={thought < 0 ? key : thoughtId(thought)}
+                    probeKey={key}
+                    item={items[at]!}
+                    commands={kind === "commands"}
+                    thoughtId={thought < 0 ? "" : thoughtId(thought)}
+                    lead={at === 0 && thought === 0}
+                  />
+                ))}
+              </InStep.Provider>
             </div>
           )}
         </div>

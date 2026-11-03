@@ -16,16 +16,41 @@ import Testing
         WorkspaceTabHoverCardLine(tab, style: style, now: now, machine: machine).detail
     }
 
+    /// Leo 2026-11-02 23:55Z, on the tab rows: "PLUS THE PLACEMENT LOOKS LIKE SHIT". A row names no machine its
+    /// card already names: a Cloud or remote card names its machine in its header, and "This Mac" shows only
+    /// when the tab runs somewhere other than this Mac.
     @Test(arguments: [(SidebarMachine.Kind.local, "This Mac"), (.cloud, "Cloud"), (.ssh, "build-box"), (.server, "build-box")])
-    func agentAndTerminalRowsNameTheirMachine(_ kind: SidebarMachine.Kind, _ word: String) {
+    func rowsNeverRepeatTheCardsMachine(_ kind: SidebarMachine.Kind, _ word: String) {
         let machine = SidebarMachine(id: kind == .local ? .local : MachineID("box"), name: "build-box", kind: kind)
         let expected = kind == .local ? Strings.hoverCardThisMac : (kind == .cloud ? Strings.hoverCloud : word)
         let chat = SidebarTab(id: TabID("chat"), title: "Agent", kind: .agentChat, folder: "~/src/cmux", state: .working)
         let shell = SidebarTab(id: TabID("shell"), title: "zsh", kind: .terminal, folder: "~/src")
         let page = SidebarTab(id: TabID("page"), title: "Pull request", kind: .browser, host: "github.com")
-        #expect(line(chat, machine: machine).contains(expected), "\(line(chat, machine: machine))")
-        #expect(line(shell, machine: machine).contains(expected), "\(line(shell, machine: machine))")
-        #expect(!line(page, machine: machine).contains(expected), "a page runs in this app: \(line(page, machine: machine))")
+        for tab in [chat, shell, page] {
+            #expect(!line(tab, machine: machine).contains(expected), "\(line(tab, machine: machine))")
+        }
+    }
+
+    /// The variant that names this Mac on every row still does, for comparison in the gallery.
+    @Test func theThisMacVariantNamesThisMac() {
+        var style = WorkspaceTabHoverCardStyle.standard
+        style.namesLocalMachine = true
+        let shell = SidebarTab(id: TabID("shell"), title: "zsh", kind: .terminal, folder: "~/src")
+        #expect(line(shell, machine: local, style: style) == "~/src · \(Strings.hoverCardThisMac)")
+        let ssh = SidebarMachine(id: MachineID("box"), name: "build-box", kind: .ssh)
+        #expect(line(shell, machine: ssh, style: style) == "~/src", "the card's header names build-box")
+    }
+
+    /// A tab on a remote workspace names a machine only when it runs somewhere other than the card's header says.
+    @Test func aRemoteWorkspacesTabNamesOnlyAnotherMachine() {
+        let cloud = SidebarMachine(id: MachineID("box"), name: "cmux-vm-1", kind: .cloud)
+        var shell = SidebarTab(id: TabID("remote"), title: "zsh", kind: .remoteTerminal, folder: "~/src")
+        shell.machine = "cmux-vm-1"
+        #expect(line(shell, machine: cloud) == "~/src", "the header already names this machine")
+        shell.machine = "Cloud"
+        #expect(line(shell, machine: cloud) == "~/src", "the header already says Cloud")
+        shell.machine = "lab-mini"
+        #expect(line(shell, machine: cloud) == "~/src · lab-mini")
     }
 
     @Test func aRemoteTerminalNamesItsOwnSessionOverTheWorkspacesMachine() {
@@ -34,27 +59,31 @@ import Testing
         #expect(line(remote, machine: local) == "~ · lab-mini")
     }
 
-    @Test func theRemoteOnlyVariantLeavesThisMacUnnamed() {
-        var style = WorkspaceTabHoverCardStyle.standard
-        style.namesLocalMachine = false
-        let shell = SidebarTab(id: TabID("shell"), title: "zsh", kind: .terminal, folder: "~/src")
-        #expect(line(shell, machine: local, style: style) == "~/src")
-        let ssh = SidebarMachine(id: MachineID("box"), name: "build-box", kind: .ssh)
-        #expect(line(shell, machine: ssh, style: style) == "~/src · build-box")
-    }
-
-    @Test func agentRowsShowModelStateMachineAndTime() {
+    /// A working chat's spinner sits beside its title, so its line drops "Working".
+    @Test func agentRowsShowModelAndTimeAndLeaveWorkingToTheSpinner() {
         var chat = SidebarTab(id: TabID("chat"), title: "claude-sr2-coord", kind: .agentChat, brand: "claude", folder: "~/src/cmux",
                               state: .working, lastActivity: now.addingTimeInterval(-180))
         chat.model = "claude-opus-5-5"
-        #expect(line(chat, machine: local) == "~/src/cmux · claude-opus-5-5 · \(Strings.priorityWorking) · \(Strings.hoverCardThisMac) · 3m")
+        #expect(line(chat, machine: local) == "~/src/cmux · claude-opus-5-5 · 3m")
+        chat.state = .success
+        #expect(line(chat, machine: local) == "~/src/cmux · claude-opus-5-5 · \(Strings.activityDone) · 3m")
+    }
+
+    /// A session named after its lane path ("gcp-codex-swarm-11/nightly-rollback") shows its short name.
+    @Test func aLanePathSessionShowsItsShortName() {
+        let chat = SidebarTab(id: TabID("chat"), title: "gcp-codex-swarm-11/nightly-rollback", kind: .agentChat, state: .working)
+        #expect(WorkspaceTabHoverCardLine.title(chat) == "nightly-rollback")
+        let sentence = SidebarTab(id: TabID("s"), title: "Fix a/b test", kind: .agentChat)
+        #expect(WorkspaceTabHoverCardLine.title(sentence) == "Fix a/b test", "a title with words keeps them all")
+        let shell = SidebarTab(id: TabID("t"), title: "src/cmux", kind: .terminal)
+        #expect(WorkspaceTabHoverCardLine.title(shell) == "src/cmux", "a terminal's path title is its place")
     }
 
     @Test func terminalRowsShowTheirCommandAndNeverRepeatTheTitle() {
         var shell = SidebarTab(id: TabID("shell"), title: "~", kind: .terminal, folder: "~")
-        #expect(line(shell, machine: local) == Strings.hoverCardThisMac, "\"~\" under \"~\" says nothing")
+        #expect(line(shell, machine: local).isEmpty, "\"~\" under \"~\" says nothing")
         shell.command = "npm test"
-        #expect(line(shell, machine: local) == "npm test · \(Strings.hoverCardThisMac)")
+        #expect(line(shell, machine: local) == "npm test")
     }
 
     @Test func pagesShowTheirPathAndNeverRepeatTheTitle() {

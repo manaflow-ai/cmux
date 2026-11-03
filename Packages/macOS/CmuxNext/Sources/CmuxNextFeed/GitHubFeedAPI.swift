@@ -8,6 +8,8 @@ public nonisolated protocol GitHubFeedAPI: Sendable {
     func failingChecks(etag: String?) async throws -> GitHubAPIResponse<[GitHubReviewRequest]>
     /// Returns open issues and pull requests assigned to the user (Find Work).
     func assignedWork(etag: String?) async throws -> GitHubAPIResponse<[GitHubReviewRequest]>
+    /// Returns the user's own open pull requests held for their trial (the `hold` label).
+    func heldForTrial(etag: String?) async throws -> GitHubAPIResponse<[GitHubReviewRequest]>
 }
 
 public extension GitHubFeedAPI {
@@ -18,6 +20,11 @@ public extension GitHubFeedAPI {
 
     /// A compatibility default keeps small test and host adapters source-only.
     func assignedWork(etag: String?) async throws -> GitHubAPIResponse<[GitHubReviewRequest]> {
+        GitHubAPIResponse(value: [])
+    }
+
+    /// A compatibility default keeps small test and host adapters source-only.
+    func heldForTrial(etag: String?) async throws -> GitHubAPIResponse<[GitHubReviewRequest]> {
         GitHubAPIResponse(value: [])
     }
 }
