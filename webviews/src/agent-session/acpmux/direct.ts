@@ -3315,9 +3315,11 @@ export class AcpmuxDirectClient {
   }
 
   private receive(raw: string, stale = false): void {
-    this.wire.received(raw);
     // A frame that is not a JSON object is dropped like one that is not JSON (`null` would throw at `in`).
-    const message = parseJsonObjectFrame(raw) as Reply | Notification | null;
+    // Parsed once: the wire log takes the parsed frame.
+    const parsed = parseJsonObjectFrame(raw);
+    this.wire.received(raw, parsed);
+    const message = parsed as Reply | Notification | null;
     if (!message) return;
     if ("id" in message && (typeof message.id === "number" || typeof message.id === "string")) {
       const request = this.pending.get(message.id);
