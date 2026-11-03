@@ -183,7 +183,7 @@ export function SourceMenu({
                 if (node && !node.contains(document.activeElement)) focusFirstMenuItem(node);
               }}
               id={menuId}
-              className="toolbar-menu source-menu"
+              className="toolbar-menu ui-popup ui-glass source-menu"
               role="menu"
               tabIndex={-1}
               aria-label={label("diffTarget")}
@@ -225,7 +225,7 @@ export function SourceMenu({
                         {committedOpen ? (
                           <div
                             ref={submenuRef}
-                            className="toolbar-menu toolbar-submenu ui-scroll-edge-fade"
+                            className="toolbar-menu ui-popup ui-glass toolbar-submenu ui-scroll-edge-fade"
                             role="menu"
                             tabIndex={-1}
                             aria-label={entryText(entry)}
@@ -378,7 +378,7 @@ export function JumpToFilePalette({
         ? createPortal(
             <div
               ref={paletteRef}
-              className="toolbar-menu jump-palette"
+              className="toolbar-menu ui-popup ui-glass jump-palette"
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
               role="dialog"
               aria-label={label("jumpToFile")}
@@ -506,7 +506,7 @@ export function FloatingToolbar({
         <div
           ref={focusFirstMenuItem}
           id="options-menu"
-          className="toolbar-menu options-menu"
+          className="toolbar-menu ui-popup ui-glass options-menu"
           role="menu"
           tabIndex={-1}
           aria-label={label("options")}
@@ -671,7 +671,7 @@ export function FileMenuButton({ items, label }: { items: FileMenuItem[]; label:
                 focusFirstMenuItem(node);
               }}
               id={menuId}
-              className="toolbar-menu file-header-menu"
+              className="toolbar-menu ui-popup ui-glass file-header-menu"
               role="menu"
               tabIndex={-1}
               aria-label={label}
