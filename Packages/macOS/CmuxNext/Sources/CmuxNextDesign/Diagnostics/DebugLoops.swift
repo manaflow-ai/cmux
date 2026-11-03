@@ -8,7 +8,8 @@ public import AppKit
 /// `limit` lists at most that many loops per window; the counts cover all of them. One walk per
 /// call, on the main actor; no timer or observer. The report is a `JSONSerialization` object graph.
 @MainActor
-public enum DebugLoops {
+public struct DebugLoops {
+    public init() {}
     public static func report(limit: Int = 50) -> [String: Any] {
         let limit = max(0, limit)
         var total = 0

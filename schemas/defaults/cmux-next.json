@@ -514,6 +514,7 @@
     "setting.feed.github.pollIntervalSeconds": 120,
     "setting.feed.mirrorNotifications.agents": true,
     "setting.feed.mirrorNotifications.terminal": "off",
+    "setting.feed.needsYouInChief": false,
     "setting.files.textEditor": "",
     "setting.focus.inactiveTabStyle": "fade",
     "setting.focusRing.color": null,
