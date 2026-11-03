@@ -1034,9 +1034,10 @@ impl StartCopy {
         let send = Send::new(&self.key, &self.account);
         let in_flight = match Ledger::update(ledger, |pins| {
             pins.copied_chat(&send, &self.machine)
+                .map(|chat| self.cached_copy(pins, &send, &chat))
                 .map_or_else(|| Err(pins.copy_place(&send, &self.machine)), Ok)
         }) {
-            Ok(Ok(chat)) => return json!({"ok": true, "chat": chat, "copied": false}),
+            Ok(Ok(answer)) => return answer,
             Ok(Err(place)) => place,
             Err(error) => return refused("ledger_failed", format!("{error:#}")),
         };
@@ -1057,13 +1058,15 @@ impl StartCopy {
         // first read and the lease (and let it go) is the send's copy now,
         // and its folder may hold a chat; it is never pushed over.
         match Ledger::update(ledger, |pins| {
-            let finished = pins.copied_chat(&send, &self.machine);
+            let finished = pins
+                .copied_chat(&send, &self.machine)
+                .map(|chat| self.cached_copy(pins, &send, &chat));
             if finished.is_none() {
                 pins.start_copy(&send, &self.machine, &place);
             }
             finished
         }) {
-            Ok(Some(chat)) => return json!({"ok": true, "chat": chat, "copied": false}),
+            Ok(Some(answer)) => return answer,
             Ok(None) => {}
             Err(error) => return refused("ledger_failed", format!("{error:#}")),
         }
@@ -1073,7 +1076,7 @@ impl StartCopy {
             match push(&self.socket, Path::new(&self.local), &folder) {
                 Ok(fields) => {
                     let recorded = Ledger::update(ledger, |pins| {
-                        pins.record_copy(&chat, &send, &self.machine, &place);
+                        pins.record_copy(&chat, &folder, &send, &self.machine, &place);
                     });
                     lease.release();
                     return match recorded {
@@ -1101,6 +1104,16 @@ impl StartCopy {
             }
         }
         refused(&last.0, last.1)
+    }
+
+    fn cached_copy(&self, pins: &Ledger, send: &Send, chat: &str) -> Value {
+        match pins.copied_folder(send, &self.machine) {
+            Some(folder) => json!({"ok": true, "chat": chat, "folder": folder, "copied": false}),
+            None => refused(
+                "ledger_failed",
+                "the finished copy's record does not identify its root folder",
+            ),
+        }
     }
 }
 
