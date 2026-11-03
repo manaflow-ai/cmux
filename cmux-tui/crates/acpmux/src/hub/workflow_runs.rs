@@ -69,24 +69,7 @@ impl Hub {
     async fn workflow_upstreams(&self, run: &RunRecord) -> Result<String> {
         let owner = self.resolve(&run.owner_session_id).map_err(|e| anyhow::anyhow!(e.message))?;
         let meta = owner.meta();
-        // Tool folding reads the resolved session profile before harness_command
-        // strips fold-only OFF_ENV and WORKSPACE_KEY from the agent process env.
-        let (profile, defaults) = {
-            let config = self.config.read().await;
-            let profile = super::resolve::session_profile(
-                &config,
-                &meta.harness,
-                &meta.cwd,
-                meta.remote_origin,
-            )
-            .map_err(|error| anyhow::anyhow!(error))?;
-            (profile, config.defaults_for(&meta.harness))
-        };
-        let profile = self
-            .spawn_profile_for(&meta, &profile, &defaults.env)
-            .await
-            .map_err(|error| anyhow::anyhow!(error.message))?;
-        let env = profile.env;
+        let env = self.workflow_tool_env(&meta).await?;
         if crate::agent_tools::left_out(meta.remote_origin, &env, &[]) {
             return Ok("[]".into());
         }
@@ -102,6 +85,27 @@ impl Hub {
             .and_then(Value::as_str)
             .unwrap_or("[]")
             .to_owned())
+    }
+
+    async fn workflow_tool_env(&self, meta: &SessionMeta) -> Result<BTreeMap<String, String>> {
+        // Tool folding reads the resolved session profile before harness_command
+        // strips fold-only OFF_ENV and WORKSPACE_KEY from the agent process env.
+        let (profile, defaults) = {
+            let config = self.config.read().await;
+            let profile = super::resolve::session_profile(
+                &config,
+                &meta.harness,
+                &meta.cwd,
+                meta.remote_origin,
+            )
+            .map_err(|error| anyhow::anyhow!(error))?;
+            (profile, config.defaults_for(&meta.harness))
+        };
+        let profile = self
+            .spawn_profile_for(meta, &profile, &defaults.env)
+            .await
+            .map_err(|error| anyhow::anyhow!(error.message))?;
+        Ok(profile.env)
     }
 
     pub async fn workflow_resume(self: &Arc<Self>, id: &str, owner: &str) -> Result<RunRecord> {
@@ -341,6 +345,37 @@ fn workflow_runner_command() -> Result<tokio::process::Command> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn workflow_tool_fold_keeps_disabled_servers_and_workspace_scope() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        cfg.harnesses.insert(
+            "workflow-fold-test".into(),
+            serde_json::from_value(json!({
+                "argv":["/bin/true"], "kind":"claude-stdio"
+            }))
+            .unwrap(),
+        );
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema":crate::store::META_SCHEMA,"id":"workflow-fold-test","name":"Workflow fold",
+            "harness":"workflow-fold-test","cwd":std::env::temp_dir(),"status":"idle",
+            "createdAt":1,"updatedAt":1,"workspaceId":"workflow-workspace",
+            "tools":{"off":["mcp:disabled-server"]}
+        }))
+        .unwrap();
+        let env = hub.workflow_tool_env(&meta).await.unwrap();
+        assert_eq!(
+            env.get(crate::agent_tools::OFF_ENV).map(String::as_str),
+            Some("disabled-server")
+        );
+        assert_eq!(
+            env.get(crate::agent_displays::WORKSPACE_KEY).map(String::as_str),
+            Some("workflow-workspace")
+        );
+    }
 
     #[tokio::test]
     async fn cancelling_a_stale_activity_never_fences_another_prompt() {
