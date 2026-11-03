@@ -1,5 +1,6 @@
 import CmuxNextCloudTunnel
 import Foundation
+import Network
 import NetworkExtension
 import os
 
@@ -10,8 +11,9 @@ private let logger = Logger(subsystem: "com.cmuxterm.app.tunnel", category: "pro
 /// the config arrives in `providerConfiguration` (see ``CloudTunnelProviderConfiguration``).
 final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let engine = TunnelEngine()
-    // The KVO token for `defaultPath` (NEProvider exposes path changes only through KVO).
-    private var pathObservation: NSKeyValueObservation?
+    // The network path watch (NWPathMonitor on its own queue). NEProvider's `defaultPath` is not
+    // available in the macOS 26.5 SDK; Network.framework's monitor is the documented replacement.
+    private var pathWatch: PathWatch?
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         let completion = ProviderCompletion(completionHandler)
@@ -47,16 +49,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 }
             }
         }
-        pathObservation = observe(\.defaultPath, options: [.old, .new]) { _, change in
-            // Only a real change (Wi-Fi to Ethernet, wake): the first value is the current path.
-            guard let old = change.oldValue ?? nil, let new = change.newValue ?? nil, !old.isEqual(to: new) else { return }
-            Task { await engine.networkChanged() }
-        }
+        pathWatch?.cancel()
+        pathWatch = PathWatch(engine: engine)
     }
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         logger.notice("stopping, reason \(reason.rawValue, privacy: .public)")
-        pathObservation = nil
+        pathWatch?.cancel()
+        pathWatch = nil
         let completion = ProviderCompletion { _ in completionHandler() }
         let engine = engine
         Task {
@@ -79,6 +79,33 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             send(try? JSONSerialization.data(withJSONObject: body))
         }
     }
+}
+
+/// The provider's network path watch: an `NWPathMonitor` on its own serial queue (never the main
+/// thread), through the path rule ``CloudTunnelPathChangeGate``: the monitor's first path is the
+/// current one, so only a real change after it (Wi-Fi to Ethernet, wake) rebinds the engine.
+private final class PathWatch: @unchecked Sendable {
+    // Safe: `gate` is read and written only in the monitor's handler, which runs on `queue`, a
+    // serial queue; `monitor` and `queue` never change and are thread-safe.
+    private let monitor = NWPathMonitor()
+    private let queue = DispatchQueue(label: "com.cmuxterm.app.tunnel.path", qos: .utility)
+    private var gate = CloudTunnelPathChangeGate<Network.NWPath>()
+
+    init(engine: TunnelEngine) {
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard let self, self.admit(path) else { return }
+            // task-owner: one rebind per real change; the engine actor orders it with start and stop.
+            Task { await engine.networkChanged() }
+        }
+        monitor.start(queue: queue)
+    }
+
+    deinit { monitor.cancel() }
+
+    func cancel() { monitor.cancel() }
+
+    /// On `queue` only (the monitor's handler).
+    private func admit(_ path: Network.NWPath) -> Bool { gate.admit(path) }
 }
 
 /// Carries an app-message reply handler into a task.
