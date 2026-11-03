@@ -234,14 +234,15 @@ impl ChatClient {
                 let mut offset = 0_u64;
                 let mut sent_hash = sha2::Sha256::new();
                 loop {
-                    let count = file.read(&mut buffer[..CHUNK]).map_err(failed)?;
+                    let count =
+                        file.read(buffer.get_mut(..CHUNK).ok_or_else(changed)?).map_err(failed)?;
                     if count == 0 {
                         break;
                     }
                     if count as u64 > byte_count.saturating_sub(offset) {
                         return Err(changed());
                     }
-                    let piece = &buffer[..count];
+                    let piece = buffer.get(..count).ok_or_else(changed)?;
                     sent_hash.update(piece);
                     let data = base64::engine::general_purpose::STANDARD.encode(piece);
                     let reply = self
@@ -252,7 +253,7 @@ impl ChatClient {
                                "offset": offset, "data": data}),
                         )
                         .map_err(refused)?;
-                    offset += count as u64;
+                    offset = offset.checked_add(count as u64).ok_or_else(changed)?;
                     if reply.get("received").and_then(Value::as_u64) != Some(offset) {
                         return Err(
                             "the attachment owner acknowledged a different offset".to_owned()
@@ -442,21 +443,34 @@ fn file_fingerprint(
 ) -> std::io::Result<(String, u64, bool)> {
     use sha2::Digest as _;
     let mut hash = sha2::Sha256::new();
-    let (mut length, mut pending, mut utf8) = (0_u64, 0, true);
+    let (mut length, mut pending, mut utf8) = (0_u64, 0_usize, true);
+    let invalid_buffer =
+        || std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid attachment buffer range");
     loop {
-        let count = file.read(&mut buffer[pending..pending + CHUNK])?;
+        let read_end = pending.checked_add(CHUNK).ok_or_else(invalid_buffer)?;
+        let count = file.read(buffer.get_mut(pending..read_end).ok_or_else(invalid_buffer)?)?;
         if count == 0 {
             break;
         }
-        hash.update(&buffer[pending..pending + count]);
-        length += count as u64;
+        let end = pending.checked_add(count).ok_or_else(invalid_buffer)?;
+        hash.update(buffer.get(pending..end).ok_or_else(invalid_buffer)?);
+        length = length.checked_add(count as u64).ok_or_else(invalid_buffer)?;
         if utf8 {
-            let end = pending + count;
-            match std::str::from_utf8(&buffer[..end]) {
+            match std::str::from_utf8(buffer.get(..end).ok_or_else(invalid_buffer)?) {
                 Ok(_) => pending = 0,
                 Err(error) if error.error_len().is_none() => {
-                    pending = end - error.valid_up_to();
-                    buffer.copy_within(error.valid_up_to()..end, 0);
+                    let tail = buffer.get(error.valid_up_to()..end).ok_or_else(invalid_buffer)?;
+                    let mut carry = [0; 3];
+                    if tail.len() > carry.len() {
+                        return Err(invalid_buffer());
+                    }
+                    for (to, from) in carry.iter_mut().zip(tail) {
+                        *to = *from;
+                    }
+                    pending = tail.len();
+                    for (to, from) in buffer.iter_mut().take(pending).zip(carry) {
+                        *to = from;
+                    }
                 }
                 Err(_) => {
                     utf8 = false;
