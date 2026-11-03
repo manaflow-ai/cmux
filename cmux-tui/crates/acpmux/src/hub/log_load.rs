@@ -179,6 +179,8 @@ impl Hub {
         // A subagent retry the restart dropped, hosted or not (`subagent_retry.rs`).
         self.settle_subagent_retries(session);
         self.restore_queue(session);
+        // A copy's first start runs none of what waited (`clone_boot.rs`).
+        self.drop_cloned_queue(session);
         self.drop_unsent_subagent_retries(session);
         // A crash may leave a durable prompt/queue record before its acceptance
         // callback writes `_acpmux/message`; reconstruct those projections before
@@ -308,7 +310,13 @@ impl Hub {
                 true
             })
             .ok()?;
-        let (seq, turn_id, prompt_id, trigger) = open?;
+        let open = open?;
+        // A copy's first start: stopped, not continued (`clone_boot.rs`).
+        if let Some(from) = self.clone_of() {
+            self.settle_cloned_turn(session, from, open);
+            return None;
+        }
+        let (seq, turn_id, prompt_id, trigger) = open;
         let continued = turn_id.as_str().and_then(|t| self.log_restart_continuation(session, t));
         let error = if trigger {
             "the trigger turn was interrupted by a daemon restart; inspect its outcome before authorizing another delivery"

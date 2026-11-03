@@ -15,7 +15,8 @@
 // to latest, a chat switch and unmount, and `fit` when the room it lands in shrinks below what it
 // still holds back (VirtualTranscript).
 import { MOTION_EASE_OUT, MOTION_MS } from "../../../motion/scale.generated";
-import type { AcpmuxRow, ConversationLayout } from "../model";
+import type { AcpmuxRow } from "../model";
+import { geometryOf, type GeometrySource } from "../conversationGeometry";
 import { cssTimeMs } from "./fold";
 import { THINKING } from "./turns";
 
@@ -27,11 +28,11 @@ export const FOLLOW_GLIDE_OFF = '[data-follow-glide="off"]';
 /// waits hidden while the reply streams over it (`quietKey`, Thinking.tsx). 0 without one (Debug
 /// `liveLineBelow` or `codexToolRuns` off, a line that names a call, a queue's cards last): there the
 /// view steps as before. O(1): the last row only.
-export function followRoom(rows: readonly AcpmuxRow[], layout: ConversationLayout): number {
+export function followRoom(rows: readonly AcpmuxRow[], layout: GeometrySource): number {
   const last = rows.length - 1;
   const row = rows[last];
   if (!row?.below || row.kind !== THINKING || row.quietKey === undefined) return 0;
-  return layout.heights[last] ?? 0;
+  return geometryOf(layout).heightAt(last);
 }
 
 export type FollowGlide = {

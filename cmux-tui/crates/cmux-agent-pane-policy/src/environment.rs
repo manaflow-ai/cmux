@@ -1,6 +1,8 @@
 //! Where the host's acpmux daemon lives (CmuxNextAgentPane
 //! AcpmuxEnvironment.swift; same rule as `cmux acp`, cmux-tui `acp.rs`
-//! `build_home`): `ACPMUX_HOME` wins, else the build's own home
+//! `build_home`): `ACPMUX_HOME` wins (except, for a build with a home of
+//! its own, one naming `~/.acpmux` or another build's home, as every agent
+//! shell exports it: [`inherits_another_builds_home`], cmux#29050), else the build's own home
 //! ([`BuildIdentity::acpmux_home`]: `~/.acpmux` for NIGHTLY and outside any
 //! build, `~/.acpmux/builds/<key>` for every other build). A daemon in a
 //! home other than `~/.acpmux` listens on an ephemeral port. `ACPMUX_SOCKET`
@@ -62,11 +64,14 @@ pub fn resolve(
         .into_iter()
         .find(|p| is_executable(p))?;
     let own_home = build.map(|build| build.acpmux_home(user_home));
+    let root = user_home.join(".acpmux");
     let shared = own_home.as_ref().is_none_or(|home| *home == user_home.join(".acpmux"));
-    let custom_home = variable(environment, "ACPMUX_HOME").filter(|h| !h.is_empty());
+    let custom_home = variable(environment, "ACPMUX_HOME")
+        .filter(|h| !h.is_empty())
+        .filter(|h| !inherits_another_builds_home(h, own_home.as_deref(), &root));
     let home = match custom_home {
         Some(custom) => PathBuf::from(custom),
-        None => own_home.unwrap_or_else(|| user_home.join(".acpmux")),
+        None => own_home.unwrap_or_else(|| root.clone()),
     };
     let configured = custom_home
         .and(variable(environment, "ACPMUX_SOCKET"))
@@ -88,6 +93,44 @@ pub fn resolve(
         socket_path: socket,
         home,
     })
+}
+
+/// Whether `ACPMUX_HOME` (`custom`) names another build's home while this
+/// build has a home of its own: the shared root (NIGHTLY's `~/.acpmux`),
+/// another `<root>/builds/<key>`, or a Chief home's acpmux
+/// (`~/.cmux/chief/<home>/acpmux`, NIGHTLY's included; a Chief host passes its
+/// own home with no build). Every agent shell under acpmux exports its daemon's
+/// home, so a tagged DEV app launched from one inherits it; honoring it handed
+/// NIGHTLY's daemon off to the DEV build's (cmux#29050). Any other home (a
+/// test's, one a person names) still wins.
+pub fn inherits_another_builds_home(custom: &str, own_home: Option<&Path>, root: &Path) -> bool {
+    let Some(own) = own_home else { return false };
+    let own = normalize(own);
+    let root = normalize(root);
+    if own == root {
+        return false;
+    }
+    let path = normalize(Path::new(custom));
+    let chief_homes = root.parent().map(crate::build_identity::chief_homes_root);
+    path != own
+        && (path == root
+            || path.starts_with(root.join("builds"))
+            || chief_homes.is_some_and(|homes| path.starts_with(homes)))
+}
+
+/// `path` without `.`, `..` or a trailing separator (no filesystem access).
+fn normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
 }
 
 /// Search order: the bundled binary, then `PATH`, then the install

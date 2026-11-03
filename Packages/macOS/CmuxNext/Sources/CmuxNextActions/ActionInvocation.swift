@@ -91,6 +91,9 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// turn's prompting window, else the window listing the caller's own workspace (#32989). Nil
     /// for an in-app run or a caller with no known window (the most recent window, as before).
     public var callerWindow: String?
+    /// `caller.home_chat`: a Chief turn sent the run (the Chief host sets it); its chat is Home's.
+    /// Like ``callerAgentSession``, the caller's own claim: it names who asks, it grants nothing.
+    public var callerHomeChat = false
     /// A split that opens a terminal even where a person's split opens the New Tab page (the chat
     /// header's Terminal, cx-00n1). In-app only: the control socket never sets it.
     public var opensTerminal = false

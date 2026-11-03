@@ -225,6 +225,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         invocation.callerAgentSession = request.callerAgentSession
         invocation.callerTerminal = request.callerTerminal
         invocation.callerWindow = request.callerWindow
+        invocation.callerHomeChat = request.callerHomeChat
         return invocation
     }
 
