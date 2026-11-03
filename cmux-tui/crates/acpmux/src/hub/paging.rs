@@ -11,6 +11,8 @@ const NON_TRANSCRIPT_UPDATES: &[&str] = &[
     "config_option_update",
     // A compaction's summary is context a handoff carries, not a chat row.
     "compaction_summary",
+    // A suggested next prompt is composer state, not a chat row (`claude_stdio/prompt_suggestions.rs`).
+    "prompt_suggestion",
 ];
 
 /// Mux records a chat client renders. `turn_end` and `turn_error` are left
