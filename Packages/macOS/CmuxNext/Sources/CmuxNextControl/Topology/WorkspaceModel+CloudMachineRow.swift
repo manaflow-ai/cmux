@@ -1,7 +1,7 @@
-import CmuxNextDaemon
-import CmuxNextSettings
+package import CmuxNextDaemon
+package import CmuxNextSettings
 
-public extension WorkspaceModel {
+package extension WorkspaceModel {
     /// This workspace in its Cloud machine's row of `cloud.machines`: its durable id (`workspace_id`
     /// in `cloud new-workspace`'s answer), its name and its `ws_…` id on registry daemons;
     /// `cmux workspace list` and MCP `workspace_list` list them.
