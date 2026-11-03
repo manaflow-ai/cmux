@@ -26,7 +26,7 @@ const line = (id: string, background: Partial<NonNullable<AcpmuxRow["background"
   });
 const note = (id: string, state: "completed" | "failed" | "stopped") =>
   row(id, "backgroundTask", { backgroundTask: { toolCallId: id, command: "cargo test", state } });
-const dot = (id: string, extra: Partial<AcpmuxRow> = {}) => row(id, "assistant", { text: "·", ...extra });
+const dot = (id: string, extra: Partial<AcpmuxRow> = {}) => row(id, "assistant", { text: ".", ...extra });
 const ids = (rows: AcpmuxRow[]) => rows.filter((entry) => entry.kind !== "date").map((entry) => entry.id);
 const prompt = () => {
   at = 0;
@@ -37,9 +37,12 @@ const prompt = () => {
   ];
 };
 
-test("a reply of only punctuation draws no row; a person's does", () => {
-  for (const text of [".", "·", "…", " . ", "—", "...", ""]) expect(isBareAgentText(text)).toBe(true);
-  for (const text of ["ok", "1", ". done", "👍"]) expect(isBareAgentText(text)).toBe(false);
+// Only a lone period: other punctuation is rare and may mean something (Leo, 2026-11-03: "well
+// there are cases (rare) that you would want to see it"). Background turns that say nothing worth
+// a row are weighed by acpmux instead (backgroundTurns.ts).
+test("a lone period reply draws no row; a person's does", () => {
+  for (const text of [".", " . ", ""]) expect(isBareAgentText(text)).toBe(true);
+  for (const text of ["·", "…", "...", "ok", "1", ". done", "👍"]) expect(isBareAgentText(text)).toBe(false);
   expect(isVisiblyEmptyMessage(dot("a"))).toBe(true);
   expect(isVisiblyEmptyMessage(row("q", "user", { text: "?" }))).toBe(false);
   expect(isVisiblyEmptyMessage(row("r", "assistant", { text: "Done." }))).toBe(false);
