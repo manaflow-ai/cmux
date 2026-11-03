@@ -29,6 +29,8 @@ export type ScrollerStyle = "overlay" | "legacy";
 
 /** The attribute a scrolling element carries until `SCROLLING_HIDE_MS` after its last scroll. */
 export const SCROLLING_ATTRIBUTE = "data-cmux-scrolling";
+/** On a scrolling element whose scrollbar is hidden, so it needs no reveal or fade timer. */
+export const HIDDEN_SCROLLER_ATTRIBUTE = "data-cmux-hidden-scroller";
 /** How long a scroller stays after the last scroll step (AppKit's overlay fade starts about here). */
 export const SCROLLING_HIDE_MS = 800;
 
@@ -161,6 +163,11 @@ const pending = new WeakMap<Element, unknown>();
 export function markScrolling(element: Element, timers: ScrollTimers = defaultTimers): void {
   const previous = pending.get(element);
   if (previous !== undefined) timers.clear(previous);
+  if (element.hasAttribute(HIDDEN_SCROLLER_ATTRIBUTE)) {
+    pending.delete(element);
+    element.removeAttribute(SCROLLING_ATTRIBUTE);
+    return;
+  }
   element.setAttribute(SCROLLING_ATTRIBUTE, "");
   pending.set(
     element,

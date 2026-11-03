@@ -209,6 +209,21 @@ export const mockSessions: MockSession[] = [
       "Added the 14 new strings to Localizable.xcstrings in all nine app locales. The Arabic layout mirrors the toolbar correctly.",
   },
   {
+    // A coordinator's tagged ask at the end of its turn (conversation/nextStepAsk.ts): it draws as a
+    // card with its answers as buttons (NextStepCard.tsx); a click sends one as the next prompt.
+    sessionId: "mock-next-step-ask",
+    title: "Find why the lane stalled",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 40,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply:
+      "The lane wasn't foregrounded by acpmux or cmux NEXT. It ran about 40 slow Bash calls in the foreground itself, and they stalled the turn. Separately, the activity-row timer bug went to the timer helper.\n\n[outward] Add a hook that pushes known-slow commands to the background?\n- Yes, add the hook\n- Not now\n- Fix CI first",
+  },
+  {
     sessionId: "mock-typing-latency",
     title: "Measure typing latency in split panes",
     harness: "claude",
