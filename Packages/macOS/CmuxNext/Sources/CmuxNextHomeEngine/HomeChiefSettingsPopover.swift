@@ -83,6 +83,7 @@ public final class HomeChiefSettingsPopover {
         // it), but no control shows a focus ring until the keyboard moves there. A ring on the
         // picture drew while open and vanished on the close's first frame (recording 2026-10-20).
         popup.panel.makeFirstResponder(nil)
+        content.computer.open()
         return true
     }
 
