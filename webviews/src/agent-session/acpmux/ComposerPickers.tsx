@@ -605,11 +605,16 @@ export function ComposerPickers({
   // harness's default last resolved to, else the model placeholder.
   // The model a New Tab starts a chat on `agent` with (newTabStart, newTabChipSnapshot): the last
   // pick here, else its profile's, else its first listed model, else the catalog's default.
-  const startingModel = (agent: string) => {
+  const startingId = (agent: string) => {
     const entry = pickerCatalog?.harnesses.find((candidate) => (candidate.acpmuxHarness ?? candidate.id) === agent);
     const asked = defaultModel(agent, snapshot.catalog, harnessProfiles, folder ?? summary?.cwd);
     const id = asked && !isDefaultChoice({ id: asked }) ? asked : entry?.defaultModel;
-    if (!id || isDefaultChoice({ id })) return undefined;
+    return id && !isDefaultChoice({ id }) ? id : undefined;
+  };
+  const startingModel = (agent: string) => {
+    const entry = pickerCatalog?.harnesses.find((candidate) => (candidate.acpmuxHarness ?? candidate.id) === agent);
+    const id = startingId(agent);
+    if (!id) return undefined;
     return (
       entry?.models.find((choice) => choice.id === id)?.name ??
       models.find((choice) => choice.id === id)?.name ??
@@ -706,6 +711,9 @@ export function ComposerPickers({
     snapshot.catalog.find((entry) => entry.id === chipHarness),
     models,
   );
+  // The model the chip names before the session reports one: the model menu checks it.
+  const predictedModel =
+    shown === undefined || defaulted ? (starting && chipHarness ? startingId(chipHarness) : resolvedId) : undefined;
   const modelName =
     listedName ??
     (opensListed
@@ -993,6 +1001,7 @@ export function ComposerPickers({
           catalog={pickerEntries}
           harness={harness}
           model={shown}
+          {...(predictedModel ? { predictedModel } : {})}
           label={modelName ?? t(PICKER_LABELS.model)}
           sessionAuth={signIn?.sessionAuth}
           onSessionLogin={signIn?.loginSession}

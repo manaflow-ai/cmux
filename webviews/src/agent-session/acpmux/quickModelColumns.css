@@ -140,7 +140,7 @@
   background: var(--agent-accent);
   color: var(--agent-accent-text, #fff);
   font: inherit;
-  font-weight: 500;
+  font-weight: 600;
   cursor: default;
 }
 .acpmux-cols-signin:hover { background: color-mix(in srgb, var(--agent-accent) 88%, var(--agent-text)); }
@@ -245,7 +245,7 @@
   padding: var(--ds-space-2) var(--acpmux-cols-inline) var(--ds-space-1);
   color: var(--agent-muted);
   font-size: var(--text-caption);
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: 0.01em;
 }
 .acpmux-cols-caption:first-child { padding-top: var(--ds-space-1); }
@@ -256,7 +256,7 @@
   padding: var(--ds-space-2) var(--acpmux-cols-inline) var(--ds-space-1);
   color: var(--agent-muted);
   font-size: var(--text-caption);
-  font-weight: 500;
+  font-weight: 600;
 }
 .acpmux-cols-group:first-child { padding-top: var(--ds-space-1); }
 /* A hairline between the effort levels and Fast: inset as the rows' text, 4px above and below. */

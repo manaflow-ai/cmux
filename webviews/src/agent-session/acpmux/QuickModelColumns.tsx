@@ -9,6 +9,7 @@ import React, { Fragment, useCallback, useContext, useLayoutEffect, useMemo, use
 import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
+import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
 import { AddAccountDialog } from "./AddAccountDialog";
 import { SearchIcon, reasoningChoices, type Choice } from "./ComposerPickers";
@@ -193,8 +194,26 @@ function Columns({
   const { open: sideOpen, setOpen: setSideOpen, side } = useOpenSide(trigger, newTab ? "bottom" : "top", 280);
   if (sideOpen !== open) setSideOpen(open);
   // Every close lands the held pick first: Return, Escape, a press outside, the chip.
-  const finish = (next: boolean) => {
+  // Where the keyboard goes as the menu closes: a close that lands a pick leaves it to the picker,
+  // which focuses the prompt; any other close gives it to the chip, once the popup has gone (after
+  // a pointerup's own focus), unless the press put it somewhere else (the prompt, another control).
+  const returnToChip = () => {
+    const chip = button.current ?? trigger.current;
+    const doc = chip?.ownerDocument;
+    const view = doc?.defaultView;
+    if (!chip || !doc || !view) return;
+    view.requestAnimationFrame(() =>
+      view.requestAnimationFrame(() => {
+        const active = doc.activeElement;
+        if (!active || active === doc.body || active.closest(".acpmux-cols")) chip.focus({ preventScroll: true });
+      }),
+    );
+  };
+  /// `back`: a key closed the menu (Escape, Return, a digit), so the keyboard goes back to the chip.
+  /// A press elsewhere (another chip, the prompt) keeps the focus it gave.
+  const finish = (next: boolean, back = false) => {
     const pick = pendingRef.current;
+    if (!next && !pick && back) returnToChip();
     if (!next && pick) {
       pendingRef.current = undefined;
       setPendingState(undefined);
@@ -251,6 +270,7 @@ function Columns({
     setHeld(undefined);
   }
   const field = useRef<HTMLInputElement | null>(null);
+  const updateAction = useRef<HTMLButtonElement | null>(null);
   // The menu never shrinks while open: a tab, a search or a model with fewer rows keeps its size, so
   // the edge away from the chip stays put. The floor is the largest it has been since it opened; the
   // observer goes with the frame, which unmounts as the menu closes.
@@ -423,7 +443,7 @@ function Columns({
   useRowInView(modelsList, `${tab}:${query}:${hl}`);
   useRowInView(railList, tab);
 
-  const close = () => finish(false);
+  const close = () => finish(false, true);
   /// Holds `model` as the pick, with a level and Fast set exactly (never copied from a searched row).
   const hold = (model: QuickModel, choice: { effort?: string; fast?: boolean }) => {
     if (model.disabled) return;
@@ -534,6 +554,12 @@ function Columns({
         const at = tabs.findIndex((entry) => entry === shownTab);
         moveTab(clamp(at + step, tabs.length));
       } else if (col === 1) {
+        // Down past the last model reaches the update footer, as the list menu's arrows did.
+        if (step > 0 && updateAction.current && (rows.length === 0 || hl === rows.length - 1)) {
+          updateAction.current.focus();
+          updateAction.current.scrollIntoView?.({ block: "nearest" });
+          return;
+        }
         if (rows.length) setModelHl(clamp((hl < 0 ? (step > 0 ? -1 : rows.length) : hl) + step, rows.length));
         setTuneHl(0);
       } else {
@@ -909,6 +935,12 @@ function Columns({
         aria-haspopup="dialog"
         aria-expanded={open}
         {...press}
+        // A mouse press never focuses the chip, as the list menu's button: a press that closes the
+        // menu and lands a pick leaves the keyboard in the prompt the picker focused.
+        onPointerDown={(event) => {
+          press.onPointerDown(event);
+          if (isMousePress(event)) event.preventDefault();
+        }}
         // The closed chip opens on ArrowDown too, as the list menu's did.
         onKeyDown={(event) => {
           if (event.key !== "ArrowDown" || open) return;
@@ -932,7 +964,7 @@ function Columns({
             }
             return;
           }
-          finish(next);
+          finish(next, !!details?.escape);
         }}
         anchor={open ? anchor : null}
         label={t("picker.model")}
@@ -940,6 +972,7 @@ function Columns({
         side={side}
         flip={false}
         initialFocus={field}
+        finalFocus={false}
       >
         {/* ui-allow: Up, Down, Left, Right and Return move through the columns, as in a column browser. */}
         {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- the field's keys bubble here: arrows move the columns */}
@@ -980,7 +1013,13 @@ function Columns({
             </span>
             <SearchIcon size={14} />
             <input
-              ref={field}
+              // The field takes the keyboard as it mounts, not a frame later: a menu reopened at once
+              // (⌘⌃M right after a pick) has its keys from the first one.
+              ref={(node) => {
+                field.current = node;
+                if (node && !node.ownerDocument.activeElement?.closest(".acpmux-cols"))
+                  node.focus({ preventScroll: true });
+              }}
               type="search"
               aria-label={t("picker.search")}
               placeholder={t("picker.search")}
@@ -1197,8 +1236,14 @@ function Columns({
               <div className="acpmux-cols-update">
                 <span>{menu.update.text}</span>
                 <button
+                  ref={updateAction}
                   type="button"
                   className="acpmux-cols-update-action"
+                  onKeyDown={(event) => {
+                    if (event.key !== "ArrowUp") return;
+                    event.preventDefault();
+                    field.current?.focus();
+                  }}
                   onClick={() => {
                     menu.update?.run();
                     close();

@@ -253,13 +253,20 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
         const picked = await focusOtherModel(page);
         await page.keyboard.press("Enter");
         await expectPickedModel(page, stage, picked);
-        // The pick has closed the menu, and its deferred focus waits in a held frame.
-        await page.locator(`${QUICK}[data-closed]`).first().waitFor({ state: "attached" });
-        expect(await page.evaluate(() => (window as unknown as Held).heldFrames())).toBeGreaterThan(0);
+        // The pick has closed the menu. The list menu's focus waits in a held frame; the columns
+        // menu lands its pick as it closes and the picker focuses the prompt at once, so nothing waits.
+        const closed = () =>
+          page.waitForFunction(
+            (open) => !document.querySelector(open),
+            ".acpmux-cols:not([data-closed]), .acpmux-quick-menu:not([data-closed])",
+          );
+        const columns = (await page.locator(".acpmux-cols").count()) > 0;
+        await closed();
+        if (!columns) expect(await page.evaluate(() => (window as unknown as Held).heldFrames())).toBeGreaterThan(0);
         await page.keyboard.press("Meta+Control+KeyM");
         await page.locator(`${QUICK}:not([data-closed]) input:focus`).first().waitFor({ state: "attached" });
         await page.keyboard.press("Escape");
-        await page.locator(`${QUICK}[data-closed]`).first().waitFor({ state: "attached" });
+        await closed();
         await page.evaluate(() => (window as unknown as Held).releaseFrames());
         await settled(page);
         expect(

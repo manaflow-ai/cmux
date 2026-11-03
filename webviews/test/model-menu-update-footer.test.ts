@@ -121,9 +121,9 @@ await requireBrowserLane("model-menu-update-footer.test.ts", async () => {
 
   /** Columns use Tab for buttons; the list menu uses ArrowDown for its menu items. */
   const toUpdate = async (page: Page) => {
-    const columns = (await page.locator(".acpmux-cols").count()) > 0;
-    for (let step = 0; step < 24; step++) {
-      await page.keyboard.press(columns ? "Tab" : "ArrowDown");
+    // Both menus reach the footer with ArrowDown: the columns' past their last model row.
+    for (let step = 0; step < 60; step++) {
+      await page.keyboard.press("ArrowDown");
       if (await page.evaluate(() => !!document.activeElement?.closest(".acpmux-cols-update, .acpmux-quick-update")))
         return true;
     }
@@ -179,15 +179,12 @@ await requireBrowserLane("model-menu-update-footer.test.ts", async () => {
         expect(seen.bottom, "inside the window").toBeLessThanOrEqual(seen.window + 1);
         const columns = (await page.locator(".acpmux-cols").count()) > 0;
         if (columns) {
-          // Return to the search field without picking a row, then move the highlight to the
-          // real last model. Each column scrolls independently above the fixed footer.
-          await page.keyboard.press("Shift+Tab");
-          await page.locator(".acpmux-cols-search input").waitFor({ state: "visible" });
+          // ArrowUp from Update returns to the search field; the highlight is still on the last
+          // model, the row Down left from. Each column scrolls independently above the fixed footer.
+          await page.keyboard.press("ArrowUp");
           expect(
             await page.locator(".acpmux-cols-search input").evaluate((node) => document.activeElement === node),
           ).toBe(true);
-          const count = await page.locator(".acpmux-cols [role=listbox] [role=option]").count();
-          for (let step = 0; step < count; step++) await page.keyboard.press("ArrowDown");
         } else {
           // One up from Update is the old list menu's last row.
           await page.keyboard.press("ArrowUp");

@@ -1334,7 +1334,7 @@ export function ModelPicker(props: ModelPickerProps) {
                       quickRow("", model),
                     )
                   : [],
-              current: props.model,
+              current: props.predictedModel ?? props.model,
               ...(picksOwnModel(current?.family) ? { ownModel: true } : {}),
               onModel: (id) => {
                 quickPicked.current = true;
