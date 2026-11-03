@@ -589,7 +589,7 @@ impl Hub {
 
     /// Read the final assistant message inside this prompt's exact persisted turn window.
     /// A person's later messages never become a workflow result; subagent output is excluded.
-    pub(crate) fn workflow_final_reply(
+    fn workflow_final_reply(
         &self,
         session: &Session,
         prompt_id: &str,
