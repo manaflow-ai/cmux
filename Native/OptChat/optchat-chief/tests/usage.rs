@@ -633,7 +633,7 @@ fn credit_meter_payer_uses_harness_and_parsed_host() {
 }
 
 #[test]
-fn credit_backfill_only_fills_missing_people() {
+fn credit_backfill_preserves_unknown_people_and_existing_month_bytes() {
     let tmp = tempfile::tempdir().unwrap();
     let home = tmp.path();
     let root = home.join("optchat");
@@ -665,6 +665,7 @@ fn credit_backfill_only_fills_missing_people() {
         rows.iter().map(|r| format!("{r}\n")).collect::<String>(),
     )
     .unwrap();
+    let before = std::fs::read(&file).unwrap();
     usage::run(&[
         "backfill".into(),
         "--mux-home".into(),
@@ -674,12 +675,13 @@ fn credit_backfill_only_fills_missing_people() {
     let rows = usage::read(&usage::dir(&root), 0, u64::MAX).unwrap();
     assert_eq!(
         serde_json::to_value(&rows[0]).unwrap()["person"],
-        "user_owner"
+        Value::Null
     );
     assert_eq!(
         serde_json::to_value(&rows[1]).unwrap()["person"],
         "user_other"
     );
+    assert_eq!(std::fs::read(&file).unwrap(), before);
 }
 
 #[test]
@@ -913,4 +915,63 @@ fn concurrent_compactor_units_keep_their_trace_unit_keys() {
         usage::export_row(&chief, &rows[0])["request_id"],
         usage::export_row(&chief, &rows[1])["request_id"]
     );
+}
+
+#[test]
+fn unknown_message_sender_never_falls_back_to_the_owner() {
+    for person in [Value::Null, json!("user_local"), json!("remote_install")] {
+        let rows = fold_all(&[
+            json!({"ev":"usage.identity","person":"account-owner"}),
+            json!({"ev":"usage.message","id":"first","person":person}),
+            json!({"ev":"usage.message","id":"later","person":"account-guest"}),
+            json!({"ev":"turn.start","turn":"t","message_keys":["first","later"],"harness":"cmux"}),
+            json!({"ev":"spawn","ids":["a1"],"harness":"cmux"}),
+            json!({"ev":"turn.end","turn":"t"}),
+            json!({"ev":"subagent.answer","id":"a1","usage":{"input":1}}),
+        ]);
+        for line in rows {
+            assert_eq!(serde_json::to_value(line).unwrap()["person"], "unknown");
+        }
+    }
+    let row = fold_all(&[
+        json!({"ev":"usage.identity","person":"account-owner"}),
+        json!({"ev":"turn.start","turn":"t","message_keys":["unseen"],"harness":"cmux"}),
+        json!({"ev":"turn.end","turn":"t"}),
+    ])
+    .pop()
+    .unwrap();
+    assert_eq!(serde_json::to_value(row).unwrap()["person"], "unknown");
+}
+
+#[test]
+fn legacy_native_payer_is_unknown_and_current_identity_cannot_backfill_history() {
+    let chief = Chief {
+        id: "c".into(),
+        label: "Chief".into(),
+        home: "/h".into(),
+    };
+    let line: Line = serde_json::from_value(
+        json!({"v":1,"kind":"turn","key":"t","harness":"native","person":"account-owner"}),
+    )
+    .unwrap();
+    let row = usage::export_row(&chief, &line);
+    assert_eq!(row["payer"], "unknown");
+    assert_eq!(row["billable"], false);
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(usage::dir(tmp.path())).unwrap();
+    std::fs::write(
+        usage::dir(tmp.path()).join("identity.json"),
+        r#"{"person":"current-owner"}"#,
+    )
+    .unwrap();
+    write_trace(
+        &tmp.path().join("traces"),
+        "2026-10-18",
+        &[turn_end(T0, "old", 0.1, 1, 0, 0, 1)],
+    );
+    usage::backfill(tmp.path(), false).unwrap();
+    let rows = usage::read(&usage::dir(tmp.path()), 0, u64::MAX).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(serde_json::to_value(&rows[0]).unwrap()["person"], "unknown");
+    assert_eq!(usage::export_row(&chief, &rows[0])["billable"], false);
 }
