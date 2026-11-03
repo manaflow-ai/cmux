@@ -24,6 +24,18 @@ extension cmuxApp {
                 }
             }
 
+            splitCommandButton(title: String(localized: "menu.history.focusLastSurface", defaultValue: "Focus Last Surface"), shortcut: menuShortcut(for: .focusHistoryLastSurface)) {
+                if !historyMenuCoordinator.navigateToLastFocusedSurface() {
+                    NSSound.beep()
+                }
+            }
+
+            splitCommandButton(title: String(localized: "menu.history.focusLastWorkspace", defaultValue: "Focus Last Workspace"), shortcut: menuShortcut(for: .focusHistoryLastWorkspace)) {
+                if !historyMenuCoordinator.navigateToLastFocusedWorkspace() {
+                    NSSound.beep()
+                }
+            }
+
             Divider()
 
             recentlyFocusedMenuSection(

@@ -285,6 +285,24 @@ export const shortcutCategories: ShortcutCategory[] = [
           ja: "デフォルトでは未割り当て。現在の位置と直前にフォーカスしていた位置を切り替えるため、2回押すと元の位置に戻ります",
         },
       },
+      {
+        id: "focusHistoryLastSurface",
+        combos: [],
+        description: { en: "Focus last surface", ja: "直前のサーフェスへ切り替え" },
+        note: {
+          en: "unbound by default; toggles between the current surface and the one focus last left, in any workspace, whatever the Focus Back/Forward scope setting",
+          ja: "デフォルトでは未割り当て。現在のサーフェスと直前にフォーカスしていたサーフェスを切り替えます。ワークスペースをまたいで動作し、フォーカスを戻す/進めるの範囲設定には影響されません",
+        },
+      },
+      {
+        id: "focusHistoryLastWorkspace",
+        combos: [],
+        description: { en: "Focus last workspace", ja: "直前のワークスペースへ切り替え" },
+        note: {
+          en: "unbound by default; toggles between the current workspace and the one focus last left, landing on the surface that last had focus there, whatever the Focus Back/Forward scope setting",
+          ja: "デフォルトでは未割り当て。現在のワークスペースと直前にフォーカスしていたワークスペースを切り替え、そのワークスペースで最後にフォーカスしていたサーフェスに戻ります。フォーカスを戻す/進めるの範囲設定には影響されません",
+        },
+      },
       { id: "selectWorkspaceByNumber", combos: [["⌘", "1…9"]], description: { en: "Select workspace 1…9", ja: "ワークスペース1…9を選択" } },
       { id: "renameWorkspace", combos: [["⌘", "⇧", "R"]], description: { en: "Rename workspace", ja: "ワークスペース名を変更" } },
       { id: "editWorkspaceDescription", combos: [["⌥", "⌘", "E"]], description: { en: "Edit workspace description", ja: "ワークスペースの説明を編集" } },

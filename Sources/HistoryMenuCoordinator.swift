@@ -153,6 +153,18 @@ final class HistoryMenuCoordinator {
         activeManagerForAction()?.navigateToLastFocused() == true
     }
 
+    /// Toggles the currently active window's focus to the surface it last left.
+    @discardableResult
+    func navigateToLastFocusedSurface() -> Bool {
+        activeManagerForAction()?.navigateToLastFocusedSurface() == true
+    }
+
+    /// Toggles the currently active window's focus to the workspace it last left.
+    @discardableResult
+    func navigateToLastFocusedWorkspace() -> Bool {
+        activeManagerForAction()?.navigateToLastFocusedWorkspace() == true
+    }
+
     /// Navigates to a row only when it still belongs to the projected manager.
     @discardableResult
     func navigate(to item: FocusHistoryMenuItem) -> Bool {

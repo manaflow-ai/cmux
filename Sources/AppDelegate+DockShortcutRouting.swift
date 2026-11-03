@@ -44,6 +44,7 @@ extension KeyboardShortcutSettings.Action {
              .moveSurfaceToPaneUp, .moveSurfaceToPaneDown,
              .selectSurfaceByNumber,
              .focusHistoryBack, .focusHistoryForward, .focusHistoryLast,
+             .focusHistoryLastSurface,
              .renameTab,
              .closeTab, .closeOtherTabsInPane,
              .reopenClosedBrowserPanel,
@@ -117,6 +118,9 @@ extension KeyboardShortcutSettings.Action {
              .nextSidebarTabInGroup, .prevSidebarTabInGroup,
              .moveWorkspaceUp, .moveWorkspaceDown,
              .selectWorkspaceByNumber,
+             // The Dock's history holds one workspace, so this always
+             // resolves in the main area.
+             .focusHistoryLastWorkspace,
              .renameWorkspace, .editWorkspaceDescription,
              .markWorkspaceDone, .cycleWorkspaceStatus,
              .closeWorkspace,
