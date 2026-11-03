@@ -711,6 +711,7 @@ export function EnvironmentPicker({
       className="acpmux-location-picker"
       data-kind="computer"
       data-face={faceStyle}
+      data-rows={listRows}
       title={label + ": " + value}
     >
       {moreActions.length > 0 ? (

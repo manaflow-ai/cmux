@@ -1468,10 +1468,11 @@
    the machine, a ring when not, as the machine list's own status. It stays when a narrow strip drops
    the machine's name. */
 .acpmux-location-button .acpmux-env-live {
+  --acpmux-env-live-size: 6px;
   flex: none;
   position: relative;
-  width: 6px;
-  height: 6px;
+  width: var(--acpmux-env-live-size);
+  height: var(--acpmux-env-live-size);
   margin-left: 5px;
   border-radius: 50%;
   box-sizing: border-box;
@@ -1479,8 +1480,8 @@
 .acpmux-location-button .acpmux-env-live[data-connected="true"] { background: var(--agent-success, var(--acpmux-add, currentColor)); }
 .acpmux-location-button .acpmux-env-live[data-connected="false"] { border: 1px solid var(--agent-muted); }
 /* The cloud toggle (stripLayout cloud-toggle) stands at the strip's end, before the branch. */
-.acpmux-composer-context > .acpmux-location-picker[data-kind="computer"] { flex: none; margin-left: auto; }
-.acpmux-composer-context > .acpmux-location-picker[data-kind="computer"] + .acpmux-location-picker:last-child { margin-left: var(--acpmux-location-gap, 4px); }
+.acpmux-composer-context > .acpmux-location-picker[data-rows="run"] { flex: none; margin-left: auto; }
+.acpmux-composer-context > .acpmux-location-picker[data-rows="run"] + .acpmux-location-picker:last-child { margin-left: var(--acpmux-location-gap, 4px); }
 /* Its menu's question, as ChatGPT's "Where should this chat run?": one quiet line over the rows. */
 .acpmux-env-popover .acpmux-env-heading {
   padding: 4px calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding)) 4px;
@@ -1503,9 +1504,10 @@
 /* An empty project chip ("Choose project") reads dimmed, as Codex's strip, until a project is picked. */
 .acpmux-location-button .acpmux-location-label[data-dim] { color: var(--agent-muted); }
 /* The cloud toggle (ChatGPT Work) is a round icon button. */
-.acpmux-composer-context > .acpmux-location-picker[data-kind="computer"] .acpmux-location-button {
+.acpmux-composer-context > .acpmux-location-picker[data-rows="run"] .acpmux-location-button {
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
   border-radius: 999px;
-  aspect-ratio: 1;
   justify-content: center;
   padding-inline: 0;
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
