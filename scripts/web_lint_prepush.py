@@ -26,7 +26,8 @@ not from the branch's last pushed head, so an earlier push of the same branch th
 later push of it out too (trust_base()). It counts deletes and type changes, and a change to a parent folder of
 check code (a folder turned into a symlink). Check code may hold no symlink in the pushed commit, at its paths or
 any parent folder (executed_symlinks()). A file directly in a folder above a package, or in a node_modules there,
-is check code too: tools search upward for their config (above_package()). Before anything runs every executed folder and every script a check
+is check code too: tools search upward for their config (above_package()); and so is a node_modules anywhere, whose
+programs and modules tools run (in_node_modules()). Before anything runs every executed folder and every script a check
 names must resolve, symlinks followed, to that same path in the tree being linted (escaping_paths()).
 
 Which files: a push's own range (scripts/cmux-next/push_range.py, the definition the
@@ -311,11 +312,18 @@ def above_package(path: str, directories: tuple[str, ...]) -> bool:
     return False
 
 
+def in_node_modules(path: str) -> bool:
+    """PATH, folded, has a node_modules folder in it: whatever it holds, tools run (a package's .bin/eslint, a module a
+    bare import finds walking up), so a node_modules a push carries is check code wherever it is."""
+    return "node_modules" in fold(path).split("/")[:-1] or fold(path).split("/")[-1] == "node_modules"
+
+
 def is_check_code(path: str, executed: tuple[str, ...], sources: tuple[str, ...] = (),
                   directories: tuple[str, ...] = ()) -> bool:
-    """PATH, folded, is at, inside (outside SOURCES) or a parent folder of an EXECUTED path, or directly in a folder
-    above one of DIRECTORIES (the package and its local builds; above_package())."""
-    if directories and above_package(path, directories):
+    """PATH, folded, is in a node_modules (in_node_modules()), at, inside (outside SOURCES) or a parent folder of an
+    EXECUTED path, or directly in a folder above one of DIRECTORIES (the package and its local builds;
+    above_package())."""
+    if in_node_modules(path) or (directories and above_package(path, directories)):
         return True
     path, executed, sources = fold(path), folded(executed), folded(sources)
     return (under(path, executed) and not under(path, sources)) or above(path, executed)
@@ -333,7 +341,7 @@ def executed_changes(package: ScriptPackage, files: list[str]) -> list[str]:
 
 def eslint_executed_changes(package: EslintPackage, files: list[str]) -> list[str]:
     executed = folded(package.executed)
-    return [f for f in files if fold(f) in executed or above(fold(f), executed)
+    return [f for f in files if fold(f) in executed or above(fold(f), executed) or in_node_modules(f)
             or above_package(f, package_directories(package))]
 
 
@@ -417,22 +425,39 @@ def executed_symlinks(repo: Path, sha: str, executed: tuple[str, ...], sources: 
     return sorted(found)
 
 
-_SYMLINKS: dict[tuple[str, str], list[str]] = {}
+_LISTINGS: dict[tuple[str, str], tuple[list[str], list[str]]] = {}
 
 
-def tree_symlinks(repo: Path, sha: str) -> list[str]:
-    """Every symlink in commit SHA (one `git ls-tree -r` of the whole tree, kept per commit: git's pathspecs can't
-    match a folder whose case differs, so the trust checks filter the full list with fold()). Raises when git fails:
-    an empty list must mean no symlink, never that the listing failed."""
+def tree_listing(repo: Path, sha: str) -> tuple[list[str], list[str]]:
+    """(every symlink, every path in a node_modules) of commit SHA, from one `git ls-tree -r` of the whole tree kept
+    per commit: git's pathspecs can't match a folder whose case differs, so the trust checks filter the full list
+    with fold(). Raises when git fails: an empty list must mean none, never that the listing failed."""
     key = (str(repo), sha)
-    if key not in _SYMLINKS:
+    if key not in _LISTINGS:
         listed = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-z", sha], capture_output=True)
         if listed.returncode != 0:
             raise SystemExit(f"web-lint: git ls-tree {sha} failed: {listed.stderr.decode(errors='replace').strip()}")
-        _SYMLINKS[key] = [entry.partition("\t")[2]
-                          for entry in listed.stdout.decode("utf-8", "surrogateescape").split("\0")
-                          if entry.split(" ", 1)[0] == SYMLINK_MODE]
-    return _SYMLINKS[key]
+        entries = [entry for entry in listed.stdout.decode("utf-8", "surrogateescape").split("\0") if entry]
+        _LISTINGS[key] = ([entry.partition("\t")[2] for entry in entries if entry.split(" ", 1)[0] == SYMLINK_MODE],
+                          [entry.partition("\t")[2] for entry in entries if in_node_modules(entry.partition("\t")[2])])
+    return _LISTINGS[key]
+
+
+def tree_symlinks(repo: Path, sha: str) -> list[str]:
+    """Every symlink in commit SHA (tree_listing())."""
+    return tree_listing(repo, sha)[0]
+
+
+def tracked_node_modules(repo: Path, sha: str, directories: tuple[str, ...]) -> list[str]:
+    """The node_modules paths commit SHA tracks in a package folder in DIRECTORIES, under it, or in a folder above
+    it: what that package's tools would run. Always refused, whatever a reviewed branch holds (none does)."""
+    found = []
+    for path in tree_listing(repo, sha)[1]:
+        folded_path = fold(path)
+        inside = any(folded_path.startswith(f"{fold(d)}/") for d in directories)
+        if inside or above_package(path, directories):
+            found.append(path)
+    return sorted(found)
 
 
 JS_EXTENSIONS = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
@@ -647,6 +672,8 @@ def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None, t
             sources = tuple(f"{package.directory}/{d}" for d in SOURCE_DIRS)
             risky += [f"{path} (a symlink)" for path in
                       executed_symlinks(repo, sha, package.executed, sources, package_directories(package))]
+            risky += [f"{path} (a tracked node_modules)" for path in
+                      tracked_node_modules(repo, sha, package_directories(package)) if path not in risky]
             loaded, problems = executed_sources(repo, sha, package, package_scripts(repo, package, read))
             risky += [f for f in trusted_files if fold(f) in loaded and f not in risky] + problems
         if risky:
@@ -664,6 +691,8 @@ def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None, t
         if guard_executed and sha:
             risky += [f"{path} (a symlink)" for path in
                       executed_symlinks(repo, sha, package.executed, (), package_directories(package))]
+            risky += [f"{path} (a tracked node_modules)" for path in
+                      tracked_node_modules(repo, sha, package_directories(package)) if path not in risky]
         if risky:
             plan.untrusted.append((package.directory, risky))
         else:
@@ -1156,6 +1185,11 @@ def tree_of(repo: Path, sha: str | None, directories: list[str]):
         git(repo, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--quiet", "--detach", str(tree), sha)
         for directory in directories:
             if (tree / directory).is_dir() and shares_deps(repo, sha, directory):
+                if os.path.lexists(tree / directory / "node_modules"):
+                    # make_plan() refuses a package whose commit holds a node_modules (in_node_modules()); never link
+                    # over one, and never run with it.
+                    raise SystemExit(f"web-lint: {sha[:12]} holds {directory}/node_modules, which the lint would "
+                                     "run; nothing was linted. The `web lint` CI job checks this commit.")
                 (tree / directory / "node_modules").symlink_to(repo / directory / "node_modules")
         yield tree  # a package that can't share gets its own install (ensure_deps)
     finally:
