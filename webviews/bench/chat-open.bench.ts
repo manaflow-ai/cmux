@@ -414,11 +414,11 @@ try {
               result.centers += 1;
               return intoView.call(this, options);
             };
-            Document.prototype.querySelectorAll = function (selector: string) {
+            Document.prototype.querySelectorAll = function (this: Document, selector: string) {
               if (selector === "[data-row-id]") result.scans += 1;
               return query.call(this, selector);
             } as typeof query;
-            Element.prototype.querySelectorAll = function (selector: string) {
+            Element.prototype.querySelectorAll = function (this: Element, selector: string) {
               if (selector === "[data-row-id]") result.scans += 1;
               return elementQuery.call(this, selector);
             } as typeof elementQuery;
