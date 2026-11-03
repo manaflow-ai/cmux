@@ -179,6 +179,14 @@ STARTED = re.compile(r"◇ Test (?:case passing .+? to )?(\w+)\((.*?)\) started\
 # A test's end (Swift Testing; a case of a parameterized test ends with its test), and XCTest's start and end.
 # ━ is a test that passed with a known issue (withKnownIssue): it finished.
 FINISHED = re.compile(r"[✔✘━] Test (\w+)\(.*?\)(?: with \d+ test cases?)? (?:passed|failed)\b")
+# A pass whose line another stream cut into: Swift Testing prints ✔ only for a test that passed, so
+# "✔ Test aFailureNothingRetriesShowsAtOnceswift runtime: backtrace-on-crash ..." (run 41665450504, the helper killed
+# with the rest of the line unwritten) is that test's pass. spliced_pass matches a started name followed by anything
+# but more of a test name and its "(": foo is not taken for fooBar().
+def spliced_pass(name: str, text: str) -> bool:
+    return re.search(rf"✔ Test {re.escape(name)}(?!\w*\()", text) is not None
+
+
 XC_STARTED = re.compile(r"Test Case '-\[(\S+ \S+)\]' started")
 XC_FINISHED = re.compile(r"Test Case '-\[(\S+ \S+)\]' (?:passed|failed|skipped)")
 CARGO_RUNNING = re.compile(r"^running \d+ tests?$")
@@ -577,6 +585,12 @@ def read(log: str | None, bun: bool = True) -> Result:
         result.failed |= names
         result.ran = True
     unfinished = started - {m.group(1) for text in lines for m in [FINISHED.search(text)] if m}
+    # Each cut-into pass closes one start, the longest name it fits (fooBar(), not foo() too); a run's own
+    # summary ("✔ Test run with 1 test ...") is never one, so it does not close a test named run().
+    for text in lines:
+        if unfinished and "✔ Test " in text and not FINISHED.search(text) and not RUN_ENDED.search(text):
+            if fits := [name for name in unfinished if spliced_pass(name, text)]:
+                unfinished.discard(max(fits, key=len))
     unfinished |= ({m.group(1) for text in lines for m in [XC_STARTED.search(text)] if m}
                    - {m.group(1) for text in lines for m in [XC_FINISHED.search(text)] if m})
     if unfinished:
