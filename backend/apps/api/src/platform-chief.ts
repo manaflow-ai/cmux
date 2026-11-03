@@ -1,7 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers"
 import type { Env } from "./env.ts"
 import type { UserDO } from "./user-do.ts"
-import { slackEnabled, validSlackInbound, type SlackInbound } from "./chief-slack.ts"
+import { isOwnSlackMessage, slackEnabled, validSlackInbound, type SlackInbound } from "./chief-slack.ts"
 import { brainName } from "./chief-brain/brain-do.ts"
 
 /** Trusted service-binding RPC only. Slack's signature and install ownership are checked by cmux-platform. */
@@ -9,6 +9,7 @@ export class PlatformChief extends WorkerEntrypoint<Env> {
   async slackInbound(inbound: SlackInbound) {
     if (!slackEnabled(this.env)) return { ok: false as const, code: "slack.disabled" }
     if (!validSlackInbound(inbound)) return { ok: false as const, code: "validation.invalid" }
+    if (isOwnSlackMessage(inbound)) return { ok: true as const, ignored: true as const, queued: false }
     const user = this.env.USER_DO.get(this.env.USER_DO.idFromName(inbound.ownerUserId)) as unknown as Pick<UserDO, "readOp">
     const r = await user.readOp(inbound.ownerUserId, { identity: `session:${inbound.ownerUserId}`, kind: "session", user: inbound.ownerUserId }, "chief.list", {})
     if (!r.ok) return { ok: false as const, code: r.code }

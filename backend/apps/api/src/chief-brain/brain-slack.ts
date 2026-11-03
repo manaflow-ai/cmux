@@ -1,6 +1,6 @@
 import { conversation as homeConversation } from "@cmux/home-core"
 import type { OwnerFrame } from "@cmux/ownership"
-import { postSlackMessage, slackEnabled, validSlackInbound, type SlackInbound } from "../chief-slack.ts"
+import { formatSlackMessage, isOwnSlackMessage, postSlackMessage, slackEnabled, validSlackInbound, type SlackInbound } from "../chief-slack.ts"
 import { sha256Hex } from "../ingress/verify.ts"
 import type { ChiefBrainDO } from "./brain-do.ts"
 
@@ -9,13 +9,16 @@ export interface SlackOutbound { readonly root: string; readonly message: string
 
 export const SLACK_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS cb_slack_threads (slack_team TEXT NOT NULL, channel TEXT NOT NULL, thread_ts TEXT NOT NULL, root TEXT UNIQUE NOT NULL, PRIMARY KEY (slack_team, channel, thread_ts))`,
-  `CREATE TABLE IF NOT EXISTS cb_slack_sent (message TEXT PRIMARY KEY)`
+  `CREATE TABLE IF NOT EXISTS cb_slack_sent (message TEXT PRIMARY KEY)`,
+  `CREATE TABLE IF NOT EXISTS cb_slack_bot_messages (slack_team TEXT NOT NULL, channel TEXT NOT NULL, ts TEXT NOT NULL, PRIMARY KEY (slack_team, channel, ts))`
 ]
 
 export async function slackInbound(b: ChiefBrainDO, w: SlackWake) {
   if (!slackEnabled(b.doEnv)) return { ok: false as const, code: "slack.disabled" }
   if (!validSlackInbound(w.inbound)) return { ok: false as const, code: "validation.invalid" }
+  if (isOwnSlackMessage(w.inbound)) return { ok: true as const, ignored: true as const, queued: false }
   await b.lifecycle.start()
+  if (b.sql.exec(`SELECT 1 FROM cb_slack_bot_messages WHERE slack_team = ? AND channel = ? AND ts = ?`, w.inbound.slackTeamId, w.inbound.channelId, w.inbound.ts).toArray().length) return { ok: true as const, ignored: true as const, queued: false }
   const a = await b.admitted(w.agent, w.inbound.ownerUserId, false)
   if (!a.ok) return { ok: false as const, code: `chief.${a.reason}` }
   const i = w.inbound
@@ -34,7 +37,7 @@ export async function slackInbound(b: ChiefBrainDO, w: SlackWake) {
   const committed = value.change.message
   const committedRoot = committed.thread_root ?? committed.id
   const authorized = committed.slack.isOwner
-  const text = `[${committed.author} · ${committed.slack.displayName}${authorized ? " (your owner)" : ""}] ${committed.parts.filter((p) => p.type === "text").map((p) => p.text).join("\n")}`
+  const text = formatSlackMessage(committed)
   // Preserve provenance even if an ordinary wake already loaded this message as context.
   const fresh = b.sql.exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized, woke) VALUES (?, ?, ?, 'slack', ?, ?, ?, 1) ON CONFLICT (message) DO NOTHING RETURNING n`, value.message_id, w.conversation, value.seq, committedRoot, text, authorized ? 1 : 0).toArray()
   b.sql.exec(`UPDATE cb_inbox SET woke = 1, kind = 'slack', thread_root = ?, effect_authorized = ? WHERE message = ? AND state = 'queued'`, committedRoot, authorized ? 1 : 0, value.message_id)
@@ -50,5 +53,7 @@ export async function slackOutbound(b: ChiefBrainDO, reply: SlackOutbound): Prom
   if (!link || !reply.text.trim()) return
   const fresh = b.sql.exec(`INSERT INTO cb_slack_sent (message) VALUES (?) ON CONFLICT DO NOTHING RETURNING message`, reply.message).toArray()
   if (!fresh.length) return
-  b.doCtx.waitUntil(postSlackMessage(b.doEnv, { slackTeamId: link.slack_team, channelId: link.channel, threadTs: link.thread_ts, text: reply.text }))
+  b.doCtx.waitUntil(postSlackMessage(b.doEnv, { slackTeamId: link.slack_team, channelId: link.channel, threadTs: link.thread_ts, text: reply.text }).then((ts) => {
+    if (ts) b.sql.exec(`INSERT INTO cb_slack_bot_messages (slack_team, channel, ts) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, link.slack_team, link.channel, ts)
+  }))
 }
