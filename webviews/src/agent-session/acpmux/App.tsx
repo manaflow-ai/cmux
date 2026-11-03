@@ -277,6 +277,7 @@ import {
   setSessionInfoOpen as setSessionInfoPanelOpen,
   setSessionInfoSection,
   useSessionInfoOpen,
+  sessionInfoPaneKey,
 } from "./session-info/sessionInfoState";
 import { openCommand, opensProcessTerminal } from "./processTerminal";
 import {
@@ -491,6 +492,7 @@ import {
 import { uniqueArtifacts } from "./conversation/artifactDedupe";
 import { writtenArtifacts } from "./conversation/writtenArtifacts";
 import { artifactVersions } from "./conversation/artifactVersions";
+import { ArtifactLiveSource, mergeArtifactVersions } from "./conversation/artifactLive";
 import { RenderPages, renderPages, renderVersions } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
@@ -1452,6 +1454,8 @@ const MessageRow = memo(
         streaming={row.streaming === true}
         githubRepository={githubRepository}
         messageAt={row.at}
+        artifactIdentity={row.id}
+        artifactRevision={row.version}
       />
     );
     // A finished reply its turn's footer does not serve keeps its own action row, whatever follows
@@ -6185,6 +6189,23 @@ function AcpmuxPane() {
   const artifactSession = snapshot.sessionId;
   // Its versions (cx-ncc.64): the chat's finished replies' documents of its kind and title.
   const artifactRows = artifact ? snapshot.rows : undefined;
+  const artifactRowsRef = useRef(snapshot.rows);
+  artifactRowsRef.current = snapshot.rows;
+  const artifactLive = useRef<ArtifactLiveSource | undefined>(undefined);
+  if (!artifact) {
+    artifactLive.current?.dispose();
+    artifactLive.current = undefined;
+  }
+  useEffect(() => () => artifactLive.current?.dispose(), []);
+  // A pinned preview from another chat does not follow this chat's rows.
+  const liveDocument = useMemo(
+    () =>
+      artifact?.identity && artifactRows && artifact.sessionId === snapshot.sessionId
+        ? artifactLive.current?.read(artifactRows)
+        : undefined,
+    [artifact, artifactRows, snapshot.sessionId],
+  );
+  const liveArtifact = liveDocument?.artifact ?? artifact;
   // Render cards by id (cx-ncc.94): a render that names an earlier one's id shows in that card.
   const pages = useMemo(() => renderPages(snapshot.rows), [snapshot.rows]);
   const artifactVersionList = useMemo(() => {
@@ -6192,25 +6213,32 @@ function AcpmuxPane() {
     // A pinned preview from another chat must not use this chat's rows: two unrelated documents
     // can have the same <title>. Preserve the source's versions captured at Pin instead.
     if (artifact.sessionId !== snapshot.sessionId) return artifactVersionsForSession(artifact, snapshot.sessionId);
-    const versions = artifactRows
-      ? artifact.path
-        ? uniqueArtifacts(writtenArtifacts(artifactRows).filter((item) => item.path === artifact.path))
-        : (renderVersions(pages, artifact) ??
+    const current = liveArtifact ?? artifact;
+    const scanned = artifactRows
+      ? current.path
+        ? uniqueArtifacts(writtenArtifacts(artifactRows).filter((item) => item.path === current.path))
+        : (renderVersions(pages, current) ??
           artifactVersions(
             artifactRows.flatMap((row) => (row.kind === "assistant" && !row.streaming && row.text ? [row.text] : [])),
-            artifact,
+            current,
           ))
       : undefined;
+    // The live source holds the opened fence's streamed slot; versions finished after opening (a
+    // later reply's rewrite, a newly paged reply) still join it.
+    const versions = liveDocument ? mergeArtifactVersions(liveDocument.versions, scanned) : scanned;
     return artifactVersionsForSession(artifact, snapshot.sessionId, versions);
-  }, [artifact, artifactRows, pages, snapshot.sessionId]);
+  }, [artifact, liveArtifact, artifactRows, pages, snapshot.sessionId, liveDocument]);
   const openArtifact = useCallback(
-    (next: Artifact) =>
+    (next: Artifact) => {
+      artifactLive.current?.dispose();
+      artifactLive.current = next.identity ? new ArtifactLiveSource(next, artifactRowsRef.current) : undefined;
       setArtifact((current) => ({
         ...next,
         sessionId: artifactSession,
         sourceTitle: snapshot.summary?.title || snapshot.summary?.name,
         opened: (current?.opened ?? 0) + 1,
-      })),
+      }));
+    },
     [artifactSession, snapshot.summary?.title, snapshot.summary?.name],
   );
   // Repository context follows the selected session, connection origin and cwd. A reconnect
@@ -7438,7 +7466,13 @@ function AcpmuxPane() {
     [transcriptTasks],
   );
   const sessionInfoOn = useHeaderState().sessionInfo;
-  const sessionInfoOpened = useSessionInfoOpen(shownSessionId);
+  // A pane opened beside another chat (a subagent's pane, a chat its agent started) has Session Info
+  // of its own, closed until the person opens it there (sessionInfoState.ts `sessionInfoPaneKey`).
+  const shownEntry = shownSessionId
+    ? snapshot.sessions?.find((entry) => entry.sessionId === shownSessionId)
+    : undefined;
+  const sessionInfoSplit = ownSubagentPane || !!(shownEntry?.startedBy || shownEntry?.spawnedBy);
+  const sessionInfoOpened = useSessionInfoOpen(sessionInfoPaneKey(shownSessionId, sessionInfoSplit));
   const processRegistry = useProcessRegistry(
     processSource,
     shownSessionId,
@@ -8349,8 +8383,9 @@ function AcpmuxPane() {
   foregroundNow.current = foreground;
   const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
-  /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`) once the
-  /// summary card's switch is on, else in this pane (subagents/subagentPanes.ts).
+  /// Shows subagent `id`: a person's open in a pane of its own right of the chat, focused; a new
+  /// subagent's own open (`focus` false) only while the summary card's switch is on
+  /// (subagents/subagentPanes.ts).
   const showSubagent = useCallback(
     (id: string, focus = true) =>
       void showSubagentIn(callNative, id, focus, {
@@ -8661,6 +8696,7 @@ function AcpmuxPane() {
   );
   const sessionInfo = useSessionInfo({
     snapshot: sessionInfoSnapshot,
+    split: sessionInfoSplit,
     machineName,
     repository: githubRepository,
     cloudRepositoryAvailable,
@@ -14666,10 +14702,10 @@ function AcpmuxPane() {
           summaryPanel}
         {/* Beside the chat view only: New Tab, Harnesses and a replay have no session header. */}
         {!harnessesOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && sessionInfo.panel}
-        {artifact && (
+        {artifact && liveArtifact && (
           <ArtifactPanel
             key={artifact.opened}
-            artifact={artifact}
+            artifact={liveArtifact}
             versions={artifactVersionList}
             pinned={!!artifact.pinned}
             sourceTitle={artifact.sourceTitle}

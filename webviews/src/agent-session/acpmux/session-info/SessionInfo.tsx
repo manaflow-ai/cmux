@@ -87,6 +87,7 @@ import {
 import {
   bindSessionInfoPane,
   SESSION_INFO_WIDTH,
+  sessionInfoPaneKey,
   setSessionInfoOpen,
   setSessionInfoSection,
   setSessionInfoSourcesAll,
@@ -375,6 +376,7 @@ export function useSessionInfo({
   onSaveEnvironment,
   onShowCall,
   subagent,
+  split = false,
   covered = false,
   onUncover,
   onBeforeOpen,
@@ -451,6 +453,9 @@ export function useSessionInfo({
   onShowCall?: (toolCallId: string) => boolean;
   /// The subagent whose own view the pane shows: Session Info lists its things, not the chat's.
   subagent?: SubagentScope;
+  /// The pane was opened beside another chat (a subagent's pane, a chat its agent started): its
+  /// Session Info is its own and starts closed (sessionInfoState.ts `sessionInfoPaneKey`).
+  split?: boolean;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
   /// Environment's Remote Control switch (App.tsx, remoteControl.ts): absent, no row.
@@ -483,7 +488,7 @@ export function useSessionInfo({
   // The chat's state is read from its first frame (`useSessionInfoOpen(paneSession)`), before the bind,
   // and the panel is keyed by the chat, so a pane switched to another chat shows that chat's
   // Session Info at once instead of playing the last chat's panel out.
-  const paneSession = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  const paneSession = sessionInfoPaneKey(snapshot.sessionId ?? snapshot.summary?.sessionId, split);
   useLayoutEffect(() => bindSessionInfoPane(paneSession), [paneSession]);
   // Open alone: the width and the folds are the panel's (SessionInfoPresence), so a drag step or a fold
   // does not draw the whole chat pane again.

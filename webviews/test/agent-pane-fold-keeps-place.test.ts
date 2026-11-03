@@ -77,10 +77,11 @@ await requireBrowserLane("agent-pane-fold-keeps-place.test.ts", async () => {
     await installPaintedFrames(page);
     await page.addInitScript(() => localStorage.clear());
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: VARIANT })}`);
-    // The delivered lines sit in one "Received N messages" row (#32720): open it to reach them.
+    // The three delivered lines next to each other are one "Received 3 messages" row (#32720):
+    // open it, so fanout-infra's line shows.
     const received = page.locator(".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle").first();
     await received.waitFor();
-    if ((await received.getAttribute("aria-expanded")) !== "true") await received.click();
+    if ((await received.getAttribute("aria-expanded")) === "false") await received.click();
     await toggleOf(page).waitFor();
     await settled(page);
     return page;
