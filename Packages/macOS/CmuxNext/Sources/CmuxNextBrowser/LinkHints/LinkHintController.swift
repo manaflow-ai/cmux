@@ -40,6 +40,10 @@ public final class LinkHintController {
     var targetsAnswer: @MainActor (CEFTab) async -> [LinkHintTarget]? = LinkHintController.pageTargets
     /// Gives keys to the page they were typed into, in order; a test records them instead.
     var send: @MainActor ([NSEvent]) -> Void = LinkHintController.dispatch
+    /// Runs a label script (draw, narrow, remove) in `tab`'s page (nil: the call failed); a test answers instead.
+    var script: @MainActor (CEFTab, String) async -> BrowserJSValue? = LinkHintController.pageScript
+    /// How long the page may take to say whether a text field has the keyboard; a test that ends the wait itself sets it longer.
+    var answerBound: Duration = .milliseconds(500)
 
     public init() {}
 
@@ -69,7 +73,7 @@ public final class LinkHintController {
             guard !Task.isCancelled else { return }
             collected((false, targets ?? []), from: tab)
         }
-        bound.schedule(after: .milliseconds(500)) { @MainActor [weak self] in self?.answerTimedOut() }
+        bound.schedule(after: answerBound) { @MainActor [weak self] in self?.answerTimedOut() }
     }
 
     /// The page did not say within the bound whether a text field has the keyboard (a hung renderer, a closed tab): the
@@ -145,7 +149,11 @@ public final class LinkHintController {
         if current.keys.hints == nil, !current.noField { var pending = current.pending; deliver(pending.releaseAll()) } // hint keys never
         guard let tab = current.tab else { return }
         // task-owner: fire-and-forget overlay removal; nothing waits on it.
-        Task { _ = try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated, gesture: .cmux) }
+        Task { [script] in _ = await script(tab, LinkHintSession.removeScript) }
+    }
+
+    private static func pageScript(_ tab: CEFTab, _ source: String) async -> BrowserJSValue? {
+        try? await tab.evaluate(source, world: .isolated, gesture: .cmux)
     }
 
     /// Whether a text field of `tab`'s page has the keyboard: the focused element only (``LinkHintSession/focusScript``).
@@ -180,8 +188,8 @@ public final class LinkHintController {
         if resolved.noLinks { current.noLinks() }
         guard resolved.outcome != .passThrough, resolved.outcome != .cancel else { session = nil; return }
         let draw = LinkHintSession.drawScript(current.keys.hints ?? [])
-        work = Task { [weak self] in
-            _ = try? await tab.evaluate(draw, world: .isolated, gesture: .cmux)
+        work = Task { [weak self, script] in
+            _ = await script(tab, draw)
             guard !Task.isCancelled else { return }
             self?.apply(resolved.outcome, on: tab)
         }
@@ -207,8 +215,8 @@ public final class LinkHintController {
             guard current.keys.hints != nil else { return }
             // A newer prefix wins over a draw or narrow still in flight.
             work?.cancel()
-            work = Task { [weak self] in
-                let shown = try? await tab.evaluate(LinkHintSession.narrowScript(prefix), world: .isolated, gesture: .cmux)
+            work = Task { [weak self, script] in
+                let shown = await script(tab, LinkHintSession.narrowScript(prefix))
                 guard !Task.isCancelled, shown != .bool(true) else { return }
                 // The labels are gone (the page scrolled): end the session.
                 self?.cancel()
@@ -216,9 +224,9 @@ public final class LinkHintController {
         case .pick(let target):
             session = nil
             work?.cancel()
-            work = Task {
+            work = Task { [script] in
                 // Labels a scroll removed mean stale positions: click nothing.
-                guard (try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated, gesture: .cmux)) == .bool(true) else { return }
+                guard await script(tab, LinkHintSession.removeScript) == .bool(true) else { return }
                 switch current.keys.mode {
                 case .follow: await Self.click(target, in: tab)
                 case .newSplit: if let url = target.href { current.openInSplit(url) }
