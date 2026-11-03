@@ -130,6 +130,31 @@ await requireBrowserLane("menu-health-papercuts.browser.test.ts", async () => {
     }
   });
 
+  test("expanding a repository in a short folder popup keeps painted results still", async () => {
+    const page = await browser.newPage({ viewport: { width: 620, height: 180 }, deviceScaleFactor: 2 });
+    try {
+      const { port } = vite.httpServer!.address() as { port: number };
+      await page.goto(
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-context", {
+          variant: "lane-checkouts-open",
+          width: 620,
+          height: 180,
+        })}`,
+      );
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      expect(await page.locator(".acpmux-location-row[data-worktree]").count()).toBeGreaterThan(0);
+      const expansion = await page.evaluate(() =>
+        window.cmuxGalleryPlayReport!.steps.find((step) => step.step === "press ArrowRight"),
+      );
+      expect(expansion).toBeDefined();
+      // A clipped fragment of the next project must not disappear on expansion either:
+      // unchanged boxes alone miss this shift because that row ends outside the viewport.
+      expect(Math.max(expansion!.layoutShift, expansion!.boxShift ?? 0)).toBeLessThanOrEqual(0.0005);
+    } finally {
+      await page.close();
+    }
+  });
+
   for (const [entry, variant, width, height] of scenes) {
     test(`${entry}#${variant}: scope stays still and menu geometry follows its content`, async () => {
       const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 2 });
