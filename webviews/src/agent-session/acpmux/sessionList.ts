@@ -65,7 +65,7 @@ export type AcpmuxSessionEntry = {
   /** Started by a Chief (its `mux.parent` tag, `optchat-chief:<home>`): the Chief manages it. */
   chiefChild?: true;
   /** A Chief's own session (its turn or compactor, acpmux tag `cmux.chief` valued with the Chief's
-   *  home id, optchat-chief acpmux.rs `CHIEF_TAG`): a chat it starts is the Chief's, by name. */
+   *  home id, optchat-chief acpmux.rs `CHIEF_TAG`) or its subagent: a chat it starts is the Chief's. */
   chief?: true;
   /** A sub-session's name among its parent's (acpmux `shortName`, "tests"). */
   shortName?: string;
@@ -200,11 +200,12 @@ function chiefParent(tags: unknown): boolean {
 const CHIEF_TAG = "cmux.chief";
 
 /** A Chief's turn session name (optchat-chief host.rs `turn_prefix`): `optchat-<8 hex home id>`,
- *  then the turn's suffix. Read only when the tag has not reached the list yet. */
-const CHIEF_TURN_NAME = /^optchat-[0-9a-f]{8}(?:-|$)/;
+ *  then the turn's suffix; or its subagent's, `optchat-sub-<home id>-<id>` (host.rs, which tags it
+ *  `mux.parent` but not `cmux.chief`). A turn's name is read only until its tag reaches the list. */
+const CHIEF_TURN_NAME = /^optchat-(?:sub-)?[0-9a-f]{8}(?:-|$)/;
 
 /** Whether the session is a Chief's own: its `cmux.chief` tag, the Chief's harness (as NeedsYou
- *  reads it, needsYou/model.ts) or its turn session name. */
+ *  reads it, needsYou/model.ts), or its turn or subagent session name. */
 function chiefSession(session: Record<string, any>): boolean {
   if (tagValue(session.tags, CHIEF_TAG) || session.harness === "chief") return true;
   return typeof session.name === "string" && CHIEF_TURN_NAME.test(session.name);

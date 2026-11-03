@@ -33,6 +33,9 @@ test("a chat the Chief's own turn started is managed by the Chief, never by its 
   expect(managedBy("kid", named)).toEqual({ kind: "chief" });
   const harness = [entry("turn", { name: "x", harness: "chief" }), entry("kid", { startedBy: "turn" })];
   expect(managedBy("kid", harness)).toEqual({ kind: "chief" });
+  // A Chief subagent's raw name (optchat-sub-<home>-<id>) is the Chief's too.
+  const sub = [entry("sub", { name: "optchat-sub-b902d10e-a3" }), entry("kid", { startedBy: "sub" })];
+  expect(managedBy("kid", sub)).toEqual({ kind: "chief" });
   // Another agent's chat whose name only starts with optchat is not the Chief.
   expect(entry("p", { name: "optchat-notes" }).chief).toBeUndefined();
 });
