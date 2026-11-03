@@ -86,6 +86,12 @@ import Testing
         #expect(made.url == url.absoluteString)
         #expect(made.after == nil)
         #expect(made.split == ConversationTabSplit(direction: .right, paneID: provisional.paneID, splitID: provisional.splitID))
+
+        // The refused create ended the open's turn (`finished`, then RightColumnTurns' `done`): the next
+        // link beside the same pane is asked of the daemon too, not queued behind it forever.
+        #expect(services.linkOpener.openWeb(url, from: pane, background: false))
+        if creates.made.count < 2 { for await _ in creates.heard { break } }
+        #expect(creates.made.count == 2, "the first split open never ended its turn")
     }
 
     /// An older daemon (no `frontend-browser-tab-split-v1`) keeps the make-and-move path: the tab is

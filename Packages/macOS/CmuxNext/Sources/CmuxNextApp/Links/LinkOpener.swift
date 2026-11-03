@@ -156,18 +156,12 @@ final class LinkOpener {
             defer { done() }
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
         case .splitRight:
-            if let opened = split?(source, .right, { _ in done() }) {
-                if !opened { done() }
-                return opened
-            }
+            if let opened = split?(source, .right, { _ in done() }) { if !opened { done() }; return opened }
             return moved(from: source, to: .split(.right), background: background, focusing: focus, make, done: done)
         case .splitBelow(let id):
             // Made unselected in the pane on the right, which keeps showing what it shows, then moved below it.
             guard let right = source.workspace?.panes[id] else { defer { done() }; return make(source, nil) }
-            if let opened = split?(right, .down, { _ in done() }) {
-                if !opened { done() }
-                return opened
-            }
+            if let opened = split?(right, .down, { _ in done() }) { if !opened { done() }; return opened }
             return moved(from: right, to: .split(.bottom), background: background, focusing: focus, make, done: done)
         case .newColumn:
             return moved(from: source, to: .besideColumn, background: background, focusing: focus, make, done: done)

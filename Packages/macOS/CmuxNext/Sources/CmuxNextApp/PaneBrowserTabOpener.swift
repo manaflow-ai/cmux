@@ -106,6 +106,13 @@ struct PaneBrowserTabOpener {
             // It starts the move and owns the OutboundTab hold; selecting here after that callback
             // begins would release the hold and briefly restore Home's strip.
             let callerOwnsHomePlacement = controller.isOpenPinnedDockPane && placementOwner
+            // A tab for a new split (LinkOpener): made there, never shown in this pane first, and its
+            // `finished` ends the open's turn, so it goes before the in-pane stand-in.
+            if let split, child == nil {
+                openInSplit(split, choice: choice, address: url?.absoluteString ?? newTabAddress, focusesAddressBar: url == nil,
+                            profile: profile, notice: notice)
+                return true
+            }
             // A person's foreground tab: shown with its page in this turn (openStandIn). Not one aimed
             // at Home: the stand-in selects it in Home's dock, and its strip would come back (Lawrence
             // 2026-10-29: "chief in home should not have horizontal tabbar").
@@ -113,11 +120,6 @@ struct PaneBrowserTabOpener {
                                         placementOwner: placementOwner) {
                 openStandIn(choice, address: url?.absoluteString ?? newTabAddress, focusesAddressBar: url == nil,
                             profile: profile, notice: notice, then: then)
-                return true
-            }
-            if let split, child == nil {
-                openInSplit(split, choice: choice, address: url?.absoluteString ?? newTabAddress, focusesAddressBar: url == nil,
-                            profile: profile, notice: notice)
                 return true
             }
             let linkOpener = services.linkOpener
