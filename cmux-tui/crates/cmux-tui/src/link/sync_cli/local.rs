@@ -506,7 +506,12 @@ fn walk_plain(set: &mut LocalSet, rules: Rules, top: &Path, dir: &Path) -> anyho
             } else {
                 walk_plain(set, rules, top, &path)?;
             }
-        } else if let Some(why) = skips::secret(name).filter(|_| rules == Rules::Copy) {
+        } else if rules == Rules::Copy
+            && let Some(why) = skips::secret(name).or_else(|| {
+                cmux_tui_core::git_seed::secrets::reason(top, relative.as_bytes())
+                    .map(|_| Why::CredentialFile)
+            })
+        {
             set.skips.note(relative, why);
         } else {
             add(set, relative.to_string(), &path)?;
