@@ -93,7 +93,10 @@ export default agentPaneEntry({
       note: "The same run opened: each Background task finished line again, in order, and still no dot. Play: open the run.",
       snapshot: chat(fourFinished),
       checks: {
-        layoutShiftMax: { value: 0.5, reason: "Opening the run intentionally reveals its lines below the clicked line." },
+        layoutShiftMax: {
+          value: 0.5,
+          reason: "Opening the run intentionally reveals its lines below the clicked line.",
+        },
       },
       play: async (ctx) => {
         const line = { selector: `[data-row-id="${RUN}"] .cv-background-turn` };
