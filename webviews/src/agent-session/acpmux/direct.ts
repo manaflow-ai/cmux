@@ -1895,6 +1895,16 @@ export class AcpmuxDirectClient {
   /// any attach answered. The pane's host reads it in the first-paint report and shows such a chat
   /// in one frame instead of fading it in (tailCache.ts, AgentPaneView+Loading.swift).
   private drewKeptTail = false;
+  /// A kept tail a cold open drew while its socket was still connecting (`drawTailWhileConnecting`):
+  /// the chat, the selection it was drawn for and the newest seq drawn. The open's attach takes it
+  /// as the tail it lays its page over, as it does a tail it read itself; anything that clears the
+  /// rows (`resetSessionState`) clears it.
+  private earlyTail?: { sessionId: string; generation: number; through: number };
+  /// The selection an open in flight may still draw a tail for while it connects; cleared once
+  /// the open reaches its own draw, which then decides.
+  private earlyTailWindow?: number;
+  /// The hold the open in flight keeps on its snapshots, so a tail drawn while it waits releases it.
+  private openHold?: number;
   /// The selected peer chat was drawn from the Mac's copy of it (peerCopy.ts): set from the draw
   /// until an attach reads the chat, and kept, `offline`, while its machine does not answer.
   private peerCopy?: PeerCopy;
@@ -2314,7 +2324,8 @@ export class AcpmuxDirectClient {
     // socket connects and acpmux lists the chats, so drawing it below costs this open no round
     // trip of its own (tailCache.ts). A page that read the chat itself has the newer tail.
     const cold = this.selectedSessionId;
-    if (cold && this.events.length === 0 && !keptTail(cold)) void readHostTail(cold).catch(() => undefined);
+    if (cold && this.events.length === 0 && this.lastSeq === 0 && this.peerCopy?.sessionId !== cold)
+      void this.drawTailWhileConnecting(cold, this.selectionGeneration);
     // Over the bridge the URL names nothing: the host knows its daemon.
     const url = new URL(this.host.endpoint ?? BRIDGE_URL);
     const protocols = this.host.token ? tokenProtocols(this.host.token) : undefined;
@@ -2384,6 +2395,7 @@ export class AcpmuxDirectClient {
     // The pane keeps what it shows (the page's cached chat, or the chat before a reconnect) until
     // the open has read the chat: no half-read frame (an empty transcript, no composer) in between.
     const hold = this.holdSnapshots(OPEN_HOLD_MS);
+    this.openHold = hold;
     let early: EarlyAttach | undefined;
     try {
       const initialized = await this.request("initialize", {
@@ -2531,7 +2543,21 @@ export class AcpmuxDirectClient {
         heldCopy.attaching = true;
         heldCopy.offline = false;
       }
-      const resumeAfter = heldCopy ? 0 : this.lastSeq;
+      // A tail this open drew while its socket connected is the open's tail, not a reconnect's
+      // events: the attach lays its page over it as over a tail read here. From here on the open
+      // draws any tail itself, so a host answer still in flight no longer does.
+      const earlyTail = this.earlyTail;
+      const drawnEarly =
+        sessionId !== undefined && earlyTail?.sessionId === sessionId && earlyTail.generation === generation
+          ? earlyTail
+          : undefined;
+      // Taken once: a later open on these rows (a reconnect) holds the chat's own events and
+      // resumes from them.
+      this.earlyTail = undefined;
+      this.earlyTailWindow = undefined;
+      // Its rows are on screen already: the pane draws the chat as it comes, as after any kept tail.
+      if (drawnEarly) this.releaseSnapshots(hold);
+      const resumeAfter = heldCopy || drawnEarly ? 0 : this.lastSeq;
       // The attach asked with the list is the open's only while it is of the chat opened now, on
       // this machine as the list names it: anything else (another chat chosen, a chat on another
       // machine, which may be down and draw the Mac's copy first) is attached as before.
@@ -2550,8 +2576,8 @@ export class AcpmuxDirectClient {
         // in flight: from this page when it read the chat before, else from the app host, which is
         // what makes a chat opened in a NEW TAB instant too (tailCache.ts). Only on a cold page: a
         // reconnect already holds the chat's own events, which are newer than any tail.
-        let keptThrough = heldCopy?.lastSeq ?? 0;
-        if (!heldCopy && resumeAfter === 0 && this.events.length === 0) {
+        let keptThrough = heldCopy?.lastSeq ?? drawnEarly?.through ?? 0;
+        if (!heldCopy && !drawnEarly && resumeAfter === 0 && this.events.length === 0) {
           const hostTail = readHostTail(sessionId).catch(() => undefined);
           // An attach that answered already is newer than any tail the host holds: the chat draws
           // from it rather than waiting out the host's read (at most `HOST_TAIL_READ_MS`).
@@ -2681,6 +2707,7 @@ export class AcpmuxDirectClient {
     this.olderDelay.cancel();
     // Nothing is drawn, so nothing drawn came from a kept tail: the next open says for itself.
     this.drewKeptTail = false;
+    this.earlyTail = undefined;
     this.peerCopy = undefined;
     this.copyLive = undefined;
     this.drawnGeneration = undefined;
@@ -3063,6 +3090,36 @@ export class AcpmuxDirectClient {
     this.resetSessionState();
     this.rebuild();
     this.emit("failed");
+  }
+
+  /// A cold open's kept tail, drawn as soon as the app host answers, while the socket still
+  /// connects (#32735). Before this the tail waited for the socket, `initialize` and the chat list:
+  /// each of those crosses the app's bridge, so on a loaded Mac a chat the app had read showed the
+  /// pane's loading mark for seconds while its rows sat in the host's memory. The open's attach
+  /// then lays acpmux's page over these rows (`attachWatched`), and a failed attach drops them,
+  /// as it does a tail drawn after the socket opened.
+  private async drawTailWhileConnecting(sessionId: string, generation: number): Promise<void> {
+    this.earlyTailWindow = generation;
+    const kept = keptTail(sessionId) ?? (await readHostTail(sessionId).catch(() => undefined));
+    if (
+      !kept ||
+      this.closed ||
+      this.earlyTailWindow !== generation ||
+      generation !== this.selectionGeneration ||
+      this.selectedSessionId !== sessionId ||
+      this.events.length > 0 ||
+      this.lastSeq > 0 ||
+      this.peerCopy !== undefined
+    )
+      return;
+    const through = this.drawKeptTail(sessionId, kept);
+    if (through === 0) return;
+    this.earlyTail = { sessionId, generation, through };
+    this.drewKeptTail = true;
+    // The open's hold keeps the pane on what it showed until the chat is read; these rows are
+    // the chat, so the hold ends here (a hold of a later open has its own key and stays).
+    if (this.openHold !== undefined) this.releaseSnapshots(this.openHold);
+    this.emit("selected");
   }
 
   private drawKeptTail(sessionId: string, kept = keptTail(sessionId)): number {
@@ -4074,7 +4131,17 @@ export class AcpmuxDirectClient {
   /// daemon lacks fails there, waking and marking nothing.
   private askEarly(): EarlyAttach | undefined {
     const sessionId = this.selectedSessionId;
-    if (!sessionId || this.events.length > 0 || this.lastSeq > 0 || this.peerCopy?.sessionId === sessionId)
+    // A kept tail this open drew while it connected is no reason to wait for the list: its attach
+    // lays the page over those rows as over any kept tail.
+    const drawnEarly =
+      sessionId !== undefined &&
+      this.earlyTail?.sessionId === sessionId &&
+      this.earlyTail.generation === this.selectionGeneration;
+    if (
+      !sessionId ||
+      (!drawnEarly && (this.events.length > 0 || this.lastSeq > 0)) ||
+      this.peerCopy?.sessionId === sessionId
+    )
       return undefined;
     const known = this.sessions.find((session) => session.sessionId === sessionId) ?? keptTail(sessionId)?.summary;
     if (typeof (known as { peer?: unknown } | undefined)?.peer === "string") return undefined;
