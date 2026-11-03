@@ -878,12 +878,14 @@ export class CmuxClient {
       workspace_key: workspaceKey,
     });
   }
-  newScreen(options: NewScreenOptions = {}): Promise<SurfaceResult> { return this.request("new-screen", options); }
-  async newPane(pane: Id, options: NewPaneOptions = {}): Promise<SurfaceResult> {
+  // Result types come from the generated command map (sdk-schema.json), never a hand-picked type: a field the
+  // schema adds to a reply (`pane`, the new pane) reaches the caller.
+  newScreen(options: NewScreenOptions = {}): Promise<CmuxResponseDataFor<"new-screen">> { return this.request("new-screen", options); }
+  async newPane(pane: Id, options: NewPaneOptions = {}): Promise<CmuxResponseDataFor<"new-pane">> {
     await this.requireProtocol(9, "new-pane");
     return this.request("new-pane", { pane, ...options });
   }
-  split(pane: Id, dir: SplitDirection, options: SplitOptions = {}): Promise<SurfaceResult> {
+  split(pane: Id, dir: SplitDirection, options: SplitOptions = {}): Promise<CmuxResponseDataFor<"split">> {
     return this.request("split", { pane, dir, ...options });
   }
   setRatio(pane: Id, dir: SplitDirection, ratio: number): Promise<EmptyResult> {
