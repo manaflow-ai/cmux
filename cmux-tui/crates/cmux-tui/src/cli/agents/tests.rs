@@ -319,7 +319,9 @@ fn snapshot_shows_agent_chat_tabs_the_daemon_lists_as_browsers() {
 #[test]
 fn dialog_answers_name_who_answers() {
     let env = |pairs: &'static [(&'static str, &'static str)]| {
-        move |key: &str| pairs.iter().find(|(name, _)| *name == key).map(|(_, value)| (*value).to_owned())
+        move |key: &str| {
+            pairs.iter().find(|(name, _)| *name == key).map(|(_, value)| (*value).to_owned())
+        }
     };
     let params = json!({"request_id": "r", "selections": ["start"]});
     // The person's terminal: cli, no caller.

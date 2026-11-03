@@ -207,7 +207,8 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     selection: String,
                 }
                 let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                let caller = ask::caller(request.origin.as_deref(), request.agent_session.as_deref());
+                let caller =
+                    ask::caller(request.origin.as_deref(), request.agent_session.as_deref());
                 let choice = ask::choice(&request.selection);
                 let verdict = choice.map(|choice| ask::answer(caller, request.delegated, choice));
                 serde_json::to_vec(&serde_json::json!({

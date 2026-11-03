@@ -36,25 +36,30 @@ fn ask_an_agent_is_refused_start_without_delegation() {
 
 #[test]
 fn ask_the_persons_terminal_may_start() {
-    let (_, body) =
-        call(c"cloud_ask_answer", &json!({"origin": "cli", "delegated": false, "selection": "Start"}));
+    let (_, body) = call(
+        c"cloud_ask_answer",
+        &json!({"origin": "cli", "delegated": false, "selection": "Start"}),
+    );
     assert_eq!(body, json!({"caller": "person", "choice": "start", "verdict": "allowed"}));
 }
 
 #[test]
 fn ask_a_delegated_agent_may_start_and_anyone_may_decline() {
-    let (_, body) =
-        call(c"cloud_ask_answer", &json!({"origin": "mcp", "delegated": true, "selection": "allow"}));
+    let (_, body) = call(
+        c"cloud_ask_answer",
+        &json!({"origin": "mcp", "delegated": true, "selection": "allow"}),
+    );
     assert_eq!(body["verdict"], "allowed");
-    let (_, body) =
-        call(c"cloud_ask_answer", &json!({"delegated": false, "selection": "Not now"}));
+    let (_, body) = call(c"cloud_ask_answer", &json!({"delegated": false, "selection": "Not now"}));
     assert_eq!(body, json!({"caller": "agent", "choice": "notNow", "verdict": "allowed"}));
 }
 
 #[test]
 fn ask_an_unknown_selection_is_no_choice() {
-    let (_, body) =
-        call(c"cloud_ask_answer", &json!({"origin": "cli", "delegated": true, "selection": "always"}));
+    let (_, body) = call(
+        c"cloud_ask_answer",
+        &json!({"origin": "cli", "delegated": true, "selection": "always"}),
+    );
     assert_eq!(body["choice"], Value::Null);
     assert_eq!(body["verdict"], Value::Null);
 }
