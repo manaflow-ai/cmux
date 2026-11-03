@@ -1258,8 +1258,9 @@ const TickList = memo(function TickList({
 }) {
   const t = useT();
   const marks = usePromptMarks(sessionId);
-  // An entrance belongs to a logical prompt, not each virtualized DOM mount. Only the first
-  // visible set and prompts appended later enter. Prepending history introduces no animation.
+  // An entrance belongs to a logical prompt, not each virtualized DOM mount. Only
+  // prompts appended later enter. Initial history paints at its final geometry, as it does on
+  // subsequent virtualized mounts. Prepending history introduces no animation.
   // ticks stays identical during streaming; only a changed prompt list scans for its old tail.
   const committed = useRef<
     | {
@@ -1275,9 +1276,7 @@ const TickList = memo(function TickList({
     const tail = initial ? undefined : entrance!.ticks.at(-1)?.key;
     const after = tail === undefined ? -1 : ticks.findIndex((tick) => tick.key === tail);
     const pending = new Set(initial ? [] : entrance!.pending);
-    if (initial) {
-      for (const [from, to] of ranges) for (let index = from; index < to; index++) pending.add(ticks[index]!.key);
-    } else if (after >= 0 || entrance!.ticks.length === 0) {
+    if (!initial && (after >= 0 || entrance!.ticks.length === 0)) {
       for (let index = after + 1; index < ticks.length; index++) pending.add(ticks[index]!.key);
     }
     entrance = { sessionId, ticks, pending };
