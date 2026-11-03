@@ -73,4 +73,59 @@ import Testing
         #expect(made <= Self.budget(sidebar.list), "the first frame built \(made) row views (\(Self.placement(sidebar)))")
         #expect(sidebar.list.rowViews[.workspace(WorkspaceID("first-rows-0"))] != nil, "the active top row has no view")
     }
+
+    /// Review of #34134 (P2): an active row already wholly in view in the first viewport does not move (close-focus.md
+    /// rule 7). The first-viewport reveal scrolled with its 8 pt padding, so a row near the bottom edge moved up.
+    @Test func anActiveRowAlreadyInTheFirstViewportDoesNotMove() throws {
+        // The last workspace row wholly in the list at offset 0, read from the list's own layout (the section header
+        // and the chrome above the rows count), with less than the 8 pt reveal padding below it.
+        let (probe, probeWindow, _) = Self.firstFrame(active: 0)
+        let clipHeight = probe.list.enclosingScrollView?.contentView.bounds.height ?? Self.height
+        let whole = probe.list.displayed.rows.compactMap { row -> (Int, CGFloat)? in
+            guard case let .workspace(id) = row.key, let index = Int(id.rawValue.split(separator: "-").last ?? ""),
+                  row.y + row.height <= clipHeight else { return nil }
+            return (index, row.y + row.height)
+        }
+        probeWindow.close()
+        let (lastWhole, bottom) = try #require(whole.max { $0.1 < $1.1 }, "no workspace row is wholly in the list")
+        try #require(lastWhole > 2, "the list shows \(clipHeight) pt")
+        let (sidebar, window, _) = Self.firstFrame(active: lastWhole)
+        defer { window.close() }
+        let clip = try #require(sidebar.list.enclosingScrollView?.contentView)
+        let row = try #require(sidebar.list.rowViews[.workspace(WorkspaceID("first-rows-\(lastWhole)"))])
+        #expect(clip.bounds.contains(row.frame), "the active row is not wholly in view (\(Self.placement(sidebar)))")
+        #expect(clip.bounds.minY == 0,
+                "the first frame scrolled to \(clip.bounds.minY) for row \(lastWhole), already in view (bottom \(bottom) of \(clipHeight))")
+    }
+
+    /// Review of #34134 (P3): the app's usual order. The sidebar is made with no workspaces (`SidebarBridge`), the window
+    /// lays it out, and the restored rows arrive after the list has a height (`applyKeepingViewport`'s first rows).
+    @Test func rowsThatArriveAfterTheFirstLayoutAreBuiltOnce() throws {
+        _ = NSApplication.shared
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [])])
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: Self.height), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = sidebar
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: Self.height)
+        sidebar.layoutSubtreeIfNeeded()
+        window.orderFrontRegardless()
+        _ = SidebarPerfCounters.report(reset: true)
+        let ids = (0..<Self.count).map { WorkspaceID("first-rows-\($0)") }
+        model.setSections([SidebarSection(kind: .machine(machine), nodes: ids.enumerated().map { index, id in
+            .workspace(SidebarWorkspace(id: id, title: "project-\(index)", directory: "~/p\(index)"))
+        })])
+        model.activeWorkspaceID = ids[Self.active]
+        sidebar.renderNow()
+        sidebar.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        let made = SidebarPerfCounters.report(reset: true)["row_views_made"] ?? 0
+        #expect(made <= Self.budget(sidebar.list), "the restored rows built \(made) row views (\(Self.placement(sidebar)))")
+        let row = try #require(sidebar.list.rowViews[.workspace(ids[Self.active])], "the active row has no view (\(Self.placement(sidebar)))")
+        let clip = try #require(sidebar.list.enclosingScrollView?.contentView)
+        #expect(clip.bounds.intersects(row.frame))
+    }
 }
