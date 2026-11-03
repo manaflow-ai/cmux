@@ -27,6 +27,66 @@ pub const TAIL_LINES: usize = 5;
 /// The longest output line the note shows, in characters.
 const LINE_MAX: usize = 300;
 
+/// A watch command that polls GitHub for a PR's merge, said as one wait on
+/// glaeda's daemon (the host's only GitHub poller), or None to keep it as is.
+/// `gh pr view N -R OWNER/REPO ...` (or a PR URL) with `until` naming MERGED
+/// becomes `glaeda-gh wait pr OWNER/REPO#N --until merged` that prints
+/// MERGED, so the watch matches the same line (Leo, 2026-11-02: one PR-merge
+/// watch re-ran `gh pr view` every 15 s for 13 h on the shared quota).
+pub fn quota_safe(command: &str, until: Option<&str>, timeout_seconds: u64) -> Option<String> {
+    // Only a plain wait for the word MERGED, from one `gh pr view` with no
+    // other condition: anything else keeps its own semantics.
+    if !until.is_some_and(|u| matches!(u.trim(), "MERGED" | "^MERGED$" | "^MERGED")) {
+        return None;
+    }
+    if ["&&", "||", ";", "|", "`", "$("]
+        .iter()
+        .any(|op| command.contains(op))
+        || command.matches("pr view").count() != 1
+    {
+        return None;
+    }
+    let words: Vec<&str> = command.split_whitespace().collect();
+    let at = words
+        .windows(3)
+        .position(|w| (w[0] == "gh" || w[0].ends_with("/gh")) && w[1] == "pr" && w[2] == "view")?;
+    let rest = &words[at + 3..];
+    let target = rest.iter().find(|w| !w.starts_with('-'))?;
+    let (repo, number) = if let Some(path) = target.strip_prefix("https://github.com/") {
+        let parts: Vec<&str> = path.trim_end_matches('/').split('/').collect();
+        match parts.as_slice() {
+            [owner, name, "pull", n, ..] => (format!("{owner}/{name}"), n.to_string()),
+            _ => return None,
+        }
+    } else {
+        let repo = rest
+            .windows(2)
+            .find(|w| w[0] == "-R" || w[0] == "--repo")
+            .map(|w| w[1].to_owned())
+            .or_else(|| {
+                rest.iter()
+                    .find_map(|w| w.strip_prefix("--repo=").map(str::to_owned))
+            })?;
+        (repo, target.to_string())
+    };
+    let ok_repo = repo.split('/').count() == 2
+        && repo
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'));
+    if !ok_repo || number.is_empty() || !number.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(format!(
+        "glaeda-gh wait pr {repo}#{number} --until merged --timeout {timeout_seconds} >/dev/null && echo MERGED"
+    ))
+}
+
+/// Whether `glaeda-gh` is on this host's PATH.
+pub fn glaeda_available() -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join("glaeda-gh").is_file()))
+}
+
 /// How a watch ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ending {

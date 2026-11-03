@@ -141,6 +141,21 @@ struct Bucket {
     priced: bool,
     compactions: u64,
     spawns: u64,
+    /// Model calls, and of them the ones with a list price (`cost_usd` is theirs).
+    calls: u64,
+    priced_calls: u64,
+    /// The calls' prompt tokens: what the cache served, and what it did not (input and writes).
+    prompt_read: u64,
+    prompt_rest: u64,
+}
+
+/// Of the day's prompt tokens (input, cache reads and cache writes), the share the prompt cache
+/// served, to four places (0.9431); None with no prompt tokens. A higher share is a cheaper call:
+/// a cache read costs a tenth of fresh input, and a 5-minute cache that goes cold between calls
+/// writes the whole prompt again.
+fn cache_read_share(day: &Bucket) -> Option<f64> {
+    let total = day.prompt_read.saturating_add(day.prompt_rest);
+    (total > 0).then(|| (day.prompt_read as f64 / total as f64 * 10_000.0).round() / 10_000.0)
 }
 
 /// One file read so far.
@@ -266,6 +281,10 @@ impl Tracker {
             day.cost_usd += b.cost_usd;
             day.compactions = day.compactions.saturating_add(b.compactions);
             day.spawns = day.spawns.saturating_add(b.spawns);
+            day.calls = day.calls.saturating_add(b.calls);
+            day.priced_calls = day.priced_calls.saturating_add(b.priced_calls);
+            day.prompt_read = day.prompt_read.saturating_add(b.prompt_read);
+            day.prompt_rest = day.prompt_rest.saturating_add(b.prompt_rest);
             priced |= b.priced;
             if minute.saturating_add(MINUTE_MS) > now.saturating_sub(HOUR_MS) {
                 hour_spawns = hour_spawns.saturating_add(b.spawns);
@@ -289,6 +308,10 @@ impl Tracker {
             // Rounded to the cent's hundredth: a sum of list prices, not a bill.
             cost_usd24h: (self.complete && priced)
                 .then(|| (day.cost_usd * 10_000.0).round() / 10_000.0),
+            calls24h: known(day.calls),
+            cache_read_share24h: cache_read_share(&day).filter(|_| self.complete),
+            cost_per_call_usd24h: (self.complete && day.priced_calls > 0)
+                .then(|| (day.cost_usd / day.priced_calls as f64 * 1e8).round() / 1e8),
             updated_at: now,
         }
     }
@@ -393,9 +416,14 @@ impl Tracker {
                 let cost = models.prices(&model).map(|p| t.cost(&p));
                 if let Some(b) = self.bucket(at, now) {
                     b.tokens = b.tokens.saturating_add(t.total);
+                    b.calls = b.calls.saturating_add(1);
+                    b.prompt_read = b.prompt_read.saturating_add(t.cache_read);
+                    b.prompt_rest =
+                        b.prompt_rest.saturating_add(t.input).saturating_add(t.cache_write);
                     if let Some(cost) = cost {
                         b.cost_usd += cost;
                         b.priced = true;
+                        b.priced_calls = b.priced_calls.saturating_add(1);
                     }
                 }
             }

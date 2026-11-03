@@ -10,6 +10,7 @@
 // still. The live counts sit in the section's head ("3 running · 40 done", `subagentCounts`). Leo
 // 2026-10-21: the row of identical avatars it replaces opened nothing anyone could tell apart.
 import { memo, useState } from "react";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { waveIndices } from "../../../ui/wave";
@@ -39,7 +40,7 @@ import { SESSION_INFO_WAVE_STYLE } from "./native/wave";
 export const SUBAGENTS_SHOWN = 5;
 const NO_SESSIONS: readonly StartedSession[] = [];
 
-/// "1 waiting · 3 running · 40 done" for the section's head, the started chats counted with the
+/// "1 waiting · 3 running · 1 queued · 40 done" for the section's head, the started chats counted with the
 /// subagents, or nothing for neither.
 /// With the clock (`now`), a subagent quiet past IDLE_AFTER_MS counts as idle, as its line reads:
 /// the head and the lines read one status each (Leo, 2026-11-02: "but what's going on with these?").
@@ -50,12 +51,16 @@ export function subagentCounts(
   sessions: readonly StartedSession[] = NO_SESSIONS,
   now?: number,
 ): string {
+  // A chat acpmux holds for a free slot (`waitsForSlot`) is queued, as the running limit's line
+  // says, never done or idle by its state.
+  const queued = sessions.filter((child) => child.waitsForSlot).length;
   const count = (status: SubagentStatus) =>
     agents.filter((agent) => subagentStatus(agent, waiting, now) === status).length +
-    sessions.filter((child) => sessionStatus(child) === status).length;
+    sessions.filter((child) => !child.waitsForSlot && sessionStatus(child) === status).length;
   return [
     count("waiting") > 0 && t("summary.subagents.waiting", { n: count("waiting") }),
     count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
+    queued > 0 && t("sessionInfo.subagents.limit.queued", { n: queued }),
     count("idle") > 0 && t("summary.subagents.idle", { n: count("idle") }),
     count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
     count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
@@ -198,6 +203,7 @@ export function SubagentsSection({
   const now = useNow(agents.some(running));
   const [more, setMore] = useState(false);
   const [endedOpen, setEndedOpen] = useState(false);
+  const endedEdges = useScrollEdges();
   const agentLine = (agent: Subagent, depth: number): Line => {
     const status = subagentStatus(agent, waiting, now);
     return {
@@ -304,7 +310,10 @@ export function SubagentsSection({
             <Icon name={endedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
           </button>
           {endedOpen && (
-            <ul className="acpmux-summary-list acpmux-session-info-scroll acpmux-session-info-subagents__list">
+            <ul
+              ref={endedEdges}
+              className="acpmux-summary-list acpmux-session-info-scroll acpmux-session-info-subagents__list ui-scroll-edge-fade"
+            >
               {endedLines.map((item, index) => line(item, index, false))}
             </ul>
           )}

@@ -1319,6 +1319,19 @@ fn start(
                     .map(|v| format!("{v:#}"))
                     .map_err(late)
             }
+            ControlRequest::RightsHook { phase, payload } => {
+                let (reply, answer) = channel();
+                tx.send(Input::RightsHook {
+                    phase,
+                    payload,
+                    reply,
+                })
+                .map_err(stopping)?;
+                answer
+                    .recv_timeout(Duration::from_secs(10))
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
             ControlRequest::SpawnPolicy => {
                 let (reply, answer) = channel();
                 tx.send(Input::SpawnPolicy { reply }).map_err(stopping)?;
@@ -1740,7 +1753,26 @@ fn start(
     // The app watches only the default Chief's state/ (cx-oqnw3 review): another
     // Chief still hears a compactor fault as its message until the app watches its home.
     .with_compactor_messages(membership.participant != crate::chief_profile::DEFAULT_CHIEF)
-    .with_workspaces(workspaces);
+    .with_workspaces(workspaces)
+    // Sign-ins that wait on the person go to the app's Feed (Needs you).
+    .with_feed(
+        crate::needs_you_feed::ControlSocketFeed::from_env(&|k: &str| env(k))
+            .map(|f| Arc::new(f) as Arc<dyn crate::needs_you_feed::FeedPort>),
+    );
+    // The rights table and the audit log (rights.rs, audit.rs);
+    // OPTCHAT_RIGHTS=0 turns both off.
+    let brain = if env("OPTCHAT_RIGHTS").as_deref() == Some("0") {
+        brain
+    } else {
+        brain.with_rights(crate::brain::RightsCtx::new(
+            paths.root.clone(),
+            // The turns' login is the harness's, not this process's: only
+            // the owner's declaration (`/auth`) counts, else personal.
+            None,
+            host_name(),
+            Some(paths.session.display().to_string()),
+        ))
+    };
     let mut brain = brain;
     brain.set_sub_starter(sub_starter);
     let idle = brain.cloud_auto_pause_idle();
@@ -2290,4 +2322,17 @@ fn native_env(setup: &SessionSetup, paths: &Paths) -> BTreeMap<String, String> {
 /// socket's turn binding, turn_caller.rs): `optchat-<home id>`.
 fn turn_prefix(home: &std::path::Path) -> String {
     format!("optchat-{}", crate::paths::home_id(home))
+}
+
+/// This machine's name, for the audit log.
+fn host_name() -> String {
+    let mut buf = [0u8; 256];
+    // SAFETY: gethostname writes at most buf.len() bytes into our buffer.
+    let ok = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0;
+    let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
+    if ok && end > 0 {
+        String::from_utf8_lossy(&buf[..end]).into_owned()
+    } else {
+        "unknown-host".to_owned()
+    }
 }

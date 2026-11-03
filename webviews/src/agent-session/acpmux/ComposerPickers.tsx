@@ -509,7 +509,12 @@ export function ComposerPickers({
     fork?.to(picked);
   };
   const land = (pickedModel: string, pickedEffort?: string) => {
-    // Any new pick replaces a combo still waiting on its effort.
+    // Any new pick replaces a combo still waiting on its effort, but a second pick of the model that
+    // combo waits for (its Fast, its level, from a menu that stays open) keeps waiting with it.
+    const waiting =
+      pending.current?.model === pickedModel && pending.current.sessionId === summary?.sessionId
+        ? pending.current
+        : undefined;
     pending.current = undefined;
     const pickEffort = (value: string) => {
       if (presession && harness) setHeldPick({ harness, value });
@@ -523,6 +528,8 @@ export function ComposerPickers({
           : undefined;
       onModel(pickedModel);
       if (pickedEffort && presession) pickEffort(pickedEffort);
+    } else if (waiting && current !== pickedModel) {
+      pending.current = pickedEffort ? { ...waiting, effort: pickedEffort } : waiting;
     } else if (
       pickedEffort &&
       pickedEffort !== currentEffort &&
@@ -611,11 +618,16 @@ export function ComposerPickers({
   // harness's default last resolved to, else the model placeholder.
   // The model a New Tab starts a chat on `agent` with (newTabStart, newTabChipSnapshot): the last
   // pick here, else its profile's, else its first listed model, else the catalog's default.
-  const startingModel = (agent: string) => {
+  const startingId = (agent: string) => {
     const entry = pickerCatalog?.harnesses.find((candidate) => (candidate.acpmuxHarness ?? candidate.id) === agent);
     const asked = defaultModel(agent, snapshot.catalog, harnessProfiles, folder ?? summary?.cwd);
     const id = asked && !isDefaultChoice({ id: asked }) ? asked : entry?.defaultModel;
-    if (!id || isDefaultChoice({ id })) return undefined;
+    return id && !isDefaultChoice({ id }) ? id : undefined;
+  };
+  const startingModel = (agent: string) => {
+    const entry = pickerCatalog?.harnesses.find((candidate) => (candidate.acpmuxHarness ?? candidate.id) === agent);
+    const id = startingId(agent);
+    if (!id) return undefined;
     const name =
       entry?.models.find((choice) => choice.id === id)?.name ??
       models.find((choice) => choice.id === id)?.name ??
@@ -733,6 +745,9 @@ export function ComposerPickers({
     snapshot.catalog.find((entry) => entry.id === chipHarness),
     models,
   );
+  // The model the chip names before the session reports one: the model menu checks it.
+  const predictedModel =
+    shown === undefined || defaulted ? (starting && chipHarness ? startingId(chipHarness) : resolvedId) : undefined;
   const modelName =
     listedName ??
     (opensListed
@@ -1020,6 +1035,7 @@ export function ComposerPickers({
           catalog={pickerEntries}
           harness={harness}
           model={shown}
+          {...(predictedModel ? { predictedModel } : {})}
           label={modelName ?? t(PICKER_LABELS.model)}
           sessionAuth={signIn?.sessionAuth}
           onSessionLogin={signIn?.loginSession}
@@ -1397,6 +1413,8 @@ export function ContextRing({
   used,
   size,
   setup,
+  cacheExpiresAt,
+  now,
   breakdown: reported,
   onOpenDetails,
 }: {
@@ -1404,6 +1422,10 @@ export function ContextRing({
   size?: number;
   /// Tokens the agent took before the conversation; the card splits it out when known.
   setup?: number;
+  /// When the chat's prompt cache lapses (unix ms, from acpmux); the card counts down to it.
+  cacheExpiresAt?: number;
+  /// The clock the cache countdown reads (the gallery pins it).
+  now?: () => number;
   /// Claude Code's /context (`summary.contextBreakdown`): its categories replace the bar and parts.
   breakdown?: unknown;
   /// Opens Session Info at its Context section; the card shows Details › only with it.
@@ -1579,6 +1601,8 @@ export function ContextRing({
               used={used}
               size={size}
               setup={setup}
+              cacheExpiresAt={cacheExpiresAt}
+              now={now}
               breakdown={reported}
               onOpenDetails={
                 onOpenDetails &&
