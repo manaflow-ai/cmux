@@ -278,11 +278,12 @@ test("the cap card's Run on This Mac ends the start; a changed prompt, folder or
 test("a kept key expires after a day, and a store that refuses writes still dedupes this page's retries", () => {
   let now = 1_000;
   const store = memoryStore();
-  const keys = cloudStartKeys(store, () => now, counter());
+  const next = counter();
+  const keys = cloudStartKeys(store, () => now, next);
   const start = { task: "t", home: true };
   const first = keys.keyFor(start);
   now += 25 * 60 * 60 * 1000;
-  expect(cloudStartKeys(store, () => now, counter()).keyFor(start)).not.toBe(first);
+  expect(cloudStartKeys(store, () => now, next).keyFor(start)).not.toBe(first);
 
   const refusing = cloudStartKeys(
     {
