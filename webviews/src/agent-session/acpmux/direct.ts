@@ -6106,8 +6106,11 @@ export class AcpmuxDirectClient {
       if (this.markBackgroundCall(task, event.at)) return;
       // Without its call (on a page not loaded) only how it ended is noted.
       if (task.state === "running") return;
-      // Noted where it ended: the text and tool fold before it close, as a tool call's would.
-      this.endAssistantSegment();
+      // Noted where it ended: the tool fold before it closes, as a tool call's would. A message still
+      // streaming stays open: its words keep their row, which the note sorts after, so the note
+      // never splits one message's text (Leo, 2026-11-03: "this chat's text stream got cut in the
+      // middle by a tool call which is weird").
+      if (!this.streamingAssistant) this.endAssistantSegment();
       this.streamingActivity = undefined;
       const id = `bgtask-${event.seq}`;
       this.rows.set(id, {
