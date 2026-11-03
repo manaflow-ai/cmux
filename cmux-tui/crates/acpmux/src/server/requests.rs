@@ -271,7 +271,7 @@ fn brief_for(hub: &Hub, conn: &Conn, mut row: Value) -> Result<Value, RpcError> 
     if conn.origin != Origin::Peer {
         return Ok(row);
     }
-    if !hub.brief_ran_here(&row) {
+    if !hub.brief_ran_here(&row) && !workflow_dispatch::local_reservation(&row) {
         return Err(RpcError::invalid_params(
             "another brief has this briefId or idempotencyKey; dispatch with new ones",
         )
@@ -295,6 +295,15 @@ async fn dispatch_brief(
     }
     let brief = dispatch_text(&params)?;
     let durable = workflow_dispatch::requested(&params)?;
+    let cancelling = match params.get("action").and_then(Value::as_str) {
+        None | Some("start") => false,
+        Some("cancel") if durable => true,
+        _ => {
+            return Err(RpcError::invalid_params(
+                "dispatch action must be start or durable cancel",
+            ));
+        }
+    };
     let id = params
         .get("briefId")
         .and_then(Value::as_str)
@@ -549,8 +558,10 @@ async fn dispatch_brief(
     }
     // A new lane that starts here is checked here too, whoever sent it (`place::here_refusal`);
     // a replay of a brief already taken (above) starts nothing and answers as before.
-    if let Some(why) = super::place::here_refusal(super::place::brief_work(&brief)) {
-        hub.briefs.release(&id);
+    if !cancelling && let Some(why) = super::place::here_refusal(super::place::brief_work(&brief)) {
+        if !durable {
+            hub.briefs.release(&id);
+        }
         return Err(RpcError::invalid_params(format!(
             "this host is not allowed for this dispatch ({why}); `acpmux host place` lists the hosts that are"
         ))
@@ -559,6 +570,9 @@ async fn dispatch_brief(
     if durable {
         let row = json!({"briefId":id,"title":title,"brief":brief,"from":from,"to":to,
             "target":selected,"host":if forwarded {params.get("host").cloned().unwrap_or(json!("local"))}else{json!("local")},"stopCondition":stop,"fromSession":conn.caller()});
+        if cancelling {
+            return Box::pin(workflow_dispatch::cancel(hub, conn, &params, &id, row)).await;
+        }
         return Box::pin(workflow_dispatch::local(hub, conn, &params, &id, new_params, row)).await;
     }
     let created =

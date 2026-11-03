@@ -2085,6 +2085,7 @@ mod pending;
 mod place;
 mod processes;
 mod workflow_activity;
+pub(crate) use workflow_activity::owner_call as workflow_owner_call;
 mod workflow_runs;
 mod worktrees;
 pub mod ws_auth;

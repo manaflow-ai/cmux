@@ -77,6 +77,11 @@ pub(super) fn check(row: &Value, identity: &Identity) -> Result<(), RpcError> {
     Ok(())
 }
 
+pub(super) fn local_reservation(row: &Value) -> bool {
+    row.get("durable").and_then(Value::as_bool) == Some(true)
+        && row.get("dispatchLocal").and_then(Value::as_bool) == Some(true)
+}
+
 pub(super) fn pending(params: &Value, id: &str, identity: &Identity, host: &str) -> Value {
     json!({"briefId":id,"brief":params["brief"],"title":params["title"],"host":host,
         "status":"starting","sessionId":identity.session_id,"promptId":identity.prompt_id,
@@ -154,6 +159,53 @@ pub(super) async fn cache_remote(
     hub.briefs.put_durable(row).map_err(|error| RpcError::internal(error.to_string()))
 }
 
+/// Cancelling names exactly the durable prompt, never whichever turn happens
+/// to occupy a session. A pre-launch tombstone also fences a delayed dispatch.
+pub(super) async fn cancel(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: &Value,
+    id: &str,
+    mut row: Value,
+) -> Result<Value, RpcError> {
+    let identity = identity(params, id);
+    let flight = flight(hub, id);
+    let _gate = flight.gate.lock().await;
+    if let Some(previous) = hub.briefs.get(id) {
+        check(&previous, &identity)?;
+        if !local_reservation(&previous) {
+            return Err(RpcError::invalid_params(
+                "durable dispatch destination is already pinned; retry to reattach",
+            ));
+        }
+        row = brief_for(hub, conn, previous)?;
+    } else {
+        row.set("sessionId", json!(identity.session_id));
+        row.set("promptId", json!(identity.prompt_id));
+        row.set("dispatchFingerprint", json!(identity.fingerprint));
+        row.set("durable", json!(true));
+        row.set("dispatchLocal", json!(true));
+    }
+    if row.get("outcome").is_none() {
+        row.set("status", json!("cancelled"));
+        row.set("dispatchCancelled", json!(true));
+        row.set(
+            "outcome",
+            json!({"Err":RpcError::new(-32000,"workflow prompt was cancelled")
+            .with_data(json!({"reason":"workflow.cancelled"}))}),
+        );
+        row = hub.briefs.put_durable(row).map_err(|e| RpcError::internal(e.to_string()))?;
+    }
+    if row.get("dispatchCancelled").and_then(Value::as_bool) == Some(true) {
+        hub.wait_store().await;
+        if let Ok(session) = hub.resolve(&identity.session_id) {
+            hub.workflow_cancel_dispatch_prompt(&session, &identity.prompt_id).await?;
+        }
+    }
+    flight.changed.notify_waiters();
+    Ok(json!({"brief":row}))
+}
+
 /// Called after dispatch's ordinary origin/person/trust and destination role
 /// checks. The ordinary session/new path repeats its own checks too; only its
 /// private identity argument differs from a normal create.
@@ -171,7 +223,7 @@ pub(super) async fn local(
     let _gate = flight.gate.lock().await;
     if let Some(previous) = hub.briefs.get(id) {
         check(&previous, &identity)?;
-        if !previous.get("host").and_then(Value::as_str).is_some_and(names_this_host) {
+        if !local_reservation(&previous) {
             return Err(RpcError::invalid_params(
                 "durable dispatch destination is already pinned; retry to reattach",
             ));
@@ -182,6 +234,7 @@ pub(super) async fn local(
         row.set("promptId", json!(identity.prompt_id));
         row.set("dispatchFingerprint", json!(identity.fingerprint));
         row.set("durable", json!(true));
+        row.set("dispatchLocal", json!(true));
         row.set("status", json!("starting"));
         row = hub.briefs.put_durable(row).map_err(|e| RpcError::internal(e.to_string()))?;
     }
@@ -244,23 +297,41 @@ pub(super) async fn local(
     tokio::spawn(async move {
         let hub = task_hub;
         let id = task_row["briefId"].as_str().unwrap_or_default().to_owned();
-        let outcome = hub
-            .prompt_with(
-                &session,
-                vec![json!({"type":"text","text":task_row["brief"]})],
-                &conn.label(),
-                false,
-                crate::hub::PromptOptions {
-                    prompt_id: Some(identity.prompt_id.clone()),
-                    resend: true,
-                    control,
-                    trust_gate,
-                    agent: task_row["from"].as_str().map(str::to_owned),
-                    full_access_device: device,
-                    ..Default::default()
-                },
-            )
-            .await;
+        let gate = task_flight.gate.lock().await;
+        if hub
+            .briefs
+            .get(&id)
+            .is_some_and(|row| row.get("dispatchCancelled").and_then(Value::as_bool) == Some(true))
+        {
+            task_flight.active.store(false, Ordering::SeqCst);
+            task_flight.changed.notify_waiters();
+            return;
+        }
+        let (accepted, mut admission) = tokio::sync::oneshot::channel();
+        let label = conn.label();
+        let future = hub.prompt_with(
+            &session,
+            vec![json!({"type":"text","text":task_row["brief"]})],
+            &label,
+            false,
+            crate::hub::PromptOptions {
+                prompt_id: Some(identity.prompt_id.clone()),
+                resend: true,
+                on_accepted: Some(Box::new(move |value| {
+                    let _ = accepted.send(value);
+                })),
+                control,
+                trust_gate,
+                agent: task_row["from"].as_str().map(str::to_owned),
+                full_access_device: device,
+                ..Default::default()
+            },
+        );
+        tokio::pin!(future);
+        let outcome = tokio::select! {
+            result = &mut future => {drop(gate); result},
+            _ = &mut admission => {drop(gate); future.await},
+        };
         let outcome = outcome.and_then(|outcome| {
             let reply = hub.workflow_final_reply(&session, &identity.prompt_id, &outcome)?;
             Ok(json!({"promptOutcome":outcome,"finalReply":reply}))
@@ -272,7 +343,13 @@ pub(super) async fn local(
             serde_json::to_value(outcome)
                 .unwrap_or_else(|e| json!({"Err":{"code":-32603,"message":e.to_string()}})),
         );
-        if let Err(error) = hub.briefs.put_durable(row) {
+        let _gate = task_flight.gate.lock().await;
+        // A pause may have fenced this task while its harness was settling.
+        let cancelled = hub
+            .briefs
+            .get(&id)
+            .is_some_and(|row| row.get("dispatchCancelled").and_then(Value::as_bool) == Some(true));
+        if !cancelled && let Err(error) = hub.briefs.put_durable(row) {
             tracing::warn!(brief_id=id, %error, "persist durable dispatch outcome");
             *task_flight.failure.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some(error.to_string());

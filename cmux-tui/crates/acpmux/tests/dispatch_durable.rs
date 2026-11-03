@@ -92,3 +92,71 @@ fn durable_peer_dispatch_replays_the_same_child_and_exact_reply() {
             hub.shutdown_all().await;
         });
 }
+
+#[test]
+fn durable_cancel_fences_delayed_dispatch_and_only_its_exact_prompt() {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .thread_stack_size(32 << 20)
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let hub = hub();
+            let params = json!({"briefId":"before-start","durable":true,"host":"local",
+                "title":"Workflow cancel fence","brief":"until-cancel","cwd":std::env::temp_dir(),
+                "harness":"fake","policy":"ask","allowedTools":[]});
+            let mut cancel = params.clone();
+            cancel["action"] = json!("cancel");
+            let tombstone =
+                call(&hub, Some(Origin::Peer), method::MUX_DISPATCH, cancel.clone()).await.unwrap();
+            let sid = tombstone["brief"]["sessionId"].as_str().unwrap();
+            assert!(hub.resolve(sid).is_err(), "pre-launch cancellation created a child");
+            let mut late = params.clone();
+            late["wait"] = json!(true);
+            let late = call(&hub, Some(Origin::Peer), method::MUX_DISPATCH, late).await.unwrap();
+            assert_eq!(late["brief"]["dispatchCancelled"], true);
+            assert!(hub.resolve(sid).is_err(), "late dispatch escaped its cancellation tombstone");
+            // This races admission and cancellation. A destination that has not
+            // accepted the prompt must never send it after the tombstone.
+            let mut racing = params;
+            racing["briefId"] = json!("race-start");
+            let mut stop = racing.clone();
+            stop["action"] = json!("cancel");
+            let (start, stop) = tokio::join!(
+                call(&hub, Some(Origin::Peer), method::MUX_DISPATCH, racing.clone()),
+                call(&hub, Some(Origin::Peer), method::MUX_DISPATCH, stop)
+            );
+            let start = start.unwrap();
+            let stop = stop.unwrap();
+            assert_eq!(start["brief"]["sessionId"], stop["brief"]["sessionId"]);
+            assert_eq!(stop["brief"]["dispatchCancelled"], true);
+            let sid = stop["brief"]["sessionId"].as_str().unwrap();
+            // Send a later unrelated turn, then replay the old cancellation.
+            // An implementation that forwarded session/cancel would kill this turn.
+            if hub.resolve(sid).is_ok() {
+                let reply = call(
+                    &hub,
+                    None,
+                    method::SESSION_PROMPT,
+                    json!({"sessionId":sid,"prompt":[{"type":"text","text":"later-person"}]}),
+                )
+                .await
+                .unwrap();
+                assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+                let mut stale = racing;
+                stale["action"] = json!("cancel");
+                call(&hub, Some(Origin::Peer), method::MUX_DISPATCH, stale).await.unwrap();
+                let mut count = 0;
+                hub.scan_events(sid, 0, &mut |event| {
+                    if event.kind == "turn_started" {
+                        count += 1;
+                    }
+                    true
+                })
+                .unwrap();
+                assert!(count <= 2, "late prompt dispatched more than once");
+            }
+            hub.shutdown_all().await;
+        });
+}

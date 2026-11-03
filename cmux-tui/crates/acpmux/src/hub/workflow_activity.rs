@@ -6,6 +6,7 @@ use crate::workflow_reply::{
 };
 use crate::workflow_runs::{ActivityRecord, Child, RunRecord};
 use serde::{Deserialize, Serialize};
+mod remote;
 
 #[derive(Serialize, Deserialize, Default)]
 struct Policy {
@@ -38,6 +39,16 @@ impl Hub {
         prompt: &str,
         options: &Value,
     ) -> Result<Value, RpcError> {
+        if options.get("on").is_some_and(|host| host.as_str().is_none()) {
+            return Err(RpcError::invalid_params("on must name a machine"));
+        }
+        if let Some(host) = options.get("on").and_then(Value::as_str)
+            && host != "local"
+            && host != crate::hub::host_label()
+            && matches!(&activity.child, Child::Agent { .. })
+        {
+            return Box::pin(self.workflow_remote_agent(run, generation, activity, prompt, options, host)).await;
+        }
         match &activity.child {
             Child::Machine { session_id, task_id, .. } => {
                 let gate = self.workflow_runs.gate(&run.id).lock_owned().await;
@@ -562,8 +573,10 @@ impl Hub {
             child.outcome.is_none() && (child.id == activity || child.id.starts_with(&prefix))
         }) {
             match &child.child {
-                Child::Agent { session_id, prompt_id, .. } => {
-                    if let Ok(session) = self.resolve(session_id) {
+                Child::Agent { session_id, prompt_id, host } => {
+                    if host.as_deref().is_some_and(|host| host != "local") {
+                        self.workflow_cancel_remote(run, child).await?;
+                    } else if let Ok(session) = self.resolve(session_id) {
                         self.remove_queued(&session, prompt_id);
                         self.cancel_prompt(&session, prompt_id).await?;
                     }

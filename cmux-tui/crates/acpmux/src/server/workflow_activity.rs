@@ -131,6 +131,7 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     // Command execution on peers remains denied by bg_tasks. A requested placement never
     // silently falls back to this daemon's machine.
     if let Some(host) = options.get("on").and_then(Value::as_str)
+        && kind == "machine"
         && host != "local"
         && host != crate::hub::host_label()
     {
@@ -151,7 +152,15 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     let key = crate::workflow_runs::digest(&format!("{id}:{activity}"));
     let session = format!("wf-{key}");
     let child = if kind == "agent" {
-        Child::Agent { session_id: session, prompt_id: format!("wf-{key}-initial"), host: None }
+        Child::Agent {
+            session_id: session,
+            prompt_id: format!("wf-{key}-initial"),
+            host: options
+                .get("on")
+                .and_then(Value::as_str)
+                .filter(|host| *host != "local" && *host != crate::hub::host_label())
+                .map(str::to_owned),
+        }
     } else {
         Child::Machine {
             session_id: run.owner_session_id.clone(),
@@ -208,4 +217,72 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
         }
     }
     Ok(json!({"id":activity}))
+}
+
+/// An in-process request uses the same initialize caller proof and complete RPC
+/// guards as the workflow runner. This creates no person identity and stores no
+/// credential in the workflow record.
+pub(crate) fn owner_call<'a>(
+    hub: &'a Arc<Hub>,
+    owner: &'a str,
+    method: &'a str,
+    params: Value,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, RpcError>> + Send + 'a>> {
+    Box::pin(async move {
+        use crate::rpc::Message;
+        use tokio::sync::mpsc;
+        let (send, input) = mpsc::channel(4);
+        let (output, mut receive) = mpsc::channel(256);
+        struct Connection(tokio::task::JoinHandle<()>);
+        impl Drop for Connection {
+            fn drop(&mut self) {
+                self.0.abort();
+            }
+        }
+        let _connection =
+            Connection(tokio::spawn(super::serve_connection(hub.clone(), input, output)));
+        let mut hello = json!({"protocolVersion":1,"clientInfo":{"name":"workflow","version":crate::hub::VERSION}});
+        hello["_meta"] = json!({"acpmux":{}});
+        hello["_meta"]["acpmux"][crate::hub::person::CALLER_FIELD] = json!({
+            "sessionId":owner,"token":crate::hub::person::caller_token(owner)});
+        for (id, method, params) in
+            [(1, crate::rpc::method::INITIALIZE, hello), (2, method, params)]
+        {
+            send.send(Message::request(id, method, params).to_line())
+                .await
+                .map_err(|_| RpcError::internal("workflow RPC connection closed"))?;
+            loop {
+                let line = receive
+                    .recv()
+                    .await
+                    .ok_or_else(|| RpcError::internal("workflow RPC response missing"))?;
+                let reply: Value =
+                    serde_json::from_str(&line).map_err(|e| RpcError::internal(e.to_string()))?;
+                if reply.get("id") != Some(&json!(id)) {
+                    continue;
+                }
+                if let Some(error) = reply.get("error") {
+                    return Err(serde_json::from_value(error.clone())
+                        .map_err(|e| RpcError::internal(e.to_string()))?);
+                }
+                let answer = reply
+                    .get("result")
+                    .cloned()
+                    .ok_or_else(|| RpcError::internal("workflow RPC result missing"))?;
+                if id == 1 {
+                    if answer.pointer("/_meta/acpmux/callerSessionId").and_then(Value::as_str)
+                        != Some(owner)
+                    {
+                        return Err(RpcError::invalid_params(
+                            "workflow owner proof was not accepted",
+                        ));
+                    }
+                } else {
+                    return Ok(answer);
+                }
+                break;
+            }
+        }
+        Err(RpcError::internal("workflow RPC returned no result"))
+    })
 }
