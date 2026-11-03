@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudCredentials
+import CmuxNextCloudTunnel
 import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextControl
@@ -41,6 +42,16 @@ final class CloudService {
     @ObservationIgnored let harnessLoginCopySwitch = CloudHarnessLoginCopySwitch()
     @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
+    /// The opt-in Cloud Tunnel (plans/cmux-next/cloud-tunnel-DESIGN.md), off by default. Built on first
+    /// use; building it reads only the bundle and this process's signature.
+    @ObservationIgnored private(set) lazy var systemTunnel = CloudTunnelController(
+        availability: CloudTunnelBundleProbe(bundle: .main).availability(),
+        activator: LiveSystemExtensionActivator(),
+        manager: LiveTunnelManager(),
+        enroller: CloudTunnelBrowserEnroller(api: api, paths: paths, deviceName: Self.deviceName)
+    )
+    /// Applies `cloud.tunnel.enabled` to ``systemTunnel``.
+    @ObservationIgnored let systemTunnelSync = CloudTunnelSettingSync()
     /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
     @ObservationIgnored var proOfferOpen = false
     /// Each machine list that carries the plan (`limits.planId`) reports it: the paid-plan welcome step
@@ -899,6 +910,8 @@ final class CloudService {
         do { try await AcpmuxEnvironment.clearPeerTails(build: LaunchIdentity.current().build, work: work) } catch { logger.error("clear peer tails on sign-out: \(String(describing: error), privacy: .public)") }
         desktopRdTokens.removeAll()
         if let hub { await hub.revoke() }
+        // The revoke above removed the tunnel's peer too; its saved VPN configuration goes with it.
+        if systemTunnel.status != .off { await systemTunnel.disable() }
         // Revoke the install while the Stack session still exists.
         if let stackUser = auth.user?.id {
             let auth = auth

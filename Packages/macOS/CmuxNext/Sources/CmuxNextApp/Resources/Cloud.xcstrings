@@ -17493,6 +17493,142 @@
         "uk": {"stringUnit": {"state": "needs_review", "value": "Не вдається прочитати %@, тому нічого не доставлено. Виправте або видаліть файл, потім знову збережіть секрети командою cmux cloud secret set."}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể đọc %@ nên chưa gửi gì. Hãy sửa hoặc xóa tệp, rồi lưu lại bí mật bằng cmux cloud secret set."}}
       }
+    },
+    "cloudTunnel.describe.awaitingApproval": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow the cmux network extension in System Settings > General > Login Items & Extensions. The tunnel starts right after."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム設定 > 一般 > ログイン項目と機能拡張 で cmux のネットワーク拡張を許可してください。許可するとすぐにトンネルが開始します。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.describe.connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On. Every app on this Mac can reach your Cloud machines' private addresses."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンです。この Mac のすべてのアプリから Cloud マシンのプライベートアドレスに接続できます。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.describe.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中…"
+          }
+        }
+      }
+    },
+    "cloudTunnel.describe.disconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turning off…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフにしています…"
+          }
+        }
+      }
+    },
+    "cloudTunnel.describe.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off. Other apps on this Mac cannot reach your Cloud machines."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフです。この Mac の他のアプリは Cloud マシンに接続できません。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Tunnel"
+          }
+        }
+      }
+    },
+    "cloudTunnel.unavailable.notBundled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build of cmux does not include the Cloud Tunnel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux ビルドには Cloud Tunnel が含まれていません。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.unavailable.notSigned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build of cmux is not signed to install the Cloud Tunnel. Use cmux or cmux NIGHTLY."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux ビルドは Cloud Tunnel をインストールできる署名がありません。cmux または cmux NIGHTLY を使ってください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

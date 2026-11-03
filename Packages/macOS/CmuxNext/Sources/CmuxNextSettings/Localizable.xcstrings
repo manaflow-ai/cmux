@@ -3148,6 +3148,30 @@
         }
       }
     },
+    "settings.cloud.tunnel.enabled": {
+      "comment": "Settings > Machines: the Cloud Tunnel toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cloud Tunnel"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud Tunnel"}}
+      }
+    },
+    "settings.cloud.tunnel.enabled.help": {
+      "comment": "Settings > Machines: help for the Cloud Tunnel toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Lets every app on this Mac reach your Cloud machines' private addresses, like a VPN for your Cloud network only. macOS asks you to allow the cmux network extension once. cmux itself does not need it."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この Mac のすべてのアプリから Cloud マシンのプライベートアドレスに接続できるようにします。Cloud ネットワーク専用の VPN のようなものです。macOS が cmux のネットワーク拡張の許可を一度だけ求めます。cmux 自体には必要ありません。"}}
+      }
+    },
+    "settings.group.cloudTunnel": {
+      "comment": "Settings > Machines: the Cloud Tunnel group.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cloud Tunnel"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud Tunnel"}}
+      }
+    },
     "settings.home.bubbleColors.default": {
       "comment": "Default label of the Home bubble color rows (home.bubbleColors.*): unset keeps the Bubble Style's color.",
       "extractionState": "manual",

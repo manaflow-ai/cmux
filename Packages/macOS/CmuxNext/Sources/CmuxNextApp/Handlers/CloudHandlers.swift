@@ -21,6 +21,7 @@ enum CloudHandlers {
         bindBrowserActions(into: registry, context: context, reason: signedInReason)
         CloudGitHubHandlers.bind(into: registry, context: context, reason: signedInReason)
         bindNetworkActions(into: registry, context: context, reason: signedInReason)
+        bindSystemTunnelActions(into: registry, context: context, signedIn: signedInReason, reason: reason)
         bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindListActions(into: registry, context: context)
         CloudStartSession.bind(into: registry, context: context, reason: signedInReason)

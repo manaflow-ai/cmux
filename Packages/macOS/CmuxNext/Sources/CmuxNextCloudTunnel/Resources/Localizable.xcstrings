@@ -1,0 +1,91 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "cloudTunnel.error.notInstalled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud Tunnel's VPN configuration is missing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Tunnel の VPN 構成がありません。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.status.activationEnded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS did not finish installing the cmux Cloud Tunnel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS が cmux Cloud Tunnel のインストールを完了しませんでした。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.status.finishSetup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setup was not finished. Turn the Cloud Tunnel on again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セットアップが完了していません。Cloud Tunnel をもう一度オンにしてください。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.status.reboot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart your Mac to finish installing the cmux Cloud Tunnel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud Tunnel のインストールを完了するには Mac を再起動してください。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.status.stopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud Tunnel stopped. Turn it off and on to retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Tunnel が停止しました。オフにしてからオンにすると再試行します。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}
