@@ -83,7 +83,6 @@ export const ORDER_KEY = "cmux.agentPane.inspector.order";
 type Order = readonly SessionInfoSectionId[];
 
 let page: Order = [];
-let appIds: SessionInfoSectionId[] = [];
 /// The storage text `page` was read from (undefined: not read yet).
 let pageRaw: string | null | undefined;
 /// The page's order is newer than storage's: storage is missing or refused the last write.
@@ -109,7 +108,7 @@ function storedText(): string | null {
 /// The known ids of `ids`, each once, in the order given.
 function known(ids: readonly unknown[], among: readonly SessionInfoSectionId[]): SessionInfoSectionId[] {
   return ids.filter(
-    (id, at): id is SessionInfoSectionId => ((among as readonly unknown[]).includes(id) || isAppId(id)) && ids.indexOf(id) === at,
+    (id, at): id is SessionInfoSectionId => (among as readonly unknown[]).includes(id) && ids.indexOf(id) === at,
   );
 }
 
@@ -130,13 +129,6 @@ function fill(
   return next;
 }
 
-const isAppId = (id: unknown): id is SessionInfoSectionId => typeof id === "string" && /^app:[^#]+#[^#]+$/.test(id);
-
-export function registerAppSectionIds(ids: readonly SessionInfoSectionId[]): void {
-  for (const id of ids) if (isAppId(id) && !appIds.includes(id)) appIds.push(id);
-  for (const listener of listeners) listener();
-}
-
 export function parseOrder(raw: string | null | undefined): Order {
   let value: unknown;
   try {
@@ -144,15 +136,15 @@ export function parseOrder(raw: string | null | undefined): Order {
   } catch {
     return [];
   }
-  if (Array.isArray(value)) return known(value, [...DEFAULT_ORDER, ...appIds]);
+  if (Array.isArray(value)) return known(value, DEFAULT_ORDER);
   if (!value || typeof value !== "object") return [];
   // The per-block order of #27291: the blocks one after another, a block nobody dragged in its
   // default order.
   const blocks = value as Record<string, unknown>;
   const dragged = (group: SessionInfoGroupId) =>
     Array.isArray(blocks[group]) ? known(blocks[group] as unknown[], GROUP_SECTIONS[group]) : [];
-  if (GROUPS.every((group) => dragged(group).length === 0)) return known(Array.isArray(blocks.apps) ? blocks.apps : [], appIds);
-  return [...GROUPS.flatMap((group) => fill(dragged(group), GROUP_SECTIONS[group])), ...known(Array.isArray(blocks.apps) ? blocks.apps : [], appIds)];
+  if (GROUPS.every((group) => dragged(group).length === 0)) return [];
+  return GROUPS.flatMap((group) => fill(dragged(group), GROUP_SECTIONS[group]));
 }
 
 /// The order: storage's, read again whenever its text changed (another pane's drag, even one made
@@ -185,8 +177,7 @@ function subscribe(listener: () => void) {
 /// Every section in the person's order. A section the saved order lacks (new since the drag) takes
 /// the place after the one it follows by default.
 export function sectionOrder(order: Order = read()): SessionInfoSectionId[] {
-  const defaults = [...PRIORITY_SECTIONS, ...appIds, ...MORE_SECTIONS];
-  return fill(order, defaults);
+  return fill(order, DEFAULT_ORDER);
 }
 
 export function useSectionOrder(): SessionInfoSectionId[] {
@@ -233,7 +224,6 @@ export function setSectionOrder(shown: readonly SessionInfoSectionId[]) {
 /// Tests: forget the page's copy, so the next read is storage's.
 export function resetSectionOrderForTests() {
   page = [];
-  appIds = [];
   pageRaw = undefined;
   unsaved = false;
 }
