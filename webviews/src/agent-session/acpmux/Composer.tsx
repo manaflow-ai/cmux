@@ -5,6 +5,7 @@ import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
+import { useScrollEdges } from "../../ui/scrollEdges";
 import { ComposerListLayer, useComposerListBox } from "./backdropLayer";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
@@ -2572,13 +2573,15 @@ function SlashMenu({
   const end = virtual ? view.end : matches.length;
 
   // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
+  const listEdges = useScrollEdges();
   const escape = useEscapingList("top", 6, undefined, box);
   const setList = useCallback(
     (node: HTMLDivElement | null) => {
       list.current = node;
+      listEdges(node);
       escape?.(node);
     },
-    [escape],
+    [escape, listEdges],
   );
   // The menu may be squeezed below its CSS 296px cap in a short pane.
   useLayoutEffect(() => {
@@ -2625,7 +2628,7 @@ function SlashMenu({
   return (
     <div
       ref={setList}
-      className="ui-popup ui-glass acpmux-slash-menu"
+      className="ui-popup ui-glass acpmux-slash-menu ui-scroll-edge-fade"
       id="acpmux-slash-menu"
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listbox"
