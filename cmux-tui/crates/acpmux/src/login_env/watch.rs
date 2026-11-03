@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 use notify::Watcher as _;
@@ -33,13 +33,28 @@ pub fn start() {
     dirs.sort();
     dirs.dedup();
     let (tx, rx) = std::sync::mpsc::channel();
+    let Some(source) = source(&dirs, tx) else { return };
+    let spawned =
+        std::thread::Builder::new().name("acpmux-login-env-watch".into()).spawn(move || {
+            // The thread owns the event source: its events stop only with the process.
+            let _source = source;
+            run(&rx, &files, &rt);
+        });
+    if let Err(e) = spawned {
+        tracing::warn!("login env: the startup-file watcher thread cannot start: {e}");
+    }
+}
+
+/// What a watch of `dirs` sends on `tx`: kept alive for as long as events should come. None when
+/// no folder could be watched.
+fn source(dirs: &[PathBuf], tx: Sender<notify::Result<notify::Event>>) -> Option<Box<dyn Send>> {
     let mut watcher = match notify::recommended_watcher(move |event| {
         let _ = tx.send(event);
     }) {
         Ok(watcher) => watcher,
         Err(e) => {
             tracing::warn!("login env: the startup-file watcher cannot start: {e}");
-            return;
+            return None;
         }
     };
     let mut any = false;
@@ -49,18 +64,7 @@ pub fn start() {
             Err(e) => tracing::debug!("login env: cannot watch {}: {e}", dir.display()),
         }
     }
-    if !any {
-        return;
-    }
-    let spawned =
-        std::thread::Builder::new().name("acpmux-login-env-watch".into()).spawn(move || {
-            // The thread owns the watcher: its events stop only with the process.
-            let _watcher = watcher;
-            run(&rx, &files, &rt);
-        });
-    if let Err(e) = spawned {
-        tracing::warn!("login env: the startup-file watcher thread cannot start: {e}");
-    }
+    any.then(|| Box::new(watcher) as Box<dyn Send>)
 }
 
 /// Each file as listed, plus the same name under its folder's real path
@@ -124,5 +128,35 @@ fn run(
         }
         let _guard = rt.enter();
         super::refresh(false);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A program that only opens and reads a file in a watched folder sends nothing: the shell's
+    /// folder (`/usr/bin`) and `/etc` are opened by every program that starts, and each open
+    /// woke the daemon (about 1,300 a second on a busy agent VM). A write still arrives.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_read_in_a_watched_folder_sends_nothing_and_a_write_arrives() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("profile");
+        std::fs::write(&file, "export A=1\n").unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let source = source(&[dir.path().to_path_buf()], tx).expect("the folder is watched");
+        for _ in 0..20 {
+            let _ = std::fs::read_to_string(&file).unwrap();
+        }
+        let read = rx.recv_timeout(Duration::from_millis(300));
+        assert!(read.is_err(), "a read sent an event: {read:?}");
+        std::fs::write(&file, "export A=2\n").unwrap();
+        let wrote = rx.recv_timeout(Duration::from_secs(5)).expect("a write sends an event");
+        assert!(
+            touches(&wrote, std::slice::from_ref(&file)),
+            "the write did not name the file: {wrote:?}"
+        );
+        drop(source);
     }
 }
