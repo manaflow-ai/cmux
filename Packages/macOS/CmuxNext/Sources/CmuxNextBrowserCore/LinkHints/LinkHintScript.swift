@@ -42,6 +42,37 @@ public nonisolated extension LinkHintSession {
     })()
     """
 
+    /// Returns true while the page's keyboard focus may be typing: the
+    /// deepest focused element (through open shadow roots and same-origin
+    /// frames) is a text field, a contenteditable or a design-mode
+    /// document, or is a frame cmux cannot look into (cross-origin). A bare
+    /// key Chromium reports unhandled starts link hints only when this is
+    /// false: Chromium's `focus_on_editable_field` can miss a rich editor
+    /// such as Gmail's compose body, and hints then took the letters typed
+    /// after `f` (https://github.com/manaflow-ai/cmux/issues/32982).
+    static let typingScript = """
+    (() => {
+      const textTypes = /^(text|search|email|url|tel|password|number|date|datetime-local|month|week|time)$/i;
+      let doc = document;
+      for (let depth = 0; depth < 32; depth++) {
+        if (doc.designMode === 'on') return true;
+        let element = doc.activeElement;
+        while (element && element.shadowRoot && element.shadowRoot.activeElement) element = element.shadowRoot.activeElement;
+        if (!element || element === doc.body || element === doc.documentElement) return false;
+        if (element.isContentEditable) return true;
+        const tag = (element.tagName || '').toUpperCase();
+        if (tag === 'TEXTAREA' || tag === 'SELECT') return !element.disabled && !element.readOnly;
+        if (tag === 'INPUT') return !element.disabled && !element.readOnly && textTypes.test(element.type || 'text');
+        if (tag !== 'IFRAME' && tag !== 'FRAME') return false;
+        let inner = null;
+        try { inner = element.contentDocument; } catch (error) { inner = null; }
+        if (!inner) return true;
+        doc = inner;
+      }
+      return true;
+    })()
+    """
+
     /// Draws `labels` (uppercase, monospace) at each target's top-left
     /// corner, replacing any earlier labels.
     package static func drawScript(_ hints: [(label: String, target: LinkHintTarget)]) -> String {
