@@ -66,7 +66,10 @@ struct CloudStartChat {
             services.cloud.logger.error("cloud start chat failed: \(message, privacy: .public)")
             // A failure a retry can help (the machine didn't connect, a copy that timed out) offers Retry: the
             // same start again under its key, so a machine already made or a folder already copied is reused.
-            let retry: (@MainActor () -> Void)? = (error as? CloudMove.Failure)?.retry == nil ? nil : { [services] in
+            let tabID = tab.id
+            let retry: (@MainActor @Sendable () -> Void)? = (error as? CloudMove.Failure)?.retry == nil ? nil : { [weak services] in
+                // The tab is found again by id: a tab closed since then retries nothing.
+                guard let services, let (tab, _) = services.locateTab(tabID) else { return }
                 // task-owner: one retried start; it ends with its own toast
                 _ = Task { _ = await CloudStartChat(services: services).reply(start, tab: tab) }
             }
