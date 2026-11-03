@@ -532,7 +532,7 @@ pub(super) fn exec(
                     calls += 1;
                     let ok = answered["ok"] == true;
                     let state = answered["error"]["state"].as_str().map(str::to_owned);
-                    applied |= ok || state.as_deref() == Some("in_progress");
+                    applied |= ok || matches!(state.as_deref(), Some("in_progress" | "completed"));
                     if records.len() < MAX_CALL_RECORDS {
                         let mut record = json!({"name": name, "ok": ok});
                         if let Some(state) = state {
@@ -993,29 +993,90 @@ fn closed() -> Value {
     json!({"ok": false, "message": "the server stopped", "error": {"state": "not_run"}})
 }
 
-/// Images a script's calls returned that one `cmux_exec` result carries
-/// (a computer use screenshot, a `video_frames` call's frames), and their
-/// total base64 bytes.
-const MAX_IMAGES: usize = super::video_tools::MAX_FRAMES;
-const MAX_IMAGE_BYTES: usize = 8 << 20;
+/// Inline previews only. Every further original is kept in the owning chat's file store.
+const INLINE_IMAGES: usize = super::video_tools::MAX_FRAMES;
+const INLINE_IMAGE_BYTES: usize = 8 << 20;
+
+pub(super) struct Images {
+    pub content: Vec<Value>,
+    session: String,
+    inline_count: usize,
+    inline_bytes: usize,
+}
+
+impl Images {
+    pub fn new() -> Self {
+        Self {
+            content: Vec::new(),
+            // A standalone MCP client has no chat to purge. Its content-addressed originals
+            // stay in its own private namespace, so a returned reference does not expire.
+            session: std::env::var(super::AGENT_SESSION_ENV)
+                .ok()
+                .filter(|id| !id.is_empty())
+                .unwrap_or_else(|| "standalone-mcp".into()),
+            inline_count: 0,
+            inline_bytes: 0,
+        }
+    }
+
+    fn push(&mut self, block: Value) -> Result<Value, String> {
+        let data = block.get("data").and_then(Value::as_str).unwrap_or_default();
+        let mime = block.get("mimeType").and_then(Value::as_str).unwrap_or("image/png");
+        if self.inline_count < INLINE_IMAGES
+            && data.len() <= INLINE_IMAGE_BYTES.saturating_sub(self.inline_bytes)
+        {
+            let index = self.inline_count;
+            let placeholder = json!({"type": "image", "image": index, "mimeType": mime});
+            self.inline_count += 1;
+            self.inline_bytes += data.len();
+            self.content.push(block);
+            return Ok(placeholder);
+        }
+        // The MCP server is already on a blocking thread. The shared writer decodes borrowed
+        // base64 in bounded chunks, atomically publishes, and retains files until chat purge.
+        let path =
+            acpmux::hub::save_tool_result_image(&self.session, data, mime).map_err(|error| {
+                format!("the tool ran, but its complete image could not be saved: {error}")
+            })?;
+        let uri = reqwest::Url::from_file_path(&path)
+            .map_err(|()| "the tool ran, but its image file has no valid URI".to_owned())?;
+        let reference = json!({
+            "type": "resource_link", "uri": uri.as_str(), "name": "Original tool image",
+            "mimeType": mime, "description": "Complete original on this machine; read this file to inspect the image."
+        });
+        self.content.push(reference.clone());
+        Ok(reference)
+    }
+}
 
 /// A tool result as a script sees it. A result without structured content
 /// (another server's tool) becomes its JSON text, or `{content}`; its
 /// images move to `images`, for the `cmux_exec` result, and the script
 /// sees `{type: "image", image: <index>}` in their place.
-pub(super) fn script_answer(
-    result: Result<Value, (i64, String)>,
-    images: &mut Vec<Value>,
-) -> Value {
-    let result = result.map(|result| {
-        if result.get("structuredContent").is_some() {
-            return result;
-        }
-        let mut result = result;
-        let failed = result["isError"] == true;
-        result.set("structuredContent", from_content(&result["content"], images, failed));
-        result
-    });
+pub(super) fn script_answer(result: Result<Value, (i64, String)>, images: &mut Images) -> Value {
+    let result =
+        result.map(|result| {
+            if result.get("structuredContent").is_some() {
+                return result;
+            }
+            let mut result = result;
+            let failed = result["isError"] == true;
+            // Move the provider's full result. The script receives only small placeholders
+            // and references; the already-parsed base64 is never copied for overflow images.
+            let content = result.get_mut("content").map(Value::take).unwrap_or(Value::Null);
+            match from_content(content, images, failed) {
+                Ok(value) => {
+                    result.set("structuredContent", value);
+                }
+                Err(message) => {
+                    result.set("isError", json!(true));
+                    result.set("structuredContent", json!({
+                    "state": "completed", "error": {"code": "image.storage", "message": message}
+                }));
+                }
+            }
+            result
+        });
     match result {
         Err((_, message)) => json!({
             "ok": false,
@@ -1038,38 +1099,33 @@ pub(super) fn script_answer(
 /// The value of an MCP `content` list: one text block that is JSON is that
 /// JSON; anything else is `{content}` with images moved to `images`. An
 /// error result's text is its `error.message`.
-fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value {
-    let blocks = content.as_array().cloned().unwrap_or_default();
+fn from_content(content: Value, images: &mut Images, failed: bool) -> Result<Value, String> {
+    let blocks = match content {
+        Value::Array(blocks) => blocks,
+        _ => Vec::new(),
+    };
     if let [block] = blocks.as_slice()
         && !failed
         && block["type"] == "text"
         && let Some(value) = block["text"].as_str().and_then(|t| serde_json::from_str(t).ok())
     {
-        return value;
+        return Ok(value);
     }
     let message =
         blocks.iter().find_map(|block| block["text"].as_str()).unwrap_or_default().to_owned();
-    let used = |images: &Vec<Value>| -> usize {
-        images.iter().map(|image| image["data"].as_str().map_or(0, str::len)).sum()
-    };
     let blocks = blocks
         .into_iter()
         .map(|block| {
             if block["type"] != "image" {
-                return block;
+                return Ok(block);
             }
-            let size = block["data"].as_str().map_or(0, str::len);
-            if images.len() >= MAX_IMAGES || used(images) + size > MAX_IMAGE_BYTES {
-                return json!({"type": "image", "dropped": true, "mimeType": block["mimeType"]});
-            }
-            images.push(block.clone());
-            json!({"type": "image", "image": images.len() - 1, "mimeType": block["mimeType"]})
+            images.push(block)
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, _>>()?;
     if failed {
-        return json!({"content": blocks, "error": {"message": message}});
+        return Ok(json!({"content": blocks, "error": {"message": message}}));
     }
-    json!({"content": blocks})
+    Ok(json!({"content": blocks}))
 }
 
 #[cfg(test)]
