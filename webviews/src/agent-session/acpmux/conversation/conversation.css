@@ -2081,6 +2081,14 @@ pre.cv-math-source {
    keeps the footer's 4px meta gap) and 20px under a tool row, as the Codex and Claude desktop apps
    space it, never flush under the text (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE").
    The line reserves the normal turn gap below it, so the end-of-turn swap does not move anything. */
+/* The live line keeps the shared icon slot empty: its words start on the text column every iconed
+   status row's words start on, never 24px left of them on the icon column (Leo, 2026-11-03, on
+   "Writing a command" under "Subagent finished" and over "1 message from 1 session": "weird
+   indenting /cut off text?"; design/chat-transcript.md "One icon column"). A folded turn's
+   "Worked for" line keeps col-left. */
+.cv-worked.cv-worked--live {
+  padding-inline-start: var(--cv-tool-text-inset);
+}
 .cv-worked.is-below {
   /* The footer's slot (transcriptGrid.ts MARK_FOOTER_SLOT): its 32 line, 8 under a reply. */
   height: var(--cv-footer-row);
