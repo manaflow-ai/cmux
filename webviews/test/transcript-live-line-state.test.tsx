@@ -120,7 +120,11 @@ test("a finished step reads its own time, not the turn's", () => {
 
 test("an answer paused mid-stream reads Writing, not Thinking", () => {
   const user = row("u", "user");
-  const line = codex([user, row("run", "activity", { items: [call("git log")] }), row("a", "assistant", { text: "So" })]).at(-1)!;
+  const line = codex([
+    user,
+    row("run", "activity", { items: [call("git log")] }),
+    row("a", "assistant", { text: "So" }),
+  ]).at(-1)!;
   expect(line).toMatchObject({ liveState: "writing", turnTotal: true });
   expect(drawn(line, user.at + 30_000)).toBe("Writing · 30s total");
 });
