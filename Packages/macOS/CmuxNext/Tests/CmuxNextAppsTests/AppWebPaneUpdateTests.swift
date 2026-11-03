@@ -22,6 +22,10 @@ struct AppWebPaneUpdateTests {
         await waitForVersion("1.0.0", client: client, app: original.id)
         let pane = try #require(AppWebPane(manifest: original.manifest, bundle: bundle))
         let view = AppWebPaneView(pane: pane, client: client, work: BackgroundWork())
+        // The page logs "ready one" while it parses, before its own didFinish: wait for that
+        // finish, so it cannot be taken below for the revocation's blank document.
+        let (opened, didOpen) = AsyncStream.makeStream(of: Void.self)
+        view.onLoaded = { [weak view] in if view?.webView.url == pane.entryURL { didOpen.yield() } }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: false)
         window.contentView = view
         defer {
@@ -29,9 +33,10 @@ struct AppWebPaneUpdateTests {
             window.closeAfterTest()
         }
         await transport.waitForLog("ready one")
+        for await _ in opened { break }
         if reason == .detached { window.contentView = nil }
         let (loaded, didLoad) = AsyncStream.makeStream(of: Void.self)
-        view.onLoaded = { didLoad.yield() }
+        view.onLoaded = { [weak view] in if view?.webView.url?.absoluteString == "about:blank" { didLoad.yield() } }
         switch reason {
         case .disabled, .detached: transport.record.enabled = false
         case .removed: transport.record.installed = false
