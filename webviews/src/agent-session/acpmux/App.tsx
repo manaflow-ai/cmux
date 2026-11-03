@@ -12209,7 +12209,8 @@ function AcpmuxPane() {
     // the repository, opens the tab on the turn's own patch (turnChanges/viewChanges.ts).
     const root = await repositoryRoot(chatCwd, readFolderStatus);
     let target: Record<string, unknown>;
-    const turn = root && viewChangesBeside(rows, rowId, root) ? viewChangesTurn(rows, rowId, path, root, chatCwd) : undefined;
+    const turn =
+      root && viewChangesBeside(rows, rowId, root) ? viewChangesTurn(rows, rowId, path, root, chatCwd) : undefined;
     // The tab opens on the turn (its Last turn), at the row's file. A local chat's turn with no
     // checkpoint pair opens the folder's diff, as before; a remote chat's showed that turn's own
     // edits in the page, so it opens the turn's own patch instead of the machine's whole diff.
