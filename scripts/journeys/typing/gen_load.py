@@ -14,6 +14,7 @@ halves, then the load stops. Judges: typing/keys_check.py (order, lost, merged, 
 switch ON (ext_pixel px_switch) right after the relaunch's smoke_ready (a bench build keeps Debug tunables in memory only,
 so a switch set before probe_relaunch is gone), every other step and option the same, so its numbers compare with plain
 typing-load-l6; the switch back to its default first in finally. A switch that does not take makes the round not run.
+A variant is P1 (an A/B run started with --journey): as P0 it would make dogfood-gate.py refuse every build without it.
 The stage switches: motion.frameOwner.terminals (S4), motion.frameOwner.timing (S2), motion.frameOwner.contentPolicy (S3).
 """
 import argparse
@@ -102,6 +103,8 @@ def switch_variant(key, profile="L6"):
     steps.insert(i + 2, {"do": "px_switch", "key": key, "value": True,
                          "title": f"set-up: {key} ON (after the relaunch: a bench build keeps tunables in memory only)"})
     spec["id"] = f"{spec['id']}-sw-{switch_short(key)}"
+    # P1: dogfood-gate.py needs every P0 journey to pass on a build, and the switch exists only on its stage's builds.
+    spec["priority"] = "P1"
     spec["title"] += f", with {key} ON"
     spec["finally"] = [{"do": "px_tunable", "key": key, "value": None, "title": f"clean-up: {key} back to its default"}] + spec["finally"]
     return spec
