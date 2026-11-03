@@ -43,6 +43,36 @@ export const DEFAULT_ORDER: readonly SessionInfoSectionId[] = [
   "connectors",
 ];
 
+/// Leo's four, always in view: the machine, Context, what it runs, Sources (DEFAULT_ORDER above).
+export const PRIORITY_SECTIONS: readonly SessionInfoSectionId[] = [
+  "environment",
+  "context",
+  "subagents",
+  "tasks",
+  "sources",
+];
+
+/// The less-used sections, behind the panel's one Show more until the person opens it (Leo,
+/// 2026-11-03: "i feel like it's a bit too much stuff by default there's a bunch of things there that
+/// can be a bit more hidden under 'show more' or whatnot"). None is ever dropped: Show more lists them
+/// all, a reveal (a running line's count, the header's chip) opens it, and its choice stays.
+export const MORE_SECTIONS: readonly SessionInfoSectionId[] = ["usage", "changes", "outputs", "connectors"];
+
+/// The sections of `shown` that the panel's Show more hides while it is closed: every less-used one,
+/// unless the person's own order (a drag) put it above one of Leo's four that it follows by default;
+/// that one stays in view, so a drag still wins. `order` is the panel's whole order (sectionOrder).
+export function tuckedSections(
+  shown: readonly SessionInfoSectionId[],
+  order: readonly SessionInfoSectionId[] = shown,
+): SessionInfoSectionId[] {
+  const placed = (id: SessionInfoSectionId) =>
+    PRIORITY_SECTIONS.some(
+      (priority) =>
+        DEFAULT_ORDER.indexOf(priority) < DEFAULT_ORDER.indexOf(id) && order.indexOf(id) < order.indexOf(priority),
+    );
+  return shown.filter((id) => MORE_SECTIONS.includes(id) && !placed(id));
+}
+
 /// The block a section belongs to by default.
 export function sectionGroup(id: SessionInfoSectionId): SessionInfoGroupId {
   return GROUPS.find((group) => GROUP_SECTIONS[group].includes(id)) ?? "about";

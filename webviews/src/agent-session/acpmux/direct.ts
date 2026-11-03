@@ -6106,8 +6106,11 @@ export class AcpmuxDirectClient {
       if (this.markBackgroundCall(task, event.at)) return;
       // Without its call (on a page not loaded) only how it ended is noted.
       if (task.state === "running") return;
-      // Noted where it ended: the text and tool fold before it close, as a tool call's would.
-      this.endAssistantSegment();
+      // Noted where it ended: the tool fold before it closes, as a tool call's would. A message still
+      // streaming stays open: its words keep their row, which the note sorts after, so the note
+      // never splits one message's text (Leo, 2026-11-03: "this chat's text stream got cut in the
+      // middle by a tool call which is weird").
+      if (!this.streamingAssistant) this.endAssistantSegment();
       this.streamingActivity = undefined;
       const id = `bgtask-${event.seq}`;
       this.rows.set(id, {
@@ -6451,6 +6454,7 @@ export class AcpmuxDirectClient {
             contextBreakdown: contextBreakdownOf(summary.contextBreakdown),
             usageStats: (this.summaryUsage = sameUsageStats(summary.usageStats, this.summaryUsage)),
             host: text(summary.host),
+            machine: text(summary.machine),
             peer: text(summary.peer),
             hostKind: hostKind(summary.hostKind),
             // acpmux's session detail names the folder's branch `gitBranch` (when the session started).
@@ -6470,6 +6474,7 @@ export class AcpmuxDirectClient {
             route: text(summary.route),
             settingsSources: summary.settingsSources,
             usageLimits: usageLimitsOf(summary.usageLimits) ?? text(summary.usageLimits),
+            ...(summary.usageLimitsApply === false ? { usageLimitsApply: false } : {}),
             // acpmux reports `model: null` for a harness with no model (one known only from its config).
             model: text(summary.model),
             effort: effort?.currentValue,
@@ -7724,6 +7729,13 @@ export class AcpmuxDirectClient {
       text: body,
       replyId: `m-${crypto.randomUUID()}`,
     });
+  }
+  /// The session an agent link or a `HOST/NAME` names (acpmux `_acpmux/resolve`, hub/locate.rs):
+  /// only sessions this daemon lists, its own and its peers', resolve; any other rejects.
+  async resolveSession(query: string): Promise<unknown> {
+    const value = query.trim();
+    if (!value) throw new Error(translate("error.notOpen"));
+    return this.request("_acpmux/resolve", { query: value }, 10_000);
   }
   /// A thread of the chat's inbox (acpmux `_acpmux/inbox_thread`), oldest first, for an inbox
   /// notice's line the person opened (conversation/InboxNoticeCard.tsx). It marks nothing read: the

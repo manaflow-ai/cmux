@@ -2504,3 +2504,11 @@ reason = "Lawrence 2026-10-23: no new CI tests. Checks that cmux-tui compiles in
 path = "tests/test_playwright_system_chrome.py"
 lane = "manual"
 reason = "Static check run by the author on the fleet; no new CI tests (CLAUDE.md, 2026-10-23)."
+
+[[test]]
+path = "tests/test_fetch_run_artifact.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_publish_guard.py"
+lane = "linux-guard"
