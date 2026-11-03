@@ -27,10 +27,9 @@ async fn a_host_ends_with_the_test_process_that_started_it() {
     let dir = scratch("towner");
     // Stands in for the test process: killed as a test is, with no teardown.
     let mut owner = std::process::Command::new("sleep").arg("600").spawn().expect("sleep");
-    let mut host = tokio::process::Command::new(daemon_env::bin())
+    // The hermetic environment (`daemon_env::tokio_command`), as a daemon's host launch gives.
+    let mut host = daemon_env::tokio_command(&dir, daemon_env::Agents::StandIn)
         .arg(agent_host::HOST_ARG)
-        .env_clear()
-        .envs(daemon_env::vars(&dir, daemon_env::Agents::StandIn, &[]))
         .env("ACPMUX_TEST_HOST_OWNER_PID", owner.id().to_string())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
