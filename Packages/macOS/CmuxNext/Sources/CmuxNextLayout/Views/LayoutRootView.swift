@@ -264,6 +264,13 @@ public final class LayoutRootView: NSView {
         return ShownResizeRange(geometry: view.baseGeometry, style: context.style, scale: view.reconciledScale ?? view.scale)
     }
 
+    /// A keyboard resize press (`resizePane*`) is about to move `pane`'s screen: until that spring lands, every pane of
+    /// the screen keeps its content at its size and lays it out once at the landing (RESIZE KEYS K3).
+    public func keyboardResizeWillChange(screenContaining pane: PaneID) {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id], !view.isHidden else { return }
+        view.holdsContentForKeyResize = true
+    }
+
     /// The width `pane`'s content rests at in the layout this view shows: its frame in the geometry its
     /// screen's springs head for (the same geometry ``navigationFrames(ofScreenContaining:)`` reads),
     /// less the pane padding. A split's or a close's panes read their final widths from the turn the

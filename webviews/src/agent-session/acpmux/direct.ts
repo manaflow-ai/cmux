@@ -128,6 +128,7 @@ import {
   markTranscriptSummaryVersion,
   pullRequestRowKey,
 } from "./summary/transcriptPullRequests";
+import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, stallLine } from "./stallLog";
@@ -1353,6 +1354,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   private pullRequestActivityVersion = Symbol();
   private pullRequestCommandVersion = Symbol();
   private transcriptSummaryVersion = {};
+  private readonly artifactUpdates = new RowUpdates((id) => this.get(id));
   /// The turns the agent ran on its own (acpmux `background_turn`): each one's started record's
   /// sequence number and its ended record's, once heard. A row an event between them made is that
   /// turn's (`inBackground`). An ended record heard first (an older page's started record comes
@@ -1446,7 +1448,9 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       if (turn !== undefined && row.inBackground !== turn) row = { ...row, inBackground: turn };
     }
     if (this.ordered && !unchanged) this.keepOrdered(id, row, known);
-    return super.set(id, row);
+    const result = super.set(id, row);
+    if (!unchanged) this.artifactUpdates.note(row, this.current ?? this.order.get(id) ?? row.at);
+    return result;
   }
 
   /// Updates the kept order for `row`: in its slot when only its content changed, at the end when it
@@ -1564,6 +1568,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     }
     if (!this.snapshot) {
       this.snapshot = this.ordered.slice();
+      this.artifactUpdates.publish(this.snapshot);
       markPullRequestActivityVersion(this.snapshot, this.pullRequestActivityVersion);
       markPullRequestCommandVersion(this.snapshot, this.pullRequestCommandVersion);
       markTranscriptSummaryVersion(this.snapshot, this.transcriptSummaryVersion);

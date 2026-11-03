@@ -23,3 +23,23 @@ export function ShimmerText({ text, baseText = text, lit }: { text: string; base
     </>
   );
 }
+
+/// A running tool row's shimmer (Leo, 2026-11-03, on a running row whose spinner sat at the
+/// transcript's far edge: "doesn't claude desktop have the thinking shimmer go across stuff"): the
+/// row's own words, `children`, drawn again as the lit copy over them, so the light band crosses the
+/// words themselves, as Claude desktop's and ChatGPT's running rows do. The same two transform loops
+/// as the Thinking line (`cmux-shimmer-band` / `cmux-shimmer-lit`), inside a still clip
+/// (`.cv-row-shimmer`) so the moving band never widens the words' box (ToolRow measures it to tell
+/// a cut label). Only a running row draws it, so the loop ends when the call does; Reduce Motion,
+/// the motion gate and the static status look hide it (conversation.css). The copy is inert: hidden
+/// from readers, Find, selection, the pointer and the keyboard (a written file's name in it is no
+/// second link).
+export function RowShimmer({ children }: { children: ReactNode }) {
+  return (
+    <span className="cv-row-shimmer" aria-hidden="true" inert data-find-skip="">
+      <span className="cv-row-shimmer__band">
+        <span className="cv-row-shimmer__lit">{children}</span>
+      </span>
+    </span>
+  );
+}

@@ -65,7 +65,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   chiefPet: (focus) => <ChiefPetCard focus={focus} />,
   density: () => <DensityCard />,
   importSuggestions: () => <ImportSuggestionsCard />,
-  channels: () => <ChannelsCard />,
+  channels: (focus) => <ChannelsCard focus={focus} />,
   webUpdates: () => <WebUpdatesCard />,
   voiceInput: () => <VoiceInputCard />,
   notices: () => <NoticesCard />,

@@ -70,7 +70,7 @@ import { AgentLine } from "./AgentLine";
 import { SUBAGENT_FALLBACK } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
-import { subagentDisplayName } from "./subsessions";
+import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
@@ -348,8 +348,9 @@ export const SubagentTray = memo(function SubagentTray({
       data-placement={placement}
       data-look={look}
       data-row={row}
-      // Nothing runs: the ended lines sit quietly over the composer, no card around them (Leo,
-      // 2026-10-31, on a finished one-line row in a bordered card: "why is this still so ass").
+      // Nothing runs: the ended lines sit quietly over the composer in the settled surface, joined to
+      // the composer's top as one glass (no card of its own floating over it; Leo, 2026-10-31, on a
+      // finished one-line row in a bordered card: "why is this still so ass").
       data-settled={items.length === 0 || undefined}
       // A headed tray keeps its own surface, settled too: a slightly lighter or darker glass than the
       // chat behind it and a hairline rim (Leo, 2026-11-01: "you can't just have it be the exact same
@@ -357,8 +358,10 @@ export const SubagentTray = memo(function SubagentTray({
       data-headed={headed || undefined}
       data-surface={surface}
       // It draws a card (and joins the composer as one glass, bottomStack.css): always while something
-      // runs; settled, only headed and in an arm with a surface.
-      data-card={items.length > 0 || (headed && surface !== "none") || undefined}
+      // runs, and settled in every arm with a surface, a lone ended line too, so the transcript never
+      // shows through it (Leo, 2026-11-02, on a done line over a reply's footer icons: "this running
+      // thing now looks mildly awkward").
+      data-card={items.length > 0 || surface !== "none" || undefined}
       data-motion={motion}
       data-narrow={narrow || undefined}
       data-head={head}
@@ -459,7 +462,8 @@ export const SubagentTray = memo(function SubagentTray({
     if (item.kind === "agent")
       return menu(
         <AgentLine
-          name={subagentDisplayName(t, item.agent)}
+          // Its task, as Claude Code's and ChatGPT's task rows read; its name moves to the tooltip.
+          name={subagentTaskLabel(t, item.agent)}
           progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
           progressAgent={item.agent}
           icon={SUBAGENT_FALLBACK}
@@ -474,7 +478,7 @@ export const SubagentTray = memo(function SubagentTray({
           // Its kind and what it does now are off the line (Leo, 2026-10-31: "a lot of these
           // subtitles are bad"); the tooltip keeps them under its task.
           title={agentTooltip(t, item.agent)}
-          label={t("subagents.open", { name: subagentDisplayName(t, item.agent) })}
+          label={t("subagents.open", { name: subagentTaskLabel(t, item.agent) })}
           chevron
           trayColumns
           // A narrow tray's second line is its time and controls: the stats wrap under the title.
@@ -591,12 +595,20 @@ const quietAgent = (agent: Subagent, waiting: ReadonlySet<string>) => {
   return status === "done" || status === "running";
 };
 
-/// What the line no longer says, in its tooltip: its task, its kind (Explore, general-purpose) and,
-/// while it runs, what it does now.
+/// What the line no longer says, in its tooltip: its whole task (the line may cut it), its name
+/// when the line shows its task instead, its kind (Explore, general-purpose) and, while it runs,
+/// what it does now.
 function agentTooltip(t: Translate, agent: Subagent): string | undefined {
   const doing =
     agent.state !== "running" ? undefined : agent.actionShell ? toolDetail(t, agent.action, true) : agent.action;
-  const lines = [agent.task, agent.kind && agent.kind !== agent.name ? agent.kind : undefined, doing];
+  const label = subagentTaskLabel(t, agent);
+  const name = subagentDisplayName(t, agent);
+  const lines = [
+    agent.task,
+    name !== label && name !== agent.task ? name : undefined,
+    agent.kind && agent.kind !== agent.name ? agent.kind : undefined,
+    doing,
+  ];
   return lines.filter((line): line is string => Boolean(line)).join("\n") || undefined;
 }
 

@@ -65,8 +65,24 @@ final class AgentDialogDesk {
     }
 
     private func pending(on line: any AgentDialogLine) async -> [Pending] {
-        // Page the list until a server-side pending-permission filter is
-        // available. Status alone does not guarantee whether prompts remain.
+        let sessions: [[String: Any]]
+        // `pendingOnly`: only the chats with an ask, never paced (acpmux `list_reply.rs`). Paging
+        // the whole list took 4-9 s a page on a host mirroring 8,500 chats, past the 5 s line.
+        if line.capabilities.contains(Self.pendingListCapability) {
+            guard let rows = (await line.call("_acpmux/sessions", ["pendingOnly": true]))?["sessions"] as? [[String: Any]] else { return [] }
+            sessions = rows
+        } else {
+            guard let rows = await allSessions(on: line) else { return [] }
+            sessions = rows
+        }
+        return await prompts(of: sessions, on: line)
+    }
+
+    /// The acpmux capability of `_acpmux/sessions {pendingOnly: true}`.
+    static let pendingListCapability = "session-list-pending-v1"
+
+    /// Every session, page by page, from an acpmux without `pendingOnly`; nil on a failed page.
+    private func allSessions(on line: any AgentDialogLine) async -> [[String: Any]]? {
         var sessions: [[String: Any]] = []
         var cursor: String?
         var seen: Set<String> = []
@@ -74,8 +90,8 @@ final class AgentDialogDesk {
         while true { // wakeup-allow: each pass awaits a daemon page; a terminal page, malformed reply, or repeated cursor ends it
             var params: [String: Any] = ["limit": 64]
             if let cursor { params["cursor"] = cursor }
-            guard let page = await line.call("_acpmux/sessions", params) else { return [] }
-            guard let pageRows = page["sessions"] as? [[String: Any]] else { return [] }
+            guard let page = await line.call("_acpmux/sessions", params) else { return nil }
+            guard let pageRows = page["sessions"] as? [[String: Any]] else { return nil }
             for row in pageRows {
                 guard let id = row["sessionId"] as? String, !id.isEmpty else { continue }
                 let peer = row["peer"] as? String ?? ""
@@ -83,9 +99,14 @@ final class AgentDialogDesk {
                 if seenSessions.insert(key).inserted { sessions.append(row) }
             }
             guard let next = (page["nextCursor"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { break }
-            guard seen.insert(next).inserted else { return [] }
+            guard seen.insert(next).inserted else { return nil }
             cursor = next
         }
+        return sessions
+    }
+
+    /// The pending prompts of each listed session that reports one (`_acpmux/info`).
+    private func prompts(of sessions: [[String: Any]], on line: any AgentDialogLine) async -> [Pending] {
         var out: [Pending] = []
         for summary in sessions where (summary["pendingPermissions"] as? NSNumber)?.intValue ?? 0 > 0 {
             guard let session = summary["sessionId"] as? String else { continue }

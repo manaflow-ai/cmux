@@ -23,13 +23,13 @@ struct AgentPaneNativeSessionInfoTests {
         TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, .bool(true))
     }
 
-    @Test func nativeSessionInfoShipsOnByDefault() {
+    @Test func pageDrawsSessionInfoByDefault() {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register([AgentPaneTunables.nativeSessionInfo.descriptor])
         TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, nil)
         defer { TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, nil) }
-        #expect(AgentPaneTunables.nativeSessionInfo.descriptor.defaultValue == .bool(true))
-        #expect(AgentPaneTunables.nativeSessionInfo.value)
+        #expect(AgentPaneTunables.nativeSessionInfo.descriptor.defaultValue == .bool(false))
+        #expect(!AgentPaneTunables.nativeSessionInfo.value)
     }
 
     private static func info(open: Bool = true, width: Double = 320, top: Double = 28, side: Double = 0,
@@ -287,9 +287,11 @@ struct AgentPaneNativeSessionInfoTests {
             let frame = AgentPaneView.sessionInfoFrame(page: page, info: try Self.model(Self.info(width: pushed)),
                                                        width: pushed, zoom: 1, flipped: true)
             let chatRight = pane - pushed - 8
-            #expect(frame.minX == chatRight)
-            #expect(frame.width == pushed)
-            #expect(frame.maxX == pane - 8)
+            // Within half a point: the frame is pixel-aligned (`.integral`), so exact equality on
+            // CGFloat is brittle across hosts.
+            #expect(abs(Double(frame.minX) - chatRight) < 0.5, "minX \(frame.minX) vs \(chatRight)")
+            #expect(abs(Double(frame.width) - pushed) < 0.5, "width \(frame.width) vs \(pushed)")
+            #expect(abs(Double(frame.maxX) - (pane - 8)) < 0.5, "maxX \(frame.maxX) vs \(pane - 8)")
         }
     }
 

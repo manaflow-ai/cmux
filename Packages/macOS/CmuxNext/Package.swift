@@ -713,7 +713,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextPages",
             dependencies: [
-                "CmuxNextCompat", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextFiles", "CmuxNextSettings", "CmuxNextWakeups",
+                "CmuxNextBrowserCore", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextFiles", "CmuxNextSettings", "CmuxNextWakeups",
             ],
             resources: [.copy("Resources/pages"), .process("Localizable.xcstrings")],
             swiftSettings: uiSwiftSettings
