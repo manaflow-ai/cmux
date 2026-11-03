@@ -34,7 +34,16 @@ const LINE_MAX: usize = 300;
 /// MERGED, so the watch matches the same line (Leo, 2026-11-02: one PR-merge
 /// watch re-ran `gh pr view` every 15 s for 13 h on the shared quota).
 pub fn quota_safe(command: &str, until: Option<&str>, timeout_seconds: u64) -> Option<String> {
-    if !until.is_some_and(|u| u.contains("MERGED")) {
+    // Only a plain wait for the word MERGED, from one `gh pr view` with no
+    // other condition: anything else keeps its own semantics.
+    if !until.is_some_and(|u| matches!(u.trim(), "MERGED" | "^MERGED$" | "^MERGED")) {
+        return None;
+    }
+    if ["&&", "||", ";", "|", "`", "$("]
+        .iter()
+        .any(|op| command.contains(op))
+        || command.matches("pr view").count() != 1
+    {
         return None;
     }
     let words: Vec<&str> = command.split_whitespace().collect();

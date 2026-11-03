@@ -399,4 +399,10 @@ fn a_pr_merge_watch_waits_through_glaeda_instead_of_polling_gh() {
         quota_safe("aws sts get-caller-identity", Some("SIGNED"), 600),
         None
     );
+    // Review follow-ups: an `until` the rewrite cannot keep, or a compound
+    // command, keeps its own semantics.
+    assert_eq!(quota_safe(cmd, Some("\"state\":\"MERGED\""), 600), None);
+    assert_eq!(quota_safe(cmd, Some("MERGED|CLOSED"), 600), None);
+    let two = "gh pr view 1 -R a/b --json state -q .state | grep -q MERGED && gh pr view 2 -R a/b --json state -q .state";
+    assert_eq!(quota_safe(two, Some("MERGED"), 600), None);
 }
