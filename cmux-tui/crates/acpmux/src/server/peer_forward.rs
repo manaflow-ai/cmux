@@ -271,10 +271,9 @@ fn wake_if_composing(peer: &crate::peer::Peer, m: &str, params: &Value, origin: 
 fn composing(m: &str, params: &Value) -> bool {
     match m {
         method::MUX_TYPING => params.get("on").and_then(Value::as_bool) == Some(true),
-        method::MUX_COMPOSER_SET => params
-            .get("text")
-            .and_then(Value::as_str)
-            .is_some_and(|text| !text.trim().is_empty()),
+        method::MUX_COMPOSER_SET => {
+            params.get("text").and_then(Value::as_str).is_some_and(|text| !text.trim().is_empty())
+        }
         _ => false,
     }
 }
@@ -1032,7 +1031,10 @@ mod tests {
         }
         let idle = [
             (method::MUX_TYPING, json!({"sessionId": "s", "on": false})),
-            (method::MUX_COMPOSER_SET, json!({"sessionId": "s", "surface": "pane", "text": "  \n"})),
+            (
+                method::MUX_COMPOSER_SET,
+                json!({"sessionId": "s", "surface": "pane", "text": "  \n"}),
+            ),
             // The pane saves the chat it leaves as is: a draft write is no one typing.
             (method::MUX_DRAFT_SET, json!({"sessionId": "s", "text": "fix the"})),
             (method::MUX_COMPOSER_SET, json!({"sessionId": "s", "surface": "pane", "text": ""})),

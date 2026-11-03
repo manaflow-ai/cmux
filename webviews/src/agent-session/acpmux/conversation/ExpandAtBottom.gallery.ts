@@ -80,7 +80,9 @@ const atBottom: Play = async (ctx) => {
 };
 
 /// The same chat whose last turn ran a command with a long log, as Leo's Shell card at the bottom.
-const tallLog = Array.from({ length: 40 }, (_, index) => `ok ${index + 1} - fetch retries case ${index + 1}`).join("\n");
+const tallLog = Array.from({ length: 40 }, (_, index) => `ok ${index + 1} - fetch retries case ${index + 1}`).join(
+  "\n",
+);
 const tallRows = [
   ...earlier,
   ...middle,
