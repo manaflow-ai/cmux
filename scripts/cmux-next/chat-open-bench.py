@@ -24,7 +24,9 @@ to the first frame the pane shows the chat's content, with every surface the pan
   click_again  a click back onto the row of a chat shown before and left (its page kept)
 
 The click cases read the window as the window server composited it, frame after frame, from the click
-(`debug.new_tab frame_strip` with gesture `mouse`, `above` so the Chromium page is in it) until the pane
+(`debug.new_tab frame_strip` with gesture `mouse`, `above` so the Chromium page is in it: read through
+ScreenCaptureKit when the process lacks the Screen Recording grant, as on a fleet step, since the window list
+then leaves the page out; each record's `capture` says which) until the pane
 stops changing, and report click to first content frame, click to final frame, whether those are the same
 frame, and how far the transcript's rows moved after the page first drew them (`layout_watch`, started at the
 click): chat_open_frames.py (Leo, 2026-11-03: the final view on the first frame, never "text first and the
@@ -116,9 +118,16 @@ parser.add_argument("--backdrop", choices=["opaque", "frosted", "glass", "glass-
 parser.add_argument("--tag", default="chatopen", help="the tag the app was built with (its state folder)")
 parser.add_argument("--no-seed-cache", action="store_true",
                     help="seed every template on the daemon again, neither reading nor writing the worker's seed cache")
+parser.add_argument("--capture-check", action="store_true",
+                    help="only say whether this process (and so the app it launches) may read the screen "
+                         "(screen_capture_check.py) into --json, then exit: nothing is launched (scripts/measure/chat-open.sh "
+                         "with --app=PATH builds nothing)")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts = parser.parse_args()
+if opts.capture_check:
+    sys.exit(subprocess.run([sys.executable, os.path.join(HERE, "screen_capture_check.py"), "--embed-png",
+                             *(["--json", opts.json] if opts.json else [])]).returncode)
 APP = os.path.realpath(opts.app.rstrip("/"))
 CONDITIONS = [c.strip() for c in opts.conditions.split(",") if c.strip()]
 CASES = [c.strip() for c in opts.cases.split(",") if c.strip()]
@@ -644,9 +653,13 @@ def frame_click(run, key, label, keep=False):
     params = {"action": "frame_strip", "gesture": "mouse", "mouse": {"row": key, "action": "click"}, "above": True,
               "duration_ms": opts.strip_ms, "dir": folder, "tolerance": opts.strip_tolerance}
     watcher.start()
-    # frame_strip clicks 120 ms after it starts recording (DebugFrameStrip's lead): the click's monotonic time.
-    clicked = time.monotonic() + 0.12
+    # frame_strip clicks 120 ms after it starts recording (DebugFrameStrip's lead), or once ScreenCaptureKit's first
+    # frame is in when that is later: the click's monotonic time, corrected from the reply's lead_ms.
+    asked = time.monotonic()
+    clicked = asked + 0.12
     strip = run.rpc("debug.new_tab", params, timeout=opts.strip_ms / 1000 + 60) or {}
+    if isinstance(strip.get("lead_ms"), (int, float)):
+        clicked = asked + strip["lead_ms"] / 1000
     watcher.join(timeout=max(0.0, stop_at - time.monotonic()) + 20)
     if strip.get("error"):
         shutil.rmtree(folder, ignore_errors=True)
@@ -657,9 +670,15 @@ def frame_click(run, key, label, keep=False):
         # The same moment through the screen (screencapture, this script's own capture), to check the app's frames
         # show the chat's page pixels: a capture without them shows the pane empty.
         screen = os.path.join(folder, "screen.png")
-        if subprocess.run(["screencapture", "-x", "-t", "png", screen], capture_output=True, timeout=30).returncode == 0:
+        shot = subprocess.run(["screencapture", "-x", "-t", "png", screen], capture_output=True, text=True, timeout=30)
+        if shot.returncode == 0 and os.path.exists(screen):
             record["pictures"].update(frame_pictures(folder, [{"ms": "screen", "file": "screen.png"}], {}, names={"screen": "screen"}))
+        else:
+            record["screen_error"] = f"screencapture exited {shot.returncode}: {(shot.stderr or shot.stdout).strip()[:300]}"
     shutil.rmtree(folder, ignore_errors=True)  # the PNGs: the numbers per frame, and the kept pictures, are the evidence
+    # How the frames were read: screencapturekit has the Chromium page's pixels without the Screen Recording grant;
+    # window_list without the grant shows the pane empty (cmuxterm-hq#6338).
+    record.update({"capture": strip.get("capture"), "capture_error": strip.get("capture_error")})
     record.update({"click": strip.get("key"), "frame_count": strip.get("frame_count"),
                    "mean_interval_ms": strip.get("mean_interval_ms"), "strip_settled_ms": strip.get("settled_ms"),
                    "strip_first_change_ms": strip.get("first_change_ms"), "spans": strip.get("spans"),
@@ -669,9 +688,9 @@ def frame_click(run, key, label, keep=False):
                    "layout_watch": out.get("watch"), "drift": cof.row_drift(out.get("watch")),
                    "watch_started_ms": round((out["watch_asked"] - clicked) * 1000) if out.get("watch_asked") else None})
     record["transcript_ms"] = cof.transcript_ms(out.get("watch"), record["watch_started_ms"], opts.strip_ms)
+    record["layout_watch_errors"] = out.get("watch_errors")  # the asks before one answered too: why the watch started late
     if not out.get("watch"):
         record["layout_watch_error"] = out.get("watch_error")
-        record["layout_watch_errors"] = out.get("watch_errors")
     # Rows the page added after its first paint are a second view: the first frame was not the final one.
     if (record.get("drift") or {}).get("rows_appeared_later"):
         record["first_is_final"] = False
