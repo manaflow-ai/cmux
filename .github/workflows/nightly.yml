@@ -4741,7 +4741,22 @@ jobs:
       UNSIGNED_SHA256: ${{ needs.signer-dmg-image.outputs.sha256 }}
     steps:
       - *checkout-publication-tooling-a
-      - id: download
+      # One download-artifact stream took 205 s here (run 41570134320): the ranged read first, as signer-dmg-image.
+      - name: Download the unsigned DMG (parallel ranges)
+        id: fetch
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          ARTIFACT: cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          FETCH_DEST: unsigned-dmg
+        with:
+          script: |
+            const run = require('child_process').spawnSync('python3', ['-I', '.publish-tooling/scripts/ci/fetch_run_artifact.py', '--name', process.env.ARTIFACT, '--dest', process.env.FETCH_DEST], {stdio: 'inherit'})
+            if (run.status !== 0) core.setFailed(`fetch_run_artifact.py exited ${run.status ?? run.signal}`)
+      - name: Download the unsigned DMG
+        id: download
+        if: steps.fetch.outcome != 'success'
         continue-on-error: true
         timeout-minutes: 5
         uses: &download-unsigned actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -4768,7 +4783,9 @@ jobs:
   # Leo, 2026-11-01: "a small job that is not CPU-bound, such as signing and its runner pick, takes GitHub-hosted
   # Ubuntu first" (tests/test_ci_self_hosted_guard.sh allowlists these exact lines).
   signer-build:
-    needs: [decide, pick-nightly-sign-runner]
+    # Only decide: the signer binary builds while the app does, off the path to the feed (it waited for
+    # pick-nightly-sign-runner, about 45 s of pickup and cache restore after the pick in run 41570134320).
+    needs: [decide]
     if: needs.decide.outputs.track == 'nightly-next' && (inputs.sign_pool || vars.CI_NIGHTLY_NEXT_SIGN_POOL == '1') && vars.CMUX_NEXT_CEF_ON_DEMAND != '1' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.variants == '["arm64"]' && inputs.nightly_next_unsigned_run == ''
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_linux_jobs, ' signer-build ') && needs.decide.outputs.early_linux_runner || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 20
@@ -4820,6 +4837,9 @@ jobs:
       actions: read
     outputs:
       sha256: ${{ steps.pack.outputs.sha256 }}
+      info_sha256: ${{ steps.pack.outputs.info_sha256 }}
+      # Apple's id for the app's notarization, which signer-dmg waits on before it signs the DMG.
+      submission_id: ${{ steps.submit.outputs.submission_id }}
     env:
       TOOLS: .publish-tooling
       SIGNER_WORK: ${{ github.workspace }}/signer-work
@@ -4838,12 +4858,14 @@ jobs:
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
       BUILD_SHORT_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
     steps:
-      - &signer-checkout-build
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The build tree's scripts and its top-level entitlements only: the full checkout took 37 s of this job
+      # (run 41570134320), and nothing here reads the rest.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: false
+          sparse-checkout: scripts
       - &signer-checkout-tools
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -4890,6 +4912,15 @@ jobs:
       - name: Pack the signed app
         id: pack
         run: bash .publish-tooling/scripts/ci/nightly-steps/signer-app-pack.sh
+      # Apple's notarization of these bytes starts here, beside the artifact upload, not in a job of its own
+      # after it (signer-app-notary began about 50 s later). signer-dmg-image staples the ticket once Apple
+      # accepts, and signer-dmg waits for Apple's answer before it signs the DMG.
+      - name: Start the app's notarization upload
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: bash .publish-tooling/scripts/ci/release-signer/submit-app.sh start "${{ steps.prepare.outputs.app }}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -4898,41 +4929,16 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           overwrite: true
-
-  signer-app-notary:
-    environment: ${{ needs.decide.outputs.environment }}
-    needs: [decide, resolve-nightly-cmux-tui-client, signer-build, signer-app, pick-nightly-sign-runner]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
-    timeout-minutes: 40
-    permissions:
-      contents: read
-    outputs:
-      submission_id: ${{ steps.notarize.outputs.submission_id }}
-    env:
-      SIGNER_WORK: ${{ github.workspace }}/signer-work
-      CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
-    steps:
-      - *signer-checkout-tools
-      - *signer-install
-      - *signer-install-check
-      - name: Download the signed app
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
-          path: signer-app
-      - &signer-unpack-app
-        name: Unpack the signed app
-        env:
-          APP_SHA256: ${{ needs.signer-app.outputs.sha256 }}
-        run: bash .publish-tooling/scripts/ci/nightly-steps/signer-unpack-app.sh
-      - name: Notarize the app
-        id: notarize
-        env:
-          NOTARY_MAX_WAIT_SECONDS: "1200"
-          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
-          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
-        run: bash .publish-tooling/scripts/ci/release-signer/notarize-app.sh "$SIGNER_WORK/$CHANNEL_APP_NAME.app" "$RUNNER_TEMP/notary-app.log" >> "$GITHUB_OUTPUT"
+          name: cmux-nightly-next-signer-app-info-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: signer-out/info/Info.plist
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+      - name: Finish the app's notarization upload
+        id: submit
+        run: bash .publish-tooling/scripts/ci/release-signer/submit-app.sh finish >> "$GITHUB_OUTPUT"
 
   signer-dmg-image:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, pick-nightly-sign-runner, signer-app]
@@ -4950,7 +4956,12 @@ jobs:
       CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
       NIGHTLY_DMG_RELEASE: ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg
     steps:
-      - *signer-checkout-build
+      - &signer-checkout-build
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          submodules: false
       - *signer-checkout-tools
       - name: Initialize cmux-next notices submodule
         if: github.ref_name == 'nightly-next'
@@ -4963,7 +4974,7 @@ jobs:
       # took a p50 of 133 s for the 355 MB app (hosted Linux: 9 s) and ran out its 5 minutes in 4 of 26
       # runs; run 41478567483 ran out both tries and its tip never published. This reads it in parallel
       # ranges, asks again for a range that stalls, and checks the zip's upload digest. When it fails,
-      # download-artifact below takes over as before (and is the only route in signer-dmg).
+      # download-artifact below takes over as before.
       - name: Download the signed app (parallel ranges)
         continue-on-error: true
         timeout-minutes: 5
@@ -4979,7 +4990,7 @@ jobs:
             const run = require('child_process').spawnSync('python3', ['-I', '.publish-tooling/scripts/ci/fetch_run_artifact.py', '--name', process.env.ARTIFACT, '--dest', process.env.FETCH_DEST], {stdio: 'inherit'})
             if (run.status !== 0) core.setFailed(`fetch_run_artifact.py exited ${run.status ?? run.signal}`)
             else core.exportVariable('SIGNER_APP_FETCHED', 'true')
-      # An env flag, not a step outcome: signer-dmg reuses these two steps and has no ranged step.
+      # An env flag, not a step outcome, so the ranged step's result decides.
       - &signer-download-app
         name: Download the signed app
         id: signer-download-app
@@ -4998,7 +5009,11 @@ jobs:
         with:
           name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-app
-      - *signer-unpack-app
+      - &signer-unpack-app
+        name: Unpack the signed app
+        env:
+          APP_SHA256: ${{ needs.signer-app.outputs.sha256 }}
+        run: bash .publish-tooling/scripts/ci/nightly-steps/signer-unpack-app.sh
       - name: Start the signed-app checks
         env:
           CHECK_MINOS: "true"
@@ -5055,7 +5070,7 @@ jobs:
 
   signer-dmg:
     environment: ${{ needs.decide.outputs.environment }}
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, signer-app, signer-app-notary, signer-dmg-image, pick-nightly-sign-runner]
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, signer-app, signer-dmg-image, pick-nightly-sign-runner]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 40
     permissions:
@@ -5085,8 +5100,21 @@ jobs:
         with:
           name: cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-out
-      - *signer-download-app
-      - *signer-download-app-retry
+      # The app's Info.plist for the appcast, not the whole signed app (that download took 50 s here).
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-next-signer-app-info-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: signer-app-info
+      # The explicit Accepted check before the DMG: signer-dmg-image could staple only a ticket Apple publishes for
+      # an accepted submission, so this normally answers at once.
+      - name: Wait for Apple to accept the app
+        env:
+          SUBMISSION_ID: ${{ needs.signer-app.outputs.submission_id }}
+          NOTARY_MAX_WAIT_SECONDS: "1200"
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: bash .publish-tooling/scripts/ci/release-signer/wait-app-notary.sh "$SUBMISSION_ID"
       - name: Sign, notarize and staple the DMG
         env:
           UNSIGNED_SHA256: ${{ needs.signer-dmg-image.outputs.sha256 }}
@@ -5100,12 +5128,12 @@ jobs:
         run: bash .publish-tooling/scripts/ci/nightly-steps/signer-dmg.sh
       - name: Write the appcast
         env:
-          APP_SHA256: ${{ needs.signer-app.outputs.sha256 }}
+          INFO_SHA256: ${{ needs.signer-app.outputs.info_sha256 }}
           FLOOR: ${{ needs.signer-dmg-image.outputs.floor }}
           SPARKLE_CHANNEL: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next' }}
           NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
         run: |
-          echo "$APP_SHA256  signer-app/signed-app.tar" | sha256sum -c -
+          echo "$INFO_SHA256  signer-app-info/Info.plist" | sha256sum -c -
           bash .publish-tooling/scripts/ci/nightly-steps/signer-appcast.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

@@ -5,6 +5,8 @@ import type { UserState } from "./user.ts"
 
 /** A chief's main conversation id: derived from the chief id (one place per chief). */
 export const chiefMainConversation = (chief: string): string => `conv_${invites.crockford(createHash("sha256").update(`chief-main\u0000${chief}`).digest(), 26)}`
+/** The Mac and the server use the same account-level hosted-Chief ensure key. */
+export const HOSTED_DEFAULT_KEY = "chief-hosted-default"
 
 /**
  * Chief records in UserDO (plans/cmux-next/chief-mac.md section 9). The user's principal is
@@ -21,6 +23,15 @@ export interface ChiefBrainPlace {
   readonly host: string
   readonly install: string
 }
+/** The hosted brain's own Cloud workspace; this does not move its brain onto a paired server. */
+export interface ChiefCloudMachine {
+  readonly workspace: string
+  readonly team: string
+  readonly machine: string
+  readonly provider: string
+  readonly connection_machine: string
+  readonly install: string
+}
 export interface ChiefRecord {
   readonly id: string
   readonly owner_user: string
@@ -29,6 +40,7 @@ export interface ChiefRecord {
   readonly brain: "cloud"
   /** Null when no server is named; absent on records written before G8 (read as null). */
   readonly brain_place?: ChiefBrainPlace | null
+  readonly cloud_machine?: ChiefCloudMachine | null
   readonly main_conversation: string | null
   readonly harness: string | null
   readonly rev: number
@@ -46,6 +58,8 @@ export interface ChiefTombstone {
 export interface ChiefsState {
   readonly chiefs?: Readonly<Record<string, ChiefRecord>>
   readonly chief_tombstones?: Readonly<Record<string, ChiefTombstone>>
+  /** The signup Chief selected under chief-hosted-default; retained after archive/delete. */
+  readonly hosted_default?: string
 }
 
 export const CHIEF_OPS = new Set(["chief.create", "chief.update", "chief.archive", "chief.delete"])
@@ -173,6 +187,10 @@ export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx:
     case "chief.create": {
       if (params.display_name !== undefined && !nameOk(params.display_name)) return reject("validation.invalid", "display_name must be 1 to 100 characters")
       if (params.is_default !== undefined && typeof params.is_default !== "boolean") return reject("validation.invalid", "is_default must be a boolean")
+      const signup = state.hosted_default ? chiefs[state.hosted_default] : undefined
+      // The Mac may read an empty list just before the signup outbox commits. This is a no-change
+      // answer, so key-sensitive state is never written into a mirrored event (replays hide keys).
+      if (ctx.idempotencyKey === HOSTED_DEFAULT_KEY && signup?.archived_at === null && !signup.brain_place) return { ok: true, state, value: signup, changed: false }
       if (active.length >= MAX_CHIEFS) return reject("validation.invalid", `at most ${MAX_CHIEFS} chiefs`)
       let place: ChiefBrainPlace | null = null
       if (params.brain_place !== undefined) {
@@ -290,7 +308,7 @@ export const chiefList = (stateIn: UserState, now: number, includeArchived: bool
   const sorted = all
     .filter((c) => includeArchived || c.archived_at === null)
     .sort((a, b) => Number(b.archived_at === null) - Number(a.archived_at === null) || Number(b.is_default) - Number(a.is_default) || a.created_at.localeCompare(b.created_at))
-    .map((c) => ({ ...c, brain_place: c.brain_place ?? null }))
+    .map((c) => ({ ...c, brain_place: c.brain_place ?? null, is_hosted_default: state.hosted_default === c.id }))
   return { chiefs: sorted, tombstones: Object.values(state.chief_tombstones ?? {}) }
 }
 
