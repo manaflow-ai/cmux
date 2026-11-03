@@ -1258,7 +1258,12 @@ falls back onto one.
 ### Messages to other sessions: the outbox
 
 `acpmux send --no-wait NAME` is how one session (or a person, or a script) messages another,
-here or on any peer, and it acks within a second whatever the target is doing:
+here or on any peer, and it acks within a second whatever the target is doing. An agent's send
+(`--from`, one in an acpmux session, or one from a Claude Code or Codex shell) and any send with
+`--class` take this path by default; `--wait` (or `--quiet`, `--timeout`) waits for the reply
+instead, as the person's own send does. On 2026-11-02 six waiting `--class blocker` sends from a
+machine at load 380 hit `timeout 100` on peers whose links flapped under the load; queued, a send
+returns once the message is on disk here, and the daemon delivers it when the peer answers.
 
 1. **Enqueue.** The CLI sends `_acpmux/send_queue {request}` to its own daemon: the
    `session/prompt` params it would have sent, with a prompt id. The daemon checks that the
@@ -1270,18 +1275,24 @@ here or on any peer, and it acks within a second whatever the target is doing:
    send still prints `steered` or `queued`.
 3. **Deliver.** In the background the daemon sends the prompt over its own connection, as the
    sender's session when the sender proved one, so every rule of a direct send applies; a peer's
-   session is forwarded as usual. An attempt ends on the target's `_acpmux/prompt_accepted`,
+   session is forwarded as usual. Before it queues, the CLI asks the daemon at most 300 ms each
+   whether the target is the sender's parent and whether its machine is paused, since either
+   question may go to a slow peer. An attempt ends on the target's `_acpmux/prompt_accepted`,
    which a peer now passes back as soon as it takes the prompt, not when its turn ends.
 4. **Retry and dedupe.** A connection error, a peer that is down and a target that does not
-   answer within 120 s are tried again after 2 s, 5 s, 10 s, 30 s, 1, 2, 5, 10 and 15 minutes (about
-   34 minutes in all), always with the same prompt id and `resend`, so a target that took an
+   answer within 120 s are tried again after 2 s, 5 s, 10 s, 30 s, 1, 2, 5, 10 and 15 minutes, then
+   every 15 minutes until a day after it was sent, and at once whenever a peer's session list
+   comes back (its link reconnected), always with the same prompt id and `resend`, so a target that took an
    earlier attempt answers with that one and never runs it twice. Sending the same prompt id
    again returns the first delivery. A refusal (no such session, the folder's trust, a bad
    prompt, a full agent pair) fails the delivery at once. A paused agent pair leaves it `held`:
    the target's daemon runs it when the person resumes the pair, so it is never sent again from
    here. `--no-wait` prints a refusal or a hold that comes within half a second as its error, as
    a direct send did.
-5. **Status.** `acpmux send --status ID` (`_acpmux/send_status {deliveryId, waitMs?}`) reads it.
+5. **Status.** `acpmux send --status ID` (`_acpmux/send_status {deliveryId, waitMs?}`) reads it;
+   `acpmux send --status` with no id (`{list: true, caller?, limit?}`) lists every message, newest
+   first. `acpmux session inbox SESSION` ends with the messages that session sent and their
+   state, and `acpmux ls` ends with how many still wait (`outboxPending` in `_acpmux/status`).
    Delivered, held and failed deliveries are kept for a day.
 
 **A relay for targets no peer reaches (`sendRelay`).** A host may have no peer that reaches the

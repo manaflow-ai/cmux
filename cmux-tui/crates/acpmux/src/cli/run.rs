@@ -13,6 +13,7 @@ use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 mod permission;
 pub(crate) use permission::{answer_permission, answer_question};
+pub(crate) use send_async::list_lines as sent_list_lines;
 
 mod extra;
 pub(crate) mod fanout;

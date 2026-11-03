@@ -671,6 +671,9 @@ impl Hub {
                     for summary in gone {
                         self.announce_remote(&peer, summary, "purged");
                     }
+                    // The peer's sessions are known again: messages waiting for it go now,
+                    // not after the rest of their retry delay (`server/outbox.rs` `deliver`).
+                    self.outbox.peer_ready.notify_waiters();
                 }
                 PeerNotice::SessionChanged { session, kind, seq } => {
                     let Some(mux_id) =
