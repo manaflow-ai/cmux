@@ -305,7 +305,13 @@ test("Find skips the status line: it is not a match the count can reach", () => 
 
 // One running call reads once (Leo, 2026-10-21): its own tool row, right under the line, already
 // names it, so while that row is on screen the line says "Working for 26s" alone, with no glyph.
-const times = (html: string, words: string) => text(html).split(words).length - 1;
+// A running row draws its words a second time inside RowShimmer for the sweep (#32805), a copy that
+// is aria-hidden and inert; the count reads what a reader reads, so it leaves that copy out.
+const times = (html: string, words: string) => {
+  const scope = JSDOM.fragment(`<div>${html}</div>`).firstElementChild!;
+  for (const copy of scope.querySelectorAll('[aria-hidden="true"]')) copy.remove();
+  return (scope.textContent ?? "").split(words).length - 1;
+};
 
 test("one running call reads once: its own tool row names it, the line does not", () => {
   const html = renderToStaticMarkup(<Turn rows={liveTurn([call("bun test", "in_progress")])} />);

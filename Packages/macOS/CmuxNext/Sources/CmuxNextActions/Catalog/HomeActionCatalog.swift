@@ -9,11 +9,11 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         // Owner round trips a caller that waits (`action.run` with `wait`) gets the
         // 40 s result deadline for: a group with invites takes several requests.
-        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.inviteToTeam", "home.newChief", "home.archiveChief", "home.deleteChief",
+        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.inviteToTeam", "home.newChief", "home.archiveChief", "home.deleteChief", "home.setPrimaryChief",
                                     "home.renameConversation", "home.addMembers", "home.removeMember", "home.leaveConversation",
                                     "home.muteConversation", "home.unmuteConversation", "home.sendMessage",
                                     "home.createGroup", "home.setChiefReplies"]
-        return all.map { descriptor in
+        return (all + debugOnly).map { descriptor in
             var descriptor = descriptor
             descriptor.waitsForResult = waits.contains(descriptor.id)
             // Invite to Team sends only from its dialog, where the person sees the seat cost and
@@ -235,6 +235,15 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home archive-chief",
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
+            // The primary Chief: texts to the cmux line go to it (`chief.update {is_default}`); `cmux chief primary` runs it.
+            ActionDescriptor(
+                id: "home.setPrimaryChief", title: t("action.home.setPrimaryChief", "Make Primary Chief"),
+                keywords: ["home", "chief", "primary", "default", "text", "imessage", "sms"],
+                category: .window, symbol: "star", surfaces: [.keyboard],
+                arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
+                cliName: "home primary-chief",
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             // Deleting cannot be undone (Archive Chief can): it asks first.
             ActionDescriptor(
                 id: "home.deleteChief", title: t("action.home.deleteChief", "Delete Chief…"),
@@ -444,6 +453,30 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
         ]
+    }
+
+    /// DEV builds only: Debug > Agent Messages Playground (the agent-message header variants live in the
+    /// real Home transcript, user 2026-11-02). `style` picks a variant (0: the shipped look), `expanded`
+    /// opens the folds, `team` shows a chat with a teammate.
+    private static var debugOnly: [ActionDescriptor] {
+        #if DEBUG
+        [
+            ActionDescriptor(
+                id: "home.agentMessagePlayground", title: t("action.home.agentMessagePlayground", "Agent Messages Playground"),
+                keywords: ["home", "chief", "agent", "messages", "playground", "variants", "header", "fold", "debug"],
+                category: .window, symbol: "square.stack.3d.up", surfaces: [.palette, .menu],
+                arguments: [
+                    ActionArgument(name: "style", title: t("argument.home.playgroundStyle", "Header Style"), kind: .int(0...29), isRequired: false),
+                    ActionArgument(name: "expanded", title: t("argument.home.playgroundExpanded", "Expanded"), kind: .bool, isRequired: false),
+                    ActionArgument(name: "team", title: t("argument.home.playgroundTeam", "Team Chat"), kind: .bool, isRequired: false),
+                ],
+                mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+        ]
+        #else
+        []
+        #endif
     }
 
     /// When a group's Chiefs answer: `auto` (the default), `mentions` or `all`.

@@ -82,20 +82,21 @@ import Testing
         return CGPoint(x: CGFloat(minX + maxX + 1) / 2 - half, y: CGFloat(minY + maxY + 1) / 2 - half)
     }
 
-    /// Home's glyph, the pin and a workspace row's icon share one center x.
+    /// Home's glyph, the pin and a workspace row's icon start their ink at one x, the icon column's leading edge
+    /// (Lawrence msg 19643, "left alignment here is bad"; until then they shared one center x).
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
-    func leadingGlyphsShareOneCenterX(_ c: Case) throws {
+    func leadingGlyphsShareOneLeadingX(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let pin = try HomePinnedRowAlignmentTests.item(list, Self.pinned.id)
             let iconRow = try HomePinnedRowAlignmentTests.row(list, Self.icon)
-            let homeX = Self.center(list, try #require(home.glyphInkFrame, "Home drew no glyph"), in: home).x
-            let pinX = Self.center(list, try #require(pin.pinInkFrame, "the pinned row drew no pin"), in: pin).x
-            let iconX = Self.center(list, iconRow.icon.frame, in: iconRow).x
-            #expect(abs(homeX - iconX) <= Self.tolerance, "\(c.testDescription): Home's glyph centers at \(homeX), a row icon at \(iconX)")
-            #expect(abs(pinX - iconX) <= Self.tolerance, "\(c.testDescription): the pin centers at \(pinX), a row icon at \(iconX)")
+            let homeX = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home).minX
+            let pinX = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin).minX
+            let iconX = list.convert(iconRow.icon.frame, from: iconRow).minX
+            #expect(abs(homeX - iconX) <= Self.tolerance, "\(c.testDescription): Home's glyph starts at \(homeX), a row icon's column at \(iconX)")
+            #expect(abs(pinX - iconX) <= Self.tolerance, "\(c.testDescription): the pin starts at \(pinX), a row icon's column at \(iconX)")
         }
     }
 

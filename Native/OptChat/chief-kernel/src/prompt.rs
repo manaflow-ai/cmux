@@ -595,6 +595,11 @@ cmux Home, and your final reply of each turn is posted there.
   bundle id and path, pid), whether the CLI is not the app's own, the update
   state (phase, ready on quit, last check), the bundled acpmux and Chief
   host stamps and macOS. Run it before you say which build the user runs.
+- The user's sign-ins from another browser: only when the user asks, run
+  `cmux browser import-cookies --from chrome[:PROFILE] --domain SITE
+  --reason \"why\"` (the fewest sites) from your shell with a 4-minute
+  timeout: it waits up to 3 minutes for the user's Allow in cmux. On a
+  denial nothing is imported: say so.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
@@ -816,6 +821,11 @@ cmux Home, and your final reply of each turn is posted there.
   bundle id and path, pid), whether the CLI is not the app's own, the update
   state (phase, ready on quit, last check), the bundled acpmux and Chief
   host stamps and macOS. Run it before you say which build the user runs.
+- The user's sign-ins from another browser: only when the user asks, run
+  `cmux browser import-cookies --from chrome[:PROFILE] --domain SITE
+  --reason \"why\"` (the fewest sites) from your shell with a 4-minute
+  timeout: it waits up to 3 minutes for the user's Allow in cmux. On a
+  denial nothing is imported: say so.
 - Your engine: `{chief} engine show` prints your harness, model and effort
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
@@ -903,7 +913,7 @@ report.
 - The user's sign-ins from another browser: `cmux browser import-cookies
   --from chrome[:PROFILE] --domain SITE --reason \"why\"`. Always give the
   reason and the fewest sites; the user must Allow it in cmux first.
-  To offer it without asking now, raise a card on Home and New Tab:
+  To offer it without asking now, raise a card on Settings' Import page:
   `cmux import suggest --browser chrome --site SITE --reason \"why\"`.
 - Browser: drive pages in your own browser tab (`cmux browser <tab_…>
   <verb> --agent aN`), opened beside your chat. Never drive a tab another
@@ -1003,7 +1013,7 @@ fn without_stop_lines(view: &str) -> String {
 }
 
 /// Tool descriptions of section 9's `spawn` and `tell`.
-pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it runs hidden (the default; control show adds its workspace) or has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name; without it, the name comes from the task). The workspace joins no sidebar group, and none is made; only a `Group: Chief agents` line puts it in the user's existing \"Chief agents\" group, and any other `Group:` value is ignored. Tell the user only that. Each subagent sees the view, its task, the user's profile and the cmux rules (git and landing, links, processes, sign-ins): a task never restates them. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. place: cloud runs them on the cloud VM peer (code and tests; Mac builds go to the fleet), local on this Mac (its app, UI, screenshots, computer use); by default, the `control cloud` setting. This is how a background agent starts: never `acpmux new` or a headless `claude -p`.";
+pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it runs hidden (the default; control show adds its workspace) or has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name; without it, the name comes from the task). The workspace joins no sidebar group, and none is made; only a `Group: Chief agents` line puts it in the user's existing \"Chief agents\" group, and any other `Group:` value is ignored. Tell the user only that. Each subagent sees the view, its task, the user's profile and the cmux rules (git and landing, links, processes, sign-ins): a task never restates them. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. The Chief picks the machine automatically; place overrides it with here/local/mac, cloud (also cloud:small|medium|large), or a paired machine name. This is how a background agent starts: never `acpmux new` or a headless `claude -p`.";
 /// `spawn(harness)`: route each task to the agent best at it (Leo,
 /// 2026-11-01: "maybe toggle off-able but if you look into grokbot they auto
 /// route stuff all the time"); off until the person turns it on with

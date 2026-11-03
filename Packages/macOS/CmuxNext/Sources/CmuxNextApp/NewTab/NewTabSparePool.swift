@@ -195,7 +195,7 @@ final class NewTabSparePool {
         guard let content = window.contentView else { return }
         let start = ContinuousClock.now
         park(in: content)
-        if !slot.shouldWarm { lastRetargetMilliseconds = Self.milliseconds(since: start) }
+        if !slot.all.isEmpty { lastRetargetMilliseconds = Self.milliseconds(since: start) } // the parked pages moved
         scheduleWarm()
     }
 
@@ -397,8 +397,8 @@ final class NewTabSparePool {
         warmTimer.schedule(after: launch ? Self.openSettle : Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
     }
 
-    /// A recycled spare not yet back in the window.
     private var wantsPage: Bool { slot.count < (usedThisSession ? slot.capacity : 1) } // a launch loads one page
+    /// A recycled spare not yet back in the window.
     private var unparked: AgentPaneView? { slot.all.first { $0.superview == nil } }
 
     private func warmNow() {

@@ -163,6 +163,78 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     await page.close();
   });
 
+  /// Clicks `query` (unless `click` is false) and reads every painted frame for `ms`: the opened row's
+  /// top (a Show more under its text stays at the row's foot, the text above it rises), the first row
+  /// under it and the last row's foot, how far the view is from its end, and how far below the row
+  /// under it the opened row is drawn (its foot less its clip).
+  const watchOpen = async (page: Page, query: string, ms = 700, click = true) => {
+    const watching = page.evaluate(
+      ({ selector, duration }) =>
+        new Promise<{ line: number; under: number; last: number; fromEnd: number; over: number }[]>((resolve) => {
+          const frames: { line: number; under: number; last: number; fromEnd: number; over: number }[] = [];
+          const start = performance.now();
+          window.cmuxAfterPaint(() => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            const line = document.querySelector<HTMLElement>(selector)!;
+            const row = line.closest<HTMLElement>(".acpmux-row")!;
+            const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
+            const box = row.getBoundingClientRect();
+            const next = rows
+              .filter((each) => each !== row && each.getBoundingClientRect().top >= box.top + 1)
+              .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0]!;
+            const cut = /inset\(\S+ \S+ ([\d.]+)px/.exec(getComputedStyle(row).clipPath);
+            frames.push({
+              line: box.top,
+              under: next.getBoundingClientRect().top,
+              last: rows.at(-1)!.getBoundingClientRect().bottom,
+              fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
+              over: box.bottom - (cut ? Number(cut[1]) : 0) - next.getBoundingClientRect().top,
+            });
+            if (performance.now() - start < duration) return;
+            resolve(frames);
+            return false;
+          });
+        }),
+      { selector: query, duration: ms },
+    );
+    if (click) await clickLine(page, query);
+    return watching;
+  };
+
+  /// Leo, 2026-11-03: "you guys adding fake space or whatever / it grows and shrinks right / ... when
+  /// you expand tool calls at the very bottom / you push the text above upwards / you don't expand
+  /// down IN THAT CASE". Not only where it settles: on every frame of the fold the rows under the line
+  /// keep their pixels and nothing of what opened shows under the line's old foot.
+  for (const [variant, query] of [
+    [VARIANT, GROUP],
+    ["prompt", '.cv-user__more[aria-expanded="false"]'],
+  ] as const) {
+    test(`at the very bottom (${variant}), no frame opens room under the line: only the text above moves up`, async () => {
+      const page = await open(variant, query);
+      await page.locator(".acpmux-scroll").evaluate((node, selector) => {
+        node.querySelector<HTMLElement>(selector)!.dataset.openProbe = "true";
+        node.scrollTop = node.scrollHeight;
+      }, query);
+      await settled(page);
+      const PROBE = "[data-open-probe]";
+      const before = (await watchOpen(page, PROBE, 0, false))[0]!;
+      const frames = await watchOpen(page, PROBE);
+      expect(frames.length).toBeGreaterThan(5);
+      let line = before.line;
+      for (const [index, frame] of frames.entries()) {
+        const at = { index, ...frame };
+        expect({ at, under: Math.abs(frame.under - before.under) <= 1 }).toEqual({ at, under: true });
+        expect({ at, last: Math.abs(frame.last - before.last) <= 1 }).toEqual({ at, last: true });
+        expect({ at, end: frame.fromEnd <= 2 }).toEqual({ at, end: true });
+        expect({ at, covered: frame.over <= 1 }).toEqual({ at, covered: true });
+        expect({ at, up: frame.line <= line + 0.5 }).toEqual({ at, up: true });
+        line = frame.line;
+      }
+      expect(before.line - frames.at(-1)!.line).toBeGreaterThan(40);
+      await page.close();
+    });
+  }
+
   test("away from the bottom, opening a line keeps it put and grows its body down", async () => {
     const page = await open();
     // The earlier turn's "Worked for" line, 160px under the view's top, the rest of the chat under it.

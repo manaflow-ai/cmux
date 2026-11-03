@@ -1,6 +1,9 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
 import CmuxHomeCore
+#if DEBUG
+public import MessagesLabHome
+#endif
 public import CmuxNextDesign
 
 /// DEBUG ONLY. A fixture for screenshots and dogfood: the real
@@ -35,6 +38,18 @@ public final class HomeNativeFixture {
     /// The app's made-ahead file picker for the fixture's "+"; nil opens none.
     private let openPanel: MadeAheadOpenPanel?
 
+    #if DEBUG
+    /// DEBUG Agent Messages Playground: the header style, folds open, and the team chat (nil: not a playground).
+    private var playground: (style: HomeAgentFoldStyle, expanded: Bool, team: Bool)?
+
+    /// The Agent Messages Playground's fixture: it shows `playground`'s header style, folds and chat, with the
+    /// playground's run, once it loads (``debugPlayground(style:expanded:team:)`` changes them later).
+    public convenience init(playground: (style: HomeAgentFoldStyle, expanded: Bool, team: Bool)) {
+        self.init()
+        self.playground = playground
+    }
+    #endif
+
     public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil) {
         self.attachments = attachments
         self.openPanel = openPanel
@@ -57,6 +72,12 @@ public final class HomeNativeFixture {
                   ?? inbox.conversations.first)?.id else { return }
         await show(id, chief: chief, me: inbox.me.id)
         if attachments { await addAttachments(in: id) }
+        #if DEBUG
+        if let playground {
+            view?.transcript.debugSetAgentFoldStyle(playground.style)
+            _ = postAgentRun(Self.agentPlayground, notes: false, team: playground.team, step: 0, expanded: playground.expanded)
+        }
+        #endif
     }
 
     /// Shows conversation `id` in the container, in place of the one shown.
@@ -72,13 +93,15 @@ public final class HomeNativeFixture {
         await view.binding.opened()
     }
 
-    /// Shows the mock's group with the Chief and two teammates (the Chief's avatar and name draw there,
-    /// as in a team Chief's chat); nil when the mock has none.
-    private func showGroup() async -> (conversation: ConversationID, chief: ParticipantID)? {
+    /// Shows the mock's team chat (the Chief and two teammates: the Chief's avatar and name draw there),
+    /// or with `team` false the Chief's own chat; nil when the mock has none.
+    private func showChat(team: Bool) async -> (conversation: ConversationID, chief: ParticipantID)? {
         guard let shown, let inbox = try? await source.inbox(),
-              let group = inbox.conversations.first(where: { $0.participants.contains { $0.id == shown.chief } && $0.participants.count > 2 })
+              let chat = inbox.conversations.first(where: { conversation in
+                  conversation.participants.contains { $0.id == shown.chief } && (conversation.participants.count > 2) == team
+              })
         else { return nil }
-        if group.id != shown.conversation { await show(group.id, chief: shown.chief, me: inbox.me.id) }
+        if chat.id != shown.conversation { await show(chat.id, chief: shown.chief, me: inbox.me.id) }
         return self.shown
     }
 
@@ -170,6 +193,15 @@ public final class HomeNativeFixture {
             store.toggleAgentMessages(last.notes ? HomeAgentMessageRow.notesGroup(group) : group, in: shown.conversation)
             return true
         }
+        return postAgentRun(notes ? Self.agentNotes : Self.agentMessages, notes: notes, team: group ? true : nil, step: step)
+    }
+
+    /// Posts my question, the Chief's reply and a run of `all` (its first `step` messages; 0: all), in the
+    /// team chat (`team` true), the Chief's own chat (false) or the one shown (nil); then with `expanded`
+    /// opens or closes every fold of the run. False before the conversation shows.
+    private func postAgentRun(_ all: [(peer: String, outgoing: Bool, text: String)], notes: Bool, team: Bool?, step: Int,
+                              expanded: Bool? = nil) -> Bool {
+        guard let shown else { return false }
         let source = self.source
         // Step 2 and on grow the last run; anything else starts a new one.
         let continuing = step > 1 ? lastAgentRun.flatMap { $0.notes == notes ? $0.turn : nil } : nil
@@ -177,12 +209,11 @@ public final class HomeNativeFixture {
         if continuing == nil { agentRunStart = Date() }
         lastAgentRun = (turn, notes)
         let start = agentRunStart
-        let all = notes ? Self.agentNotes : Self.agentMessages
         let count = step > 0 ? min(step, all.count) : all.count
         // task-owner: a few mock events, ends when the mock source has published them
         Task { [weak self] in
             var target = shown
-            if group, continuing == nil, let shownGroup = await self?.showGroup() { target = shownGroup }
+            if let team, continuing == nil, let chat = await self?.showChat(team: team) { target = chat }
             if continuing == nil {
                 let me = await source.me.id
                 _ = await source.post("What did you tell the agents just now?", from: me, in: target.conversation, key: .make())
@@ -199,9 +230,49 @@ public final class HomeNativeFixture {
                                    answers: [], revision: revision, messages: messages)
             await source.streamLive(.run(HomeLiveRunChange(conversation: target.conversation, author: target.chief, run: turn.rawValue,
                                                            turn: turn, status: count < all.count ? "running" : "done", agentRun: run)))
+            if let expanded { _ = self?.debugAgentFolds(expanded: expanded) }
         }
         return true
     }
+
+    /// Opens or closes every agent fold of the last run (its messages and its stopped agents), as a click
+    /// on each does. False before a run.
+    @discardableResult
+    public func debugAgentFolds(expanded: Bool) -> Bool {
+        guard let shown, let last = lastAgentRun else { return false }
+        let group = HomeAgentMessageRow.groupID(author: shown.chief, anchor: last.turn)
+        for fold in [group, HomeAgentMessageRow.notesGroup(group)] where store.isAgentMessagesExpanded(fold, in: shown.conversation) != expanded {
+            store.toggleAgentMessages(fold, in: shown.conversation)
+        }
+        return true
+    }
+
+    #if DEBUG
+    /// The Agent Messages Playground's state: draws the agent-message headers in `style` (and redraws the chat),
+    /// shows the team chat or the Chief's own with the playground's run in it, and opens or closes its folds.
+    /// Before the conversation shows, it is what the fixture shows first.
+    public func debugPlayground(style: HomeAgentFoldStyle, expanded: Bool, team: Bool) {
+        let was = playground
+        playground = (style, expanded, team)
+        guard shown != nil else { return }
+        if was?.style != style { view?.transcript.debugSetAgentFoldStyle(style) }
+        if was?.team != team || lastAgentRun == nil {
+            _ = postAgentRun(Self.agentPlayground, notes: false, team: team, step: 0, expanded: expanded)
+        } else if was?.expanded != expanded {
+            debugAgentFolds(expanded: expanded)
+        }
+    }
+
+    /// The playground's run: three agents told, one of them reporting back, and two that stopped with no report.
+    private static let agentPlayground: [(peer: String, outgoing: Bool, text: String)] = [
+        ("a959", true, "Fix the sidebar alignment: the header and the New Workspace row share one left edge."),
+        ("a931", true, "Rebuild the nightly appcast on an owned Mac mini, then plain push."),
+        ("a940", true, "Audit every button for first-click response, active and inactive window."),
+        ("a959", false, "Done: both rows now start at 12 pt. [631d310](https://github.com/manaflow-ai/cmux/commit/631d310)"),
+        ("a933", false, "(stopped without a report: its session is Disconnected)"),
+        ("a936", false, "(stopped without a report: its session is Disconnected)"),
+    ]
+    #endif
 
     /// The notes fixture run: five status notes in the Chief producer's words, a real report.
     private static let agentNotes: [(peer: String, outgoing: Bool, text: String)] =

@@ -273,7 +273,7 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
             labelHeight: label.height,
             // The line's box is the reply footer's slot, so the end-of-turn swap moves nothing
             // (#31690, transcriptGrid.ts MARK_FOOTER_SLOT).
-            oneLine: px("--cv-footer-button"),
+            oneLine: px("--cv-footer-row"),
           };
         });
         await page.close();

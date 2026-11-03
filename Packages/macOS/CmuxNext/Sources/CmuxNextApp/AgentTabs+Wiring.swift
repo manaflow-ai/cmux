@@ -110,9 +110,13 @@ extension AgentTabStore {
     /// The agent tabs' view store of `services`, wired to every machine's tree and daemon.
     static func wired(to services: AppServices) -> AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
-                                 linkScheme: services.linkScheme, settings: services.settings, paneShared: AgentPaneShared(openPanel: services.openPanel, eventSources: services.personInput.sources),
+                                 linkScheme: services.linkScheme, settings: services.settings, paneShared: AgentPaneShared(openPanel: services.openPanel, eventSources: services.personInput.sources, apps: services.apps.client),
                                  attentionTabs: services.attentionTabs,
                                  daemons: services.acpmuxDaemons, updates: services.daemonUpdates, peerApprover: services.peerApprover)
+        tabs.onRemoteChatStarted = { [weak services] host, session, cwd, harness in
+            guard let services, services.cloud.movedChats.started(host: host, session: session, remoteChat: cwd, harness: harness) else { return }
+            services.cloud.accessAsks.start(services: services)
+        }
         tabs.cloudRepositoryLocal = { [weak services] in
             guard let services else { throw DaemonError.notConnected }
             return try await services.daemon.cloudRepositoryLocal()
@@ -545,10 +549,11 @@ extension AgentTabStore {
         }
     }
     /// Signed in (on either link: CloudService.machineAPI serves a legacy and a Worker machine), and
-    /// this build passes the Mac's login at all (DEV and dogfood; production's card signs in on the
-    /// machine instead).
+    /// this build may pass the Mac's login at all (DEV and dogfood, or Release unless the setting
+    /// turns it off; a Release recovery then reads the remote switch and asks the consent first,
+    /// CloudPresenter.recoverCredentials).
     static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool,
-                                                   passesLogin: Bool = CloudStartChat.passesHarnessLoginHere) -> Bool {
+                                                   passesLogin: Bool = CloudStartChat.offersLoginCopyHere) -> Bool {
         isSignedIn && passesLogin
     }
 }

@@ -165,14 +165,16 @@ pub fn heaviest<'a>(processes: impl IntoIterator<Item = (&'a str, Vec<&'a str>)>
 }
 
 /// Words before a command's program that are not it: a wrapper that runs the rest.
-const WRAPPERS: &[&str] = &["env", "time", "nice", "nohup", "exec", "command"];
+const WRAPPERS: &[&str] =
+    &["env", "time", "nice", "nohup", "exec", "command", "timeout", "gtimeout", "sudo"];
 
-/// The heavy work a shell command does: the heaviest of its simple commands (split at `;`,
-/// `&&`, `||`, `|`, `&` and line ends), each read from its program on, past leading
-/// `NAME=value` words, a wrapper and its options ([`WRAPPERS`]). `sh -c SCRIPT` (and `bash`,
-/// `zsh`, `-lc`) is its script. A loose read, not a shell parse: it only names a build or test.
-pub fn classify_command(script: &str) -> Option<Heavy> {
-    script.split(['\n', ';', '|', '&']).fold(None, |best, segment| {
+/// Calls `each` with every simple command of a shell script (split at `;`, `&&`, `||`, `|`,
+/// `&` and line ends), each read from its program on, past leading `NAME=value` words, a
+/// wrapper and its options ([`WRAPPERS`]). `sh -c SCRIPT` (and `bash`, `zsh`, `-lc`) is its
+/// script's commands. A loose read, not a shell parse: it only names what a command runs
+/// (`classify_command`, the slow commands of `bg_hook.rs`).
+pub fn for_each_command(script: &str, each: &mut dyn FnMut(&[&str])) {
+    for segment in script.split(['\n', ';', '|', '&']) {
         let words: Vec<&str> = segment
             .split_whitespace()
             .map(|w| w.trim_matches(|c| matches!(c, '"' | '\'' | '(' | ')')))
@@ -187,18 +189,26 @@ pub fn classify_command(script: &str) -> Option<Heavy> {
                 })
         };
         let argv: Vec<&str> = words.iter().copied().skip_while(skip).collect();
-        let found = match (argv.first().copied().map(program), argv.get(1).copied()) {
+        match (argv.first().copied().map(program), argv.get(1).copied()) {
             (Some("sh" | "bash" | "zsh"), Some("-c" | "-lc")) => {
-                classify_command(&argv.get(2..).unwrap_or_default().join(" "))
+                for_each_command(&argv.get(2..).unwrap_or_default().join(" "), each)
             }
-            (Some(name), _) => classify(name, &argv),
-            (None, _) => None,
-        };
-        match found {
-            Some(h) => heavier(best, h),
-            None => best,
+            (Some(_), _) => each(&argv),
+            (None, _) => {}
         }
-    })
+    }
+}
+
+/// The heavy work a shell command does: the heaviest of its simple commands
+/// ([`for_each_command`]).
+pub fn classify_command(script: &str) -> Option<Heavy> {
+    let mut best = None;
+    for_each_command(script, &mut |argv| {
+        if let Some(h) = argv.first().and_then(|zero| classify(program(zero), argv)) {
+            best = heavier(best, h);
+        }
+    });
+    best
 }
 
 /// The heavy work an ACP tool call (`tool_call` or `tool_call_update`) runs: its shell command,

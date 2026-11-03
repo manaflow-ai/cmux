@@ -114,6 +114,9 @@ impl Brain {
             .turn_engine
             .as_ref()
             .is_none_or(|e| self.family_of(&e.harness) != Family::Claude);
+        // Their people join the turn before their words reach it, so the
+        // rights hook holds the turn's next call to them too.
+        self.add_turn_people(&items);
         let started = self.agents.start_steer(&session, blocks, &prompt_id);
         let logged = at_end && started.is_ok() && self.log_delivered(&items);
         // Claude Code says when it read the message: one it has not read by
@@ -258,6 +261,10 @@ impl Brain {
     /// Another person's text delivered to a running turn keeps that turn's
     /// local effects refused until it ends.
     pub(super) fn taint_approval(&mut self, items: &[Queued]) {
+        // Its people join the turn's (rights_gate.rs): the hook holds the
+        // rest of the turn to every one of them.
+        self.add_turn_people(items);
+        self.forget_authors(items);
         if items.iter().any(Queued::requires_approval) {
             self.turn_ask = true;
             self.last_turn_ask = true;
