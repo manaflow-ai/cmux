@@ -71,6 +71,9 @@ EXEMPT = {
     ("stable-next.yml", "swift-suites"):
         "only submits the suites to the build fleet (cmux-ci run); the fleet step selects "
         "CMUX_CI_XCODE_APP itself",
+    ("stable-next.yml", "perf-budgets"):
+        "only submits the perf budgets to the build fleet (cmux-ci run, exclusive measure step); "
+        "builds nothing here",
     ("stable-next.yml", "smoke-27"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
     ("stable-next.yml", "smoke-26"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
     ("nightly.yml", "launch-smoke-nightly"):
