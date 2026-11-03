@@ -39,7 +39,9 @@
    column and overlap the names ("In progress" over "Set up a Cloud machine", Leo 2026-11-02). */
 .acpmux-cloud-start__row { display: grid; grid-template-columns: 16px minmax(0, max-content) max-content 1fr; align-items: start; column-gap: 8px; min-height: 28px; line-height: 20px; color: var(--agent-text); }
 .acpmux-cloud-start__row-label { min-width: 0; overflow-wrap: anywhere; }
-.acpmux-cloud-start .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* The words sit in the mark (position: relative), clipped to nothing; no 1 px box, as in
+   modelPicker.css's .sr-only (the design-token check allows no 1 px height). */
+.acpmux-cloud-start .visually-hidden { position: absolute; width: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; pointer-events: none; }
 .acpmux-cloud-start__row[data-status="pending"], .acpmux-cloud-start__row[data-status="skipped"] { color: var(--agent-muted); }
 .acpmux-cloud-start__row[data-status="error"] { color: var(--agent-danger, #f87171); }
 .acpmux-cloud-start__mark { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 20px; color: var(--agent-accent, #4ade80); }

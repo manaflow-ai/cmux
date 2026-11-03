@@ -38,9 +38,9 @@ pub const SUBAGENTS_PER_HOUR: &str = "subagentsPerHour";
 /// label, the command that takes it and the change that adds that command while it has not landed.
 fn actions(rule: &str, name: &str) -> Vec<Value> {
     let step = |label: &str, command: String, pending: Option<&str>| json!({"label": label, "command": command, "pending": pending});
-    // `lane-place rotate` starts a successor (a dry run until `--yes`); it keeps the harness
+    // `sessions rotate` starts a successor (a dry run until `--yes`); it keeps the harness
     // profile unless `--harness` names another. `session restart` keeps the launch settings.
-    let rotate = |extra: &str| format!("lane-place rotate {name}{extra}");
+    let rotate = |extra: &str| format!("sessions rotate {name}{extra}");
     match rule {
         // The successor runs on the capped profile (claude-sr2, its sr2 `--autocompact`).
         NO_AUTOCOMPACT_CAP => {
@@ -155,7 +155,7 @@ pub fn short(warning: &Value) -> String {
 }
 
 /// `short` with the commands that answer it, for `acpmux ls --wide`:
-/// `ctx 412k: acpmux send lane-1 /compact | lane-place rotate lane-1`.
+/// `ctx 412k: acpmux send lane-1 /compact | sessions rotate lane-1`.
 pub fn with_command(warning: &Value) -> String {
     let commands = at(warning, "actions")
         .as_array()

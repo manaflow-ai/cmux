@@ -22,6 +22,17 @@ struct DaemonStartupFailureStateTests {
         #expect(service.notConnectedReason == RefusalStrings.describe(DaemonError.timedOut("server ensure")), "the attempt's cause still answers")
     }
 
+    /// Cloud's `link_ended_detail` read only "connection ended" and dropped the failure that ended
+    /// the daemon connection (#32954); the detail names both.
+    @Test func anEndedDetailNamesTheDaemonConnectionsFailure() {
+        struct Ended: Error, CustomStringConvertible { var description: String { "connection ended" } }
+        let service = DaemonService()
+        #expect(service.endedDetail(Ended()) == "connection ended")
+        let failure = DaemonError.timedOut("server ensure")
+        service.noteStartupFailure(failure)
+        #expect(service.endedDetail(Ended()) == "connection ended; the daemon connection failed: \(failure.description)")
+    }
+
     @Test func aPermanentFailureShowsAtOnce() {
         let service = DaemonService()
         let error = DaemonError.wrongApp("not-cmux")
