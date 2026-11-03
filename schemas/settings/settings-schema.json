@@ -5849,7 +5849,7 @@
       "range" : {
         "max" : 320,
         "min" : 16,
-        "placeholder" : 48,
+        "placeholder" : 72,
         "step" : 1,
         "unit" : "points"
       },

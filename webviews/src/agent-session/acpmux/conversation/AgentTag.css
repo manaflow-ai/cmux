@@ -19,6 +19,8 @@
   font-size: inherit;
   line-height: calc(1em + var(--ds-space-1));
   letter-spacing: inherit;
+  /* A name, not a count: never the tabular figures a status line or tool row sets for its timer. */
+  font-variant-numeric: normal;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: default;
