@@ -16,11 +16,11 @@ public nonisolated struct CloudLoginCopyConsentSetting: Sendable {
     public init() {}
 
     /// The person's answer: nil when never asked (or a non-boolean value), else yes or no. Only the
-    /// person's own cmux.json (`file`) can say yes; a managed preference or any other layer of the
-    /// effective settings (`effective`) can only say no, so no `defaults write` or MDM profile
-    /// stands in for the prompt.
-    public func consent(file: JSONValue, effective: JSONValue) -> Bool? {
-        if effective.value(at: Self.path)?.boolValue == false { return false }
+    /// person's own cmux.json (`file`) can say yes. A key any managed source holds (`managed`: MDM,
+    /// a team policy, `defaults write`) is no whatever its value, since an organization or a
+    /// script never consents for the person; an effective `false` is no too.
+    public func consent(file: JSONValue, effective: JSONValue, managed: Bool) -> Bool? {
+        if managed || effective.value(at: Self.path)?.boolValue == false { return false }
         return file.value(at: Self.path)?.boolValue
     }
 

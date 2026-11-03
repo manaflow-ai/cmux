@@ -10,15 +10,18 @@ struct CloudLoginCopyConsentSettingTests {
     let none: JSONValue = .object([:])
 
     @Test func onlyThePersonsFileSaysYes() {
-        #expect(setting.consent(file: none, effective: none) == nil)
-        #expect(setting.consent(file: yes, effective: yes) == true)
+        #expect(setting.consent(file: none, effective: none, managed: false) == nil)
+        #expect(setting.consent(file: yes, effective: yes, managed: false) == true)
         // A managed or defaults `true` with nothing in the person's file is never consent.
-        #expect(setting.consent(file: none, effective: yes) == nil)
+        #expect(setting.consent(file: none, effective: yes, managed: false) == nil)
     }
 
     @Test func anyLayerMaySayNo() {
-        #expect(setting.consent(file: no, effective: no) == false)
+        #expect(setting.consent(file: no, effective: no, managed: false) == false)
         // A managed `false` over the person's yes turns the copy off.
-        #expect(setting.consent(file: yes, effective: no) == false)
+        #expect(setting.consent(file: yes, effective: no, managed: false) == false)
+        // Any managed source holding the key, whatever its value (a team `false` under an MDM
+        // `true` merges to `true`), is no: an organization never consents for the person.
+        #expect(setting.consent(file: yes, effective: yes, managed: true) == false)
     }
 }
