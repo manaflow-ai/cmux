@@ -318,7 +318,13 @@ fn a_finished_copy_is_kept_per_send_and_machine_across_a_relaunch() {
     Ledger::update(&path, |pins| {
         pins.record("vm-a", &send(&key));
         assert_eq!(pins.copied_chat(&send(&key), "vm-a"), None);
-        pins.record_copy("/home/cmux/work/chats/k/paint", &send(&key), "vm-a", "chats/k");
+        pins.record_copy(
+            "/home/cmux/work/chats/k/paint",
+            "/home/cmux/work/chats/k/paint",
+            &send(&key),
+            "vm-a",
+            "chats/k",
+        );
         // Pinning the same machine again (the retry) keeps the finished copy.
         pins.record("vm-a", &send(&key));
     })
@@ -522,7 +528,8 @@ fn a_finished_copy_from_an_older_ledger_recovers_its_original_folder() {
     std::fs::write(
         &path,
         json!({"sends": [{"key": copy.key, "account": ACCOUNT, "machine_id": copy.machine,
-            "place": place, "copied_chat": chat}]}).to_string(),
+            "place": place, "copied_chat": chat}]})
+        .to_string(),
     )
     .unwrap();
     let retry = StartCopy {
@@ -531,7 +538,9 @@ fn a_finished_copy_from_an_older_ledger_recovers_its_original_folder() {
         work_roots: vec!["/new/work-root".into()],
         ..copy
     }
-    .run(&path, &|_: &Path, _: &Path, _: &str| panic!("a legacy finished copy must not push again"));
+    .run(&path, &|_: &Path, _: &Path, _: &str| {
+        panic!("a legacy finished copy must not push again")
+    });
     assert_eq!(retry["ok"], true, "{retry}");
     assert_eq!(retry["copied"], false);
     assert_eq!(retry["chat"], chat);

@@ -36,11 +36,7 @@ struct CloudMove {
     let services: AppServices
 
     /// Why a move stopped, as the toast and the CLI say it.
-    struct Failure: Error {
-        let message: String
-        /// What Retry does; none when retrying can't help.
-        var retry: CloudMoveRetries.Retry?
-    }
+    typealias Failure = CloudMoveFailure
 
     /// The tab and chat menus' Cloud rows to hide: Move to Cloud unless the tab is a chat that
     /// does not already run on another machine, and Bring Back Local unless a move from this Mac

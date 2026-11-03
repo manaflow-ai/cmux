@@ -102,12 +102,19 @@ struct AgentTabRemoteStartTests {
                        remoteFolder: String? = nil) async throws -> [String: Any] {
         let (tabs, key) = try makeTabs(seedCwd: seedCwd)
         tabs.remoteFolder = { _ in remoteFolder }
+        var recorded: [(String, String, String?, String?)] = []
+        tabs.onRemoteChatStarted = { recorded.append(($0, $1, $2, $3)) }
         let daemon = try RemoteStartDaemon(supportsNoCwd: supportsNoCwd)
         async let received = daemon.firstStart()
         let started = try await tabs.startRemoteChat(key, machine: "Cloud fixture", harness: harness, model: model,
                                                     ownerLink: { 1 }, endpoint: { DaemonEndpoint(socketPath: daemon.path) })
         #expect(started == AgentTabRemoteStart.Started(surface: 7, session: "remote-session"))
         #expect(tabs.sessions[key] == "remote-session")
+        #expect(recorded.count == 1)
+        #expect(recorded.first?.0 == "registry:cloud-fixture")
+        #expect(recorded.first?.1 == "remote-session")
+        #expect(recorded.first?.2 == expectedCwd)
+        #expect(recorded.first?.3 == (harness ?? "claude"))
         let data = try await received
         let request = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(request["surface"] as? Int == 7)
