@@ -281,11 +281,14 @@ fn guest_takes_login(kind: Option<&str>, release: bool) -> bool {
 
 fn step_and_reason(d: &Inputs) -> (Step, Reason) {
     // Codex logins are per machine (its refresh token is VM-bound): its broker flow stays the turn card's.
+    // A Release copy is held by its setting and its remote switch whatever `gate` the caller sent
+    // (a pre-resolved request with `release` and `gate` but no `dogfood` gets the same answer).
+    if d.release && !release_passes_harness_login(d.setting, d.remote_switch) {
+        let reason =
+            if d.setting == Some(false) { Reason::BuildGateOff } else { Reason::RemoteSwitchOff };
+        return (Step::Skip, reason);
+    }
     if !d.gate {
-        // A Release build the setting did not turn off is held only by its remote switch.
-        if d.release && d.setting != Some(false) && d.remote_switch != Some(true) {
-            return (Step::Skip, Reason::RemoteSwitchOff);
-        }
         return (Step::Skip, Reason::BuildGateOff);
     }
     if d.provider != Some(Provider::Claude) {
@@ -444,12 +447,13 @@ pub fn decide(d: &Inputs) -> Decision {
     Decision {
         step,
         reason,
-        gate: d.gate,
+        gate: d.gate && (!d.release || release_passes_harness_login(d.setting, d.remote_switch)),
         provider: d.provider,
         guest_kind: d.guest_kind.clone(),
         machine_login: d.machine_login,
         guest_kind_probe: GUEST_KIND_PROBE.to_owned(),
         reads_machine: d.gate
+            && (!d.release || release_passes_harness_login(d.setting, d.remote_switch))
             && d.provider == Some(Provider::Claude)
             && d.signed_in
             && d.caller_owns == Some(true)

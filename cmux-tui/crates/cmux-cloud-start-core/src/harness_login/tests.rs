@@ -297,6 +297,39 @@ fn release_copies_only_with_the_switch_on_and_the_persons_consent() {
     }
 }
 
+/// A pre-resolved request (`release` and `gate` sent, no `dogfood`) is held the same way: the
+/// switch and the setting are checked whatever `gate` says.
+#[test]
+fn a_pre_resolved_release_request_cannot_skip_the_switch() {
+    for (remote_switch, setting, reason) in [
+        (None, None, Reason::RemoteSwitchOff),
+        (Some(false), None, Reason::RemoteSwitchOff),
+        (Some(true), Some(false), Reason::BuildGateOff),
+    ] {
+        let d = Inputs {
+            dogfood: None,
+            release: true,
+            gate: true,
+            remote_switch,
+            setting,
+            consent: Some(true),
+            ..cached(owner())
+        };
+        let decision = decide(&d);
+        assert_eq!((decision.step, decision.reason), (Step::Skip, reason), "{d:?}");
+        assert!(!decision.gate && !decision.reads_machine);
+    }
+    let on = Inputs {
+        dogfood: None,
+        release: true,
+        gate: true,
+        remote_switch: Some(true),
+        consent: Some(true),
+        ..cached(owner())
+    };
+    assert_eq!(decide(&on).step, Step::Install);
+}
+
 #[test]
 fn release_never_copies_to_a_team_or_shared_machine() {
     // The creator's team guest takes the login in DEV and NIGHTLY, never in Release.

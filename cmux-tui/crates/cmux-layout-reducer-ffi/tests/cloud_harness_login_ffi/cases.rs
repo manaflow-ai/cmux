@@ -131,6 +131,13 @@ fn a_release_start_reads_the_switch_and_the_consent() {
         (body["step"].as_str(), body["reason"].as_str()),
         (Some("skip"), Some("remote-switch-off"))
     );
+    // Sent pre-resolved (no `dogfood`), the switch still holds it.
+    let (_, body) = call(
+        c"cloud_harness_login",
+        &json!({"release": true, "gate": true, "provider": "claude", "signedIn": true, "callerOwns": true,
+                "guestKind": "owner", "machineLogin": "none", "cached": true, "consent": true}),
+    );
+    assert_eq!(body["reason"], "remote-switch-off");
     let mut team = given;
     team["guestStdout"] = json!("vm-kind:team\n");
     assert_eq!(call(c"cloud_harness_login", &team).1["reason"], "guest-not-owner");
