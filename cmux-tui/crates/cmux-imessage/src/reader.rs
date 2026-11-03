@@ -23,8 +23,7 @@ pub const MAX_LIMIT: usize = 500;
 /// (`associated_message_type` 2000-2007, removals 3000-3007), and not a group event such as a
 /// rename or a member change (`item_type` > 0). Old rows may hold NULL in either column; NULL
 /// means a plain message.
-const VISIBLE: &str =
-    "IFNULL(m.associated_message_type, 0) = 0 AND IFNULL(m.item_type, 0) = 0";
+const VISIBLE: &str = "IFNULL(m.associated_message_type, 0) = 0 AND IFNULL(m.item_type, 0) = 0";
 
 /// `~/Library/Messages/chat.db` for the current user, when `HOME` is set.
 pub fn default_database_path() -> Option<PathBuf> {
