@@ -554,6 +554,12 @@ def run_loaded(args):
         time.sleep(5)  # test script: the debug read's own work ends before the window
         result = measure_processes(pid, args.app, label, args.measure, roles, peer.pids())
         result["load"] = reached
+        if label == "idle-chats":
+            # After the window, so it costs the measurement nothing: what the shown chat's page asks
+            # for while nobody touches it, by call site (idleProbe.ts), for the idle loop's source.
+            probe = rpc(sock, "debug.agent_pane", {"action": "idle_probe", "ms": 10000}, timeout=45)
+            result["idle_probe"] = probe
+            print(f"PERF-IDLE-PROBE {json.dumps(probe)[:20000]}", flush=True)
         result["renderer_roles"] = "debug.cef_pages" if pages is not None else "none (a build without debug.* methods)"
         sha = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True).stdout.strip()
         model = subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip()

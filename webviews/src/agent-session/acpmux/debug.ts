@@ -17,6 +17,7 @@ import { shownPresence } from "./multiplayer/LivePresence";
 import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
+import { idleProbe, type IdleProbeOptions } from "./idleProbe";
 import { queuedRowsState } from "./queuedRowsState";
 import { composerAttachmentsState } from "./composerAttachmentsState";
 import { cloudSignedInForDebug } from "./cloudMachines";
@@ -69,6 +70,8 @@ export type AcpmuxDebug = {
   models(): Record<string, unknown>;
   /** What moved on the page after it first showed its content, watched for `ms` (layoutWatch.ts). */
   layoutWatch(options?: LayoutWatchOptions): Promise<Record<string, unknown>>;
+  /** What the page asks for while nobody touches it, by call site, over `ms` (idleProbe.ts). */
+  idleProbe(options?: IdleProbeOptions): Promise<Record<string, unknown>>;
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
   stream(options?: StreamOptions): Promise<Record<string, unknown>>;
   /** Opens a mock session of `turns` heavy turns through the real client (loadDebug.ts). */
@@ -373,6 +376,10 @@ export function createAcpmuxDebug(
     },
     layoutWatch(options = {}) {
       return layoutWatch(options);
+    },
+
+    idleProbe(options = {}) {
+      return idleProbe(options);
     },
     stream(options = {}) {
       return runStream(host.replaceRows, options);
