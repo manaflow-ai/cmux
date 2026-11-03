@@ -191,7 +191,7 @@
   },
   {
    "do": "rk_probe_point",
-   "name": "probe29",
+   "name": "probea",
    "target": {
     "divider": 0
    },
@@ -216,7 +216,7 @@
   },
   {
    "do": "rk_probe_point",
-   "name": "probe31",
+   "name": "probeb",
    "target": {
     "divider": 0
    },

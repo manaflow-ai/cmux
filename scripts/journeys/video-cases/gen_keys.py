@@ -275,7 +275,7 @@ def tiered_drags(journeys_dir):
             psteps = []
             for k, st in enumerate(steps):
                 if st.get("do") == "hid_drag":
-                    psteps.append({"do": "rk_probe_point", "name": f"probe{k}", "target": st["target"],
+                    psteps.append({"do": "rk_probe_point", "name": "probe" + "abcdefghij"[sum(1 for x in psteps if x.get("do") == "rk_probe_point")], "target": st["target"],
                                    "title": "probe: the grab point, the windows and the element there"})
                     psteps.append(st)
                 else:

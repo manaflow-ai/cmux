@@ -141,6 +141,9 @@ def step_rk_probe_point(j, step):
     ignores_mouse (debug.window_list), the window server's view of the desktop with a screenshot (CuaDriver
     get_desktop_state), and the accessibility element at the point (get_accessibility_tree, when the driver has it)."""
     name = step.get("name", "probe")
+    # run.py fetches only diag-<lowercase letters>.json|png: any other name would leave the probe on the mini.
+    if not (name.isalpha() and name.islower()):
+        raise D.StepError(f"rk_probe_point: name {name!r} must be lowercase letters (diag-<name>.json)")
     sample = V._latest_sample(j)
     out = {"window": sample.get("window"), "dividers": sample.get("dividers"),
            "panes": [p[:5] for p in sample.get("panes") or []]}
@@ -152,7 +155,7 @@ def step_rk_probe_point(j, step):
         out["point_error"] = str(e)[:400]
     out["layers_window"] = R._layers_window(j)
     out["window_list"] = j.app.rpc("debug.window_list", {})
-    shot = j.out / f"{name}.png"
+    shot = j.out / f"diag-{name}.png"
     bad, data, raw = R._session(j).call("get_desktop_state", {"screenshot_out_file": str(shot)})
     out["desktop_state"] = {k: v for k, v in (data or {}).items() if k != "screenshot"} if not bad else {"error": str(raw)[:400]}
     if "point_desktop_px" in out:
