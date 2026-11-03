@@ -1,0 +1,95 @@
+{
+ "id": "switch-cmd-digits-heavy-last3",
+ "priority": "P2",
+ "title": "SWITCH FRAMES W1 HEAVY, last 3: Cmd-digit switches among the last 3 of 9 workspaces of 12 beacon panes (a 40-workspace session), filmed at the display rate",
+ "why": "Lead on STATUS 8158: the warm set holds the visible panes of the last 2 to 3 workspaces, so a switch among them makes no session. The 9-workspace cycle of switch-cmd-digits-heavy rarely returns to the last 3, so it cannot show it.",
+ "source": "SWITCH FRAMES (STATUS 4269, 4270); handoff/resize-videos/SWITCH-FRAMES.md",
+ "budget_seconds": 260,
+ "steps": [
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 70% x 70% of the screen",
+   "fraction": [
+    0.02,
+    0.04,
+    0.9,
+    0.9
+   ]
+  },
+  {
+   "do": "switch_profile",
+   "title": "set-up: 9 workspaces x 12 beacon panes (3 x 4, 4 full redraw at 120 Hz), 31 background workspaces x 3 tabs",
+   "workspaces": 9,
+   "grid": [
+    3,
+    4
+   ],
+   "fill_panes": 4,
+   "fill_hz": 120,
+   "hz": 240,
+   "background": 31,
+   "background_tabs": 3,
+   "prefix": "swh-${nonce}",
+   "beacon_timeout": 40,
+   "create_timeout": 60
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "video_start",
+   "name": "sw-w1-heavy3",
+   "mbps": 25,
+   "seconds": 110
+  },
+  {
+   "do": "tiers_start",
+   "name": "tiers",
+   "seconds": 35,
+   "interval_ms": 1,
+   "title": "the app main thread's CPU time per core tier (S/P/E) every 1 ms through the keys (lead on 7776)"
+  },
+  {
+   "do": "switch_keys",
+   "title": "warm the last 3 (Cmd-1, 2, 3), then switch among them in a fixed order",
+   "via": "hid",
+   "gap": 1.2,
+   "digits": "123213213123321231312"
+  },
+  {
+   "do": "tiers_stop",
+   "name": "tiers"
+  },
+  {
+   "do": "video_stop",
+   "name": "sw-w1-heavy3",
+   "tail": 0.8
+  },
+  {
+   "do": "switch_adopt_shown"
+  },
+  {
+   "do": "expect",
+   "title": "the last switch shows a beacon workspace: its beacon runs in the daemon, the app and on screen",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_contains": "PANE"
+    },
+    {
+     "app_text_contains": "PANE"
+    },
+    {
+     "frame_text": "PANE"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
