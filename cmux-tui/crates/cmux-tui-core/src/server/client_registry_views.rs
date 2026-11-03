@@ -395,6 +395,18 @@ impl ClientRegistry {
         client: u64,
         surface: SurfaceId,
     ) -> Option<(Arc<crate::Surface>, bool)> {
+        if crate::rds_switch::input_lane() {
+            // The registry's published facts: no lock that a connect, attach or detach of any client holds.
+            let facts = self.state.load().recover_poison();
+            let kept =
+                facts.clients.get(&client)?.inputs.iter().find(|kept| kept.surface == surface)?;
+            if kept.generation != crate::route_table::route_generation(surface) {
+                return None;
+            }
+            let (input, can_type) = (kept.terminal.upgrade()?, kept.can_type);
+            drop(facts);
+            return (!input.is_dead()).then_some((input, can_type));
+        }
         let state = self.state.lock().recover_poison();
         let attached = state.clients.get(&client)?.attached.get(&surface)?;
         let (kept, generation) = &attached.input;

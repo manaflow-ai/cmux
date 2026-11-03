@@ -326,6 +326,69 @@ pub(super) struct ClientRegistryState {
     pub(super) daemon_handoff: Option<DaemonHandoffReservation>,
 }
 
+/// What a connection's own line and key paths read about the session's connections, published after every change
+/// of the client registry and read with one atomic load, never through its lock (R-DAEMON-STATE stage S1,
+/// handoff/rewrites/R-DAEMON-STATE/DESIGN.md section 2.6). Every connect, disconnect, attach and detach of every
+/// client holds the registry lock; a person's key must not wait for any of them.
+pub(super) struct ClientFacts {
+    /// The daemon handoff, when one is reserved: `true` once it was acknowledged (committed).
+    pub(super) handoff: Option<bool>,
+    pub(super) clients: HashMap<u64, ConnectionFacts>,
+}
+
+/// One connection's facts in [`ClientFacts`].
+pub(super) struct ConnectionFacts {
+    pub(super) transport: ClientTransport,
+    /// `ClientRecord::remote_device`.
+    pub(super) remote_device: bool,
+    /// The connection's base actor (`ConnectionOrigin::actor`).
+    pub(super) actor: crate::workspace_registry::Actor,
+    /// The terminal the connection's keys to each attached surface go to (`AttachedSurface::input`).
+    pub(super) inputs: Vec<KeptInput>,
+}
+
+/// `AttachedSurface::input` of one attached surface, with whether the connection can type into it.
+pub(super) struct KeptInput {
+    pub(super) surface: SurfaceId,
+    pub(super) terminal: Weak<crate::Surface>,
+    /// The route generation of `surface` when the terminal was kept (`route_table`).
+    pub(super) generation: u64,
+    pub(super) can_type: bool,
+}
+
+impl ClientFacts {
+    /// The projection of `state` (runs under the registry lock after each change).
+    fn of(state: &ClientRegistryState) -> Self {
+        let handoff = state
+            .daemon_handoff
+            .map(|reservation| matches!(reservation, DaemonHandoffReservation::Committed(_)));
+        let clients = state
+            .clients
+            .iter()
+            .map(|(client, record)| {
+                let inputs = record
+                    .attached
+                    .iter()
+                    .map(|(surface, attached)| KeptInput {
+                        surface: *surface,
+                        terminal: attached.input.0.clone(),
+                        generation: attached.input.1,
+                        can_type: attached.can_type(),
+                    })
+                    .collect();
+                let facts = ConnectionFacts {
+                    transport: record.transport,
+                    remote_device: record.remote_device,
+                    actor: record.origin.actor(),
+                    inputs,
+                };
+                (*client, facts)
+            })
+            .collect();
+        Self { handoff, clients }
+    }
+}
+
 pub(crate) struct ClientRegistry {
     /// Called when a surface loses its last attached client (the idle-close
     /// reaper starts that terminal's unattached period).
@@ -357,7 +420,9 @@ pub(crate) struct ClientRegistry {
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
-    pub(super) state: Mutex<ClientRegistryState>,
+    /// Every connection's record. A change publishes the [`ClientFacts`] projection, which a connection's
+    /// own line and key paths read without this lock (R-DAEMON-STATE stage S1).
+    pub(super) state: crate::published::Published<ClientRegistryState, ClientFacts>,
     /// Who created each live incognito workspace (incognito_orphans.rs).
     pub(super) incognito_creators: super::incognito_orphans::IncognitoCreators,
 }
@@ -426,7 +491,10 @@ impl ClientRegistry {
                 RESOURCE_WAITS_PER_CLIENT_CAPACITY,
                 RESOURCE_WAITS_SERVER_CAPACITY,
             ),
-            state: Mutex::new(ClientRegistryState::default()),
+            state: crate::published::Published::new(
+                ClientRegistryState::default(),
+                ClientFacts::of,
+            ),
             incognito_creators: Default::default(),
         }
     }
@@ -500,10 +568,16 @@ impl ClientRegistry {
     }
 
     pub(crate) fn daemon_handoff_in_progress(&self) -> bool {
+        if crate::rds_switch::input_lane() {
+            return self.state.load().recover_poison().handoff.is_some();
+        }
         self.state.lock().recover_poison().daemon_handoff.is_some()
     }
 
     pub(crate) fn daemon_handoff_committed(&self) -> bool {
+        if crate::rds_switch::input_lane() {
+            return self.state.load().recover_poison().handoff == Some(true);
+        }
         matches!(
             self.state.lock().recover_poison().daemon_handoff,
             Some(DaemonHandoffReservation::Committed(_))

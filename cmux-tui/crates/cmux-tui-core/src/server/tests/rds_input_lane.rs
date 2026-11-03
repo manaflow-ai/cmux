@@ -216,3 +216,39 @@ fn a_key_waits_for_neither_the_session_nor_the_workspace_registry_lock() {
         ("workspace registry (Mux.workspace_registry)", hold_workspace_registry as Holder),
     ]);
 }
+
+/// The published facts follow the routing: after a respawn under the same placement id, the next key reaches the new
+/// shell, never the replaced one (the route rule of #31940, on the stage's path).
+#[test]
+fn after_a_respawn_the_next_key_reaches_the_new_terminal_on_the_input_lane() {
+    crate::rds_switch::set_input_lane_for_test(true);
+    let connection = TypingConnection::open();
+    connection.submit("before", b'a');
+    assert!(connection.arrival(b'a').is_some(), "the first key never reached its terminal");
+    connection.settle(&["before"]);
+
+    let removed = connection
+        .mux
+        .remove_surface_runtime_for_test(connection.surface)
+        .expect("the placement had a runtime");
+    let respawned =
+        crate::Surface::spawn_for_test(connection.surface, SurfaceOptions::default(), Weak::new())
+            .unwrap();
+    let (sent, input) = mpsc::channel();
+    respawned.replace_input_writer_for_test(Box::new(TimedInput(sent)));
+    connection.mux.insert_surface_runtime_for_test(respawned);
+
+    connection.submit("after", b'b');
+    let reached = input
+        .recv_timeout(Duration::from_secs(5))
+        .ok()
+        .is_some_and(|(_, bytes)| bytes.contains(&b'b'));
+    connection.settle(&["after"]);
+    assert!(reached, "the key after the respawn did not reach the new shell");
+    assert!(
+        connection.input.try_recv().is_err(),
+        "the key after the respawn went to the replaced terminal"
+    );
+    drop(removed);
+    connection.close();
+}
