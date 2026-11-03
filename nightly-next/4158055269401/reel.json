@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "build": "4158055269401",
+  "notes": "notes/4158055269401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 33019,
+      "title": "base red: arch app_lines +1 from #32973: its comment joins the rollback comment above (no code change)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32902,
+      "title": "Transcript: reply footer icons at Claude's size (16 in 28) and muted at rest",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32965,
+      "title": "base red: grid-lines measures Session Info in #32850's order, with no trail line for #32817's hidden fold",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32955,
+      "title": "base red: Session Info width stages test reads #32751's overlay stage",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33027,
+      "title": "Agent chat: agent session links and host/name refs open your own sessions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32943,
+      "title": "Transcript: opening a line at the very bottom moves only the text above, with no room opening under it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32953,
+      "title": "gallery: agent-pane.subagent-split's id is a literal, so a test frame finds its file",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32946,
+      "title": "base red: tool row label tests read the words, not the running row's shimmer copy (#32805)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32969,
+      "title": "Session Info: a hairline edge and no fill of its own, web and native",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32978,
+      "title": "ci(stable-next): fix what the first nights found (Chromium keychain, soak, perf bun, suite watchdog)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32938,
+      "title": "Session Info Changes: pull request icons from the cmux icon pack",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32892,
+      "title": "Agent pane: a sender's machine opens a menu of that machine's chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32973,
+      "title": "fix(next): a program's tab back shows its pane again when a later close of the pane's last other tab hid it (review of #32898)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32948,
+      "title": "cloud exec: bounded exec body read again; remove a staged file whose run never started",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32862,
+      "title": "cmux-tui: new-frontend-browser-tab can make its tab directly in a new split (frontend-browser-tab-split-v1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32881,
+      "title": "acpmux: Send now ends the stopped turn; the steer runs as its own",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
