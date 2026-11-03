@@ -74,7 +74,7 @@ test("large PDF, text and audio files reach the prompt by reference, with bounde
     }
     if (method === "chat.upload.finish") {
       expect(stage.offset).toBe(files.find((file) => file.name === token)!.size);
-      expect(stage.digest.digest("hex")).toBe(expected.get(token));
+      expect(stage.digest.digest("hex")).toBe(expected.get(token)!);
       completed.push(token);
       return { path: `/uploads/${token}` };
     }
