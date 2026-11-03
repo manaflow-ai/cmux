@@ -20,6 +20,10 @@ extension AgentTabStore {
         guard let (record, store) = lookup(key), let tab = store.tab(id: key), !ProvisionalTab.isProvisional(key) else {
             return nil
         }
+        if let session = sessions[key] ?? record.session {
+            let seed = await remoteSeeds[key]?.peek()
+            onRemoteChatStarted?(record.host, session, seed?.cwd ?? tab.cwd, record.harness)
+        }
         return (tab.surface.rawValue, sessions[key] ?? record.session)
     }
 

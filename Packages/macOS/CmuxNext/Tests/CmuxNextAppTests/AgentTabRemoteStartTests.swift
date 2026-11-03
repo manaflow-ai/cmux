@@ -11,6 +11,21 @@ import Testing
 /// the first Send must not receive that seed's model when the person keeps its default.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct AgentTabRemoteStartTests {
+    @Test func aBoundChatFinishesItsCopyWhenThePageReconnects() async throws {
+        let (tabs, key) = try makeTabs(seedCwd: "/home/dev/project")
+        let ledger = CloudMovedChats()
+        ledger.copied(.init(machineID: "vm", host: "registry:cloud-fixture", session: "", harness: "claude",
+                            localRoot: "/local/project", localChat: "/local/project",
+                            remoteFolder: "/home/dev/project", remoteChat: "/home/dev/project"))
+        tabs.onRemoteChatStarted = { host, session, cwd, harness in
+            ledger.started(host: host, session: session, remoteChat: cwd, harness: harness)
+        }
+        tabs.sessions[key] = "remote-session"
+        let existing = try await tabs.existingRemoteChat(key)
+        #expect(existing?.session == "remote-session")
+        #expect(ledger.entry(host: "registry:cloud-fixture", session: "remote-session")?.localRoot == "/local/project")
+    }
+
     @Test func changingHarnessBeforeSendUsesItsDefaultModel() async throws {
         let request = try await start(harness: "codex", model: nil)
         #expect(request["harness"] as? String == "codex")

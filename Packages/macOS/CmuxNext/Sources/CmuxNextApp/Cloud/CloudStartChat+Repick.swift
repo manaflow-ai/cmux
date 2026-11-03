@@ -48,7 +48,7 @@ extension CloudStartChat {
             guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
             let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
             // The pick wins over the send's first machine: the plan now names the picked one.
-            _ = try Self.checked(await cli.startChatPin(key: started.start.key, account: Self.accountText(started.account),
+            _ = try Self.checked(await cli.startChatPin(key: started.start.key, account: CloudStartCore().accountText(started.account),
                                                         machine: target, workspace: started.workspace))
             let old = services.machines.daemon(forTab: tab)
             let origin = Origin(tab: tab, chat: started.chat, workspace: started.workspace, account: started.account) { [services] in
