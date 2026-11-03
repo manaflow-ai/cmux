@@ -18,7 +18,7 @@
 //! runs it instead, `bg_start` where the chat has it, else `run_in_background: true`, so the
 //! turn goes on while it runs. Leo, 2026-11-02, on a session that sat about 80 minutes in one
 //! turn of foreground shell calls: "but why not in cmux". The same call again runs as asked, and
-//! so does a command with [`FOREGROUND_OK`] or one that puts itself in the background. Any other
+//! so does a command with [`FOREGROUND_OK`] or a trailing `&`. Any other
 //! command still in the foreground after a minute goes to the background on its own
 //! (`hub/auto_background.rs`), since no list knows a person's own scripts.
 
@@ -133,14 +133,12 @@ const QUICK: &[&str] = &[
 pub const FOREGROUND_OK: &str = "# fg-ok";
 
 /// Why `command` would hold the turn for long, if one of its simple commands is known to
-/// ([`SLOW`]), or None. A command that puts itself in the background (a trailing `&`, `nohup`,
-/// `setsid`) or carries [`FOREGROUND_OK`] holds nothing.
+/// ([`SLOW`]), or None. A command that puts itself in the background (a trailing `&`) or
+/// carries [`FOREGROUND_OK`] holds nothing; `nohup` or `setsid` alone still runs in the
+/// foreground.
 pub fn slow_reason(command: &str) -> Option<&'static str> {
     let trimmed = command.trim_end();
-    if command.contains(FOREGROUND_OK)
-        || (trimmed.ends_with('&') && !trimmed.ends_with("&&"))
-        || command.split_whitespace().any(|w| matches!(w, "nohup" | "setsid"))
-    {
+    if command.contains(FOREGROUND_OK) || (trimmed.ends_with('&') && !trimmed.ends_with("&&")) {
         return None;
     }
     let mut found = None;
@@ -356,6 +354,7 @@ mod tests {
             "swift test --filter Foo",
             "gh run watch 123",
             "gh pr checks 12 --watch",
+            "nohup npm run dev > dev.log",
             "npm run dev",
             "pnpm dev",
             "bash -lc 'yarn start'",
@@ -374,7 +373,6 @@ mod tests {
             "ls && git status",
             "cargo test -p acpmux # fg-ok",
             "npm run dev &",
-            "nohup npm run dev > dev.log",
             "tail -n 50 log.txt",
         ] {
             assert_eq!(slow_reason(quick), None, "{quick}");
