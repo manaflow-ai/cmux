@@ -55,6 +55,8 @@ pub struct Line {
     /// The subagent's acpmux session, for its link.
     pub session: Option<String>,
     pub model: Option<String>,
+    pub tier: Option<String>,
+    pub route: Option<String>,
     pub harness: Option<String>,
     pub status: Option<String>,
     pub input: u64,
@@ -178,6 +180,8 @@ impl Fold {
                 let remembered = self.models.remove(&format!("turn:{key}"));
                 let mut line = base("turn", key);
                 line.model = opt_s(event, "model").or(remembered);
+                line.tier = opt_s(event, "tier");
+                line.route = opt_s(event, "route");
                 line.status = opt_s(event, "status");
                 line.start_ms = opt_u(event, "start_ms");
                 line.ttft_ms = opt_u(event, "ttft_ms");
