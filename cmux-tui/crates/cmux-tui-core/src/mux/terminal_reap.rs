@@ -128,6 +128,24 @@ impl ReapSchedule {
         self.deadlines.remove(terminal_id);
     }
 
+    /// Record what a reap attempt of a due terminal came to.
+    pub(crate) fn settle(
+        &mut self,
+        terminal_id: &str,
+        outcome: Result<ReapOutcome, ()>,
+        now: Instant,
+        grace: Duration,
+    ) {
+        match outcome {
+            Ok(ReapOutcome::Reaped | ReapOutcome::Retained) => self.forget(terminal_id),
+            // An attached client keeps the terminal for another full
+            // grace period; its detach does not emit a topology event.
+            Ok(ReapOutcome::Attached) | Err(()) => {
+                self.postpone(terminal_id, deadline_after(now, grace.max(MIN_RETRY)));
+            }
+        }
+    }
+
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
         self.deadlines.values().min().copied()
     }
@@ -366,23 +384,14 @@ impl Mux {
         };
         let mut reaped = Vec::new();
         for (terminal_id, outcome) in due.into_iter().zip(outcomes) {
-            match outcome {
-                Ok(ReapOutcome::Reaped) => {
-                    schedule.forget(&terminal_id);
-                    reaped.push(terminal_id);
-                }
-                Ok(ReapOutcome::Retained) => schedule.forget(&terminal_id),
-                // An attached client keeps the terminal for another full
-                // grace period; its detach does not emit a topology event.
-                Ok(ReapOutcome::Attached) => {
-                    schedule.postpone(&terminal_id, deadline_after(now, grace.max(MIN_RETRY)));
-                }
-                Err(error) => {
-                    self.report_internal_diagnostic(format!(
-                        "reap of unplaced terminal {terminal_id} failed: {error}"
-                    ));
-                    schedule.postpone(&terminal_id, deadline_after(now, grace.max(MIN_RETRY)));
-                }
+            let outcome = outcome.map_err(|error| {
+                self.report_internal_diagnostic(format!(
+                    "reap of unplaced terminal {terminal_id} failed: {error}"
+                ));
+            });
+            schedule.settle(&terminal_id, outcome, now, grace);
+            if outcome == Ok(ReapOutcome::Reaped) {
+                reaped.push(terminal_id);
             }
         }
         reaped

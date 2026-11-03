@@ -66,6 +66,57 @@ fn terminal_reap_schedule_postpone_and_forget() {
     assert_eq!(schedule.next_deadline(), None);
 }
 
+/// The reaper thread's wait after a pass (as `start_terminal_reaper` takes
+/// it): zero means it runs the next pass at once.
+fn reaper_wait(schedule: &ReapSchedule, now: Instant) -> Option<Duration> {
+    schedule.next_deadline().map(|at| at.saturating_duration_since(now))
+}
+
+/// A terminal unplaced for longer than the grace (its time is durable across
+/// restarts) that a reap attempt leaves running, because the close guard
+/// still sees it placed or it stayed listed after its close, is still
+/// reapable at the next scan. The pass must not come due again at once: a
+/// zero wait ran the reaper (a registry prune and write, a screen capture and
+/// a guarded close per pass) without pause, and the app's headless owner sat
+/// at 150% CPU.
+#[test]
+fn terminal_reap_schedule_waits_after_an_attempt_that_left_the_terminal_reapable() {
+    for outcome in [ReapOutcome::Retained, ReapOutcome::Reaped] {
+        let start = Instant::now();
+        let reapable: HashMap<String, Duration> = [("stuck".to_string(), 3 * GRACE)].into();
+        let mut schedule = ReapSchedule::default();
+        schedule.observe_unplaced(start, GRACE, &reapable);
+        assert_eq!(schedule.due(start), vec!["stuck".to_string()]);
+
+        // A thousand passes, each one wait after the last.
+        let mut now = start;
+        let mut passes = 0;
+        while now < start + Duration::from_secs(1) && passes < 1000 {
+            schedule.observe_unplaced(now, GRACE, &reapable);
+            for terminal_id in schedule.due(now) {
+                schedule.settle(&terminal_id, Ok(outcome), now, GRACE);
+            }
+            passes += 1;
+            now += reaper_wait(&schedule, now).expect("still reapable, so still scheduled");
+        }
+        assert_eq!(passes, 1, "{outcome:?}: the reaper ran {passes} passes within a second");
+        assert_eq!(reaper_wait(&schedule, start), Some(GRACE), "{outcome:?}");
+    }
+}
+
+/// The deadline an attempt leaves is dropped as soon as a scan no longer
+/// lists the terminal (closed, placed again or kept), as a forget did.
+#[test]
+fn terminal_reap_schedule_drops_a_settled_terminal_once_it_is_no_longer_reapable() {
+    let start = Instant::now();
+    let reapable: HashMap<String, Duration> = [("gone".to_string(), GRACE)].into();
+    let mut schedule = ReapSchedule::default();
+    schedule.observe_unplaced(start, GRACE, &reapable);
+    schedule.settle("gone", Ok(ReapOutcome::Reaped), start, GRACE);
+    schedule.observe_unplaced(start, GRACE, &HashMap::new());
+    assert_eq!(schedule.next_deadline(), None);
+}
+
 fn host_id(mux: &Arc<Mux>, surface: &Arc<Surface>) -> String {
     mux.resource_terminal_host_identity(surface).expect("test terminal is hosted").terminal_id
 }
