@@ -194,6 +194,15 @@ impl Store {
     ) -> Result<RunRecord> {
         self.change(id, |run| {
             authorize(run, generation, owner)?;
+            ensure!(
+                outcome.is_err()
+                    || run
+                        .activities
+                        .values()
+                        .filter(|activity| matches!(activity.kind.as_str(), "agent" | "machine"))
+                        .all(|activity| activity.outcome.is_some()),
+                "workflow has unresolved activities"
+            );
             run.state = if outcome.is_ok() { State::Completed } else { State::Failed };
             run.outcome = Some(outcome);
             Ok(())
