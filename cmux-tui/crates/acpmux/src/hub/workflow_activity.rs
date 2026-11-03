@@ -691,6 +691,7 @@ mod tests {
                 state: crate::workflow_runs::State::Running,
                 activities: Default::default(),
                 outcome: None,
+                local_principal: false,
             })
             .unwrap();
         let child = ActivityRecord {
