@@ -68,11 +68,11 @@ mod prompt_approval;
 mod prompt_class;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
-#[path = "hub_integration/prompt_ledger.rs"]
-mod prompt_ledger;
 #[cfg(unix)]
 #[path = "hub_integration/prompt_delivery.rs"]
 mod prompt_delivery;
+#[path = "hub_integration/prompt_ledger.rs"]
+mod prompt_ledger;
 #[path = "hub_integration/prompt_provenance.rs"]
 mod prompt_provenance;
 #[path = "hub_integration/prompt_supersede.rs"]

@@ -198,6 +198,12 @@ async fn a_steer_into_a_stopped_turn_is_not_run_again_by_its_retry() {
     let answer = answer.expect("the steer failed");
     let retry = retry.expect("the retry failed");
     assert_eq!(retry["_meta"]["acpmux"]["duplicate"], true, "{retry}");
-    assert_eq!(retry["stopReason"], answer["stopReason"], "{retry} vs {answer}");
+    // The first answer was the agent's `steered`; the retry answers for the turn it went into,
+    // which the Stop ended.
+    assert_eq!(retry["stopReason"], "cancelled", "{retry}");
+    assert_eq!(
+        retry["_meta"]["acpmux"]["turnId"], answer["_meta"]["acpmux"]["turnId"],
+        "{retry} vs {answer}"
+    );
     assert_eq!((messages, turns), (1, 0), "the steer's retry ran it again");
 }
