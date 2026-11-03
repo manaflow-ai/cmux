@@ -41,14 +41,12 @@ public nonisolated enum CloudMachinePower {
 
     public static func run(_ op: String, machine: String, attempts: Int = 3, ops: CloudAppOp) async throws {
         let key = UUID().uuidString
-        var attempt = 1
-        while true {
+        let tries = max(attempts, 1)
+        for attempt in 1...tries {
             do {
                 _ = try await ops(op, .object(["machine": .string(machine)]), key, .user)
                 return
-            } catch let failure as CloudAppOpFailure where failure.code == indeterminate && attempt < attempts {
-                attempt += 1
-            }
+            } catch let failure as CloudAppOpFailure where failure.code == indeterminate && attempt < tries {}
         }
     }
 }
