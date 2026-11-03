@@ -54,7 +54,7 @@ struct PageWebViewEngineNeutralTests {
 
     /// A Chromium page that is never made does not hold a script call for good: once the wait runs
     /// out the call returns nil, and it never ran in the hidden WebKit view (cmux#34154).
-    @Test func aScriptCallReturnsNilWhenTheChromiumStartNeverEnds() async throws {
+    @Test(.timeLimit(.minutes(1))) func aScriptCallReturnsNilWhenTheChromiumStartNeverEnds() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         hosting.hangs = true
