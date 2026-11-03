@@ -2824,6 +2824,7 @@ export function VirtualTranscript({
   earlier,
   promptCount,
   loadThrough,
+  loadPromptIndex,
   sessionId,
   onToggleActivity,
   onOpenDiff,
@@ -2871,6 +2872,8 @@ export function VirtualTranscript({
   promptCount?: number;
   /// Pages history in until the prompt at `seq` is held (a click on an earlier prompt's tick).
   loadThrough?: (seq: number) => Promise<boolean>;
+  /// Asks for the chat's prompt index (a hover or click on a pending tick): true once it named them.
+  loadPromptIndex?: () => Promise<boolean>;
   sessionId?: string;
   /// Where the transcript opens instead of the latest message, when that row is loaded.
   openAt?: ScrollAnchor;
@@ -5775,6 +5778,7 @@ export function VirtualTranscript({
             earlier={earlier}
             promptCount={promptCount}
             loadThrough={loadThrough}
+            loadPromptIndex={loadPromptIndex}
             sessionId={sessionId}
             layout={layout}
             scroller={ref}
@@ -13407,6 +13411,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                           !childRows
                                                             ? (seq) =>
                                                                 directClient.current?.loadThrough(seq) ??
+                                                                Promise.resolve(false)
+                                                            : undefined
+                                                        }
+                                                        loadPromptIndex={
+                                                          !childRows
+                                                            ? () =>
+                                                                directClient.current?.loadPromptIndex() ??
                                                                 Promise.resolve(false)
                                                             : undefined
                                                         }
