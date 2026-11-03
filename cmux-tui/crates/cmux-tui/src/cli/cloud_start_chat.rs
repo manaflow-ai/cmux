@@ -363,8 +363,8 @@ pub(super) fn shell_quote(text: &str) -> String {
 
 /// Whether an app error is the account being signed out.
 fn signed_out(error: &Value) -> bool {
-    let code = at(&error, "code").as_str().unwrap_or_default();
-    let message = at(&error, "message").as_str().unwrap_or_default().to_lowercase();
+    let code = at(error, "code").as_str().unwrap_or_default();
+    let message = at(error, "message").as_str().unwrap_or_default().to_lowercase();
     code.contains("signed_out")
         || code.contains("not_signed_in")
         || code == "auth.required"
@@ -696,20 +696,20 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
     match outcome {
         Outcome::Failed { error, exit } => super::wire::print_local_error(error, output, *exit),
         Outcome::Done(answer) if output == OutputMode::Human => {
-            match at(&answer, "reply").as_str() {
+            match at(answer, "reply").as_str() {
                 Some(reply) => println!("{reply}"),
                 None => println!(
                     "Sent to {} on {} (machine:{}).",
-                    at(&answer, "session_id").as_str().unwrap_or_default(),
-                    at(&answer, "machine_name").as_str().unwrap_or_default(),
-                    at(&answer, "machine_id").as_str().unwrap_or_default()
+                    at(answer, "session_id").as_str().unwrap_or_default(),
+                    at(answer, "machine_name").as_str().unwrap_or_default(),
+                    at(answer, "machine_id").as_str().unwrap_or_default()
                 ),
             }
             eprintln!(
                 "machine_id {}  session_id {}  tab_id {}",
-                at(&answer, "machine_id").as_str().unwrap_or_default(),
-                at(&answer, "session_id").as_str().unwrap_or_default(),
-                at(&answer, "tab_id").as_str().unwrap_or_default()
+                at(answer, "machine_id").as_str().unwrap_or_default(),
+                at(answer, "session_id").as_str().unwrap_or_default(),
+                at(answer, "tab_id").as_str().unwrap_or_default()
             );
             0
         }
