@@ -42,3 +42,42 @@ export function useSystemChrome(
     launchPersistentContext(userDataDir, withSystemChrome(options, shell));
   marked[WRAPPED] = true;
 }
+
+// No Playwright on Macs (Lawrence, 2026-11-02): no Playwright, Puppeteer or downloaded Chromium on his
+// Mac or a fleet Mac. Playwright turns the Chromium sandbox off whatever Chrome it drives, system
+// Chrome included, so on a Mac outside GitHub Actions Playwright starts no browser at all. Browser
+// files skip first (requireBrowserLane); this is the backstop for any launch that gets past them.
+
+/** The one line every Mac refusal prints (scripts/ci/run-webviews-tests.sh prints the same). */
+export const NO_PLAYWRIGHT_ON_MACS =
+  "browser lane: not on a Mac (Lawrence's rule: no Playwright on Macs); run it in CI or on a cloud VM";
+
+/** Whether Playwright may not start or attach to a browser here: a Mac outside GitHub Actions. */
+export function playwrightRefusedHere(
+  env: Record<string, string | undefined> = process.env,
+  platform: string = process.platform,
+): boolean {
+  return platform === "darwin" && env.GITHUB_ACTIONS !== "true";
+}
+
+const REFUSED_METHODS = ["launch", "launchPersistentContext", "launchServer", "connect", "connectOverCDP"] as const;
+
+/**
+ * On a Mac outside GitHub Actions, makes every launch and connect of `browserTypes` (playwright's
+ * chromium, webkit and firefox) reject with NO_PLAYWRIGHT_ON_MACS before Playwright starts anything.
+ * Elsewhere it changes nothing.
+ */
+export function refusePlaywrightOnMacs(
+  browserTypes: readonly object[],
+  env: Record<string, string | undefined> = process.env,
+  platform: string = process.platform,
+): void {
+  if (!playwrightRefusedHere(env, platform)) return;
+  for (const browserType of browserTypes) {
+    const methods = browserType as Record<string, unknown>;
+    for (const method of REFUSED_METHODS) {
+      if (typeof methods[method] === "function")
+        methods[method] = () => Promise.reject(new Error(NO_PLAYWRIGHT_ON_MACS));
+    }
+  }
+}
