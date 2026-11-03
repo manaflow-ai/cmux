@@ -62,6 +62,11 @@ final class CEFFirstPaintBridge {
     /// reads the stream and never takes a message off it: an agent relaying
     /// raw protocol messages still sees every lifecycle event.
     func handle(_ head: DevToolsMessageHead) -> Bool {
+        if let tab, !tab.hasDocument, head.method == "Page.lifecycleEvent", let data = head.json.data(using: .utf8), // PROBE (reopen-f4 empty page)
+           let params = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["params"] as? [String: Any] {
+            let main = mainFrame.map { params["frameId"] as? String == $0 }.map { $0 ? "main" : "sub" } ?? "?"
+            tab.host.lifecycleTrace.record(tab.id, "lifecycle \(params["name"] as? String ?? "?") \(main)")
+        }
         if Self.isFirstContentfulPaint(head, mainFrame: mainFrame) { painted() }
         return false
     }

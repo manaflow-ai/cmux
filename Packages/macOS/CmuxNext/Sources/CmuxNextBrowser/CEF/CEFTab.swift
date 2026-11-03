@@ -323,6 +323,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             guard let self else { return }
             let painted = await paintQuery(self)
             guard !Task.isCancelled else { return } // a later document committed, or the browser ended
+            if !hasDocument { host.lifecycleTrace.record(id, "paint-query answered \(painted.map(String.init(describing:)) ?? "nil")") } // PROBE
             paintAsk = nil
             guard painted == true, !hasDocument else { return }
             host.lifecycleTrace.record(id, "paint-query painted")
