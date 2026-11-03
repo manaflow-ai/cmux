@@ -379,7 +379,11 @@ def _write_terminal(j, term, text):
     while True:
         attempt += 1
         args = ["terminal", term, "write", "--text", text] + (["--idempotency-key", key] if key else [])
-        done = subprocess.run([j.app.cli, "--socket", j.app._daemon_sock or j.app.daemon_socket(), "--json", *args],
+        sock = getattr(j.app, "_daemon_sock", None)
+        if not sock or not os.path.exists(sock):
+            sock = j.app.daemon_socket()
+            j.app._daemon_sock = sock
+        done = subprocess.run([j.app.cli, "--socket", sock, "--json", *args],
                               capture_output=True, text=True, timeout=30,
                               env={"HOME": j.app.home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_QUIET": "1"})
         if done.returncode == 0:
