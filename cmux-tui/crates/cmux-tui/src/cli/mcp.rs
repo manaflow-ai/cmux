@@ -708,7 +708,11 @@ impl<B: Backend> Server<B> {
             "ping" => Ok(json!({})),
             "tools/list" if self.code_mode && self.allowed.is_none() => {
                 let tools = self.list();
-                Ok(json!({ "tools": code_mode::descriptors(&tools) }))
+                let mut exposed = code_mode::descriptors(&tools);
+                if let Some(workflow) = tools.iter().find(|tool| tool["name"] == workflow_tools::NAME) {
+                    exposed.push(workflow.clone());
+                }
+                Ok(json!({ "tools": exposed }))
             }
             "tools/list" => Ok(json!({ "tools": self.list() })),
             "tools/call" => {
