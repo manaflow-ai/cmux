@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import * as bake from "../scripts/cmux-vm-image/bake";
@@ -144,7 +144,7 @@ describe("cmux VM image apt index", () => {
   test("the image carries the agent sign-in files the Mac app's Cloud sign-in sources", async () => {
     expect(bake.AGENT_SIGN_IN_FILES.map((f) => f.path)).toEqual(["/etc/cmux/agent-auth.sh", "/etc/cmux/claude-onboarding.py"]);
     await bashSyntax(bake.agentSignInCheckCommand());
-    const root = mkdtempSync(path.join(tmpdir(), "cmux-vm-agent-sign-in-"));
+    const root = mkdtempSync(path.join(os.tmpdir(), "cmux-vm-agent-sign-in-"));
     try {
       mkdirSync(path.join(root, "etc/cmux"), { recursive: true });
       const devbox = path.join(import.meta.dirname, "../services/vms/images/devbox");
