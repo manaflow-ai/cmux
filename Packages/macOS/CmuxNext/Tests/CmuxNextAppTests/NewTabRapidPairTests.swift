@@ -17,7 +17,9 @@ struct NewTabRapidPairTests {
         var made: [AgentPaneView] = []
     }
 
-    static func filledPool(_ services: AppServices, window: NSWindow, folder: URL, painted: @escaping (Int) -> Bool = { _ in true }) async throws -> Rig {
+    /// `painted(n)`: the n-th page made counts as drawn; `framed(n)`: its frames in a pane are reported (else never).
+    static func filledPool(_ services: AppServices, window: NSWindow, folder: URL, painted: @escaping (Int) -> Bool = { _ in true },
+                           framed: @escaping (Int) -> Bool = { _ in true }) async throws -> Rig {
         let html = folder.appending(path: "index.html")
         try Data("<html><body>New Tab spare fixture</body></html>".utf8).write(to: html)
         let pool = services.newTabSpares, rig = Rig()
@@ -29,6 +31,8 @@ struct NewTabRapidPairTests {
                 model.hasHandshake = true
                 model.markPainted()
             }
+            let reports = framed(rig.made.count)
+            view.redraw.nextFrameOverride = { body in if reports { body() } }
             rig.made.append(view)
             return view
         }
@@ -87,9 +91,24 @@ struct NewTabRapidPairTests {
         try await pair(gap: .milliseconds(150), id: "cn-rapid-pair")
     }
 
-    /// The first open's refill wait (250 ms after it settled) must not land in a second open 250 ms later.
-    @Test func aSecondCmdT250msLaterRestartsTheRefill() async throws {
-        try await pair(gap: .milliseconds(250), id: "cn-rapid-pair-250")
+    /// A handout while an earlier open's refill waits restarts the wait: the second open's page has not reported its
+    /// frame yet, so nothing may be made in the 500 ms after it (the first open's 250 ms wait would land there).
+    @Test func aSecondCmdTRestartsTheFirstOnesRefill() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-rapid-pair-restart")
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
+            let (window, pane) = try await NewTabOpenFramesTests.focusedPane(services)
+            let folder = try Self.folder()
+            var rig: Rig?
+            defer { Self.cleanUp(services, rig, folder) }
+            rig = try await Self.filledPool(services, window: window, folder: folder, framed: { $0 == 0 })
+            let before = rig?.made.count ?? 0
+            NewTabPage.open(in: pane, seed: nil)
+            try await Task.sleep(for: .milliseconds(150))
+            NewTabPage.open(in: pane, seed: nil)
+            try await Task.sleep(for: .milliseconds(500))
+            #expect(rig?.made.count == before, "the first open's refill made a spare during the second open (\((rig?.made.count ?? 0) - before) made)")
+        }
     }
 
     /// A parked spare that has not painted yet does not hold the other one's context: the next spare handed out draws
@@ -105,6 +124,11 @@ struct NewTabRapidPairTests {
             let folder = try Self.folder()
             var rig: Rig?
             defer { Self.cleanUp(services, rig, folder) }
+            // Both spares are parked first (the second never paints); then the window's context changes.
+            rig = try await Self.filledPool(services, window: window, folder: folder, painted: { $0 == 0 })
+            let pool = services.newTabSpares
+            let first = try #require(pool.spare?.view)
+            #expect(first === rig?.made.first)
             let workspace = try await services.windows.createWorkspace(WorkspaceSpawn(cwd: folder.path, name: "rapid-pair", command: "/bin/sh"),
                                                                        into: controller.state.id)
             services.windows.show(workspaceID: workspace, in: controller.state)
@@ -117,11 +141,7 @@ struct NewTabRapidPairTests {
                 if controller.content?.focusedPane !== pane { controller.focus.send(.focusPane(pane.paneKey, source: .intent)) }
                 return controller.content?.focusedPane === pane && keyPage()?.cwd != nil
             }, report: { "the workspace's terminal never had the focus and a folder" })
-            // The second spare never paints.
-            rig = try await Self.filledPool(services, window: window, folder: folder) { $0 == 0 }
-            let pool = services.newTabSpares
-            let first = try #require(pool.spare?.view)
-            #expect(first === rig?.made.first)
+            pool.paneLayoutDidChange(in: window)
             let want = try #require(keyPage())
             try await PasswordManagerRouteTests.until({
                 NewTabSpareContextTests.screen(first.model.newTab) == NewTabSpareContextTests.screen(want) && first.model.newTabPrepared
