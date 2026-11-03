@@ -468,11 +468,6 @@ P0_LEDGER_READER = Path(os.environ.get("SMOKE_GATE_P0_LEDGER_READER",
                                        "/work/wt/chrome-parity-design/p0-journey-runner/ledger.py"))
 
 
-def p0_reader_facts():
-    """{"path", "sha256"} of the reader file as it is now (a test helper; the .pass uses the facts of the load)."""
-    return {"path": str(P0_LEDGER_READER), "sha256": hashlib.sha256(P0_LEDGER_READER.read_bytes()).hexdigest()}
-
-
 def p0_ledger_reader():
     """(live_rows, None, facts) of the runner's ledger module, or (None, why, {}) when it cannot be loaded. The file is
     read ONCE: facts {"path", "sha256"} name the exact bytes compiled, so the .pass names the code that ran."""
@@ -482,13 +477,16 @@ def p0_ledger_reader():
         facts = {"path": str(P0_LEDGER_READER), "sha256": hashlib.sha256(data).hexdigest()}
         module = types.ModuleType(name)
         module.__file__ = str(P0_LEDGER_READER)
-        sys.modules[name] = module  # a reader that needs its own module (a dataclass) finds it
+        # As importlib does: the module stays in sys.modules after a good load (a reader that pickles its own class
+        # or imports itself at call time finds it) and is removed only when the load fails.
+        sys.modules[name] = module
         try:
             exec(compile(data, str(P0_LEDGER_READER), "exec"), module.__dict__)
-        finally:
+            if not callable(getattr(module, "live_rows", None)):
+                raise AttributeError("no callable live_rows")
+        except BaseException:
             sys.modules.pop(name, None)
-        if not callable(getattr(module, "live_rows", None)):
-            raise AttributeError("no callable live_rows")
+            raise
         return module.live_rows, None, facts
     except Exception as error:  # any failure to load is no reader: never "no blockers"
         return None, (f"the open-P0 ledger reader {P0_LEDGER_READER} cannot be loaded ({type(error).__name__}: "
