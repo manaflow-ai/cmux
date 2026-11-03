@@ -35,4 +35,12 @@ struct FeedNeedsYouPhoneTests {
         ]
         #expect(FeedNeedsYouPhone.requests(pinned) { _ in nil }.map(\.id) == ["fi_open"])
     }
+
+    /// Before the owner's first snapshot nothing goes: an empty set would close the phone's rows.
+    @Test func nothingGoesUntilTheFeedLoaded() {
+        let model = FeedModel(source: InMemoryFeedSource(snapshot: FeedSnapshot(revision: 0, user: "u", device: "Mac", items: [])))
+        #expect(FeedNeedsYouPhone.current(model) { _ in nil } == nil)
+        model.start()
+        #expect(FeedNeedsYouPhone.current(model) { _ in nil } == [])
+    }
 }

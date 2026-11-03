@@ -25,15 +25,21 @@ enum FeedNeedsYouPhone {
         }
     }
 
+    /// What the phone gets from `model` now, or nil while its owner has not answered: an empty
+    /// set sent before the Feed loads, or while it is unreachable, would close every request on
+    /// the phone and clear its delivered push.
+    static func current(_ model: FeedModel, detail: (FeedItem) -> GitHubFeedDetail?) -> [MobileHostNeedsYouRequest]? {
+        guard model.loaded, model.connection == .connected else { return nil }
+        return requests(model.listSections.requests, detail: detail)
+    }
+
     /// Follows the Feed's pinned requests and hands each new set to the iPhone host.
     static func follow(feed: FeedService, iphone: IPhoneHostService) -> Task<Void, Never> {
         // task-owner: NotificationCenterService.tasks; cancelled with the service.
         Task { [weak feed, weak iphone] in
-            // Nil unless the Feed is connected to its owner: an empty set sent before it loads, or
-            // while it is unreachable, would close every request on the phone and clear its push.
             let pinned = ObservationStream { [weak feed] () -> [MobileHostNeedsYouRequest]? in
-                guard let feed, feed.model.connection == .connected else { return nil }
-                return requests(feed.model.listSections.requests) { feed.githubDetail(for: $0) }
+                guard let feed else { return nil }
+                return current(feed.model) { feed.githubDetail(for: $0) }
             }
             for await set in pinned {
                 guard let set else { continue }
