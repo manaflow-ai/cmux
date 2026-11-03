@@ -33,8 +33,10 @@ extension InputInvariants {
         return WorldResult(violations: out, unsettled: unsettled)
     }
 
-    /// The focused pane shows the tab the model targets.
+    /// The focused pane shows the tab the model targets, and the focus is not on its way to another tab (a creation's
+    /// new tab not shown yet: the page the person left gives up the keys meanwhile, P0 INVERSE-KEY).
     static func isSettled(_ window: InputObservation.Window) -> Bool {
+        if window.model.awaitsOtherTab { return false }
         let resolved = window.model.underlying
         guard let pane = resolved.pane, let tab = resolved.tab else { return true }
         return window.presented[pane] == tab

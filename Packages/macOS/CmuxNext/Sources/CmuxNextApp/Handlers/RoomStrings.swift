@@ -21,7 +21,6 @@ nonisolated enum RoomStrings {
     /// The name a New Incognito Space gets when none is given.
     static var incognitoName: String { text("rooms.incognitoName", "Incognito") }
     static func noRoom(_ id: String) -> String { String(format: text("rooms.refusal.noRoom", "no space %@"), id) }
-    static var defaultCannotBeDeleted: String { text("rooms.refusal.defaultCannotBeDeleted", "the Default space cannot be deleted") }
     static var roomAtEdge: String { text("rooms.refusal.atEdge", "the space is already at the edge") }
     static var noOtherRoom: String { text("rooms.refusal.noOtherRoom", "there is no space that way") }
     static var iconArgumentRequired: String { text("rooms.refusal.iconRequired", "an icon argument (SF Symbol name or one emoji) is required") }

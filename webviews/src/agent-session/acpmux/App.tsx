@@ -80,6 +80,7 @@ import {
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
+import { readHostTail } from "./tailCache";
 import { failedRowOf, failedRowTrustRetry } from "./failedRowTrustRetry";
 import {
   authBlocksSend,
@@ -499,6 +500,7 @@ import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import {
   FALLBACK_LINK_SCHEME,
+  notifyRevealRowsChanged,
   revealedMessage,
   revealMessageWhenShown,
   revealTurnWhenShown,
@@ -8912,6 +8914,8 @@ function AcpmuxPane() {
     setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
     return target.rowId;
   };
+  // A link waiting on replay retries against committed rows, without a polling timer.
+  useLayoutEffect(() => notifyRevealRowsChanged(), [sourceRows, transcriptRows]);
   // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that
   // holds the call. The reveal lets go after a moment, so the run closes again like any other.
   // False when no loaded row holds the call (a command only the registry knows).
@@ -10514,6 +10518,9 @@ function AcpmuxPane() {
           else pendingWake.current = wake.composer;
         }
         if (!reconnect && host.sessionId) {
+          // The chat's kept tail is asked for now, beside the reading place: the client draws it
+          // while its socket connects, and this read is the one it waits on (#32735, tailCache.ts).
+          if (host.transport !== "mock") void readHostTail(host.sessionId).catch(() => undefined);
           // The released page's place is newer than the kept one: a scroll that settled while
           // hidden was never reported. Keep it for a relaunch too.
           const woken = wake?.scrollAnchor;
