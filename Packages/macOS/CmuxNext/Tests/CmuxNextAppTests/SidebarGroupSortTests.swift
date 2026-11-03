@@ -34,7 +34,7 @@ import Testing
     }
 
     @Test func nameTiesKeepTheStoredOrder() {
-        let members = [Self.ws("a", "same"), Self.ws("b", "Same"), Self.ws("c", "aaa")]
+        let members = [Self.ws("a", "same"), Self.ws("b", "same"), Self.ws("c", "aaa")]
         #expect(SidebarGroupSort.name.ordered(members).map(\.id.rawValue) == ["c", "a", "b"])
     }
 

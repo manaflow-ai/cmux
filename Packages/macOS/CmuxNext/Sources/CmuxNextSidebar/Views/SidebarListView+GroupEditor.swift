@@ -150,7 +150,8 @@ struct SidebarGroupEditing {
         let current = list.groups[id]?.sort ?? .manual
         let menu = NSMenu(title: GroupEditorStrings.sort)
         for sort in SidebarGroupSort.allCases {
-            let item = SidebarClosureMenuItem(title: GroupEditorStrings.sortTitle(sort)) { [weak list] in list?.onGroupSort?(id, sort) }
+            let item = NSMenuItem(title: GroupEditorStrings.sortTitle(sort), action: #selector(SidebarListView.pickGroupSort(_:)), keyEquivalent: "")
+            (item.target, item.representedObject) = (list, SidebarGroupSortPick(group: id, sort: sort))
             item.state = sort == current ? .on : .off
             menu.addItem(item)
         }
@@ -240,5 +241,19 @@ extension SidebarListView {
             menu: { [weak self] in self?.groupEditing.showMenu(id) },
             add: onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
         )
+    }
+}
+
+/// What a Sort menu row picks: the group and its sort, carried on the item.
+struct SidebarGroupSortPick {
+    let group: GroupID
+    let sort: SidebarGroupSort
+}
+
+extension SidebarListView {
+    /// A Sort menu pick (`SidebarGroupEditing.sortMenu`).
+    @objc func pickGroupSort(_ item: NSMenuItem) {
+        guard let pick = item.representedObject as? SidebarGroupSortPick else { return }
+        onGroupSort?(pick.group, pick.sort)
     }
 }
