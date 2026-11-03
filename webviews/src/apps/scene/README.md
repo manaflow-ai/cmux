@@ -49,7 +49,10 @@ The renderer accepts the existing [scene ABI](../../../../cmux-tui/crates/cmux-a
 Input dispatches `tap`, `menu {path:number[]}`, `edit {text}`, `submit {text}` and
 `cancel`, using the original node id. Menu paths retain all indexes, including
 dividers and nested levels. The embedding client adds its mount id and forwards
-the event to `cmux.apps.panels.dispatch`.
+the event to `cmux.apps.panels.dispatch` synchronously from the click, key, edit
+or native menu-pick handler. Do not await, queue a microtask or start a timer before
+that call: the page host checks its own recent user gesture and rejects delayed
+input with `cmux.app.user_only`. The page sends no gesture field.
 
 ## Bundle images
 
