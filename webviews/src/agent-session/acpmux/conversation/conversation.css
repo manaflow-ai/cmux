@@ -2168,6 +2168,11 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The live line's action in full ink, the rest of its words at the line's muted tone, as Claude Code
+   desktop draws "Using repo: repo grep" (Thinking.tsx `liveLead`). */
+.cv-worked__lead {
+  color: var(--cv-text);
+}
 .cv-shimmer__band {
   display: none;
 }
@@ -3341,6 +3346,12 @@ button.cv-video-frames__frame:focus-visible {
 }
 .cv-command__ok {
   color: var(--agent-diff-add);
+}
+/* "Approved" on a call whose permission ask the person approved (ApprovedMark.tsx): dim, at rest,
+   before the status and time, so the approval reads on its row and never as a line of its own. */
+.cv-command__approved {
+  white-space: nowrap;
+  color: var(--cv-text-dim);
 }
 /* A finished call's check and run time show only while the row is pointed at or focused, as in
    the Codex app: at rest a run reads as its words. A failure keeps its red mark ("exit 1",
