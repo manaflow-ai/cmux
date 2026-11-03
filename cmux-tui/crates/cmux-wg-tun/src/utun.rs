@@ -18,8 +18,30 @@ pub fn find_utun_fd() -> Option<RawFd> {
     (0..=MAX_FD).find(|&fd| interface_name(fd).is_some_and(|name| name.starts_with("utun")))
 }
 
+/// Whether `fd` is a kernel control socket, the kind a utun is.
+///
+/// The rule so far: the fd answers the utun name query. (The next commit
+/// replaces it: a local socket answers that query too.)
+pub(crate) fn is_kernel_control(fd: RawFd) -> bool {
+    let mut name = [0u8; libc::IFNAMSIZ];
+    let mut length = libc::socklen_t::try_from(name.len()).unwrap_or(0);
+    // SAFETY: `name` is a writable buffer of `length` bytes.
+    unsafe {
+        libc::getsockopt(
+            fd,
+            SYSPROTO_CONTROL,
+            UTUN_OPT_IFNAME,
+            name.as_mut_ptr().cast(),
+            &mut length,
+        ) == 0
+    }
+}
+
 /// The interface name of a utun control socket, or `None` for any other fd.
 pub(crate) fn interface_name(fd: RawFd) -> Option<String> {
+    if !is_kernel_control(fd) {
+        return None;
+    }
     let mut name = [0u8; libc::IFNAMSIZ];
     let mut length = name.len() as libc::socklen_t;
     // SAFETY: `name` is a writable buffer of `length` bytes; getsockopt
