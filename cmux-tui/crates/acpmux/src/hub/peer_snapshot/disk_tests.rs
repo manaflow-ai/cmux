@@ -198,3 +198,53 @@ fn a_head_reads_only_within_the_bound_the_writer_holds_it_to() {
         assert_eq!(read(&file, &key("m1")).is_ok(), fits);
     }
 }
+
+#[test]
+fn a_metadata_free_page_does_not_allocate_for_the_stored_header() {
+    use super::super::{Op, Page, Store};
+
+    let allocated = |summary_len: usize| {
+        let dir = cmux_unix_socket::short_test_dir("acpmux-ps-page");
+        let mut store = Store::new(root(dir.path()), std::sync::Arc::default());
+        store.scan();
+        let key = key("m1");
+        store.take(Op::Listed {
+            peer: key.0.clone(),
+            rows: vec![(key.1.clone(), Some(7))],
+            full: true,
+        });
+        let summary = json!({"title": "x".repeat(summary_len)});
+        store.take_page(
+            &key,
+            Page {
+                link: (1, 1),
+                asked: Some(7),
+                generation: Some(7),
+                host_last_seq: Some(1),
+                through: Some(1),
+                row: Some(summary.clone()),
+                records: vec![json!({"sessionId": "m1", "seq": 1, "kind": "k"})],
+                ..Page::default()
+            },
+        );
+        let unchanged = Page {
+            link: (1, 1),
+            asked: Some(7),
+            after: Some(1),
+            host_last_seq: Some(1),
+            through: Some(1),
+            ..Page::default()
+        };
+        RECORD_BYTES_ALLOCS.with(|count| count.set(Some(0)));
+        store.take_page(&key, unchanged);
+        let allocations = RECORD_BYTES_ALLOCS.with(|count| count.replace(None).unwrap_or(0));
+        let got = store.read(&key, Some(7), (10, 4096));
+        assert_eq!(got["summary"], summary);
+        assert_eq!(got["events"][0]["seq"], 1);
+        allocations
+    };
+    let small = allocated(1);
+    let large = allocated(3000);
+    eprintln!("PERF unchanged_peer_page_allocations small_header={small} large_header={large}");
+    assert_eq!(large, small, "an unchanged page must not serialize the retained header");
+}

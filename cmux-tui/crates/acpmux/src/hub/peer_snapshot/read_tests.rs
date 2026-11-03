@@ -309,3 +309,39 @@ fn peer_opener_rejects_other_sessions_and_does_not_discard_the_tail_when_oversiz
         assert!(got["turnOpener"].is_null());
     }
 }
+
+#[test]
+fn disk_reload_revalidates_the_opener_after_normalizing_the_retained_start() {
+    for opener_seq in [5, 15] {
+        let dir = cmux_unix_socket::short_test_dir("acpmux-psr-normalize");
+        let key = ("huge-blue".to_owned(), "m1".to_owned());
+        let head = Head {
+            peer: key.0.clone(),
+            session_id: key.1.clone(),
+            generation: Some(42),
+            first_seq: 20,
+            last_seq: 25,
+            turn_opener: Some(prompt(opener_seq)),
+            ..Head::default()
+        };
+        // An older writer's head says 20, but its file retains records from 10. The
+        // opener at 15 is valid against the serialized head, not the actual record run.
+        let records: BTreeMap<_, _> = (10..=25)
+            .map(|seq| (seq, json!({"sessionId": "m1", "seq": seq, "kind": "k", "msg": {}})))
+            .collect();
+        disk::write(
+            crate::config::write_atomic,
+            &disk::root(dir.path()),
+            &key,
+            &disk::encode(&head, &records),
+        )
+        .unwrap();
+        let hub = hub_at(dir.path());
+        let got = hub
+            .peer_snapshot(&json!({"host": "huge-blue", "sessionId": "m1", "limit": 2}))
+            .unwrap();
+        assert_eq!(seqs(&got), vec![24, 25]);
+        let expected = if opener_seq < 10 { prompt(opener_seq) } else { Value::Null };
+        assert_eq!(got["turnOpener"], expected, "normalized run starts at 10: {got}");
+    }
+}
