@@ -1580,6 +1580,16 @@ pub(super) fn cut_kind(outcome: &TurnOutcome) -> Option<Cut> {
     {
         return Some(Cut::Link);
     }
+    // acpmux gave the turn's `session/new` no answer at all within
+    // `acpmux::SESSION_NEW_DEADLINE` (a harness start that hung, as on
+    // claude-sr2-pipe 2026-11-03): nothing ran, so the turn runs again after
+    // an upstream wait instead of posting a dead turn.
+    if outcome.reply.is_none()
+        && error.starts_with("session/new: ")
+        && error.contains("no answer within")
+    {
+        return Some(Cut::Upstream);
+    }
     if UPSTREAM_TRANSIENT.iter().any(|t| error.contains(t)) {
         return Some(Cut::Upstream);
     }
