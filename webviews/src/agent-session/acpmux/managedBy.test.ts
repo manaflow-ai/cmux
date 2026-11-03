@@ -2,7 +2,7 @@
 // starting chat for a sub-session or a chat another agent made, nobody for the person's own chat;
 // and Take over is remembered per chat.
 import { expect, test } from "bun:test";
-import { isTakenOver, managedBy, takeOverManaged } from "./managedBy";
+import { chiefOf, isTakenOver, managedBy, takeOverManaged } from "./managedBy";
 import { sessionEntry } from "./sessionList";
 
 const entry = (sessionId: string, extra: Record<string, unknown> = {}) => sessionEntry({ sessionId, ...extra });
@@ -56,4 +56,21 @@ test("Take over is remembered for that chat only", () => {
 test("a corrupt store reads as nothing taken over", () => {
   const storage = { getItem: () => "{not json" } as unknown as Storage;
   expect(isTakenOver("kid", storage)).toBe(false);
+});
+
+test("a Chief's chat names the Chief from its turn session's tags, else the default Chief", () => {
+  const turn = { sessionId: "turn", chiefTurn: { home: "optchat-chief:home", participant: "agent_scout" } };
+  const chat = { sessionId: "chat", chiefChild: true as const, chiefHome: "optchat-chief:home" };
+  expect(chiefOf("chat", [turn, chat])).toBe("agent_scout");
+  expect(chiefOf("chat", [chat])).toBe("agent_mux");
+  expect(chiefOf("chat", [{ sessionId: "chat" }])).toBeUndefined();
+  expect(
+    sessionEntry({
+      sessionId: "turn",
+      tags: { "mux.children": "optchat-chief:home", "cmux.chief.participant": "agent_scout" },
+    }).chiefTurn,
+  ).toEqual({ home: "optchat-chief:home", participant: "agent_scout" });
+  expect(sessionEntry({ sessionId: "chat", tags: { "mux.parent": "optchat-chief:home" } }).chiefHome).toBe(
+    "optchat-chief:home",
+  );
 });

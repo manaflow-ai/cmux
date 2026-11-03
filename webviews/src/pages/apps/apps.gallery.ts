@@ -130,6 +130,11 @@ export default appsPageEntry({
       hash: "#/discover?layout=grid",
       data: empty,
     },
+    "installed-empty": {
+      note: "No installed apps: the Installed tab names the next step, with Discover still in the toolbar.",
+      hash: "#/installed",
+      data: { ...base, installed: {}, grants: {} },
+    },
     "many-apps": {
       note: "Twenty-eight long-named listings for scrolling and narrow panes.",
       hash: "#/discover?layout=list",

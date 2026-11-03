@@ -150,6 +150,11 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
     /// What the loaded page was last told about the App drawing it (nil before the first load).
     var announced: Bool?
 
+    /// The page's open popups the panel steps behind (`pane.sessionInfo.overlays`).
+    public private(set) var overlays: [AgentPaneSessionInfoOverlay] = []
+    /// Called when ``overlays`` changes: the view cuts them out of the panel.
+    var onOverlays: (() -> Void)?
+
     /// Whether the panel shows.
     public var isOpen: Bool { info?.open == true }
 
@@ -159,8 +164,57 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
         onChange?()
     }
 
+    func updateOverlays(_ next: [AgentPaneSessionInfoOverlay]) {
+        guard next != overlays else { return }
+        overlays = next
+        onOverlays?()
+    }
+
     /// The page loaded again: it has sent nothing yet.
-    func pageLoaded() { update(nil) }
+    func pageLoaded() {
+        updateOverlays([])
+        update(nil)
+    }
+}
+
+/// One of the page's open popups (a menu, a popover, the context ring's hover card) where the App's
+/// Session Info panel floats: its box in the page's viewport, CSS pixels, and its corner radius. The
+/// panel draws nothing and takes no clicks there, so the popup the page draws under it shows whole
+/// (Leo, 2026-11-02: "layering issue the context should go over top of the session info").
+public nonisolated struct AgentPaneSessionInfoOverlay: Equatable, Sendable {
+    public var rect: CGRect
+    public var radius: CGFloat
+
+    public init(rect: CGRect, radius: CGFloat = 0) {
+        self.rect = rect
+        self.radius = radius
+    }
+
+    /// The most a report carries (the page's `OVERLAY_RECTS_MAX`).
+    static let maximum = 16
+
+    /// `[{left, top, right, bottom, radius?}]`, or nil for anything else (a bad number, too many).
+    static func decode(_ value: Any?) -> [AgentPaneSessionInfoOverlay]? {
+        guard let list = value as? [Any], list.count <= maximum else { return nil }
+        var rects: [AgentPaneSessionInfoOverlay] = []
+        for item in list {
+            guard let box = item as? [String: Any] else { return nil }
+            let number = { (key: String) -> Double? in
+                guard let value = (box[key] as? NSNumber)?.doubleValue, value.isFinite, abs(value) <= 100_000 else {
+                    return nil
+                }
+                return value
+            }
+            guard let left = number("left"), let top = number("top"), let right = number("right"),
+                  let bottom = number("bottom"), right >= left, bottom >= top else { return nil }
+            let radius = box["radius"] == nil ? 0 : number("radius")
+            guard let radius, radius >= 0 else { return nil }
+            rects.append(AgentPaneSessionInfoOverlay(
+                rect: CGRect(x: left, y: top, width: right - left, height: bottom - top), radius: CGFloat(radius)
+            ))
+        }
+        return rects
+    }
 }
 
 extension AgentPageEvent {
@@ -195,6 +249,6 @@ extension AgentPaneSessionInfo {
                 ]),
             ])
         } ?? .string(id)
-        return "window.cmuxAcpmuxSessionInfo?.action?(\(value.compactText));"
+        return "window.cmuxAcpmuxSessionInfo?.action?.(\(value.compactText));"
     }
 }

@@ -1413,8 +1413,9 @@ export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "assistant" &&
   (next?.kind === "turnSummary" || ((next?.kind === WORKING || next?.kind === THINKING) && next.below === true));
 /// A status row: one quiet line the transcript draws in the tool rows' column among the replies (a
-/// tool run, a background task's or a subagent's end, a compaction, a failover, a policy the harness
-/// cannot keep, a paused agent pair, a session start, another agent's message or notice); an
+/// tool run, a background task's or a subagent's end, a background turn's line, a compaction, a
+/// failover, a policy the harness cannot keep, a paused agent pair, a session start, another agent's
+/// message or notice); an
 /// edited-files card is a card, not a line. Between two replies it sits in the middle of the gap, as
 /// Claude Code desktop's do (Leo, 2026-10-30: "see how claude code has those centered tool calls /
 /// id like more alignment too"): `statusEdge`.
@@ -1431,6 +1432,7 @@ const isStatusKind = (row: AcpmuxRow) =>
   row.kind === "policyUnenforced" ||
   row.kind === "agentPair" ||
   row.kind === "sessionStart" ||
+  row.kind === BACKGROUND_TURN ||
   row.kind === MESSAGE_RUN ||
   (row.kind === "activity" && isToolRun(row));
 /// A tool run with at least one call, not an edited-files card (turnChanges/sessionRows.ts
@@ -1959,11 +1961,13 @@ function measuredRowHeight(
   if (row.kind === LANE_NOTICE_BATCH && row.laneNoticeBatch) {
     const head = finish(lineRow());
     if (!messageOpened(sessionId, row.id)) return head;
+    // An inbox batch's messages sit on its own columns, with no indent (LaneNoticeBatch.css).
+    const inner = row.laneNoticeBatch.kind === "inbox" ? width : width - 24;
     return (
       head +
       row.laneNoticeBatch.rows.reduce(
         (height, member) =>
-          height + measuredRowHeight(member, Math.max(80, width - 24), cache, false, false, sessionId) - LINE_FRAME,
+          height + measuredRowHeight(member, Math.max(80, inner), cache, false, false, sessionId) - LINE_FRAME,
         0,
       )
     );
@@ -1991,6 +1995,8 @@ function measuredRowHeight(
     return height;
   }
   if (row.incoming?.kind === "message") {
+    // A message that says nothing but "." draws nothing (visibleMessage.ts isBareAgentText).
+    if (isVisiblyEmptyMessage(row)) return finish(0);
     // One line in the one-line rows' frame (lineRow()); one the person opened
     // (incomingOpened.ts) adds its panel (2px above, 4px below, 8px padding each side, 24px in
     // from the icon column and 10px padding across): the whole text

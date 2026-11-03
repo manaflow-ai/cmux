@@ -104,9 +104,9 @@ function entryNodes(
       const node = !item.tool ? (
         <ThoughtRow key={key} id={key as string} item={item} />
       ) : kind === "commands" ? (
-        <CommandRow key={key} item={item} grouped />
+        <CommandRow key={key} item={item} />
       ) : (
-        <ToolRow key={key} item={item} grouped />
+        <ToolRow key={key} item={item} />
       );
       entry = { kind, key, node };
       entryCache.set(item, entry);
@@ -143,9 +143,9 @@ const Step = memo(
       <div className={item.tool ? "cv-step" : lead ? "cv-step is-thought is-lead" : "cv-step is-thought"}>
         {item.tool ? (
           commands ? (
-            <CommandRow item={item} grouped />
+            <CommandRow item={item} />
           ) : (
-            <ToolRow item={item} grouped />
+            <ToolRow item={item} />
           )
         ) : (
           <StepThought id={thoughtId} item={item} lead={lead} />

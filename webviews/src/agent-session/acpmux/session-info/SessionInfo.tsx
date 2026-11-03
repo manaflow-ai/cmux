@@ -77,10 +77,17 @@ import { SessionInfoSectionList } from "./SessionInfoGroup";
 import { SessionInfoSection } from "./SessionInfoSection";
 import { SourcesSection } from "./SourcesSection";
 import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
-import { subagentProcesses, subagentSummary, withChatEnds, type SubagentScope } from "./subagentScope";
+import {
+  subagentBackLabel,
+  subagentProcesses,
+  subagentSummary,
+  withChatEnds,
+  type SubagentScope,
+} from "./subagentScope";
 import {
   bindSessionInfoPane,
   SESSION_INFO_WIDTH,
+  sessionInfoPaneKey,
   setSessionInfoOpen,
   setSessionInfoSection,
   setSessionInfoSourcesAll,
@@ -122,10 +129,34 @@ const SPLIT_SETTLE_MS = 2000;
 /// Whether Settings Push always is on: Session Info then always takes a column.
 export const pushes = (placement: SessionInfoPlacement) => placement === "push";
 
+/// The narrowest a pushed panel gets in a tight pane, below the drag's narrowest
+/// (SESSION_INFO_WIDTH.min), and still as wide as the live preview card under it (computerUsePreview.css,
+/// 180px). Pushed at 260px in a 370px agent pane, the chat kept about 100px, with its "Not sent" line,
+/// Retry and composer under the panel (cmuxterm-hq#6137; Leo, 2026-11-02: "THE FUCKING SESSION INFO NOT
+/// FUCKING PUSH THE LAYOUT LEFT").
+export const PUSH_PANEL_MIN = 200;
+
 /// A pushed panel's width: its own, narrowed so the chat keeps PUSH_MIN_CHAT beside it and its
-/// right margin, down to the panel's narrowest.
+/// right margin, down to PUSH_PANEL_MIN, and never past the pane less its margins. The chat takes the
+/// rest of the pane beside it: the two never overlap.
 export const pushedWidth = (paneWidth: number, width: number) =>
-  paneWidth <= 0 ? width : Math.min(width, Math.max(SESSION_INFO_WIDTH.min, paneWidth - PUSH_MIN_CHAT - FLOAT_MARGIN));
+  paneWidth <= 0
+    ? width
+    : Math.max(
+        0,
+        Math.min(
+          width,
+          Math.max(PUSH_PANEL_MIN, paneWidth - PUSH_MIN_CHAT - FLOAT_MARGIN),
+          paneWidth - 2 * FLOAT_MARGIN,
+        ),
+      );
+
+/// Whether the pane holds a readable chat (PUSH_MIN_CHAT) beside the panel at its narrowest: below
+/// that, Session Info does not open from a saved open state alone (a new chat, a relaunch, a pane
+/// narrowed under it). It waits for the person's toggle, and opened it still pushes the chat left.
+/// Unmeasured (0) counts as room.
+export const sessionInfoFits = (paneWidth: number) =>
+  paneWidth <= 0 || paneWidth - PUSH_PANEL_MIN - FLOAT_MARGIN >= PUSH_MIN_CHAT;
 
 /// A handoff review's form (handoff/styles.css: 760px, 18px from each edge) takes the transcript's
 /// place and is wider than the column.
@@ -160,7 +191,9 @@ export const sessionInfoOverChat = (paneWidth: number, width: number, column?: C
 /// typing a long draft never switches the panel between the two.
 export const POPOVER_BELOW_HEIGHT = 520;
 
-/// Whether the floating panel is a popover (POPOVER_BELOW_HEIGHT): it lies over the chat in a short pane.
+/// Whether the floating panel is a popover (POPOVER_BELOW_HEIGHT): it lies over the chat in a short
+/// pane. A popover shows only when the person opens it (SessionInfoPresence `asked`), never from a
+/// saved open state alone.
 export const sessionInfoPopover = (paneHeight: number, overChat: boolean) =>
   overChat && paneHeight > 0 && paneHeight < POPOVER_BELOW_HEIGHT;
 
@@ -170,6 +203,8 @@ export const sessionInfoPopover = (paneHeight: number, overChat: boolean) =>
 /// cannot hold it, it takes its column and the chat moves left instead of lying under it (Leo,
 /// 2026-11-01: "why does the session info not push the layout left ever anymore"). A short pane keeps
 /// it a popover over the chat (POPOVER_BELOW_HEIGHT), and a handoff review's wider form never pushes.
+/// However narrow the pane, a pushed panel and the chat sit side by side (pushedWidth): the panel
+/// narrows, the chat takes the rest, and nothing of the chat lies under the panel.
 /// `overflow` is how far the chat's drawn content reaches past the column the model expects
 /// (chatContentOverflow): a panel that would lie over any row or the composer pushes, whatever the
 /// gutter's width says.
@@ -341,6 +376,7 @@ export function useSessionInfo({
   onSaveEnvironment,
   onShowCall,
   subagent,
+  split = false,
   covered = false,
   onUncover,
   onBeforeOpen,
@@ -417,6 +453,9 @@ export function useSessionInfo({
   onShowCall?: (toolCallId: string) => boolean;
   /// The subagent whose own view the pane shows: Session Info lists its things, not the chat's.
   subagent?: SubagentScope;
+  /// The pane was opened beside another chat (a subagent's pane, a chat its agent started): its
+  /// Session Info is its own and starts closed (sessionInfoState.ts `sessionInfoPaneKey`).
+  split?: boolean;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
   /// Environment's Remote Control switch (App.tsx, remoteControl.ts): absent, no row.
@@ -449,7 +488,7 @@ export function useSessionInfo({
   // The chat's state is read from its first frame (`useSessionInfoOpen(paneSession)`), before the bind,
   // and the panel is keyed by the chat, so a pane switched to another chat shows that chat's
   // Session Info at once instead of playing the last chat's panel out.
-  const paneSession = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  const paneSession = sessionInfoPaneKey(snapshot.sessionId ?? snapshot.summary?.sessionId, split);
   useLayoutEffect(() => bindSessionInfoPane(paneSession), [paneSession]);
   // Open alone: the width and the folds are the panel's (SessionInfoPresence), so a drag step or a fold
   // does not draw the whole chat pane again.
@@ -457,6 +496,17 @@ export function useSessionInfo({
   // Closed for now (not remembered): an output's diff split left no room beside the chat.
   const [suppressed, setSuppressed] = useState(false);
   const suppress = useCallback(() => setSuppressed(true), []);
+  // The person opened it in this pane (the toggle, a running line's count, the palette), not only a
+  // saved state: a popover shows only then (SessionInfoPresence). Both are this chat's: a pane switched
+  // to another chat starts unasked and unsuppressed, so that chat's saved open state never puts a
+  // popover over it either.
+  const [asked, setAsked] = useState(false);
+  const [askedFor, setAskedFor] = useState(paneSession);
+  if (askedFor !== paneSession) {
+    setAskedFor(paneSession);
+    setAsked(false);
+    setSuppressed(false);
+  }
   const shown = sessionInfoShown({ on, open, suppressed, covered });
   // The section a running line's count asked for, scrolled to once drawn.
   const [revealed, setRevealed] = useState<{ section: SessionInfoSectionId; at: number }>();
@@ -500,6 +550,7 @@ export function useSessionInfo({
       onBeforeOpen?.();
       uncover.current?.();
       setSuppressed(false);
+      setAsked(true);
       setSessionInfoOpen(true);
     });
   }, [on, label, onBeforeOpen]);
@@ -535,6 +586,7 @@ export function useSessionInfo({
       onBeforeOpen?.();
       bringBack?.();
       setSuppressed(false);
+      setAsked(true);
       setSessionInfoOpen(true);
     }
   };
@@ -542,6 +594,7 @@ export function useSessionInfo({
     onBeforeOpen?.();
     bringBack?.();
     setSuppressed(false);
+    setAsked(true);
     setSessionInfoSection(section, true);
     setSessionInfoOpen(true);
     setRevealed({ section, at: Date.now() });
@@ -567,6 +620,7 @@ export function useSessionInfo({
         beside={beside}
         wide={wide}
         openedOutputAt={openedOutputAt}
+        asked={asked}
         onSuppress={suppress}
         registry={registry}
         subagents={subagents}
@@ -641,6 +695,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   beside,
   wide,
   openedOutputAt,
+  asked = false,
   onSuppress,
   registry,
   subagents,
@@ -684,6 +739,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   wide?: boolean;
   /// When an output's diff was last opened (Date.now()).
   openedOutputAt: { readonly current: number };
+  /// The person opened it in this pane (useSessionInfo), not only a saved open state.
+  asked?: boolean;
   /// That diff's split left no room for the chat beside Session Info: Session Info steps aside.
   onSuppress: () => void;
   registry?: ProcessRegistry;
@@ -756,6 +813,18 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const overChat = !push && sessionInfoOverChat(paneWidth, width + (wide ? 0 : overflow), column, wide);
   // In a short pane, over the chat it is a popover that a click elsewhere hides (POPOVER_BELOW_HEIGHT).
   const popover = sessionInfoPopover(paneHeight, overChat);
+  // Open only from a saved state (a new chat, a relaunch), it waits for the person where it would
+  // leave the chat too little room (sessionInfoFits) at its first measured frame, or lie over the chat
+  // (a popover) at any time: it steps aside until the toggle, a running line's count or the palette
+  // opens it, and opened it pushes (cmuxterm-hq#6137: a new chat in a 370px pane opened with the panel
+  // over its Retry). One already showing stays as a split narrows the pane, pushed at its narrow floor.
+  const measuredOnce = useRef(false);
+  useLayoutEffect(() => {
+    if (!drawn || paneWidth <= 0) return;
+    const first = !measuredOnce.current;
+    measuredOnce.current = true;
+    if (!asked && (popover || (first && !sessionInfoFits(paneWidth)))) onSuppress();
+  }, [drawn, paneWidth, popover, asked, onSuppress]);
   useEffect(() => {
     const doc = shell?.ownerDocument;
     if (!native || !drawn || !popover || !doc) return;
@@ -820,7 +889,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     [drawn, scopedAgent, snapshot.summary, rows],
   );
   // After `summary`: read before its declaration, it threw on every render (a temporal dead zone).
-  const usage = compactingUsage(summary?.usage, summary?.usageStats);
+  const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const made = useMemo(
     () => (drawn ? sessionSummary(rows, repository ?? null, summary?.cwd) : undefined),
     [drawn, rows, repository, summary?.cwd],
@@ -891,6 +960,17 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   if (native)
     return (
       <>
+        {/* The App draws the panel over the page (AgentPaneView+SessionInfo.swift sessionInfoFrame: the
+            pushed width and the float margin from the pane's right edge, left of a side panel). Pushing,
+            the page keeps that same room in the shell's row, so the chat narrows beside the panel
+            instead of lying under it (cmuxterm-hq#6137). */}
+        {push && drawn && !gallery && (
+          <div
+            className="acpmux-session-info-room"
+            aria-hidden="true"
+            style={{ width: pushedWidth(paneWidth, width) }}
+          />
+        )}
         <NativeSessionInfo
           key={scope ? `${snapshot.sessionId}:subagent:${scope.agent.id}` : snapshot.sessionId}
           shown={drawn && !gallery}
@@ -901,7 +981,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           label={t("sessionInfo.title")}
           title={scope ? `${t("sessionInfo.subagent")} · ${scope.agent.name}` : undefined}
           onBack={scope?.onBack}
-          backLabel={scope ? t("sessionInfo.subagent.back", { name: scope.parent }) : undefined}
+          backLabel={scope ? subagentBackLabel(t, scope.parent) : undefined}
           summary={summary}
           usage={usage}
           machineName={machineName}
@@ -1080,11 +1160,15 @@ export function SessionInfoPanel({
   const t = useT();
   const frame = useRef<HTMLElement | null>(null);
   const drag = useRef<{ right: number } | undefined>(undefined);
+  // Glass only where the chat runs under it: floating over the chat's column (a foot) or as a popover.
+  // Pushed beside the chat, or in the empty gutter, its sections sit on the pane with no card behind
+  // them, as the native panel draws it (#32661; Leo, 2026-11-02: "we still HAVE AN ASININE BACKGROUND").
+  const glass = placement === "overlay" && (foot !== undefined || onDismiss !== undefined);
   // Floating over the chat (the narrow pane's Summary popover), the chat under it blurs itself there in
   // a see-through Chromium page (ui/glass/seeThroughBlur.ts), as WebKit's backdrop draws it, so its
   // text never reads through the glass (Leo 2026-10-30: "I don't like the non-glassness"). Pushing,
-  // it sits beside the chat and covers nothing.
-  useSeeThroughBlur(frame, placement === "overlay", chatUnderGlass, chatGlass);
+  // or in the gutter, it covers nothing.
+  useSeeThroughBlur(frame, glass, chatUnderGlass, chatGlass);
   // The foot animates only once it has been drawn at its first measure: the open draws it at once.
   const footKnown = foot !== undefined && foot > 0;
   const [footSettled, setFootSettled] = useState(false);
@@ -1118,7 +1202,7 @@ export function SessionInfoPanel({
         presence?.props.ref(node);
       }}
       inert={presence?.leaving}
-      className="ui-glass ui-glass-floats acpmux-session-info"
+      className={glass ? "ui-glass ui-glass-floats acpmux-session-info" : "acpmux-session-info"}
       data-placement={placement}
       data-chrome={title ? "title" : onClose ? chrome : "none"}
       data-over-chat={foot !== undefined ? "" : undefined}
@@ -1358,7 +1442,7 @@ export function SessionInfo({
   const state = sections ?? stored;
   const fold = (id: SessionInfoSectionId) => (next: boolean) => (onSection ?? setSessionInfoSection)(id, next);
   const [gallery, setGallery] = useState(false);
-  const usage = compactingUsage(summary?.usage, summary?.usageStats);
+  const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const known = usage !== undefined && usage.size > 0;
   // As the composer's context ring reads it (ComposerPickers ContextRing).
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;

@@ -33,6 +33,9 @@ final class ScreenContentView: NSView {
     /// springs, and the shift after the last column or row closed is the close's own curve. A user
     /// scroll takes the camera back to the scroll spring.
     var scrollRidesFrames = false
+    /// A keyboard resize press moves this screen (`LayoutRootView.keyboardResizeWillChange`): until its spring lands,
+    /// every pane keeps its content at its size, clipped, and lays it out once at the landing (``PaneHostView``).
+    var holdsContentForKeyResize = false
     /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
     var leadsFrame = false
     /// A split's or a close's panes spring to their new sizes: their terminals keep their grids
@@ -162,6 +165,8 @@ final class ScreenContentView: NSView {
     /// A pane spring left mid-flight could park its pane off screen. Column and row camera
     /// springs may resume when the workspace shows (Lucas 2026-10-19).
     func settleMotion() {
+        // Landed at once (window out of sight, Reduce Motion turned on): the key-resize hold ends with the motion.
+        defer { holdsContentForKeyResize = false }
         defer { if resizeGesture == .landing { finishResizeGesture() } }
         defer { context.releaseRetired(of: screenID) }
         guard hasMotion else { return }
@@ -198,6 +203,15 @@ final class ScreenContentView: NSView {
         #if DEBUG
         let shapeBefore = structural && !isHidden && canvas == nil && !self.zoomed && !zoomed ? restColumns : nil
         #endif
+        // A structural change during a key-resize spring takes the screen over: the panes on that spring keep moving
+        // on the new one without starting it, so their key hold ends here (one pass per change, not per frame).
+        if structural || zooming || unzooming, holdsContentForKeyResize {
+            holdsContentForKeyResize = false
+            for pane in self.layout.panes {
+                guard let host = context.hosts[pane], host.superview === self else { continue }
+                host.endKeyResizeHold()
+            }
+        }
         self.layout = layout
         self.zoomed = zoomed
         // The release's intent is in this layout (or was refused).
@@ -206,6 +220,9 @@ final class ScreenContentView: NSView {
         #if DEBUG
         if let shapeBefore { columnWidths.noteChange(from: shapeBefore, to: restColumns, viewportWidth: bounds.width) }
         #endif
+        // The key-resize hold is the press's own: a structural change (a split, a close, a zoom) takes the screen over,
+        // and a press that did not spring (Reduce Motion, pane animations off, a snap) ends it now.
+        if structural || !moving { holdsContentForKeyResize = false }
         return moving || canvasState.camera.isMoving
     }
 

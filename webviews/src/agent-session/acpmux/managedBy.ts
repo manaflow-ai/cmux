@@ -18,6 +18,24 @@ export type ManagedBy =
 
 type Entry = Pick<AcpmuxSessionEntry, "sessionId" | "chiefChild" | "startedBy" | "spawnedBy" | "displayTitle" | "name">;
 
+/** The default Chief's participant id (the sidebar's and Home's `agent_mux`). */
+export const DEFAULT_CHIEF = "agent_mux";
+
+/** Which Chief runs the chat `sessionId`: the participant id on the turn session of the Chief home
+ *  that started it (its `mux.parent` matched to a turn's `mux.children`, as the sidebar maps it,
+ *  SidebarLaneStatus.swift), else the default Chief when a Chief started it but its turn is not
+ *  listed here; undefined when no Chief did. */
+export function chiefOf(
+  sessionId: string | undefined,
+  sessions: readonly Pick<AcpmuxSessionEntry, "sessionId" | "chiefChild" | "chiefHome" | "chiefTurn">[],
+): string | undefined {
+  if (!sessionId) return undefined;
+  const own = sessions.find((entry) => entry.sessionId === sessionId);
+  if (!own?.chiefChild) return undefined;
+  const turn = own.chiefHome ? sessions.find((entry) => entry.chiefTurn?.home === own.chiefHome) : undefined;
+  return turn?.chiefTurn?.participant ?? DEFAULT_CHIEF;
+}
+
 /** Who manages the chat `sessionId`, from the session list; undefined when the person does. A
  *  manager the list does not hold (closed, on another machine) is not named, so no line shows. */
 export function managedBy(sessionId: string | undefined, sessions: readonly Entry[]): ManagedBy | undefined {
