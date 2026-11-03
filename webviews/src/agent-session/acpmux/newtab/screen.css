@@ -11,7 +11,7 @@
    backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
    borders-none and Reduce Transparency preserve the existing card contract. */
 .nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:20px;position:relative;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--acpmux-composer-shadow,var(--elevation-1))}
-.nt-input{--nt-input-pad-block:var(--text-content);display:flex;align-items:flex-start;gap:var(--ds-space-2);min-height:52px;min-height:calc(1lh + 2 * var(--nt-input-pad-block));padding:0 var(--ds-space-4)}
+.nt-input{--nt-input-pad-block:var(--text-content);display:flex;align-items:flex-start;gap:var(--ds-space-2);min-height:52px;min-height:calc(1lh + 2 * var(--nt-input-pad-block));padding:0 18px}
 :root[data-borders=none] .nt-box{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
 /* The field wraps a long draft and grows with it (field-sizing; NewTabScreen fits it only in an engine
    without field-sizing) to the shared twelve-line cap (markdownField.css), and never past 40% of the pane; then it scrolls.
@@ -154,7 +154,7 @@
    variants keep the filled strip above as their base. */
 :root:not([data-top-strip]) .nt-screen .nt-composer {
   /* Read by the Codex tray's mask too (composerStates.css). */
-  --nt-composer-gap: var(--ds-space-1);
+  --nt-composer-gap: 6px;
   gap: var(--nt-composer-gap);
 }
 :root:not([data-top-strip]) .nt-screen .nt-composer .acpmux-composer-strip {
@@ -495,7 +495,7 @@
 }
 .nt-box {
   /* The chat composer's attachment tiles (composerAttachments.css), on the field's text inset. */
-  --acpmux-attach-inset: var(--ds-space-4);
+  --acpmux-attach-inset: 18px;
   --acpmux-attach-gap: var(--ds-space-2);
   --acpmux-attach-height: 64px;
   --acpmux-attach-radius: var(--ds-radius-control);
@@ -666,7 +666,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 /* The page's column is the chat's (conversation.css --cv-column: 720 px, widening to 800 px on a wide
    pane), so the New Tab composer is as wide as the chat composer in the same pane (Leo 2026-10-21). */
 /* The quiet row sits 4 px under the box (the column gap is 6). */
-.nt-foot .acpmux-composer-foot { margin-top: 0; }
+.nt-foot .acpmux-composer-foot { margin-top: -2px; }
 /* The stage layout (templates.ts stage; Leo 2026-10-19, Claude Code desktop's new-session screen):
    the composer at the foot of the page, full width of the column. The stage centers its cards
    while they fit. When content grows, the whole page scrolls together. */
@@ -879,7 +879,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-screen[data-template="cards"][data-pill] .nt-box {
   border-radius: 999px;
-  --acpmux-attach-inset: var(--ds-space-5);
+  --acpmux-attach-inset: 22px;
 }
 /* With attachments under the field the pill is taller than a line: its ends would cut into the
    tiles, so it rounds as the composer template's card does. */
@@ -889,10 +889,10 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-screen[data-template="cards"][data-pill] .nt-input {
   align-items: center;
   min-height: 56px;
-  padding: 0 var(--ds-space-2) 0 var(--ds-space-5);
+  padding: 0 8px 0 22px;
 }
 .nt-screen[data-template="cards"][data-pill] .nt-field {
-  --nt-input-pad-block: var(--ds-space-4);
+  --nt-input-pad-block: 18px;
   padding-block: var(--nt-input-pad-block);
 }
 .nt-toolbar {
@@ -984,7 +984,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  height: calc(var(--text-heading--line-height) + var(--ds-space-2));
+  height: calc(var(--text-heading--line-height) + 6px);
 }
 /* The headline (NewTabHeadline.tsx; off by default): "What should we work on in <project>?", the
    project an inline picker. Hero (the shipped look) is a new chat's hero question; Quiet is where the
@@ -994,11 +994,11 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   display: flex;
   flex-direction: column;
   align-items: center;
-  --nt-headline-gap: var(--ds-space-2);
+  --nt-headline-gap: 6px;
   /* The question's line: Hero's is a new chat's hero line (28px); Quiet's is the heading step. */
   --nt-headline-line: calc(28px * var(--cmux-interface-scale, 1));
-  gap: var(--nt-headline-gap);
-  margin: 0 0 var(--ds-space-2);
+  gap: 6px;
+  margin: 0 0 10px;
   text-align: center;
 }
 /* The no-project headline has a second row for its chooser. Keep that row's space after a
@@ -1032,7 +1032,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-headline[data-look="quiet"] {
   --nt-headline-line: var(--text-heading--line-height);
-  margin-bottom: var(--ds-space-2);
+  margin-bottom: 6px;
 }
 .nt-headline[data-look="quiet"] .nt-headline-text {
   font-size: var(--text-heading);
