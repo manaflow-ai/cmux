@@ -34,14 +34,21 @@ const image = {
   alt: "Retry report with a deliberately long image title",
 };
 
-/// A Cloud chat's sign-in with synthetic replies: Claude's page gives a code to paste back, Codex's
-/// asks for the device code the card shows. Nothing leaves the gallery.
+/// A Cloud chat's sign-in with synthetic replies: Claude's automatic page opens on the chat's
+/// machine and signs in on the approve (a code to paste stays one link away), Codex's asks for the
+/// device code the card shows. Nothing leaves the gallery.
 function gallerySignIn(agent: LoginAgent): CloudSignIn {
   return {
     agent,
     start: async () =>
       agent === "claude"
-        ? { loginId: "gallery-login", url: "https://claude.ai/oauth/authorize", needsCode: true }
+        ? {
+            loginId: "gallery-login",
+            url: "https://claude.ai/oauth/authorize",
+            needsCode: true,
+            autoUrl: "https://claude.ai/oauth/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback",
+            callbackPort: 54545,
+          }
         : {
             loginId: "gallery-login",
             url: "https://auth.openai.com/codex/device",
@@ -49,6 +56,7 @@ function gallerySignIn(agent: LoginAgent): CloudSignIn {
             needsCode: false,
           },
     open: () => {},
+    openOnMachine: async () => true,
     finish: () => new Promise<boolean>(() => {}),
     apiKey: async () => true,
     cancel: () => {},
