@@ -133,6 +133,34 @@ struct BrowserDownloadWaitPathTests {
         }
     }
 
+    /// Two path waits on one surface and one finished download: exactly one
+    /// wait saves it, whether the download reaches them live or queued.
+    @Test func oneDownloadIsSavedByOnlyOneOfTwoWaits() async throws {
+        try await withPanel { panel, params, root in
+            let first = root.appendingPathComponent("first.txt")
+            let second = root.appendingPathComponent("second.txt")
+            var firstWait = params
+            firstWait["path"] = first.path
+            firstWait["timeout_ms"] = 2_000
+            var secondWait = params
+            secondWait["path"] = second.path
+            secondWait["timeout_ms"] = 2_000
+            async let firstResponse = request("browser.download.wait", firstWait)
+            async let secondResponse = request("browser.download.wait", secondWait)
+
+            let saved = try savedFile(in: root, named: "x.txt", contents: "hello")
+            let delegate = try #require(panel.downloadDelegate)
+            delegate.onDownloadStarted?("x.txt", "download-7")
+            delegate.onDownloadSaved?("x.txt", saved, true, "download-7")
+
+            let responses = try await [firstResponse, secondResponse]
+            let succeeded = responses.filter { $0["ok"] as? Bool == true }
+            #expect(succeeded.count == 1, "\(responses)")
+            let savedCopies = [first, second].filter { FileManager.default.fileExists(atPath: $0.path) }
+            #expect(savedCopies.count == 1)
+        }
+    }
+
     @Test func relativePathIsRejected() async throws {
         try await withPanel { _, params, _ in
             var wait = params
