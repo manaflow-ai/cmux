@@ -39,6 +39,13 @@ for line in sys.stdin:
         if first in ("route-failure", "route-failure-schema") and "alternate" not in sys.argv:
             send({"id": rid, "error": {"code": -32000, "message": "workflow route unavailable",
                 "data": {"reason": "route.unavailable"}}})
+        elif first == "capacity-then-stall" and "alternate" not in sys.argv and count == 1:
+            send({"id": rid, "error": {"code": -32000, "message": "HTTP 503 overloaded"}})
+        elif first == "capacity-then-stall" and "alternate" not in sys.argv and count == 2:
+            pending = (params["sessionId"], rid)
+            send({"method": "session/update", "params": {"sessionId": params["sessionId"],
+                "update": {"sessionUpdate": "agent_message_chunk", "content": {
+                    "type": "text", "text": "retry working"}}}})
         elif pending and text.startswith("Please continue"):
             send({"method": "session/update", "params": {"sessionId": params["sessionId"],
                 "update": {"sessionUpdate": "agent_message_chunk", "content": {
