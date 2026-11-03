@@ -317,6 +317,9 @@ pub(in crate::server) struct LinkShares {
     /// Every write fails while set (tests).
     #[cfg(test)]
     pub(super) refuse_writes: std::sync::atomic::AtomicBool,
+    /// Moving an unreadable file aside fails while set (tests).
+    #[cfg(test)]
+    pub(super) refuse_set_aside: std::sync::atomic::AtomicBool,
 }
 
 impl Drop for LinkShares {
@@ -381,16 +384,6 @@ fn find<'a>(
     share_id: &str,
 ) -> Result<&'a mut LinkShare, &'static str> {
     shares.iter_mut().find(|s| s.share_id == share_id).ok_or("share.unknown")
-}
-
-/// Moves an unreadable shares file to its `.unreadable` sibling, so no write replaces it. Ok when
-/// there is nothing at the path any more.
-fn set_aside(directory: &Path) -> std::io::Result<()> {
-    let aside = directory.join(format!("{FILE}.unreadable"));
-    match std::fs::rename(directory.join(FILE), &aside) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        moved => moved,
-    }
 }
 
 /// The author a guest binds as; an invitee's also names its role. The author is stamped on what
@@ -528,7 +521,8 @@ impl LinkShares {
 
     /// The shares in `directory`'s file (none without one). A file that is there but does not
     /// read back (past the state file's bound, not this user's, not JSON) is moved aside to
-    /// `agent-session-shares.json.unreadable`, so the next write does not destroy it; until it is
+    /// `agent-session-shares.json.unreadable` ([`Self::set_aside`]), so the next write does not
+    /// destroy it; until it is
     /// moved, every write is refused ([`Self::save`]).
     fn load(&self, directory: Option<&Path>) -> Vec<LinkShare> {
         let Some(directory) = directory else { return Vec::new() };
@@ -541,7 +535,7 @@ impl LinkShares {
         if let Some(shares) = read {
             return shares;
         }
-        match set_aside(directory) {
+        match self.set_aside(directory) {
             Ok(()) => eprintln!("cmux-tui: unreadable link shares kept aside as {FILE}.unreadable"),
             Err(error) => {
                 eprintln!("cmux-tui: unreadable link shares not moved aside, not written: {error}");
@@ -551,6 +545,24 @@ impl LinkShares {
         Vec::new()
     }
 
+    /// Moves an unreadable shares file to `agent-session-shares.json.unreadable` (or, when one
+    /// from before is there, `….unreadable-<unix ms>`), so no write replaces it and no earlier
+    /// copy is lost. Ok when there is nothing at the path any more.
+    fn set_aside(&self, directory: &Path) -> std::io::Result<()> {
+        #[cfg(test)]
+        if self.refuse_set_aside.load(Ordering::Relaxed) {
+            return Err(std::io::Error::other("set aside refused (test)"));
+        }
+        let mut aside = directory.join(format!("{FILE}.unreadable"));
+        if std::fs::symlink_metadata(&aside).is_ok() {
+            aside = directory.join(format!("{FILE}.unreadable-{}", wall_ms()));
+        }
+        match std::fs::rename(directory.join(FILE), &aside) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            moved => moved,
+        }
+    }
+
     fn save(&self, directory: Option<&Path>, shares: &[LinkShare]) -> Option<std::io::Result<()>> {
         #[cfg(test)]
         if self.refuse_writes.load(Ordering::Relaxed) {
@@ -558,7 +570,7 @@ impl LinkShares {
         }
         let directory = directory?;
         if self.unreadable.load(Ordering::Relaxed) {
-            if let Err(error) = set_aside(directory) {
+            if let Err(error) = self.set_aside(directory) {
                 return Some(Err(error));
             }
             eprintln!("cmux-tui: unreadable link shares kept aside as {FILE}.unreadable");

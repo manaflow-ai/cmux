@@ -824,7 +824,7 @@ fn a_create_drops_ended_shares_when_only_the_new_one_does_not_fit() {
         .collect();
     // Invitees until not even the shortest account fits: what is left is less than a share.
     let mut refused = false;
-    for length in [300, 150, 75, 40, 20, 10, 1] {
+    for length in [280, 150, 75, 40, 20, 10, 1] {
         for (s, share_id) in ids.iter().enumerate() {
             for a in 0..MAX_INVITEES {
                 let account = format!("{s}-{a}-{length}-{}@example.com", "x".repeat(length));
@@ -869,7 +869,8 @@ fn ending_everything_in_a_full_registry_stays_within_the_bound() {
     'fill: for a in 0..MAX_INVITEES {
         for share_id in &ids {
             let account = format!("{a}-{}@example.com", "x".repeat(280));
-            let invite = Invite { share_id: share_id.clone(), account: account.clone(), role: None };
+            let invite =
+                Invite { share_id: share_id.clone(), account: account.clone(), role: None };
             if let Err(code) = shares.invite(dir, &invite) {
                 assert_eq!(code, "share.limit");
                 refused = true;
@@ -945,16 +946,30 @@ fn an_unreadable_shares_file_is_kept_aside_and_never_overwritten() {
     let read = |s: &LinkShares| s.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
     assert_eq!(read(&LinkShares::default()).len(), 1, "the new file reads back");
 
-    // The file cannot be moved aside (a directory is in the way): no write replaces it.
+    // Unreadable again: the copy kept before stays, the new one goes beside it.
+    std::fs::write(directory.join(FILE), b"not json either").unwrap();
+    LinkShares::default().insert(dir, SESSION.into(), 1, terms(), false).unwrap();
+    assert_eq!(std::fs::read(&aside).unwrap(), oversized, "the earlier copy is not replaced");
+    let kept: Vec<Vec<u8>> = std::fs::read_dir(&directory)
+        .unwrap()
+        .map(|entry| entry.unwrap())
+        .filter(|entry| {
+            entry.file_name().to_string_lossy().starts_with(&format!("{FILE}.unreadable-"))
+        })
+        .map(|entry| std::fs::read(entry.path()).unwrap())
+        .collect();
+    assert_eq!(kept, vec![b"not json either".to_vec()]);
+
+    // The file cannot be moved aside: no write replaces it.
     let blocked = scratch("shares-unreadable-blocked");
     let dir = Some(blocked.as_path());
     std::fs::write(blocked.join(FILE), b"not json").unwrap();
     let aside = blocked.join(format!("{FILE}.unreadable"));
-    std::fs::create_dir(&aside).unwrap();
     let shares = LinkShares::default();
+    shares.refuse_set_aside.store(true, Ordering::Relaxed);
     assert_eq!(shares.insert(dir, SESSION.into(), 1, terms(), false), Err("share.unsaved"));
     assert_eq!(std::fs::read(blocked.join(FILE)).unwrap(), b"not json");
-    std::fs::remove_dir(&aside).unwrap();
+    shares.refuse_set_aside.store(false, Ordering::Relaxed);
     shares.insert(dir, SESSION.into(), 1, terms(), false).unwrap();
     assert_eq!(std::fs::read(&aside).unwrap(), b"not json", "moved aside once it could be");
     assert_eq!(read(&LinkShares::default()).len(), 1);
