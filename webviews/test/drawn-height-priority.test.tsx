@@ -11,16 +11,10 @@ const source = readFileSync(
   process.env.CMUX_TEST_DRAWN_SOURCE ?? new URL("../src/agent-session/acpmux/App.tsx", import.meta.url),
   "utf8",
 );
-const comparison = source.slice(
-  source.indexOf("function sameDrawn("),
-  source.indexOf("/// RowFrame redraws"),
-);
+const comparison = source.slice(source.indexOf("function sameDrawn("), source.indexOf("/// RowFrame redraws"));
 const productionCallback = source.slice(
   source.indexOf("  const flushDrawn = useCallback("),
-  source.indexOf(
-    "  const observer = useMemo(",
-    source.indexOf("  const flushDrawn = useCallback("),
-  ),
+  source.indexOf("  const observer = useMemo(", source.indexOf("  const flushDrawn = useCallback(")),
 );
 // The mutation run must fail the priority regression: rendered state alone misses queued work.
 const callback =
@@ -141,13 +135,9 @@ test("an equal correction supersedes a queued lower-priority height", async () =
       control.tick();
       control.report(new Map([["row", { ...h1 }]]));
     });
-    expect(dom!.window.document.querySelector("[data-height]")!.getAttribute("data-height")).toBe(
-      "100",
-    );
+    expect(dom!.window.document.querySelector("[data-height]")!.getAttribute("data-height")).toBe("100");
   });
-  expect(dom!.window.document.querySelector("[data-height]")!.getAttribute("data-height")).toBe(
-    "100",
-  );
+  expect(dom!.window.document.querySelector("[data-height]")!.getAttribute("data-height")).toBe("100");
   expect(control.painted).not.toContain(200);
 });
 
@@ -181,9 +171,7 @@ test("a mixed batch dirties only changed rows and applies fractional corrections
         ]),
       ),
     );
-    expect(dom!.window.document.querySelector("[data-height]")!.getAttribute("data-height")).toBe(
-      "100.25",
-    );
+    expect(dom!.window.document.querySelector("[data-height]")!.getAttribute("data-height")).toBe("100.25");
   });
   expect([...control.dirty]).toEqual(["row"]);
 });
