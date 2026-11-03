@@ -187,7 +187,12 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
 
   const quote = useCallback(() => {
     if (!target) return;
-    if (quoteInReply(target.text)) doc.getSelection()?.removeAllRanges();
+    // Clear the transcript selection first: quoting focuses the composer with its caret under the
+    // quote, and clearing after would take that caret too. A quote that fails gets its range back.
+    const selection = doc.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
+    selection?.removeAllRanges();
+    if (!quoteInReply(target.text) && range) selection?.addRange(range);
     setTarget(undefined);
   }, [doc, target]);
 

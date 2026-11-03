@@ -83,6 +83,26 @@ test("clicking the chip quotes the selection into the composer through Quote in 
   expect(chip(doc)).toBeNull();
 });
 
+test("quoting keeps the caret the composer placed under the quote", () => {
+  const doc = mount(REPLY);
+  const field = doc.createElement("textarea");
+  doc.body.append(field);
+  unsink = setQuoteReplySink((markdown) => {
+    field.value = markdown;
+    field.focus();
+    const caret = doc.createRange();
+    caret.selectNodeContents(field);
+    caret.collapse(false);
+    doc.getSelection()!.removeAllRanges();
+    doc.getSelection()!.addRange(caret);
+  });
+  select(doc, "prose", 6, 25);
+  act(() => chip(doc)!.click());
+  expect(doc.getSelection()!.rangeCount).toBe(1);
+  expect(doc.getSelection()!.getRangeAt(0).startContainer).toBe(field);
+  field.remove();
+});
+
 test("collapsing the selection removes the chip", () => {
   const doc = mount(REPLY);
   select(doc, "prose", 6, 25);
