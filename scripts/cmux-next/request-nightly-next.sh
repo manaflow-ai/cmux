@@ -174,7 +174,7 @@ app_unchanged() { # <sha>
   git merge-base --is-ancestor "$published" "$1" 2>/dev/null || return 1
   [[ -f "$repo_root/scripts/ci/nightly_build_inputs.py" ]] || return 1
   local files verdict
-  files="$(git diff --name-only "$published" "$1")" || return 1
+  files="$(git diff --no-renames --name-only "$published" "$1")" || return 1  # a move out of the app names its old path too
   if [[ -z "$files" ]]; then
     app_unchanged_reason="the same tree"
     return 0

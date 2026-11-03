@@ -673,6 +673,13 @@ echo app2 > "$src/App.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m 
 changed=$(git -C "$src" rev-parse HEAD)
 request --sha "$changed" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$changed" || fail "an app change since the published commit must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+# A move out of the app (App.swift into docs/) removes an app input: promoted, never read as docs only.
+git_q -C "$src" tag -f nightly-next "$changed"
+mkdir -p "$src/docs"; git_q -C "$src" mv App.swift docs/App.swift; git_q -C "$src" commit -m "move the app file into docs"
+moved=$(git -C "$src" rev-parse HEAD)
+request --sha "$moved" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$moved" || fail "a move out of an app path must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" tag -f nightly-next "$head"
 # A classifier that cannot answer, or no published commit, promotes as before.
 git_q -C "$src" checkout -q --detach "$same"
 echo 'raise SystemExit(3)' > "$src/scripts/ci/nightly_build_inputs.py"
