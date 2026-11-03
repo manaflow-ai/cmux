@@ -104,14 +104,17 @@ const notes = chat([
 
 /// Opens the run, then its failed call, to show the command, its exit code and its output.
 const openFailed = async (ctx: PlayContext) => {
-  await ctx.click({ role: "button", name: /Finished 2 background tasks/ });
-  await ctx.click({ role: "button", name: /Count the retry fixture cases/ });
+  await openRun(ctx);
+  // The first failed step is "Count the retry fixture cases", the run's second call.
+  const failed = { selector: ".cv-step > .cv-command:has(> .cv-command__failed)" };
+  await ctx.click(failed);
+  await ctx.waitFor(() => ctx.find(failed).getAttribute("aria-expanded") === "true");
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__exit")));
 };
 
 const openRun = async (ctx: PlayContext) => {
   await ctx.click({ role: "button", name: /Finished 2 background tasks/ });
-  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-steps")));
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-step > .cv-command").length === 5);
 };
 
 export default agentPaneEntry({
