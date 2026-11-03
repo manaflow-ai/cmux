@@ -1092,6 +1092,22 @@
   border-radius: var(--cv-code-radius, 5px);
   background: var(--cv-code-bg);
 }
+/* An agent link written as code (conversation/SessionRef.tsx): the code's look in the link's
+   colour, underlined as every link is. A `HOST/NAME` that names a session is the session chip's
+   wash (.acpmux-started-chip) on the code itself, so it keeps its place when it turns into one. */
+.cv-link.cv-session-ref > .cv-code {
+  color: inherit;
+}
+.acpmux-started-chip.cv-session-ref {
+  padding: 0;
+  background: none;
+}
+.acpmux-started-chip.cv-session-ref > .cv-code {
+  background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 9%, transparent);
+}
+.acpmux-started-chip.cv-session-ref:hover > .cv-code {
+  background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 16%, transparent);
+}
 /* Written UTC times stay quiet until the reader points at or focuses them. */
 .cv-time-hover {
   cursor: help;
