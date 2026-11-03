@@ -1020,6 +1020,38 @@ fn calls_of(vms: &PerAgentVms) -> Vec<String> {
     vms.calls.lock().unwrap().clone()
 }
 
+#[test]
+fn hello_ios_stays_here_and_hello_web_uses_cloud_with_a_reason() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let answer = run(&mut h, move || {
+        sp.spawn(vec!["build a hello iOS view".into(), "build a hello web page".into()], None)
+    }).unwrap();
+    let specs = subs(&h);
+    assert_eq!(specs[0].0.peer, None, "iOS needs a Mac: {answer}");
+    assert_eq!(specs[1].0.peer.as_deref(), Some("chief-sub-a2"));
+    assert!(answer.lines().any(|line| line.starts_with("- a1:") && line.contains("on this Mac:") && line.contains("needs a Mac")), "{answer}");
+    assert!(answer.lines().any(|line| line.starts_with("- a2:") && line.contains("on cloud:") && line.contains("Cloud")), "{answer}");
+}
+
+#[test]
+fn spawn_here_and_mac_are_local_aliases_and_unknown_places_list_choices() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = spawner(&h, Some(cloud()));
+    for place in ["here", "mac"] {
+        let a = sp.clone();
+        let answer = run(&mut h, move || a.spawn_placed(vec!["hello web".into()], None, None, Some(place.into()))).unwrap();
+        assert_eq!(subs(&h).last().unwrap().0.peer, None, "{answer}");
+    }
+    let error = run(&mut h, move || sp.spawn_placed(vec!["hello".into()], None, None, Some("moon".into()))).unwrap_err();
+    for choice in ["here", "local", "mac", "cloud"] {
+        assert!(error.contains(choice), "{error}");
+    }
+}
+
 /// `control cloud freestyle`: each subagent gets its own VM (its peer is
 /// chief-sub-<id>), made at the size its task needs; a task that needs the
 /// Mac (app UI, screenshots, computer use, sign-ins) stays on this host.
