@@ -896,3 +896,21 @@ fn compactor_probe_and_description_exports_are_unique_per_unit() {
         );
     }
 }
+
+#[test]
+fn concurrent_compactor_units_keep_their_trace_unit_keys() {
+    let rows = fold_all(&[
+        json!({"ev":"node","ts":T0,"node":"describe","usage_key":"node1:session1","usage":{"input":1}}),
+        json!({"ev":"node","ts":T0,"node":"describe","usage_key":"node2:session2","usage":{"input":1}}),
+    ]);
+    assert_ne!(rows[0].key, rows[1].key);
+    let chief = Chief {
+        id: "c".into(),
+        label: "Chief".into(),
+        home: "/h".into(),
+    };
+    assert_ne!(
+        usage::export_row(&chief, &rows[0])["request_id"],
+        usage::export_row(&chief, &rows[1])["request_id"]
+    );
+}
