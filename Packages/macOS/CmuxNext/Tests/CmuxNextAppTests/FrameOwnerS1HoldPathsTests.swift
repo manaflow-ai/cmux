@@ -208,7 +208,7 @@ struct FrameOwnerS1HoldPathsTests {
     /// With `motion.pane.holdContent` on, a split taking a key spring over holds p2's content at the size its key hold kept
     /// (`endKeyResizeHold`: the held size, not the pane content view's size, which followed the pane). Ctrl-Shift-L on p2
     /// shrinks it, so that start size is the largest of the hold's sizes: the content takes no new size at the takeover nor
-    /// during the split's spring, and its rest size once, at the landing.
+    /// during the split's spring, and its rest size once, when the pane reaches it (the hold ends at the rest geometry).
     @Test func aSplitTakingOverWithHoldContentKeepsTheKeyHoldsSizeToTheLanding() throws {
         let rig = Rig(Self.pair, holdsContent: true)
         defer { rig.window.closeAfterTest() }
@@ -220,13 +220,13 @@ struct FrameOwnerS1HoldPathsTests {
         rig.model.apply(screens: [Rig.screen(.split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"),
                                                      b: .split("y", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3"))))])
         rig.root.syncWithModel()
-        var during: [String] = []
-        let frames = rig.frames { frame in if content.frame.size != start { during.append("frame \(frame): \(content.frame.size)") } }
+        let atTakeover = content.sizes
+        let frames = rig.frames()
         try #require(frames > 3, "the split did not spring (\(frames) frames)")
-        #expect(during.isEmpty, "p2's content resized during the split's spring: \(during.prefix(3))")
         rig.release()
+        #expect(atTakeover.isEmpty && content.frame.size != start, "the takeover resized p2's content \(atTakeover) (start \(start))")
         #expect(content.frame == view.contentHost.bounds && content.sizes.count == 1,
-                "p2's content did not take its rest size once at the landing: \(content.sizes) (\(content.frame) in \(view.contentHost.bounds))")
+                "p2's content did not go from its held size to its rest size once: \(content.sizes) (\(content.frame) in \(view.contentHost.bounds))")
     }
 
     // MARK: Content shown during the hold
