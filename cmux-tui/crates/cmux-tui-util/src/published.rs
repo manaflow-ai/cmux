@@ -11,7 +11,8 @@
 //! change the value without publishing the change, because every change goes through the guard.
 //!
 //! A change that a panic cuts short is never published: the guard that held it drops during the unwind, and the
-//! mutex is then marked poisoned, so readers fail closed with the last finished projection.
+//! mutex is then marked poisoned, so a reader's [`Published::load`] gives the last finished projection inside the
+//! poison error, and the reader decides whether to fail closed or to recover it.
 //!
 //! Publishing is on or off for the value's life (a stage switch decides it when the value is made;
 //! tests can turn it on). Off, a guard builds no projection, so a value nobody reads lock-free costs
@@ -78,8 +79,10 @@ impl<T, S> Published<T, S> {
 
     /// The projection of the newest finished change: one atomic load, never a wait. When a writer
     /// panicked while it held the value (the mutex is poisoned), the projection comes in the error,
-    /// as `std::sync::Mutex::lock` gives its guard, so a caller can fail closed.
+    /// as `std::sync::Mutex::lock` gives its guard, so a caller can fail closed. Only a value that
+    /// publishes has a current projection; a reader of one that does not takes [`Self::lock`].
     pub fn load(&self) -> LockResult<arc_swap::Guard<Arc<S>>> {
+        debug_assert!(self.publishing(), "a projection read of a value that does not publish");
         let projection = self.projection.load();
         if self.value.is_poisoned() { Err(PoisonError::new(projection)) } else { Ok(projection) }
     }
@@ -115,14 +118,6 @@ impl<T, S> Published<T, S> {
                 Err(TryLockError::Poisoned(PoisonError::new(self.guard(poison.into_inner()))))
             }
         }
-    }
-
-    /// Poisons the value: a panic while it is held (fail-closed tests).
-    pub fn poison_for_test(&self) {
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _held = self.value.lock();
-            std::panic::panic_any("poisons the value for a fail-closed test");
-        }));
     }
 }
 
@@ -284,7 +279,7 @@ mod tests {
         let published = Published::new(Counter::default(), project, false);
         assert!(!published.publishing());
         published.lock().unwrap_or_else(|poison| poison.into_inner()).value = 3;
-        assert_eq!(**published.load().unwrap_or_else(|poison| poison.into_inner()), 0);
+        assert_eq!(**published.load_full_for_test(), 0, "a change was published while off");
         published.set_publishing_for_test(true);
         assert!(published.publishing());
         assert_eq!(**published.load().unwrap_or_else(|poison| poison.into_inner()), 3);
@@ -293,6 +288,14 @@ mod tests {
     impl<T, S> Published<T, S> {
         fn load_full_for_test(&self) -> std::sync::Arc<S> {
             self.projection.load_full()
+        }
+
+        /// Poisons the value: a panic while it is held (fail-closed tests).
+        fn poison_for_test(&self) {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _held = self.lock();
+                panic!("poisons the value for a fail-closed test");
+            }));
         }
     }
 }

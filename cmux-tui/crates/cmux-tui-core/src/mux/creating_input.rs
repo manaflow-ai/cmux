@@ -127,8 +127,11 @@ impl Mux {
     /// it), or an earlier creation of the id is still in flight and owns it.
     pub(crate) fn begin_creating_input(&self, terminal_id: &str) -> Option<u64> {
         let inputs = &self.creating_inputs;
-        // The live check and the insert are one step under the creating lock (lock order:
-        // creating, then state), so a commit cannot make the id live in between.
+        // The live check and the insert are one step under the creating lock. Off the input lane the
+        // check takes the session state under it (lock order: creating, then state), so a commit
+        // cannot make the id live in between. On the lane it reads the published routes, the last
+        // finished change: a commit still in progress has not made the id live, as when the old path
+        // takes the state before that commit, so every answer is one the old path can give.
         let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
         if terminals.contains_key(terminal_id)
             || self.live_surface_for_terminal(terminal_id).is_some()
@@ -370,7 +373,8 @@ impl Mux {
     /// creation checks give the answers they gave under the session lock.
     #[track_caller]
     fn live_surface_for_terminal(&self, terminal_id: &str) -> Option<Arc<Surface>> {
-        if self.control_clients.input_lane.on() {
+        // A poisoned state takes the old read, as `Mux::surface` does.
+        if self.control_clients.input_lane.on() && !self.state.is_poisoned() {
             return self.state.routes().live_terminal(terminal_id);
         }
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
