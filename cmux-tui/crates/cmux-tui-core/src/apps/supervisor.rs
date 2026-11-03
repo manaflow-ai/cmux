@@ -278,7 +278,12 @@ impl Supervisor {
         let existing_sections = catalog
             .packages
             .values()
-            .filter(|package| mirror.apps.get(&package.id).is_some_and(|record| record.installed))
+            .filter(|package| {
+                // If initialization failed on an earlier start, installs
+                // created since then still need their first placement.
+                !mirror.sidebar_auto_place.contains(&package.id)
+                    && mirror.apps.get(&package.id).is_some_and(|record| record.installed)
+            })
             .flat_map(super::sidebar::sections)
             .collect::<Vec<_>>();
         if let Err(error) = router.initialize_sidebar_placements(&existing_sections) {

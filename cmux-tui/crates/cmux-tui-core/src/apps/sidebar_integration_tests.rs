@@ -133,6 +133,18 @@ fn has_placement_receipt(mux: &Mux, app: &str) -> bool {
     .unwrap()
 }
 
+fn registry_write_counts(mux: &Mux) -> (i64, String) {
+    mux.read_registry_state(|connection| {
+        Ok(connection.query_row(
+            "SELECT (SELECT COUNT(*) FROM resource_mutations),
+                    (SELECT value FROM meta WHERE key = 'resource_revision')",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?)
+    })
+    .unwrap()
+}
+
 /// A fresh document already has the recent-chats app section. Count only
 /// this fixture app, while retaining every section so duplicates still fail.
 fn app_sections_for(mux: &Mux, app: &str) -> Vec<Section> {
@@ -341,6 +353,121 @@ fn a_new_hidden_store_install_remains_eligible_across_restart_until_shown() {
     assert_eq!(shown.len(), 1, "a new install lost eligibility across restart");
     assert_eq!(shown[0].region, Region::Bottom);
     assert!(has_placement_receipt(&reopened, app));
+    drop(supervisor);
+    reopened.shutdown();
+}
+
+#[test]
+fn receipted_customize_and_store_sections_reconcile_without_registry_writes() {
+    let session = Session::new();
+    let customize = "local/customize";
+    let store = "octo/prs";
+    write_app(&session.0.join("customize"), customize, "1.0.0");
+    write_app(&session.0.join("bundled/prs"), store, "1.0.0");
+    let mut sources = session.sources();
+    sources.bundled.push(session.0.join("bundled"));
+    let mux = session.open();
+    let supervisor = session.supervisor_with_sources(&mux, sources);
+    supervisor
+        .set(
+            1,
+            SetOp {
+                key: "install-store-app".into(),
+                app: store.into(),
+                origin: Origin::User,
+                installed: Some(true),
+                ..SetOp::default()
+            },
+        )
+        .unwrap();
+    for app in [customize, store] {
+        assert_eq!(app_sections_for(&mux, app).len(), 1);
+        assert!(has_placement_receipt(&mux, app));
+    }
+    let document = sidebar_document(&mux);
+    let writes = registry_write_counts(&mux);
+    for _ in 0..3 {
+        supervisor.reconcile_sidebar();
+        assert_eq!(sidebar_document(&mux), document);
+        assert_eq!(
+            registry_write_counts(&mux),
+            writes,
+            "a receipted reconciliation wrote a mutation or advanced the resource revision"
+        );
+    }
+    drop(supervisor);
+    mux.shutdown();
+}
+
+#[test]
+fn migration_retry_preserves_pending_store_and_customize_placements() {
+    let session = Session::new();
+    let store = "octo/prs";
+    let customize = "local/customize";
+    write_app(&session.0.join("bundled/prs"), store, "1.0.0");
+    let mut sources = session.sources();
+    sources.bundled.push(session.0.join("bundled"));
+    let mux = session.open();
+    let supervisor = session.supervisor_with_sources(&mux, sources.clone());
+    supervisor
+        .set(
+            1,
+            SetOp {
+                key: "install-pending-store-app".into(),
+                app: store.into(),
+                origin: Origin::User,
+                installed: Some(true),
+                hidden: Some(true),
+                ..SetOp::default()
+            },
+        )
+        .unwrap();
+    // Model a migration that needs to retry. A newly seeded customize app
+    // cannot place until initialization succeeds, but its eligibility is durable.
+    let removed = mux
+        .read_registry_state(|connection| {
+            Ok(connection.execute("DELETE FROM meta WHERE key = 'apps.sidebar.initialized'", [])?)
+        })
+        .unwrap();
+    assert_eq!(removed, 1);
+    write_app(&session.0.join("customize"), customize, "1.0.0");
+    supervisor.reload_local_apps(&HashMap::new());
+    for app in [store, customize] {
+        assert!(supervisor.inner.lock().unwrap().mirror.sidebar_auto_place.contains(app));
+        assert!(app_sections_for(&mux, app).is_empty());
+        assert!(!has_placement_receipt(&mux, app));
+    }
+    drop(supervisor);
+    mux.shutdown();
+    drop(mux);
+
+    let reopened = session.open();
+    let supervisor = session.supervisor_with_sources(&reopened, sources);
+    let customize_sections = app_sections_for(&reopened, customize);
+    assert_eq!(customize_sections.len(), 1, "migration receipted a pending customize section");
+    assert_eq!(customize_sections[0].region, Region::Bottom);
+    assert!(has_placement_receipt(&reopened, customize));
+    assert!(app_sections_for(&reopened, store).is_empty());
+    assert!(
+        !has_placement_receipt(&reopened, store),
+        "migration receipted a pending hidden user install"
+    );
+    supervisor
+        .set(
+            1,
+            SetOp {
+                key: "show-pending-store-app".into(),
+                app: store.into(),
+                origin: Origin::User,
+                hidden: Some(false),
+                ..SetOp::default()
+            },
+        )
+        .unwrap();
+    let shown = app_sections_for(&reopened, store);
+    assert_eq!(shown.len(), 1, "migration retry lost a new store install's placement");
+    assert_eq!(shown[0].region, Region::Bottom);
+    assert!(has_placement_receipt(&reopened, store));
     drop(supervisor);
     reopened.shutdown();
 }
