@@ -188,6 +188,12 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     environment: cmux-next-vitess-ci
+    # These suites clean up fixed test keys on one shared branch. Keep the serialization
+    # formerly provided by the workflow group while independent pushes verify in parallel.
+    concurrency:
+      group: cmux-next-vitess-development
+      queue: max
+      cancel-in-progress: false
     # A stuck connection to the shared branch must not hold a runner for the 6 h default.
     timeout-minutes: 10
     defaults:

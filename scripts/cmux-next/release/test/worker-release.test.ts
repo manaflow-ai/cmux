@@ -189,6 +189,7 @@ describe("backend deployment lock wiring", () => {
   it("separates trusted NEXT push runs while preserving complete environment locks", () => {
     expect(workflow.concurrency.group).toContain("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('-{0}', github.sha)")
     expect(workflow.concurrency["cancel-in-progress"]).toBe(false)
+    expect(workflow.jobs["vitess-development"].concurrency).toEqual({ group: "cmux-next-vitess-development", queue: "max", "cancel-in-progress": false })
     for (const environment of ["development", "staging"]) {
       const job = workflow.jobs[`deploy-${environment}`]
       expect(job.concurrency).toEqual({ group: `cmux-next-deploy-${environment}`, queue: "max", "cancel-in-progress": false })
