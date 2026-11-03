@@ -1,7 +1,8 @@
 //! D26: the login environment follows the person's edits. One watcher over
 //! the folders of the startup files (`startup_files`, FSEvents on macOS,
-//! inotify on Linux): an edit to one of them reads the login shell again in
-//! the background at once, not at the next agent spawn. No polling: the
+//! inotify for changes only on Linux, `quiet`): an edit to one of them reads
+//! the login shell again in the background at once, not at the next agent
+//! spawn. No polling: the
 //! event thread blocks until an event arrives. A folder that does not exist
 //! at start is not watched; the spawn check (`refresh_if_changed`) still
 //! sees a file created there.
@@ -47,6 +48,13 @@ pub fn start() {
 
 /// What a watch of `dirs` sends on `tx`: kept alive for as long as events should come. None when
 /// no folder could be watched.
+#[cfg(target_os = "linux")]
+fn source(dirs: &[PathBuf], tx: Sender<notify::Result<notify::Event>>) -> Option<Box<dyn Send>> {
+    quiet::watch(dirs, tx).then(|| Box::new(()) as Box<dyn Send>)
+}
+
+/// Other systems: `notify`'s watcher (FSEvents on macOS, which reports no opens).
+#[cfg(not(target_os = "linux"))]
 fn source(dirs: &[PathBuf], tx: Sender<notify::Result<notify::Event>>) -> Option<Box<dyn Send>> {
     let mut watcher = match notify::recommended_watcher(move |event| {
         let _ = tx.send(event);
@@ -65,6 +73,89 @@ fn source(dirs: &[PathBuf], tx: Sender<notify::Result<notify::Event>>) -> Option
         }
     }
     any.then(|| Box::new(watcher) as Box<dyn Send>)
+}
+
+/// Linux: inotify over the startup files' folders, for changes only. `notify`'s inotify watcher
+/// always asks for `IN_OPEN` (notify 8.2), so every file a program opened in a watched folder woke
+/// this daemon twice (its event thread, then `run`): the shell's folder (`/usr/bin`) and `/etc`,
+/// which every program that starts opens, sent about 1,300 events a second on a busy agent VM,
+/// each dropped as access (`touches`). An open or a read changes no file, so only the events that
+/// can are asked for. A queue overflow (events lost) is sent as an error, which `touches` reads
+/// as a change.
+#[cfg(target_os = "linux")]
+mod quiet {
+    use super::*;
+    use inotify::{EventMask, Inotify, WatchMask};
+
+    /// Every event that can change a file in a folder, or the folder itself.
+    fn changes() -> WatchMask {
+        WatchMask::ATTRIB
+            | WatchMask::CREATE
+            | WatchMask::DELETE
+            | WatchMask::CLOSE_WRITE
+            | WatchMask::MODIFY
+            | WatchMask::MOVED_FROM
+            | WatchMask::MOVED_TO
+            | WatchMask::DELETE_SELF
+            | WatchMask::MOVE_SELF
+    }
+
+    /// Watches `dirs` and sends each change in them on `tx`, from a thread of its own that lives
+    /// as long as the process (or until `tx`'s receiver is gone). False when no folder could be
+    /// watched or the thread could not start.
+    pub(super) fn watch(dirs: &[PathBuf], tx: Sender<notify::Result<notify::Event>>) -> bool {
+        let mut inotify = match Inotify::init() {
+            Ok(inotify) => inotify,
+            Err(e) => {
+                tracing::warn!("login env: the startup-file watcher cannot start: {e}");
+                return false;
+            }
+        };
+        let mut folders = std::collections::HashMap::new();
+        for dir in dirs.iter().filter(|d| d.is_dir()) {
+            match inotify.watches().add(dir, changes()) {
+                Ok(wd) => {
+                    folders.insert(wd, dir.clone());
+                }
+                Err(e) => tracing::debug!("login env: cannot watch {}: {e}", dir.display()),
+            }
+        }
+        if folders.is_empty() {
+            return false;
+        }
+        let spawned =
+            std::thread::Builder::new().name("acpmux-login-env-inotify".into()).spawn(move || {
+                // Room for at least one event with the longest name (NAME_MAX).
+                let mut buffer = vec![0u8; 4096];
+                loop {
+                    let events = match inotify.read_events_blocking(&mut buffer) {
+                        Ok(events) => events,
+                        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                        Err(e) => {
+                            let _ = tx.send(Err(notify::Error::io(e)));
+                            return;
+                        }
+                    };
+                    for event in events {
+                        let sent = if event.mask.contains(EventMask::Q_OVERFLOW) {
+                            Err(notify::Error::generic("inotify queue overflow"))
+                        } else {
+                            let Some(dir) = folders.get(&event.wd) else { continue };
+                            let path = event.name.map_or_else(|| dir.clone(), |n| dir.join(n));
+                            Ok(notify::Event::new(notify::EventKind::Any).add_path(path))
+                        };
+                        if tx.send(sent).is_err() {
+                            return;
+                        }
+                    }
+                }
+            });
+        if let Err(e) = spawned {
+            tracing::warn!("login env: the startup-file watcher thread cannot start: {e}");
+            return false;
+        }
+        true
+    }
 }
 
 /// Each file as listed, plus the same name under its folder's real path

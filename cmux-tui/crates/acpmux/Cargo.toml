@@ -108,6 +108,11 @@ cmux-host.workspace = true
 # Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 # same-user checks); the detached start (CreateProcess with a handle list),
 # owner-only ACLs and agent job objects use windows-sys.
+[target.'cfg(target_os = "linux")'.dependencies]
+# The login-env watcher's change-only inotify (`login_env/watch.rs` `quiet`); `notify` asks for
+# every open. Already in the tree through `notify`, with its features.
+inotify = { version = "0.11", default-features = false }
+
 [target.'cfg(windows)'.dependencies]
 cmux-sdk = { path = "../../bindings/rust", default-features = false, features = ["local-socket"] }
 windows-sys = { workspace = true, features = [
