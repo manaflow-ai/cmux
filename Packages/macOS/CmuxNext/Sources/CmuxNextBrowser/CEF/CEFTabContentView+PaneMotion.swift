@@ -16,9 +16,17 @@ protocol BrowserPagePaneMotionHolding: NSView {
 /// view paints the page's own backdrop beside it, never the shell (the drag hold's path, `startPageHold`). It lays out
 /// once when the hold ends, before the pane hears that the motion landed. A page that cannot hold any longer (DevTools
 /// docked, a side panel or a fit came up, the tab was hidden mid-hold) lays out live at the chrome's page area, as a page
-/// does in a split or close spring: never the shell, the chrome's own page area is beside it.
+/// does in a split or close spring: never the shell, the chrome's own page area is beside it. A page hidden and shown again
+during the hold holds again (`resumePageHold`).
 extension CEFTabContentView: BrowserPagePaneMotionHolding {
     var holdsPageInPaneMotion: Bool { pageMotionHold != nil || canStartPageHold }
+
+    /// Shown again during its pane's key hold (a tab switch away and back): it holds its page again, at the size the page
+    /// has now; one that cannot lays out live, as it would at the hold's start.
+    func resumePageHold() {
+        guard pageMotionHold != nil, heldPageSize == nil else { return }
+        if startPageHold() { needsLayout = true } else { pageMotionHold = nil }
+    }
 
     func holdPage(for hold: PaneMotionHold?) {
         guard let hold else {

@@ -380,7 +380,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// shared host view go, as when it leaves the window, at no window move.
     override func viewDidHide() {
         super.viewDidHide()
-        dropHold()
+        dropHold(keepingKeyHold: true)
         refreshSyncedDrag()
         tab?.contentDidDisappear()
     }
@@ -392,6 +392,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         refreshSyncedDrag()
         tab.pageThemeDidChange()
         tab.contentDidAppear(in: self)
+        resumePageHold()
     }
 
     override func layout() {
@@ -552,9 +553,10 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
             && tab.sidePanel.state == nil && tab.deviceEmulation == nil
     }
 
-    /// Lets go of a held page size; the next layout gives the page its frame.
-    func dropHold() {
-        pageMotionHold = nil
+    /// Lets go of a held page size; the next layout gives the page its frame. `keepingKeyHold`: a key resize's hold stays
+    /// asked for, and the page holds again when it shows (`resumePageHold`).
+    func dropHold(keepingKeyHold: Bool = false) {
+        if !keepingKeyHold { pageMotionHold = nil }
         guard heldPageSize != nil else { return }
         heldPageSize = nil
         layer?.masksToBounds = false
