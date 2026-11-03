@@ -22,6 +22,7 @@ Sessions (--sessions):
   light-webkit  the same with browser.defaultEngine webkit: no Chromium at all
   light-hidden  the light session with the app hidden (Show/Hide All Windows hidden=true)
   newtabs1, newtabs5, newtabs20  that many rendered New Tab pages, then hidden behind one terminal
+  sleepy        the light session covered by Sleepy Mode
   Each session starts from an empty saved session (`fresh_session`).
   stress-static  STRESS with its pages served without their rAF spinner (STRESS's own pages animate: not idle)
   stress   STRESS (scripts/cmux-next/perf-stress-session.py: 60 workspaces, a 12-pane grid of 6 tabs each,
@@ -299,6 +300,16 @@ def window_state(app):
     return {"main": main, "any_key": any(w.get("key") for w in windows)}
 
 
+def sleepy_windows(app):
+    """Require the scene being measured, not merely an accepted action."""
+    reply = app.rpc("debug.window_list", timeout=10)
+    windows = reply.get("windows", []) if isinstance(reply, dict) else []
+    visible = [w for w in windows if w.get("kind") == "next.sleepyMode" and w.get("visible")]
+    if not visible:
+        raise RuntimeError("Sleepy Mode has no visible overlay window")
+    return visible
+
+
 def sample_threads(pid, seconds, path):
     """`/usr/bin/sample` of `pid` for `seconds` after the window (it suspends the process to sample, so it
     never runs inside the measured window); per thread, the frames with the most samples outside the wait."""
@@ -542,6 +553,7 @@ SESSIONS = {
     "light": {},
     "light-webkit": {"config": {**BASE_CONFIG, "browser": {"defaultEngine": "webkit"}}},
     "light-hidden": {"hide": True},
+    "sleepy": {"sleepy": True},
     "stress": {},
     "stress-static": {},
     **{f"newtabs{count}": {"newtabs": count} for count in (1, 5, 20)},
@@ -620,17 +632,26 @@ def main():
             if SESSIONS[session].get("hide"):
                 entry["hide"] = app.rpc("action.run", {"action": "showHideAllWindows", "args": {"hidden": True},
                                                        "focus": False, "origin": "script"}, timeout=30)
+            if SESSIONS[session].get("sleepy"):
+                entry["sleepy"] = app.rpc("action.run", {"action": "palette.sleepyMode", "args": {},
+                                                         "focus": False, "origin": "script"}, timeout=30)
+                if not isinstance(entry["sleepy"], dict) or entry["sleepy"].get("error"):
+                    raise RuntimeError(f"Sleepy Mode activation failed: {entry['sleepy']}")
             time.sleep(opts.settle)  # bench: the session settles (page loads, Chromium's post-load work) before the window
             if opened_newtabs:
                 entry["newtabs_before_window"] = newtab_evidence(app, opened_newtabs)
             instance = procs.Instance(app.app, app.process.pid)
             window_before = window_state(app)
+            if SESSIONS[session].get("sleepy"):
+                entry["sleepy_windows"] = {"start": sleepy_windows(app)}
             result = measure(app, instance, opts.measure)
             result["memory"] = memory_summary(result)
             if opened_newtabs:
                 entry["newtabs_after_window"] = newtab_evidence(app, opened_newtabs)
                 print(f"IDLE-BUDGET-NEWTABS {session} " + json.dumps({"pages": entry["newtabs_after_window"],
                                                                     "memory": result["memory"]}), flush=True)
+            if SESSIONS[session].get("sleepy"):
+                entry["sleepy_windows"]["end"] = sleepy_windows(app)
             result["window_state"] = {"start": window_before, "end": window_state(app)}
             print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
             if opts.sample:

@@ -64,6 +64,8 @@ export function webThemePayload(
       "--cmux-surface-background": css(seeThrough ? withAlpha(page, 0) : page),
       "--cmux-surface-token": css(tokens.surfaceBackground),
       "--cmux-surface-solid": css(page),
+      // Reading pages (the Markdown viewer): clear over a picture, else opaque (WebTheme's rule).
+      "--cmux-reading-background": css(seeThrough ? withAlpha(page, 0) : page),
       "--cmux-elevated-background": css(tokens.elevatedBackground),
       "--cmux-text": css(tokens.textPrimary),
       "--cmux-text-secondary": css(tokens.textSecondary),

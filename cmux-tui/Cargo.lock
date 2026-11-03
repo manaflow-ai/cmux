@@ -1268,6 +1268,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-imessage"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-json"
 version = "0.1.0"
 dependencies = [

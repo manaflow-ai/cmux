@@ -148,7 +148,7 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
     // between any two sections of a block, About's included, and one block gap between blocks with
     // the hairline centred in it. Before the grid it was 6px
     // inside a block, none inside About, and 8px, a hairline, 8px between blocks.
-    test("the default order draws the three blocks: the inner gap inside a block, the block gap with a hairline between", async () => {
+    test("the default order draws the blocks: the inner gap inside a block, the block gap with a hairline between", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
         await show(page, { grid: true });
@@ -158,34 +158,49 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
             const before = getComputedStyle(document.querySelector(`[data-slot="${id}"]`)!, "::before");
             return before.content !== "none";
           };
-          const ruled = ["environment", "context", "usage", "connectors", "changes", "sources", "subagents", "tasks"];
+          // The default order (sectionOrder.ts DEFAULT_ORDER): the machine, Context and Usage (#28773),
+          // what it runs, then Sources and what it made, then Connectors.
+          const ruled = [
+            "environment",
+            "context",
+            "usage",
+            "subagents",
+            "tasks",
+            "sources",
+            "changes",
+            "outputs",
+            "connectors",
+          ];
           return {
-            // Usage sits after Context in the top block (#28773).
-            about: [
+            inner: [
               box("context").top - box("environment").bottom,
               box("usage").top - box("context").bottom,
-              box("connectors").top - box("usage").bottom,
+              box("tasks").top - box("subagents").bottom,
+              box("changes").top - box("sources").bottom,
+              box("outputs").top - box("changes").bottom,
             ],
-            made: box("sources").top - box("changes").bottom,
-            between: [box("changes").top - box("connectors").bottom, box("subagents").top - box("outputs").bottom],
+            between: [
+              box("subagents").top - box("usage").bottom,
+              box("sources").top - box("tasks").bottom,
+              box("connectors").top - box("outputs").bottom,
+            ],
             rules: ruled.map(rule),
           };
         });
         const inner = gridLength("gap-inner");
-        for (const gap of geometry.about) expect(gap).toBeCloseTo(inner, 1);
-        expect(geometry.made).toBeCloseTo(inner, 1);
+        for (const gap of geometry.inner) expect(gap).toBeCloseTo(inner, 1);
         // The hairline is drawn inside the block gap (absolutely placed), so it adds no height.
         for (const gap of geometry.between) expect(gap).toBeCloseTo(gridLength("gap-block"), 1);
         // The hairline over the first section of each block but the first, and nowhere else.
-        expect(geometry.rules).toEqual([false, false, false, false, true, false, true, false]);
+        expect(geometry.rules).toEqual([false, false, false, true, false, true, false, false, true]);
       } finally {
         await page.close();
       }
     });
 
-    // Leo, 2026-10-31: "ok we can click and drag but my screenshots were literally claude code having
-    // it on the fucking right".
-    test("hovering a section shows its handle in the right padding, right of its title, and nothing moves", async () => {
+    // Leo, 2026-11-03: "the grabber is too close to the thumb scroll thing in fact why dont we have the
+    // drag grabber to the left of the title in that session info?" (it was on the right since 2026-10-31).
+    test("hovering a section shows its handle left of its title, inside the panel, and nothing moves", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
         // The handle's width and the body's insets are grid tokens since #27570.
@@ -215,19 +230,20 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
             .querySelector('section[data-section="outputs"] .acpmux-session-info-section__title')!
             .getBoundingClientRect();
           return {
-            inBody: handle.right <= body.right + 0.5,
+            inBody: handle.left >= body.left - 0.5 && handle.right <= body.right + 0.5,
             // Leo, 2026-11-01: "the dragger is a bit too close to the thumb".
             clearOfScrollbar: scrollport - handle.right >= 3.5,
-            afterSection: handle.left >= section.right - 0.5,
-            rightOfTitle: handle.left > title.right,
+            // Before the head's icon column: one grid gap (the head's padding) into the section.
+            beforeIconColumn: handle.right <= section.left + 8.5,
+            leftOfTitle: handle.right <= title.left,
             titleAtTextColumn: Math.round(title.left - section.left),
           };
         });
         expect(inside).toEqual({
           inBody: true,
           clearOfScrollbar: true,
-          afterSection: true,
-          rightOfTitle: true,
+          beforeIconColumn: true,
+          leftOfTitle: true,
           // design/grid.md section 3: text = lead + box + 8 (8 + 16 + 8); a head without an icon still
           // starts its title on that column (#27570).
           titleAtTextColumn: 32,

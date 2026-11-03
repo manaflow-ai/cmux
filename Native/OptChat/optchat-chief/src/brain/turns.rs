@@ -375,7 +375,7 @@ impl Brain {
         let opening: Vec<Item> = items.iter().map(item).collect();
         // The engine of this turn, read now (engine.rs): a change applies
         // from this turn on and is logged as a note after its messages.
-        let engine = self.turn_engine_choice();
+        let engine = self.turn_engine_choice(&items);
         let family = self.family_of(&engine.harness);
         // The cached layout on a Claude harness whose acpmux takes a preset
         // system prompt; else the view and the messages as blocks.
@@ -669,6 +669,16 @@ impl Brain {
                 "retire": retire,
                 "from": kept.as_ref().map(|k| k.seen_end),
             });
+        }
+        if let Some(route) = &self.turn_route {
+            self.trace.emit(
+                "turn.route",
+                serde_json::json!({
+                    "turn": key, "tier": route.tier, "model": route.model,
+                    "effort": route.effort, "reasons": route.reasons,
+                    "family": self.route_family(),
+                }),
+            );
         }
         self.trace_start(
             &key,
@@ -966,9 +976,12 @@ impl Brain {
                 "turn": key,
                 "first": first,
                 "engine": match self.settings.engine { Engine::Acpmux => "acpmux", Engine::Native(_) => "native" },
-                "harness": self.turn_engine.as_ref().map_or(self.settings.harness.as_str(), |e| e.harness.as_str()),
+                "harness": match self.settings.engine { Engine::Native(_) => "native", Engine::Acpmux => self.turn_engine.as_ref().map_or(self.settings.harness.as_str(), |e| e.harness.as_str()) },
+                "message_keys": self.state.turn.as_ref().map(|p| p.items.iter().filter_map(|i| i.id.clone()).collect::<Vec<_>>()),
                 "model": self.turn_engine.as_ref().and_then(|e| e.model.clone()),
                 "effort": self.turn_engine.as_ref().and_then(|e| e.effort.clone()),
+                "tier": self.turn_route.as_ref().map(|r| r.tier),
+                "route": self.turn_route.as_ref().map(|r| r.reasons.join(",")),
                 "settle_ms": settle_ms,
                 "messages": texts.iter().map(|t| self.trace.text(t)).collect::<Vec<_>>(),
                 // The log ids of the messages (the prompt's last block).
@@ -1027,22 +1040,82 @@ impl Brain {
         }
     }
 
-    fn turn_engine_choice(&mut self) -> crate::engine::TurnEngine {
-        let (engine, unknown) = self.next_engine();
+    fn route_family(&self) -> Option<crate::turn_route::Family> {
+        use crate::turn_route::Family;
+        if matches!(self.settings.engine, super::Engine::Native(_)) {
+            return Some(Family::Native);
+        }
+        match self.family_of(&self.turn_engine.as_ref()?.harness) {
+            crate::acpmux::Family::Claude => Some(Family::Claude),
+            crate::acpmux::Family::Codex => Some(Family::Codex),
+            crate::acpmux::Family::Other => None,
+        }
+    }
+
+    fn route_turn(&mut self, items: &[Queued], engine: &mut crate::engine::TurnEngine, on: bool) {
+        self.turn_route = None;
+        if !on {
+            return;
+        }
+        let Some(family) = self.route_family() else {
+            return;
+        };
+        let table = match crate::turn_route::table() {
+            Ok(table) => table,
+            Err(error) => {
+                (self.log)(&format!("turn routing disabled: {error}"));
+                return;
+            }
+        };
+        let signals = crate::turn_route::TurnSignals {
+            human_text: items
+                .iter()
+                .flat_map(|q| match &q.source {
+                    Source::Message { .. } => vec![q.text.as_str()],
+                    Source::Resume { cut, .. } => cut.iter().map(String::as_str).collect(),
+                    _ => Vec::new(),
+                })
+                .collect(),
+        };
+        let (tier, reasons) = crate::turn_route::classify(&signals);
+        let mut route = crate::turn_route::pick(tier, family, table);
+        route.reasons = reasons;
+        engine.model = Some(route.model.clone());
+        engine.effort = Some(route.effort.clone());
+        self.turn_engine = Some(engine.clone());
+        self.turn_route = Some(route);
+    }
+
+    fn turn_engine_choice(&mut self, items: &[Queued]) -> crate::engine::TurnEngine {
+        let (mut engine, unknown, choice) = self.next_engine();
         if let Some(named) = unknown {
             (self.log)(&format!(
                 "engine.json names harness {named}, which acpmux does not have; this turn runs on {}",
                 engine.harness
             ));
         }
+        self.turn_spawn_engine = Some(engine.clone());
+        // Native turns historically ignore engine.json's model/effort. Keep
+        // their configured defaults unless the opt-in router makes a pick;
+        // receipts must name the same model the API actually receives.
+        if let super::Engine::Native(native) = &self.settings.engine {
+            let (model, effort) = native.defaults();
+            engine.model = Some(model.to_owned());
+            engine.effort = effort.map(str::to_owned);
+        }
         self.turn_engine = Some(engine.clone());
+        self.route_turn(
+            items,
+            &mut engine,
+            choice.turn_routing.as_deref() == Some("auto"),
+        );
         engine
     }
 
-    /// The engine a spawn's subagents take: the running (or last) turn's,
+    /// The engine a spawn's subagents take: the running (or last) turn's configured engine,
     /// with its family when that is not the default harness's.
     pub(super) fn spawn_engine(&self) -> Option<crate::subagents::SpawnEngine> {
-        let engine = self.turn_engine.as_ref()?;
+        let engine = self.turn_spawn_engine.as_ref()?;
         let family = self.family_of(&engine.harness);
         Some(crate::subagents::SpawnEngine {
             harness: engine.harness.clone(),
@@ -1124,6 +1197,8 @@ impl Brain {
                 "harness": self.turn_engine.as_ref().map(|e| e.harness.clone()),
                 "model": self.turn_engine.as_ref().and_then(|e| e.model.clone()),
                 "effort": self.turn_engine.as_ref().and_then(|e| e.effort.clone()),
+                "tier": self.turn_route.as_ref().map(|r| r.tier),
+                "route": self.turn_route.as_ref().map(|r| r.reasons.join(",")),
                 // A turn the Chief or the owner stopped ended as asked: no error.
                 "error": outcome
                     .error

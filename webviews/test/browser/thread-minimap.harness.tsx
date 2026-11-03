@@ -33,9 +33,12 @@ import "../../src/agent-session/acpmux/keys.css";
 import "../../src/agent-session/acpmux/newtab/screen.css";
 import "../../src/agent-session/acpmux/newtab/history.css";
 import "../../src/agent-session/acpmux/threadMinimap/threadMinimap.css";
-// The motion tests measure the compact (Codex) rail; `?layout=full` shows the full-height map.
+// The motion tests measure the compact (Codex) rail; `?layout=full` shows the full-height map, and
+// `?wave=stepped` (or another wave.experiment.ts arm) picks the hover wave's shape.
+const query = new URLSearchParams(location.search);
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
-  "thread-minimap-layout": new URLSearchParams(location.search).get("layout") === "full" ? "full" : "compact",
+  "thread-minimap-layout": query.get("layout") === "full" ? "full" : "compact",
+  ...(query.get("wave") ? { "thread-minimap-wave": query.get("wave")! } : {}),
 };
 
 const root = document.getElementById("root")!;
@@ -48,6 +51,8 @@ document.body.style.background = "rgb(22 22 22)";
 Object.assign(root.style, { height: "100%", display: "flex", flexDirection: "column" });
 
 const view = createRoot(root);
+let shownRows: AcpmuxRow[] = [];
+let olderPage: (() => Promise<void>) | undefined;
 // A prompt's sent images read through `window.__imageUrl(id)` when the test sets it (the pane reads
 // them from acpmux); a test serves that URL as late as it likes.
 const actions = {
@@ -55,16 +60,28 @@ const actions = {
     Promise.resolve((window as unknown as { __imageUrl?: (id: string) => string | undefined }).__imageUrl?.(id)),
 };
 (window as unknown as { __showRows: (rows: AcpmuxRow[]) => void }).__showRows = (rows) =>
-  view.render(
-    <TurnActionsContext.Provider value={actions}>
-      <VirtualTranscript
-        rows={turnView(rows, new Set())}
-        sessionId="minimap-session"
-        onToggleActivity={() => {}}
-        expanded={new Set()}
-      />
-    </TurnActionsContext.Provider>,
-  );
+  (() => {
+    shownRows = rows;
+    view.render(
+      <TurnActionsContext.Provider value={actions}>
+        <VirtualTranscript
+          rows={turnView(rows, new Set())}
+          sessionId="minimap-session"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+          canLoadOlder={olderPage !== undefined}
+          onLoadOlder={olderPage}
+        />
+      </TurnActionsContext.Provider>,
+    );
+  })();
+
+(window as unknown as { __setOlderPage: (page: (() => Promise<void>) | undefined) => void }).__setOlderPage = (
+  page,
+) => {
+  olderPage = page;
+  (window as unknown as { __showRows: (rows: AcpmuxRow[]) => void }).__showRows(shownRows);
+};
 
 // The chat's bookmarks, answered as acpmux answers them: a test marks prompts (by their seq, rows
 // `user-<seq>`) with `window.__setMarks`.
