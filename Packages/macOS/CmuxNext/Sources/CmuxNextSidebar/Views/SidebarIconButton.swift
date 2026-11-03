@@ -136,7 +136,7 @@ final class SidebarIconButton: ClickableButton {
     private func renderIcon() {
         guard !isHiddenOrHasHiddenAncestor else { return }
         let size = pointSize()
-        guard size != renderedSize || image == nil else { return }
+        guard size != renderedSize else { return }
         renderedSize = size
         let side = CGFloat.iconRowSize(forLabelPointSize: size)
         let image = symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(icon, size: side)
@@ -149,9 +149,10 @@ final class SidebarIconButton: ClickableButton {
         renderIcon()
     }
 
-    /// Sized by its image, as an image-only button is.
+    /// Sized by its icon, as an image-only button is. `renderedSize` (0: no icon yet), not `image`: AppKit answers a
+    /// button with no image of its own with a shared 1 x 1 placeholder, so `image` is never nil here.
     override var intrinsicContentSize: NSSize {
-        if image == nil { renderIcon() }
+        if renderedSize == 0 { renderIcon() }
         return super.intrinsicContentSize
     }
 
