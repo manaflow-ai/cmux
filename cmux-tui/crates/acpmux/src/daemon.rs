@@ -1285,7 +1285,7 @@ async fn take_over_holder(socket: &std::path::Path) {
         return;
     }
     tracing::info!(
-        pid = status["pid"].as_u64(),
+        pid = status.get("pid").and_then(serde_json::Value::as_u64),
         "another daemon of this home serves its socket; asking it to hand over"
     );
     let _ = tokio::time::timeout(
