@@ -21,8 +21,8 @@ export function isVisiblyEmptyText(text: string | undefined): boolean {
 /// of at most 64 characters, so a streamed token costs no more than reading it blank did.
 const PUNCTUATION = /\p{P}/u;
 export function isBareAgentText(text: string | undefined): boolean {
-  if (isVisiblyEmptyText(text)) return true;
-  if (text!.length > 64) return false;
+  if (text === undefined || isVisiblyEmptyText(text)) return true;
+  if (text.length > 64) return false;
   for (const character of text) {
     if (character.trim() === "" || ZERO_WIDTH_MESSAGE_CHARS.has(character)) continue;
     if (!PUNCTUATION.test(character)) return false;
