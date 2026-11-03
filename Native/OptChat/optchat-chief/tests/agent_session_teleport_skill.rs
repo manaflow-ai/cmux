@@ -37,6 +37,8 @@ fn the_teleport_skill_ships_to_every_chief_with_the_move_it_runs() {
     for needle in [
         "acpmux session move CHAT --machine NAME --dry-run",
         "--interrupt",
+        "--from mini-3 --machine cloud-vm",
+        "--machine local",
         "cmux cloud move",
         "escalate_auth",
         "acpmux last HOST/ID",
