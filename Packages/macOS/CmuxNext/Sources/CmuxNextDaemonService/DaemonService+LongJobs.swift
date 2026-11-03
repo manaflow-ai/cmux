@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextDaemon
 public import CmuxNextWakeups
 
@@ -27,27 +28,40 @@ extension DaemonService {
     }
 
     func noteRestoreProgress() {
-        guard let report = restoreProgress?.current, startup != .connected else { return }
+        guard let report = restoreProgress?.current, startup != .connected, report.sequence > restoreReportsJudged else { return }
         if case .unavailable(let error) = startup, DaemonStartup.shared.isPermanent(error) { return }
+        if let mark = restoreStallMark {
+            guard let latest = report.lastJobUpdateMs, latest > mark else { return }
+            restoreStallMark = nil
+        }
         if startup != .restoring(report.jobs) { startup = .restoring(report.jobs) }
         store.clearFailure()
     }
 
-    /// Reads the daemon's jobs after a handshake and follows `jobs-changed` (once per service).
-    func listLongJobs(_ connection: DaemonConnection, identity: DaemonIdentity) {
+    /// Follows `jobs-changed` and the store's connection (once per service): each connect, a reconnect after a
+    /// drop too, lists the daemon's jobs again (`jobs-list`, when it serves `long_jobs`); each drop clears them.
+    func followLongJobs() {
         if longJobsSubscription == nil {
             longJobsSubscription = store.sideEvents.subscribe { [weak self] event in
                 guard let self, case .longJobsChanged(let jobs) = event, jobs != connectedJobs else { return }
                 connectedJobs = jobs
             }
         }
-        if !connectedJobs.isEmpty { connectedJobs = [] }
-        guard identity.supports(DaemonCapability.longJobs.rawValue) else { return }
-        // task-owner: one request with the control deadline; a failure leaves the list to the next event.
-        Task { [weak self, weak connection] in
-            guard let connection, let reply = try? await connection.request(JobsListRequest()) else { return }
-            guard let self, self.connection === connection else { return }
-            if reply.jobs != connectedJobs { connectedJobs = reply.jobs }
+        guard longJobsConnection == nil else { return }
+        let store = store
+        // task-owner: lives as long as the service; event-driven (Observation of the store's connection state)
+        longJobsConnection = Task { [weak self] in
+            for await state in ObservationStream({ store.connectionState }) {
+                guard let self else { return }
+                guard case .connected(let identity) = state else {
+                    if !connectedJobs.isEmpty { connectedJobs = [] }
+                    continue
+                }
+                guard identity.supports(DaemonCapability.longJobs.rawValue), let connection else { continue }
+                let reply = try? await connection.request(JobsListRequest())
+                // A `jobs-changed` that came meanwhile is newer than this reply.
+                if let reply, self.connection === connection, reply.jobs != connectedJobs { connectedJobs = reply.jobs }
+            }
         }
     }
 }

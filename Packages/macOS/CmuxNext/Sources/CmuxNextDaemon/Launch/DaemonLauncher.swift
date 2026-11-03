@@ -356,14 +356,14 @@ public struct DaemonLauncher: Sendable {
         }
     }
 
-    /// The local owner behind `socketPath` parked a connection (no `identify` reply in time): the owner's
-    /// report when it is alive and busy, else nil (a real failure). Alive means its `long-jobs.json` names a
-    /// running process (whose jobs it reports), or its socket still accepts a connection (no jobs to name).
-    /// A report also goes to ``restoreProgress``. Runs off the main actor (a file read, a connect).
-    public func parkedOwner(socketPath: String) -> OwnerRestoreProgress.Report? {
+    /// The local owner parked a connection (no `identify` reply in time): the owner's report when it is alive
+    /// and making progress, else nil (a real failure). Alive and making progress means its `long-jobs.json` names
+    /// a running process and changed within cmux-tui's stall bound (``OwnerJobsFile/read(_:nowMs:)``); a socket
+    /// that merely accepts is no proof (a wedged owner's listener accepts too). A report also goes to
+    /// ``restoreProgress``. Runs on the connection's executor, never the main thread: one small file read.
+    public func parkedOwner() -> OwnerRestoreProgress.Report? {
         let report = OwnerJobsFile.url(session: configuration.session, stateDirectory: configuration.stateDirectory)
-            .flatMap(OwnerJobsFile.read)
-            ?? (DaemonSocketMemory.acceptsConnections(socketPath) ? OwnerRestoreProgress.Report() : nil)
+            .flatMap { OwnerJobsFile.read($0) }
         if let report { restoreProgress.note(report) }
         return report
     }
@@ -375,9 +375,7 @@ public struct DaemonLauncher: Sendable {
     public func localOwnerHooks(_ configuration: DaemonConnection.Configuration) -> DaemonConnection.Configuration {
         var configuration = handingOffIncompatibleOwners(configuration)
         let launcher = self
-        configuration.parkedOwner = { endpoint in
-            launcher.parkedOwner(socketPath: endpoint.socketPath) != nil
-        }
+        configuration.parkedOwner = { _ in launcher.parkedOwner() != nil }
         return configuration
     }
 

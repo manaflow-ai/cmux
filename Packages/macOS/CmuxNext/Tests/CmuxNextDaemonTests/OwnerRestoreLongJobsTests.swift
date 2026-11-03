@@ -66,13 +66,14 @@ struct OwnerRestoreLongJobsTests {
             return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         }.value
         // 10 idle windows of 20 s = 200 s, past the old 150 s cap, each with one progress line.
+        // The watchdog sleeps (and took its baseline) before each line, so each window sees exactly one line.
         for step in 1...10 {
+            try await clock.waitForSleeper()
             try writer.write(contentsOf: Data((Self.progressLine(done: step * 90) + "\n").utf8))
             let report = try #require(await received.next())
             #expect(report.pid == 4242)
             #expect(report.jobs.map(\.kind) == ["registry.output_cleanup"])
             #expect(report.jobs.first?.done == UInt64(step * 90))
-            try await clock.waitForSleeper()
             clock.advance(by: .seconds(20))
         }
         #expect(clock.now.offset == .seconds(200))
@@ -132,6 +133,14 @@ struct OwnerRestoreLongJobsTests {
         return fd
     }
 
+    private static func nowMs() -> Int64 { Int64(exactly: (Date().timeIntervalSince1970 * 1000).rounded()) ?? 0 }
+
+    /// The owner's status file, written by a live process (this one), last changed at `updatedMs`.
+    private static func writeStatus(in sessionDirectory: URL, updatedMs: Int64) throws {
+        let status = #"{"version":1,"pid":\#(getpid()),"updated_ms":\#(updatedMs),"jobs":[{"id":"output_cleanup:1","kind":"registry.output_cleanup","title":"Cleaning up stored terminal output","detail":"segment 387 of 900","done":387,"total":900,"unit":"segments","started_ms":\#(updatedMs - 60_000),"updated_ms":\#(updatedMs),"blocks":["startup"],"cancellable":false}]}"#
+        try Data(status.utf8).write(to: sessionDirectory.appendingPathComponent(OwnerJobsFile.fileName))
+    }
+
     @Test func aParkedIdentifyOnTheLiveOwnersRememberedSocketIsRestoringNotAFailure() async throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -143,8 +152,7 @@ struct OwnerRestoreLongJobsTests {
         let session = "cmux-app"
         let sessionDirectory = state.appendingPathComponent(OwnerJobsFile.storageComponent(session: session), isDirectory: true)
         try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
-        let status = #"{"version":1,"pid":\#(getpid()),"updated_ms":1793683850000,"jobs":[{"id":"output_cleanup:1","kind":"registry.output_cleanup","title":"Cleaning up stored terminal output","detail":"segment 387 of 900","done":387,"total":900,"unit":"segments","started_ms":1793683713000,"updated_ms":1793683850000,"blocks":["startup"],"cancellable":false}]}"#
-        try Data(status.utf8).write(to: sessionDirectory.appendingPathComponent(OwnerJobsFile.fileName))
+        try Self.writeStatus(in: sessionDirectory, updatedMs: Self.nowMs())
 
         let launcher = DaemonLauncher(configuration: .init(binary: URL(fileURLWithPath: "/usr/bin/false"), session: session,
                                                            stateDirectory: state, rememberedSocket: socketPath, binaryIsBundled: true),
@@ -170,24 +178,26 @@ struct OwnerRestoreLongJobsTests {
         #expect(jobs.first?.percent == 43)
     }
 
-    @Test func anIdentifyTimeoutWithNoLiveOwnerStaysAFailure() async throws {
+    /// No status file (an owner that names no job), or one whose jobs stopped changing past the stall bound (a
+    /// wedged owner whose process lives on): the parked identify stays a failure, so Retry Now and Restart show.
+    @Test(arguments: [false, true])
+    func aParkedIdentifyWithoutLiveProgressStaysAFailure(staleFile: Bool) async throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let socketPath = directory.appendingPathComponent("o.sock").path
         let listener = try parkedSocket(at: socketPath)
-        let launcher = DaemonLauncher(configuration: .init(binary: URL(fileURLWithPath: "/usr/bin/false"), session: "cmux-app",
-                                                           stateDirectory: directory.appendingPathComponent("state"),
-                                                           binaryIsBundled: true),
-                                      environment: { [:] })
-        // The socket stops listening before the check: no status file, no listener, no owner.
-        let base = DaemonConnection.Configuration(requiredCapabilities: [], requestTimeout: .milliseconds(300), terminalEnvironment: nil)
-        var configuration = launcher.localOwnerHooks(base)
-        configuration.parkedOwner = { endpoint in
-            close(listener)
-            unlink(endpoint.socketPath)
-            return launcher.parkedOwner(socketPath: endpoint.socketPath) != nil
+        defer { close(listener) }
+        let state = directory.appendingPathComponent("state", isDirectory: true)
+        if staleFile {
+            let sessionDirectory = state.appendingPathComponent(OwnerJobsFile.storageComponent(session: "cmux-app"), isDirectory: true)
+            try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+            try Self.writeStatus(in: sessionDirectory, updatedMs: Self.nowMs() - 600_000)
         }
-        let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: socketPath), configuration: configuration)
+        let launcher = DaemonLauncher(configuration: .init(binary: URL(fileURLWithPath: "/usr/bin/false"), session: "cmux-app",
+                                                           stateDirectory: state, binaryIsBundled: true),
+                                      environment: { [:] })
+        let base = DaemonConnection.Configuration(requiredCapabilities: [], requestTimeout: .milliseconds(300), terminalEnvironment: nil)
+        let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: socketPath), configuration: launcher.localOwnerHooks(base))
         defer { Task { await connection.close() } }
         var failure: DaemonError?
         do {
@@ -196,8 +206,10 @@ struct OwnerRestoreLongJobsTests {
             failure = error
         }
         let error = try #require(failure)
-        if case .ownerRestoring = error { Issue.record("an identify timeout with no live owner read as restoring") }
-        #expect(!DaemonStartup.shared.ownerIsRestoring(error))
+        guard case .timedOut = error else {
+            Issue.record("a parked identify with no live progress read as \(error), not a timeout")
+            return
+        }
         #expect(launcher.restoreProgress.current == nil)
     }
 }

@@ -1,3 +1,4 @@
+import Foundation
 import os
 
 /// Validates one transport before its immutable ready session is admitted.
@@ -9,7 +10,14 @@ struct DaemonHandshake {
         if configuration.role == .pageRelay { return (try await PageRelayHandshake.run(transport, configuration: configuration), false) }
         let handshake = await HandshakeLines.send(transport, configuration: configuration, logger: logger)
         let replies = handshake.lines
-        let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
+        let identifyLine: Data
+        do {
+            identifyLine = try replies[0].get().line
+        } catch DaemonError.timedOut(let what) {
+            // The owner took the connection and answered nothing (a parked owner, or a hung one).
+            throw IdentifyUnanswered(what: what)
+        }
+        let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: identifyLine)
         DaemonLaunchTimings.shared.mark("daemon.identify_end")
         guard identity.app == "cmux-tui" else {
             transport.close()
@@ -37,4 +45,10 @@ struct DaemonHandshake {
         logger.info("cmux-tui \(identity.pid) refused (\(refusal.description, privacy: .public)); handing it off to the bundled build")
         return .incompatibleOwnerHandedOff
     }
+}
+
+/// `identify` got no reply in time (``DaemonHandshake``): the connection asks whether a live, busy local owner
+/// parked it (``DaemonConnectionConfiguration/parkedOwner``) before it reports `.timedOut`.
+struct IdentifyUnanswered: Error {
+    let what: String
 }

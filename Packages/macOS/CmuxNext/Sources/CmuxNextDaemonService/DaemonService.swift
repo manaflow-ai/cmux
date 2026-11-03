@@ -150,6 +150,13 @@ public final class DaemonService {
     /// for a daemon without the capability: it shows no jobs, never a dead end.
     public internal(set) var connectedJobs: [LongJob] = []
     @ObservationIgnored var longJobsSubscription: UInt64?
+    /// Follows the store's connection: each connect lists the jobs again, each drop clears them.
+    @ObservationIgnored var longJobsConnection: Task<Void, Never>?
+    /// The last restore report a failure already judged: an older one (a hop queued before it) changes nothing.
+    @ObservationIgnored var restoreReportsJudged: UInt64 = 0
+    /// After `server.restore_timeout` (the owner's jobs stalled): the newest job update seen then. A report moves
+    /// startup back to `.restoring` only once a job moved past it; with no job named, only a connect ends it.
+    @ObservationIgnored var restoreStallMark: Int64?
     /// The last failed connect attempt until a connection succeeds (`notConnectedReason`).
     @ObservationIgnored public private(set) var lastStartupError: DaemonError?
     /// Events that may let a failed connect succeed: the daemon socket
@@ -424,7 +431,8 @@ public final class DaemonService {
         startupDeadlineTimer = nil
         lastStartupError = nil
         startup = .connected
-        listLongJobs(connection, identity: identity)
+        restoreStallMark = nil
+        followLongJobs()
         pushTerminalDefaultColors()
         relaunchKeptLayoutIfNeeded(connection)
     }
@@ -445,6 +453,10 @@ public final class DaemonService {
         }
         logger.error("cmux-tui daemon unavailable: \(error.description, privacy: .public)")
         lastStartupError = error
+        // Reports from before this failure no longer prove the owner is restoring; after a stall only new job
+        // progress does (else the stall's Retry Now / Restart flashed away at the next ensure's first line).
+        restoreReportsJudged = restoreProgress?.current?.sequence ?? restoreReportsJudged
+        if case .sessionRestoreTimedOut = error { restoreStallMark = restoreProgress?.current?.lastJobUpdateMs ?? .max }
         if startup.isRestoring {
             startup = startupDeadlinePassed || !retries || permanent ? .unavailable(error) : .connecting
         }

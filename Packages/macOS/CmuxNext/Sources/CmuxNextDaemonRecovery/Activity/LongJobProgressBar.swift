@@ -50,9 +50,13 @@ public final class LongJobProgressBar: NSView {
     }
 
     private func applyColors() {
+        // No implicit fade on a theme change (motion gate: changes apply in one frame).
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         performWithTheme {
             track.backgroundColor = Palette.separator.cgColor
             fill.backgroundColor = Palette.textSecondary.cgColor
         }
+        CATransaction.commit()
     }
 }

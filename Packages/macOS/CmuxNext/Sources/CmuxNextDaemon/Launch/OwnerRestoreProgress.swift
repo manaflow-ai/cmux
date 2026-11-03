@@ -15,15 +15,22 @@ public final class OwnerRestoreProgress: Sendable {
         public var pid: Int32?
         /// The jobs it named (empty: it restores with none to name, an older daemon).
         public var jobs: [LongJob]
+        /// Counts reports of this launcher (``OwnerRestoreProgress/note(_:)`` sets it): a reader can tell a report
+        /// it already judged from a newer one.
+        public internal(set) var sequence: UInt64 = 0
 
         public init(pid: Int32? = nil, jobs: [LongJob] = []) {
             self.pid = pid
             self.jobs = jobs
         }
+
+        /// The newest progress or heartbeat of its jobs (`updated_ms`), nil with none.
+        public var lastJobUpdateMs: Int64? { jobs.map(\.updatedMs).max() }
     }
 
     private struct State {
         var current: Report?
+        var sequence: UInt64 = 0
         var observers: [@Sendable (Report) -> Void] = []
     }
 
@@ -40,11 +47,14 @@ public final class OwnerRestoreProgress: Sendable {
     }
 
     func note(_ report: Report) {
-        let observers = state.withLock { state -> [@Sendable (Report) -> Void] in
-            state.current = report
-            return state.observers
+        let (observers, stamped) = state.withLock { state -> ([@Sendable (Report) -> Void], Report) in
+            state.sequence += 1
+            var stamped = report
+            stamped.sequence = state.sequence
+            state.current = stamped
+            return (state.observers, stamped)
         }
-        for observer in observers { observer(report) }
+        for observer in observers { observer(stamped) }
     }
 
     /// One `server ensure --restore-progress` stdout line: `{"progress":"restoring", "pid", "waited_ms", "jobs"?}`.
@@ -86,17 +96,33 @@ struct OwnerJobsFile {
         return "\(readable)-\(String(repeating: "0", count: max(0, 16 - hex.count)))\(hex)"
     }
 
-    /// The file of `session` under `stateDirectory` (nil without a state directory).
-    static func url(session: String, stateDirectory: URL?) -> URL? {
-        stateDirectory?.appendingPathComponent(storageComponent(session: session), isDirectory: true)
+    /// The file of `session` under `stateDirectory`, or under cmux-tui's own root when the launcher names
+    /// none (`CMUX_TUI_STATE_DIR`, else `~/Library/Application Support/cmux-tui/sessions`).
+    static func url(session: String, stateDirectory: URL?,
+                    environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
+        let root = stateDirectory
+            ?? environment["CMUX_TUI_STATE_DIR"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? CloudLinkLauncher.defaultStateRoot()
+        return root?.appendingPathComponent(storageComponent(session: session), isDirectory: true)
             .appendingPathComponent(fileName, isDirectory: false)
     }
 
-    /// The jobs of a live owner: nil when the file is missing, does not parse, or its process is gone.
-    static func read(_ url: URL) -> OwnerRestoreProgress.Report? {
+    /// How long an owner's jobs may go without an `updated_ms` change and still count as making progress:
+    /// cmux-tui's `RESTORE_STALL` (a live job steps or beats at least every 5 s).
+    static let stall: Int64 = 120_000
+
+    /// The jobs of a live owner that is making progress: nil when the file is missing or does not parse, its
+    /// process is gone, or neither the file nor any job changed within ``stall`` of `nowMs` (a wedged owner
+    /// whose process lives on is a failure, not a restore).
+    static func read(_ url: URL, nowMs: Int64 = Int64(exactly: (Date().timeIntervalSince1970 * 1000).rounded()) ?? 0)
+        -> OwnerRestoreProgress.Report? {
         guard let data = try? Data(blockingContentsOf: url), let list = try? JSONDecoder().decode(LongJobList.self, from: data),
               let pid = list.pid, pid > 0, isAlive(pid) else { return nil }
-        return OwnerRestoreProgress.Report(pid: pid, jobs: list.jobs)
+        let report = OwnerRestoreProgress.Report(pid: pid, jobs: list.jobs)
+        guard let latest = [list.updatedMs, report.lastJobUpdateMs].compactMap(\.self).max(), nowMs - latest <= stall else {
+            return nil
+        }
+        return report
     }
 
     /// Whether `pid` names a running process (a zero signal: EPERM means it runs as another user).

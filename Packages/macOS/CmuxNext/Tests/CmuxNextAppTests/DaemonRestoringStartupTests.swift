@@ -8,6 +8,7 @@ import CmuxNextWakeups
 import Darwin
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 @testable import CmuxNextApp
 
 /// The incident of 2026-11-02 at the service's boundary (plans/cmux-next/long-jobs-DESIGN.md): the owner
@@ -54,7 +55,8 @@ struct DaemonRestoringStartupTests {
         let state = directory.appendingPathComponent("state", isDirectory: true)
         let sessionDirectory = state.appendingPathComponent(OwnerJobsFile.storageComponent(session: Self.session), isDirectory: true)
         try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
-        try Data(#"{"version":1,"pid":\#(getpid()),"updated_ms":1793683850000,"jobs":[\#(Self.job(done: 387, total: 900))]}"#.utf8)
+        let now = Int64(exactly: (Date().timeIntervalSince1970 * 1000).rounded()) ?? 0
+        try Data(#"{"version":1,"pid":\#(getpid()),"updated_ms":\#(now),"jobs":[\#(Self.job(done: 387, total: 900))]}"#.utf8)
             .write(to: sessionDirectory.appendingPathComponent(OwnerJobsFile.fileName))
         // `server ensure` reports the job at 60% and then waits on a pipe nobody writes (the owner still restoring).
         let never = directory.appendingPathComponent("never")
@@ -78,25 +80,35 @@ struct DaemonRestoringStartupTests {
                                                            rememberedSocket: socketPath, binaryIsBundled: true),
                                       environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin"] })
         let daemon = DaemonService()
-        // The deadline (10 s in the app) passes while the owner restores: it must still not read as unavailable.
-        daemon.startupDeadline = .seconds(1)
+        // The startup deadline (10 s) and the retry pacer run on a manual clock: the parked identify is judged first,
+        // then the test moves time past the deadline, which also lets the retry run `server ensure`.
+        let clock = ManualClock()
+        daemon.startupClock = clock
         let prestart = DaemonPrestart(launcher: launcher, configuration: launcher.localOwnerHooks(
             DaemonConnection.Configuration(requiredCapabilities: [], requestTimeout: .milliseconds(500), terminalEnvironment: nil)))
         daemon.start(launch: AppEnvironment.current([:]).launch, terminalEnvironment: [:], terminalEnvironmentProvider: { [:] },
                      prestart: prestart)
 
-        // First the parked identify (the status file's 43%), then the ensure's progress line (60%).
-        var seen: [Int?] = []
+        // First the parked identify: the status file's job (43%), long before the deadline.
         for await startup in ObservationStream({ daemon.startup }) {
             #expect(!startup.isUnavailable, "a live restoring owner read as unavailable: \(startup)")
-            guard startup.isRestoring else { continue }
-            let percent = startup.restoringJobs.first?.percent
-            if seen.last != percent { seen.append(percent) }
-            if percent == 60 { break }
+            if startup.isRestoring { break }
         }
-        #expect(seen.contains(43), "the parked identify did not read the owner's status file")
+        #expect(daemon.startup.restoringJobs.first?.percent == 43, "the parked identify did not read the owner's status file")
+        // Past the 10 s deadline (one second at a time, so the retry's backoff ends too): still restoring.
+        for _ in 0..<15 where !daemon.startupDeadlinePassed {
+            try? await clock.waitForSleeper()
+            clock.advance(by: .seconds(1))
+            await Task.yield()
+        }
         for await passed in ObservationStream({ daemon.startupDeadlinePassed }) where passed { break }
-        #expect(daemon.startup.isRestoring, "past the startup deadline the restoring owner read as \(daemon.startup)")
+        // Then the retry's `server ensure` reports the job at 60%.
+        for await startup in ObservationStream({ daemon.startup }) {
+            #expect(!startup.isUnavailable, "past the deadline the restoring owner read as unavailable: \(startup)")
+            if startup.restoringJobs.first?.percent == 60 { break }
+            if clock.sleeperCount > 0 { clock.advance(by: .seconds(1)) }
+        }
+        #expect(daemon.startup.isRestoring)
         #expect(daemon.startup.restoringJobs.map(\.kind) == [LongJob.outputCleanupKind])
         #expect(daemon.store.connectionState == .connecting, "the store read the restoring owner as failed")
         #expect(daemon.jobs.first?.machine == daemon.machineID)
