@@ -64,7 +64,8 @@ class RollingDmgIdentity(unittest.TestCase):
             fake(work / "scripts" / "ci", "publish-release-assets.py", f'echo "publish $*" >> {log}\n')
             fake(bin_dir, "python3", 'case "$1" in -I) exec /usr/bin/python3 "$@";; *) exec "$@";; esac\n')
             fake(bin_dir, "gh", f'echo "gh $*" >> {log}\n')
-            fake(bin_dir, "curl", 'exit 1\n')
+            # The DMG's HEAD check passes; the best-effort notes copy fails, which never blocks the feed.
+            fake(bin_dir, "curl", 'case " $* " in *" -fsSIL "*) exit 0;; esac; exit 1\n')
             out = work / "legacy-out"
             out.mkdir()
             build = "4200000000001"

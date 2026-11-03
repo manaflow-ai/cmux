@@ -5910,8 +5910,9 @@ jobs:
           NOTES_HEAD: ${{ steps.source.outputs.build_sha }}
           PUBLISHED_SHA: ${{ needs.decide.outputs.published_sha }}
           NOTES_BRANCH: ${{ needs.decide.outputs.track == 'nightly-next' && 'feat-cmux-next' || github.ref_name }}
-          NOTES_APP_NAME: ${{ needs.decide.outputs.app_name }}
-          NOTES_BUNDLE_ID: ${{ needs.decide.outputs.bundle_id }}
+          # nightly-next's rolling download is the cmux NIGHTLY build (user msg 20276).
+          NOTES_APP_NAME: ${{ needs.decide.outputs.track == 'nightly-next' && 'cmux NIGHTLY' || needs.decide.outputs.app_name }}
+          NOTES_BUNDLE_ID: ${{ needs.decide.outputs.track == 'nightly-next' && 'com.cmuxterm.app.nightly' || needs.decide.outputs.bundle_id }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-prepare-release-notes.sh
 
       - name: Upload branch nightly artifacts
