@@ -18,11 +18,12 @@ fn native_workflow_engine_runs_claude_meta_phase_parallel_and_pipeline() {
                 started.push(prompt.clone());
                 json!({"ok":true,"value":{"id":prompt}})
             }
-            Request::ActivityWait { id } => {
+            Request::ActivityWait { ids } => {
                 // All callbacks have launched before the first wait blocks.
                 assert_eq!(started.len(), 3);
+                let id = ids.first().expect("pending id");
                 waits.push(id.clone());
-                json!({"ok":true,"value":id})
+                json!({"ok":true,"value":{"id":id,"outcome":{"Ok":id}}})
             }
             _ => panic!("unexpected workflow request"),
         },
@@ -58,9 +59,11 @@ fn native_workflow_engine_machine_errors_keep_js_catch_behavior() {
                 assert_eq!(options.get("on"), Some(&json!("ci")));
                 json!({"ok":true,"value":{"id":"build"}})
             }
-            Request::ActivityWait { id } => {
-                assert_eq!(id, "build");
-                json!({"ok":false,"message":"compile failed","error":{"code":"machine.exit"}})
+            Request::ActivityWait { ids } => {
+                assert_eq!(ids, ["build"]);
+                json!({"ok":true,"value":{"id":"build","outcome":{"Err":{
+                    "code":"machine.exit", "message":"compile failed"
+                }}}})
             }
             _ => panic!("unexpected workflow request"),
         },
@@ -69,6 +72,119 @@ fn native_workflow_engine_machine_errors_keep_js_catch_behavior() {
     assert_eq!(
         result.pointer("/structuredContent/result"),
         Some(&json!("machine.exit")),
+        "{result}"
+    );
+}
+
+#[test]
+fn native_workflow_engine_ready_branch_can_unblock_an_earlier_branch() {
+    let mut starts = Vec::new();
+    let mut completed = Vec::new();
+    let result = workflow_exec(
+        r#"return await parallel([
+          async () => await agent('needs signal'),
+          async () => { await agent('ready'); return await machine('signal'); }
+        ]);"#,
+        json!([]),
+        Limits::default(),
+        &mut |request| match request {
+            Request::ActivityStart { prompt, .. } => {
+                starts.push(prompt.clone());
+                json!({"ok":true,"value":{"id":prompt}})
+            }
+            Request::ActivityWait { ids } => {
+                let id = if !completed.contains(&"ready") {
+                    assert_eq!(ids, ["needs signal", "ready"]);
+                    "ready"
+                } else if !completed.contains(&"signal") {
+                    assert!(starts.iter().any(|id| id == "signal"));
+                    assert_eq!(ids, ["needs signal", "signal"]);
+                    "signal"
+                } else {
+                    assert_eq!(ids, ["needs signal"]);
+                    "needs signal"
+                };
+                completed.push(id);
+                json!({"ok":true,"value":{"id":id,"outcome":{"Ok":id}}})
+            }
+            _ => panic!("unexpected workflow request"),
+        },
+    )
+    .unwrap();
+    assert_eq!(result.get("isError"), Some(&json!(false)), "{result}");
+    assert_eq!(
+        result.pointer("/structuredContent/result"),
+        Some(&json!(["needs signal", "signal"]))
+    );
+    assert_eq!(completed, ["ready", "signal", "needs signal"]);
+}
+
+#[test]
+fn native_workflow_engine_unawaited_activity_is_unfinished_without_waiting() {
+    let result = workflow_exec(
+        "agent('still running'); return 'done';",
+        json!([]),
+        Limits::default(),
+        &mut |request| match request {
+            Request::ActivityStart { .. } => json!({"ok":true,"value":{"id":"child"}}),
+            _ => panic!("a settled root must not block on its dangling child"),
+        },
+    )
+    .unwrap();
+    assert_eq!(result.get("isError"), Some(&json!(true)), "{result}");
+    assert_eq!(
+        result.pointer("/structuredContent/error/code"),
+        Some(&json!("script.unfinished")),
+        "{result}"
+    );
+}
+
+#[test]
+fn native_workflow_engine_parallel_rejection_does_not_hide_running_sibling() {
+    let mut waits = 0;
+    let result = workflow_exec(
+        "return await parallel([() => agent('fails'), () => agent('still running')]);",
+        json!([]),
+        Limits::default(),
+        &mut |request| match request {
+            Request::ActivityStart { prompt, .. } => json!({"ok":true,"value":{"id":prompt}}),
+            Request::ActivityWait { ids } => {
+                waits += 1;
+                assert_eq!(waits, 1, "must return unfinished rather than wait for the sibling");
+                assert_eq!(ids, ["fails", "still running"]);
+                json!({"ok":true,"value":{"id":"fails","outcome":{"Err":{
+                    "code":"agent.failed", "message":"failed"
+                }}}})
+            }
+            _ => panic!("unexpected workflow request"),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        result.pointer("/structuredContent/error/code"),
+        Some(&json!("script.unfinished")),
+        "{result}"
+    );
+    assert_eq!(waits, 1);
+}
+
+#[test]
+fn native_workflow_engine_invalid_start_rejects_locally_without_wait() {
+    let result = workflow_exec(
+        "return await agent('invalid', {on: 'missing'}).catch(error => error.cmux.code);",
+        json!([]),
+        Limits::default(),
+        &mut |request| match request {
+            Request::ActivityStart { .. } => json!({
+                "ok":false, "message":"target unavailable", "error":{"code":"target.missing"}
+            }),
+            _ => panic!("a failed start has no activity to wait for"),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        result.pointer("/structuredContent/result"),
+        Some(&json!("target.missing")),
         "{result}"
     );
 }

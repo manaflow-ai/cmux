@@ -20,8 +20,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cmux_json::JsonSet as _;
-use rquickjs::{CatchResultExt, Context, Function, Object, Runtime};
+use rquickjs::{CatchResultExt, Context, Function, Object, Persistent, Runtime};
 use serde_json::{Map, Value, json};
+
+mod workflow;
 
 pub(super) const DOCS: &str = "cmux_docs";
 pub(super) const EXEC: &str = "cmux_exec";
@@ -485,8 +487,8 @@ pub(super) enum Request {
     Docs { query: String },
     /// Launch or reattach without waiting; the workflow runner journals it first.
     ActivityStart { kind: String, prompt: String, options: Map<String, Value> },
-    /// Wait for exactly the activity whose promise is next in invocation order.
-    ActivityWait { id: String },
+    /// Wait for one of the named activities; the journal records completion order.
+    ActivityWait { ids: Vec<String> },
 }
 
 enum ToServer {
@@ -508,6 +510,15 @@ pub(super) fn exec(
     limits: Limits,
     answer: &mut dyn FnMut(Request) -> Value,
 ) -> Result<Value, String> {
+    exec_mode(arguments, limits, answer, None)
+}
+
+fn exec_mode(
+    arguments: &Map<String, Value>,
+    limits: Limits,
+    answer: &mut dyn FnMut(Request) -> Value,
+    workflow_inputs: Option<Value>,
+) -> Result<Value, String> {
     if let Some(name) = arguments.keys().find(|name| name.as_str() != "script") {
         return Err(format!("{EXEC} has no argument {name:?}"));
     }
@@ -515,7 +526,7 @@ pub(super) fn exec(
         Some(Value::String(script)) if !script.trim().is_empty() => script.clone(),
         _ => return Err(format!("{EXEC} needs script, a non-empty string")),
     };
-    if script.len() > MAX_SCRIPT_BYTES {
+    if workflow_inputs.is_none() && script.len() > MAX_SCRIPT_BYTES {
         return Err(format!("{EXEC} script is larger than {} KiB", MAX_SCRIPT_BYTES >> 10));
     }
     let (to_server, from_script) = mpsc::channel();
@@ -523,7 +534,7 @@ pub(super) fn exec(
         .name("cmux-mcp-code-mode".into())
         .stack_size(THREAD_STACK)
         .spawn(move || {
-            let outcome = run_script(&script, limits, &to_server);
+            let outcome = run_script(&script, limits, &to_server, workflow_inputs);
             let _ = to_server.send(ToServer::Done(outcome));
         })
         .map_err(|error| format!("{EXEC} cannot start its engine: {error}"))?;
@@ -603,13 +614,13 @@ pub(super) fn exec(
 /// The daemon-owned runner uses this entry point with pinned inputs and source.
 pub(super) fn workflow_exec(
     script: &str,
-    _inputs: Value,
+    inputs: Value,
     limits: Limits,
     answer: &mut dyn FnMut(Request) -> Value,
 ) -> Result<Value, String> {
     let mut arguments = Map::new();
-    arguments.insert("script".into(), Value::String(script.into()));
-    exec(&arguments, limits, answer)
+    arguments.insert("script".into(), Value::String(workflow::body(script)));
+    exec_mode(&arguments, limits, answer, Some(inputs))
 }
 
 #[cfg(test)]
@@ -805,7 +816,13 @@ fn block_end(text: &str, open: usize) -> Option<usize> {
 }
 
 /// Runs one script on this (the engine) thread.
-fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) -> Outcome {
+fn run_script(
+    script: &str,
+    limits: Limits,
+    to_server: &mpsc::Sender<ToServer>,
+    workflow_inputs: Option<Value>,
+) -> Outcome {
+    let workflow_mode = workflow_inputs.is_some();
     let logs = Rc::new(RefCell::new((Vec::<String>::new(), 0usize, 0usize)));
     let done = Rc::new(RefCell::new(None::<Result<Value, Value>>));
     let failed = |message: String| Outcome {
@@ -826,7 +843,7 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
         let progress = progress.clone();
         let stopped = stopped.clone();
         runtime.set_interrupt_handler(Some(Box::new(move || {
-            let over = started.elapsed() > limits.total
+            let over = (!workflow_mode && started.elapsed() > limits.total)
                 || progress.lock().map(|at| at.elapsed() > limits.compute).unwrap_or(true);
             if over && let Ok(mut stopped) = stopped.lock() {
                 *stopped = true;
@@ -839,6 +856,7 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
         Err(error) => return failed(format!("engine: {error}")),
     };
     let calls = Rc::new(RefCell::new(0usize));
+    let mut workflow_poll: Option<Persistent<Function<'static>>> = None;
     let evaluated = context.with(|ctx| -> Result<(), String> {
         let native = Object::new(ctx.clone()).map_err(|e| e.to_string())?;
         let count = calls.clone();
@@ -847,7 +865,9 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
             let progress = progress.clone();
             move |request: Request| -> String {
                 let mut used = count.borrow_mut();
-                if *used >= MAX_CALLS {
+                // The workflow journal counts fresh activities after replay
+                // lookup. Its budget resets per resume; docs/waits do not spend it.
+                if !workflow_mode && *used >= MAX_CALLS {
                     return failure(
                         "script.too_many_calls",
                         &format!("a script makes at most {MAX_CALLS} calls and docs searches"),
@@ -855,7 +875,7 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
                 }
                 *used += 1;
                 drop(used);
-                if started.elapsed() > limits.total {
+                if !workflow_mode && started.elapsed() > limits.total {
                     return failure(
                         "script.timeout",
                         &format!("a script runs at most {} s", limits.total.as_secs()),
@@ -873,6 +893,7 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
                 value.to_string()
             }
         };
+        let workflow_request = request.clone();
         let call_request = request.clone();
         native
             .set(
@@ -929,6 +950,11 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
             .map_err(|e| e.to_string())?;
         ctx.globals().set("__cmuxNative", native).map_err(|e| e.to_string())?;
         ctx.eval::<(), _>(PRELUDE).catch(&ctx).map_err(|e| format!("prelude: {e}"))?;
+        if let Some(inputs) = workflow_inputs {
+            let poll = workflow::install(&ctx, workflow_request, inputs)
+                .catch(&ctx).map_err(|error| format!("workflow prelude: {error}"))?;
+            workflow_poll = Some(Persistent::save(&ctx, poll));
+        }
         // The body runs inside an async function so it can await and return.
         // `finish` leaves the global scope first, so the script cannot
         // report a result of its own through it.
@@ -955,7 +981,33 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
     loop {
         match runtime.execute_pending_job() {
             Ok(true) => {}
-            Ok(false) => break,
+            Ok(false) => {
+                // Activity starts are short host calls. After JS has launched
+                // every runnable branch, wait for any activity to complete.
+                // The journal preserves that completion order on replay.
+                let polled = match &workflow_poll {
+                    Some(poll) if done.borrow().is_none() => context.with(|ctx| {
+                        let poll = poll.clone().restore(&ctx).map_err(|error| error.to_string())?;
+                        poll.call::<_, usize>((false,))
+                            .catch(&ctx)
+                            .map_err(|error| error.to_string())
+                    }),
+                    _ => Ok(0),
+                };
+                match polled {
+                    Ok(0) => break,
+                    Ok(_) => continue,
+                    Err(error) => {
+                        let mut outcome = take_logs(&logs);
+                        let interrupted = stopped.lock().map(|stopped| *stopped).unwrap_or(false);
+                        outcome.result = Err(json!({
+                            "code": if interrupted { "script.timeout" } else { "workflow.wait" },
+                            "message": error,
+                        }));
+                        return outcome;
+                    }
+                }
+            }
             Err(error) => {
                 if let Ok(mut logs) = logs.try_borrow_mut() {
                     let line = format!("[error] job: {error}");
@@ -975,6 +1027,15 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
     let mut outcome = take_logs(&logs);
     let interrupted = stopped.lock().map(|stopped| *stopped).unwrap_or(false);
     let result = done.borrow_mut().take();
+    // A settled root promise must not hide running children, including siblings
+    // left behind when Promise.all rejects early. Inspect without waiting.
+    let pending = match &workflow_poll {
+        Some(poll) if !interrupted => context.with(|ctx| {
+            let poll = poll.clone().restore(&ctx).map_err(|error| error.to_string())?;
+            poll.call::<_, usize>((true,)).catch(&ctx).map_err(|error| error.to_string())
+        }),
+        _ => Ok(0),
+    };
     outcome.result = if interrupted {
         // The interrupt also stops the rejection handler, so `done` may hold
         // the engine's bare "interrupted" or nothing.
@@ -985,6 +1046,14 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
                 limits.compute.as_millis(),
                 limits.total.as_secs()
             ),
+        }))
+    } else if !matches!(&pending, Ok(0)) {
+        Err(json!({
+            "code": "script.unfinished",
+            "message": match pending {
+                Ok(count) => format!("the script ended with {count} unfinished workflow activities"),
+                Err(message) => format!("cannot inspect unfinished workflow activities: {message}"),
+            },
         }))
     } else {
         match result {
