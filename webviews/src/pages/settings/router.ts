@@ -18,7 +18,14 @@ export type SettingsRouterContext = { queryClient: QueryClient; store: SettingsS
 
 /** The route's search: the focused key, the workspace Change Background… came from, the sidebar
  * search's text (`q`) and its Changed filter (`changed=1`). Plain `?a=b` pairs, never JSON. */
-export type SettingsSearch = { focus?: string; workspace?: string; q?: string; changed?: true };
+export type SettingsSearch = {
+  focus?: string;
+  workspace?: string;
+  q?: string;
+  changed?: true;
+  slack?: "connect" | "connected";
+  open?: string;
+};
 
 export function validateSettingsSearch(raw: Record<string, unknown>): SettingsSearch {
   const text = (value: unknown) => (value === undefined || value === null || value === "" ? undefined : String(value));
@@ -29,6 +36,10 @@ export function validateSettingsSearch(raw: Record<string, unknown>): SettingsSe
   if (focus) out.focus = focus;
   if (workspace) out.workspace = workspace;
   if (q) out.q = q;
+  if ((raw.slack === "connect" || raw.slack === "connected") && text(raw.open)) {
+    out.slack = raw.slack;
+    out.open = text(raw.open);
+  }
   if (raw.changed === true || raw.changed === "1" || raw.changed === 1) out.changed = true;
   return out;
 }

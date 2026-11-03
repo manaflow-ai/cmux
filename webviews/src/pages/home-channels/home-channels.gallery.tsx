@@ -21,6 +21,7 @@ type Props = {
   select?: string;
   /** A thread root message to open in the thread sheet. */
   thread?: string;
+  slackThread?: boolean;
   /** No host: the page shows its offline state. */
   offline?: boolean;
   /** The Chief's running reply in the Chief DM. */
@@ -99,6 +100,7 @@ type GalleryHostWindow = Window & { cmuxGalleryHost?: GalleryBridgeHost };
 function HomeChannelsGallery({
   select,
   thread,
+  slackThread = false,
   offline = false,
   draft,
   longThread = false,
@@ -118,6 +120,7 @@ function HomeChannelsGallery({
   const [store] = useState(() => {
     const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media, teammates);
     if (provider) provider.hostGrants = hostGrants;
+    if (provider && slackThread) provider.addSlackThread();
     if (provider && extraChief) provider.addChief("Release Chief");
     let host: BridgePageClient | MockHomeProvider | null = hostGrants ? provider : null;
     if (hostBridge) {
@@ -202,6 +205,7 @@ export default componentEntry<Props>({
     "pages/home-channels/Composer.tsx#Composer",
     "pages/home-channels/ThreadSheet.tsx#ThreadSheet",
     "pages/home-channels/ThreadRow.tsx#ThreadRow",
+    "pages/home-channels/SlackThreadLabel.tsx#SlackThreadLabel",
     "pages/home-channels/Palette.tsx#Palette",
     "pages/home-channels/MessageActions.tsx#MessageActions",
     "pages/home-channels/EmojiPicker.tsx#EmojiPicker",
@@ -251,6 +255,10 @@ export default componentEntry<Props>({
     thread: {
       note: "The thread sheet open on the sidebar-fix message.",
       props: { select: "c-release", thread: "c-release-m2" },
+    },
+    "slack-thread": {
+      note: "Chief thread opened from Slack, with a quiet source permalink in its row and sheet; capture in light and dark.",
+      props: { select: "c-chief", thread: "c-chief-m1", slackThread: true },
     },
     "thread-long": {
       note: "A thread past one page: the sheet counts every reply that is not retracted (the owner's stats), then loads the rest.",

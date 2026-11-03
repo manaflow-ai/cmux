@@ -4,6 +4,7 @@
 import { memo } from "react";
 import type { Strings } from "../shared/i18n";
 import { Avatar } from "./Avatar";
+import { SlackThreadLabel } from "./SlackThreadLabel";
 import type { ThreadSummary } from "./model";
 import type { ThreadObject } from "./threads";
 import type { HomeParticipant } from "./types";
@@ -60,6 +61,7 @@ export const ThreadRow = memo(function ThreadRow({
         <span className="lg-thread-count">{count}</span>
         <time className="lg-thread-time">{stamp(summary.lastAt)}</time>
       </button>
+      <SlackThreadLabel source={thread.slack} />
     </div>
   );
 });

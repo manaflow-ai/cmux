@@ -4,11 +4,13 @@
 // store's `updateThread` (`thread.update`). Defaults: no title shows the root's first line, no
 // owner is unowned, a new live reply after a resolution reopens the thread.
 import { threadStatus, threadTitle } from "./model";
+import { slackThreadSource, type SlackThreadSource } from "./slackThread";
 import type { HomeMessage, HomeThreadStats, HomeThreadStatus } from "./types";
 
 export type ThreadStatus = HomeThreadStatus;
 
 export interface ThreadObject {
+  slack?: SlackThreadSource;
   root: string;
   title: string;
   status: ThreadStatus;
@@ -31,7 +33,9 @@ export function threadObject(
   const counted = stats && stats.status !== "resolved" ? stats.lastReplySeq : undefined;
   const newest = Math.max(lastLiveSeq ?? 0, counted ?? 0) || undefined;
   const owner = root.thread ? root.thread.owner : stats?.owner;
+  const slack = slackThreadSource(root.thread);
   return {
+    ...(slack ? { slack } : {}),
     root: root.id,
     title: object?.title || threadTitle(root),
     status: threadStatus(object, newest),

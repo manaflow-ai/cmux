@@ -11,6 +11,7 @@ import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator } from "../../ui/M
 import type { Strings } from "../shared/i18n";
 import { Composer, type ComposerProps } from "./Composer";
 import { HomeIcon } from "./icons";
+import { SlackThreadLabel } from "./SlackThreadLabel";
 import { replyCount, threadMessages, threadTree, type TimelineRow } from "./model";
 import type { ThreadObject } from "./threads";
 import { Timeline } from "./Timeline";
@@ -214,6 +215,7 @@ export function ThreadSheet({
           </h2>
         )}
         <p className="lg-sheet-meta">
+          <SlackThreadLabel source={thread?.slack} />
           <Menu open={ownerMenu} onOpenChange={setOwnerMenu}>
             <MenuButton
               className="lg-owner-button"

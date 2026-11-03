@@ -12,6 +12,10 @@ enum AccountsHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("accounts.show", run: { _ in try services.settingsWindow.show(section: .accounts) })
+        registry.bindEffect("accounts.slackConnect", requires: nil, effect: { _ in
+            try services.settingsWindow.show(section: .accounts, route: "#/settings/accounts?slack=connect&open=\(UUID().uuidString)")
+            return .done
+        })
         registry.bindEffect("accounts.githubConnect", requires: nil, effect: { _ in
             try services.settingsWindow.show(section: .accounts)
             return .applied(result: { await services.accounts.github.connectResult() })
