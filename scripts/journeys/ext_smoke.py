@@ -9,10 +9,7 @@ rounds under memory pressure. Most of it uses the driver's own steps; these add 
 Steps (`do`):
   smoke_make_key     {}               makes the journey's window the app's key window without activating the app
                                       (`debug.window.focus`: orderFrontRegardless + makeKey) and records whether it
-                                      took (`key` == the window; or, the journey window in front with key null,
-                                      a visible Chromium page window that is the child of the app's only main
-                                      window: a restored browser page's keyboard, held_by_page). A capture slot's
-                                      window is never key otherwise
+                                      took (`key` == the window). A capture slot's window is never key otherwise
                                       (CMUX_NEXT_NO_ACTIVATE), and keys the app holds for a terminal still being made
                                       are replayed through NSApplication.sendEvent, which reaches only the key window.
                                       When the window did not become key, every later `smoke_type_now` is "not run:
@@ -41,8 +38,7 @@ Conditions (inside `expect.all`; evidence kind app):
                                       (text recognition reads at least MIN_LINES, default 3, lines) and shows none of
                                       LACKS. The screenshot of a step whose state the app's reads prove
   smoke_panes        {line, count}    the workspace whose terminal shows LINE has COUNT panes
-  smoke_key_window   {page?}          a main window of the app is its key window (debug.window_list; a read only);
-                                      PAGE: or a visible Chromium page window that is a main window's child (a page step)
+  smoke_key_window   {}               a main window of the app is its key window (debug.window_list; a read only)
   smoke_new_terminals {since, lines, focused, placement, order?}
                                       the keys went to the new terminals, not to an old one: exactly len(LINES) new
                                       daemon terminals since the snapshot SINCE; each line is on exactly one terminal
@@ -116,36 +112,9 @@ def step_smoke_make_key(j, step):
     window = _journey_window(j)
     reply = j.app.rpc("debug.window.focus", {"window": window}) or {}
     took = isinstance(reply, dict) and reply.get("key") == window
-    page = None if took else _page_of_journey_window(j, window, reply)
-    j.smoke_key_ok = took or page is not None
-    j.smoke_key_page = page
+    j.smoke_key_ok = took
     j.smoke_key_reply = reply
-    out = {"window": window, "reply": reply, "key_window_now": j.smoke_key_ok, "front_before": list(j.smoke_front_before)}
-    if page:
-        out["held_by_page"] = page
-    if not took:
-        # The app's windows as AppKit lists them (review of 37fb4ba6272): a key null with no key window, a key page
-        # and a key panel read the same in the focus reply; the record tells them apart.
-        try:
-            out["windows"] = _main_key(j)[1]
-        except D.StepError as error:
-            out["windows_error"] = str(error)[:200]
-    return out
-
-
-def _page_of_journey_window(j, window, reply):
-    """{"page": id, "of_main": id} when the journey window is in front (debug.window.focus `front`) but the key window is
-    a visible Chromium page window that is the child of the app's ONLY main window, else None. A window whose restored
-    focus is a browser page gives that page the keyboard (since #31684; reopen-f4, STATUS 5871): its CefNSWindow is key
-    and the cmux window stays main, and debug.window.focus, which names controller windows only, says key null. The
-    controller id (a UUID) and debug.window_list's window numbers are not the same ids, so with two main windows the
-    page's parent cannot be proven the journey's, and the page does not count."""
-    if not isinstance(reply, dict) or reply.get("front") != window or reply.get("key") is not None:
-        return None
-    _key_now, windows = _main_key(j)
-    if sum(1 for w in windows if w["kind"] == "main") != 1:
-        return None
-    return _page_holds_key(windows)
+    return {"window": window, "reply": reply, "key_window_now": took, "front_before": list(j.smoke_front_before)}
 
 
 def _diagnostic(j):
@@ -155,41 +124,19 @@ def _diagnostic(j):
     return (j.spec.get("options") or {}).get("smoke_mode") == "diagnostic"
 
 
-def _input_tail(j, last=80):
-    """The app's input journal tail (debug.journal: key lines, windowKey, page and focus entries in order) and
-    debug.focus, for a failed key-window check: the order of the key, the key-window change and the check
-    (INVERSE-KEY owner's request, 2026-11-03). Never raises."""
-    out = {}
-    try:
-        out["journal"] = (j.app.rpc("debug.journal", {"last": last}) or {}).get("entries")
-    except (D.StepError, OSError, ValueError) as error:
-        out["journal_error"] = str(error)[:200]
-    try:
-        out["focus"] = j.app.rpc("debug.focus")
-    except (D.StepError, OSError, ValueError) as error:
-        out["focus_error"] = str(error)[:200]
-    return out
-
-
 def step_smoke_type_now(j, step):
     key_now, windows = _main_key(j)
     other = [w for w in windows if w["key"] is True and w["kind"] != "main"]
     if not key_now and other:
         # Another window of the app took the keys (a New Tab page's child window, a panel): the app's bug.
-        error = D.StepError(f"the keys would go to a window that is not a main window: {json.dumps(other)[:300]}")
-        error.detail = dict(_input_tail(j), windows=windows,
-                            last_key_landed=getattr(j, "smoke_last_key_landed", None))
-        raise error
+        raise D.StepError(f"the keys would go to a window that is not a main window: {json.dumps(other)[:300]}")
     waited = None
     if not (getattr(j, "smoke_key_ok", False) and key_now):
         if not any(w["kind"] == "main" for w in windows):
             raise D.StepError(f"the app has no main window to type in: {json.dumps(windows)[:200]}")
         if not _diagnostic(j):
             # The slot's limit, not the build's: report it as not run (the gate counts that as no pass).
-            page = getattr(j, "smoke_key_page", None)
-            how = (f"smoke_make_key found the window's browser page key ({json.dumps(page)}), and no main window is key now"
-                   if page and getattr(j, "smoke_key_ok", False)
-                   else "the window lost key status after smoke_make_key made it key" if getattr(j, "smoke_key_ok", False)
+            how = ("the window lost key status after smoke_make_key made it key" if getattr(j, "smoke_key_ok", False)
                    else f"debug.window.focus said {json.dumps(getattr(j, 'smoke_key_reply', None))[:200]}")
             front = _front_app()
             raise D.NotRun(GAP + f" ({how}; front app {front[0]!r} {front[1] or ''}; windows now {json.dumps(windows)[:200]})")
@@ -198,15 +145,6 @@ def step_smoke_type_now(j, step):
     text = j.sub(step["text"])
     j.hold_from = None  # at once (or, diagnostic, the hold already waited out above)
     sent, replies = D.now(), []
-    if _key_path(j) == "real_hid":
-        _realkey().require_front(j)
-        for char in text:
-            _realkey().press_char(j, char)
-        _realkey().press(j, "return")
-        if step.get("bind"):
-            j.vars[step["bind"]] = text
-        return {"typed": text, "keys": len(text) + 1, "at": round(sent, 3), "at_once": waited is None,
-                "waited_hold_s": waited, "key_path": "real_hid", "send_ms": round((D.now() - sent) * 1000, 1)}
     for char in text:
         replies.append(j.key(char, [], j.key_window))
     replies.append(j.key("return", [], j.key_window))
@@ -218,226 +156,7 @@ def step_smoke_type_now(j, step):
     j.smoke_typed_paths = getattr(j, "smoke_typed_paths", []) + [{"line": text, "paths": paths}]
     return {"typed": text, "keys": len(replies), "at": round(sent, 3), "at_once": waited is None, "waited_hold_s": waited,
             "handled_by": sorted(set(paths)), "first_handled_by": paths[0] if paths else None,
-            "held_keys": paths.count("app"), "key_path": "debug.key"}
-
-
-def _key_path(j):
-    """`key_path=real` (run.py --journey-option, the gate's real-key rounds): the journey's keys are real HID key
-    events through CuaDriver (ext_realkey), the path a person's keyboard takes; else debug.key (into the app's key
-    router, faster, but around the window server, the menu and AppKit: it cannot see the palette's Ctrl-` P0)."""
-    return "real_hid" if (j.spec.get("options") or {}).get("key_path") == "real" else "debug.key"
-
-
-def _realkey():
-    import ext_realkey
-    return ext_realkey
-
-
-_MOD_NAMES = {"cmd": "cmd", "shift": "shift", "opt": "option", "ctrl": "control"}
-
-
-# configString key tokens (ShortcutBindingFormat.configToken) that CuaDriver and debug.key name differently, and
-# the plain tokens both accept: letters, digits, the US punctuation keys, and these names.
-_KEY_TOKENS = {"plus": "=", "minus": "-", "backtick": "`", "grave": "`"}
-_KEY_NAMES = {"left", "right", "up", "down", "home", "end", "pageup", "pagedown", "return", "tab", "escape", "space",
-              "delete"}
-
-
-def _bound_key(j, step):
-    """`command` (an action id, e.g. newColumn): the key the BUILD runs that action with in the journey's window now
-    (Lawrence changes New Column's default off Ctrl-Cmd-D, which macOS's Look Up owns): each live single-stroke row of
-    `keybinding.list {command}` (not `removed`) is checked with `keybinding.resolve {keys, window}`, and the first one
-    whose winner is that command is pressed. Its source must be the build's (default or app): a user or Ghostty
-    binding of the lease's home is the host's, so not run. A build without keybinding.list (method_not_found): the
-    step's own key and modifiers. Any other answer or no key that runs it: not run. Returns (key, modifiers, record)."""
-    if not step.get("command"):
-        return step["key"], list(step.get("modifiers", [])), {"source": "journey"}
-    command = step["command"]
-    try:
-        reply = j.app.rpc("keybinding.list", {"command": command}) or {}
-    except D.StepError as error:
-        if "method_not_found" in str(error) or "unknown method" in str(error).lower():
-            return step["key"], list(step.get("modifiers", [])), {"source": "journey (no keybinding.list)"}
-        raise D.NotRun(f"keybinding.list {command} failed: {str(error)[:200]}")
-    rows = [r for r in reply.get("bindings") or [] if isinstance(r, dict) and r.get("command") == command
-            and r.get("key") and " " not in str(r["key"]) and not r.get("removed")]
-    default_keys = [r["key"] for r in reply.get("bindings") or [] if isinstance(r, dict)
-                    and r.get("command") == command and r.get("source") == "default"]
-    try:
-        window = getattr(j, "key_window", None) or _journey_window(j)  # pin the journey's own window
-    except D.StepError:
-        window = None  # resolve then takes the key window, else the first
-    tried = []
-    for row in rows:
-        try:
-            got = j.app.rpc("keybinding.resolve", dict({"keys": row["key"]}, **({"window": window} if window else {}))) or {}
-        except D.StepError as error:
-            raise D.NotRun(f"keybinding.resolve {row['key']} failed: {str(error)[:200]}")
-        winner = got.get("winner") or {}
-        tried.append({"key": row["key"], "outcome": got.get("outcome"), "winner": winner.get("command"),
-                      "winner_source": winner.get("source")})
-        if got.get("outcome") != "run" or winner.get("command") != command:
-            continue
-        if winner.get("source") not in ("default", "app"):
-            raise D.NotRun(f"{command}'s key {row['key']} comes from a {winner.get('source')} binding of the host, "
-                           f"not the build (defaults {default_keys})")
-        parts = str(row["key"]).split("+")
-        token = _KEY_TOKENS.get(parts[-1], parts[-1])
-        if not (len(token) == 1 or token in _KEY_NAMES):
-            raise D.NotRun(f"{command}'s key {row['key']}: the kit cannot press the key {parts[-1]!r}")
-        mods = [_MOD_NAMES.get(m, m) for m in parts[:-1]]
-        return token, mods, {"source": "build", "binding": row["key"], "binding_source": winner.get("source"),
-                             "defaults": default_keys, "resolved": tried}
-    raise D.NotRun(f"no key runs {command} in the journey's window (defaults {default_keys}; tried {json.dumps(tried)[:300]})")
-
-
-def step_smoke_key(j, step):
-    """The driver's `key` step on the journey's key path (`_key_path`); the result names the path it used. With
-    `command`, the key is the one the build binds to that action (`_bound_key`)."""
-    key, mods, source = _bound_key(j, step)
-    step = dict(step, key=key, modifiers=mods)
-    if _key_path(j) == "debug.key":
-        j.smoke_last_key_landed = None  # a later page-key failure must not name an older real key's landing
-        return dict(j.step_key(step), key_path="debug.key", key_source=source)
-    held = j.before_keys()
-    _realkey().require_front(j)
-    if step.get("mark"):
-        j.marks[step["mark"]] = D.now()
-    seq0 = _journal_seq(j)
-    t = D.now()
-    effect = _realkey().press(j, step["key"], step.get("modifiers", []))
-    sent_ms = round((D.now() - t) * 1000, 1)
-    # A real key returns when CuaDriver posted it, not when the app handled it: wait until the app's input journal
-    # has the key-down, so the next step's check never runs before the app saw the key (INVERSE-KEY owner,
-    # 2026-11-03: a key-window check 7 ms after a posted Ctrl-` saw the page window still key).
-    landed = _await_key_down(j, seq0, step["key"], step.get("modifiers", []), float(step.get("land_timeout", 2.0)), t,
-                             required=not _landing_optional(j, step))
-    j.smoke_last_key_landed = landed
-    return {"key": step["key"], "modifiers": step.get("modifiers", []), "key_path": "real_hid", "cua_effect": effect,
-            "send_ms": sent_ms, "landed": landed, "waited_out_hold_s": held, "key_source": source}
-
-
-# Named keys (Carbon kVK_*) a smoke_key step may press, beside the characters of _KEYCODES.
-_NAMED_KEYCODES = {"return": 36, "tab": 48, "space": 49, "delete": 51, "escape": 53, "left": 123, "right": 124,
-                   "down": 125, "up": 126}
-_MOD_BITS = {"cmd": 1, "command": 1, "shift": 2, "option": 4, "alt": 4, "control": 8, "ctrl": 8}
-
-
-def _landing_optional(j, step):
-    """A real key whose arrival is not required: `land: "optional"`, an `optional` step (a known gap's fallback Escape),
-    or the key of a KNOWN GAP the next step names on the real_hid path (macOS Look Up takes a real Ctrl-Cmd-D before
-    the app sees it, so the journal never has it: the gap, not this wait, judges that key: review FIX at 5f5aa74cc7c)."""
-    if step.get("land") == "optional" or step.get("optional"):
-        return True
-    steps = j.spec.get("steps", []) if isinstance(getattr(j, "spec", None), dict) else []
-    for i, s_ in enumerate(steps):
-        if s_ is step or (s_.get("do") == step.get("do") and s_.get("mark") and s_.get("mark") == step.get("mark")):
-            gap = steps[i + 1].get("known_gap") if i + 1 < len(steps) else None
-            return bool(gap) and gap.get("key_path", "real_hid") == "real_hid" and gap.get("key") == step.get("key") \
-                and sorted(gap.get("modifiers") or []) == sorted(step.get("modifiers") or [])  # as known_gap_of
-    return False
-
-
-def _journal_seq(j):
-    """The input journal's last seq now, or None when the build has no journal (then a key's landing is not waited for)."""
-    rpc = getattr(j.app, "rpc", None)
-    if rpc is None:
-        return None
-    try:
-        reply = rpc("debug.journal", {"last": 5}) or {}
-    except (D.StepError, OSError, ValueError):
-        return None
-    if not isinstance(reply, dict):
-        return None
-    stats = reply.get("stats") if isinstance(reply.get("stats"), dict) else {}
-    if stats.get("enabled") is False:  # an untagged build or CMUX_NEXT_INPUT_JOURNAL=0: no journal to wait on
-        return None
-    if isinstance(stats.get("lastSeq"), int):
-        return stats["lastSeq"]
-    entries = reply.get("entries")
-    if not isinstance(entries, list):
-        return None
-    return max([int(e.get("seq") or 0) for e in entries if isinstance(e, dict)] or [0])
-
-
-def _key_entry(entry):
-    """{phase, keyCode, modifiers (bits)} of a journal key entry (Swift Codable: {"key": {"_0": {...}}}), or None."""
-    kind = entry.get("kind") if isinstance(entry, dict) else None
-    key = kind.get("key") if isinstance(kind, dict) else None
-    if isinstance(key, dict) and isinstance(key.get("_0"), dict):
-        key = key["_0"]
-    if not isinstance(key, dict) or "phase" not in key:
-        return None
-    mods = key.get("modifiers")
-    if isinstance(mods, list):
-        mods = sum(_MOD_BITS.get(str(m).lower(), 0) for m in mods)
-    return {"phase": key.get("phase"), "keyCode": key.get("keyCode"), "modifiers": int(mods or 0)}
-
-
-def _journal_after(j, seq0):
-    """The journal entries after SEQ0: one read of the last 80, and a longer one when those do not reach back to
-    SEQ0 + 1 (a Cmd-N window can add many focus and frame entries after the key: review FIX at 5f5aa74cc7c)."""
-    try:
-        reply = j.app.rpc("debug.journal", {"last": 80}) or {}
-        entries = [e for e in (reply.get("entries") or []) if isinstance(e, dict)]
-        if entries and min(int(e.get("seq") or 0) for e in entries) > seq0 + 1:
-            last = (reply.get("stats") or {}).get("lastSeq") or max(int(e.get("seq") or 0) for e in entries)
-            reply = j.app.rpc("debug.journal", {"last": min(4096, int(last) - seq0)}) or {}
-            entries = [e for e in (reply.get("entries") or []) if isinstance(e, dict)]
-        return entries
-    except (D.StepError, OSError, ValueError, TypeError):
-        return []
-
-
-def _await_key_down(j, seq0, key, modifiers, timeout, t_sent, required=True):
-    """{seq, uptime_ns, wait_ms} of the first key-down in the app's input journal after SEQ0 that is KEY with at
-    least MODIFIERS (key code when the journal keeps it: always for shortcuts and named keys). Raises StepError
-    when it never comes within TIMEOUT s (the app never saw the key). {"journal": "none"} on a build without one."""
-    if seq0 is None:
-        return {"journal": "none"}
-    code = _NAMED_KEYCODES.get(key, _KEYCODES.get(key) if len(key) == 1 else None)
-    want = sum(_MOD_BITS.get(m, 0) for m in modifiers)
-    end = D.now() + timeout
-    while True:
-        for e in _journal_after(j, seq0):
-            if not isinstance(e, dict) or int(e.get("seq") or 0) <= seq0:
-                continue
-            k = _key_entry(e)
-            if not k or k["phase"] != "down" or (k["modifiers"] & want) != want:
-                continue
-            if code is not None and k["keyCode"] is not None and int(k["keyCode"]) != code:
-                continue
-            return {"seq": e.get("seq"), "uptime_ns": e.get("uptimeNanos"), "window": e.get("window"),
-                    "wait_ms": round((D.now() - t_sent) * 1000, 1)}
-        if D.now() >= end:
-            if not required:
-                return {"seen": False, "wait_ms": round((D.now() - t_sent) * 1000, 1)}
-            error = D.StepError(f"the real key {'+'.join(list(modifiers) + [key])} never reached the app's input "
-                                f"journal within {timeout:g} s (posted by CuaDriver; journal after seq {seq0})")
-            error.detail = _input_tail(j)
-            raise error
-        time.sleep(0.01)
-
-
-def step_smoke_type(j, step):
-    """The driver's `type` step (TEXT, then Return with `enter`; `mark` at Return, else at the first key) on the
-    journey's key path; the result names the path it used."""
-    if _key_path(j) == "debug.key":
-        return dict(j.step_type(step), key_path="debug.key")
-    text = j.sub(step["text"])
-    held = j.before_keys()
-    _realkey().require_front(j)
-    if step.get("mark") and not step.get("enter"):
-        j.marks[step["mark"]] = D.now()
-    t = D.now()
-    for ch in text:
-        _realkey().press_char(j, ch)
-    if step.get("enter"):
-        if step.get("mark"):
-            j.marks[step["mark"]] = D.now()
-        _realkey().press(j, "return")
-    return {"typed": text, "keys": len(text) + bool(step.get("enter")), "key_path": "real_hid",
-            "send_ms": round((D.now() - t) * 1000, 1), "waited_out_hold_s": held}
+            "held_keys": paths.count("app")}
 
 
 def _workspace_ids(j):
@@ -530,73 +249,6 @@ def step_smoke_snapshot(j, step):
         j.smoke_snapshots = {}
     j.smoke_snapshots[step["name"]] = snap
     return {"terminals": len(snap["terms"]), "panes": len(snap["panes"]), "focused_pane": snap["focused_pane"]}
-
-
-def cond_smoke_omnibar_drawn(j, want, cache):
-    """The address bar DRAWS the typed address (coordinator 14:0xZ: a gate step asserts what the person sees): text
-    recognition of the address field's own frame, cropped from a fresh window snapshot (kept as check-NN.png), shows
-    a suffix of HOST of at least MIN_SUFFIX (default 6) characters, or HOST itself. A narrow field scrolls to the end
-    of its text and draws only its tail ("‹ample.com"). The field's frame is debug.omnibar's field_frame (its window's
-    coordinates, bottom-left, points), flipped by the window's height (debug.layers) and scaled to the snapshot; no
-    display's coordinates enter the math, so it holds on any display."""
-    import ext_window
-    host, least = want["host"], int(want.get("min_suffix", 6))
-    bar = j.app.rpc("debug.omnibar") or {}
-    frame = bar.get("field_frame") if isinstance(bar, dict) else None
-    editing = bool(isinstance(bar, dict) and (bar.get("editor") or {}))
-    if not (isinstance(frame, list) and len(frame) == 4 and editing):
-        return False, {"error": f"debug.omnibar has no field frame or no field editor: {json.dumps(bar)[:200]}"}
-    # field_frame: the field in its window's coordinates (bottom-left origin, points), so no display enters the math.
-    fx, fy, fw, fh = (float(v) for v in frame)
-    wins = ext_window.windows(j)
-    wid = getattr(j, "key_window", None)
-    win = wins.get(wid) if wid in wins else next(iter(wins.values()), None)
-    if not win or not win.get("frame"):
-        return False, {"error": f"no window frame in debug.layers ({list(wins)[:3]})"}
-    ww, wh = float(win["frame"][2]), float(win["frame"][3])
-    j.checks += 1
-    image = j.app.snapshot(j.out / f"check-{j.checks:02d}.png")
-    width, height = ext_window.png_size(image)
-    scale = width / float(ww)
-    pad = 3
-    top = wh - (fy + fh)  # the field's top edge from the window's top
-    box = [round((fx - pad) * scale), round((top - pad) * scale),
-           round((fw + 2 * pad) * scale), round((fh + 2 * pad) * scale)]
-    x, y = max(0, box[0]), max(0, box[1])
-    box = [x, y, min(box[2], width - x), min(box[3], height - y)]
-    if box[2] <= 0 or box[3] <= 0:
-        return False, {"image": image.name, "error": f"the field frame {frame} is outside the window snapshot",
-                       "window": win["frame"]}
-    lines = ext_window.crop_read(j, image, box, 3)
-    suffixes = [host[i:] for i in range(0, len(host) - least + 1)]
-    hit = next((t for t in suffixes if D.ocr_contains(lines, t)), None)
-    return hit is not None, {"image": image.name, "field_frame": frame, "crop_px": box, "scale": round(scale, 3),
-                             "text": lines[-6:], "matched": hit}
-
-
-def cond_smoke_frame_any(j, want, cache):
-    """A fresh window snapshot (kept as check-NN.png) shows ANY of TEXTS to text recognition. example.com writes its
-    text in 6 languages and centers it (its s.js, 2026-11-01): in a short pane the part on screen can be any of them
-    (bench run 6d639a72684a round 4: the page drawn, scrolled to its Spanish line). Not "Learn more": cmux's own
-    Page Info popover and changelog page also show it."""
-    j.checks += 1
-    image = j.app.snapshot(j.out / f"check-{j.checks:02d}.png")
-    lines = j.app.read_text(image)
-    texts = j.sub(want["texts"])
-    hit = next((t for t in texts if D.ocr_contains(lines, t)), None)
-    return hit is not None, {"image": image.name, "matched": hit, "text": lines[-10:], "lines": len(lines)}
-
-
-def cond_smoke_tabs(j, want, cache):
-    """The topology has NEW more tabs (all panes, all workspaces) than at the smoke_snapshot SINCE (NEW may be 0:
-    back to that count, e.g. after Cmd-T then Cmd-W)."""
-    snap = getattr(j, "smoke_snapshots", {}).get(want["since"])
-    if snap is None:
-        return False, {"error": f"no smoke_snapshot named {want['since']!r} ran before this check"}
-    _terms, tabs = _layout(j)
-    before = sum(len(v) for v in snap["tabs"].values())
-    now = sum(len(v) for v in tabs.values())
-    return now - before == int(want["new"]), {"tabs_before": before, "tabs_now": now, "want_new": int(want["new"])}
 
 
 def cond_smoke_new_terminals(j, want, cache):
@@ -716,21 +368,9 @@ def cond_smoke_frame(j, want, cache):
 def _main_key(j):
     """(a main window is the app's key window, the app's windows): a read (debug.window_list), never a focus."""
     report = j.app.rpc("debug.window_list") or {}
-    windows = [{"id": w.get("id"), "kind": w.get("kind"), "key": w.get("key"), "visible": w.get("visible"),
-                "parent": w.get("parent")}
+    windows = [{"id": w.get("id"), "kind": w.get("kind"), "key": w.get("key"), "visible": w.get("visible")}
                for w in report.get("windows", []) if isinstance(w, dict)]
     return any(w["key"] is True and w["kind"] == "main" for w in windows), windows
-
-
-def _page_holds_key(windows):
-    """{"page": id, "of_main": id} when the key window is a visible Chromium page window (`CefNSWindow`) that is the child
-    of a main window of the app, else None. That is how the app gives a page the keyboard: the page window sits in the
-    cmux window as a child and takes key, and the cmux window stays main (ChromiumPageWindowMain, WindowKeyFamily)."""
-    mains = {w["id"] for w in windows if w["kind"] == "main"}
-    for w in windows:
-        if w["key"] is True and w["kind"] == "CefNSWindow" and w["visible"] is True and w["parent"] in mains:
-            return {"page": w["id"], "of_main": w["parent"]}
-    return None
 
 
 def cond_smoke_panes(j, want, cache):
@@ -798,14 +438,8 @@ def cond_smoke_key_window(j, want, cache):
     window of the app is key because a foreign app that was frontmost before the journey is front again (a system
     prompt left on the mini's console), the check is not judged: it holds for this step (so the step's other checks
     are still judged) and records the gap; smoke-gate.py then makes a passed round "not run", never a pass. A non-main
-    app window key, the app front with no key window, or a foreign app that appeared during the journey fails.
-    {"page": true}: a step that leaves a Chromium page focused (Cmd-T's New Tab page) also holds when that page's window,
-    a visible child of a main window, is key (_page_holds_key); every other step wants the main window itself key."""
+    app window key, the app front with no key window, or a foreign app that appeared during the journey fails."""
     key_now, windows = _main_key(j)
-    if not key_now and (want or {}).get("page"):
-        holder = _page_holds_key(windows)
-        if holder:
-            return True, {"windows": windows, "holder": holder}
     if not key_now and _diagnostic(j) \
             and not any(w["key"] is True for w in windows) and any(w["kind"] == "main" for w in windows):
         # Diagnostic on a slot: the app is never the active app there, so its window may be key for a moment
@@ -1623,10 +1257,6 @@ def step_smoke_burst(j, step):
     the hold paths' counts before and after (debug.input late_keys holds, on builds that have it)."""
     if not getattr(j, "smoke_key_ok", False):
         raise D.NotRun(GAP + " (smoke_burst posts real key events to the key window)")
-    if getattr(j, "smoke_key_page", None):
-        # The sequence goes to the key window: a page window there would take keys meant for the terminals.
-        raise D.NotRun(GAP + f" (smoke_burst needs the journey window itself key; a browser page has the keys: "
-                             f"{json.dumps(j.smoke_key_page)})")
     gap = float(step.get("gap_ms", 0))
     steps = []
     for item in step["burst"]:
@@ -1662,11 +1292,11 @@ def step_smoke_burst(j, step):
     return {"steps": len(steps), "reply": reply, "held_keys": held}
 
 
-STEPS = {"smoke_key": step_smoke_key, "smoke_type": step_smoke_type, "smoke_burst": step_smoke_burst, "smoke_wait_new_view": step_smoke_wait_new_view, "smoke_creation": step_smoke_creation, "smoke_hold_path": step_smoke_hold_path, "smoke_no_key_gaps": step_smoke_no_key_gaps, "smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
+STEPS = {"smoke_burst": step_smoke_burst, "smoke_wait_new_view": step_smoke_wait_new_view, "smoke_creation": step_smoke_creation, "smoke_hold_path": step_smoke_hold_path, "smoke_no_key_gaps": step_smoke_no_key_gaps, "smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
          "smoke_remember_workspaces": step_smoke_remember_workspaces, "smoke_close_all": step_smoke_close_all,
          "smoke_snapshot": step_smoke_snapshot, "smoke_adopt_line": step_smoke_adopt_line,
          "smoke_long_line": step_smoke_long_line, "smoke_widths": step_smoke_widths}
-CONDITIONS = {"smoke_frame_any": ("frame", cond_smoke_frame_any), "smoke_omnibar_drawn": ("frame", cond_smoke_omnibar_drawn), "smoke_tabs": ("app", cond_smoke_tabs), "smoke_workspaces": ("app", cond_smoke_workspaces), "smoke_key_window": ("app", cond_smoke_key_window),
+CONDITIONS = {"smoke_workspaces": ("app", cond_smoke_workspaces), "smoke_key_window": ("app", cond_smoke_key_window),
               "smoke_app_lines": ("app", cond_smoke_app_lines), "smoke_daemon_lines": ("daemon", cond_smoke_daemon_lines),
               "smoke_new_terminals": ("daemon", cond_smoke_new_terminals), "smoke_frame": ("frame", cond_smoke_frame),
               "smoke_panes": ("app", cond_smoke_panes), "smoke_r3": ("daemon", cond_smoke_r3),

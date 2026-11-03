@@ -33,13 +33,12 @@ leo-workspace `tools/reach --install`). On a machine without it, name them:
 `--hosts "cmux17 cmux18 cmux19 cmux21 cmux22 cmux23 cmux24"` (sets `CAPTURE_HOST_SLOT_HOSTS`).
 `JOURNEYS_EXCLUDE_HOSTS` (default `cmux16`) are never leased.
 
-Output, in `artifacts/journeys/<job12>-<run id>/` (or `--out`, which must be a new folder):
+Output, in `artifacts/journeys/<job12>-<UTC time>/` (or `--out`):
 
 - `results.jsonl`: one line per journey: `id`, `priority`, `status` (`pass`, `fail` or
   `not run`), `reason`, `evidence` (each check with its result, its time from the mark and
   what it saw), `clip`, `checks` (the frames the checks read), `build_job`, `commit`, `tag`,
-  `host`, `path`, `nonce`, `run_at`, `run_id`, `run_started_at`, `harness`;
-- `run.json`: the run id (`<UTC time>-<8 hex>`), its start time and the harness checkout;
+  `host`, `path`, `nonce`, `run_at`;
 - `<id>/result.json`: the full record (every step and its reply, every check's detail);
 - `<id>/check-NN.png`: each frame a `frame_text` check read (full size);
 - `<id>/clip.mp4` (with ffmpeg) or `<id>/clip.png` (an animated PNG, about a frame a second;
@@ -47,38 +46,6 @@ Output, in `artifacts/journeys/<job12>-<run id>/` (or `--out`, which must be a n
 
 Exit 0 when every selected journey passed, 1 when one failed, 75 when none failed but one did
 not run.
-
-### One run, one folder; only its own results (STATUS 1362)
-
-On 2026-10-31 an R3 round whose relaunch failed reported the `result.json` an older round had
-left in its reused folder. So:
-
-- Each run writes a new folder. An `--out` folder that holds an earlier run's files makes every
-  journey `not run`; the earlier `results.jsonl`, `run.json` and `<id>/` folders are kept beside,
-  named with this run's id (`results.jsonl.earlier-<this run id>`, `<id>.old-<time>-<pid>`).
-- The driver writes the run id and run start into each `result.json`. `run.py` takes no
-  `result.json` without both (`not run`, reason `stale or foreign result: ...`) and moves that
-  folder aside as `<id>.foreign-<this run id>`.
-- A lease whose launch (or a capture-host wrapper's relaunch) or set-up fails before the driver
-  starts is `not run` with that reason; `run.py` reads no result then.
-
-### Run fleet rounds from a pinned checkout
-
-`run.py` loads the journey specs at its start and packs `driver.py`, `ext_*.py`, `smoke_hog.py`,
-`build_names.py` and the text reader's source from disk at each lease. Run fleet rounds only from a pinned, reviewed checkout, never from the
-worktree you edit in:
-
-```bash
-git worktree add --detach ../journeys-run REVIEWED_SHA   # move it only to a reviewed sha
-cd ../journeys-run && python3 scripts/journeys/run.py --build JOB ...
-```
-
-`run.py` reads `git status` of `scripts/journeys`, `scripts/cmux-next/build_names.py` and
-`scripts/ci/pr_media_ocr.swift` at the start and at each lease. A result from uncommitted
-harness files, or from a checkout whose commit moved during the run, is `not run`
-(`harness: unpinned (...)`), in `results.jsonl` and in `result.json`; the journey's own status
-stays in the `harness` record (`commit`, `dirty`, `detached`, `pinned`, `status`), and a step
-group's report (`fuzz.json`) is renamed `fuzz.json.unpinned`. That record names the harness commit of every result.
 
 ## How it runs (what it reuses)
 
@@ -143,7 +110,7 @@ how long it may take (it plans the leases). Copy `journeys/p0/type.json` (the sm
 | `key` | `key`, `modifiers`, `mark` | one `debug.key` (`modifiers`: `control`, `shift`, `option`, `cmd`; named keys: `return`, `escape`, `tab`, `space`, `up`, `down`, `left`, `right`, `delete`, `pageup`, ...) |
 | `rpc` | `method`, `params` | one control-socket request (set-up the person does through UI the driver cannot click yet) |
 | `wait` | `seconds` | only when nothing observable can be waited on |
-| `expect` | `all`, `since`, `within`, `timeout`, `settle`, `title`, `known_gap`? | polls every condition in `all` (about every 50 ms plus the reads) until all hold or `timeout` seconds pass; `settle`: the negative conditions must keep holding that many more seconds |
+| `expect` | `all`, `since`, `within`, `timeout`, `settle`, `title` | polls every condition in `all` (about every 50 ms plus the reads) until all hold or `timeout` seconds pass; `settle`: the negative conditions must keep holding that many more seconds |
 | `mouse` | `action`, `dx`, `dy`, `phase`, `modifiers`, `button`, `count`, `interval`, `mark` | `debug.mouse` at the center of the journey's pane, `count` times: `scroll` (default; `dy` > 0 is a wheel turned up, toward older rows), `click`, `double_click` |
 | `select_text` | `text`, `how`, `occurrence`, `mark` | selects TEXT where the pane shows it, with the pointer: `drag` (default: press on its first cell, drag to its last) or `double_click` (a word); the cells come from the pane's viewport text and grid (`debug.surfaces`) |
 | `clipboard_set` | `text` or `lines` (`format`, `count`, `start`) | set-up: puts the text on the Mac's general pasteboard (what Cmd+V reads; `pbcopy`) and reads it back; binds `${clip_sha}` (sha256) and `${clip_lines}` |
@@ -250,20 +217,6 @@ runs a hold reported), `spam_unchanged` (negative: nothing changed after the key
 `spam_selected` (the selection moved N places, for Ctrl-Tab and Cmd-Shift-[ ]), `spam_runs`. The docstring has
 every field. The 10x slow-motion clips need the Motion Inspector (cp/motion-inspector-N) in the build.
 
-`ext_routing.py` (group focus and input routing, `journeys/dogfood/routing-*.json`, written by
-`routing/gen.py`; VIDEO EXTRA item 5) asks where a person's typed text lands after an action that moves the
-focus (Cmd-N then Ctrl-\`, Cmd-D, Cmd-W, a click while a split animates, Cmd-1..8, a tab switch). Each attempt
-types a unique marker line at once with real HID keys (`key_path=real`, `smoke_type_now`). Condition
-`routing_marker`: the line ran on exactly the expected terminal (a named one, the one new since a snapshot, or
-the focused one) and no other, and the app shows it in that pane; its detail names the verdict (`right`, `wrong`,
-`lost`, `split`, or `unjudged` when the harness cannot name one expected terminal). Steps: `routing_click` (a real
-click inside a named pane while it animates), `routing_map_workspace_keys` (set-up: the app's own Cmd-digit of each
-named workspace) and `routing_select_workspace`. `routing/tally.py RUN_DIR...` tallies the verdicts.
-
-`ext_typing.py` (VIDEO EXTRA item 1) types N real HID keys at a person's pace (`typing_keys`) and records each
-key's post time on the host clock of the HARNESS kit's frames.json; `typing/judge.py` counts the display
-refreshes from each key to the first frame that shows its glyph, from the kit's movie.
-
 `ext_window.py` (group window-pane-resize) adds pointer and window steps. Drags go through
 `debug.mouse`: a press, one drag event per 60 Hz frame with the button held, a release, so
 AppKit's live-resize tracking or the layout's divider drag reads them as it reads a person's drag.
@@ -341,16 +294,13 @@ when `journeys/dogfood/smoke-dogfood.json` passed every round (10 of 10). Each r
   fleet step runs there during the round (the fleet rule for evidence).
   The perf minis are owner-only for pool `perf-lead`, so the gate sets `CAPTURE_HOST_POOL=perf-lead`
   (capture-host passes it as `--owner-pool`; hq #5153: an older hq-tools install gets HTTP 409).
-- `--hog-swap-gb`: the Austin's-day memory hog (`smoke_hog.py`, from feat's
-  `scripts/cmux-next/austins-day/hog.py`) holds incompressible memory until swap used is that much
-  above the start (or 0.9 of physical memory), then a wired (mlock) part, at most half of physical
-  memory, holds `kern.memorystatus_level` at its target (16); at the floor (12) it gives memory back,
-  wired first, until 20. It ends by its own deadline; run.py starts it before the download and launch
-  (at least 45 s before the journey) and stops it by its pid. Why the wired part: on macOS that level
-  counts active and inactive pages as free, so swappable memory alone left it at 21-47 on the 16 GB
-  minis (SMOKE ENV "no memory pressure", 2026-11-02). The gate counts a round only when its hog log
-  shows pressure (at least 4 GB held and swap +15 GB or the level down to 20), and reports what each
-  round reached (level, kernel pressure level, wired size).
+- `--hog-swap-gb`: the Austin's-day memory hog (`smoke_hog.py`, a copy of feat's
+  `scripts/cmux-next/austins-day/hog.py` until perf has it) holds incompressible memory until swap
+  used is that much above the start, gives memory back near the edge, and ends by its own
+  deadline; run.py starts it before the download and launch (at least 45 s before the journey)
+  and stops it by its pid. A 16 GB mini may reach its free-memory edge before +15 GB of swap; the
+  gate counts a round only when its hog log shows pressure (at least 4 GB held and swap +15 GB or
+  `kern.memorystatus_level` down to 20), and reports what each round reached.
 
 The journey (group `ext_smoke.py`): Cmd-N then Ctrl-\` three times (three workspaces, each with a
 terminal: a person's Cmd-N shows the New Tab page; Ctrl-\` comes as soon as the workspace shows,
@@ -418,14 +368,9 @@ round is then "not run" (never a pass), unless a later step fails. The last step
 (keys into a terminal while it is created). A capture slot's window is never key
 (`CMUX_NEXT_NO_ACTIVATE`), and held keys are replayed through `NSApplication.sendEvent`, which
 reaches only the key window. So the journey first makes its window key without activating the
-app (`smoke_make_key`: `debug.window.focus`, which calls `makeKey()` and reports the key window;
-when the journey window is in front, the reply says key null and the key window is a visible `CefNSWindow` child of
-the app's only main window, the window's restored browser page has the keys, and that also counts),
+app (`smoke_make_key`: `debug.window.focus`, which calls `makeKey()` and reports the key window),
 and each check and each type-at-once step reads that a main window is still key
 (`smoke_key_window`, `debug.window_list`; not key before typing: known gap).
-A step that leaves a Chromium page focused (Cmd-T's New Tab page) says `smoke_key_window {"page": true}`:
-the page's `CefNSWindow`, a visible child of the cmux window, then holds the keys, as the app is built to do
-(`ChromiumPageWindowMain`). Every other step wants the main window itself key.
 If the window did not become key, the round is "not run: known gap", which never passes the gate.
 `smoke-gate.py --whole-host HOST` takes that mini whole (exclusive) and launches the app active
 (`capture-host launch --activate`; the driver's relaunch then opens it in front too), so its window
@@ -439,35 +384,6 @@ showed no memory pressure), DIAGNOSTIC (`--diagnostic`: where the slot has no ke
 typed after the creation hold, every other check runs and is counted per round; never a `.pass`). A round counts only with its own fresh results for this build; `--out`
 must be a new folder. Writes `summary.json` and `summary.txt`. Test:
 `python3 scripts/journeys/test_smoke_gate.py`.
-
-### The daemons must be the build under test
-
-The cmux-tui owner and the acpmux daemon outlive the app, so a round can run a new app against an older daemon
-(#27829). At the end of each journey the driver records, in result.json's `daemons`, the build under test (the
-bundle's `cmux --version --json` build_identity) and, for the cmux-tui owner the app is connected to (`identify`:
-pid, build_id, cli_path) and the acpmux daemon it runs (`agent.acpmux` socket, the server's `initialize` `_meta.acpmux.build`
-and its executable), each one's pid, executable and build. The daemons are sampled after the journey's first step, after each
-relaunch and at the end. A pass or a fail is "not run" when any sample shows a daemon of another binary or another
-build. When the cmux-tui owner cannot be verified at the end (no answer), a pass is "not run" but a FAIL stays a
-FAIL, with the facts in its reason: a daemon that died, hung or quit during the round is the finding. bin/acpmux
-of the same bundle (a symlink, hard link or copy of bin/cmux) is the build; no acpmux running is fine. Tests:
-`test_daemon_skew.py`.
-
-### Real HID keys in the gate (`key_path=real`)
-
-`debug.key` enters the app's key router directly: it skips the window server, AppKit, the menu's key equivalents
-and the responder chain, so a bug there (with the command palette open, a real Ctrl-` made no terminal, STATUS
-1456) cannot fail the gate. So each gate run types at least 2 of its 10 rounds (rounds 1 and 6) with REAL key
-events: `--journey-option key_path=real` makes the smoke journey's `smoke_key`, `smoke_type` and `smoke_type_now`
-steps send each key through one CuaDriver MCP session (`press_key` / `hotkey` with scope desktop: a key event
-posted to the window server's HID stream, which goes to the frontmost app as a keyboard's does; about 11 ms a key,
-where the window-targeted modes front and restore the window for every key, about 0.4 s), Cmd-N, Ctrl-`, Cmd-D,
-Cmd-T, Cmd-W and every typed line included. Before each key or line the app must be the frontmost app
-(lsappinfo); another app in front is not run (the host's limit). Real keys need a whole-host lease (`--whole-host`); without one a run has no real-key rounds and is a
-trial. Each step's `key_path` in result.json says which path its keys took (`real_hid` or `debug.key`; relaunch's
-Cmd-Q stays `debug.key`). A real-key round whose basic keys did not all take `real_hid` is not run; a .pass needs
-the real-key rounds to pass. A key CuaDriver refuses is not run, never a red of the build. `--real-key-rounds N`
-asks for more.
 
 ### Open P0 journeys block the .pass
 
@@ -533,13 +449,3 @@ live resize broken because no agent typed in a terminal or resized a window befo
 over; v2 dropped both fixes; many PASS results were pixels-changed, blank frames or fixture text;
 and the author judged its own work. Each P0 journey and the gate exist to make those mistakes
 impossible to repeat.
-
-### A named known gap (`known_gap` on a step)
-
-A step may carry `known_gap: {name, ref, why, key_path (default real_hid), fallback: [steps]}`. When that step fails
-right after a step that took `key_path`, the driver records it as `KNOWN GAP: <name> (<ref>), not a result` (ok
-null, its evidence set aside), runs the `fallback` steps (a step with `optional: true` may fail; any other fallback
-failure is a real result), and goes on. The journey is then never a pass: with no later failure it is `not run`
-naming the gap; with one, it is `fail` naming that later step. On any other key path the step is an ordinary check.
-Used by the smoke journey for the New Column real key (STATUS 1712/1724) until KEY SET A (#29866) or B (#29867).
-

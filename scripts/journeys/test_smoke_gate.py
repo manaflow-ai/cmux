@@ -27,40 +27,16 @@ R3 = [st["title"] for st in json.load(open(os.environ["SMOKE_JOURNEY"]))["steps"
       if st.get("do") == "expect" and str(st.get("title", "")).startswith("R3")]
 args = sys.argv[1:]
 out = args[args.index("--out") + 1]
-journey = args[args.index("--journey") + 1]
-if journey != "smoke-dogfood":  # a golden video case (VIDEO EXTRA item 9): SMOKE_GOLDEN_PLAN {case: pass|fail|smoke-env|crash|other-build}
-    status = json.loads(os.environ.get("SMOKE_GOLDEN_PLAN", "{}")).get(journey, "pass")
-    open(os.path.join(os.path.dirname(out), "golden-calls.txt"), "a").write(journey + "\n")
-    if status == "crash":  # run.py died before it wrote results (an unknown journey, a traceback)
-        print("Traceback: boom", file=sys.stderr)
-        sys.exit(2)
-    os.makedirs(os.path.join(out, journey), exist_ok=True)
-    env_rec = {"do": "env_windows", "result": {"smoke_env": status == "smoke-env", "windows": []}}
-    json.dump({"steps": [env_rec, env_rec]}, open(os.path.join(out, journey, "result.json"), "w"))
-    row = {"id": journey, "status": "fail" if status == "fail" else "pass", "host": "cmux99",
-           "reason": "step 9 (expect): Cmd-1 showed window 1's Home in window 2" if status == "fail" else "",
-           "build_job": "otherjob" if status == "other-build" else os.environ.get("SMOKE_BUILD", "job123"),
-           "harness": {"commit": "abc123", "dirty": [], "detached": True,
-                       "pinned": os.environ.get("SMOKE_GOLDEN_PINNED", "yes") == "yes"}}
-    open(os.path.join(out, "results.jsonl"), "w").write(json.dumps(row) + "\n")
-    open(os.path.join(out, "argv.json"), "w").write(json.dumps(args))
-    open(os.path.join(out, "env.json"), "w").write(json.dumps({k: os.environ.get(k) for k in
-        ("CAPTURE_HOST_POOL", "CAPTURE_HOST_HOSTS", "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS")}))
-    print("leased cmux99")
-    sys.exit(0)
 os.makedirs(os.path.join(out, "smoke-dogfood"), exist_ok=True)
 n = int(os.path.basename(out).split("-")[1])
 plan = json.loads(os.environ["SMOKE_PLAN"])
-status = plan[n - 1] if n <= len(plan) else plan[-1]
-idle = status in ("pass-idle", "pass-idle-nor3")  # a pass whose hog log shows no pressure (this attempt only)
-no_r3 = status == "pass-idle-nor3"  # ... and whose journey reached none of the R3 checks (a FAIL under pressure)
-status = "pass" if idle else status
+status = plan[n - 1]
 row = {"id": "smoke-dogfood", "status": status, "reason": "", "host": "cmux99",
        "build_job": os.environ.get("SMOKE_BUILD", "job123")}
 if status == "silent":  # run.py stopped before it wrote results
     sys.exit(3)
 if os.environ.get("SMOKE_HOG", "edge") != "none":
-    level = 15 if os.environ.get("SMOKE_HOG", "edge") == "edge" and not idle else 60
+    level = 15 if os.environ.get("SMOKE_HOG", "edge") == "edge" else 60
     with open(os.path.join(out, "hog-slot-cmux99-abc.jsonl"), "w") as f:
         for t in range(40):
             f.write(json.dumps({"t": t, "held_mb": 9000, "swap_used_mb": 1000 + t * 10, "level": level}) + "\n")
@@ -69,33 +45,16 @@ if status == "gap":
 if status == "fail":
     json.dump({"steps": [{"do": "smoke_type_now", "ok": False, "error": "keys lost"}]},
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
-GAP = "KNOWN GAP: New Column real key (STATUS 1712/1724), not a result"
-if status == "newcol-gap":  # the driver's record of a round whose only fault is the known gap (every later step passed)
-    row["status"], row["reason"] = "not run", f"step 43: {GAP}; every later step passed"
-    json.dump({"steps": [{"index": 42, "do": "smoke_key", "ok": True, "key_path": "real_hid"},
-                         {"index": 43, "do": "expect", "ok": None, "known_gap": GAP, "error": "smoke_same_widths never held"},
-                         {"index": 43, "do": "action", "ok": True, "fallback_of": 43},
-                         {"index": 46, "do": "expect", "ok": True}]},
-              open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
-if status == "newcol-gap-then-fail":  # ... and a new failure after it
-    row["status"], row["reason"] = "fail", f"step 49 (expect): split down broke (after step 43: {GAP})"
-    json.dump({"steps": [{"index": 42, "do": "smoke_key", "ok": True, "key_path": "real_hid"},
-                         {"index": 43, "do": "expect", "ok": None, "known_gap": GAP, "error": "smoke_same_widths never held"},
-                         {"index": 49, "do": "expect", "ok": False, "error": "smoke_same_widths {\"since\": \"cols3\"} never held"}]},
-              open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
-opts = [args[i + 1] for i, a in enumerate(args) if a == "--journey-option"]
-real = "key_path=real" in opts and os.environ.get("SMOKE_REAL_PATH", "real_hid") != "none"
-if status == "pass" and not [o for o in opts if o != "key_path=real"]:
+if status == "pass" and "--journey-option" not in args:
     late = os.environ.get("SMOKE_LATE") == "yes"
-    path = os.environ.get("SMOKE_REAL_PATH", "real_hid") if "key_path=real" in opts else "debug.key"
     typed = [] if os.environ.get("SMOKE_LATE") == "none" else [{"index": 7, "do": "smoke_type_now", "ok": True,
-                                                                 "result": {"at_once": not late}, "key_path": path}]
+                                                                 "result": {"at_once": not late}}]
     r3 = os.environ.get("SMOKE_R3", "all")  # all | none | r3b-failed | one-r3b | renamed | duplicated
     checks = [(title, not (r3 == "r3b-failed" and title.startswith("R3b: Cmd-D"))) for title in R3]
-    if r3 == "none" or no_r3:
+    if r3 == "none":
         checks = []
     if r3 == "one-r3b":
-        checks = [c for c in checks if not c[0].startswith("R3b: New Column's key (the build's binding) adds")]
+        checks = [c for c in checks if not c[0].startswith("R3b: New Column's key (Ctrl-Cmd-D) adds")]
     if r3 == "renamed":
         checks = [("R3b: Split Down, renamed", True) if c[0].startswith("R3b: Cmd-Shift-D") else c for c in checks]
     if r3 == "duplicated":
@@ -107,8 +66,8 @@ if status == "pass" and not [o for o in opts if o != "key_path=real"]:
                 if os.environ.get("SMOKE_KEY_GAP") == "yes" else [])
     json.dump({"steps": typed, "evidence": evidence},
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
-if [o for o in opts if o != "key_path=real"]:
-    open(os.path.join(out, "options.txt"), "w").write([o for o in opts if o != "key_path=real"][0])
+if "--journey-option" in args:
+    open(os.path.join(out, "options.txt"), "w").write(args[args.index("--journey-option") + 1])
     json.dump({"steps": [{"index": 5, "do": "expect", "title": "Cmd-D twice fast", "ok": status == "pass",
                           "error": "" if status == "pass" else "no new pane"}]
                         + ([{"do": "expect", "title": t, "ok": True} for t in R3] if status == "pass" else [])},
@@ -124,16 +83,6 @@ open(os.path.join(out, "env.json"), "w").write(json.dumps({k: os.environ.get(k) 
 '''
 
 
-def write_spec(tmp, rounds, taken=0, name=None):
-    """A scheduler spec (tmp/specs/<name>.json) that offers ROUNDS GOs, TAKEN of them already counted."""
-    os.makedirs(os.path.join(tmp, "specs"), exist_ok=True)
-    for spec in ([name] if name else ["spec-x", "g", "s"]):
-        json.dump({"kind": "lease-round", "rounds": rounds}, open(os.path.join(tmp, "specs", f"{spec}.json"), "w"))
-    if taken:
-        json.dump({"specs": {spec: {"rounds_taken": taken} for spec in ([name] if name else ["spec-x", "g", "s"])}},
-                  open(os.path.join(tmp, "state.json"), "w"))
-
-
 def gate(plan, tmp, extra=(), env_extra=None, rounds=None):
     runner = os.path.join(tmp, "fake_run.py")
     with open(runner, "w") as f:
@@ -141,9 +90,7 @@ def gate(plan, tmp, extra=(), env_extra=None, rounds=None):
     env = {k: v for k, v in os.environ.items() if not k.startswith("CAPTURE_HOST_")}
     if not os.path.exists(os.path.join(tmp, "open-p0.txt")):
         open(os.path.join(tmp, "open-p0.txt"), "w").write("# no open P0 journeys\n")
-    env.update({"SMOKE_GATE_OPEN_P0": os.path.join(tmp, "open-p0.txt"), "JOURNEYS_P0_LEDGER": os.path.join(tmp, "ledger"),
-                "SMOKE_GATE_VIDEO_GOLDENS": os.path.join(tmp, "video-goldens.txt"),
-                "SMOKE_GATE_GOLDEN_LEDGER": os.path.join(tmp, "golden-ledger")})
+    env.update({"SMOKE_GATE_OPEN_P0": os.path.join(tmp, "open-p0.txt"), "JOURNEYS_P0_LEDGER": os.path.join(tmp, "ledger")})
     env.update({"SMOKE_PLAN": json.dumps(plan), "SMOKE_GATE_CMUX_CI": "/bin/false",
                 "SMOKE_JOURNEY": str(HERE / "journeys" / "dogfood" / "smoke-dogfood.json"), **(env_extra or {})})
     done = subprocess.run([sys.executable, str(GATE), "--build", "job123", "--rounds", str(rounds or len(plan)), "--runner", runner,
@@ -156,7 +103,7 @@ def gate(plan, tmp, extra=(), env_extra=None, rounds=None):
 class Verdicts(unittest.TestCase):
     def test_pass_needs_every_round_and_a_committed_gate(self):
         with tempfile.TemporaryDirectory() as tmp:
-            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"))
+            code, summary = gate(["pass"] * 10, tmp)
             self.assertEqual(summary["verdict"], "PASS")
             self.assertTrue(summary["rounds_detail"][0]["pressure"]["ok"])
             with open(os.path.join(tmp, "out", "round-01", "env.json")) as f:
@@ -204,7 +151,7 @@ class Verdicts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             code, summary = gate(["pass"] * 9 + ["fail"], tmp, ("--diagnostic",))
             self.assertEqual((code, summary["verdict"], summary["gate_run"]), (1, "DIAGNOSTIC (NOT JUDGED)", False))
-            self.assertEqual(summary["expects"]["Cmd-D twice fast"], {"reached": 10, "passed": 9, "failed": 1, "known_gap": 0,
+            self.assertEqual(summary["expects"]["Cmd-D twice fast"], {"reached": 10, "passed": 9, "failed": 1,
                                                                       "not_judged": 0, "errors": ["round 10: no new pane"]})
             with open(os.path.join(tmp, "out", "round-01", "options.txt")) as f:
                 self.assertEqual(f.read(), "smoke_mode=diagnostic")
@@ -233,10 +180,9 @@ class Verdicts(unittest.TestCase):
         panes, checked = 1, 0  # ws3: one pane (its New Tab page and its Ctrl-` terminal are tabs of it)
         for st in steps[start:]:
             mods = st.get("modifiers") or []
-            is_key = st.get("do") in ("key", "smoke_key")
-            if is_key and st.get("key") == "n" and mods == ["cmd"]:
+            if st.get("do") == "key" and st.get("key") == "n" and mods == ["cmd"]:
                 break  # a new workspace: the counts below are another workspace's
-            if (is_key and st.get("key") == "d") or (st.get("do") == "action" and st.get("action") == "newColumn"):
+            if (st.get("do") == "key" and st.get("key") == "d") or (st.get("do") == "action" and st.get("action") == "newColumn"):
                 panes += 1
             for cond in st.get("all", []):
                 if "smoke_panes" in cond:
@@ -247,7 +193,7 @@ class Verdicts(unittest.TestCase):
     def test_a_round_that_did_not_reach_or_pass_every_resize_check_is_no_pass(self):
         for r3, want in (("none", "R3a split resize: the right pane is wider"),
                          ("r3b-failed", "R3b: Cmd-D (Split Right) splits the pane inside its own column and every...: failed"),
-                         ("one-r3b", "R3b: New Column's key (the build's binding) adds a column"),
+                         ("one-r3b", "R3b: New Column's key (Ctrl-Cmd-D) adds a column"),
                          ("renamed", "R3b: Cmd-Shift-D (Split Down) adds no column"),
                          ("duplicated", "recorded 2 times")):
             with tempfile.TemporaryDirectory() as tmp:
@@ -255,37 +201,6 @@ class Verdicts(unittest.TestCase):
                 self.assertEqual((code, summary["verdict"], summary["passed"]), (1, "FAIL", 0), r3)
                 self.assertIn(want, summary["rounds_detail"][0]["reason"], r3)
                 self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
-
-    def test_the_new_column_known_gap_is_its_own_line_and_never_a_pass(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            code, summary = gate(["newcol-gap"] + ["pass"] * 9, tmp)
-            self.assertEqual((code, summary["verdict"], summary["passed"]), (75, "NOT JUDGED", 9))
-            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
-            text = open(os.path.join(tmp, "out", "summary.txt")).read()
-            self.assertIn("KNOWN GAP: New Column real key (STATUS 1712/1724), not a result: rounds 1 (step 43)", text)
-            self.assertIsNone(summary["rounds_detail"][0]["failing_step"])
-
-    def test_a_failure_after_the_new_column_known_gap_is_the_round_s_named_failure(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            code, summary = gate(["newcol-gap-then-fail"] + ["pass"] * 9, tmp)
-            self.assertEqual((code, summary["verdict"]), (1, "FAIL"))
-            r = summary["rounds_detail"][0]
-            self.assertEqual(r["failing_step"]["do"], "expect")
-            self.assertIn("cols3", r["failing_step"]["error"])
-            text = open(os.path.join(tmp, "out", "summary.txt")).read()
-            self.assertIn("first failure after the KNOWN GAP at step 43: step 49 expect:", text)
-
-    def test_every_real_new_column_key_check_has_the_known_gap_and_a_fallback(self):
-        with open(HERE / "journeys" / "dogfood" / "smoke-dogfood.json") as f:
-            steps = json.load(f)["steps"]
-        keyed = [i for i, st in enumerate(steps) if st.get("do") == "smoke_key" and st.get("command") == "newColumn"]
-        self.assertEqual(len(keyed), 2)
-        for i in keyed:
-            gap = steps[i + 1].get("known_gap")
-            self.assertTrue(gap and gap["key_path"] == "real_hid" and gap["ref"] == "STATUS 1712/1724", i)
-            self.assertEqual([s["do"] for s in gap["fallback"]], ["smoke_key", "wait", "expect", "action", "expect"])
-            self.assertEqual(gap["fallback"][3]["action"], "newColumn")
-            self.assertEqual((gap["key"], gap["modifiers"], gap["problems"]), ("d", ["control", "cmd"], ["0 new columns, not 1"]))
 
     def test_a_passed_round_with_a_key_gap_is_not_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -329,46 +244,6 @@ class Verdicts(unittest.TestCase):
                 code, summary = gate(["pass"] * 10, tmp, env_extra={"SMOKE_HOG": hog})
                 self.assertEqual((code, summary["verdict"], summary["passed"]), (75, "NOT JUDGED", 0))
                 self.assertIn("no memory pressure", summary["rounds_detail"][0]["reason"])
-                # Each slot's no-pressure round is run again, at most --rounds times in all; then the rest stay not run.
-                self.assertEqual((len(summary["rounds_detail"]), len(summary["replaced_rounds"]), summary["not_run"]), (20, 10, 10))
-
-    def test_a_round_without_pressure_is_run_again_in_its_slot(self):
-        plan = ["pass-idle", "pass", "pass", "pass", "pass", "pass-idle", "pass", "pass", "pass", "pass", "pass", "pass"]
-        with tempfile.TemporaryDirectory() as tmp:
-            code, summary = gate(plan, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"), rounds=10)
-            self.assertEqual((summary["verdict"], summary["passed"], summary["not_run"]), ("PASS", 10, 0))
-            self.assertEqual(summary["replaced_rounds"], [1, 6])
-            detail = summary["rounds_detail"]
-            self.assertEqual([r["slot"] for r in detail], [1, 1, 2, 3, 4, 5, 5, 6, 7, 8, 9, 10])
-            # Slot 1 is a real-key slot: its replacement is typed with real keys too. Slot 5 (attempts 6 and 7) is
-            # not, and slot 6 (attempt 8) still is: a replacement does not shift the real-key slots.
-            self.assertEqual([r["key_path"] for r in detail[:2]], ["real_hid", "real_hid"])
-            self.assertEqual([r["key_path"] for r in detail[5:8]], ["debug.key", "debug.key", "real_hid"])
-            self.assertIn("run again for slot 1", detail[0]["reason"])
-            self.assertIn("rounds [1, 6] showed no memory pressure and were run again", open(os.path.join(tmp, "out", "summary.txt")).read())
-
-    def test_a_round_with_another_fault_is_never_run_again_even_without_pressure(self):
-        # Review BLOCK at 4744c8acbf2: the pressure rule ran first, so a round that missed its R3 checks (a FAIL)
-        # was replaced when it also showed no pressure, and the gate wrote a .pass.
-        plan = ["pass-idle-nor3"] + ["pass"] * 10
-        with tempfile.TemporaryDirectory() as tmp:
-            code, summary = gate(plan, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"), rounds=10)
-            self.assertEqual((code, summary["verdict"], summary["replaced_rounds"]), (1, "FAIL", []))
-            self.assertIn("resize checks were not all reached", summary["rounds_detail"][0]["reason"])
-            self.assertEqual(len(summary["rounds_detail"]), 10)
-            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
-
-    def test_a_diagnostic_run_never_runs_a_round_again(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            code, summary = gate(["pass-idle"] * 3, tmp, extra=("--diagnostic",), rounds=3)
-            self.assertEqual((len(summary["rounds_detail"]), summary["replaced_rounds"]), (3, []))
-
-    def test_a_failed_round_is_never_run_again(self):
-        plan = ["pass-idle", "fail"] + ["pass"] * 10
-        with tempfile.TemporaryDirectory() as tmp:
-            code, summary = gate(plan, tmp, rounds=10)
-            self.assertEqual((summary["verdict"], summary["failed"], summary["replaced_rounds"]), ("FAIL", 1, [1]))
-            self.assertEqual(len(summary["rounds_detail"]), 11)
 
     def test_results_of_another_build_or_a_silent_run_do_not_count(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -398,793 +273,6 @@ class Verdicts(unittest.TestCase):
             self.assertIn("not empty", done.stderr)
 
 
-class RealKeys(unittest.TestCase):
-    """cmux-ad 13:10Z: each gate run types at least 2 of its 10 rounds with real HID keys, and they must pass."""
-
-    WH = ("--hosts", "cmux99", "--whole-host", "cmux99")
-
-    def test_two_rounds_type_real_keys_and_each_round_says_its_key_path(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            code, summary = gate(["pass"] * 10, tmp, extra=self.WH)
-            self.assertEqual(summary["real_key_rounds"], [1, 6])
-            for n in range(1, 11):
-                argv = json.load(open(os.path.join(tmp, "out", f"round-{n:02d}", "argv.json")))
-                self.assertEqual("key_path=real" in argv, n in (1, 6), n)
-            self.assertEqual([r["key_path"] for r in summary["rounds_detail"]][:2], ["real_hid", "debug.key"])
-            self.assertEqual(summary["real_key_passed"], 2)
-            self.assertEqual(summary["verdict"], "PASS")
-
-    def test_a_real_key_round_whose_keys_took_debug_key_is_no_pass(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            code, summary = gate(["pass"] * 10, tmp, extra=self.WH, env_extra={"SMOKE_REAL_PATH": "debug.key"})
-            self.assertEqual(summary["rounds_detail"][0]["status"], "not run")
-            self.assertIn("real HID", summary["rounds_detail"][0]["reason"])
-            self.assertEqual(summary["verdict"], "NOT JUDGED")
-            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
-
-    def test_without_a_whole_host_there_are_no_real_key_rounds_and_no_pass(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            code, summary = gate(["pass"] * 10, tmp)
-            self.assertEqual(summary["real_key_rounds"], [])
-            self.assertEqual(summary["verdict"], "TRIAL PASS")
-            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
-
-    def test_the_real_key_rounds_spread_over_the_run(self):
-        mod = load_gate()
-        self.assertEqual(mod.real_key_rounds(10, 2), [1, 6])
-        self.assertEqual(mod.real_key_rounds(10, 3), [1, 4, 7])
-        self.assertEqual(mod.real_key_rounds(1, 2), [1])
-        self.assertEqual(mod.real_key_rounds(10, 0), [])
-
-
-class RealKeySteps(unittest.TestCase):
-    """smoke_key / smoke_type / smoke_type_now on the real HID path (CuaDriver), with the path in the result."""
-
-    def setUp(self):
-        sys.path.insert(0, str(HERE))
-        import ext_smoke
-        import ext_realkey
-
-        class StepError(Exception):
-            pass
-
-        class NotRun(Exception):
-            pass
-        D = type("D", (), {"StepError": StepError, "NotRun": NotRun, "now": staticmethod(time.monotonic)})
-        ext_smoke.install(D)
-        ext_realkey.install(D)
-        self.ext, self.rk, self.NotRun = ext_smoke, ext_realkey, NotRun
-        self.sent = []
-        sent = self.sent
-
-        class Session:
-            proc = type("P", (), {"poll": staticmethod(lambda: None)})()
-
-            def call(self_, tool, args):
-                if tool == "list_windows":
-                    return False, {"windows": [{"pid": 7, "window_id": 3, "layer": 0, "bounds": {"width": 100, "height": 50}},
-                                               {"pid": 7, "window_id": 9, "layer": 0, "bounds": {"width": 900, "height": 700}},
-                                               {"pid": 8, "window_id": 4, "layer": 0, "bounds": {"width": 2000, "height": 2000}}]}, {}
-                sent.append((tool, args))
-                return False, {"effect": "unverifiable"}, {}
-
-        self.session = Session()
-        if not hasattr(ext_realkey, "_original_front_pid"):
-            ext_realkey._original_front_pid = ext_realkey.front_pid
-        self.real_front_pid = ext_realkey._original_front_pid
-
-    def tearDown(self):
-        self.rk.front_pid = self.rk._original_front_pid
-
-    def journey(self, mode):
-        j = type("J", (), {})()
-        j.key_window = "W1"
-        j.spec = {"options": {"key_path": "real"} if mode == "real" else {}}
-        j.app = type("A", (), {"pid": 7})()
-        j.marks, j.vars, j.cua_session = {}, {}, self.session
-        j.sub = lambda x: x
-        j.before_keys = lambda: None
-        self.rk.front_pid = lambda: 7  # restored in tearDown
-        j.step_key = lambda step: {"key": step["key"], "reply": {"handled_by": "app"}}
-        j.step_type = lambda step: {"typed": step["text"]}
-        return j
-
-    def journal_app(self, entries_after_press):
-        """An app whose debug.journal has one old entry, then ENTRIES_AFTER_PRESS once a key was sent."""
-        sent = self.sent
-
-        class App:
-            pid = 7
-
-            def rpc(self_, method, params=None):
-                if method == "debug.journal":
-                    rows = [{"seq": 10, "uptimeNanos": 1, "kind": {"marker": {"_0": "x"}}}]
-                    if sent:
-                        rows += entries_after_press
-                    return {"entries": rows[-int((params or {}).get("last", 80)):]}
-                if method == "debug.focus":
-                    return {"windows": [{"model": {"resolved": "page"}}]}
-                if method == "debug.window_list":
-                    return {"windows": [{"id": 1, "kind": "main", "key": False, "visible": True},
-                                        {"id": 2, "kind": "CefNSWindow", "key": True, "visible": True, "parent": 1}]}
-                return {}
-        return App()
-
-    def test_a_real_key_waits_until_the_app_journal_has_its_key_down(self):
-        j = self.journey("real")
-        down = {"seq": 11, "uptimeNanos": 99, "window": "W1",
-                "kind": {"key": {"_0": {"phase": "down", "keyClass": "punctuation", "keyCode": 50, "modifiers": 8,
-                                        "isRepeat": False}}}}
-        other = {"seq": 12, "kind": {"key": {"_0": {"phase": "down", "keyCode": 45, "modifiers": 8}}}}
-        j.app = self.journal_app([other, down])
-        done = self.ext.step_smoke_key(j, {"key": "`", "modifiers": ["control"]})
-        self.assertEqual((done["landed"]["seq"], done["landed"]["uptime_ns"]), (11, 99))
-        self.assertIn("wait_ms", done["landed"])
-
-    def test_a_real_key_the_app_never_saw_fails_with_the_journal_tail(self):
-        j = self.journey("real")
-        j.app = self.journal_app([{"seq": 11, "kind": {"key": {"_0": {"phase": "up", "keyCode": 50, "modifiers": 8}}}}])
-        with self.assertRaises(self.ext.D.StepError) as caught:
-            self.ext.step_smoke_key(j, {"key": "`", "modifiers": ["control"], "land_timeout": 0.05})
-        self.assertIn("never reached the app's input journal", str(caught.exception))
-        self.assertEqual(len(caught.exception.detail["journal"]), 2)
-
-    def test_a_known_gap_key_or_an_optional_key_is_not_required_to_land(self):
-        j = self.journey("real")
-        gap = {"name": "New Column real key", "key_path": "real_hid", "key": "d", "modifiers": ["control", "cmd"]}
-        key = {"do": "smoke_key", "key": "d", "modifiers": ["control", "cmd"], "mark": "r3b-split", "land_timeout": 0.05}
-        j.spec = {"options": {"key_path": "real"}, "steps": [key, {"do": "expect", "known_gap": gap}]}
-        j.app = self.journal_app([])
-        done = self.ext.step_smoke_key(j, key)
-        self.assertEqual(done["landed"]["seen"], False)  # the gap judges this key, not the wait
-        # The build's binding comes back as "cmd+ctrl+d" (cmd first): the gap still names the key (review FIX 0fa9b388b1f).
-        bound = {"do": "smoke_key", "command": "newColumn", "key": "d", "modifiers": ["control", "cmd"], "mark": "r3b-first",
-                 "land_timeout": 0.05}
-        j.spec["steps"] += [bound, {"do": "expect", "known_gap": gap}]
-        journal = j.app
-
-        class Bound:
-            pid = 7
-
-            def rpc(self_, method, params=None):
-                if method == "keybinding.list":
-                    return {"bindings": [{"command": "newColumn", "key": "cmd+ctrl+d", "when": None, "source": "default"}]}
-                if method == "keybinding.resolve":
-                    return {"outcome": "run", "winner": {"command": "newColumn", "source": "default"}}
-                return journal.rpc(method, params)
-        j.app = Bound()
-        done = self.ext.step_smoke_key(j, bound)
-        self.assertEqual(sorted(done["modifiers"]), ["cmd", "control"])
-        self.assertEqual(done["landed"]["seen"], False)
-        j.app = journal
-        esc = {"do": "smoke_key", "key": "escape", "optional": True, "land_timeout": 0.05}
-        self.assertEqual(self.ext.step_smoke_key(j, esc)["landed"]["seen"], False)
-        other = {"do": "smoke_key", "key": "n", "modifiers": ["cmd"], "land_timeout": 0.05}
-        j.spec["steps"].insert(0, other)
-        with self.assertRaises(self.ext.D.StepError):
-            self.ext.step_smoke_key(j, other)
-
-    def test_a_disabled_journal_is_no_wait_and_lastseq_is_the_start(self):
-        j = self.journey("real")
-        j.app = type("A", (), {"pid": 7, "rpc": lambda self_, m, p=None: {"stats": {"enabled": False}, "entries": []}})()
-        self.assertEqual(self.ext.step_smoke_key(j, {"key": "n", "modifiers": ["cmd"]})["landed"], {"journal": "none"})
-        j.app = type("A", (), {"rpc": lambda self_, m, p=None: {"stats": {"enabled": True, "lastSeq": 41}, "entries": []}})()
-        self.assertEqual(self.ext._journal_seq(j), 41)
-
-    def test_a_long_burst_after_the_key_is_read_back_to_the_key(self):
-        calls = []
-
-        class App:
-            def rpc(self_, method, params=None):
-                calls.append(params["last"])
-                if params["last"] == 80:
-                    return {"stats": {"lastSeq": 300}, "entries": [{"seq": n} for n in range(221, 301)]}
-                return {"stats": {"lastSeq": 300}, "entries": [{"seq": n} for n in range(11, 301)]}
-        j = type("J", (), {"app": App()})()
-        self.assertEqual(len(self.ext._journal_after(j, 10)), 290)
-        self.assertEqual(calls, [80, 290])
-
-    def test_a_build_without_the_journal_does_not_wait(self):
-        done = self.ext.step_smoke_key(self.journey("real"), {"key": "n", "modifiers": ["cmd"]})
-        self.assertEqual(done["landed"], {"journal": "none"})
-
-    def test_a_page_key_window_at_type_now_records_the_journal_and_focus(self):
-        j = self.journey("real")
-        j.app = self.journal_app([])
-        with self.assertRaises(self.ext.D.StepError) as caught:
-            self.ext.step_smoke_type_now(j, {"text": "x"})
-        self.assertIn("not a main window", str(caught.exception))
-        self.assertEqual(caught.exception.detail["focus"], {"windows": [{"model": {"resolved": "page"}}]})
-        self.assertIn("journal", caught.exception.detail)
-        src = open(os.path.join(HERE, "driver.py")).read()
-        self.assertIn('record["error_detail"] = error.detail', src)
-
-    def test_a_key_is_a_desktop_hid_key_event_to_the_frontmost_app(self):
-        done = self.ext.step_smoke_key(self.journey("real"), {"key": "`", "modifiers": ["control"], "mark": "m"})
-        self.assertEqual(done["key_path"], "real_hid")
-        self.assertEqual(self.sent, [("hotkey", {"scope": "desktop", "keys": ["ctrl", "`"]})])
-
-    def test_no_real_key_while_another_app_is_in_front(self):
-        j = self.journey("real")
-        self.rk.front_pid = lambda: 406  # a Terminal window or a host prompt in front
-        with self.assertRaises(self.NotRun):
-            self.ext.step_smoke_key(j, {"key": "d", "modifiers": ["cmd"]})
-        with self.assertRaises(self.NotRun):
-            self.ext.step_smoke_type(j, {"text": "x"})
-        self.assertEqual(self.sent, [])
-        fronts = iter([7, 406, 406])  # in front at the check, then a prompt takes the front during the key
-        self.rk.front_pid = lambda: next(fronts)
-        with self.assertRaises(self.NotRun) as no:
-            self.ext.step_smoke_key(j, {"key": "d", "modifiers": ["cmd"]})
-        self.assertIn("lost the front", str(no.exception))
-
-    def test_typing_uses_shift_for_shifted_characters_and_return(self):
-        self.ext.step_smoke_type(self.journey("real"), {"text": "a$(B", "enter": True})
-        self.assertEqual([(t, a.get("key") or a.get("keys")) for t, a in self.sent],
-                         [("press_key", "a"), ("hotkey", ["shift", "4"]), ("hotkey", ["shift", "9"]),
-                          ("hotkey", ["shift", "b"]), ("press_key", "return")])
-
-    def test_front_pid_reads_lsappinfos_one_line_answer(self):
-        real_run = self.rk.subprocess.run
-        answers = iter(["ASN:0x0-0x9009:\n", "    pid = 397 !cgsConnection !signalled type=[ NULL ]  Arch=!!none \n"])
-        self.rk.subprocess.run = lambda *a, **k: type("R", (), {"stdout": next(answers)})()
-        try:
-            self.assertEqual(self.real_front_pid(), 397)
-        finally:
-            self.rk.subprocess.run = real_run
-
-    def bindings(self, rows, resolves):
-        def rpc(method, params=None):
-            if method == "keybinding.list":
-                return {"bindings": rows}
-            if method == "debug.journal":  # a build without an input journal: the key's landing is not waited for
-                return {}
-            return resolves.get(params["keys"], {"outcome": "none"})
-        return rpc
-
-    def test_a_command_key_is_the_one_the_build_resolves_to_that_command(self):
-        j = self.journey("real")
-        j.key_window = "W1"
-        rows = [{"command": "newColumn", "key": "cmd+ctrl+d", "when": None, "source": "default", "removed": True},
-                {"command": "newColumn", "key": "cmd+opt+n", "when": None, "source": "default"},
-                {"command": "newColumn", "key": "cmd+opt+m", "when": None, "source": "default"}]
-        resolves = {"cmd+opt+n": {"outcome": "run", "winner": {"command": "newTab", "source": "user"}},
-                    "cmd+opt+m": {"outcome": "run", "winner": {"command": "newColumn", "source": "default"}}}
-        j.app.rpc = self.bindings(rows, resolves)
-        done = self.ext.step_smoke_key(j, {"command": "newColumn", "key": "d", "modifiers": ["control", "cmd"]})
-        self.assertEqual(self.sent, [("hotkey", {"scope": "desktop", "keys": ["cmd", "option", "m"]})])
-        self.assertEqual(done["key_source"]["binding"], "cmd+opt+m")  # the removed row and the shadowed key skipped
-
-    def test_a_host_binding_or_no_runnable_key_is_not_run(self):
-        j = self.journey("real")
-        rows = [{"command": "newColumn", "key": "cmd+opt+n", "when": None, "source": "user"}]
-        j.app.rpc = self.bindings(rows, {"cmd+opt+n": {"outcome": "run", "winner": {"command": "newColumn", "source": "user"}}})
-        with self.assertRaises(self.NotRun):
-            self.ext.step_smoke_key(j, {"command": "newColumn", "key": "d", "modifiers": ["control", "cmd"]})
-        j.app.rpc = self.bindings(rows, {})
-        with self.assertRaises(self.NotRun):
-            self.ext.step_smoke_key(j, {"command": "newColumn", "key": "d", "modifiers": ["control", "cmd"]})
-
-        def busy(method, params=None):
-            raise self.ext.D.StepError("keybinding.list: timeout")
-        j.app.rpc = busy  # not method_not_found: never fall back to Look Up's key
-        with self.assertRaises(self.NotRun):
-            self.ext.step_smoke_key(j, {"command": "newColumn", "key": "d", "modifiers": ["control", "cmd"]})
-        self.assertEqual(self.sent, [])
-
-    def test_a_build_without_keybinding_list_keeps_the_journeys_key(self):
-        j = self.journey("real")
-
-        def rpc(method, params=None):
-            raise self.ext.D.StepError("keybinding.list: method_not_found")
-        j.app.rpc = rpc
-        done = self.ext.step_smoke_key(j, {"command": "newColumn", "key": "d", "modifiers": ["control", "cmd"]})
-        self.assertEqual(self.sent, [("hotkey", {"scope": "desktop", "keys": ["ctrl", "cmd", "d"]})])
-        self.assertTrue(done["key_source"]["source"].startswith("journey"))
-
-    def test_real_click_is_a_foreground_modified_click_at_the_panes_center_with_host_times(self):
-        j = self.journey("real")
-        layers = {"windows": [{"frame": [100, 50, 940, 720], "screen_frame": [0, 0, 1920, 1080],
-                               "screen_visible_frame": [0, 0, 1920, 1055]}]}
-        journal = {"entries": [{"seq": 5, "kind": {"key": {}}}]}
-
-        def rpc(method, params=None):
-            if method == "debug.layers":
-                return layers
-            if method == "debug.journal":
-                return journal
-            return {"windows": [{"panes": [
-            {"pane": "P1", "focused": False, "grid": {"frame_x": 0, "frame_y": 0, "frame_width": 100, "frame_height": 100}},
-            {"pane": "P2", "focused": True, "grid": {"frame_x": 200, "frame_y": 40, "frame_width": 300, "frame_height": 200}}]}]}
-        j.app.rpc = rpc
-        calls = []
-        orig = self.session.call
-
-        def call(tool, args):
-            calls.append((tool, args))
-            if tool == "get_screen_size":
-                return False, {"scale_factor": 2.0}, {}
-            if tool == "click":  # the app journals the mouse-down it got
-                journal["entries"].append({"seq": 6, "kind": {"mouse": {"_0": {
-                    "phase": "down", "button": 0, "x": landed[0], "y": landed[1], "clickCount": 1, "modifiers": landed[2]}}}})
-            return orig(tool, args)
-        landed = [350.5, 139.0, 1]
-        self.session.call = call
-        done = self.rk.step_real_click(j, {"pane": "focused", "modifiers": ["cmd"], "mark": "click"})
-        clicks = [a for t, a in calls if t == "click"]
-        # window top = 1080 - (50 + 720) = 310; screen point (100 + 350, 310 + 140) points, 2x pixels
-        self.assertEqual(clicks, [{"scope": "desktop", "x": 900, "y": 900, "modifier": ["cmd"]}])
-        self.assertEqual((done["pane"], done["point"]), ("P2", [350.0, 140.0]))
-        self.assertLessEqual(done["clicked_at"], done["returned_at"])
-        self.assertIn("click", j.marks)
-        self.assertEqual(done["journal_mouse_down"]["modifiers"], ["cmd"])
-        # A window on another display (debug.layers names no primary screen): not run before any click.
-        layers["windows"][0]["screen_frame"] = [1920, 0, 1920, 1080]
-        clicks_before = len([c for c in calls if c[0] == "click"])
-        with self.assertRaises(self.NotRun):
-            self.rk.step_real_click(j, {"pane": "focused", "modifiers": ["cmd"]})
-        self.assertEqual(len([c for c in calls if c[0] == "click"]), clicks_before)
-        layers["windows"][0]["screen_frame"] = [0, 0, 1920, 1080]
-        # The click reached cmux without Cmd, or somewhere else: not run (CuaDriver modifiers or coordinates).
-        for bad in ([350.5, 139.0, 0], [700.0, 280.0, 1]):
-            landed[:] = bad
-            journal["entries"][:] = [{"seq": 5, "kind": {"key": {}}}]
-            with self.assertRaises(self.NotRun):
-                self.rk.step_real_click(j, {"pane": "focused", "modifiers": ["cmd"]})
-
-    def test_the_debug_key_mode_says_so(self):
-        self.assertEqual(self.ext.step_smoke_key(self.journey("debug"), {"key": "n", "modifiers": ["cmd"]})["key_path"], "debug.key")
-        self.assertEqual(self.ext.step_smoke_type(self.journey("debug"), {"text": "x"})["key_path"], "debug.key")
-        self.assertEqual(self.sent, [])
-
-    def test_a_refused_key_is_not_run_never_a_red(self):
-        self.session.call = lambda tool, args: (True, {}, {"isError": True}) if tool != "list_windows" else \
-            (False, {"windows": [{"pid": 7, "window_id": 9, "layer": 0, "bounds": {"width": 9, "height": 9}}]}, {})
-        with self.assertRaises(self.NotRun):
-            self.ext.step_smoke_key(self.journey("real"), {"key": "d", "modifiers": ["cmd"]})
-
-
-class OmnibarDrawn(unittest.TestCase):
-    """The typed address must be DRAWN in the address bar (coordinator 14:0xZ), read from the bar's own frame."""
-
-    def setUp(self):
-        sys.path.insert(0, str(HERE))
-        import ext_smoke
-        import ext_window
-
-        class StepError(Exception):
-            pass
-
-        class NotRun(Exception):
-            pass
-        D = type("D", (), {"StepError": StepError, "NotRun": NotRun, "now": staticmethod(time.monotonic),
-                           "ocr_contains": staticmethod(lambda lines, t: any(t in l for l in lines))})
-        ext_smoke.install(D)
-        ext_window.install(D)
-        self.ext, self.win = ext_smoke, ext_window
-        self.saved = (ext_window.windows, ext_window.png_size, ext_window.crop_read)
-        self.crops = []
-
-    def tearDown(self):
-        self.win.windows, self.win.png_size, self.win.crop_read = self.saved
-
-    def check(self, lines, rect=[600, 398, 100, 22]):
-        crops = self.crops
-        self.win.windows = lambda j: {"W": {"frame": [500, 100, 940, 720], "screen": [0, 0, 1920, 1080]}}
-        self.win.png_size = lambda path: (1880, 1440)  # a 2x snapshot of the 940x720 window
-        self.win.crop_read = lambda j, image, box, up: crops.append(box) or lines
-        j = type("J", (), {})()
-        j.key_window, j.checks, j.out = "W", 0, Path("/tmp")
-        reply = {"field_frame": rect, "editor": {"text_kit": "2"}} if rect else {"field_frame": None, "editor": {}}
-        j.app = type("A", (), {"rpc": staticmethod(lambda m, p=None: reply),
-                               "snapshot": staticmethod(lambda path: Path(path))})()
-        return self.ext.cond_smoke_omnibar_drawn(j, {"host": "example.com", "min_suffix": 6}, {})
-
-    def test_the_bars_tail_counts_and_the_crop_is_the_bars_frame(self):
-        ok, detail = self.check(["‹ample.com"])
-        self.assertTrue(ok)
-        self.assertEqual(detail["matched"], "ample.com")
-        # field top from the window's top = 720 - (398 + 22) = 300; at (600, 300) points, 2x, 3 points of padding
-        self.assertEqual(self.crops[0], [1194, 594, 212, 56])
-
-    def test_less_than_six_characters_or_another_text_is_not_drawn(self):
-        self.assertFalse(self.check([".com"])[0])
-        self.assertFalse(self.check(["Import cookies from Safari"])[0])
-        self.assertTrue(self.check(["example.com"])[0])
-
-    def test_no_field_frame_fails(self):
-        ok, detail = self.check(["example.com"], rect=None)
-        self.assertFalse(ok)
-        self.assertIn("no field frame", detail["error"])
-
-
-class FailingStep(unittest.TestCase):
-    def test_a_failed_finally_step_is_never_the_rounds_failing_step(self):
-        mod = load_gate()
-        with tempfile.TemporaryDirectory() as tmp:
-            d = Path(tmp) / mod.JOURNEY
-            d.mkdir()
-            steps = [{"do": "expect", "ok": True}, {"do": "rpc", "ok": False, "error": "x", "finally": True}]
-            (d / "result.json").write_text(json.dumps({"steps": steps}))
-            self.assertIsNone(mod.failing_step(Path(tmp)))
-            steps.insert(1, {"do": "expect", "ok": False, "error": "real", "title": "t"})
-            (d / "result.json").write_text(json.dumps({"steps": steps}))
-            self.assertEqual(mod.failing_step(Path(tmp))["error"], "real")
-
-
-class VideoGoldens(unittest.TestCase):
-    """VIDEO EXTRA item 9: a .pass needs every listed golden video case passed, and never failed, on the build."""
-
-    def test_no_list_blocks_nothing_and_the_ledger_decides(self):
-        mod = load_gate()
-        with tempfile.TemporaryDirectory() as tmp:
-            mod.VIDEO_GOLDENS, mod.GOLDEN_LEDGER = Path(tmp) / "goldens.txt", Path(tmp) / "ledger"
-            self.assertEqual(mod.golden_blockers("J"), [])  # no list yet: no golden, nothing blocks
-            mod.VIDEO_GOLDENS.write_text("# case judge golden finding owner\nrouting-split routing /g/a F1 o\n")
-            self.assertIn("no golden PASS", mod.golden_blockers("J")[0][1])
-            mod.GOLDEN_LEDGER.mkdir()
-            rows = [{"case": "routing-split", "status": "pass", "build_job": "J", "kit_dirty": True},
-                    {"case": "routing-split", "status": "pass", "build_job": "OTHER", "kit_dirty": False}]
-            (mod.GOLDEN_LEDGER / "J.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
-            self.assertEqual(len(mod.golden_blockers("J")), 1)  # a dirty kit's pass and another build's do not count
-            with open(mod.GOLDEN_LEDGER / "J.jsonl", "a") as f:
-                f.write(json.dumps({"case": "routing-split", "status": "pass", "build_job": "J", "kit_dirty": False}) + "\n")
-            self.assertEqual(mod.golden_blockers("J"), [])
-            with open(mod.GOLDEN_LEDGER / "J.jsonl", "a") as f:
-                f.write(json.dumps({"case": "routing-split", "status": "fail", "build_job": "J", "out": "/r"}) + "\n")
-            self.assertIn("FAILED on J", mod.golden_blockers("J")[0][1])
-            self.assertEqual(mod.golden_list()[0], "listed")
-            # A list read once is what the check judges, whatever the file says later.
-            self.assertEqual(mod.golden_blockers("J", ("listed", [])), [])
-            self.assertIn("unreadable", mod.golden_blockers("J", ("unreadable: denied", []))[0][1])
-            mod.VIDEO_GOLDENS = Path(tmp) / "gone.txt"
-            self.assertEqual(mod.golden_list(), ("missing", []))
-
-    def test_a_listed_golden_without_a_pass_holds_back_the_pass_file(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            open(os.path.join(tmp, "open-p0.txt"), "w").write("# none open\n")
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write("routing-split routing /g/a F1 owner\n")
-            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--goldens", "skip"))
-            self.assertEqual(summary["verdict"], "PASS")
-            self.assertEqual(code, 75)
-            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
-            if not summary["gate_dirty"]:  # the golden check runs after the committed-gate check
-                self.assertIn("has no golden PASS on job123", open(os.path.join(tmp, "out", "video-goldens.txt")).read())
-
-    def test_both_blockers_are_reported_together(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            open(os.path.join(tmp, "open-p0.txt"), "w").write("some-p0 kit@1 owner S\n")
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write("routing-split routing /g/a F1 owner\n")
-            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--goldens", "skip"))
-            self.assertEqual(code, 75)
-            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
-            if not summary["gate_dirty"]:
-                self.assertTrue(os.path.exists(os.path.join(tmp, "out", "open-p0.txt")))
-                self.assertTrue(os.path.exists(os.path.join(tmp, "out", "video-goldens.txt")))
-
-
-class GoldenRun(unittest.TestCase):
-    """The gate runs each listed golden case once on the build and writes its row (lead STATUS 6806 and 14:4xZ)."""
-    LIST = "# case [golden folder]\nupdate-restart-nf\nmwv-shortcuts-new-window-nf\nmwv-home-click-each-window-nf /g/none\n"
-
-    def ledger(self, tmp):
-        path = os.path.join(tmp, "golden-ledger", "job123.jsonl")
-        return [json.loads(l) for l in open(path).read().splitlines()] if os.path.exists(path) else []
-
-    def test_goldens_only_runs_each_case_on_a_whole_host_and_names_each_fail_with_its_reason(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write(self.LIST)
-            plan = {"mwv-shortcuts-new-window-nf": "fail", "mwv-home-click-each-window-nf": "smoke-env"}
-            code, summary = gate([], tmp, rounds=1, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--goldens", "only"),
-                                 env_extra={"SMOKE_GOLDEN_PLAN": json.dumps(plan)})
-            self.assertEqual(code, 1)  # a case FAILED on the build
-            self.assertFalse(os.path.exists(os.path.join(tmp, "out", "round-01")))  # no smoke round
-            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
-            for case in ("update-restart-nf", "mwv-shortcuts-new-window-nf", "mwv-home-click-each-window-nf"):
-                argv = json.load(open(os.path.join(tmp, "out", f"golden-{case}", "argv.json")))
-                self.assertEqual(argv[argv.index("--journey") + 1], case)
-                self.assertIn("--whole-host", argv)
-                self.assertIn("--exclusive", argv)
-                self.assertEqual(argv[argv.index("--hosts") + 1], "cmux99")
-                self.assertNotIn("--hog-swap-gb", argv)
-                env = json.load(open(os.path.join(tmp, "out", f"golden-{case}", "env.json")))
-                self.assertEqual(env["CAPTURE_HOST_POOL"], "perf-lead")
-            rows = self.ledger(tmp)
-            # SMOKE ENV writes no row; the pass is a pinned kit's (the harness record), so it counts
-            self.assertEqual(sorted((r["case"], r["status"], r["kit_dirty"]) for r in rows),
-                             [("mwv-shortcuts-new-window-nf", "fail", False), ("update-restart-nf", "pass", False)])
-            text = open(os.path.join(tmp, "out", "video-goldens.txt")).read()
-            self.assertIn("mwv-shortcuts-new-window-nf on cmux99: FAIL", text)
-            self.assertIn("Cmd-1 showed window 1's Home", text)
-            self.assertIn("mwv-home-click-each-window-nf on cmux99: NOT RUN", text)
-            self.assertIn("SMOKE ENV", text)
-            self.assertIn("BLOCKS mwv-shortcuts-new-window-nf: FAILED on job123", text)
-            self.assertIn("BLOCKS mwv-home-click-each-window-nf /g/none: has no golden PASS", text)
-            self.assertNotIn("BLOCKS update-restart-nf", text)
-            self.assertEqual([r["status"] for r in summary["video_goldens"]["run"]], ["pass", "fail", "not run"])
-
-    def test_goldens_only_with_every_case_passed_exits_0_and_no_list_runs_nothing(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write(self.LIST)
-            code, _ = gate([], tmp, rounds=1, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--goldens", "only"))
-            self.assertEqual(code, 0)
-            self.assertEqual(len(self.ledger(tmp)), 3)
-        with tempfile.TemporaryDirectory() as tmp:
-            code, summary = gate([], tmp, rounds=1, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--goldens", "only"))
-            self.assertEqual(code, 75)
-            self.assertEqual(summary["video_goldens"]["list"], "missing")
-            self.assertEqual(self.ledger(tmp), [])
-
-    def test_an_unpinned_kit_s_pass_is_written_dirty_and_never_counts(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write("update-restart-nf\n")
-            code, _ = gate([], tmp, rounds=1, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--goldens", "only"),
-                           env_extra={"SMOKE_GOLDEN_PINNED": "no"})
-            self.assertEqual(code, 75)
-            self.assertEqual([r["kit_dirty"] for r in self.ledger(tmp)], [True])
-
-    def test_after_the_rounds_the_cases_run_and_decide_the_pass_file(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write(self.LIST)
-            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"))
-            self.assertEqual(summary["verdict"], "PASS")
-            self.assertEqual([r["status"] for r in summary["video_goldens_run"]], ["pass"] * 3)
-            self.assertIn("no golden case blocks this build", open(os.path.join(tmp, "out", "summary.txt")).read())
-            if not summary["gate_dirty"]:
-                self.assertEqual(code, 0)
-                self.assertTrue(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
-        with tempfile.TemporaryDirectory() as tmp:
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write(self.LIST)
-            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"),
-                                 env_extra={"SMOKE_GOLDEN_PLAN": json.dumps({"mwv-shortcuts-new-window-nf": "fail"})})
-            self.assertEqual(code, 75)
-            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
-            self.assertIn("mwv-shortcuts-new-window-nf on cmux99: FAIL", open(os.path.join(tmp, "out", "summary.txt")).read())
-
-    def test_a_diagnostic_run_or_goldens_skip_runs_no_case(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write(self.LIST)
-            gate(["pass"], tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--goldens", "skip"))
-            self.assertFalse(any(n.startswith("golden-") for n in os.listdir(os.path.join(tmp, "out"))))
-        with tempfile.TemporaryDirectory() as tmp:
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write(self.LIST)
-            gate(["pass"], tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--diagnostic"))
-            self.assertFalse(any(n.startswith("golden-") for n in os.listdir(os.path.join(tmp, "out"))))
-
-    def test_with_go_spec_each_case_takes_its_own_go_on_the_gos_mini(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write("update-restart-nf\n")
-            rounds_dir = os.path.join(tmp, "rounds")
-            os.makedirs(rounds_dir)
-            write_spec(tmp, 1)  # the GOs this run needs (one per round and per golden case)
-            now = time.time()
-            stamp = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))  # noqa: E731
-            json.dump({"host": "cmux98", "go": stamp(now - 5), "until": stamp(now + 300)},
-                      open(os.path.join(rounds_dir, "g.go"), "w"))
-            ci = os.path.join(tmp, "fake-ci")
-            open(ci, "w").write("#!/bin/sh\necho '{\"state\": \"done\"}'\n")
-            os.chmod(ci, 0o755)
-            code, _ = gate([], tmp, rounds=1, extra=("--hosts", "cmux98 cmux99", "--go-spec", "g", "--goldens", "only"),
-                           env_extra={"SMOKE_GATE_SCHED_ROUNDS": rounds_dir, "SMOKE_GATE_CMUX_CI": ci})
-            self.assertEqual(code, 0)
-            argv = json.load(open(os.path.join(tmp, "out", "golden-update-restart-nf", "argv.json")))
-            self.assertEqual(argv[argv.index("--hosts") + 1], "cmux98")
-            self.assertIn("--whole-host", argv)
-            self.assertNotIn("status", json.load(open(os.path.join(rounds_dir, "g.done"))))  # the GO was used
-
-    def test_a_crash_another_build_or_a_twice_listed_case_is_not_run_and_gives_its_go_back(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write("update-restart-nf\nupdate-restart-nf\nmwv-x-nf\n")
-            rounds_dir = os.path.join(tmp, "rounds")
-            os.makedirs(rounds_dir)
-            write_spec(tmp, 2)  # the GOs this run needs (one per round and per golden case)
-            stamp = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))  # noqa: E731
-            json.dump({"host": "cmux98", "go": stamp(time.time() - 5), "until": stamp(time.time() + 300)},
-                      open(os.path.join(rounds_dir, "g.go"), "w"))
-            ci = os.path.join(tmp, "fake-ci")
-            open(ci, "w").write("#!/bin/sh\necho '{\"state\": \"done\"}'\n")
-            os.chmod(ci, 0o755)
-            plan = {"update-restart-nf": "crash", "mwv-x-nf": "other-build"}
-            code, summary = gate([], tmp, rounds=1, extra=("--hosts", "cmux98", "--go-spec", "g", "--goldens", "only",
-                                                           "--go-wait-hours", "0.0003"),
-                                 env_extra={"SMOKE_GATE_SCHED_ROUNDS": rounds_dir, "SMOKE_GATE_CMUX_CI": ci,
-                                            "SMOKE_GOLDEN_PLAN": json.dumps(plan)})
-            run = summary["video_goldens"]["run"]
-            self.assertEqual([r["case"] for r in run], ["update-restart-nf", "mwv-x-nf"])  # listed twice: run once
-            self.assertEqual(run[0]["status"], "not run")
-            self.assertIn("wrote no result", run[0]["reason"])
-            self.assertEqual(json.load(open(os.path.join(rounds_dir, "g.done")))["status"], "not run")
-            self.assertEqual(run[1]["status"], "not run")  # the one GO was used; the second case got none
-            self.assertEqual(code, 75)  # nothing FAILED: no case blocks as a fail
-            self.assertEqual(self.ledger(tmp), [])
-        with tempfile.TemporaryDirectory() as tmp:
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write("mwv-x-nf\n")
-            code, summary = gate([], tmp, rounds=1, extra=("--hosts", "cmux99", "--whole-host", "cmux99", "--goldens", "only"),
-                                 env_extra={"SMOKE_GOLDEN_PLAN": json.dumps({"mwv-x-nf": "other-build"})})
-            self.assertEqual(summary["video_goldens"]["run"][0]["status"], "not run")
-            self.assertIn("for build 'otherjob'", summary["video_goldens"]["run"][0]["reason"])
-            self.assertEqual(self.ledger(tmp), [])
-            self.assertFalse(os.path.exists(os.path.join(tmp, "golden-ledger", "otherjob.jsonl")))
-
-    def test_without_a_whole_host_or_go_spec_no_case_runs(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write("update-restart-nf\n")
-            code, summary = gate([], tmp, rounds=1, extra=("--hosts", "cmux99", "--goldens", "only"))
-            self.assertEqual(code, 75)
-            self.assertIn("no whole host", summary["video_goldens"]["run"][0]["reason"])
-            self.assertFalse(os.path.exists(os.path.join(tmp, "out", "golden-calls.txt")))
-
-
-class GoBudget(unittest.TestCase):
-    """--go-spec: the run never waits hours for GOs the spec will not give (lead 15:2xZ)."""
-
-    def run_gate(self, tmp, rounds, extra, taken=0, ci_state="done"):
-        rounds_dir = os.path.join(tmp, "rounds")
-        os.makedirs(rounds_dir, exist_ok=True)
-        if rounds is not None:
-            write_spec(tmp, rounds, taken=taken, name="g")
-        ci = os.path.join(tmp, "fake-ci")
-        open(ci, "w").write("#!/bin/sh\necho '{\"state\": \"%s\"}'\n" % ci_state)
-        os.chmod(ci, 0o755)
-        runner = os.path.join(tmp, "fake_run.py")
-        open(runner, "w").write(FAKE)
-        env = {k: v for k, v in os.environ.items() if not k.startswith("CAPTURE_HOST_")}
-        env.update({"SMOKE_GATE_SCHED_ROUNDS": rounds_dir, "SMOKE_GATE_CMUX_CI": ci,
-                    "SMOKE_GATE_VIDEO_GOLDENS": os.path.join(tmp, "video-goldens.txt"),
-                    "SMOKE_GATE_GOLDEN_LEDGER": os.path.join(tmp, "golden-ledger"),
-                    "SMOKE_GATE_OPEN_P0": os.path.join(tmp, "open-p0.txt"), "JOURNEYS_P0_LEDGER": os.path.join(tmp, "l"),
-                    "SMOKE_PLAN": json.dumps(["pass"]),
-                    "SMOKE_JOURNEY": str(HERE / "journeys" / "dogfood" / "smoke-dogfood.json")})
-        return subprocess.run([sys.executable, str(GATE), "--build", "job123", "--runner", runner, "--go-spec", "g",
-                               "--hosts", "cmux99", "--out", os.path.join(tmp, "out"),
-                               "--handoff", os.path.join(tmp, "handoff"), *extra],
-                              capture_output=True, text=True, env=env, timeout=60)
-
-    def test_a_spec_with_fewer_gos_than_rounds_plus_cases_is_refused_at_once_naming_the_count(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write("a-nf\nb-nf\nb-nf\n")
-            t = time.time()
-            done = self.run_gate(tmp, 10, ("--rounds", "10"), taken=1)  # 9 left; 10 rounds + 2 cases needed
-            self.assertEqual(done.returncode, 2)
-            self.assertLess(time.time() - t, 30)
-            self.assertIn("gives 9 more GO(s)", done.stderr)
-            self.assertIn("needs 12 (10 round(s) + 2 golden case(s))", done.stderr)
-            self.assertIn('"rounds" to at least 13 (23 leaves room for 10 replacement rounds)', done.stderr)
-        with tempfile.TemporaryDirectory() as tmp:
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write("a-nf\nb-nf\n")
-            done = self.run_gate(tmp, 1, ("--goldens", "only"))
-            self.assertEqual(done.returncode, 2)
-            self.assertIn("needs 2 (0 round(s) + 2 golden case(s))", done.stderr)
-        with tempfile.TemporaryDirectory() as tmp:  # no spec file: no GO will come
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write("a-nf\n")
-            done = self.run_gate(tmp, None, ("--goldens", "only"))
-            self.assertEqual(done.returncode, 2)
-            self.assertIn("cannot be read", done.stderr)
-        with tempfile.TemporaryDirectory() as tmp:  # --goldens skip needs only the rounds' GOs
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write("a-nf\nb-nf\n")
-            done = self.run_gate(tmp, 1, ("--rounds", "3", "--goldens", "skip", "--go-wait-hours", "0.0003"))
-            self.assertIn("gives 1 more GO(s)", done.stderr)
-            done = self.run_gate(tmp, 3, ("--rounds", "3", "--goldens", "skip", "--go-wait-hours", "0.0003"))
-            self.assertNotIn("more GO(s)", done.stderr)
-
-    def test_a_wait_stops_at_once_when_the_spec_has_no_go_left(self):
-        mod = load_gate()
-        with tempfile.TemporaryDirectory() as tmp:
-            os.makedirs(os.path.join(tmp, "rounds"))
-            mod.SCHED_ROUNDS = Path(tmp) / "rounds"
-            mod.GO_NONE_LEFT_GRACE = 0.3
-            write_spec(tmp, 2, taken=2, name="g")
-            t = time.time()
-            go, why = mod.await_go("g", ["cmux99"], set(), time.time() + 3600, poll=0.1)
-            self.assertIsNone(go)
-            self.assertLess(time.time() - t, 10)
-            self.assertIn("no GO of g left", why)
-            write_spec(tmp, 3, taken=2, name="g")  # one GO left: the wait goes on until its deadline
-            go, why = mod.await_go("g", ["cmux99"], set(), time.time() + 1.0, poll=0.1)
-            self.assertIn("within the wait", why)
-            write_spec(tmp, 0, name="g")  # no round limit
-            self.assertEqual(mod.go_budget("g")[0], None)
-            # a spec the scheduler marked done gives no GO, whatever its "rounds" says now (review FIX 26013f95976)
-            write_spec(tmp, 5, name="g")
-            json.dump({"specs": {"g": {"rounds_taken": 2, "done": True}}}, open(os.path.join(tmp, "state.json"), "w"))
-            self.assertEqual(mod.go_budget("g")[0], 0)
-            go, why = mod.await_go("g", ["cmux99"], set(), time.time() + 3600, poll=0.1)
-            self.assertIn("marked spec g done", why)
-            json.dump({"kind": "lease-round", "rounds": "ten"}, open(os.path.join(tmp, "specs", "g.json"), "w"))
-            self.assertIn("not a number", mod.go_budget("g")[2])
-
-    def test_a_done_spec_is_refused_before_the_build_wait_and_names_a_new_spec(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write("a-nf\n")
-            os.makedirs(os.path.join(tmp, "rounds"))
-            write_spec(tmp, 5, name="g")
-            json.dump({"specs": {"g": {"rounds_taken": 2, "done": True}}}, open(os.path.join(tmp, "state.json"), "w"))
-            done = self.run_gate(tmp, None, ("--goldens", "only"), ci_state="running")
-            self.assertEqual(done.returncode, 2)
-            self.assertIn("use a new spec name", done.stderr)
-            self.assertNotIn("needs a finished build", done.stderr)
-
-
-class RealKeyHosts(unittest.TestCase):
-    """--real-key-hosts with --go-spec: real-key rounds and goldens only on minis with real keys, debug.key rounds
-    on any mini (lead 03:0xZ: the debug.key rounds must not wait for the two minis with real keys)."""
-
-    def run_gate(self, tmp, go_hosts, extra=(), rounds=10, goldens="skip"):
-        rounds_dir = os.path.join(tmp, "rounds")
-        os.makedirs(rounds_dir, exist_ok=True)
-        write_spec(tmp, 40, name="g")
-        ci = os.path.join(tmp, "fake-ci")
-        open(ci, "w").write("#!/bin/sh\necho '{\"state\": \"done\"}'\n")
-        os.chmod(ci, 0o755)
-        # a stand-in scheduler: a new GO on the next host of GO_HOSTS each time the gate ends the open one
-        feeder = os.path.join(tmp, "feeder.py")
-        open(feeder, "w").write(
-            "import json, os, sys, time\n"
-            "d, hosts = sys.argv[1], sys.argv[2].split(',')\n"
-            "stamp = lambda t: time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(t))\n"
-            "i, t0 = 0, time.time() - 100\n"
-            "while i < len(hosts):\n"
-            "    go = os.path.join(d, 'g.go'); done = os.path.join(d, 'g.done')\n"
-            "    if not os.path.exists(go) or os.path.exists(done):\n"
-            "        if os.path.exists(done): os.remove(done)\n"
-            "        json.dump({'host': hosts[i], 'go': stamp(t0 + i), 'until': stamp(time.time() + 600)}, open(go, 'w'))\n"
-            "        i += 1\n"
-            "    time.sleep(0.05)\n")
-        proc = subprocess.Popen([sys.executable, feeder, rounds_dir, ",".join(go_hosts)])
-        try:
-            code, summary = gate(["pass"] * rounds, tmp, rounds=rounds,
-                                 extra=("--hosts", "cmux20 cmux22 cmux23", "--whole-host", "cmux20", "--go-spec", "g",
-                                        "--real-key-hosts", "cmux20", "--goldens", goldens, "--go-wait-hours", "0.04",
-                                        *extra),  # a later --hosts / --real-key-hosts in EXTRA wins (argparse)
-                                 env_extra={"SMOKE_GATE_SCHED_ROUNDS": rounds_dir, "SMOKE_GATE_CMUX_CI": ci,
-                                            "SMOKE_GATE_GO_NONE_LEFT_GRACE": "0.2"})
-        finally:
-            proc.kill()
-            proc.wait()
-        return code, summary
-
-    def test_real_key_rounds_wait_for_a_real_key_mini_and_debug_rounds_take_any(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            hosts = ["cmux22", "cmux23", "cmux20"] + ["cmux22"] * 4 + ["cmux20"] + ["cmux23"] * 6
-            code, summary = self.run_gate(tmp, hosts)
-            detail = summary["rounds_detail"]
-            real = [(r["slot"], r["hosts_offered"]) for r in detail if r["key_path"] == "real_hid"]
-            self.assertEqual(len(real), 2)
-            self.assertTrue(all(h == "cmux20" for _, h in real), real)  # the GO's mini (the stand-in names cmux99)
-            self.assertEqual([s_ for s_, _ in real], [3, 8])  # planned 1 and 6, moved to the next cmux20 GO
-            self.assertEqual(summary["real_key_rounds"], [s for s, _ in real])
-            for r in detail:  # every round that ran took the key path its mini allows
-                if r["go"] is None:
-                    continue
-                argv = json.load(open(os.path.join(tmp, "out", "round-%02d" % r["round"], "argv.json")))
-                self.assertEqual("key_path=real" in argv, r["key_path"] == "real_hid")
-            self.assertEqual(summary["passed"], 10)
-
-    def test_a_mouse_golden_takes_only_mouse_hosts(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            open(os.path.join(tmp, "video-goldens.txt"), "w").write("update-restart-nf\nmwv-home-click-each-window-nf\n")
-            # GOs: cmux24 (real keys, no mouse) for the first case, then cmux24 again (given back for the mouse case),
-            # then cmux20
-            code, summary = self.run_gate(tmp, ["cmux24", "cmux24", "cmux20"], rounds=1, goldens="only",
-                                          extra=("--real-key-hosts", "cmux20 cmux24", "--mouse-hosts", "cmux20",
-                                                 "--hosts", "cmux20 cmux22 cmux23 cmux24"))
-            ran = {r["case"]: r for r in summary["video_goldens"]["run"]}
-            self.assertEqual(ran["update-restart-nf"]["host"] in ("cmux24", "cmux99"), True)
-            argv = json.load(open(os.path.join(tmp, "out", "golden-mwv-home-click-each-window-nf", "argv.json")))
-            self.assertEqual(argv[argv.index("--hosts") + 1], "cmux20")
-            argv0 = json.load(open(os.path.join(tmp, "out", "golden-update-restart-nf", "argv.json")))
-            self.assertEqual(argv0[argv0.index("--hosts") + 1], "cmux24")
-
-    def test_too_few_real_key_rounds_is_no_gate_run(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            # one cmux20 GO only, at slot 2: the second real-key round finds no real-key mini before the wait ends
-            code, summary = self.run_gate(tmp, ["cmux22", "cmux20"] + ["cmux22"] * 8, rounds=10,
-                                          extra=("--go-wait-hours", "0.004"))
-            real = [r for r in summary["rounds_detail"] if r["key_path"] == "real_hid"]
-            self.assertLess(len(real), 2)
-            self.assertNotEqual(summary["verdict"], "PASS")
-            self.assertFalse(summary["gate_run"])
-
 class OpenP0(unittest.TestCase):
     """A .pass needs every open P0 journey passed, and never failed, on the exact build (cmux-ad 12:35Z)."""
 
@@ -1192,7 +280,7 @@ class OpenP0(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             open(os.path.join(tmp, "open-p0.txt"), "w").write(
                 "# comment\nr3-new-tab-panel kit@1 owner STATUS-1017\nj-a|j-b kit@2 owner STATUS-1\n")
-            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"))
+            code, summary = gate(["pass"] * 10, tmp)
             self.assertEqual(summary["verdict"], "PASS")
             self.assertEqual(code, 75)
             self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
@@ -1266,7 +354,6 @@ class GoSpec(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             rounds_dir = os.path.join(tmp, "rounds")
             os.makedirs(rounds_dir)
-            write_spec(tmp, 1)  # the GOs this run needs (one per round and per golden case)
             now = time.time()
             with open(os.path.join(rounds_dir, "spec-x.go"), "w") as f:
                 json.dump({"spec": "spec-x", "host": "cmux99", "go": self.stamp(now - 5), "until": self.stamp(now + 300)}, f)
@@ -1526,147 +613,6 @@ class NewTerminals(unittest.TestCase):
             self.ext.step_smoke_type_now(j, {"text": "ab"})
         ok, detail = self.ext.cond_smoke_key_window(j, {}, {})
         self.assertFalse(ok, detail)
-
-    def test_a_page_step_passes_when_the_chromium_page_child_of_a_main_window_holds_the_keys(self):
-        # cmux21 tip smoke 18:22Z-21:25Z (builds 2ee98d9c, a6f13ca1, aae61943): after Cmd-T in a browser tab the
-        # New Tab page's CefNSWindow, a child of the cmux window, was key, as the app is built to do
-        # (ChromiumPageWindowMain). The check counted only a key main window and failed every debug.key round.
-        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
-        j.smoke_key_ok = True
-        page = [{"id": 1, "kind": "main", "key": False, "parent": None},
-                {"id": 2, "kind": "CefNSWindow", "class": "CefNSWindow", "key": True, "visible": True, "parent": 1}]
-        j.app.rpc = lambda method, params=None: {"windows": page}
-        ok, detail = self.ext.cond_smoke_key_window(j, {"page": True}, {})
-        self.assertTrue(ok, detail)
-        self.assertEqual(detail.get("holder"), {"page": 2, "of_main": 1})
-        # Without "page" the step still wants the main window itself key (a terminal step: keys to a page are wrong).
-        self.assertFalse(self.ext.cond_smoke_key_window(j, {}, {})[0])
-        # A page window that is the child of no main window of the app, or a key panel, never passes.
-        for other in ({"id": 2, "kind": "CefNSWindow", "key": True, "visible": True, "parent": 9},
-                      {"id": 2, "kind": "panel", "key": True, "visible": True, "parent": 1},
-                      {"id": 2, "kind": "CefNSWindow", "key": True, "visible": False, "parent": 1}):
-            j.app.rpc = lambda method, params=None, o=other: {"windows": [page[0], o]}
-            self.assertFalse(self.ext.cond_smoke_key_window(j, {"page": True}, {})[0], other)
-        # Typing at once into a terminal still refuses a key page window.
-        j.app.rpc = lambda method, params=None: {"windows": page}
-        j.key = lambda *a: None
-        with self.assertRaises(self.StepError):
-            self.ext.step_smoke_type_now(j, {"text": "x"})
-
-    def make_key_on(self, j, reply, windows):
-        front = self.ext._front_app
-        self.ext._front_app = lambda: (None, "com.cmuxterm.app.debug.tipwatch.14a5e1b1.caphost")
-        try:
-            j.app.rpc = lambda method, params=None: reply if method == "debug.window.focus" else {"windows": windows}
-            return self.ext.step_smoke_make_key(j, {})
-        finally:
-            self.ext._front_app = front
-
-    REOPEN_WINDOW = "616cfb34-3e1b-4430-b6db-094072642970"
-    # Step 70 of tip-watcher-smoke-14a5e1b15367-20261102T054705Z-1 round 3 (job 06780151826af6270add4ff5): after the reopen
-    # the restored browser page keeps the keyboard (#31684): its CefNSWindow, a child of the one cmux window, is key, so
-    # debug.window.focus (controller windows only) says key null (reopen-f4, STATUS 5871).
-    REOPEN_REPLY = {"front": REOPEN_WINDOW, "key": None}
-    REOPEN_PAGE = [{"id": 44820, "kind": "main", "key": False, "visible": True, "parent": None},
-                   {"id": 44826, "kind": "panel", "key": False, "visible": True, "parent": 44820},
-                   {"id": 44901, "kind": "CefNSWindow", "key": True, "visible": True, "parent": 44820}]
-
-    def test_make_key_holds_when_the_restored_page_of_the_journey_window_has_the_keys(self):
-        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
-        j.key_window = self.REOPEN_WINDOW
-        result = self.make_key_on(j, self.REOPEN_REPLY, self.REOPEN_PAGE)
-        self.assertTrue(result["key_window_now"], result)
-        self.assertTrue(j.smoke_key_ok)
-        self.assertEqual(result["held_by_page"], {"page": 44901, "of_main": 44820})
-        # Steps 71-74: Cmd-N and Ctrl-` act on the shell, the new terminal's main window is key: the line is typed at once.
-        typed = []
-        j.key = lambda *a: typed.append(a)
-        j.app.rpc = lambda method, params=None: {"windows": [dict(self.REOPEN_PAGE[0], key=True), self.REOPEN_PAGE[1],
-                                                             dict(self.REOPEN_PAGE[2], key=False)]}
-        out = self.ext.step_smoke_type_now(j, {"text": "echo w4"})
-        self.assertTrue(out["at_once"], out)
-        self.assertEqual(len(typed), len("echo w4") + 1)
-
-    def test_a_page_that_still_has_the_keys_when_a_terminal_line_is_typed_is_a_fail(self):
-        # The make-key holds by the page, but if the page still has the keys after Ctrl-` made a terminal, the keys
-        # would go to the page, not the new terminal: the app's fault, never typed and never a pass.
-        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
-        j.key_window = self.REOPEN_WINDOW
-        self.make_key_on(j, self.REOPEN_REPLY, self.REOPEN_PAGE)
-        typed = []
-        j.key = lambda *a: typed.append(a)
-        with self.assertRaises(self.StepError):
-            self.ext.step_smoke_type_now(j, {"text": "echo w4"})
-        self.assertEqual(typed, [])
-
-    def test_make_key_still_fails_without_a_page_of_the_one_journey_window(self):
-        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
-        j.key_window = self.REOPEN_WINDOW
-        main, panel, page = self.REOPEN_PAGE
-        other_main = {"id": 50000, "kind": "main", "key": False, "visible": True, "parent": None}
-        cases = {
-            "no window key": [main, panel, dict(page, key=False)],
-            "a key panel": [main, dict(panel, key=True), dict(page, key=False)],
-            "a hidden page": [main, panel, dict(page, visible=False)],
-            "a page of no main window": [main, panel, dict(page, parent=9)],
-            "two main windows (which one is the journey's is unknown)": [main, other_main, panel, page],
-        }
-        for name, windows in cases.items():
-            result = self.make_key_on(j, self.REOPEN_REPLY, windows)
-            self.assertFalse(result["key_window_now"], name)
-            self.assertFalse(j.smoke_key_ok, name)
-        # Another controller window in front: not the journey's window, so no page rule.
-        result = self.make_key_on(j, {"front": "another", "key": None}, self.REOPEN_PAGE)
-        self.assertFalse(result["key_window_now"])
-        # The journey window itself key: holds as before, with no page.
-        result = self.make_key_on(j, {"front": self.REOPEN_WINDOW, "key": self.REOPEN_WINDOW}, self.REOPEN_PAGE)
-        self.assertTrue(result["key_window_now"])
-        self.assertNotIn("held_by_page", result)
-
-    def test_make_key_records_the_window_list_when_the_window_itself_did_not_take_the_key(self):
-        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
-        j.key_window = self.REOPEN_WINDOW
-        main, panel, page = self.REOPEN_PAGE
-        for windows in (self.REOPEN_PAGE, [main, panel, dict(page, key=False)]):
-            result = self.make_key_on(j, self.REOPEN_REPLY, windows)
-            self.assertEqual([w["id"] for w in result["windows"]], [w["id"] for w in windows])
-        result = self.make_key_on(j, {"front": self.REOPEN_WINDOW, "key": self.REOPEN_WINDOW}, self.REOPEN_PAGE)
-        self.assertNotIn("windows", result)
-
-    def test_no_key_at_typing_after_a_page_held_make_key_says_so(self):
-        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
-        j.key_window = self.REOPEN_WINDOW
-        self.make_key_on(j, self.REOPEN_REPLY, self.REOPEN_PAGE)
-        main, panel, page = self.REOPEN_PAGE
-        j.app.rpc = lambda method, params=None: {"windows": [main, panel, dict(page, key=False)]}
-        j.key = lambda *a: None
-        front = self.ext._front_app
-        self.ext._front_app = lambda: (None, None)
-        try:
-            with self.assertRaises(self.NotRun) as caught:
-                self.ext.step_smoke_type_now(j, {"text": "echo w4"})
-        finally:
-            self.ext._front_app = front
-        self.assertIn("browser page key", str(caught.exception))
-        self.assertNotIn("lost key status", str(caught.exception))
-
-    def test_a_burst_needs_the_journey_window_itself_key_not_a_page(self):
-        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
-        j.key_window = self.REOPEN_WINDOW
-        self.make_key_on(j, self.REOPEN_REPLY, self.REOPEN_PAGE)
-        with self.assertRaises(self.NotRun) as caught:
-            self.ext.step_smoke_burst(j, {"burst": [{"key": "return"}]})
-        self.assertIn("page", str(caught.exception))
-
-    def test_the_cmd_t_step_lets_the_new_tab_page_hold_the_keys(self):
-        spec = json.loads((Path(__file__).resolve().parent / "journeys" / "dogfood" / "smoke-dogfood.json").read_text())
-        cmdt = [s for s in spec["steps"] if s.get("since") == "cmdt" and s.get("do") == "expect"]
-        self.assertEqual(len(cmdt), 1)
-        self.assertIn({"smoke_key_window": {"page": True}}, cmdt[0]["all"])
-        # Every other key-window check still wants a main window key.
-        others = [c for s in spec["steps"] if s is not cmdt[0] for c in s.get("all", []) if "smoke_key_window" in c]
-        self.assertTrue(others)
-        self.assertTrue(all(c == {"smoke_key_window": {}} for c in others), others)
 
     def test_a_key_window_lost_to_a_prompt_that_was_already_there_is_not_judged_not_a_fail(self):
         j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
@@ -2224,17 +1170,12 @@ class SettleThroughTheDriver(unittest.TestCase):
 
         class App:
             snapshot_window = None
-            bundle = "/stand-in/cmux DEV t.app"
 
             def rpc(self_, method, params=None):
                 return {}
 
             def snapshot(self_, path):
                 raise driver.StepError("no frames here")
-
-            def daemon_facts(self_):  # the daemons are the build under test (test_daemon_skew covers skew)
-                own = self_.bundle + "/Contents/Resources/bin/cmux"
-                return {"expected_build": "abc", "cmux_tui": {"pid": 1, "exe": own, "build_id": "abc"}, "acpmux": None}
 
         calls = []
         driver.Journey.step_t_mark = lambda self, step: calls.append(step["n"]) or {}
@@ -2271,82 +1212,6 @@ class SettleThroughTheDriver(unittest.TestCase):
             driver.EXT_CONDITIONS.clear()
             driver.EXT_CONDITIONS.update(orig)
             del driver.Journey.step_t_mark
-
-    def test_the_post_relaunch_daemon_sample_waits_for_the_step_after_the_relaunch(self):
-        """Review at 1548fb29ce5: the expect after a relaunch measures from its mark; the sample must not run inside."""
-        sys.path.insert(0, str(HERE))
-        sys.path.insert(0, str(HERE.parent / "cmux-next"))
-        import driver
-        order = []
-
-        class App:
-            snapshot_window = None
-            bundle = "/stand-in/cmux DEV t.app"
-
-            def rpc(self_, method, params=None):
-                return {}
-
-            def daemon_facts(self_):
-                order.append("sample")
-                own = self_.bundle + "/Contents/Resources/bin/cmux"
-                return {"expected_build": "abc", "cmux_tui": {"pid": 1, "exe": own, "build_id": "abc"}, "acpmux": None}
-        driver.Journey.step_t_step = lambda self, step: order.append(step["n"]) or {}
-        real_relaunch = driver.Journey.step_relaunch
-        driver.Journey.step_relaunch = lambda self, step: order.append("relaunch") or {}
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                steps = [{"do": "t_step", "n": 1}, {"do": "relaunch"}, {"do": "t_step", "n": 3}, {"do": "t_step", "n": 4}]
-                driver.Journey({"id": "rs", "steps": steps}, App(), tmp, driver.now() + 30, 1.0).run()
-        finally:
-            del driver.Journey.step_t_step
-            driver.Journey.step_relaunch = real_relaunch
-        self.assertEqual(order, [1, "sample", "relaunch", 3, "sample", 4, "sample"])
-        # A relaunch whose mark a later step measures from: the sample waits for that step (review S1 at f8de46b2f79).
-        order.clear()
-        driver.Journey.step_t_step = lambda self, step: order.append(step["n"]) or {}
-        driver.Journey.step_relaunch = lambda self, step: order.append("relaunch") or {}
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                steps = [{"do": "t_step", "n": 1}, {"do": "relaunch", "mark": "reopened"}, {"do": "t_step", "n": 3},
-                         {"do": "t_step", "n": 4, "since": "reopened"}, {"do": "t_step", "n": 5}]
-                driver.Journey({"id": "rs2", "steps": steps}, App(), tmp, driver.now() + 30, 1.0).run()
-        finally:
-            del driver.Journey.step_t_step
-            driver.Journey.step_relaunch = real_relaunch
-        self.assertEqual(order, [1, "sample", "relaunch", 3, 4, "sample", 5, "sample"])
-
-    def test_app_log_records_only_and_never_fails_a_round(self):
-        sys.path.insert(0, str(HERE))
-        import ext_realkey
-        j = type("J", (), {"app": type("A", (), {"pid": 7})()})()
-        real = ext_realkey.subprocess.run
-
-        def slow(*a, **k):
-            raise ext_realkey.subprocess.TimeoutExpired("log", 60)
-        ext_realkey.subprocess.run = slow
-        try:
-            done = ext_realkey.step_app_log(j, {"seconds": 30, "grep": "newTab"})
-        finally:
-            ext_realkey.subprocess.run = real
-        self.assertEqual(done["count"], 0)
-        self.assertIn("error", done)
-
-    def test_the_page_check_accepts_any_language_of_example_com(self):
-        sys.path.insert(0, str(HERE))
-        import ext_smoke
-        D = type("D", (), {"ocr_contains": staticmethod(lambda lines, t: any(t in l for l in lines))})
-        ext_smoke.install(D)
-        j = type("J", (), {})()
-        j.checks, j.out = 0, Path("/tmp")
-        j.sub = lambda x: x
-        j.app = type("A", (), {"snapshot": staticmethod(lambda p: Path(p)),
-                               "read_text": staticmethod(lambda image: ["Este dominio está destinado al uso en",
-                                                                         "ejemplos de documentación sin"])})()
-        ok, detail = ext_smoke.cond_smoke_frame_any(j, {"texts": ["documentation examples", "ejemplos de documentaci"]}, {})
-        self.assertTrue(ok)
-        self.assertEqual(detail["matched"], "ejemplos de documentaci")
-        j.app.read_text = staticmethod(lambda image: ["Ask anything"])
-        self.assertFalse(ext_smoke.cond_smoke_frame_any(j, {"texts": ["documentation examples"]}, {})[0])
 
     def test_a_frame_never_lost_passes(self):
         result, _driver = self.run_step(None)
@@ -2599,28 +1464,6 @@ class Loads(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         listed = subprocess.run([sys.executable, str(HERE / "run.py"), "--list"], capture_output=True, text=True, timeout=120)
         self.assertIn("smoke-dogfood", listed.stdout)
-
-
-class GoldenListReadTests(unittest.TestCase):
-    """golden_list: only a missing file means 'no list'; a dangling symlink or bad UTF-8 blocks (review at 77ee5e82e93)."""
-
-    def _with(self, path):
-        gate = load_gate()
-        gate.VIDEO_GOLDENS = path
-        return gate.golden_list()
-
-    def test_missing_dangling_and_bad_encoding(self):
-        import tempfile
-        from pathlib import Path
-        with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
-            self.assertEqual(self._with(d / "none.txt")[0], "missing")
-            (d / "link.txt").symlink_to(d / "gone.txt")
-            self.assertTrue(self._with(d / "link.txt")[0].startswith("unreadable"))
-            (d / "bad.txt").write_bytes(b"\xff\xfe case\n")
-            self.assertTrue(self._with(d / "bad.txt")[0].startswith("unreadable"))
-            (d / "ok.txt").write_text("# c\nrouting-smoke-seq routing g f o\n")
-            self.assertEqual(self._with(d / "ok.txt"), ("listed", [["routing-smoke-seq", "routing", "g", "f", "o"]]))
 
 
 if __name__ == "__main__":
