@@ -102,7 +102,11 @@ const MAX_PATCH_BYTES = 16 << 20;
 /// checkpoint pair's diff when the session host has one (which also holds what no tool call made, a
 /// shell command or a formatter), with the tool calls' edits to files outside the repository beside
 /// it; else the tool calls' edits alone (turnCheckpoint.ts `turnDisplay`).
-export async function viewChangesFiles(rows: readonly AcpmuxRow[], rowId: string, diff: CheckpointDiff): Promise<TurnFile[]> {
+export async function viewChangesFiles(
+  rows: readonly AcpmuxRow[],
+  rowId: string,
+  diff: CheckpointDiff,
+): Promise<TurnFile[]> {
   const turn = turnRows([...rows], rowId);
   const tools = turnFiles(turn);
   const load = await readTurnFromRows(rows, rowId, diff).then(readTurnCheckpoint, () => ({ state: "error" as const }));

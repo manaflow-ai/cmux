@@ -103,9 +103,13 @@ test("a mixed turn keeps the checkpoint's repository changes beside its edit out
   });
   const files = await viewChangesFiles(rows, "ma", diff);
   const patch = viewChangesPatch(rows, "ma", undefined, "/repo", files);
-  expect(new Set(parsePatchFiles(patch!.text).flatMap((p) => p.files ?? []).map((file) => file.name))).toEqual(
-    new Set(["src/main.ts", "src/fmt.ts", "/tmp/setup.txt"]),
-  );
+  expect(
+    new Set(
+      parsePatchFiles(patch!.text)
+        .flatMap((p) => p.files ?? [])
+        .map((file) => file.name),
+    ),
+  ).toEqual(new Set(["src/main.ts", "src/fmt.ts", "/tmp/setup.txt"]));
   // With no checkpoint read, the tool calls' edits still make the patch.
   const fallback = await viewChangesFiles(rows, "ma", () => Promise.reject(new Error("offline")));
   expect(viewChangesPatch(rows, "ma", undefined, "/repo", fallback)?.text).toContain("/tmp/setup.txt");
