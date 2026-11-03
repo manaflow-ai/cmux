@@ -1193,7 +1193,13 @@ machine to an ssh peer for good (`src/cli/run/session_move.rs`): a chat's worktr
 and checked out there as a fresh worktree (a plain folder under the home maps to the same path
 under the peer's home), the chat is moved with its history, queue and draft through the peer
 daemon's own socket (an `ssh -L` forward), and the copy here records `movedTo`, never runs again,
-and `resolve` and agent links lead to the peer. `auto` never picks a reserved host.
+and `resolve` and agent links lead to the peer. `auto` never picks a reserved host. With
+`--from PEER` the chats are on that peer and this machine drives the move over ssh to it and to
+the target (the source's checkout is read and its branch pushed there), so two machines that
+cannot reach each other trade chats; `--machine local` makes this machine the target. The bundle
+carries the agent's own store (`src/native.rs`): Claude Code's project file and Codex's rollout
+for any profile of those families, pi's session file (refiled under the target folder), and
+OpenCode's session as `opencode export`, imported in the chat's folder there.
 
 **Peer snapshots: a paused or offline peer's chat paints at once.** The daemon keeps a bounded,
 durable copy of each peer session's events as it saw them (its clients' `_acpmux/attach` and

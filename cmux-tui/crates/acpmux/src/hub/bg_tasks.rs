@@ -131,7 +131,7 @@ impl Hub {
     /// the launch's own builder (`agent::harness_command`) from the profile as a spawn builds it
     /// now (`Hub::spawn_profile_for`: defaults, preset, chat store, session env, expansions).
     /// That is the env the agent wakes with, since a hibernated agent starts again from it.
-    async fn bg_env(
+    pub(super) async fn bg_env(
         &self,
         session: &Session,
         meta: &SessionMeta,

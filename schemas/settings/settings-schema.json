@@ -358,7 +358,7 @@
         ],
         "id" : "updates",
         "lead" : [
-
+          "appUpdate"
         ],
         "symbol" : "icloud.and.arrow.down",
         "title" : {
@@ -1150,6 +1150,7 @@
               "agentPane.showMachineLoadWarnings",
               "agentPane.newChatsIn",
               "agents.defaultPermissionMode",
+              "agents.promptCache",
               "agents.modelRouter.model",
               "app.warnBeforeClosingAgentSession"
             ],
@@ -92543,6 +92544,156 @@
       "title" : {
         "key" : "settings.agents.defaultPermissionMode",
         "text" : "Permission Mode for New Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "1h",
+        "5m"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.promptCacheOneHour",
+            "text" : "1 Hour"
+          },
+          "value" : "1h"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.promptCacheFiveMinutes",
+            "text" : "5 Minutes"
+          },
+          "value" : "5m"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "1h",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.promptCache.help",
+        "text" : "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.promptCache",
+      "keywords" : [
+        "prompt cache",
+        "cache",
+        "ttl",
+        "claude",
+        "cost",
+        "tokens",
+        "1 hour",
+        "5 minutes"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "promptCache"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.promptCache"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.promptCache",
+        "text" : "Prompt Cache"
       },
       "validation" : "portable"
     },

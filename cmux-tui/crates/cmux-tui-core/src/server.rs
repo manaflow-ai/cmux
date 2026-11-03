@@ -519,7 +519,7 @@ pub use frontend_browser_history::{
 /// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
 pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
 pub use split_respawn::{TAB_SPLIT_KEEP_FOCUS_CAPABILITY, TAB_SPLIT_RESPAWN_CAPABILITY};
-pub use tab_column::TAB_COLUMN_RESPAWN_CAPABILITY;
+pub use tab_column::{TAB_COLUMN_CLIENT_PANE_CAPABILITY, TAB_COLUMN_RESPAWN_CAPABILITY};
 /// Optional `name` on `move-tab-to-new-workspace`: the new workspace takes
 /// it in the same commit (else the default `workspace-N`).
 pub const TAB_WORKSPACE_NAME_CAPABILITY: &str = "tab-workspace-name-v1";

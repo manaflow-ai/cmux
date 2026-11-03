@@ -141,6 +141,7 @@ export function BackgroundTasksPanel({
     ),
   };
   const finished = useMemo(() => finishedGroupIds(groups), [groups]);
+  const sections = useMemo(() => panelSections(groups), [groups]);
   const drilled = drill && agentOf(groups, drill.agentId);
   return (
     <StopsAgents.Provider value={stopsAgents}>
@@ -158,18 +159,22 @@ export function BackgroundTasksPanel({
             {groups.length === 0 ? (
               <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
             ) : (
-              groups.map((group, index) => (
-                <GroupBlock
-                  key={group.id}
-                  group={group}
-                  look={look}
-                  now={now}
-                  startsOpen={index === 0 && isLive(group)}
-                  onDrill={open}
-                  onStop={onStop}
-                  onOpenSession={onOpenSession}
-                  onOpenCommand={onOpenCommand}
-                />
+              sections.map((section) => (
+                <Section key={section.id} id={section.id} count={section.groups.length}>
+                  {section.groups.map((group, index) => (
+                    <GroupBlock
+                      key={group.id}
+                      group={group}
+                      look={look}
+                      now={now}
+                      startsOpen={section.id === "running" && index === 0}
+                      onDrill={open}
+                      onStop={onStop}
+                      onOpenSession={onOpenSession}
+                      onOpenCommand={onOpenCommand}
+                    />
+                  ))}
+                </Section>
               ))
             )}
           </div>
@@ -199,6 +204,43 @@ export function BackgroundTasksPanel({
         </PanelFrame>
       </Workflows.Provider>
     </StopsAgents.Provider>
+  );
+}
+
+export type PanelSection = { id: "running" | "finished"; groups: BackgroundGroup[] };
+
+/// The list under its two headings, as Claude Desktop's panel splits it: "Running N", then
+/// "Finished N" (Leo, 2026-11-03, on its "Finished 28"). The groups keep their order
+/// (backgroundTasks.ts: running first, oldest first; then ended, latest first); a group that still
+/// runs a nested agent is a running one (`isLive`). An empty heading is left out.
+export function panelSections(groups: readonly BackgroundGroup[]): PanelSection[] {
+  const running = groups.filter(isLive);
+  const ended = groups.filter((group) => !isLive(group));
+  return [
+    { id: "running" as const, groups: running },
+    { id: "finished" as const, groups: ended },
+  ].filter((section) => section.groups.length > 0);
+}
+
+/// A heading that folds its groups, open at first; its fold is the panel's own state, so Back from a
+/// transcript finds it as it was.
+function Section({ id, count, children }: { id: PanelSection["id"]; count: number; children: ReactNode }) {
+  const t = useT();
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="acpmux-bg__section" data-section={id}>
+      <button
+        type="button"
+        className="acpmux-bg__fold acpmux-bg__section-head"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <Disclosure open={open} />
+        <span>{t(id === "running" ? "backgroundTasks.section.running" : "backgroundTasks.section.finished")}</span>
+        <span className="acpmux-bg__section-count">{count}</span>
+      </button>
+      {open && children}
+    </div>
   );
 }
 
@@ -366,6 +408,7 @@ function GroupBlock({
   onOpenSession?(sessionId: string): void;
   onOpenCommand?(task: BackgroundTask): void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(startsOpen || look === "flat");
   const agentId = group.agentId;
   const sessionId = group.sessionId;
@@ -393,7 +436,11 @@ function GroupBlock({
             {counts}
           </button>
         )}
-        <span className="acpmux-bg__time">{time(group.startedAt, group.endedAt, now, live)}</span>
+        {!live && group.state === "failed" ? (
+          <span className="acpmux-bg__time acpmux-bg__failed">{t("subagents.state.failed")}</span>
+        ) : (
+          <span className="acpmux-bg__time">{time(group.startedAt, group.endedAt, now, live)}</span>
+        )}
         <StopSlot target={group.stop} name={group.name} onStop={onStop} />
       </div>
       {look === "nested" && group.total > 0 && (
