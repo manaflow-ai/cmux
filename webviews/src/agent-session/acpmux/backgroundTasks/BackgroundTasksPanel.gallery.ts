@@ -55,14 +55,6 @@ const AUDIT = agent("agent-audit", "Audit the composer menus for fade-in", 31, {
   endedAt: minutesAgo(12),
 });
 
-// Ended with a failed task ("1 task, 1 failed"). A failed subagent's own done line in the transcript
-// is off its row's centre line on base (gallery health center-line), so the fixture's agent ends
-// completed; test/background-tasks-open.test.tsx covers a failed agent's Failed.
-const CODEX = agent("agent-codex", "Make Codex reviews reliable (P0)", 40, {
-  state: "completed",
-  endedAt: minutesAgo(20),
-});
-
 const FINISHED_STEPS: [string, number][] = [
   ["Read composer img rule and CSS imports", 5],
   ["Compile-check the app at PR1 head on the fleet", 159],
@@ -114,16 +106,11 @@ const auditView = (): AcpmuxRow[] => [
   assistant("No menu fades in on open; two fade out on close, which the rulebook allows.", 12, { id: "audit-answer" }),
 ];
 
-const codexView = (): AcpmuxRow[] => [
-  user("Make Codex reviews reliable (P0)", 40, { id: "codex-ask" }),
-  activity([done("Run router-review on the head", 39, 61, "failed")], 39, { id: "codex-steps" }),
-];
-
 const snapshot = (withDocument: boolean) =>
   chat(
     [
       user("Ship the attachment badge and the copy menus, and audit the menus", 50),
-      row(SUBAGENTS, 49.4, { id: "bg-group", subagents: [WORKSPACE, ATTRIBUTION, AUDIT, CODEX] }),
+      row(SUBAGENTS, 49.4, { id: "bg-group", subagents: [WORKSPACE, ATTRIBUTION, AUDIT] }),
       assistant(
         withDocument
           ? `Three agents are on it. The ledger so far:\n\n${fence("markdown", ledger)}`
@@ -138,7 +125,6 @@ const snapshot = (withDocument: boolean) =>
         [ATTRIBUTION.id]: attributionView(),
         [WORKSPACE.id]: workspaceView(),
         [AUDIT.id]: auditView(),
-        [CODEX.id]: codexView(),
       },
     },
   );
@@ -218,7 +204,7 @@ export default agentPaneEntry({
       play: openPanel,
     },
     sections: {
-      note: "Claude Desktop's split: Running 2 then Finished 2, each heading folding its agents; an ended agent's line shows its duration; each agent's tasks under N tasks, failures in red.",
+      note: "Claude Desktop's split: Running 2 then Finished 1, each heading folding its agents; an ended agent's line shows its duration; each agent's tasks under N tasks, failures in red.",
       snapshot: snapshot(false),
       play: async (ctx) => {
         await openPanel(ctx);
