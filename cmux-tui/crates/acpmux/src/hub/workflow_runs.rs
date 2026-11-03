@@ -189,7 +189,9 @@ impl Hub {
                 }
             };
             let run = current;
-            if self.workflow_runs.owns_runner(&run.id, run.generation) {
+            if run.state == State::Running
+                && self.workflow_runs.owns_runner(&run.id, run.generation)
+            {
                 continue;
             }
             let result = match run.state {
@@ -328,8 +330,7 @@ fn workflow_runner_command() -> Result<tokio::process::Command> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn workflow_runs_recovery_preserves_a_runner_launched_by_this_daemon() {
+    fn recovery_fixture() -> (tempfile::TempDir, Arc<Hub>, RunRecord) {
         let dir = tempfile::tempdir().unwrap();
         let mut cfg = crate::config::Config::default();
         cfg.store.mode = crate::config::StoreMode::Memory;
@@ -358,6 +359,12 @@ mod tests {
                 outcome: None,
             })
             .unwrap();
+        (dir, hub, run)
+    }
+
+    #[test]
+    fn workflow_runs_recovery_preserves_a_runner_launched_by_this_daemon() {
+        let (_dir, hub, run) = recovery_fixture();
         // A local resume can finish before startup recovery takes its snapshot.
         let proof = hub.workflow_runs.issue_runner(&run).unwrap().unwrap();
         let (mut stop, finished) = hub.workflow_runs.track_runner(&run.id, run.generation);
@@ -375,6 +382,24 @@ mod tests {
         assert!(matches!(stop.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty)));
         finished.send(()).unwrap();
         hub.workflow_runs.retire_runner(&run.id, run.generation);
+    }
+
+    #[test]
+    fn workflow_runs_recovery_finishes_pause_even_if_a_launch_proof_remains() {
+        let (_dir, hub, run) = recovery_fixture();
+        let pausing = hub.workflow_runs.store().pause(&run.id, &run.owner_session_id).unwrap();
+        // Even an outstanding current-generation launch proof cannot skip cleanup.
+        hub.workflow_runs.issue_runner(&pausing).unwrap().unwrap();
+        assert!(hub.workflow_runs.owns_runner(&run.id, pausing.generation));
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(hub.recover_workflows());
+        let recovered = hub.workflow_runs.store().get(&run.id).unwrap();
+        assert_eq!(recovered.state, State::Paused);
+        assert_eq!(recovered.generation, pausing.generation);
+        assert!(!hub.workflow_runs.owns_runner(&run.id, pausing.generation));
     }
 
     #[tokio::test]
