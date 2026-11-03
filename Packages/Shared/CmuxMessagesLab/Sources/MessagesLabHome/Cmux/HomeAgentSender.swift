@@ -49,9 +49,10 @@ struct HomeAgentSender: Hashable {
 
     /// The label of `item`'s first text part, without its brackets.
     private static func label(of item: TranscriptItem) -> String? {
-        guard let text = firstText(item), text.hasPrefix("[from "),
-              let end = text.range(of: "] ") else { return nil }
-        let label = text[text.index(text.startIndex, offsetBy: 6)..<end.lowerBound]
+        guard let text = firstText(item), text.hasPrefix("[from ") else { return nil }
+        let rest = text.dropFirst(6)
+        guard let end = rest.range(of: "] ") else { return nil }
+        let label = rest.prefix(upTo: end.lowerBound) // no range subscripts
         return label.isEmpty || label.contains("\n") ? nil : String(label)
     }
 
