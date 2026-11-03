@@ -42,6 +42,7 @@ extension DaemonEvent {
             case "tab-renamed": return .tabRenamed(try d(TabDelta.self))
             case "tab-changed": return .tabChanged(try d(TabDelta.self))
             case "selection-changed": return .selectionChanged(try d(SelectionDelta.self))
+            case "workspace-presentation-changed": return .workspacePresentationChanged(try d(WorkspacePresentationDelta.self))
             case "tree-changed": return .treeChanged(transaction: try d(EventPayload.TransactionField.self).clientTransactionID)
             // Personal state (`profiles-v1`) changed: the store refetches
             // `list-personal` alone (a group fold must not refetch the tree).

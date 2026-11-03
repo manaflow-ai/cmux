@@ -288,7 +288,8 @@ final class GroupHeaderRowView: SidebarRowView {
             // and a drop take tonal steps over it (the open editor lights its more button only).
             let tokens = themeTokens
             let look = look
-            if look.style != .band { return paintQuiet(tokens, look) }
+            // A group nobody colored draws as a plain row: no bar, only the row's own hover and drop fills.
+            if look.style != .band || tint.isNone { return paintQuiet(tokens, look) }
             let chip = tint.headerChip(themed: look.themed)
             var fill = chip.fill
             if isHovered { fill = tokens.hoverFill.composited(over: fill) }
@@ -348,7 +349,7 @@ final class GroupHeaderRowView: SidebarRowView {
         layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
         layer?.cornerRadius = SidebarStyle.rowCornerRadius
         CATransaction.commit()
-        guard look.style == .wash else {
+        guard look.style == .wash, !tint.isNone else {
             pill.backgroundColor = nil
             return paintFill(isDropTarget ? tokens.pressedFill.nsColor : isHovered ? tokens.hoverFill.nsColor : nil)
         }
@@ -502,6 +503,18 @@ extension GroupHeaderRowView {
     /// The status the remote group's dot shows (tests).
     var debugMachineTone: SectionHeaderRowView.StatusTone? { machineDot.isHidden ? nil : machineTone }
 
+    /// The machine mark's side: a status mark's in the trailing column, as every row's trailing marks; the leading
+    /// glyph's in the icon column.
+    func machineMarkSide(_ look: SidebarHostGroupLook) -> CGFloat {
+        look == .leadingMark ? SidebarStyle.leadingGlyphSide : SidebarStyle.statusGlyphSize
+    }
+
+    /// The machine's emoji or symbol, else its kind's glyph (a Cloud machine, another computer), `side` square.
+    fileprivate static func machineImage(_ mark: SidebarMachineMark, side: CGFloat) -> NSImage {
+        if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: side) }
+        return mark.symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(mark.kindIcon, size: side)
+    }
+
     fileprivate func configureMachine(_ machine: SidebarMachine?) {
         guard let machine else {
             self.machine = nil
@@ -515,8 +528,11 @@ extension GroupHeaderRowView {
         let tone = SectionHeaderRowView.tone(machine, hostGroup: true)
         machineTone = tone
         let look = hostLook
-        let symbol: IconName = machine.kind == .cloud ? .cloud : .machineRemote
-        machineMark.image = NSImage.icon(symbol, size: SidebarStyle.leadingGlyphSide)
+        // The machine's own icon at a status mark's size, the size of every row's trailing mark: drawn at the leading
+        // glyph's side it read larger than the rows' under it (Leo 2026-11-02: "the sizes of the icons for groups and
+        // workspaces aren't the same size anymore they should be"). Leading, it takes the icon column's glyph size, as a
+        // group's own icon does.
+        machineMark.image = Self.machineImage(SidebarMachineMark(machine), side: machineMarkSide(look))
         machineMark.isHidden = look == .dotOnly
         // The quiet look keeps the dot for a machine that needs the person (or is on its way).
         let quiet = look == .markQuietWhenConnected && (tone == .success || tone == nil)
@@ -566,7 +582,7 @@ extension GroupHeaderRowView {
             x = machineWords.frame.minX - Metrics.space1
         }
         if !machineMark.isHidden, !leadsWithMachineMark {
-            let side = SidebarStyle.leadingGlyphSide
+            let side = machineMarkSide(hostLook)
             machineMark.frame = NSRect(x: x - side, y: (height - side) / 2, width: side, height: side)
             x = machineMark.frame.minX - Metrics.space2
         }

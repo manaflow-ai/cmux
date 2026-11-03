@@ -1314,6 +1314,15 @@ snapshot includes `registry_id`, the current boot `generation`, the durable
 active flags, active pane ids, active tab indexes, tab titles, tab names,
 surface kinds, browser source, size, and dead flags.
 
+On a queued connection (the local socket and WebSocket) the result also has
+`lines_written_before_read`: how many lines the daemon had written on this
+connection, counting every line in socket order (replies, events and stream
+lines), when it read the tree. The daemon writes events on another thread than
+replies, so an event emitted after the read can reach the client before this
+reply. A client that applies events to a snapshot must apply every event past
+that line; an event on an earlier line is in the tree. Without the field, the
+barrier is every event read before the reply.
+
 Params: none.
 
 Result:
@@ -8360,7 +8369,7 @@ Clients must require the `surface-subscribe-filter` capability before sending `s
 
 A connection that applies no `scroll-changed` from its event stream echoes `subscribe-scroll-on-attach-v1` in `set-client-info` before `subscribe`; its subscription then carries no `scroll-changed` events, while each terminal's attach stream still does (the Mac app: its scrollbars come from its own surfaces, and with many hidden terminals printing these events woke its event pump about 15 times a second per terminal for nothing). Every other connection keeps them. `identify` lists the capability.
 
-A delta subscriber that echoes `tree-selection-deltas-v1` in `set-client-info` before `subscribe` gets a selection change that rides with a lifecycle delta (a created workspace takes the focus, a created tab becomes its pane's active tab) as `{"event":"selection-changed","workspace":W,"active":bool,"active_workspace":W|null,"screens":[{"id","active","active_pane","panes":[{"id","active_tab","focused_at"}]}]}`: the whole selection of that one workspace, read when the event is written, instead of a `tree-changed` that makes it read the whole tree again. A screen or pane the client does not hold yet comes with its own later delta and is skipped. A selection change that names no workspace is still `tree-changed`. Other delta subscribers keep `tree-changed`. In the same way, a created terminal's first placement is its `screen-added` or `tab-added`, and a terminal that ends while its tabs stay is one `tab-changed` per tab, for every subscriber.
+A delta subscriber that echoes `tree-selection-deltas-v1` in `set-client-info` before `subscribe` gets a selection change that rides with a lifecycle delta (a created workspace takes the focus, a created tab becomes its pane's active tab) as `{"event":"selection-changed","workspace":W,"active":bool,"active_workspace":W|null,"screens":[{"id","active","active_pane","panes":[{"id","active_tab","focused_at"}]}]}`: the whole selection of that one workspace, read when the event is written, instead of a `tree-changed` that makes it read the whole tree again. A screen or pane the client does not hold yet comes with its own later delta and is skipped. A selection change that names no workspace is still `tree-changed`. A `workspace.update` of a workspace's title, color or icon (no workspace revision) comes to the same subscriber as `{"event":"workspace-presentation-changed","workspace":W,"entity":Workspace}`, the workspace as `list-workspaces` has it when the event is written. Other delta subscribers keep `tree-changed` for both. In the same way, a created terminal's first placement is its `screen-added` or `tab-added`, and a terminal that ends while its tabs stay is one `tab-changed` per tab, for every subscriber.
 
 Params:
 

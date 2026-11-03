@@ -352,6 +352,20 @@ pub(crate) fn selection_changed_json(state: &State, workspace: u64) -> Option<Va
     }))
 }
 
+/// `workspace-presentation-changed` (`tree-selection-deltas-v1`): workspace `workspace`'s entity as
+/// `list-workspaces` has it, after a `workspace.update` of its title, color or icon. Nil when it is gone.
+pub(crate) fn workspace_presentation_changed_json(
+    state: &State,
+    notifications: &TreeDecorations,
+    workspace: u64,
+) -> Option<Value> {
+    let entity =
+        tree_entity_json(state, notifications, TreeDeltaKind::WorkspaceChanged, workspace)?;
+    Some(
+        json!({"event": "workspace-presentation-changed", "workspace": workspace, "entity": entity}),
+    )
+}
+
 pub(crate) fn tree_entity_json(
     state: &State,
     notifications: &TreeDecorations,

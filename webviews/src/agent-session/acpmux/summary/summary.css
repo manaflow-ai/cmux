@@ -68,6 +68,7 @@
 .acpmux-summary-link[data-state=open]>svg{color:var(--agent-status-success)}
 .acpmux-summary-link[data-state=merged]>svg{color:var(--agent-status-merged)}
 .acpmux-summary-link[data-state=closed]>svg{color:var(--agent-status-failure)}
+.acpmux-summary-link[data-state=draft]>svg{color:var(--agent-muted)}
 .acpmux-summary-more{display:block;width:100%;height:26px;padding:0 8px;border:0;border-radius:7px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);text-align:left;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-summary-stack{flex:none;display:flex;padding-left:4px}
 .acpmux-summary-dot{width:14px;height:14px;margin-left:-4px;box-sizing:border-box;border-radius:50%;border:2px solid var(--surface-popup);background:var(--agent-ansi-4,#58a6ff)}

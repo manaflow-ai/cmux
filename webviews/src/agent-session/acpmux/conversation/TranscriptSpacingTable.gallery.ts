@@ -79,6 +79,64 @@ const WAITING = [
   message: { name: m.from, sessionId: m.session, harness: "claude", text: m.text, raw: m.text },
 }));
 
+/// Another agent's message, as acpmux hands it in from a lane on another machine: the sender named
+/// `<machine>/<name>` (hub/peers.rs), its chat listed on that machine.
+const PEER = "lane-vm-01";
+const received = (text: string, minutes: number, continues = false) =>
+  user(text, minutes, {
+    ...(continues && { continues: true }),
+    incoming: {
+      kind: "message",
+      message: {
+        name: `${PEER}/merge-timeout`,
+        sessionId: "s-merge",
+        harness: "claude",
+        text,
+        raw: text,
+      },
+    },
+    untyped: true,
+  });
+
+/// Leo's 2026-11-02 capture ("wtf these tool call spacing things are still weird"): a finished
+/// reply's footer, then another machine's lane's message, then the turn it started, its work folded
+/// to "Ran 2 commands, received a message". Every line on one 22px line, its icon in the shared
+/// column, the sender named once (transcript-received-line.test.ts).
+const peerLines = () => {
+  const snapshot = chat(
+    [
+      user("Where do the merge timeouts stand?", 14),
+      assistant(REPLY, 13.5),
+      summary(13.4, { status: "completed", durationMs: 34_000, toolCount: 0 }),
+      received("merge-timeout: please deploy leo-workspace main 59c1e0a to the lander and confirm.", 9),
+      activity(
+        [run("Checked the lander", "systemctl status next-autoland"), run("Read the head", "git log --oneline -1")],
+        8.8,
+      ),
+      received("Deployed; the lander is on 59c1e0a.", 8.6, true),
+      assistant("The lander runs 59c1e0a now.", 8.4),
+      summary(8.3, { status: "completed", durationMs: 21_000, toolCount: 2 }),
+    ],
+    {
+      title: "polish-coordinator",
+      sessions: [
+        session({ sessionId: SESSION_ID, title: "polish-coordinator", name: "polish-coordinator" }),
+        session({
+          sessionId: "s-merge",
+          name: `${PEER}/merge-timeout`,
+          title: "merge-timeout",
+          peer: PEER,
+          host: PEER,
+          hostKind: undefined,
+        }),
+      ],
+    },
+  );
+  // A Claude Code chat, as acpmux names its family: its turn's runs fold per run (turns.ts), so the
+  // work reads "Ran 2 commands, received a message" as in Leo's capture, not under "Worked for".
+  return { ...snapshot, summary: { ...snapshot.summary!, family: "claude" } };
+};
+
 export default agentPaneEntry({
   id: "agent-pane.transcript-spacing-table",
   title: "Transcript spacing: every row kind against the settled values",
@@ -124,6 +182,10 @@ export default agentPaneEntry({
           ],
         },
       ),
+    },
+    "peer-lines": {
+      note: "A reply's footer, a lane on another machine's message, then \"Ran 2 commands, received a message\": one line height, one icon column, the sender once.",
+      snapshot: peerLines(),
     },
   },
 });

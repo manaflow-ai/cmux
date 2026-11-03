@@ -226,6 +226,7 @@ impl MuxEventFilter {
                 event,
                 MuxEvent::TreeChanged
                     | MuxEvent::TreeSelectionChanged(_)
+                    | MuxEvent::WorkspacePresentationChanged(_)
                     | MuxEvent::TreeDelta(_)
                     | MuxEvent::LayoutChanged(..)
                     | MuxEvent::PersonalChanged { .. }
@@ -272,7 +273,8 @@ impl SurfaceSessionScope {
             | MuxEvent::ClientDetached(_)
             | MuxEvent::ClientListInvalidated
             | MuxEvent::TreeChanged
-            | MuxEvent::TreeSelectionChanged(_) => false,
+            | MuxEvent::TreeSelectionChanged(_)
+            | MuxEvent::WorkspacePresentationChanged(_) => false,
             MuxEvent::GraphicsStatus(_)
             | MuxEvent::Status(_)
             | MuxEvent::ConfigReloadRequested

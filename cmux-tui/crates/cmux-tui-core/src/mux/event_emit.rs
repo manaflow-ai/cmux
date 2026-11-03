@@ -91,7 +91,10 @@ impl Mux {
         // check again (terminal_respawn.rs). Free when none waits.
         if matches!(
             event,
-            MuxEvent::TreeChanged | MuxEvent::TreeSelectionChanged(_) | MuxEvent::TreeDelta(_)
+            MuxEvent::TreeChanged
+                | MuxEvent::TreeSelectionChanged(_)
+                | MuxEvent::WorkspacePresentationChanged(_)
+                | MuxEvent::TreeDelta(_)
         ) {
             self.respawn_gate.wake_waiters();
         }

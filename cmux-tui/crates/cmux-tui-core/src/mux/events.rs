@@ -99,6 +99,11 @@ pub enum MuxEvent {
     /// read `selection-changed` (`tree-selection-deltas-v1`, #32408): its writer then sends that
     /// workspace's selection as it is when written (`selection_changed_json`).
     TreeSelectionChanged(Option<WorkspaceId>),
+    /// A workspace's title, color or icon changed through the state store (`workspace.update`), which
+    /// has no workspace revision. Delta subscribers resync with a coarse snapshot, unless they read
+    /// `workspace-presentation-changed` (`tree-selection-deltas-v1`): that workspace's entity, read
+    /// when written (#32408).
+    WorkspacePresentationChanged(WorkspaceId),
     /// One protocol-v7 lifecycle mutation. Coarse subscribers project this
     /// back to the legacy `tree-changed` event.
     TreeDelta(TreeDelta),

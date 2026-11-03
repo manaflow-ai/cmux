@@ -20,7 +20,9 @@ import Testing
         let bin = contents.appendingPathComponent("Resources/bin"), mac = contents.appendingPathComponent("MacOS")
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: mac, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(at: source, to: bin.appendingPathComponent("cmux-tui"))
+        // The bundles' layout: bin/cmux is the binary, bin/cmux-tui a relative symlink to it.
+        try FileManager.default.copyItem(at: source, to: bin.appendingPathComponent("cmux"))
+        try FileManager.default.createSymbolicLink(atPath: bin.appendingPathComponent("cmux-tui").path, withDestinationPath: "cmux")
         try FileManager.default.copyItem(at: URL(fileURLWithPath: "/usr/bin/true"), to: mac.appendingPathComponent("Fixture"))
         let info = ["CFBundleExecutable": "Fixture", "CFBundleIdentifier": "com.cmuxterm.tests.native-broker", "CFBundlePackageType": "APPL", "CFBundleVersion": "1"]
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: contents.appendingPathComponent("Info.plist"))
@@ -81,7 +83,7 @@ import Testing
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let bundle = try await bundle(root: root), startup = try startup(), calls = Calls()
-        let binary = bundle.appendingPathComponent("Contents/Resources/bin/cmux-tui")
+        let binary = bundle.appendingPathComponent("Contents/Resources/bin/cmux")
         try FileManager.default.removeItem(at: binary)
         try FileManager.default.createSymbolicLink(at: binary, withDestinationURL: #require(SameTreeDaemonBinary.url))
         let child = NativeCloudLinkChild(bundleURL: bundle, publisher: .development, directory: root.appendingPathComponent("native"), home: root, prepare: { startup }, reply: { try await calls.answer($0) })
