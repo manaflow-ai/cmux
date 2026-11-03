@@ -174,10 +174,10 @@
 
 /* One slow drift, then rest: iteration-count 1 (DRIFT_S in DepthLayer.tsx). */
 .ui-depth:is([data-look="drift"], [data-look="drift-parallax"]) .ui-depth__wash[data-depth="far"] {
-  animation: ui-depth-drift-far var(--ui-depth-drift, 24s) ease-in-out 1;
+  animation: ui-depth-drift-far var(--ui-depth-drift, 24s) ease-in-out 1; /* motion-allow: one bounded ambient drift, paused while hidden, not a transition */
 }
 .ui-depth:is([data-look="drift"], [data-look="drift-parallax"]) .ui-depth__wash[data-depth="near"] {
-  animation: ui-depth-drift-near var(--ui-depth-drift, 24s) ease-in-out 1;
+  animation: ui-depth-drift-near var(--ui-depth-drift, 24s) ease-in-out 1; /* motion-allow: one bounded ambient drift, paused while hidden, not a transition */
 }
 .ui-depth[data-paused] .ui-depth__wash {
   animation-play-state: paused;

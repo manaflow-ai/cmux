@@ -26,7 +26,7 @@ describe("motion scale", () => {
     for (const step of SCALE.steps) expect(desktop).toContain(`--cmux-motion-${step.name}: ${step.ms}ms;`);
     expect(desktop).toContain(`--cmux-ease-out: cubic-bezier(${SCALE.easeOut.join(", ")});`);
     expect(desktop).toContain(`--cmux-ease-spring: ${MOTION_SPRING};`);
-    expect(MOTION_SPRING_STEP).toBe(SCALE.spring.step);
+    expect<string>(MOTION_SPRING_STEP).toBe(SCALE.spring.step);
   });
 
   test("the spring starts and ends at rest and settles inside its step", () => {
