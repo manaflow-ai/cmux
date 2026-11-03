@@ -17,6 +17,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # A launch of Playwright's Chromium: chromium.launch(...) or chromium.launchPersistentContext(...).
 LAUNCH = re.compile(r"chromium\s*\.\s*(launch|launchPersistentContext)\s*\(")
+# A launch through an engine picked at run time: browserTypes[engine].launch(...), engine.launch(...).
+DYNAMIC_LAUNCH = re.compile(r"(\]|\bengine)\s*\.\s*launch\s*\(")
 # `playwright install` naming the bundled chromium (or its headless shell) engine.
 INSTALL_CHROMIUM = re.compile(r"playwright\s+install\b[^\n]*?\bchromium(-headless-shell)?\b")
 
@@ -62,7 +64,7 @@ class SystemChromeTests(unittest.TestCase):
             if rel.startswith("webviews/test/"):
                 continue
             text = path.read_text(errors="replace")
-            for m in LAUNCH.finditer(text):
+            for m in [*LAUNCH.finditer(text), *DYNAMIC_LAUNCH.finditer(text)]:
                 args = call_args(text, m.end() - 1)
                 if "channel" not in args and "executablePath" not in args:
                     line = text.count("\n", 0, m.start()) + 1
