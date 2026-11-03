@@ -119,14 +119,18 @@ const panelsOpen: Play = async (ctx) => {
 };
 
 // Claude Code desktop's top strip (Leo 2026-10-21): no separators, the right-side panel's toggle
-// first, every button a 24px square on one 26px pitch, every glyph the same size.
+// first, every button a 24px square on one 26px pitch, every glyph the same size. The chat menu's ⋮
+// is the one exception (#33010, header.css `.acpmux-header-more`; Leo 2026-11-03: "i don't like how
+// this vertical ellipsis looks spaced next to everything else"): its box is its 16px glyph box, 24px
+// tall, so its centre sits 22px after the tool before it (more-optical).
 const groupedControls: Play = async (ctx) => {
   const first = ctx.document.querySelector(".acpmux-header-tools button");
   if (!first?.classList.contains("acpmux-summary-button"))
     throw new Error("the panel toggle must be the first of the header's icons");
   if (ctx.document.querySelector(".acpmux-header-tools hr, .acpmux-header-separator"))
     throw new Error("the header tools draw a separator");
-  const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button")];
+  const buttons = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button")];
+  const tools = buttons.filter((button) => !button.classList.contains("acpmux-header-more"));
   for (const button of tools) {
     const box = button.getBoundingClientRect();
     if (Math.round(box.width) !== 24 || Math.round(box.height) !== 24)
@@ -135,7 +139,22 @@ const groupedControls: Play = async (ctx) => {
   const lefts = tools.map((button) => button.getBoundingClientRect().left);
   if (lefts.slice(1).some((left, index) => Math.round(left - lefts[index]!) !== 26))
     throw new Error("header buttons are not on one 26px pitch");
-  const glyphs = new Set(tools.map((button) => button.querySelector("[data-icon]")?.getBoundingClientRect().width));
+  const more = ctx.document.querySelector<HTMLElement>(".acpmux-header-tools button.acpmux-header-more");
+  if (more) {
+    const box = more.getBoundingClientRect();
+    if (Math.round(box.width) !== 16 || Math.round(box.height) !== 24)
+      throw new Error(`the chat menu's ⋮ is ${box.width}x${box.height}, not its 16x24 glyph box`);
+    const before = buttons[buttons.indexOf(more) - 1];
+    if (before) {
+      const center = (element: Element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.left + rect.width / 2;
+      };
+      const pitch = Math.round(center(more) - center(before));
+      if (pitch !== 22) throw new Error(`the chat menu's ⋮ sits ${pitch}px after the tool before it, not 22px`);
+    }
+  }
+  const glyphs = new Set(buttons.map((button) => button.querySelector("[data-icon]")?.getBoundingClientRect().width));
   if (glyphs.size !== 1) throw new Error(`header glyphs come in several sizes: ${[...glyphs].join(", ")}`);
 };
 
@@ -250,7 +269,13 @@ const sessionInfoOpen =
     toggle.parentElement!.append(probe);
     const litInk = view.getComputedStyle(probe).color;
     probe.remove();
-    if (style.color !== litInk) throw new Error(`the open Session Info toggle is not lit: ${style.color} vs ${litInk}`);
+    // The tool's ink eases over its 80ms colour transition (header.css), so right after the theme
+    // changes it can still read the old theme's ink: wait for it to settle before judging it.
+    try {
+      await ctx.waitFor(() => view.getComputedStyle(toggle).color === litInk, { capMs: 1000 });
+    } catch {
+      throw new Error(`the open Session Info toggle is not lit: ${style.color} vs ${litInk}`);
+    }
     for (const tool of ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")) {
       if (tool === toggle || tool.matches(":hover, [data-popup-open], [aria-pressed=true]")) continue;
       const fill = view.getComputedStyle(tool).backgroundColor;

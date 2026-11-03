@@ -754,6 +754,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/session_search",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/complete",
       "params": true,
       "result": true
@@ -1131,6 +1137,18 @@
     {
       "kind": "request",
       "name": "_acpmux/secret_run",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mcp_connect_request",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mcp_connect_answer",
       "params": true,
       "result": true
     },
@@ -1617,6 +1635,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/peer_snapshots_clear",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pair_ticket_new",
       "params": true,
       "result": true
@@ -1666,6 +1690,24 @@
     {
       "kind": "request",
       "name": "_acpmux/pair_redeem",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/vault_pull",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/vault_forget",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/vault_status",
       "params": true,
       "result": true
     },
@@ -4541,6 +4583,13 @@
             "null"
           ]
         },
+        "transcriptSeq": {
+          "default": 0,
+          "description": "The seq of its newest transcript record (`hub/paging.rs` `is_transcript`): unlike\n`updatedAt` and `lastSeq`, bookkeeping (an agent start's `agent_start_waiting`, usage,\ngit, process counts) never moves it, so a client that keeps a chat's newest page reads it\nagain only when this passes the value it read at. An upper bound after a hard stop.\nAbsent from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "turn": {
           "anyOf": [
             {
@@ -5080,6 +5129,13 @@
             "null"
           ]
         },
+        "transcriptSeq": {
+          "default": 0,
+          "description": "The seq of its newest transcript record (`hub/paging.rs` `is_transcript`): unlike\n`updatedAt` and `lastSeq`, bookkeeping (an agent start's `agent_start_waiting`, usage,\ngit, process counts) never moves it, so a client that keeps a chat's newest page reads it\nagain only when this passes the value it read at. An upper bound after a hard stop.\nAbsent from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "turn": {
           "anyOf": [
             {
@@ -5450,6 +5506,23 @@
             "null"
           ]
         },
+        "cacheReadShare24h": {
+          "description": "Of those calls' prompt tokens (input, cache read and cache write), the share the prompt\ncache served (0 to 1); null with no calls or when the day is not read whole.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "calls24h": {
+          "description": "Model calls of the last 24 hours, subagents' included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "compactions24h": {
           "description": "Compactions in the last 24 hours.",
           "format": "uint64",
@@ -5474,6 +5547,14 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "costPerCallUsd24h": {
+          "description": "`costUsd24h` over the priced calls: what one call costs at list prices, USD.",
+          "format": "double",
+          "type": [
+            "number",
             "null"
           ]
         },
@@ -5538,9 +5619,12 @@
       "required": [
         "autocompact",
         "autocompactCap",
+        "cacheReadShare24h",
+        "calls24h",
         "compactions24h",
         "contextTokens",
         "contextWindow",
+        "costPerCallUsd24h",
         "costUsd24h",
         "launcher",
         "subagents1h",

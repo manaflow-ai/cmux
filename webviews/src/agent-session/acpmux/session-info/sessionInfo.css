@@ -177,6 +177,18 @@
 .acpmux-session-info[data-placement="overlay"] {
   --ui-enter-distance: 24px;
 }
+/* A floating Session Info opens in its final place on the click. Its exit still slides away, and
+   the foot of an already open panel still follows a growing composer. */
+.acpmux-session-info[data-placement="overlay"]:is([data-presence="from"], [data-presence="shown"]) {
+  opacity: 1;
+  translate: none;
+  transition-property: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-session-info[data-placement="overlay"][data-presence="shown"][data-over-chat][data-foot-moves] {
+    transition-property: max-height;
+  }
+}
 .acpmux-session-info[data-resizing] {
   user-select: none;
 }
@@ -232,9 +244,6 @@
   font-weight: 500;
 }
 .acpmux-session-info__body {
-  /* A section's drag handle (.acpmux-session-info-section__handle) is this wide: one base step of the
-     body's left inset, then the head's leading padding up to its icon column. */
-  --acpmux-session-info-handle-width: calc(var(--grid-base) + var(--grid-gap));
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -308,10 +317,13 @@
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
-  /* From one base step left of the section to its icon column (the head's padding is one grid gap):
-     the panel's resize edge (3px in) stays clear on the left, the icon or title on the right. */
-  left: calc(-1 * var(--grid-base));
-  width: var(--acpmux-session-info-handle-width);
+  /* Centred on the head's left edge, where its hover pill starts, and on the head's middle line, so the
+     grip sits on one line with the row instead of half on, half off its pill (Leo, 2026-11-03: "this is
+     an uglily placed thing. just align the draggable"). Two base steps wide: the panel's resize edge
+     (3px in) stays clear on the left, the icon or title (one grid gap in) on the right. The gallery
+     compares other centres through --acpmux-session-info-grip-center. */
+  left: calc(var(--acpmux-session-info-grip-center, 0px) - var(--grid-base));
+  width: calc(2 * var(--grid-base));
   height: var(--grid-row);
   display: flex;
   align-items: center;
@@ -326,6 +338,11 @@
   opacity: 0;
   touch-action: none;
   appearance: none;
+}
+.acpmux-session-info-section__handle > svg {
+  flex: none;
+  overflow: visible;
+  transform: var(--acpmux-session-info-grip-turn, none);
 }
 .acpmux-session-info-section:has(> .acpmux-session-info-section__disclosure > .ui-disclosure-trigger:hover)
   > .acpmux-session-info-section__handle,

@@ -26,6 +26,7 @@ pub mod framebuffer;
 pub mod handshake;
 pub mod keysym;
 pub mod message;
+mod paste;
 pub mod pixel;
 pub mod reconnect;
 mod session;

@@ -49,6 +49,7 @@
 //! Review: the protocol/origin lead (ad349) and the acpmux owner. A change to
 //! `policy.json` needs that review.
 
+pub mod act_as_me;
 pub mod answers;
 pub mod build_identity;
 pub mod check;

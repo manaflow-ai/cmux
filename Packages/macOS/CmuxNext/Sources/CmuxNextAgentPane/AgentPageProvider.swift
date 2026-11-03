@@ -13,7 +13,7 @@ public extension PageDescriptor {
     /// meta CSP says the same (build-agent-pane-web.sh; AgentPageCSPAlignmentTests); the host runs the
     /// user's registry.js through evaluateJavaScript, which the CSP does not govern.
     static let agent = PageDescriptor(
-        id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace],
+        id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace, AppsPanelsPageProvider.namespace],
         csp: PageCSP(connect: ["'none'"],
                      frame: [AgentPaneRenderFrame.source, "cmux-page://cmux.agent/__artifact", "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
                      script: ["'wasm-unsafe-eval'"], inlineScript: false),
@@ -44,6 +44,7 @@ public nonisolated struct AgentPageOps {
             // The composer streams every upload (cloudUploads.ts); without these the page fell back to one frame, which refuses a file over 24 MiB (#28647).
             "chat.upload.begin", "chat.upload.chunk", "chat.upload.finish", "chat.upload.cancel",
         ].map { ($0, $0) })
+        for action in AgentPaneIMessageAction.allCases { methods["imessage.\(action.rawValue)"] = "imessage.\(action.rawValue)" }
         for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods).union(AgentPaneCloudMachineRequest.methods).union(AgentPaneCloudRepositoryRequest.methods)
             .union(AgentPaneCloudEnvironmentRequest.methods).union([AgentPaneCloudCredentialTransferRequest.method]) { methods[method] = method }
         methods["handshake"] = "ready"
@@ -75,6 +76,7 @@ public final class AgentPageProvider: PageProvider {
     public static let hostEvents = "cmux.agent.host.events"
 
     private let prepare: Prepare
+    private let tailGeneration = AgentPaneTailCache.shared.generation
     private var listeners: [UInt64: @MainActor (JSONValue) -> Void] = [:]
     private var bufferedEvents: [AgentPageEvent] = []
     private var transportConnection: Int?
@@ -122,6 +124,8 @@ public final class AgentPageProvider: PageProvider {
     public var pendingAsksSocket: @MainActor () -> String? = { nil }
     /// Reads `chat.asks.pending` through ``pendingAsksSocket`` (tests inject the reader).
     public var pendingAsks = AgentPanePendingAsks()
+    /// The pane host, available before its handshake or transport socket.
+    public var tailHost: (any AgentPaneHostProviding)?
     /// The debug UI pointer report from an app-owned page. The native picker
     /// owns the crop and composer delivery; the page only supplies metadata.
     public var onUiPointerReport: @MainActor (JSONValue) -> Void = { _ in }
@@ -366,7 +370,9 @@ public final class AgentPageProvider: PageProvider {
         // Named, not a prefix: `scrollAnchor` treats anything but `.get` as a write, so a later
         // `chat.scrollAnchor.forget` would have erased a chat's place instead of being refused.
         if AgentPaneScrollAnchors.handles(method: method) { return try Self.scrollAnchor(method, params: params, op: op) }
-        if AgentPaneTailCache.handles(method: method) { return try Self.tail(method, params: params, op: op) }
+        if AgentPaneTailCache.handles(method: method) {
+            return try await Self.tail(method, params: params, op: op, host: tailHost, pageGeneration: tailGeneration)
+        }
         // Needs you's read of a chat's open requests: the host's, never the relay's (AgentPanePendingAsks).
         if method == "chat.asks.pending" { return try await pendingAsks.reply(params, op: op, socket: pendingAsksSocket()) }
         if method == "uiPointer.report" {

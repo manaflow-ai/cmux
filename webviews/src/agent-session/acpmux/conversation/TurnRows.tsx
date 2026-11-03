@@ -17,9 +17,11 @@ import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
+import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext } from "./turnActions";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
-import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
+import { footerLabel, isEmptyFooter, isStopped, workedLabel } from "./turns";
+import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { hasTokens, TimedLabel, tokensText, TurnTokens } from "./TurnTokens";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
@@ -301,9 +303,20 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const authenticationFailed = (kind === "subscription-login" || kind === "auth") && !teamMachine;
   const label = footerLabel(t, row);
   // The turn's time and tokens, for the time's tooltip: "Worked for 13s · ↓ 359 out ↑ 328.8K in".
+  // A Stop acpmux had to force (the agent never answered it) says so here only, never in the
+  // transcript's text (Leo, 2026-11-03: "idk if it should be showing things like that").
+  const forced = row.stopForced ? t("stop.forced") : undefined;
   const detail =
-    [label, hasTokens(row.tokens) ? tokensText(t, language, row.tokens) : undefined].filter(Boolean).join(" · ") ||
-    undefined;
+    [label, hasTokens(row.tokens) ? tokensText(t, language, row.tokens) : undefined, forced]
+      .filter(Boolean)
+      .join(" · ") || undefined;
+  // A stopped turn says so in one muted word, whoever ended it (stoppedTurn.experiment.ts).
+  const stoppedLook = isStopped(row) ? experimentArm(stoppedTurnLook) : "none";
+  const stoppedWord = stoppedLook !== "none" && (
+    <span className="cv-turn-stopped" title={forced ?? workedLabel(t, row)}>
+      {t("turn.stoppedMark")}
+    </span>
+  );
   // The last turn, stopped and not yet followed by a prompt, offers Continue (Codex's): it sends the
   // continue prompt as the composer would, and the button goes once that prompt shows (turns.ts).
   const resumable = row.resumable === true && resume !== undefined;
@@ -429,6 +442,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             )}
             {!messages && <PinButton rowId={row.id} />}
             {!messages && text && <ReadAloudButton id={row.id} text={text} />}
+            {!messages && text && <RowReplyButton text={text} />}
             {!messages && text && row.answerId && <MessageMore rowId={row.answerId} />}
             {authenticationFailed && transferCloudCredentials && row.retryRowId && prompt && (
               <button
@@ -444,10 +458,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               </button>
             )}
           </span>
+          {stoppedLook === "word" && stoppedWord}
           {resumable && (
             <button
               type="button"
               className="cv-iconbtn cv-turn-continue"
+              title={t("turn.continueHelp")}
               disabled={resuming}
               onClick={() => {
                 setResuming(true);
@@ -458,6 +474,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               <ArrowRight size={ROW_ICON} aria-hidden="true" />
             </button>
           )}
+          {stoppedLook === "trailing" && stoppedWord}
           {!messages && <ReplyTime at={row.at} detail={detail} />}
         </MessageFooterRow>
       </div>

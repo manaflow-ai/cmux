@@ -271,7 +271,11 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
  * or a still dot while the row's words shimmer. `loading` (a check or a page loading, not agent
  * work) always draws the turning arc. Agent work's spinner is the settled thin arc, never the macOS
  * activity indicator's segmented spokes (#29903 swapped them in; Leo 2026-11-01: "why the f*** did
- * you make the spinner into this????"). `cv-spinner` turns it on the shared clock. */
+ * you make the spinner into this????"). `cv-spinner` turns it on the shared clock. It is the one
+ * spinner every page draws (Leo 2026-11-02: "WHY THE F*** ARE YOU GUYS POSSIBLY DIFFERING THE
+ * F***ING SPINNERS ACROSS THE SIDEBAR AND THE F***ING RUNNING"): transcript rows, Session Info's
+ * Running and Subagents, the todo list and the pickers draw this component, never their own
+ * (test/one-spinner.test.ts). */
 export const Spinner = ({
   size = 16,
   className,
@@ -311,14 +315,6 @@ export const StopSquare = ({ size = 16, className, style }: CvIconProps) => (
     aria-hidden="true"
   >
     <rect x="3.75" y="3.5" width="8.5" height="9" rx="1.6" fill="currentColor" />
-  </svg>
-);
-
-/** The composer's dim busy ring (12px) with a brighter leading arc. */
-export const ComposerSpinner = ({ className, style }: CvIconProps) => (
-  <svg className={className} style={style} width={12} height={12} viewBox="0 0 12 12" fill="none" aria-hidden="true">
-    <circle cx="6" cy="6" r="5.1" stroke="#51524c" strokeWidth="1.5" />
-    <path d="M6 .9a5.1 5.1 0 0 1 4.4 2.5" stroke="#7d7e78" strokeWidth="1.5" strokeLinecap="round" />
   </svg>
 );
 

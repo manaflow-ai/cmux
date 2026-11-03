@@ -314,6 +314,10 @@ def changed_paths(base: str, head: str) -> list[str] | None:
     return [os.fsdecode(path) for path in result.stdout.split(b"\0") if path]
 
 
+# The push base that runs every web subarea, whatever the push changed.
+EVERY_SUBAREA = "all"
+
+
 def route() -> int:
     output = Path(os.environ["GITHUB_OUTPUT"])
     if os.environ.get("EVENT_NAME") == "workflow_dispatch":
@@ -323,6 +327,11 @@ def route() -> int:
     # A feat-cmux-next push routes from what the push brought (event.before), not its last
     # commit: a multi-commit push can end on a commit that touches no web path.
     push_base = os.environ.get("WEB_SUBAREAS_BASE", "").strip()
+    if push_base == EVERY_SUBAREA:
+        # A coalesced cmux-next-web.yml push run whose covered range is unknown (scripts/ci/web_coalesce.py).
+        print("the range this push covers is unknown; running every web subarea")
+        WebSubareas.all().emit(output)
+        return 0
     base = subprocess.run(
         ["git", "rev-parse", "-q", "--verify", f"{push_base}^{{commit}}" if push_base else "HEAD^1"],
         text=True,
