@@ -204,13 +204,6 @@ SECTIONS = [
         "enums": {"workspaces.autoArchive.style": "AutoArchiveStyle"},
     },
     {
-        "source": "schemas/settings/source/chat-page-hibernation.json",
-        "swift": SCHEMA_DIR + "/SettingsSchema+ChatPageHibernation.generated.swift",
-        "type": "ChatPageHibernationSettingsSchema",
-        "lists": {"chatPages": ("descriptors", "ChatPageHibernationSettings")},
-        "enums": {},
-    },
-    {
         "source": "schemas/settings/source/workspace-hibernation.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+WorkspaceHibernation.generated.swift",
         "type": "WorkspaceHibernationSettingsSchema",

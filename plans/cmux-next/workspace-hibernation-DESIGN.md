@@ -16,7 +16,7 @@ note is the memory half and reuses its idle signal and exemptions.
 | Parked `WorkspaceContentController` (views, panes, strips, observations) | app | only at critical pressure (`releaseParked`); since issue 26046 also past 32 per window (`ParkedWorkspaceBudget`) |
 | Terminal GPU surfaces | app | LRU warm set (4 to 12 hidden surfaces) |
 | Browser pages (WebKit / Chromium renderer) | other processes, counted by the app's footprint | frozen after 30 s; discarded only when cmux.json sets `browser.hibernation` (off by default since #25791) |
-| Agent chat pages (WebKit may share content processes) | app and renderer allocations | local idle WebKit pages release after five minutes hidden; explicit `browser.hibernation` still applies |
+| Agent chat pages (one web content process each, about 75 MB) | other processes | only when `browser.hibernation` is set |
 | PTY, VT state and scrollback | `cmux-tui __terminal-host` (out of process) | never: that process *is* the terminal |
 | Agent sessions | acpmux | never |
 
@@ -35,7 +35,7 @@ agent update, notification) for `workspaces.hibernation.idleMinutes` (default **
    compressed picture are kept, and the page restores (with its back/forward list and scroll) when
    the tab shows. Every page safety check still applies: edited form fields, playing media, capture,
    Web Audio, WebRTC, a connected device, an open DevTools, a download, an agent lease, an excluded
-   host or a `beforeunload` handler keep that page awake. This is the place website pages are discarded
+   host or a `beforeunload` handler keep that page awake. This is the one place pages are discarded
    without `browser.hibernation`: the person turned workspace hibernation on (it is on by default),
    and the checks keep every page whose loss they could notice.
    **This overrides #25791 ("a page never reloads unless the person asks") for hibernated workspaces
@@ -68,34 +68,6 @@ saved history.
 
 Warning: the idle time drops to 10 minutes. Critical: every eligible workspace hidden at least
 60 seconds hibernates now (the existing `releaseParked` still unmounts parked views at once).
-
-## Local chat page residency (2026-11-03)
-
-Idle local WebKit chat pages release after five minutes hidden by default, independently of
-workspace hibernation. `agents.chatPages.enabled` opts out; `hiddenMinutes` changes the timeout.
-An explicit `browser.hibernation` retains its existing timeout or off behavior. Websites, Chief
-pages and Chromium chat defaults retain their existing policy. The untouched New Tab cap applies
-to both engines after successful wake-state capture; WebKit also requires a saved cover.
-
-The existing `HiddenChatPages` deadline and pressure planner execute defaults from the shared
-`schemas/settings/source/chat-page-hibernation.json`; the existing `SurfaceRetention` reducer
-keeps two recently hidden untouched New Tab pages warm (`agents.chatPages.newTabCapacity`).
-Excess New Tab pages release after the same timeout, keeping their native context. Visible and
-edited New Tabs and the existing single spare remain loaded. No session or tab is destroyed.
-
-Working or waiting chats, pinned tabs, disconnected turn watches, shell runs, remote chats,
-crash notices, pending trust prompts, IME composition, open popups and unsaved edits retain
-their pages. A pending draft write retains its page until acpmux confirms it. Drafts live in
-acpmux; `AgentPaneWakeState` carries attachments and transcript anchors. An automatic default
-WebKit release requires an encoded, appearance-tagged frame; capture failure retains the page and
-retries. After capture, page identity, visibility and activity are checked again before removal.
-The saved frame covers WebKit reconstruction until the restored page paints. Untouched Chromium
-New Tabs use their existing native-context rebuild without taking a hidden Chromium snapshot:
-Chromium draws over native covers, and the pinned engine cannot safely capture a hidden surface.
-
-Release and freeze use existing one-shot deadlines, with a 15-second retry only while a due
-page cannot safely release. No periodic page polling is added. Showing or closing the tab drops
-its retained frame; shutdown cancels deadlines and settings/turn observers and thaws frozen pages.
 
 ## Crash and restart safety
 
@@ -141,3 +113,22 @@ Showing a workspace and hiding one each add a dictionary write.
   an idle host's ring to disk is a host-protocol change (the host is meant to never update,
   pty-holder.md D1-D5) and is left for that lane.
 - Measured numbers: see the report in the commit that lands this.
+
+## Untouched New Tab residency (2026-11-03)
+
+Keep visible New Tabs and the two most recently hidden untouched local New Tabs warm.
+An older untouched hidden page may release after the existing ten-second quick-switch grace.
+The existing SurfaceRetention reducer supplies the warm cap; the existing hidden-page deadline
+executes releases. This is separate from browser and chat timeout settings.
+
+A page with a draft, attachment, edit, pending send, popup or composition stays loaded.
+Pinned tabs, remote or Chief pages, crash notices, shells, chats and unknown agent turns
+keep their existing exemptions. A wake read must answer safely, and eligibility is checked
+again after capture before the view is removed. Its native New Tab context and tab remain.
+WebKit keeps an encoded first-frame cover; Chromium uses its existing New Tab rebuild and
+never captures a hidden Chromium surface. Shutdown cancels the existing release/freeze
+deadlines and turn observation. No per-page polling or new idle timer is added.
+
+Chat pages retain their existing residency defaults. A separate change may release them only
+after wake state can restore scroll, draft, attachments and open panels; page-only state must
+keep a page alive.

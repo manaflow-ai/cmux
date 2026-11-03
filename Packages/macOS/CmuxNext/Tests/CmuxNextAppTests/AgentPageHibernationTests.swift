@@ -11,9 +11,11 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// Idle hidden local WebKit chat pages release on the default deadline and keep their tab,
-/// session, draft and wake state. Busy chats and edited New Tabs retain their pages; only
-/// excess untouched New Tabs use the shared warm cap. Explicit browser settings still apply.
+/// cx-x15rz: each agent chat tab's page is a web view with its own web content process (about
+/// 75 MB). A chat hidden past the browser hibernation threshold lets its page go and keeps its
+/// tab: showing the tab again builds a new page on the same session, which acpmux replays. A
+/// chat whose turn runs (acpmux's turn state), a New Tab page, and every chat with hibernation
+/// off keep their page.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct AgentPageHibernationTests {
     static let thisMac = "install:agent-page-hibernation-test"
@@ -47,13 +49,6 @@ struct AgentPageHibernationTests {
             hibernation.followTurns(turns)
             hibernation.displace = { [unowned self] key in self.displaced.append(key) }
             hibernation.now = { [unowned self] in self.start + self.elapsed }
-            hibernation.isRendering = { [unowned self] key in self.rendering.contains(key) }
-            hibernation.snapshot = { _ in
-                guard let image = CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8,
-                                            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
-                                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?.makeImage() else { return nil }
-                return (image, NSSize(width: 400, height: 300), .aqua)
-            }
         }
 
         /// A chat of this Mac on `session`, shown in a pane, then hidden as a pane switches away:
@@ -188,70 +183,21 @@ struct AgentPageHibernationTests {
         #expect((again["value"] as? [String: Any])?["wake"] == nil)
     }
 
-    @Test func theDefaultReleasesIdleWebKitChatsAfterFiveMinutesWithACover() async throws {
+    /// No `browser.hibernation` in cmux.json: a hidden chat keeps its page at every pressure, as a
+    /// browser tab does. A page built again loses what ``AgentPaneWakeState`` does not carry (an open
+    /// menu or popover, the caret, a queued prompt being edited, an IME composition).
+    @Test(arguments: [MemoryPressureLevel.normal, .critical])
+    func theDefaultKeepsEveryHiddenChatsPage(_ pressure: MemoryPressureLevel) async throws {
         let rig = Rig()
         defer { rig.window.closeAfterTest() }
+        rig.hibernation.update(setting: .fallback, pressure: pressure)
         let page = try rig.hiddenChat("tab_default", session: "s-default")
-        rig.advance(minutes: 4)
-        #expect(rig.tabs.existingView("tab_default") === page)
-        rig.advance(minutes: 1.1)
-        await rig.settle { rig.tabs.existingView("tab_default") == nil }
-        #expect(rig.tabs.existingView("tab_default") == nil)
-        #expect(rig.tabs.session(of: "tab_default") == "s-default")
-        #expect(rig.tabs.launchImages.take("tab_default", size: NSSize(width: 400, height: 300), appearance: .aqua) != nil)
-        #expect(rig.displaced == ["tab_default"])
-    }
-
-    @Test func defaultOptOutKeepsHiddenChatsAndCancelsTheDeadline() throws {
-        let rig = Rig()
-        defer { rig.window.closeAfterTest() }
-        rig.hibernation.update(chatSetting: ChatPageHibernationSettings(enabled: false))
-        let page = try rig.hiddenChat("tab_kept", session: "s-kept")
         rig.advance(minutes: 120)
-        #expect(rig.tabs.existingView("tab_kept") === page)
-        #expect(rig.hibernation.keepsPage("tab_kept") == .keepsState)
+        await rig.settle { rig.tabs.existingView("tab_default") == nil }
+        #expect(rig.tabs.existingView("tab_default") === page, "a hidden chat was recreated by default")
+        #expect(rig.hibernation.keepsPage("tab_default") == .keepsState)
         #expect(!rig.hibernation.hasDeadline)
-    }
-
-    @Test func noUsableFrameKeepsADefaultPageAndRetries() async throws {
-        let rig = Rig()
-        defer { rig.window.closeAfterTest() }
-        rig.hibernation.snapshot = { _ in nil }
-        let page = try rig.hiddenChat("tab_no_frame", session: "s-no-frame")
-        let asked = Asked()
-        rig.hibernation.wakeState = { _ in asked.count += 1; return AgentPaneWakeState() }
-        rig.advance(minutes: 6)
-        await rig.settle { asked.count > 0 }
-        #expect(rig.tabs.existingView("tab_no_frame") === page)
         #expect(rig.displaced.isEmpty)
-        #expect(rig.hibernation.hasDeadline)
-    }
-
-    @Test func hiddenNewTabsUseTheSharedWarmCapAndRetainTheirContext() async throws {
-        let rig = Rig()
-        defer { rig.window.closeAfterTest() }
-        rig.hibernation.update(chatSetting: ChatPageHibernationSettings(newTabCapacity: 1))
-        for key in ["tab_new_1", "tab_new_2", "tab_edited"] {
-            rig.records[key] = AgentSessionRef(host: Self.thisMac, hostName: "This Mac", harness: "claude")
-            let context = AgentPaneNewTab(kind: .agent, cwd: "/tmp/hibernation-test")
-            rig.tabs.newTabPages[key] = (context, NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in }))
-            let page = try #require(rig.tabs.view(for: key))
-            if key == "tab_edited" { _ = await page.model.respond(to: AgentPaneRequest(body: ["method": "newTab.touched"])) }
-            rig.rendering.insert(key)
-            rig.hibernation.sync { rig.rendering.contains($0) }
-            rig.rendering.remove(key)
-            rig.hibernation.sync { rig.rendering.contains($0) }
-        }
-        rig.advance(minutes: 6)
-        await rig.settle { rig.tabs.existingView("tab_new_1") == nil }
-        #expect(rig.tabs.existingView("tab_new_1") == nil)
-        #expect(rig.tabs.existingView("tab_new_2") != nil)
-        #expect(rig.tabs.existingView("tab_edited") != nil)
-        #expect(rig.records["tab_new_1"]?.session == nil)
-        let context = try #require(rig.tabs.newTabPages["tab_new_1"]?.page)
-        #expect(context.cwd == "/tmp/hibernation-test")
-        let rebuilt = try #require(rig.tabs.view(for: "tab_new_1"))
-        #expect(rebuilt.model.newTab?.cwd == context.cwd)
     }
 
     /// A hidden chat whose page crashed shows no notice: it owes a retry for when it is shown

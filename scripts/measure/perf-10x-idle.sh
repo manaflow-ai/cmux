@@ -9,34 +9,15 @@
 # Run alone on a worker (it launches an app):
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-10x-idle.sh --ref SHA [--arg=counts=1,10,50] [--arg=measure=60] \
-#     [--arg=agents=2,6,21] [--arg=agents_settle=370] [--arg=agents_hibernation=off|on] \
-#     [--arg=agents_engine=webkit|chromium|default]
-# agents: workspace counts including the launch workspace (2,6,21 opens 1,5,20
-# chats). Also measure idle agent chats (one workspace each, on the
+#     [--arg=agents=20,100]
+# agents: also measure that many idle agent chats (one workspace each, on the
 # acpmux test agent cmux-tui/crates/acpmux/tests/fake_agent.py, its first turn
 # answered), as PERF-IDLE app-agents lines (resource-efficiency-DESIGN.md).
-# agents_hibernation: default keeps the app's defaults; off/on writes only
-# agents.chatPages.enabled in its scratch config. Run both at the same ref and
-# idle age for a matched comparison. Their artifacts are agents-off.json and
-# agents-on.json; the default keeps the existing agents.json name.
-# agents_engine: writes only browser.defaultEngine in the same scratch config;
-# an explicit engine also suffixes the artifact (agents-off-webkit.json) and
-# fails the run if any rendered chat reports a different actual engine.
-# agents_wake=on: run only the default-policy WebKit draft/scroll/cover proof,
-# using this same listed entry and its isolated bench build. It does not run
-# the daemon or memory scenarios. Example (after this wrapper lands):
-#   cmux-ci run --display --class exclusive --measurement --pool perf-lead \
-#     --script scripts/measure/perf-10x-idle.sh --ref SHA --arg=agents_wake=on \
-#     --artifact .build/perf-idle/hidden-chat-wake.tar.gz
 # Output: PERF-IDLE lines; JSON under .build/perf-idle.
 set -euo pipefail
 counts="1,10,50"
 measure=60
 agents=""
-agents_settle=20
-agents_hibernation=default
-agents_engine=default
-agents_wake=off
 reload_config=()
 for arg in "$@"; do
   case "$arg" in
@@ -44,64 +25,9 @@ for arg in "$@"; do
     counts=*) counts="${arg#counts=}" ;;
     measure=*) measure="${arg#measure=}" ;;
     agents=*) agents="${arg#agents=}" ;;
-    agents_settle=*) agents_settle="${arg#agents_settle=}" ;;
-    agents_hibernation=*) agents_hibernation="${arg#agents_hibernation=}" ;;
-    agents_engine=*) agents_engine="${arg#agents_engine=}" ;;
-    agents_wake=*) agents_wake="${arg#agents_wake=}" ;;
     *) echo "perf-10x-idle.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
-[[ "$agents_settle" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "perf-10x-idle.sh: agents_settle must be nonnegative seconds" >&2; exit 2; }
-agents_config='{}'
-agents_name=agents
-case "$agents_hibernation" in
-  default) ;;
-  off) agents_config='{"agents":{"chatPages":{"enabled":false}}}'; agents_name=agents-off ;;
-  on) agents_config='{"agents":{"chatPages":{"enabled":true}}}'; agents_name=agents-on ;;
-  *) echo "perf-10x-idle.sh: agents_hibernation must be default, off or on" >&2; exit 2 ;;
-esac
-case "$agents_engine" in
-  default) ;;
-  webkit|chromium)
-    agents_config="$(python3 - "$agents_config" "$agents_engine" <<'PY'
-import json, sys
-config = json.loads(sys.argv[1])
-config.setdefault("browser", {})["defaultEngine"] = sys.argv[2]
-print(json.dumps(config, separators=(",", ":")))
-PY
-)"
-    agents_name="$agents_name-$agents_engine"
-    ;;
-  *) echo "perf-10x-idle.sh: agents_engine must be default, webkit or chromium" >&2; exit 2 ;;
-esac
-case "$agents_wake" in
-  off) ;;
-  on)
-    [[ -z "$agents" && "$agents_hibernation" == default && "$agents_engine" != chromium ]] || {
-      echo "perf-10x-idle.sh: agents_wake=on runs only the default-policy WebKit proof; omit agents and hibernation overrides" >&2
-      exit 2
-    }
-    if [[ ${#reload_config[@]} -eq 0 ]]; then reload_config=(--config bench); fi
-    [[ "${reload_config[1]}" == bench || "${reload_config[1]}" == bench-checks ]] || {
-      echo "perf-10x-idle.sh: agents_wake=on requires --config=bench or bench-checks" >&2
-      exit 2
-    }
-    ;;
-  *) echo "perf-10x-idle.sh: agents_wake must be off or on" >&2; exit 2 ;;
-esac
-
-run_agents_wake() {
-  local wake_out="$work/hidden-chat-wake" wake_status=0
-  mkdir -p "$wake_out"
-  echo "PERF-IDLE-CONFIG agents_wake=on engine=webkit policy=default artifact=hidden-chat-wake.tar.gz"
-  CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/hidden-chat-wake.py --app "$app" --out "$wake_out" > "$wake_out/check.log" 2>&1 || wake_status=$?
-  cat "$wake_out/check.log"
-  # Include the report, captures and frame strip that exist, including failure
-  # evidence; the Python proof's nonzero status still fails the fleet step.
-  tar -czf "$work/hidden-chat-wake.tar.gz" -C "$wake_out" . || return $?
-  return "$wake_status"
-}
-
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 work="$root/.build/perf-idle"
@@ -124,10 +50,6 @@ tag="perfidle"
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$work/reload.log" || { tail -n 80 "$work/reload.log"; exit 1; }
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload.log" | tail -n 1)"
 [[ -n "$app" && -d "$app" ]] || { echo "perf-10x-idle: reload printed no app path" >&2; tail -n 40 "$work/reload.log"; exit 1; }
-if [[ "$agents_wake" == on ]]; then
-  run_agents_wake
-  exit $?
-fi
 tui="$app/Contents/Resources/bin/cmux-tui"
 [ -x "$tui" ] || { echo "perf-10x-idle: no bundled cmux-tui at $tui" >&2; exit 1; }
 status=0
@@ -169,25 +91,16 @@ for s in data.get("samples", []):
               f"wakeups_per_s={e.get('wakeups_per_s')} rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']}")
 PY
 if [[ -n "$agents" ]]; then
-  echo "PERF-IDLE-CONFIG agents hibernation=$agents_hibernation engine=$agents_engine config=$agents_config artifact=$agents_name.json"
   echo "PERF-IDLE-LOAD agents $(uptime | sed 's/.*load averages*: //')"
   python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
     --fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py \
-    --config "$agents_config" --run-label "chat-pages-$agents_hibernation-$agents_engine" --expect-agent-engine "$agents_engine" \
-    --settle "$agents_settle" --measure "$measure" --top 8 --out "$work/$agents_name.json" > "$work/$agents_name.log" 2>&1 || { status=$?; tail -n 60 "$work/$agents_name.log"; }
-  python3 - "$work/$agents_name.json" <<'PY' || status=$?
+    --settle 20 --measure "$measure" --top 8 --out "$work/agents.json" > "$work/agents.log" 2>&1 || { status=$?; tail -n 60 "$work/agents.log"; }
+  python3 - "$work/agents.json" <<'PY' || status=$?
 import json, sys
 data = json.load(open(sys.argv[1]))
-print(f"PERF-IDLE-CONFIG artifact={sys.argv[1]} run_label={data.get('run_label')} config={json.dumps(data.get('config'), sort_keys=True)}")
 for s in data.get("samples", []):
-    chats = s.get("chats", {})
-    print(f"PERF-IDLE-CHATS {s['label']} workspaces={s['workspaces']} chats={chats.get('count')} "
-          f"rendered={chats.get('rendered_count')} engines={','.join(chats.get('engines', []))} "
-          f"observed_renderer_pids={chats.get('observed_webkit_renderer_pids', [])} "
-          f"surviving_renderer_pids={chats.get('surviving_webkit_renderer_pids', [])} "
-          f"webkit_webcontent_count={chats.get('webkit_webcontent_count')} settle_s={data.get('settle_s')}")
     for kind, e in s["kinds"].items():
-        print(f"PERF-IDLE app-agents {s['label']} agents={chats.get('count')} workspaces={s['workspaces']} kind={kind} n={e['count']} cpu_pct={e.get('cpu_pct')} "
+        print(f"PERF-IDLE app-agents {s['label']} agents={s['workspaces']} kind={kind} n={e['count']} cpu_pct={e.get('cpu_pct')} "
               f"wakeups_per_s={e.get('wakeups_per_s')} rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']}")
 PY
 fi

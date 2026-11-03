@@ -131,17 +131,6 @@ def kind_of(cmd: str, bundle: str) -> str:
     return os.path.basename(cmd.split()[0])
 
 
-def process_started(pid: int) -> str:
-    """PID birth date, to reject an observed renderer PID reused by another process."""
-    return subprocess.run(["ps", "-p", str(pid), "-o", "lstart="],
-                          capture_output=True, text=True, timeout=10).stdout.strip()
-
-
-# Direct launches can leave WebKit responsibility with the launching shell. Only
-# renderers observed through this app's live chat page may supplement that API.
-_observed_webkit: dict[int, dict[int, str]] = {}
-
-
 def owned(app_pid: int, bundle: str):
     """{pid: (kind, command)} for every process from the bundle, plus the
     WebKit processes the app is responsible for."""
@@ -151,10 +140,6 @@ def owned(app_pid: int, bundle: str):
             _run_pids.add(pid)
             found[pid] = (kind_of(cmd, bundle), cmd)
         elif _responsible is not None and "com.apple.WebKit." in cmd and _responsible(pid) == app_pid:
-            found[pid] = (kind_of(cmd, bundle), cmd)
-        elif ("com.apple.WebKit.WebContent" in cmd
-              and (born := _observed_webkit.get(app_pid, {}).get(pid))
-              and process_started(pid) == born):
             found[pid] = (kind_of(cmd, bundle), cmd)
     return found
 
@@ -246,23 +231,19 @@ class App:
                   "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
         if focus:
             params["focus"] = True
-        return self.rpc("action.run", params)
-
-    def rpc(self, method: str, params: dict) -> dict:
-        """One bounded socket request, also used for page observation before hiding."""
         reply = b""
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stream:
                 stream.settimeout(120)
                 stream.connect(self.socket)
-                stream.sendall((json.dumps({"id": 1, "method": method, "params": params}) + "\n").encode())
+                stream.sendall((json.dumps({"id": 1, "method": "action.run", "params": params}) + "\n").encode())
                 while not reply.endswith(b"\n"):
                     chunk = stream.recv(65536)
                     if not chunk:
                         break
                     reply += chunk
-        except OSError as error:
-            return {"error": f"{method}: {error}"}
+        except OSError as error:  # includes a timeout: this workspace is skipped, the run goes on
+            return {"error": f"{action}: {error}"}
         try:
             answer = json.loads(reply or b"{}")
         except ValueError:
@@ -296,13 +277,8 @@ class FakeChats:
     chat, as one is after its reply. Its sessions stay in that acpmux's
     store (the app's tag under ~/.acpmux)."""
 
-    def __init__(self, app: App, bundle: str, script: str, app_pid: int | None = None,
-                 expected_engine: str = "default"):
+    def __init__(self, app: App, bundle: str, script: str):
         self.app = app
-        self.app_pid = app_pid
-        self.expected_engine = expected_engine
-        self.sessions: dict[str, str] = {}
-        self.pages: dict[str, dict] = {}
         # The app splits `args` into words like a shell: a fleet step's checkout is under
         # "/Library/Application Support/...", so the path is quoted or the agent never starts.
         added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
@@ -342,71 +318,19 @@ class FakeChats:
         if not created:
             print(f"   agent.openSessionWorkspace: {response.get('error') or response}", file=sys.stderr)
             return None
-        self.sessions[created[0]] = session
         return created[0]
-
-    def observe(self, workspace: str):
-        """Prove the real session rendered before it is covered; never query it at idle."""
-        session = self.sessions[workspace]
-        deadline = time.monotonic() + 60
-        state = {}
-        while time.monotonic() < deadline:
-            reply = self.app.rpc("debug.agent_pane", {"action": "chat_state"})
-            state = reply.get("result") or reply
-            if (state.get("sessionId") == session and state.get("lastAssistant")
-                    and not state.get("isWorking")):
-                break
-            time.sleep(0.2)  # setup only: wait for this exact persisted chat to render
-        else:
-            raise RuntimeError(f"bench-memory: chat {session} did not render its reply: {state}")
-        pane = reply.get("pane")
-        engine = self.app.rpc("debug.agent_pane", {"action": "engine", "pane": pane}).get("engine")
-        if not engine:
-            raise RuntimeError(f"bench-memory: chat {session} has no measured engine")
-        actual_engine = "webkit" if engine.startswith("webkit:") else "chromium" if engine == "cef" else engine
-        if self.expected_engine != "default" and actual_engine != self.expected_engine:
-            raise RuntimeError(f"bench-memory: chat {session} expected {self.expected_engine}, rendered {engine}")
-        page = {"workspace": workspace, "session": session, "pane": pane, "engine": engine,
-                "rows": state.get("rows"), "last_assistant": state["lastAssistant"]}
-        if engine.startswith("webkit:"):
-            response = self.app.rpc("debug.agent_pane", {"action": "pid", "pane": pane})
-            pid = response.get("pid")
-            table = {p: cmd for p, _, cmd in process_table()}
-            born = process_started(pid) if isinstance(pid, int) and pid > 0 else ""
-            if not born or "com.apple.WebKit.WebContent" not in table.get(pid, ""):
-                raise RuntimeError(f"bench-memory: chat {session} has no live WebKit renderer: {response}")
-            if self.app_pid is not None:
-                _observed_webkit.setdefault(self.app_pid, {})[pid] = born
-            page["renderer_pid"] = pid
-        self.pages[workspace] = page
-
-    def observation(self, workspaces: list[str], result: dict) -> dict:
-        pages = [self.pages[w] for w in workspaces if w in self.pages]
-        expected = [w for w in workspaces if w in self.sessions]
-        if len(pages) != len(expected):
-            raise RuntimeError("bench-memory: an opened chat was never observed rendering")
-        rendered_pids = {p["renderer_pid"] for p in pages if "renderer_pid" in p}
-        measured_pids = {p["pid"] for p in result["processes"]}
-        return {"count": len(expected), "rendered_count": len(pages), "pages": pages,
-                "engines": sorted({p["engine"] for p in pages}),
-                "observed_webkit_renderer_pids": sorted(rendered_pids),
-                "surviving_webkit_renderer_pids": sorted(rendered_pids & measured_pids),
-                "webkit_webcontent_count": result["kinds"].get("webkit-webcontent", {}).get("count", 0)}
 
 
 def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats | None = None):
     """One workspace of `recipe` (kinds joined by +); returns its id or None."""
     kinds = recipe.split("+")
     if chats and "chat" in kinds:
-        # Show and verify the chat before another tab covers its page.
+        # The workspace opens on its chat (with a terminal first, as every such workspace).
         kinds.remove("chat")
         workspace = chats.open(index)
         if workspace is None:
             return None
-        selected = app.action("goToWorkspace", workspace=workspace)
-        if selected.get("error") or selected.get("code"):
-            raise RuntimeError(f"bench-memory: cannot show chat workspace {workspace}: {selected}")
-        chats.observe(workspace)
+        app.action("goToWorkspace", workspace=workspace)
     else:
         made = app.run("workspace.newAtBottom")
         created = [item for item in made.get("created", []) if str(item).startswith("ws_")]
@@ -543,17 +467,6 @@ def merged(base: dict, extra: dict) -> dict:
     for key, value in extra.items():
         out[key] = merged(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
     return out
-
-
-def config_object(text: str) -> dict:
-    """The launch override is an object, rather than a silently ignored JSON value."""
-    try:
-        value = json.loads(text)
-    except ValueError as error:
-        raise argparse.ArgumentTypeError(f"invalid config JSON: {error}") from error
-    if not isinstance(value, dict):
-        raise argparse.ArgumentTypeError("config JSON must be an object")
-    return value
 
 
 def tail(path: str, lines: int = 20) -> str:
@@ -739,11 +652,8 @@ def main():
     parser.add_argument("--cef-switches", default="",
                         help="launch, DEBUG builds: extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES)")
     parser.add_argument("--top", type=int, default=15)
-    parser.add_argument("--config", type=config_object, default="{}",
+    parser.add_argument("--config", default="{}",
                         help='launch: cmux.json settings as JSON, e.g. \'{"browser": {"hibernation": 1}}\'')
-    parser.add_argument("--run-label", default="", help="comparison variant recorded in the JSON artifact")
-    parser.add_argument("--expect-agent-engine", choices=["default", "webkit", "chromium"], default="default",
-                        help="--fake-agent: fail if any chat renders in an engine other than this")
     parser.add_argument("--fake-agent", metavar="SCRIPT",
                         help="an ACP agent script (cmux-tui/crates/acpmux/tests/fake_agent.py) the chats use: "
                              "its turns end, as a chat's do after its reply")
@@ -759,37 +669,29 @@ def main():
     if args.socket:
         if not args.app_pid:
             raise SystemExit("bench-memory: --socket needs --app-pid")
-        if args.config:
-            raise SystemExit("bench-memory: --config only applies when launching an app, not attaching")
         socket_path, app_pid = args.socket, args.app_pid
     else:
         extra = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": args.cef_switches} if args.cef_switches else {}
-        launched, socket_path, scratch = launch(bundle, args.config, extra)
+        launched, socket_path, scratch = launch(bundle, json.loads(args.config), extra)
         app_pid = launched
     app = App(bundle, socket_path)
-    _observed_webkit.pop(app_pid, None)
     chats = None
     recipes = args.mix.split(",")
     counts = sorted(int(n) for n in args.workspaces.split(",") if n)
     report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [], "cef_switches": args.cef_switches,
-              "run_label": args.run_label, "config": args.config if launched is not None else None,
-              "expected_agent_engine": args.expect_agent_engine,
-              "webkit_attributed": _responsible is not None,
-              "webkit_attribution": "responsibility plus live-page PID and birth date"}
+              "webkit_attributed": _responsible is not None}
     opened = []
 
     def settle_and_sample(label):
         time.sleep(args.settle)  # test script: let the app and its helpers go idle
         result = sample(app_pid, bundle, label, len(opened) + 1, args.measure)
-        if chats:
-            result["chats"] = chats.observation(opened, result)
         report["samples"].append(result)
         print_sample(result, args.top)
         return result
 
     try:
         if args.fake_agent:
-            chats = FakeChats(app, bundle, args.fake_agent, app_pid, args.expect_agent_engine)
+            chats = FakeChats(app, bundle, args.fake_agent)
         settle_and_sample("idle-launch")
         if args.tabs:
             tab_counts = sorted(int(n) for n in args.tabs.split(",") if n)
@@ -808,8 +710,6 @@ def main():
             while len(opened) + 1 < count:
                 workspace = open_workspace(app, recipes[len(opened) % len(recipes)], args.url, len(opened), chats)
                 if workspace is None:
-                    if chats:
-                        raise RuntimeError(f"bench-memory: only opened {len(opened) + 1} of {count} workspaces")
                     break
                 opened.append(workspace)
             settle_and_sample(f"idle-{count}")

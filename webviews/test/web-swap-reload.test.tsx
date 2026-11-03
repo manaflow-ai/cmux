@@ -462,24 +462,6 @@ test("hibernation retains composition, popups and queued edits, including a clea
   expect(pageReleaseHold()).toBeNull();
 });
 
-test("hibernation can release a durable draft at its saved scroll position without requiring a focused caret at the end", () => {
-  const owner = fixture(`<div ${WEB_SWAP_KEPT_TEXT}><textarea>durable draft</textarea></div>`);
-  const field = owner.querySelector("textarea")!;
-  field.focus();
-  field.setSelectionRange(2, 5);
-  Object.defineProperty(owner, "scrollTop", { configurable: true, value: 40 });
-  // A web update keeps the user's selection; hibernation restores the draft and transcript.
-  expect(hold()).toBe("selection");
-  expect(pageReleaseHold()).toBeNull();
-  field.setSelectionRange(2, 2);
-  expect(hold()).toBe("focus");
-  expect(pageReleaseHold()).toBeNull();
-  field.blur();
-  expect(hold()).toBe("scroll");
-  expect(pageReleaseHold()).toBeNull();
-  owner.remove();
-});
-
 test("a page's own hold (a New Tab's chips, a Home message on its way) keeps the update waiting", async () => {
   let setReason: (reason: string | null) => void = () => undefined;
   function Page() {

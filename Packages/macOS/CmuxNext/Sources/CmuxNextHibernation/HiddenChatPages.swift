@@ -29,8 +29,6 @@ package protocol HiddenChatPagesHost: AnyObject {
     /// The App's own reasons a hidden page may be let go (this Mac's chat with a session, no New Tab page,
     /// no shell command run in it, a page that shows no crash notice); `onScreen` also asks it is out of its window.
     func pageMayRelease(_ key: String, onScreen: Bool) -> Bool
-    /// A local WebKit chat or untouched local New Tab can use the chat-specific default.
-    func pageMayReleaseByDefault(_ key: String) -> Bool
     /// A local untouched New Tab page whose context lives in the native tab store.
     func pageIsUntouchedNewTab(_ key: String) -> Bool
     /// The App's own reasons a hidden page may freeze (it has or waits for a freeze control, it is no New Tab
@@ -53,8 +51,8 @@ package protocol HiddenChatPagesHost: AnyObject {
 /// The hidden agent chat pages' clocks and what they decide (cx-x15rz): when a hidden page freezes,
 /// thaws or is let go. The App performs it (`AgentPageHibernation`).
 ///
-/// Local WebKit chat pages use the shared `agents.chatPages` defaults. An explicit
-/// `browser.hibernation` keeps its existing meaning, including "off". Pages go when hidden past the
+/// Untouched local New Tabs beyond the shared warm-page cap go after `minimumHidden` seconds.
+/// Chat pages go only once `browser.hibernation` is explicit, when hidden past the
 /// browser pages' threshold (`browser.hibernation` and memory pressure, as `HibernationPlanner` sets it),
 /// or when its workspace hibernates. It stays when its tab is pinned (unless the setting includes pinned
 /// tabs), its chat's turn runs or waits on the person, or the App keeps it (``HiddenChatPagesHost/pageMayRelease(_:onScreen:)``).
@@ -80,10 +78,8 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     /// The App's side; it owns this planner (weak: no cycle).
     private weak var host: Host?
     private var turnObservation: Task<Void, Never>?
-    private var settingsObservation: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.hibernation")
     package private(set) var setting: BrowserHibernationSetting = .fallback
-    package private(set) var chatSetting = ChatPageHibernationSettings()
     package private(set) var pressure: MemoryPressureLevel = .normal
     /// When each hidden page was last visible.
     private var hiddenAt: [String: ContinuousClock.Instant] = [:]
@@ -91,7 +87,8 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     private var releasing: Set<String> = []
     /// Existing shared LRU: visible pages plus the newest hidden untouched New Tabs. The spare
     /// pool is separate and never enters this set. Visibility updates touch only changed keys.
-    private var newTabs = SurfaceRetention<String>(capacity: Int(ChatPageHibernationSettings.newTabCapacityDefault))
+    package static var newTabCapacity: Int { 2 }
+    private var newTabs = SurfaceRetention<String>(capacity: HiddenChatPages<Host>.newTabCapacity)
     private var excessNewTabs: Set<String> = []
     package func newTabIsExcess(_ key: String) -> Bool { excessNewTabs.contains(key) }
     /// Pages a release kept, and when each is asked again (``keptForNow(_:)``).
@@ -143,18 +140,7 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
         }
     }
 
-    package func followSettings(_ settings: SettingsController) {
-        settingsObservation?.cancel()
-        settingsObservation = Task { [weak self] in
-            for await setting in ObservationStream({ settings.snapshot.chatPageHibernation }) {
-                self?.update(chatSetting: setting)
-            }
-        }
-    }
-
     package func stop() {
-        settingsObservation?.cancel()
-        settingsObservation = nil
         turnObservation?.cancel()
         turnObservation = nil
         deadline.cancel()
@@ -165,16 +151,6 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     package func update(setting: BrowserHibernationSetting, pressure: MemoryPressureLevel) {
         guard setting != self.setting || pressure != self.pressure else { return }
         (self.setting, self.pressure) = (setting, pressure)
-        replan()
-    }
-
-    package func update(chatSetting: ChatPageHibernationSettings) {
-        guard chatSetting != self.chatSetting else { return }
-        self.chatSetting = chatSetting
-        excessNewTabs.formUnion(newTabs.setCapacity(chatSetting.newTabCapacity))
-        if let host, let pages = host.hibernationPages() {
-            for key in pages.keys.sorted() { noteNewTab(key, visible: host.pageDraws(key)) }
-        }
         replan()
     }
 
@@ -232,16 +208,11 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
         awakeSince = awakeSince.filter { livePages.contains($0.key) }
         startUnseenClocks(pages)
         replanFreeze()
-        // Reuse the browser's pressure/timeout planner; only its implicit chat default differs.
-        // A workspace release that kept unsaved state still needs its retry clock when the
-        // automatic chat policy is off. keepsPage limits that clock to workspace-due pages.
-        let releaseSetting = setting.discardsAutomatically || (!chatSetting.enabled && !workspaceDue.isEmpty) ? setting
-            : BrowserHibernationSetting(mode: chatSetting.enabled ? .minutes(chatSetting.hiddenMinutes) : .off)
-        guard setting.isEnabled,
-              let threshold = HibernationPlanner.threshold(releaseSetting, pressure: pressure).map({ max($0, Self.minimumHidden) }) else {
+        guard setting.isEnabled else {
             deadline.cancel()
             return
         }
+        let chatThreshold = HibernationPlanner.threshold(setting, pressure: pressure).map { max($0, Self.minimumHidden) }
         let current = host.pageClock()
         retryAt = retryAt.filter { hiddenAt[$0.key] != nil }
         var next: Double?
@@ -255,6 +226,8 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
                 }
                 retryAt[key] = nil
             }
+            let threshold = excessNewTabs.contains(key) && host.pageIsUntouchedNewTab(key) ? Self.minimumHidden : chatThreshold
+            guard let threshold else { continue }
             let remaining = workspaceDue.contains(key) ? 0 : threshold - (current - at).seconds
             if remaining > 0 {
                 next = min(next ?? remaining, remaining)
@@ -282,7 +255,7 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
         if heldAwake { return .keepsState }
         let forWorkspace = workspaceDue.contains(key)
         if !setting.discardsAutomatically, !forWorkspace,
-           !chatSetting.enabled || host?.pageMayReleaseByDefault(key) != true { return .keepsState }
+           !excessNewTabs.contains(key) || host?.pageIsUntouchedNewTab(key) != true { return .keepsState }
         guard let host, host.pageMayRelease(key, onScreen: onScreen) else { return .unsupported }
         if host.pagePinned(key), !setting.includesPinnedTabs { return .pinned }
         // No watch, no known turn: a chat that looks idle may be working.
@@ -368,6 +341,7 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
         guard let host else { return }
         let current = host.pageClock()
         for key in pages.keys where hiddenAt[key] == nil && !shown.contains(key) && !releasing.contains(key) && !host.pageDraws(key) {
+            noteNewTab(key, visible: false)
             hiddenAt[key] = current
         }
     }

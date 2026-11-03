@@ -47,22 +47,21 @@ function registeredPageHold(doc: Document): string | null {
   return null;
 }
 
-function unkeptFieldHold(doc: Document): string | null {
+function unkeptFieldHold(doc: Document, edited = false): string | null {
   for (const field of doc.querySelectorAll<HTMLElement>("input, textarea, [contenteditable]")) {
     if (field.closest(`[${WEB_SWAP_KEPT_TEXT}]`) || !isEditable(field)) continue;
     if ((field as HTMLInputElement).readOnly || (field as HTMLInputElement).disabled) continue;
     const text = isTextField(field) ? field.value : field.textContent;
     // Clearing an existing queued prompt is an edit too, even though it leaves no text.
-    if (text?.trim() || (isTextField(field) && field.value !== field.defaultValue)) return "field";
+    if (text?.trim() || (edited && isTextField(field) && field.value !== field.defaultValue)) return "field";
   }
   return null;
 }
 
 /** What a hidden page cannot hand back in its wake state: registered unsaved state (including
- * sends and New Tab drafts/attachments), composition, open popups and other edited fields.
- * Focus, caret, selection and scroll alone do not retain it: its composer and transcript restore. */
+ * sends and New Tab drafts/attachments), composition, open popups and other edited fields. */
 export function pageReleaseHold(doc: Document = document): string | null {
-  return registeredPageHold(doc) || (doc.querySelector(OPEN_POPUP) ? "popup" : null) || unkeptFieldHold(doc);
+  return registeredPageHold(doc) || (doc.querySelector(OPEN_POPUP) ? "popup" : null) || unkeptFieldHold(doc, true);
 }
 
 /** The page's answer: null when a reload now keeps everything it holds, else why not. */

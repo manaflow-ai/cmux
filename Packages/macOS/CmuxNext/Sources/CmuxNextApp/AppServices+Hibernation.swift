@@ -22,7 +22,6 @@ extension AppServices {
             return await self.resources.sample(.everything).browserTabMemory()
         }
         hibernation.agentPages = AgentPageHibernation(services: self)
-        hibernation.agentPages?.pages.followSettings(settings)
         hibernation.follow(settings)
         hibernation.start()
     }

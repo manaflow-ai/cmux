@@ -9975,13 +9975,6 @@ function AcpmuxPane() {
   /// The composer for automation (automation.ts composeSend, runMode): its own Return and run row.
   const automationCompose = useRef<AutomationCompose>(undefined);
   automationCompose.current = {
-    async draft(text) {
-      const handle = composerHandle.current;
-      if (!handle) return undefined;
-      if (text !== undefined && handle.draft().text !== text) handle.restore(text, []);
-      await settleDraftWithin(handle, DRAFT_SETTLE_MS);
-      return composerHandle.current?.draft().text;
-    },
     async send(text) {
       const handle = composerHandle.current;
       if (!handle) return undefined;
@@ -10277,9 +10270,7 @@ function AcpmuxPane() {
         openDiff: (rowId) => automationView.current?.openDiff(rowId),
         diff: () => automationView.current?.diff ?? { open: false, paths: [] },
         pickFolder: (cwd) => automationPick.current?.(cwd),
-        scrollAnchor: () => transcriptAnchor.current?.(),
         compose: {
-          draft: (text) => automationCompose.current?.draft?.(text) ?? Promise.resolve(undefined),
           send: (text) => automationCompose.current?.send(text) ?? Promise.resolve(undefined),
           runMode: () => automationCompose.current?.runMode(),
           setRunMode: (mode) => automationCompose.current?.setRunMode(mode) ?? false,
@@ -11493,10 +11484,9 @@ function AcpmuxPane() {
             const released = quitting === true ? held.release() : [];
             const chips = released.length ? await giveBackTrustHeld.current(released, false, true, until) : [];
             await settleDraftWithin(composerHandle.current, Math.max(0, until - Date.now()));
-            // Hibernation may wait for edits and sends that live only in this page. Quit and close
-            // still give back their state. Check after settling: a timed-out draft is not durable,
-            // even after the web-update hold's bounded retry window has elapsed.
-            if (quitting !== true && (pageReleaseHold() || hasPendingDraftWrite(sessionIdRef.current)))
+            // Only untouched New Tabs are capped. Keep their page-owned drafts, attachments,
+            // sends, composition and popups; quit and close still hand back their state.
+            if (quitting !== true && newTabNow.current && pageReleaseHold())
               return { holdsPageState: true };
             const anchor = transcriptAnchor.current?.();
             const composer = composerHandle.current?.wakeState();

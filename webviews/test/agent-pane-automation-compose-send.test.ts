@@ -4,7 +4,6 @@
 import { expect, test } from "bun:test";
 import {
   composeSend,
-  composeDraft,
   runMode,
   type AutomationCompose,
   type AutomationHost,
@@ -66,25 +65,4 @@ test("compose_send says when no composer shows, and refuses an empty prompt", as
   const none: AutomationCompose = { ...composer().compose, send: async () => undefined };
   expect(await composeSend(host(none), "hi")).toEqual({ error: "no composer shows (the New Tab page?)" });
   expect(await composeSend(host(none), "  ")).toEqual({ error: "empty prompt" });
-});
-
-test("compose_draft reads the editor and durable copy without sending a prompt", async () => {
-  const { compose, sent } = composer();
-  const shown: string[] = [];
-  compose.draft = async (text) => {
-    if (text !== undefined) shown.push(text);
-    return shown.at(-1) ?? "";
-  };
-  const target = host(compose);
-  target.snapshot = () => ({ sessionId: "chat-a" }) as AcpmuxSnapshot;
-  const calls: string[] = [];
-  target.call = async (method) => {
-    calls.push(method);
-    return { draft: "kept text" };
-  };
-  expect(await composeDraft(target, "typed text")).toEqual({
-    text: "typed text", durableText: "kept text", sessionId: "chat-a",
-  });
-  expect(calls).toEqual(["chat.readDraft"]);
-  expect(sent).toEqual([]);
 });

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 562,
+  "count": 559,
   "sections": [
     {
       "id": "general",
@@ -188,40 +188,6 @@
             "min": 0,
             "max": 3600,
             "unit": "seconds"
-          }
-        },
-        {
-          "key": "agents.chatPages.enabled",
-          "title": "Release Hidden Chat Pages",
-          "help": "Free idle local chat pages while keeping their session, draft and scroll position. Explicit browser hibernation settings still apply.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Hibernation"
-        },
-        {
-          "key": "agents.chatPages.hiddenMinutes",
-          "title": "Release Hidden Chats After",
-          "help": "Minutes to keep an idle local WebKit chat page after hiding it. Working chats, pinned tabs and pages with pending prompts stay loaded.",
-          "kind": "number",
-          "default": 5,
-          "group": "Hibernation",
-          "range": {
-            "min": 1,
-            "max": 1440,
-            "unit": "minutes"
-          }
-        },
-        {
-          "key": "agents.chatPages.newTabCapacity",
-          "title": "Keep Hidden New Tab Pages",
-          "help": "Keep this many recently hidden, untouched New Tab pages warm. Pages you edited and the single prewarmed spare stay loaded.",
-          "kind": "number",
-          "default": 2,
-          "group": "Hibernation",
-          "range": {
-            "min": 0,
-            "max": 16,
-            "unit": "count"
           }
         },
         {

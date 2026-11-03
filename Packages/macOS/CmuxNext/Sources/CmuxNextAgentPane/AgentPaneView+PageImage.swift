@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxNextDesign
-import CmuxNextControl
 
 extension AgentPaneView {
     /// An image of the page as shown (the next launch draws it until this
@@ -14,28 +13,6 @@ extension AgentPaneView {
         let under = performWithTheme { AgentPaneTheme.underPageColor(themeTokens, surface: surfaceKind) }
         return PageImageBackground.cover(image, color: under, pageIsOpaque: Self.pageIsOpaque(surfaceKind, in: self),
                                          keepsClearAreas: snapshotKeepsClearAreas)
-    }
-
-    /// A bounded, appearance-tagged frame for hidden-page hibernation. The caller retains the
-    /// page if this cannot produce the snapshot that covers its next first frame.
-    public func hibernationFrame() async -> (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)? {
-        let appearance = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
-        let frame = try? await ControlDeadline.shared.run(method: "hibernation.agentSnapshot", deadline: .now + .seconds(2)) { @MainActor in
-            await self.pageImage().flatMap { image in image.cgImage(forProposedRect: nil, context: nil, hints: nil).map { ($0, image.size, appearance) } }
-        }
-        return frame.flatMap { $0 }
-    }
-
-    public var isOnScreenForHibernation: Bool { window != nil && !isHiddenOrHasHiddenAncestor }
-
-    /// Capture the page-owned state and encode its first-frame cover before the native store
-    /// removes this view. The store must recheck page identity, visibility and activity afterwards.
-    public func captureForHibernation(
-        key: String, images: AgentPaneLaunchImages, requiresFrame: Bool,
-        wake: @MainActor (AgentPaneView) async -> AgentPaneWakeState?,
-        snapshot: @MainActor (AgentPaneView) async -> (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)?
-    ) async -> (wake: AgentPaneWakeState?, kept: String?) {
-        await AgentPaneHibernationCapture(view: self).capture(key: key, images: images, requiresFrame: requiresFrame, wake: wake, snapshot: snapshot)
     }
 
     /// Whether a saved picture of a page (`AgentPaneLaunchImages`) may stand in for it under the

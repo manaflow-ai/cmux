@@ -5,8 +5,6 @@ import { pathKey, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { permissionKeys, permissionOption } from "./permissionKeys";
 import type { PermissionDecision } from "./permissions/protocol";
 import type { RunMode } from "./sandboxRun";
-import { layoutScrollTop, physicalScrollTop } from "./conversation/scrollCoordinates";
-import { userScrollIntent } from "./conversation/userScroll";
 
 // Automation verbs for the DEBUG `debug.agent_pane` socket method (window.cmuxAcpmuxDebug).
 // Each verb runs the same page action a click or key runs (callNative and its
@@ -29,8 +27,6 @@ export type AutomationHost = {
   pickFolder?(cwd: string): void;
   /// The composer itself: what Return sends, and where a new chat runs (composeSend, runMode).
   compose?: AutomationCompose;
-  /// The transcript anchor the normal wake-state path reads, never a synthetic scroll value.
-  scrollAnchor?(): unknown;
 };
 
 /// The chat composer as a person drives it: `send` puts `text` in the prompt and sends it as Return
@@ -43,8 +39,6 @@ export type AutomationCompose = {
   setRunMode(mode: RunMode): boolean;
   /// The Cloud start this page sent (cloudStartProgress.ts), or null.
   cloudStart(): unknown;
-  /// Reads the editor, optionally restoring an unsent draft first, then settles its normal writes.
-  draft?(text?: string): Promise<string | undefined>;
 };
 
 /// How long an automation verb waits for the chat's own action (pageAction).
@@ -217,48 +211,6 @@ export async function composeSend(host: AutomationHost, text: string) {
   const sent = await host.compose.send(text);
   if (sent === undefined) return { error: "no composer shows (the New Tab page?)" };
   return { sent, runMode: host.compose.runMode() ?? null, cloudStart: host.compose.cloudStart() ?? null };
-}
-
-/** The actual composer draft and acpmux's persisted copy, for a tagged-build restoration check.
- * No send occurs; the editor's ordinary draft-settle path owns the write. */
-export async function composeDraft(host: AutomationHost, text?: string) {
-  if (!host.compose?.draft) return { error: "the page has no draft reader" };
-  const sessionId = host.snapshot().sessionId;
-  if (!sessionId) return { error: "the chat has no session" };
-  const shown = await host.compose.draft(text);
-  if (shown === undefined) return { error: "no composer shows" };
-  const saved = (await host.call("chat.readDraft", { sessionId })) as { draft?: unknown } | null;
-  return { text: shown, durableText: typeof saved?.draft === "string" ? saved.draft : "", sessionId };
-}
-
-/** Reads the rendered transcript and its wake anchor. With `fraction`, moves it as a reader's
- * explicit scroll would, then reads after two frames; no transcript data is fabricated. */
-export async function scrollState(host: AutomationHost, fraction?: number) {
-  const node = document.querySelector<HTMLElement>(".acpmux-scroll");
-  if (!node || node.clientHeight <= 0) return { error: "no visible transcript" };
-  if (fraction !== undefined) {
-    if (!Number.isFinite(fraction) || fraction < 0 || fraction > 1)
-      return { error: "fraction must be between 0 and 1" };
-    // Mark an upward reader input so follow/jump work yields before the offset changes.
-    userScrollIntent(node).mark(new WheelEvent("wheel", { deltaY: -1 }));
-    node.scrollTop = physicalScrollTop(node, Math.max(0, node.scrollHeight - node.clientHeight) * fraction);
-    node.dispatchEvent(new Event("scroll"));
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-  }
-  const viewport = node.getBoundingClientRect();
-  const visible = [...node.querySelectorAll<HTMLElement>("[data-row-id]")]
-    .filter((row) => {
-      const rect = row.getBoundingClientRect();
-      return rect.bottom > viewport.top && rect.top < viewport.bottom;
-    })
-    .map((row) => ({ id: row.dataset.rowId, text: (row.innerText || row.textContent || "").slice(0, 500) }));
-  return {
-    top: layoutScrollTop(node),
-    height: node.clientHeight,
-    scrollHeight: node.scrollHeight,
-    anchor: host.scrollAnchor?.() ?? null,
-    visible,
-  };
 }
 
 const RUN_MODES: readonly RunMode[] = ["persistent", "sandboxed", "cloud"];

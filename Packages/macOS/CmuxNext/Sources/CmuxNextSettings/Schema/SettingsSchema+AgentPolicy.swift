@@ -278,8 +278,6 @@ extension SettingsSchema {
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
         "workspaces.hibernation.enabled": .userOnly, "workspaces.hibernation.idleMinutes": .userOnly,
         "workspaces.hibernation.hiddenSpaceMinutes": .userOnly,
-        "agents.chatPages.enabled": .userOnly, "agents.chatPages.hiddenMinutes": .userOnly,
-        "agents.chatPages.newTabCapacity": .userOnly,
         // Which of the person's folders the Screenshots page reads.
         "screenshots.findTools": .privacy, "screenshots.folders": .privacy,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window
