@@ -318,7 +318,7 @@ pub(crate) fn pinned_preview_format(cmd: &Command) -> crate::hub::questions::Pre
 /// resolved (`config::profiles`). The secret store is asked only when a
 /// value holds a reference; the lookup blocks, so a multi-thread runtime
 /// moves it off its worker first.
-fn resolved_profile_env(
+pub(crate) fn resolved_profile_env(
     profile: &HarnessProfile,
 ) -> Result<std::collections::BTreeMap<String, String>> {
     let mut env = profile.env.clone();

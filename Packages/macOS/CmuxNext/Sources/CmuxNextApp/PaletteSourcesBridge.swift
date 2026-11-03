@@ -136,12 +136,10 @@ enum PaletteSourcesBridge {
             }
         }
 
+        func hasWorkspace(id: String) -> Bool { services.machines.workspace(id: id) != nil } // perf-hot: 0.01ms workspace-switch (O(1) per daemon, no row built)
         func selectWorkspace(id: String) {
             // No active window (all closed, CLI run): show it in its own window, else a new one.
-            guard let window = services.windows.active else {
-                services.windows.reveal(workspaceID: id)
-                return
-            }
+            guard let window = services.windows.active else { _ = services.windows.reveal(workspaceID: id); return }
             // Keep a workspace already listed in this window on the same selection path as a sidebar
             // click and the numbered navigation shortcuts, so its row highlight moves in the same turn.
             // A workspace owned by another window keeps the palette's global show behavior.

@@ -63,7 +63,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       # The last push that ran the web checks: the newest entry by its prefix. Missing (the first run, an eviction)
-      # means no wait, and this push routes from its own push base, as before coalescing.
+      # means no wait, and every web check runs (an empty push base): the range this push covers is unknown.
       - name: Restore the last covered push
         if: ${{ env.COALESCE == '1' }}
         continue-on-error: true
@@ -108,7 +108,7 @@ jobs:
   web-bisect:
     name: web bisect
     needs: [coalesce, web]
-    if: ${{ always() && github.event_name == 'push' && needs.coalesce.result == 'success' && needs.web.result == 'failure' && needs.coalesce.outputs.base != '' }}
+    if: ${{ always() && github.event_name == 'push' && needs.coalesce.result == 'success' && needs.web.result == 'failure' && needs.coalesce.outputs.base != '' && needs.coalesce.outputs.base != 'all' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_LINUX_GATE_OWNED_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_32 || fromJSON(vars.RUNNER_POOLS).linux_16 }}
     timeout-minutes: 75
     steps:

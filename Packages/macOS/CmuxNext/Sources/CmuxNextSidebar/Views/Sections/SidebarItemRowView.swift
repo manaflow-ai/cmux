@@ -66,6 +66,8 @@ class SidebarItemRowView: NSView {
     let pill = CALayer()
     let chip = CALayer()
     let icon = DecorativeImageView() // the row's label names the item
+    /// The item's favicon as the sidebar's favicon style draws it (the one favicon path, `SidebarFaviconRenditions`).
+    private let faviconRenditions = SidebarFaviconRenditions()
     /// What ``icon`` shows now: a layout that would make the same glyph keeps the image it has (REOPEN-F7: a new image
     /// on every pass laid the icon view out and drew it again).
     private var shownGlyph: ShownGlyph?
@@ -224,6 +226,13 @@ class SidebarItemRowView: NSView {
                 ?? (wells && info.color != nil ? Palette.textOnPrimary
                 : style == .favorite ? Palette.textPrimary
                 : info.isActive || isRailButton || strong ? Palette.textPrimary : Palette.textSecondary)
+            // A theme change can change a favicon's drawing (a mono icon tints on dark, not on light); a tinted one
+            // takes the label colour.
+            if let favicon = info.favicon, let side = shownGlyph?.side {
+                let image = faviconImage(favicon, side: side)
+                if icon.image !== image { icon.image = image }
+                if image.isTemplate { icon.contentTintColor = Palette.textPrimary }
+            }
         }
     }
 
@@ -466,14 +475,30 @@ class SidebarItemRowView: NSView {
     private func showGlyph(side: CGFloat) {
         let glyph = ShownGlyph(key: glyphKey, initial: info.textOnly ? info.caption ?? info.title : "", side: side,
                                favicon: info.favicon?.image)
-        guard glyph != shownGlyph || icon.image == nil else { return }
-        icon.image = glyphImage(side: side)
+        // A favicon asks the favicon path each time (a kept bitmap): the theme or the favicon style can change its drawing.
+        guard glyph != shownGlyph || icon.image == nil || info.favicon != nil else { return }
+        let image = glyphImage(side: side)
+        if icon.image !== image { icon.image = image }
         shownGlyph = glyph
+    }
+
+    /// `favicon` as the sidebar's favicon style draws it at `side` points on this item's ground (a tile's raised well, else
+    /// the sidebar), in this row's theme (Lawrence msg 19869). Its bitmap is made once per image, style and size.
+    private func faviconImage(_ favicon: SidebarFavicon, side: CGFloat) -> NSImage {
+        faviconRenditions.onStyleChange = { [weak self] in
+            self?.needsLayout = true
+            self?.needsDisplay = true
+        }
+        return performWithTheme {
+            let ground = style == .favorite ? Palette.elevatedBackground : Palette.sidebarBackground
+            return faviconRenditions.drawing(favicon, side: side, scale: window?.backingScaleFactor ?? 2,
+                                             ground: SidebarFaviconRenditions.groundLuminance(ground)).image
+        }
     }
 
     /// The item's registry icon at `side` points; without one, its SF Symbol at the matching text size.
     private func glyphImage(side: CGFloat) -> NSImage? {
-        if let favicon = info.favicon { return NSImage(cgImage: favicon.image, size: NSSize(width: side, height: side)) }
+        if let favicon = info.favicon { return faviconImage(favicon, side: side) }
         if let emoji = info.emoji { return Self.emojiImage(emoji, side: side) }
         // An empty title has no initial: the item's neutral symbol keeps an icon-only look visible.
         if info.textOnly, let initial = Self.initialImage(info.caption ?? info.title, side: side) { return initial }

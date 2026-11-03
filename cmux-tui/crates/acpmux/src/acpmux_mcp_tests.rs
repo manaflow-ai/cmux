@@ -78,6 +78,7 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "bg_list",
             "bg_output",
             "bg_stop",
+            "run_wait",
             "pr_state"
         ]
     );
