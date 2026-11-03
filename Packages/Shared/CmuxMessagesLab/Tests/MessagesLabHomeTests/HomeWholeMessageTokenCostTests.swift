@@ -74,4 +74,24 @@ import Testing
         #expect(woke == 0, "\(woke) store observation wakes for \(Self.tokens) talk tokens in \(count) whole-message view(s)")
         #expect(ran == 0, "\(ran) projection passes for \(Self.tokens) talk tokens in \(count) whole-message view(s): none shows a token")
     }
+
+    /// A turn that starts with thinking (most Chief turns): before the run has reply text or an
+    /// activity line nothing shows for it, so its thought tokens wake no view either
+    /// (review of #33945: an empty shape was written over no shape on every thought token).
+    @Test func thoughtTokensBeforeAnyReplyWakeNoWholeMessageView() async throws {
+        let rig = try await HomeChatRig(history: 200, replies: .wholeMessages)
+        defer { rig.stop() }
+        rig.frame()
+        for _ in 0..<4 { await Task.yield() }
+        let wakesBefore = rig.view.projection.observedWakes
+        for seq in 0..<200 {
+            rig.store.handle(.live(.delta(HomeLiveDelta(
+                conversation: HomeChatRig.conversation, author: rig.chief, run: "thinking_first", step: "thought",
+                isTalk: false, seq: UInt64(seq), text: seq == 0 ? "Reading the branch" : " and more", isFinal: false))))
+            for _ in 0..<3 { await Task.yield() }
+        }
+        let woke = rig.view.projection.observedWakes - wakesBefore
+        print("HOMETOKEN thought tokens 200 wakes \(woke)")
+        #expect(woke == 0, "\(woke) store observation wakes for 200 thought tokens before any reply text")
+    }
 }
