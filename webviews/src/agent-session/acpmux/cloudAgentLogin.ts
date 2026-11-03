@@ -118,8 +118,9 @@ export type CloudSignIn = {
   agent: LoginAgent;
   /// Starts the login on the machine. Throws a ``LoginFailure`` (as `{failure}`).
   start(): Promise<LoginStart>;
-  /// Opens the sign-in page as a link click in this pane does (spends the click's gesture, so only
-  /// from its own click: the Sign in click's gesture goes to the start).
+  /// Opens the sign-in page in a cmux browser tab. Right after `start` it needs no click of its own:
+  /// the host lets the start that took the Sign in click open its provider page once
+  /// (AgentPaneSignInPage.swift). Any later open spends its own click's gesture.
   open(url: string): void;
   /// Finishes the login (Claude's pasted code; Codex waits for the approval). True when signed in.
   finish(loginId: string, code?: string): Promise<boolean>;

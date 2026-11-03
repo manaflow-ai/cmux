@@ -98,7 +98,7 @@ export function TasksSection({
           {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
         </button>
         {command.state === "running" && command.processId && onStop && (
-          <StopButton id={command.processId} name={command.command} stop={onStop} />
+          <StopButton id={command.processId} name={command.command} stop={onStop} solid />
         )}
       </li>
     );
@@ -159,12 +159,15 @@ export function StopButton({
   name,
   label: idleLabel,
   stop,
+  solid = false,
 }: {
   id: string;
   name: string;
   /// What it says before a failed stop, in place of "Stop <name>" (the tray: "Stop only this command").
   label?: string;
   stop: (id: string) => Promise<unknown>;
+  /// A filled square, as Claude Desktop's running rows draw it (Background tasks and the tray).
+  solid?: boolean;
 }) {
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
@@ -185,7 +188,7 @@ export function StopButton({
         stop(id).catch(() => setState("failed"));
       }}
     >
-      <Icon name="action.stop" size={12} />
+      <Icon name="action.stop" size={12} selected={solid} />
     </button>
   );
 }
