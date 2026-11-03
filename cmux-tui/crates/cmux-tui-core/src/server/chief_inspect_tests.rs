@@ -207,6 +207,7 @@ fn the_owner_change_paths_are_forwarded_with_post_and_reads_with_get() {
         "/api/memory/undo",
         "/api/view",
         "/api/memory/changes",
+        "/api/activity",
     ] {
         ask(owner, path).unwrap();
     }
@@ -221,6 +222,7 @@ fn the_owner_change_paths_are_forwarded_with_post_and_reads_with_get() {
             ("/api/memory/undo", "POST"),
             ("/api/view", "GET"),
             ("/api/memory/changes", "GET"),
+            ("/api/activity", "GET"),
         ]
     );
     assert!(seen.iter().all(|r| r["query"].get("chief").is_none()), "{seen:?}");
