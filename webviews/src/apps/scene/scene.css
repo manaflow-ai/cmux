@@ -93,8 +93,7 @@
 .cmux-app-scene-node[data-disabled] {
   opacity: 0.5;
 }
-.cmux-app-scene-node:is(button, [role="button"]):focus-visible,
-.cmux-app-scene-field:focus-visible {
+.cmux-app-scene-node:is(button, [role="button"]):focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }

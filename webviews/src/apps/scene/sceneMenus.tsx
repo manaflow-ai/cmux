@@ -144,6 +144,7 @@ export function SceneContextMenu({
       native={menu.native}
     >
       <div
+        role="group"
         className="cmux-app-scene-context"
         data-popup-open={point ? "" : undefined}
         onContextMenu={(event) => {
