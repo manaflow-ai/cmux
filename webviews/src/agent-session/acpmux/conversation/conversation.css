@@ -3342,6 +3342,10 @@ button.cv-video-frames__frame:focus-visible {
   color: var(--cv-activity-text);
   line-height: 20px;
   white-space: nowrap;
+}
+.cv-bgstatus__text {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
 }
 /* A failed call's cause (ToolFailureCause.tsx, the `tool-error-look` experiment): one quiet line
