@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { NewestSteerContext, PendingSteer, takesSteersBack } from "./PendingSteer";
+import { markSentNow, NewestSteerContext, PendingSteer, takesSteersBack } from "./PendingSteer";
 import { TurnActionsContext } from "./turnActions";
 import type { AcpmuxRow } from "../model";
 
@@ -153,6 +153,31 @@ test("Send now on the newest steer clears the earlier steers it covers", async (
   const pending = [...container.querySelectorAll(".cv-user__pending")];
   expect(pending.map((node) => node.closest("[data-row]")?.getAttribute("data-row"))).toEqual(["user-cover-3"]);
   expect(container.querySelectorAll(".cv-user__send-now").length).toBe(1);
+});
+
+// The same from the composer: a queued prompt sent now (its row's Send now, ComposerQueue.tsx)
+// becomes a steer under the same promptId while an earlier steer still waits. Its row must not offer
+// Send now again, and the earlier steer goes with it.
+test("a queued prompt sent now from the composer shows no Send now again, nor the earlier steer's X", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  markSentNow("p-queued-now");
+  const rows: AcpmuxRow[] = [
+    { ...waiting, id: "user-queue-1", at: 10, steerPromptId: "p-earlier-steer" },
+    { ...waiting, id: "user-queue-2", at: 11, text: "Then add a test", steerPromptId: "p-queued-now" },
+  ];
+  await act(async () =>
+    root!.render(
+      <TurnActionsContext.Provider value={{ unsteer: async () => "back" as const }}>
+        <NewestSteerContext.Provider value="user-queue-2">
+          {rows.map((row) => (
+            <PendingSteer key={row.id} row={row} send={async () => true} />
+          ))}
+        </NewestSteerContext.Provider>
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(container.querySelectorAll(".cv-user__pending").length).toBe(0);
 });
 
 test("Send now remains available when delivery fails", async () => {
