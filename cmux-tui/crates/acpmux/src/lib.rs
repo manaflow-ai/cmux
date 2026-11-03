@@ -63,6 +63,7 @@ pub mod frame_compress;
 pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
+pub mod github_status;
 pub mod hand;
 pub mod harness_admin;
 pub mod harness_config;

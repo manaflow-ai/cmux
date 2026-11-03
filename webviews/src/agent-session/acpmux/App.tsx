@@ -569,6 +569,7 @@ import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
 import { configureSentLook } from "./conversation/SentMessageLine";
 import { configureInboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { configureNoticeLook } from "./conversation/noticeLook";
 import { InboxNoticeCard } from "./conversation/InboxNoticeCard";
 import { mergeInboxNotices, type InboxMessage } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
@@ -601,7 +602,7 @@ import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { TranscriptDisclosureProvider } from "./conversation/transcriptDisclosure";
 import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
-import { foldsToHold, withHeldFolds } from "./conversation/turnEndHold";
+import { callsToHold, foldsToHold, linedCallOf, withHeldFolds, withoutHeldCalls } from "./conversation/turnEndHold";
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { AutoResumeNotice } from "./AutoResumeNotice";
@@ -6449,6 +6450,12 @@ function AcpmuxPane() {
   const transcriptInView = useRef<(() => readonly string[] | null) | undefined>(undefined);
   const heldFolds = useRef<{ session?: string; keys: ReadonlySet<string> }>({ keys: new Set() });
   const foldsSeen = useRef<{ session?: string; folds?: Folds }>({});
+  /// The commands the live line let go of while the reader was scrolled up, kept out of their runs
+  /// until the view follows again (conversation/turnEndHold.ts `withoutHeldCalls`, cmux#33200), and
+  /// the call the line named out of its run when the rows were last shaped.
+  const heldCalls = useRef<{ session?: string; keys: ReadonlySet<string>; lined?: string }>({ keys: new Set() });
+  /// Moves when the view follows again with commands held out, so they go back into their runs.
+  const [callRelease, releaseCalls] = useReducer((count: number) => count + 1, 0);
   /// The "Worked for" folds the reader toggled in Thinking or Verbose, per view: those views open
   /// every finished turn's fold (conversation/viewFolds.ts), so a toggle there closes one.
   const [viewToggles, setViewToggles] = useState<ReadonlyMap<TranscriptView, ReadonlySet<string>>>(() => new Map());
@@ -7210,9 +7217,16 @@ function AcpmuxPane() {
     const rows = subagentTray ? withSubagentLines(startedRows, doneLines.current, workflowLabsEnabled) : startedRows;
     return acpmuxPerf.timed("app.rows", () => {
       const last = lastTurns.current;
-      const shape = (open: Folds) =>
+      if (heldCalls.current.session !== shownSessionId)
+        heldCalls.current = { session: shownSessionId, keys: new Set() };
+      // Null while the view follows the latest row: what was held out goes back in there. The view
+      // following again with calls held (`callRelease`) shapes the rows again for that.
+      void callRelease;
+      const viewNow = transcriptInView.current?.();
+      if (!viewNow && heldCalls.current.keys.size > 0) heldCalls.current = { ...heldCalls.current, keys: new Set() };
+      const shapeFrom = (source: readonly AcpmuxRow[], open: Folds) =>
         turnViewFrom(
-          rows,
+          source,
           open,
           {
             working: snapshot.isWorking,
@@ -7228,6 +7242,7 @@ function AcpmuxPane() {
           },
           last?.turns,
         );
+      const shape = (open: Folds) => shapeFrom(withoutHeldCalls(rows, heldCalls.current.keys), open);
       // While the reader is scrolled up, an update that would fold away a row they have in view (a
       // turn's end folding its work, a run of calls closing) leaves that fold open
       // (conversation/turnEndHold.ts); the effect below puts it in `expanded`. The reader's own
@@ -7245,6 +7260,29 @@ function AcpmuxPane() {
           turns = shape(withHeldFolds(folds, heldFolds.current.keys));
         }
       }
+      // A command the live line named out of its run, which it no longer names, stays out of the
+      // run while the reader is scrolled up, as they saw it (turnEndHold.ts, cmux#33200).
+      let lined = linedCallOf(turns.rows);
+      // A held command that still runs and that the line would name again (a newer call took the
+      // line and finished) goes back to the line, out of its run as before, so it never reads
+      // nowhere: in neither its run nor the line. Shaped from every row only while one is held.
+      if (snapshot.isWorking && heldCalls.current.keys.size > 0) {
+        const again = linedCallOf(shapeFrom(rows, withHeldFolds(folds, heldFolds.current.keys)).rows);
+        if (again !== undefined && heldCalls.current.keys.has(again)) {
+          const keys = new Set(heldCalls.current.keys);
+          keys.delete(again);
+          heldCalls.current = { ...heldCalls.current, keys };
+          turns = shape(withHeldFolds(folds, heldFolds.current.keys));
+          lined = linedCallOf(turns.rows);
+        }
+      }
+      const letGo = viewNow ? callsToHold(heldCalls.current.lined, lined, heldCalls.current.keys) : undefined;
+      if (letGo !== undefined) {
+        heldCalls.current = { ...heldCalls.current, keys: new Set([...heldCalls.current.keys, letGo]) };
+        turns = shape(withHeldFolds(folds, heldFolds.current.keys));
+        lined = linedCallOf(turns.rows);
+      }
+      heldCalls.current.lined = lined;
       // Expand inbox summaries only after turn shaping. Source rows remain the semantic anchors
       // for turn boundaries, retries and queue actions; this is a display-only projection.
       const displayRows = projectInboxRows(turns.rows, last?.turns.rows, turns.reusedRows);
@@ -7271,6 +7309,8 @@ function AcpmuxPane() {
     panelAsks,
     subagentTray,
     workflowLabsEnabled,
+    shownSessionId,
+    callRelease,
   ]);
   // Every message other sessions sent that the agent has not read yet, the steers its running turn
   // has not taken and the messages queued behind it, is in one group at the end
@@ -9640,6 +9680,8 @@ function AcpmuxPane() {
   const followingTranscript = useRef(true);
   const onTranscriptFollowingChange = useCallback((following: boolean) => {
     followingTranscript.current = following;
+    // Back at the latest row: the commands held out while scrolled up go back into their runs.
+    if (following && heldCalls.current.keys.size > 0) releaseCalls();
   }, []);
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;
@@ -10387,6 +10429,7 @@ function AcpmuxPane() {
         configureToolRunLook(theme.toolRunLook);
         configureSentLook(theme.sentLook);
         configureInboxNoticeLook(theme.inboxNoticeLook);
+        configureNoticeLook(theme.noticeLook);
         configureTurnActionsPlacement(theme.turnActionsPlacement);
         configureSubagentTray(theme.subagentTray);
         configureSubagentTrayPlacement(theme.subagentTrayPlacement);
