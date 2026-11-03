@@ -264,19 +264,7 @@ class RePin(unittest.TestCase):
         self.assertEqual(pr_mint["with"]["permission-pull-requests"], "write")
         self.assertTrue(pr_mint.get("continue-on-error"))
         script = "\n".join(str(step.get("run", "")) for step in job["steps"])
-        for needle in ("scripts/cmux-next/repin-app-ffi.sh", "app-ffi-repin", "gh pr create",
-                       "gh pr edit", "--jq '.[0].number // empty'", "--base feat-cmux-next",
-                       "compare/feat-cmux-next...$branch"):
-            self.assertIn(needle, script)
-        # The pin is verified before it is pushed, and committed through the contents API so the commit is the App's,
-        # signed by GitHub: the review reconciler reviews app-ffi-repin only then.
-        self.assertLess(script.index("check-app-ffi-pin.sh --verify-release"), script.index("git push --force"))
-        self.assertIn('gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/$manifest"', script)
-        self.assertIn("--input", script)
-        self.assertNotIn("git commit", script)
-        # A failed write is retried, and one whose answer was lost is found on the branch instead of repeated.
-        self.assertIn("for attempt in 1 2 3 4 5", script)
-        self.assertIn('contents/$manifest?ref=$branch', script)
+        self.assertEqual(script.strip(), "bash scripts/cmux-next/publish-app-ffi-repin.sh")
 
 
 REPIN_FAKE = r'''#!/usr/bin/env python3
@@ -304,14 +292,21 @@ if Path(sys.argv[0]).name == "git":
         if "--delete" in args: state["refs"].pop(args[-1], None)
         else:
             sha, ref = args[-1].split(":refs/heads/")
+            if ref == "app-ffi-repin":
+                if state["push_mode"] == "conflict": state["refs"][ref] = "f" * 40
+                lease = next((a for a in args if a.startswith("--force-with-lease=")), None)
+                if lease and state["refs"].get(ref, "") != lease.rsplit(":", 1)[1]:
+                    save(); sys.exit(1)
             state["refs"][ref] = sha
             if ref == "app-ffi-repin":
                 state["published"].append(sha)
                 if sha == "a" * 40: state["prs"]["1"] = "closed"
         save()
+        if "--delete" not in args and ref == "app-ffi-repin" and state["push_mode"] == "lost": sys.exit(1)
     else: raise AssertionError(args)
 elif args[:2] == ["pr", "list"]: print("1")  # deliberately stale
-elif args[:2] == ["pr", "edit"]: pass  # GitHub permits editing a CLOSED PR
+elif args[:2] == ["pr", "edit"]:
+    if state["close_on_edit"]: state["prs"][args[2]] = "closed"; save()
 elif args[:2] == ["pr", "create"]:
     state["prs"]["2"] = "open"; save()
     print("https://github.com/manaflow-ai/cmux/pull/2")
@@ -332,7 +327,8 @@ elif args[0] == "api":
     elif "/pulls/" in endpoint:
         number = endpoint.rsplit("/", 1)[1]
         emit({"state": state["prs"][number], "base": {"ref": "feat-cmux-next"},
-              "head": {"ref": "app-ffi-repin", "sha": state["refs"]["app-ffi-repin"]}})
+              "head": {"ref": "app-ffi-repin", "sha": "f" * 40 if state["wrong_head"]
+                       else state["refs"]["app-ffi-repin"]}})
     else: raise AssertionError(args)
 else: raise AssertionError(args)
 '''
@@ -341,7 +337,7 @@ else: raise AssertionError(args)
 class RePinPublication(unittest.TestCase):
     """Execute the workflow step; model GitHub auto-closing a head reset to base."""
 
-    def run_repin(self, *, closed=False, write_mode="ok"):
+    def run_repin(self, *, closed=False, write_mode="ok", push_mode="ok", wrong_head=False, close_on_edit=False):
         step = yaml.safe_load(WORKFLOW.read_text())["jobs"]["repin"]["steps"][-1]
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -362,7 +358,8 @@ class RePinPublication(unittest.TestCase):
             state_path = work / "state.json"
             state_path.write_text(json.dumps({"refs": {"app-ffi-repin": "c" * 40},
                 "prs": {"1": "closed" if closed else "open"}, "published": [],
-                "writes": 0, "write_mode": write_mode}))
+                "writes": 0, "write_mode": write_mode, "push_mode": push_mode,
+                "wrong_head": wrong_head, "close_on_edit": close_on_edit}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", TAG=TAG, CHECKSUM="f" * 64,
                        GITHUB_SHA=SHA, GITHUB_REPOSITORY=REPO, GITHUB_REPOSITORY_OWNER="manaflow-ai",
@@ -389,12 +386,33 @@ class RePinPublication(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
         self.assertEqual(state["prs"]["1"], "open")
+        self.assertEqual(state["writes"], 5)
 
     def test_lost_write_response_reuses_the_signed_commit(self):
         result, state = self.run_repin(write_mode="lost")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(state["writes"], 1)
         self.assertEqual(state["published"], ["b" * 40])
+
+    def test_concurrent_stable_ref_change_is_preserved(self):
+        result, state = self.run_repin(push_mode="conflict")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(state["refs"], {"app-ffi-repin": "f" * 40})
+        self.assertEqual(state["published"], [])
+        self.assertNotIn("verified open", result.stdout)
+
+    def test_lost_push_response_verifies_the_published_commit(self):
+        result, state = self.run_repin(push_mode="lost")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state["refs"], {"app-ffi-repin": "b" * 40})
+        self.assertIn("verified open", result.stdout)
+
+    def test_final_pr_must_be_open_at_the_published_commit(self):
+        for options in ({"wrong_head": True}, {"close_on_edit": True}):
+            with self.subTest(**options):
+                result, _ = self.run_repin(**options)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("verified open", result.stdout)
 
 
 if __name__ == "__main__":
