@@ -22,6 +22,12 @@
 # agents_engine: writes only browser.defaultEngine in the same scratch config;
 # an explicit engine also suffixes the artifact (agents-off-webkit.json) and
 # fails the run if any rendered chat reports a different actual engine.
+# agents_wake=on: run only the default-policy WebKit draft/scroll/cover proof,
+# using this same listed entry and its isolated bench build. It does not run
+# the daemon or memory scenarios. Example (after this wrapper lands):
+#   cmux-ci run --display --class exclusive --measurement --pool perf-lead \
+#     --script scripts/measure/perf-10x-idle.sh --ref SHA --arg=agents_wake=on \
+#     --artifact .build/perf-idle/hidden-chat-wake.tar.gz
 # Output: PERF-IDLE lines; JSON under .build/perf-idle.
 set -euo pipefail
 counts="1,10,50"
@@ -30,6 +36,7 @@ agents=""
 agents_settle=20
 agents_hibernation=default
 agents_engine=default
+agents_wake=off
 reload_config=()
 for arg in "$@"; do
   case "$arg" in
@@ -40,6 +47,7 @@ for arg in "$@"; do
     agents_settle=*) agents_settle="${arg#agents_settle=}" ;;
     agents_hibernation=*) agents_hibernation="${arg#agents_hibernation=}" ;;
     agents_engine=*) agents_engine="${arg#agents_engine=}" ;;
+    agents_wake=*) agents_wake="${arg#agents_wake=}" ;;
     *) echo "perf-10x-idle.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -66,6 +74,34 @@ PY
     ;;
   *) echo "perf-10x-idle.sh: agents_engine must be default, webkit or chromium" >&2; exit 2 ;;
 esac
+case "$agents_wake" in
+  off) ;;
+  on)
+    [[ -z "$agents" && "$agents_hibernation" == default && "$agents_engine" != chromium ]] || {
+      echo "perf-10x-idle.sh: agents_wake=on runs only the default-policy WebKit proof; omit agents and hibernation overrides" >&2
+      exit 2
+    }
+    if [[ ${#reload_config[@]} -eq 0 ]]; then reload_config=(--config bench); fi
+    [[ "${reload_config[1]}" == bench || "${reload_config[1]}" == bench-checks ]] || {
+      echo "perf-10x-idle.sh: agents_wake=on requires --config=bench or bench-checks" >&2
+      exit 2
+    }
+    ;;
+  *) echo "perf-10x-idle.sh: agents_wake must be off or on" >&2; exit 2 ;;
+esac
+
+run_agents_wake() {
+  local wake_out="$work/hidden-chat-wake" wake_status=0
+  mkdir -p "$wake_out"
+  echo "PERF-IDLE-CONFIG agents_wake=on engine=webkit policy=default artifact=hidden-chat-wake.tar.gz"
+  CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/hidden-chat-wake.py --app "$app" --out "$wake_out" > "$wake_out/check.log" 2>&1 || wake_status=$?
+  cat "$wake_out/check.log"
+  # Include the report, captures and frame strip that exist, including failure
+  # evidence; the Python proof's nonzero status still fails the fleet step.
+  tar -czf "$work/hidden-chat-wake.tar.gz" -C "$wake_out" . || return $?
+  return "$wake_status"
+}
+
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 work="$root/.build/perf-idle"
@@ -88,6 +124,10 @@ tag="perfidle"
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$work/reload.log" || { tail -n 80 "$work/reload.log"; exit 1; }
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload.log" | tail -n 1)"
 [[ -n "$app" && -d "$app" ]] || { echo "perf-10x-idle: reload printed no app path" >&2; tail -n 40 "$work/reload.log"; exit 1; }
+if [[ "$agents_wake" == on ]]; then
+  run_agents_wake
+  exit $?
+fi
 tui="$app/Contents/Resources/bin/cmux-tui"
 [ -x "$tui" ] || { echo "perf-10x-idle: no bundled cmux-tui at $tui" >&2; exit 1; }
 status=0

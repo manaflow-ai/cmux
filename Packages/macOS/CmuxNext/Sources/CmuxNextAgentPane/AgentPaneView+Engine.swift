@@ -17,13 +17,13 @@ extension AgentPaneView {
     }
 
     /// A picture of the page as it draws now; nil when there is none.
-    public func pageSnapshot() async -> NSImage? {
+    public func pageSnapshot(keepingClearAreas: Bool = false) async -> NSImage? {
         model.transport.beforePageWork?()
-        if let page { return await page.snapshot() }
+        if let page { return await page.snapshot(keepingClearAreas: keepingClearAreas) }
         return try? await webView.takeSnapshot(configuration: nil)
     }
 
-    /// Whether ``pageSnapshot()`` can stand in for the page under a pane (``PageWebView/snapshotKeepsClearAreas``).
+    /// Whether a default ``pageSnapshot(keepingClearAreas:)`` can cover the page (``PageWebView/snapshotKeepsClearAreas``).
     public var snapshotKeepsClearAreas: Bool { page?.snapshotKeepsClearAreas ?? true }
 
     /// Whether the page shows, or is to show, in Chromium. Chromium draws it in its own window over the

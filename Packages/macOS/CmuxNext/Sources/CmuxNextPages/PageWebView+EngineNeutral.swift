@@ -20,24 +20,24 @@ extension PageWebView {
 
     /// A picture of the page as it draws now, at the view's size in points; nil when there is none.
     ///
-    /// In Chromium it is a fast-mode JPEG: the browser encodes the capture on its UI thread, which
-    /// is the app's main thread, and a full retina PNG took 80-140 ms there (see `CEFThumbnail`).
-    /// The picture is a cover shown while the page draws again, so JPEG is plenty. The reply (a
-    /// multi-megabyte base64 string) is parsed and decoded off the main actor.
-    public func snapshot() async -> NSImage? {
+    /// Chromium normally uses fast JPEG. A transparent hibernation cover opts into PNG to keep alpha;
+    /// PNG encoding took 80–140 ms on the app's main thread (see `CEFThumbnail`), so frequent captures
+    /// keep JPEG. The base64 reply is parsed off the main actor.
+    public func snapshot(keepingClearAreas: Bool = false) async -> NSImage? {
         guard let page = chromiumSession?.page else { return try? await webView.takeSnapshot(configuration: nil) }
-        guard let json = try? await page.devTools("Page.captureScreenshot", params: Self.snapshotParams),
+        let params: [String: any Sendable] = keepingClearAreas ? ["format": "png", "optimizeForSpeed": true] : Self.snapshotParams
+        guard let json = try? await page.devTools("Page.captureScreenshot", params: params),
               let data = await Self.screenshotData(json), let image = NSImage(data: data) else { return nil }
         image.size = bounds.size
         return image
     }
 
-    /// Whether ``snapshot()`` keeps the page's clear areas the color the pane shows under them. A
+    /// Whether the default ``snapshot(keepingClearAreas:)`` keeps clear areas the color under them. A
     /// Chromium picture is a JPEG, with no alpha: a clear page comes out black, so it is no cover for a
     /// page that has not drawn yet (Cmd-T spam drew a black New Tab page, 2026-10-24).
     public var snapshotKeepsClearAreas: Bool { chromiumSession == nil }
 
-    /// `Page.captureScreenshot` for ``snapshot()``.
+    /// `Page.captureScreenshot` for ordinary JPEG snapshots.
     nonisolated static var snapshotParams: [String: any Sendable] { ["format": "jpeg", "quality": 85, "optimizeForSpeed": true] }
 
     /// The image bytes of a `Page.captureScreenshot` reply, parsed off the main actor.

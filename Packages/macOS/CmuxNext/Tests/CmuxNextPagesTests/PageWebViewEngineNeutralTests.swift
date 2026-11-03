@@ -43,6 +43,7 @@ struct PageWebViewEngineNeutralTests {
         page.answer = { method, _ in method == "Page.captureScreenshot" ? #"{"data":"\#(png.base64EncodedString())"}"# : nil }
         let snapshot = await view.snapshot()
         #expect(snapshot?.size == NSSize(width: 4, height: 3))
+        #expect(page.calls.last { $0.method == "Page.captureScreenshot" }?.params["format"] as? String == "jpeg")
         view.close()
     }
 

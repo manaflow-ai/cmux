@@ -37,7 +37,9 @@ extension AgentPaneView {
             return [params["label"]?.stringValue ?? ""]
         case "acp_log":
             return [params["limit"]?.intValue.map { ["limit": $0] as [String: Any] } ?? [:]]
-        case "send_prompt", "compose_send", "compose_draft":
+        case "send_prompt", "compose_send":
+            return [params["text"]?.stringValue ?? ""]
+        case "compose_draft":
             return params["text"]?.stringValue.map { [$0 as Any] } ?? []
         case "scroll_state":
             return params["fraction"]?.doubleValue.map { [$0 as Any] } ?? []

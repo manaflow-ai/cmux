@@ -3,8 +3,11 @@
 import importlib.util
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
+import tarfile
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -100,13 +103,18 @@ class MatchedConfiguration(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(argparse.ArgumentTypeError):
                 bm.config_object(text)
 
-    def preflight(self, *args):
+    @staticmethod
+    def parser_source():
         # Run the wrapper's real argument parser, stopping before its first
         # filesystem/build command so this check is portable and cheap.
         script = Path(__file__).resolve().parents[2] / "measure" / "perf-10x-idle.sh"
         source = script.read_text().split('root="$(git rev-parse --show-toplevel)"', 1)[0]
+        return source
+
+    def preflight(self, *args, output='printf "%s\\n" "$agents_settle" "$agents_config" "$agents_name"'):
+        source = self.parser_source()
         self.assertNotIn("scripts/reload.sh --tag", source)
-        return subprocess.run(["bash", "-c", source + '\nprintf "%s\\n" "$agents_settle" "$agents_config" "$agents_name"',
+        return subprocess.run(["bash", "-c", source + '\n' + output,
                                "preflight", *args], capture_output=True, text=True)
 
     def test_variants_have_the_same_idle_age_and_distinct_artifacts(self):
@@ -142,6 +150,47 @@ class MatchedConfiguration(unittest.TestCase):
         result = self.preflight("agents_hibernation=maybe")
         self.assertEqual(result.returncode, 2)
         self.assertIn("agents_hibernation must be default, off or on", result.stderr)
+
+    def test_wake_mode_selects_a_bench_build_without_policy_overrides(self):
+        result = self.preflight("agents_wake=on", output='printf "%s\\n" "$agents_wake" "${reload_config[1]}" "$agents_config"')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ["on", "bench", "{}"])
+
+    def test_wake_mode_rejects_an_incompatible_build_or_measurement(self):
+        for arg in ["--config=Release", "agents=2,6,21", "agents_hibernation=off", "agents_engine=chromium"]:
+            with self.subTest(arg=arg):
+                result = self.preflight("agents_wake=on", arg)
+                self.assertEqual(result.returncode, 2, result.stderr)
+
+    def test_invalid_wake_mode_fails_before_build(self):
+        result = self.preflight("agents_wake=maybe")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("agents_wake must be off or on", result.stderr)
+
+    def test_wake_runner_keeps_failure_status_and_packages_the_available_evidence(self):
+        # Execute the actual wrapper function with only its app driver replaced;
+        # no macOS libraries, app, compile or measurement runs on this host.
+        for status in [0, 1]:
+            with self.subTest(status=status), tempfile.TemporaryDirectory(prefix="wake evidence ") as folder:
+                fixture = '''
+work="$WAKE_TEST_WORK"
+app="/isolated app/cmux.app"
+python3() {
+  [[ "$CMUX_BENCH_LAUNCH" == direct && "$#" == 5 && "$1" == scripts/cmux-next/hidden-chat-wake.py && "$2" == --app && "$3" == "$app" && "$4" == --out && "$5" == "$work/hidden-chat-wake" ]] || return 90
+  printf '{"test_result": %s}\\n' "$WAKE_TEST_STATUS" > "$5/report.json"
+  echo "proof result=$WAKE_TEST_STATUS"
+  return "$WAKE_TEST_STATUS"
+}
+run_agents_wake
+'''
+                result = subprocess.run(["bash", "-c", self.parser_source() + fixture, "wake-test", "agents_wake=on"],
+                                        capture_output=True, text=True,
+                                        env={**os.environ, "WAKE_TEST_WORK": folder, "WAKE_TEST_STATUS": str(status)})
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertIn(f"proof result={status}", result.stdout)
+                with tarfile.open(Path(folder) / "hidden-chat-wake.tar.gz") as archive:
+                    self.assertEqual(json.load(archive.extractfile("./report.json")), {"test_result": status})
+                    self.assertIn(f"proof result={status}", archive.extractfile("./check.log").read().decode())
 
 
 if __name__ == "__main__":

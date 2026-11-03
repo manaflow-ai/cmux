@@ -233,7 +233,9 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
         startUnseenClocks(pages)
         replanFreeze()
         // Reuse the browser's pressure/timeout planner; only its implicit chat default differs.
-        let releaseSetting = setting.discardsAutomatically ? setting
+        // A workspace release that kept unsaved state still needs its retry clock when the
+        // automatic chat policy is off. keepsPage limits that clock to workspace-due pages.
+        let releaseSetting = setting.discardsAutomatically || (!chatSetting.enabled && !workspaceDue.isEmpty) ? setting
             : BrowserHibernationSetting(mode: chatSetting.enabled ? .minutes(chatSetting.hiddenMinutes) : .off)
         guard setting.isEnabled,
               let threshold = HibernationPlanner.threshold(releaseSetting, pressure: pressure).map({ max($0, Self.minimumHidden) }) else {
