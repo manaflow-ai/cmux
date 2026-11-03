@@ -63,6 +63,15 @@ pub struct Journal {
     completions: usize,
 }
 
+impl Drop for Journal {
+    fn drop(&mut self) {
+        // flock belongs to the open file description. A concurrent process
+        // launch can inherit it briefly before exec closes its descriptor;
+        // explicitly release our ownership instead of waiting for that copy.
+        let _ = self._owner.unlock();
+    }
+}
+
 impl Journal {
     /// Opens one run directory. The daemon, rather than a workflow script,
     /// chooses this directory and the pinned source.

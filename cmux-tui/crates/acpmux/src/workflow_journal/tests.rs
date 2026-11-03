@@ -86,6 +86,23 @@ fn native_workflow_journal_has_only_one_resume_owner() {
     assert!(Journal::open(directory.path(), "script", 1).is_ok());
 }
 
+#[cfg(unix)]
+#[test]
+fn native_workflow_journal_releases_ownership_with_an_inherited_descriptor() {
+    let directory = tempfile::tempdir().unwrap();
+    let owner = Journal::open(directory.path(), "script", 1).unwrap();
+    // A dup shares the same open file description as an inherited pre-exec FD,
+    // without needing to fork a multithreaded test process.
+    let inherited = owner._owner.try_clone().unwrap();
+    assert!(Journal::open(directory.path(), "script", 1).is_err());
+    drop(owner);
+    let resumed = Journal::open(directory.path(), "script", 1).unwrap();
+    drop(inherited);
+    assert!(Journal::open(directory.path(), "script", 1).is_err());
+    drop(resumed);
+    assert!(Journal::open(directory.path(), "script", 1).is_ok());
+}
+
 #[test]
 fn native_workflow_journal_canonical_options_but_distinct_prompt_kind_and_options() {
     for (kind, prompt, options) in [
