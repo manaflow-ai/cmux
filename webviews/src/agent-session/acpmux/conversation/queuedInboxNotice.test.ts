@@ -65,7 +65,12 @@ test("acpmux's list keeps the notice its record named, and an edit drops it", ()
   expect(kept?.inbox?.threads).toHaveLength(2);
   expect(kept?.message).toBeUndefined();
   // An edit made it the person's: no notice.
-  const [edited] = mergeQueue(had, [{ promptId: "inbox-notice-1", prompt: "my words now", fromAgent: null }], undefined, new Set(["inbox-notice-1"]));
+  const [edited] = mergeQueue(
+    had,
+    [{ promptId: "inbox-notice-1", prompt: "my words now", fromAgent: null }],
+    undefined,
+    new Set(["inbox-notice-1"]),
+  );
   expect(edited?.inbox).toBeUndefined();
 });
 

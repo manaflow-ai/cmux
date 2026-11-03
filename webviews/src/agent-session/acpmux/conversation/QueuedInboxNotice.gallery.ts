@@ -148,7 +148,7 @@ export default agentPaneEntry({
       snapshot: snapshot(true),
     },
     waiting: {
-      note: 'The pick: one row at the transcript\'s end, "N messages from M sessions" and the senders, as a delivered notice draws; the person\'s own prompt stays in the queue. It goes in when the turn ends.',
+      note: "The pick: one row at the transcript's end, \"N messages from M sessions\" and the senders, as a delivered notice draws; the person's own prompt stays in the queue. It goes in when the turn ends.",
       snapshot: snapshot(),
     },
     "waiting-open": {
