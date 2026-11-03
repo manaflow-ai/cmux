@@ -430,7 +430,12 @@ export function EnvironmentPicker({
   // A Cloud machine picked is Cloud's; any other machine (or a saved environment) is Another machine's.
   const checkedKind = ordered.find((environment) => environment.id === checkedRow)?.kind;
   const cloudChecked = clouded || (listRows === "where" && checkedKind === "cloud");
-  const anotherPicked = checkedRow !== undefined && !isLocalId(checkedRow) && !cloudChecked;
+  // A saved environment on this Mac is This Mac's row in the Where list.
+  const savedLocal =
+    listRows === "where" &&
+    checkedRow?.startsWith(SAVED) === true &&
+    saved?.environments.find((environment) => SAVED + environment.id === checkedRow)?.kind === "local";
+  const anotherPicked = checkedRow !== undefined && !isLocalId(checkedRow) && !cloudChecked && !savedLocal;
   const where = [
     ...ordered.filter(isLocal).map((environment) => environment.id),
     ...(cloudRow ? [cloudRow] : []),
@@ -646,7 +651,7 @@ export function EnvironmentPicker({
       <span
         className="acpmux-location-row acpmux-env-row"
         data-kind={environment.kind}
-        data-current={environment.id === checkedRow ? "" : undefined}
+        data-current={environment.id === checkedRow || (savedLocal && isLocal(environment)) ? "" : undefined}
         data-ready={greyed ? "false" : undefined}
         aria-disabled={greyed ? true : undefined}
         // This Mac's row says "This Mac"; its own name is the row's tooltip.
@@ -676,7 +681,7 @@ export function EnvironmentPicker({
         )}
         {number !== undefined && digits && <kbd className="acpmux-env-key">⌥⌘{number}</kbd>}
         <span className="acpmux-location-check" aria-hidden="true">
-          {environment.id === checkedRow && <CheckIcon />}
+          {(environment.id === checkedRow || (savedLocal && isLocal(environment))) && <CheckIcon />}
         </span>
       </span>
     );

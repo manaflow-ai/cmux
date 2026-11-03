@@ -541,7 +541,8 @@ export function ComposerContext({
   const pickedOff = selectedComputer !== "local" && !savedPick;
   const cloudSide =
     cloudPicked || (!sandboxPicked && (waiting !== undefined || (pickedOff && currentComputer?.kind === "cloud")));
-  const offMac = !cloudSide && !sandboxPicked && (pickedOff || savedPick !== undefined);
+  // A saved environment on this Mac is This Mac's; one on an SSH machine is Another machine's.
+  const offMac = !cloudSide && !sandboxPicked && (pickedOff || (savedPick !== undefined && savedPick.kind !== "local"));
   const whereName = sandboxPicked
     ? t("composer.sandboxed")
     : cloudSide
@@ -551,7 +552,10 @@ export function ComposerContext({
         : t("composer.thisMac");
   // The Where control's accessible name and tooltip also name the machine, which a narrow strip shows
   // only as an icon.
-  const whereValue = (offMac || (cloudSide && !cloudPicked)) && placeName ? `${whereName} · ${placeName}` : whereName;
+  const whereValue =
+    (offMac || savedPick !== undefined || (cloudSide && !cloudPicked)) && placeName
+      ? `${whereName} · ${placeName}`
+      : whereName;
   const whereIcon =
     sandboxPicked || cloudSide ? (
       <EnvironmentIcon kind="cloud" />
@@ -565,7 +569,7 @@ export function ComposerContext({
   const cloudChipShown = layout !== "combined" && layout !== "cloud-toggle" && cloudSide;
   const machineShown =
     layout === "where-machine"
-      ? offMac || (machineAsked && !cloudSide && !sandboxPicked)
+      ? offMac || savedPick !== undefined || (machineAsked && !cloudSide && !sandboxPicked)
       : layout === "where-machine-always"
         ? !cloudSide && !sandboxPicked
         : true;
