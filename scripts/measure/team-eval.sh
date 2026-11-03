@@ -227,7 +227,7 @@ if [[ -d "$repo/webviews" ]]; then
       echo "TEAM-EVAL browser lane: not on a Mac (Lawrence's rule: no Playwright on Macs); run it in CI or on a cloud VM"
       lane=(env -u CMUX_BROWSER_TESTS PLAYWRIGHT_BROWSERS_PATH=/var/empty/cmux-no-playwright-on-macs)
     else
-      (cd "$repo/webviews" && "$BUN" x playwright install chromium webkit > "$work/out/playwright-install.log" 2>&1) || true
+      (cd "$repo/webviews" && { "$BUN" x playwright install webkit && "$repo/scripts/ci/ensure-system-chrome.sh" --optional; } > "$work/out/playwright-install.log" 2>&1) || true
     fi
     hidden_rc=0
     IFS=, read -ra files <<< "$hidden"

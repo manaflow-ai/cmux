@@ -725,10 +725,13 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, ["./test/a.test.ts"])
         lines = self.playwright_calls.read_text(encoding="utf-8").splitlines()
-        self.assertEqual(len(lines), 1, lines)
+        # WebKit from Playwright; Chromium is the system Chrome (ensure-system-chrome.sh), which
+        # installs Chrome stable only on a host whose Chrome is missing or old.
+        self.assertIn(len(lines), (1, 2), lines)
         args, browsers = lines[0].split("|")
-        self.assertEqual(args, "install --only-shell chromium webkit")
+        self.assertEqual(args, "install webkit")
         self.assertTrue(browsers.startswith(str(cache / "playwright")), browsers)
+        self.assertEqual([line.split("|")[0] for line in lines[1:]], ["install --with-deps chrome"][: len(lines) - 1])
 
     def test_ci_and_plain_runs_install_no_engines(self):
         for env in ({}, {"CMUX_BROWSER_TESTS": "0"}, {"CMUX_BROWSER_TESTS": "1", "GITHUB_ACTIONS": "true"}):

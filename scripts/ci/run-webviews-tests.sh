@@ -254,7 +254,10 @@ if [ "${GITHUB_ACTIONS:-}" != true ] && [ "$(uname -s)" = Darwin ]; then
 elif [ "${CMUX_BROWSER_TESTS:-}" = 1 ] && [ "${GITHUB_ACTIONS:-}" != true ]; then
   playwright_version="$(python3 -c 'import json; print(json.load(open("package.json"))["devDependencies"]["playwright"])' 2> /dev/null || echo unknown)"
   export PLAYWRIGHT_BROWSERS_PATH="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/playwright-$playwright_version"
-  ./node_modules/.bin/playwright install --only-shell chromium webkit
+  ./node_modules/.bin/playwright install webkit
+  # Chromium is the system Google Chrome (test/preload.ts), never Playwright's bundled build, which
+  # lacks recent security fixes and runs unsandboxed. A host without a current Chrome skips Chromium.
+  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ensure-system-chrome.sh" --optional
 fi
 
 timeout_seconds="${CMUX_WEB_TEST_FILE_TIMEOUT:-120}"
