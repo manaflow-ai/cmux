@@ -95,6 +95,7 @@
      sense for these to be spaced differently", #29965). */
   --cv-message-line: var(--cv-tool-row-height);
   --cv-message-subhead: 22px; /* a sender's head inside that group */
+  --cv-message-preview-line: 18px; /* a message row's first line, under it (messageLineLook.ts) */
   --cv-live-gap: 10px; /* over the running turn's live line, inside its row */
   --cv-disclosure-line-height: var(--cv-tool-row-height);
   /* A status row between two replies (model.ts `isStatusRow`) sits in the middle of the gap (Leo,
@@ -2389,13 +2390,16 @@ pre.cv-math-source {
    "no longer change on hover"; agent-pane-step-rows.test.ts), so only focus lifts it. */
 /* A session link chip in the row (AgentTag.css) lights alone: its focus is not the row's. A tool
    run's or group's summary line lights on hover only (below), so its focus is left out. */
-.cv-tool:not(.is-run):focus-within:not(:has(.cv-agent-tag.is-open:focus)),
+/* A message row keeps one steady tone (design/chat-transcript.md, as a received message's line):
+   a sent row the reader clicked never reads brighter than the ones around it (Leo, 2026-11-02, on
+   rows "in bright and dim text with no clear rule": "i also think this is quite weird looking"). */
+.cv-tool:not(.is-run, .cv-sent):focus-within:not(:has(.cv-agent-tag.is-open:focus)),
 .cv-worked:hover,
 .cv-worked:focus-visible {
   color: var(--cv-text);
 }
-.cv-tool:not(.is-run):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__chevron,
-.cv-tool:not(.is-run):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__detail {
+.cv-tool:not(.is-run, .cv-sent):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__chevron,
+.cv-tool:not(.is-run, .cv-sent):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__detail {
   color: var(--cv-text);
 }
 /* The running rows' mark (`Spinner`: compaction, tool groups, MCP calls, command and shell rows).
@@ -5990,6 +5994,11 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);
 }
 .cv-repo-recovery button:hover { background: color-mix(in srgb, var(--agent-text) 15%, transparent); }
+/* Stacked (messageLineLook.ts): the received line holds the sender alone, so its name may take the
+   line's width instead of sharing it with the first line, which is under it. */
+.cv-received > .cv-disclosure__line:not(:has(.cv-received__preview)) > .cv-received__sender {
+  max-width: calc(100% - var(--cv-chevron-glyph, 12px) - var(--ds-space-4, 16px));
+}
 /* The selection's Reply chip (SelectionReply.tsx): a small pill over the selection's end, as
    Claude's and ChatGPT's. It shows on the selection's end with no fade-in and goes when the
    selection does. `icon` draws the glyph alone. */
