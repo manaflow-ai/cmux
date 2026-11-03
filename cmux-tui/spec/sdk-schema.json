@@ -19333,6 +19333,17 @@
       "since": 12,
       "capability": "tab-split-keep-focus-v1"
      },
+     "pane_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "tab-column-client-pane-v1"
+     },
      "transaction": {
       "type": {
        "kind": "scalar",
