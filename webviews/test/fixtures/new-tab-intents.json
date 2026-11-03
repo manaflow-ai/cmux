@@ -92,6 +92,34 @@
       }
     },
     {
+      "input": "https://example.com/search?q=a b",
+      "intent": {
+        "kind": "url",
+        "url": "https://example.com/search?q=a%20b"
+      }
+    },
+    {
+      "input": "https://example.com/a path",
+      "intent": {
+        "kind": "url",
+        "url": "https://example.com/a%20path"
+      }
+    },
+    {
+      "input": "file:///tmp/My Notes.txt",
+      "intent": {
+        "kind": "url",
+        "url": "file:///tmp/My%20Notes.txt"
+      }
+    },
+    {
+      "input": "https://exa mple.com/path",
+      "intent": {
+        "kind": "prompt",
+        "text": "https://exa mple.com/path"
+      }
+    },
+    {
       "input": "http://example.com",
       "intent": {
         "kind": "url",
