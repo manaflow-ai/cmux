@@ -234,6 +234,62 @@ const waveAgents: Subagent[] = Array.from({ length: RUNNING + 2 }, (_, index) =>
   ...(index < RUNNING ? { action: "Reading SessionInfo.tsx" } : { endedAt: started - index * 30_000 }),
 }));
 
+/// Leo's Session Info of 2026-11-02 ("but what's going on with these?"): three subagents at work, two
+/// that stopped two hours ago and wait on background work of their own (Idle, out of the shimmer and
+/// out of "running" in the head too), one met first through its progress and named by its prompt
+/// rather than its id, and the chat-start limit named for what it counts.
+const idleAgents: Subagent[] = [
+  {
+    id: "idle-a",
+    parent: null,
+    name: "Drop server login",
+    state: "running",
+    startedAt: started - 6_900_000,
+    quietSince: started - 6_600_000,
+  },
+  {
+    id: "idle-b",
+    parent: null,
+    name: "Audit Session Info strings",
+    state: "running",
+    startedAt: started - 6_890_000,
+    quietSince: started - 6_500_000,
+  },
+  {
+    id: "busy-a",
+    parent: null,
+    name: "Fix the running tray",
+    state: "running",
+    startedAt: started - 300_000,
+    quietSince: started - 5_000,
+    action: "Reading SubagentTray.tsx",
+  },
+  {
+    id: "busy-b",
+    parent: null,
+    name: "Measure the rail",
+    state: "running",
+    startedAt: started - 200_000,
+    action: "Running bun test",
+  },
+  {
+    id: "acp-1/toolu_c",
+    parent: null,
+    name: "Check the permission receipt",
+    state: "running",
+    startedAt: started - 120_000,
+    quietSince: started - 2_000,
+  },
+  {
+    id: "done-a",
+    parent: null,
+    name: "Read the design spec",
+    state: "completed",
+    startedAt: started - 7_000_000,
+    endedAt: started - 6_800_000,
+  },
+];
+
 /// Where the play holds every wave loop: one point on each loop's own timeline, past its delay (the
 /// delay is never positive, wave.css), so each icon's phase differs only by its index. At 840 ms
 /// the crest (20% of Session Info's 2.4 s period, SubagentsSection.css) is on the third line: the
@@ -1371,6 +1427,22 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /Show 12 more/ });
         await ctx.waitFor(() => /Show less/.test(text(ctx)));
+      },
+    },
+    "subagents-idle": {
+      note: 'Subagents that stopped and wait on background work of their own read Idle, not Running for two hours, and the head counts them as idle ("3 running · 2 idle · 1 done"). Every line is named by its task, never its id. The limit line says it caps the chats this one started: "Started chats: 0 of 1000 at once".',
+      props: {
+        ...full,
+        agents: idleAgents,
+        sessions: [],
+        summary: {
+          ...summary,
+          harness: "claude",
+          subsessionLimits: { maxRunning: 1000, maxRunningSource: "settings" },
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => /2 idle/.test(text(ctx)) && /Started chats: 0 of 1000 at once/.test(text(ctx)));
       },
     },
     "subagents-wave": {

@@ -414,7 +414,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // token, session id). Everything above the handshake is TypeScript.
         .target(
             name: "CmuxNextAgentPane",
-            dependencies: ["CmuxNextCompat", "CmuxNextCloud", "CmuxNextControl", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextDesignTokens", "CmuxNextErrorJournal", "CmuxNextActions", "CmuxNextIcons", "CmuxNextDictation", "CmuxNextPages", "CmuxNextPalette", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups",
+            dependencies: ["CmuxNextCompat", "CmuxNextCloud", "CmuxNextControl", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextDesignTokens", "CmuxNextErrorJournal", "CmuxNextActions", "CmuxNextApps", "CmuxNextIcons", "CmuxNextDictation", "CmuxNextPages", "CmuxNextPalette", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups",
                            .product(name: "CmuxAppAttest", package: "CmuxAppAttest")],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
@@ -1690,9 +1690,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
-        // Test-only: every exit() of the test process prints its stack, and the main run loop
-        // survives being stopped at its outermost run, whose return would end the whole test run
-        // through swift_task_asyncMainDrainQueue's exit(0) (TestProcessExitTests).
+        // Test-only: every exit() of the test process prints its stack, and in swiftpm-testing-helper
+        // the main run loop survives being stopped at its outermost run, whose return would end the
+        // whole test run through swift_task_asyncMainDrainQueue's exit(0) (TestProcessExitTests).
+        // Never in xctest, which runs its own main (XCTestPhaseTests).
         .target(
             name: "CmuxNextTestExitTrace",
             path: "Tests/Support/CmuxNextTestExitTrace",

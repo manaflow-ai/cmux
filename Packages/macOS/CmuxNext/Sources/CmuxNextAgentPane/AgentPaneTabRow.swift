@@ -15,11 +15,13 @@ import CmuxNextSettings
     /// Called when ``toolsWidth`` changes, or the page loads again (the pane lays out again).
     public var onChange: (() -> Void)?
     /// The row last pushed to the page, nil before the first.
-    private(set) var offered: (height: CGFloat, trailingInset: CGFloat)?
+    private(set) var offered: (height: CGFloat, trailingInset: CGFloat, soloTab: Bool)?
     /// The pane draws its tabs at the row's leading end; false while a lone tab hides (`PaneTabRowSharing.setTabRowTabs`).
     var tabsShown = true
     /// Native chrome holes, in page coordinates; Session Info adds its own overlay hole.
     var holes: [CGRect] = []
+    /// The window's top rim the page leaves uncovered over the chat's tools (`nativeHoles`), in points.
+    static let rimHeight: CGFloat = 1
     private var offeredNativeRowTools: Bool?
     /// Only a shared page host has the return event stream needed by native controls.
     var supportsNativeTools = false
@@ -44,7 +46,10 @@ import CmuxNextSettings
     }
 
     /// The `tabRow` event for the row last offered (a page that subscribes again gets it first).
-    var event: AgentPageEvent { .tabRow(height: offered?.height ?? 0, trailingInset: offered?.trailingInset ?? 0, nativeRowTools: offeredNativeRowTools ?? false) }
+    var event: AgentPageEvent {
+        .tabRow(height: offered?.height ?? 0, trailingInset: offered?.trailingInset ?? 0,
+                nativeRowTools: offeredNativeRowTools ?? false, soloTab: offered?.soloTab ?? false)
+    }
 
     /// The tools' width in points at `zoom` (points per CSS pixel); nil while the setting is off or
     /// the page draws no tools in the row.
@@ -66,17 +71,21 @@ import CmuxNextSettings
         let on = ChromeTunables.tabRowTools.value && height > 0
         let nativeRowTools = view.model.tabRow.nativeToolsEnabled
         let row = view.model.tabRow
-        let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0)
+        let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0, soloTab: on && !row.tabsShown)
         let shares = on && row.toolsWidth > 0
         view.setTabRowCover(shares ? height : 0) // the pane lays the view under the strip only then
         if let page = view.page {
             // A Chromium chat is a window above the pane: it leaves the pane's tabs and toolbar uncovered.
             // The holes are worked out from the row's top-left corner; the chat view is not flipped, so
-            // its top is maxY (at y 0 they cut the composer's footer out of the page instead).
-            let top = view.isFlipped ? view.bounds.minY : view.bounds.maxY - height
-            let holes = shares ? nativeHoles(width: view.bounds.width, height: height, trailingInset: max(0, trailingInset),
+            // each one is mirrored from its own maxY (a hole shorter than the row, the rim's, stays at the
+            // top; at y 0 they cut the composer's footer out of the page instead).
+            let bounds = view.bounds, flipped = view.isFlipped
+            let holes = shares ? nativeHoles(width: bounds.width, height: height, trailingInset: max(0, trailingInset),
                                              tools: row.sharedWidth(zoom: zoom) ?? 0, tabs: row.tabsShown) : []
-            row.holes = holes.map { page.convert($0.offsetBy(dx: view.bounds.minX, dy: top), from: view) }
+            row.holes = holes.map { hole in
+                let y = flipped ? bounds.minY + hole.minY : bounds.maxY - hole.maxY
+                return page.convert(CGRect(x: bounds.minX + hole.minX, y: y, width: hole.width, height: hole.height), from: view)
+            }
             view.applyNativeRects()
         }
         guard row.offered.map({ $0 != next || row.offeredNativeRowTools != nativeRowTools }) ?? (next.height > 0 || nativeRowTools) else { return }
@@ -90,18 +99,27 @@ import CmuxNextSettings
 /// The parts of a shared tab row `width` points wide and `height` tall (top-left origin) that the
 /// pane's native chrome draws: its tabs, from the leading edge to where the chat's `tools` begin
 /// (the strip gives up at most half its room, `PaneTabRowSharing.tabRowWidth`), unless `tabs` is
-/// false (a lone tab hides), and its toolbar in the trailing `trailingInset` points.
+/// false (a lone tab hides), and its toolbar in the trailing `trailingInset` points. Between them,
+/// the row's top `AgentPaneTabRow.rimHeight` stays uncovered too: where the row meets the window's
+/// top edge, the page window over it drew a flat gray line in place of the window's lit glass rim,
+/// so the rim broke off where the chat's tools began (Leo 2026-11-03: "there is clearly a rectangle
+/// that is just covering up the glass at the rim of the top of the app"). The three never overlap:
+/// the fork masks the page with them even-odd, and an overlap would cover that part again.
 private func nativeHoles(width: CGFloat, height: CGFloat, trailingInset: CGFloat, tools: CGFloat, tabs: Bool) -> [CGRect] {
     let room = max(0, width - trailingInset)
     let span = min(max(0, tools), room / 2)
-    return [CGRect(x: 0, y: 0, width: tabs ? room - span : 0, height: height),
+    let tabsEnd = tabs ? room - span : 0
+    return [CGRect(x: 0, y: 0, width: tabsEnd, height: height),
+            CGRect(x: tabsEnd, y: 0, width: room - tabsEnd, height: min(AgentPaneTabRow.rimHeight, height)),
             CGRect(x: room, y: 0, width: width - room, height: height)].filter { !$0.isEmpty }
 }
 
 extension AgentPageEvent {
-    /// The tab row the chat header's tools may sit in (`tabRow`): `{height, trailingInset}`.
-    static func tabRow(height: CGFloat, trailingInset: CGFloat, nativeRowTools: Bool) -> AgentPageEvent {
-        AgentPageEvent(kind: "tabRow", value: ["height": .number(Double(height)), "trailingInset": .number(Double(trailingInset)), "nativeRowTools": .bool(nativeRowTools)])
+    /// The tab row the chat header's tools may sit in (`tabRow`): `{height, trailingInset, nativeRowTools, soloTab}`;
+    /// `soloTab`: the pane holds this one tab, and the page runs its transcript up under the row (header/tabRow.ts).
+    static func tabRow(height: CGFloat, trailingInset: CGFloat, nativeRowTools: Bool, soloTab: Bool = false) -> AgentPageEvent {
+        AgentPageEvent(kind: "tabRow", value: ["height": .number(Double(height)), "trailingInset": .number(Double(trailingInset)),
+                                               "nativeRowTools": .bool(nativeRowTools), "soloTab": .bool(soloTab)])
     }
 }
 
