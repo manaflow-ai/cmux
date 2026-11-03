@@ -52,6 +52,11 @@ mod handshake_tests;
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
+/// Instances created before this point cannot repopulate a signed-out account's snapshots.
+pub(crate) fn generation_boundary() -> u64 {
+    NEXT_GENERATION.load(Ordering::SeqCst)
+}
+
 /// A peer watch includes the hub's remote sessions as well as its local ones.
 /// A bidirectional pair must not import those already-mirrored rows, or each
 /// reconnect/update would prefix the name with another peer hop.

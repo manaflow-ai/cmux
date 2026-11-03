@@ -81,6 +81,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // This daemon's own copy of a peer session's events (`hub/peer_snapshot.rs`),
     // answered here while the peer is down too.
     "_acpmux/peer_snapshot",
+    "_acpmux/peer_snapshots_clear",
 ];
 
 /// Whether `m` names a session that a peer's session forwards for: not one this daemon answers

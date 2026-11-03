@@ -21,6 +21,8 @@ use lock::{
 };
 mod running;
 pub use running::connect_running;
+mod snapshot_clear;
+pub(crate) use snapshot_clear::clear_peer_snapshots;
 mod router_owner;
 #[cfg(unix)]
 pub(crate) use router_owner::open_router_owner;
