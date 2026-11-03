@@ -1,11 +1,13 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// Dragging a split divider (cx-piioc): near a half, a third, two thirds or the equal share of its
 /// chain it snaps there, so panes line up without pixel hunting; past the snap distance it follows
 /// the pointer.
 @MainActor
+@Suite(.closesItsWindows)
 struct DividerSnapTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
@@ -59,6 +61,7 @@ struct DividerSnapTests {
 
     @Test func aDividerNearTheMiddleSnapsToHalfAndFarFromItFollowsThePointer() throws {
         let screen = Screen(.split("x", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2")))
+        defer { screen.window.closeAfterTest() }
         screen.drag("x", toFraction: 0.5, offset: 4)
         #expect(screen.ratio("x") == 0.5)
 
@@ -75,6 +78,7 @@ struct DividerSnapTests {
         let three: SplitNode = .split("y", axis: .horizontal, ratio: 0.5, a: .leaf("p2"),
                                       b: .split("z", axis: .horizontal, ratio: 0.5, a: .leaf("p3"), b: .leaf("p4")))
         let screen = Screen(.split("x", axis: .horizontal, ratio: 0.4, a: .leaf("p1"), b: three))
+        defer { screen.window.closeAfterTest() }
         screen.drag("x", toFraction: 0.25, offset: 5)
         #expect(screen.ratio("x") == 0.25)
     }

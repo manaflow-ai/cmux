@@ -23,6 +23,7 @@ import { useNearViewport } from "../useNearViewport";
 import { isDeniedPath, linkPath, pathName } from "./paths";
 import { MEDIA_PREVIEW_DWELL, useHoverIntent } from "../../../ui/hoverIntent";
 import { mediaPreviewAllowed } from "../../../ui/mediaPreviewPolicy";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { mediaKind } from "./mediaKind";
 
 export { mediaKind } from "./mediaKind";
@@ -100,26 +101,51 @@ function useMediaLoad(source: string, auto: boolean) {
 
 /// `path` is a local file (absolute or from the session's folder); `fallback` is how it draws when
 /// the pane will not play it.
-export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string; fallback?: ReactNode }) {
+export function ReplyMedia(props: { path: string; alt: string; fallback?: ReactNode }) {
+  // Read only (a guest), the file is on the owner's machine: its name, and nothing asks the host
+  // where it is or for its bytes.
+  const readOnly = useTranscriptReadOnly();
+  if (readOnly)
+    return (
+      <span className={`cv-media is-${mediaKind(props.path) ?? "video"}`}>
+        <span className="cv-media__name">{props.alt || pathName(props.path)}</span>
+      </span>
+    );
+  return <HostReplyMedia {...props} />;
+}
+
+function HostReplyMedia({ path, alt, fallback }: { path: string; alt: string; fallback?: ReactNode }) {
+  const t = useT();
   const kind = mediaKind(path) ?? "video";
   const { info, answered } = usePathInfo(path);
   const place = info?.place;
   const loadable = answered && !isDeniedPath(path) && place !== "denied" && place !== "outside" && place !== "missing";
   const [frame, setFrame] = useState<HTMLSpanElement | null>(null);
   const near = useNearViewport(frame);
-  const { src, state, fail } = useMediaLoad(path, near && loadable);
+  const { src, state, load, fail } = useMediaLoad(path, near && loadable);
   const name = alt || pathName(path);
   if (src) return <MediaPlayer src={src} source={path} kind={kind} name={name} path={path} onError={fail} />;
-  if (state === "failed" && fallback) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind}`}>
-      <span className="cv-media__name">{name}</span>
+      {state === "failed" && fallback ? fallback : <span className="cv-media__name">{name}</span>}
+      {state === "failed" && loadable && (
+        <button type="button" className="cv-image-placeholder__load" onClick={load}>
+          {kind === "audio" ? t("media.loadAudio") : t("media.loadVideo")}
+        </button>
+      )}
     </span>
   );
 }
 
 /// Web media at `url`; `fallback` is its link, for `never` and a failed load.
-export function RemoteMedia({ url, alt, fallback }: { url: string; alt: string; fallback?: ReactNode }) {
+export function RemoteMedia(props: { url: string; alt: string; fallback?: ReactNode }) {
+  // Read only, media the owner's machine would fetch stays its link: no host load, cached or not.
+  const readOnly = useTranscriptReadOnly();
+  if (readOnly) return <>{props.fallback}</>;
+  return <HostRemoteMedia {...props} />;
+}
+
+function HostRemoteMedia({ url, alt, fallback }: { url: string; alt: string; fallback?: ReactNode }) {
   const t = useT();
   const policy = useReplyPolicy();
   const kind = mediaKind(webURL(url)?.pathname ?? "") ?? "video";
@@ -127,18 +153,15 @@ export function RemoteMedia({ url, alt, fallback }: { url: string; alt: string; 
   const near = useNearViewport(frame);
   const { src, state, load, fail } = useMediaLoad(url, near && policy.remoteImages === "always");
   const name = alt || webURL(url)?.pathname.split("/").pop() || url;
+  if (policy.remoteImages === "never") return <>{fallback}</>;
   if (src) return <MediaPlayer src={src} source={url} kind={kind} name={name} onError={fail} />;
-  if (policy.remoteImages === "never" || (state === "failed" && fallback)) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind} is-remote`}>
       <span className="cv-media__host">{webURL(url)?.host}</span>
-      {state === "failed" ? (
-        <span className="cv-image-placeholder__note">{t("image.unavailable")}</span>
-      ) : (
-        <button type="button" className="cv-image-placeholder__load" disabled={state === "loading"} onClick={load}>
-          {kind === "audio" ? t("media.loadAudio") : t("media.loadVideo")}
-        </button>
-      )}
+      {state === "failed" && (fallback ?? <span className="cv-image-placeholder__note">{t("image.unavailable")}</span>)}
+      <button type="button" className="cv-image-placeholder__load" disabled={state === "loading"} onClick={load}>
+        {kind === "audio" ? t("media.loadAudio") : t("media.loadVideo")}
+      </button>
     </span>
   );
 }

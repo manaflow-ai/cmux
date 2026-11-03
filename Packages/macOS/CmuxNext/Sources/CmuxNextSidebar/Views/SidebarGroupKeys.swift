@@ -1,13 +1,13 @@
 import AppKit
 
 /// Keyboard on group headers (cx-qno.17). Up/Down walk every visible stop:
-/// group headers and workspace rows in drawn order (a collapsed group is its
+/// group headers, disclosure rows and workspace rows in drawn order (a collapsed group is its
 /// header alone). A header takes keyboard focus, never the selection
 /// (SIDEBAR-SELECTION-ONE-MODEL); a workspace stop selects and activates it.
 /// Left on a member goes to its header, Left on an open header collapses
 /// it; Right opens a closed header, then enters its first member; Return on
 /// a focused header renames the group. Tab moves focus into and between
-/// the group headers (Shift-Tab back, to the workspaces before the first);
+/// the group headers and disclosures (Shift-Tab back, to the workspaces before the first);
 /// Space on a focused header toggles it as a click on its bar does. A
 /// namespace beside the list (not an extension) keeps the list type under
 /// the god-file limit.
@@ -15,6 +15,7 @@ import AppKit
     enum Stop: Equatable {
         case group(GroupID)
         case workspace(WorkspaceID)
+        case fold(SidebarRowKey)
     }
 
     let list: SidebarListView
@@ -31,6 +32,7 @@ import AppKit
                 guard !model.isPlaceholder(id) else { return [] }
                 guard row.standsForGroup, let group = row.group else { return [.workspace(id)] }
                 return [.group(group), .workspace(id)]
+            case .doneFold, .showMore: return [.fold(row.key)]
             default: return []
             }
         }
@@ -40,6 +42,7 @@ import AppKit
     /// Shift-Tab (`flags`: the event's command, option, shift and control).
     /// False leaves the key to the workspace-only behavior and the window.
     func handle(_ event: NSEvent, flags: NSEvent.ModifierFlags) -> Bool {
+        if let key = list.focusedFold, list.displayed.row(for: key) == nil { setFocus(nil) }
         if event.specialKey == .backTab || event.specialKey == .tab, flags == .shift { return tab(forward: false) }
         guard flags.isEmpty else { return false }
         if event.keyCode == 49 { return space() } // Space
@@ -48,7 +51,7 @@ import AppKit
             return tab(forward: true)
         case .upArrow?, .downArrow?:
             let stops = stops
-            let current = list.focusedGroup.map(Stop.group) ?? model.activeWorkspaceID.map(Stop.workspace)
+            let current = currentStop
             guard let current, let index = stops.firstIndex(of: current) else {
                 setFocus(nil)
                 return false
@@ -62,6 +65,7 @@ import AppKit
             }
             return true
         case .leftArrow?:
+            if let key = list.focusedFold { return setFold(key, collapsed: true) }
             if let group = list.focusedGroup {
                 if model.group(group)?.isCollapsed == false { toggle(group) }
                 return true
@@ -70,6 +74,7 @@ import AppKit
             focus(.group(group))
             return true
         case .rightArrow?:
+            if let key = list.focusedFold { return setFold(key, collapsed: false) }
             guard let id = list.focusedGroup, let group = model.group(id) else { return false }
             if group.isCollapsed {
                 toggle(id)
@@ -78,6 +83,7 @@ import AppKit
             }
             return true
         case .carriageReturn?, .enter?:
+            if let key = list.focusedFold { return SidebarFoldAction(list: list).toggle(key) }
             guard let group = list.focusedGroup else { return false }
             list.groupEditing.open(group)
             return true
@@ -86,22 +92,49 @@ import AppKit
         }
     }
 
+    private var currentStop: Stop? {
+        list.focusedFold.map(Stop.fold) ?? list.focusedGroup.map(Stop.group) ?? model.activeWorkspaceID.map(Stop.workspace)
+    }
+
+    private func setFold(_ key: SidebarRowKey, collapsed: Bool) -> Bool {
+        guard let row = list.displayed.row(for: key) else { return false }
+        return row.isCollapsed == collapsed || SidebarFoldAction(list: list).toggle(key)
+    }
+
     func focus(_ stop: Stop) {
         switch stop {
         case let .group(group):
             setFocus(group)
+        case let .fold(key):
+            focusFold(key, ring: true)
         case let .workspace(id):
             setFocus(nil)
             model.activeWorkspaceID = id
             model.click(id)
         }
         list.reload(animated: true)
+        if case let .fold(key) = stop, let row = list.displayed.row(for: key) {
+            list.scrollToVisible(list.frame(for: row))
+        }
+    }
+
+    /// Moves keyboard focus to the disclosure `key`, with its ring when the keyboard moved it (`ring`); a click
+    /// focuses it without one, so Space, Return and the arrows continue from the row clicked last.
+    func focusFold(_ key: SidebarRowKey, ring: Bool) {
+        setFocus(nil)
+        list.focusedFold = key
+        list.showsFocusRing = ring
+        (list.rowViews[key] as? SidebarDoneFoldRowView)?.isKeyboardFocused = ring
     }
 
     /// Moves keyboard focus to `group` (nil: back to the workspaces) and
     /// draws the ring on its header when the keyboard moved it (`ring`); a
     /// mouse click sets the focus without a ring.
     func setFocus(_ group: GroupID?, ring: Bool = true) {
+        if let key = list.focusedFold {
+            (list.rowViews[key] as? SidebarDoneFoldRowView)?.isKeyboardFocused = false
+        }
+        list.focusedFold = nil
         let old = list.focusedGroup
         list.focusedGroup = group
         // Kept on the list, not only on the view: a header view made later
@@ -118,20 +151,20 @@ import AppKit
         }
     }
 
-    /// Tab: the next group header (the first from the workspaces); past
+    /// Tab: the next group header or disclosure (the first from the workspaces); past
     /// the last one focus goes back to the workspaces and the window's key
     /// loop moves on. Shift-Tab: the previous header; before the first, the
     /// workspaces. False when the key is not the list's.
     private func tab(forward: Bool) -> Bool {
-        let headers = stops.compactMap { if case let .group(group) = $0 { group } else { nil } }
-        guard let current = list.focusedGroup, let index = headers.firstIndex(of: current) else {
+        let headers = stops.filter { if case .workspace = $0 { false } else { true } }
+        guard let current = currentStop, let index = headers.firstIndex(of: current) else {
             guard forward, let first = headers.first else { return false }
-            focus(.group(first))
+            focus(first)
             return true
         }
         let next = index + (forward ? 1 : -1)
         if headers.indices.contains(next) {
-            focus(.group(headers[next]))
+            focus(headers[next])
             return true
         }
         setFocus(nil)
@@ -142,6 +175,7 @@ import AppKit
     /// Space on a focused header: what a click on its bar does (an empty
     /// saved group reopens, any other group folds or opens).
     private func space() -> Bool {
+        if let key = list.focusedFold { return SidebarFoldAction(list: list).toggle(key) }
         // Only a header the keyboard focused (ring shown): a click focuses
         // without a ring and already toggled.
         guard let id = list.focusedGroup, list.showsFocusRing else { return false }

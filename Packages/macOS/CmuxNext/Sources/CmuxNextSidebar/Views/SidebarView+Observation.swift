@@ -20,7 +20,6 @@ extension SidebarViewComponents {
         var filter: String
         var layout: SidebarLayoutDocument
         var itemInfo: [LayoutItemID: SidebarItemInfo]
-        var newWorkspaceShortcut: String?
         var transientTopItems: [SidebarTransientItem]
         var collapsedSections: Set<LayoutSectionID>
         var look: SectionsLookVariant
@@ -53,17 +52,18 @@ extension SidebarViewComponents {
         /// Whether a joined line runs out of its header's bar (`SidebarGroupLine.joinsBar`, the band header style)
         /// or starts after the cut: its frame moves, so the list lays out again.
         var groupLineJoinsBar: Bool
+        /// Where leading glyphs sit in the icon column (`sidebar.leadingColumn`): every row lays out again.
+        var leadingColumn: SidebarLeadingColumnLook
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
             selected = model.selectedItem
-            onScreen = SidebarTunables.multiView.value ? model.onScreen : []
+            onScreen = SidebarTunables.multiViewOn ? model.onScreen : []
             profiles = model.profiles
             activeProfile = model.activeProfileID
             filter = model.filterText
             layout = model.layout
             itemInfo = model.resolvedItemInfo
-            newWorkspaceShortcut = model.newWorkspaceShortcut
             transientTopItems = model.transientTopItems
             collapsedSections = model.collapsedLayoutSections
             look = SidebarSectionTunables.currentLook
@@ -77,13 +77,14 @@ extension SidebarViewComponents {
             tree = SidebarSessionTree.shared.drawn
             pullRequests = SidebarSessionTree.shared.pullRequests
             history = SidebarChatHistory.shared.state
-            workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
+            workspacesAsTabs = SidebarTunables.workspacesAsTabsOn
             groupsByStatus = SidebarTunables.groupByStatus.value
             foldsDone = SidebarTunables.doneFold.value
             rowLimit = SidebarTunables.rowLimit
             groupLineLayout = SidebarGroupLineLayout.tunable.value
             groupChromeShape = SidebarStyle.groupChromeShape
             groupLineJoinsBar = SidebarGroupLine.joinsBar
+            leadingColumn = SidebarLeadingColumnLook.tunable.value
         }
     }
     func observe() {
@@ -106,7 +107,7 @@ extension SidebarViewComponents {
     func render(_ state: RenderState) {
         guard state != lastState else { return }
         let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
-            || lastState?.titlebarHeight != state.titlebarHeight
+            || lastState?.titlebarHeight != state.titlebarHeight || lastState?.leadingColumn != state.leadingColumn
         let profileChanged = lastState?.activeProfile != state.activeProfile
         let profilesChanged = lastState?.profiles != state.profiles || profileChanged
             || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo
@@ -117,7 +118,6 @@ extension SidebarViewComponents {
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
             || lastState?.history != state.history
-            || lastState?.newWorkspaceShortcut != state.newWorkspaceShortcut
             || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
             || lastState?.groupsByStatus != state.groupsByStatus
             || lastState?.rowLimit != state.rowLimit || lastState?.groupLineLayout != state.groupLineLayout

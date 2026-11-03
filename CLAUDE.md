@@ -338,7 +338,7 @@ enforces this.
   When your review subagent passes (and the risk tier's evidence is in the description), add the
   `ready-to-land` label. A label older than the head's last push doesn't count: after any later
   push, remove and add it again. `next-autoland` on Huge Blue then merges that exact head
-  (leo-workspace `tools/next_autoland.py`). It also requires `ci-status` to have run, a red
+  (leo-workspace `tools/next_autoland.py`). `ci.yml`'s `ci-status` does not run here; a red
   `risk evidence` or `merge freeze` keeps the PR out, and it reads the merge freezes again right
   before merging. Don't wait for, rerun or fix base reds in your PR; a red it causes keeps it out
   until you fix it. Don't merge with `gh-merge-green` here (`--revert` still works).

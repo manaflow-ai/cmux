@@ -82,6 +82,7 @@ extension PaneContentView {
     func retire(_ view: NSView) {
         guard view.superview === contentHost else { return }
         (view as? AgentPaneView)?.onNativeToolOwnerChange = nil
+        (view as? AgentPaneView)?.onNativeToolMenuRequested = nil
         guard view is PaneParkableContent else {
             view.removeFromSuperview()
             refreshNativeToolOwner()
@@ -110,12 +111,16 @@ extension PaneContentView {
         parked.removeAll { entry in
             guard let view = entry.view else { return true }
             guard view.superview === contentHost else {
-                if view.superview == nil { (view as? AgentPaneView)?.onNativeToolOwnerChange = nil }
+                if view.superview == nil {
+                    (view as? AgentPaneView)?.onNativeToolOwnerChange = nil
+                    (view as? AgentPaneView)?.onNativeToolMenuRequested = nil
+                }
                 return true
             }
             guard view !== content else { return true }
             guard live?(view) ?? true else {
                 (view as? AgentPaneView)?.onNativeToolOwnerChange = nil
+                (view as? AgentPaneView)?.onNativeToolMenuRequested = nil
                 view.removeFromSuperview()
                 refreshNativeToolOwner()
                 return true

@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
 
@@ -89,13 +90,13 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         // machine: no update starts; asked again, the machine reports no build and is dropped.
         guard enabled(), await source.daemon() != nil else { return .busy }
         var outcome: DaemonUpdateOutcome
-        var answer: CloudMoveCLI.Answer?
+        var answer: CloudMoveCLI.Answer?, pinned: String?
         do {
             var reply = try await source.update()
             // Too old to update in place: the Cloud API's exec installs the build instead, over the
             // build the CLI judged older only (none named: no build to hold it to, so not this way).
             if reply.errorCode == "machine_update_unsupported", let judged = reply.build, !judged.isEmpty,
-               let legacy = await source.legacy(build, judged) { reply = legacy }
+               let legacy = await source.legacy(build, judged) { (reply, pinned) = (legacy, legacy.build) }
             answer = reply
             outcome = Self.outcome(reply, machine: displayName)
         } catch DaemonError.timedOut {
@@ -105,7 +106,8 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         } catch {
             outcome = .failed(reason: String(describing: error))
         }
-        if case .updated(let reported?) = outcome, !build.sameCommit(reported) {
+        // A DEV build's tree pin is its tree's publishing commit, which the machine then reports.
+        if case .updated(let reported?) = outcome, !build.sameCommit(reported), reported != pinned {
             outcome = .failed(reason: "the machine reports build \(reported) after the update, not \(build.hash)")
         }
         await source.reconnect(Self.mayHaveRestarted(answer))
@@ -142,6 +144,11 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         // The CLI lost the machine before it read how the update ended: not recorded, so the
         // policy asks again (the CLI says to run it again), and the machine then reports its build.
         case "machine_update_unresolved":
+            return .busy
+        // The new build is installed but the old daemon outlived SIGTERM and SIGKILL: not
+        // recorded, so the policy asks again, and that run stops the daemon still on the replaced
+        // binary (cmux-tui `link/machine_update/apply.rs`). Never a toast for it.
+        case "machine_update_pending":
             return .busy
         // This app carries no pinned machine build (a dev build), or its download failed: nothing
         // changed; not recorded, so a later connect or launch tries again.

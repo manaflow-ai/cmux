@@ -10,11 +10,9 @@
 //! as the room (an install token with a `kid`): the room verifies it against that API's keys.
 
 use cmux_agent_pane_policy::build_identity::BuildKind;
+use cmux_tui_core::cloud_conversations::platform::{DEVELOPMENT, PRODUCTION, STAGING};
 
 pub(crate) const ENV: &str = "CMUX_SHARE_ROOM_URL";
-const DEVELOPMENT: &str = "https://cmux-platform-development.debussy.workers.dev";
-const STAGING: &str = "https://cmux-platform-staging.debussy.workers.dev";
-const PRODUCTION: &str = "https://cmux-platform-production.debussy.workers.dev";
 
 /// The room of this daemon's build.
 pub(crate) fn url() -> Option<String> {

@@ -87,17 +87,16 @@ public final class CmuxDialogView: NSView {
         return true
     }
 
-    /// Gives the keyboard to the first text field (unless the spec says
-    /// not to), else the default button, else Cancel (a question with no
-    /// default: a key typed on must not tick a check box), else the first
-    /// control. A click-only button never gets it.
+    /// Gives the keyboard to the first text field (unless the spec says not
+    /// to), else to the dialog itself: never to a button or check box the
+    /// person did not choose, so a key typed on as the dialog opens presses
+    /// nothing (a Space pressed the focused button: QA chrome-parity-v2-1, the
+    /// paste confirm's Deny). The dialog answers Return, Escape and Command
+    /// keys (`CmuxDialogKeys`); Tab moves onto the first control, where Space
+    /// then presses what the person chose. A click-only button never gets it.
     public func focusInitial() {
         let field = spec.focusesField ? focusables.first { $0 is NSTextField } : nil
-        let keyed = buttonViews.filter { !$0.button.clickOnly }
-        let fallback = keyed.first { $0.button.role == .default } ?? keyed.first { $0.button.role == .cancel }
-            ?? (spec.focusesField ? focusables.first : nil)
-        guard let target = field ?? fallback else { return }
-        window?.makeFirstResponder(target)
+        window?.makeFirstResponder(field ?? self)
     }
 
     /// The index in `focusables` of the control with the keyboard.
@@ -195,26 +194,24 @@ public final class CmuxDialogView: NSView {
         for field in spec.fields {
             for view in fieldViews(field, width: contentWidth) { stack.addArrangedSubview(view) }
         }
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = Metrics.space2
-        row.addArrangedSubview(NSView())
         for button in spec.buttons {
-            let view = CmuxDialogButtonView(button, hint: CmuxDialogKeys.hint(for: button, in: spec), target: self, action: #selector(pressed(_:)))
-            buttonViews.append(view)
-            row.addArrangedSubview(view)
+            buttonViews.append(CmuxDialogButtonView(button, hint: CmuxDialogKeys.hint(for: button, in: spec), target: self,
+                                                    action: #selector(pressed(_:))))
         }
-        row.translatesAutoresizingMaskIntoConstraints = false
+        let row = Self.buttonRow(buttonViews, width: contentWidth)
         stack.addArrangedSubview(row)
         row.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
-        focusables += buttonViews.filter { !$0.button.clickOnly }
+        // Tab follows what the person sees: left to right on one line, top to bottom when stacked.
+        // A click-only button never takes the keyboard.
+        let keyed = buttonViews.filter { !$0.button.clickOnly }
+        focusables += row.orientation == .vertical ? keyed.reversed() : keyed
         chainKeyViews()
 
         let content = NSView()
         content.addSubview(stack)
         // The card keeps the key-window glass: its panel gives key back as the close fade starts, and the
         // inactive frost turned the card a lighter grey for the whole fade (debug.dialog_strip).
-        let surface = Glass.makeOverlayPanel(content: content, tone: .neutralGlass(.dialog), activeLook: activeLook)
+        let surface = Glass.makeSurface(.sheet, content: content, activeLook: activeLook)
         addSubview(surface)
         self.surface = surface
         NSLayoutConstraint.activate([
@@ -229,6 +226,30 @@ public final class CmuxDialogView: NSView {
             widthAnchor.constraint(equalToConstant: CmuxDialogMetrics.width),
             heightAnchor.constraint(equalTo: stack.heightAnchor),
         ])
+    }
+
+    /// The buttons on one line, right-aligned, when they fit in `width`; else stacked, each `width` wide and the
+    /// default on top, as NSAlert stacks buttons that do not fit (the quit choice's four buttons, a long locale).
+    private static func buttonRow(_ buttons: [CmuxDialogButtonView], width: CGFloat) -> NSStackView {
+        let row = NSStackView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.spacing = Metrics.space2
+        let needed = buttons.reduce(0) { $0 + $1.intrinsicContentSize.width }
+            + row.spacing * CGFloat(max(buttons.count - 1, 0))
+        guard needed > width else {
+            row.orientation = .horizontal
+            row.addArrangedSubview(NSView())
+            for button in buttons { row.addArrangedSubview(button) }
+            return row
+        }
+        row.orientation = .vertical
+        row.alignment = .leading
+        // The spec draws the primary button last (rightmost); stacked, it goes first (top).
+        for button in buttons.reversed() {
+            row.addArrangedSubview(button)
+            button.widthAnchor.constraint(equalToConstant: width).isActive = true
+        }
+        return row
     }
 
     /// Tab order closes on itself: the last control's next is the first.

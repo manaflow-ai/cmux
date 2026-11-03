@@ -42,6 +42,7 @@ pub const BUILTIN: [(&str, &str); 6] = [
     ),
     ("cmux-setup", include_str!("../skills/cmux-setup/SKILL.md")),
     ("paid-plans", include_str!("../skills/paid-plans/SKILL.md")),
+    ("whats-new", include_str!("../skills/whats-new/SKILL.md")),
 ];
 
 /// Shipped skills that moved into tool packs (toolpacks.rs): a managed

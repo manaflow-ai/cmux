@@ -15,16 +15,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "session start",
         &[
             (
-                "Queue a Codex review session on a mesh host",
-                "acpmux session start review-27310 --host mini-3 -m codex/gpt-6-astra",
+                "Queue a Codex review session on a mesh machine",
+                "acpmux session start review-27310 --machine mini-3 -m codex/gpt-6-astra",
             ),
             (
                 "Start a session asking for permissions in a folder there",
-                "acpmux session start review --host worker -m codex --policy ask --cwd /workspace",
+                "acpmux session start review --machine worker -m codex --policy ask --cwd /workspace",
             ),
             (
                 "Retry an uncertain start without queueing it twice",
-                "acpmux session start review --host worker --idempotency-key 7c1e4b2a",
+                "acpmux session start review --machine worker --idempotency-key 7c1e4b2a",
             ),
         ],
     ),
@@ -45,7 +45,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "session info",
         &[
             ("Show coord's state, model, policy and pending requests", "acpmux session info coord"),
-            ("Show a session on a peer", "acpmux session info mini-3/review-27"),
+            ("Show a session on another machine", "acpmux session info mini-3/review-27"),
             ("Print the details as JSON for a script", "acpmux session info coord --json"),
             ("Print only coord's session id", "acpmux session info coord --fields sessionId"),
             (
@@ -58,7 +58,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "session cancel",
         &[
             ("Cancel the turn coord is running", "acpmux session cancel coord"),
-            ("Cancel a session on a peer", "acpmux session cancel mini-3/review-27"),
+            ("Cancel a session on another machine", "acpmux session cancel mini-3/review-27"),
         ],
     ),
     (
@@ -83,7 +83,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "session restart",
         &[
             ("Restart coord's agent on the installed version", "acpmux session restart coord"),
-            ("Restart a session on a peer", "acpmux session restart mini-3/review-27"),
+            ("Restart a session on another machine", "acpmux session restart mini-3/review-27"),
         ],
     ),
     (
@@ -93,7 +93,20 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Rename a session after the PR it works on",
                 "acpmux session rename review review-27310",
             ),
-            ("Rename a session on a peer", "acpmux session rename mini-3/scratch sidebar-fix"),
+            (
+                "Rename a session on another machine",
+                "acpmux session rename mini-3/scratch sidebar-fix",
+            ),
+        ],
+    ),
+    (
+        "session detach",
+        &[
+            (
+                "Stop a session you started from this one from showing its turns here",
+                "acpmux session detach mac-studio-ultras",
+            ),
+            ("The same, and print the result as JSON", "acpmux session detach helper-2 --json"),
         ],
     ),
     (
@@ -111,12 +124,15 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             (
                 "Say where coord would go, changing nothing",
-                "acpmux session move coord --host mini-3 --dry-run",
+                "acpmux session move coord --machine mini-3 --dry-run",
             ),
-            ("Move coord and its history to a peer", "acpmux session move coord --host mini-3"),
+            (
+                "Move coord and its history to another machine",
+                "acpmux session move coord --machine mini-3",
+            ),
             (
                 "Move every idle chat to the placement's pick",
-                "acpmux session move --all-idle --host auto",
+                "acpmux session move --all-idle --machine auto",
             ),
         ],
     ),
@@ -124,7 +140,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "session resume",
         &[
             ("Run the prompts a failed turn held", "acpmux session resume coord"),
-            ("Resume a session on a mesh host", "acpmux session resume worker/review --mesh"),
+            ("Resume a session on a mesh machine", "acpmux session resume worker/review --mesh"),
         ],
     ),
     (
@@ -159,7 +175,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "session deny",
         &[
             ("Reject coord's pending permission request", "acpmux session deny coord"),
-            ("Reject a request on a peer's session", "acpmux session deny mini-3/review-27"),
+            (
+                "Reject a request on another machine's session",
+                "acpmux session deny mini-3/review-27",
+            ),
         ],
     ),
     (
@@ -173,7 +192,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "session export",
         &[
             ("Export a session bundle to the default folder", "acpmux session export coord"),
-            ("Fetch a peer's session bundle here", "acpmux session export mini-3/review-27"),
+            (
+                "Fetch another machine's session bundle here",
+                "acpmux session export mini-3/review-27",
+            ),
             (
                 "Export a bundle into a chosen folder",
                 "acpmux session export coord --dest ~/bundles",

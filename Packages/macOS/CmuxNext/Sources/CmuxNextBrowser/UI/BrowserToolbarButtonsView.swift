@@ -65,6 +65,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
             let view = ChromeIconButton(icon: .placeholder, label: "", action: #selector(pressed(_:)), target: self, toolbar: true)
             view.setAccessibilityIdentifier(button.identifier)
             view.rightClickPresses = button.opensMenu
+            // One ⋮ in the pane: More draws the tab bar's glyph size (Lawrence msg 19627).
+            if button == .overflow { view.iconSide = { OverflowButton.glyphSize } }
             view.tag = BrowserToolbarButton.allCases.firstIndex(of: button) ?? 0
             buttons[button] = view
             addArrangedSubview(view)

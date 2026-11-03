@@ -55,7 +55,14 @@ test("a command still running in an earlier run is the live line, not Thinking u
   expect(
     words(
       withCtrlB(
-        <Thinking doing={line.doing} doingAt={line.doingAt} doingShell command now={() => line.doingAt! + 12_000} />,
+        <Thinking
+          since={line.at}
+          doing={line.doing}
+          doingAt={line.doingAt}
+          doingShell
+          command
+          now={() => line.at + 12_000}
+        />,
       ),
     ),
   ).toBe(`Running ${cp} 12s ⌃B to run in background`);
@@ -82,7 +89,8 @@ test("a backgrounded command stays in its run and never takes the line", () => {
     row("a", "assistant", { text: LONG_NOTE }),
     row("r2", "activity", { items: [call("git log")] }),
   ]);
-  expect(shaped.at(-1)!.doing).toBeUndefined();
+  // The line holds the latest finished step instead, never the backgrounded command.
+  expect(shaped.at(-1)).toMatchObject({ doing: "git log", doingDone: true });
   expect(shaped.some((entry) => entry.id === "r1")).toBe(true);
 });
 
@@ -200,4 +208,15 @@ test("with a todo list the activity line names the command its run gave up", () 
     expect(line.text).toContain("cp a b");
     expect(shaped.some((entry) => entry.id === "r1")).toBe(false);
   }
+});
+
+// Leo, 2026-11-03, on a row that opened to nothing: "these background updates don't really expand out
+// to anything? idk what those are even for". The "Sending message to …" line opens nothing either, so
+// it draws no chevron.
+test("the Sending message line draws no chevron: it has nothing to open", async () => {
+  const { ActivityLine } = await import("../src/agent-session/acpmux/conversation/ActivityLine");
+  const line = { id: "l", version: 1, at: 0, kind: "activityLine", doingSendTo: "tests" } as AcpmuxRow;
+  const html = renderToStaticMarkup(<ActivityLine row={line} now={() => 1000} />);
+  expect(html).toContain("tests");
+  expect(html).not.toContain("cv-tool__chevron");
 });

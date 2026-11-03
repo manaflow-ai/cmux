@@ -88,11 +88,17 @@ final class CEFRuntime {
     var nextRequest: Int32 = 1
     /// In-process DevTools calls waiting for their result (with deadlines).
     let devToolsCalls = CEFReplyWaiters<CEFDevToolsKey, String>()
+    /// Each browser's DevTools calls and freezes, in the order they were made (``CEFDevToolsCallOrder``).
+    let devToolsOrder = CEFDevToolsCallOrder()
     /// Results Chromium sends while `shim.devToolsCall` is still running: a
     /// method the browser process answers synchronously (for example
     /// `Emulation.setEmitTouchEventsForMouse` or `setGeolocationOverride`)
     /// replies before its caller can wait. Non-nil only during that call.
     var synchronousDevToolsResults: [CEFDevToolsKey: Result<String, any Error>]?
+    /// Calls ``startDevTools(_:method:params:timeout:while:)`` sent whose caller does not wait yet (a page picture
+    /// asked for in one turn and awaited in a later one), with the answer when it came first. Dropped when the
+    /// browser closes or quit begins (the caller then gets `closed`).
+    var unawaitedDevTools: [CEFDevToolsKey: Result<String, any Error>?] = [:]
     let siteReplies = CEFReplyWaiters<Int32, CEFSiteReply>()
     /// `cmux_shim_tab_evaluate` calls waiting for their answer (fork API 29, `CEFRuntime+Evaluate`).
     let evaluations = CEFReplyWaiters<Int32, CEFEvaluationResult>()

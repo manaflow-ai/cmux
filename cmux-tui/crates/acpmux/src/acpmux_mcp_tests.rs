@@ -606,6 +606,56 @@ async fn ls_last_and_info_read_the_sessions() {
     assert_eq!(r["structuredContent"]["sessionId"], json!(lane), "{r}");
 }
 
+/// A fleet-sized list (thousands of closed sessions, each row carrying its last prompt and
+/// receipts) answers in a reply small enough for any harness's MCP pipe: live sessions only by
+/// default, newest first, slim rows, a cap that says how many more there are. The whole list
+/// once came to 29 MB and every `acpmux_ls` call in a Chief turn ended in "Connection closed".
+#[test]
+fn a_fleet_sized_list_answers_small_and_live_first() {
+    let big = "x".repeat(4000);
+    let mut sessions: Vec<Value> = (0..3000)
+        .map(|i| {
+            json!({"name": format!("old-{i}"), "status": "closed", "title": "done", "peer": "big-red",
+                "sessionId": format!("c{i}"), "updatedAt": i, "lastPrompt": big, "sessionReceipt": big})
+        })
+        .collect();
+    for i in 0..300 {
+        sessions.push(
+            json!({"name": format!("lane-{i}"), "status": if i % 2 == 0 {"idle"} else {"running"},
+            "title": format!("Lane {i}"), "sessionId": format!("l{i}"), "updatedAt": 10_000 + i,
+            "lastPrompt": big, "lastTurn": big, "enforcement": {"detail": big}}),
+        );
+    }
+    let all = json!({"sessions": sessions});
+
+    let r = ls_result(&all, &json!({}));
+    let size = r.to_string().len();
+    assert!(size < 64 * 1024, "reply is {size} bytes");
+    let rows = r["structuredContent"]["sessions"].as_array().unwrap();
+    assert_eq!(rows.len(), LS_DEFAULT_LIMIT, "{}", text(&r));
+    assert!(rows.iter().all(|s| s["status"] != "closed"), "closed rows by default");
+    assert!(rows[0].get("lastPrompt").is_none(), "rows are slim: {}", rows[0]);
+    assert_eq!(rows[0]["name"], "lane-299", "newest first");
+    assert_eq!(r["structuredContent"]["more"], json!(300 - LS_DEFAULT_LIMIT));
+    assert!(text(&r).lines().last().unwrap().contains("more"), "{}", text(&r));
+
+    // query narrows by name or title; status=closed still reaches the closed ones.
+    let r = ls_result(&all, &json!({"query": "LANE 7"}));
+    let names: Vec<&str> = r["structuredContent"]["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|s| s["name"].as_str())
+        .collect();
+    assert!(
+        names.contains(&"lane-7") && names.iter().all(|n| n.starts_with("lane-7")),
+        "{names:?}"
+    );
+    let r = ls_result(&all, &json!({"status": "closed", "limit": 5}));
+    assert_eq!(r["structuredContent"]["sessions"].as_array().unwrap().len(), 5);
+    assert!(text(&r).starts_with("big-red/old-2999  [closed]"), "{}", text(&r));
+}
+
 #[tokio::test]
 async fn an_unknown_session_or_a_missing_argument_is_an_error_the_agent_reads() {
     let (_hub, client, _dir) = daemon().await;
@@ -616,6 +666,10 @@ async fn an_unknown_session_or_a_missing_argument_is_an_error_the_agent_reads() 
     assert_eq!(text(&r), "to and text are required", "{r}");
     let r = call(&client, &tool("nope", json!({}))).await;
     assert_eq!(text(&r), "unknown tool: nope", "{r}");
+    // A typo of a real tool names the tool it was likely meant to be.
+    let r = call(&client, &tool("team_sned", json!({}))).await;
+    assert_eq!(r["isError"], true, "{r}");
+    assert_eq!(text(&r), "unknown tool: team_sned; did you mean team_send?", "{r}");
 }
 
 /// Arguments that are not an object are an error the agent reads, never a panic.
@@ -695,7 +749,7 @@ async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals(
             serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
         assert_eq!(request["method"], "_acpmux/team/send");
         let response = json!({"jsonrpc": "2.0", "id": request["id"],
-            "error": {"code": -32602, "message": "team messaging is disabled in Labs"}});
+            "error": {"code": -32602, "message": "team messaging is off on this daemon"}});
         write.write_all(format!("{response}\n").as_bytes()).await.unwrap();
     });
     let client = Client::connect(&path).await.unwrap();
@@ -715,6 +769,19 @@ async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals(
     .await
     .unwrap();
     assert_eq!(result["isError"], true, "{result}");
-    assert!(text(&result).contains("team messaging is disabled in Labs"), "{result}");
+    assert!(text(&result).contains("team messaging is off on this daemon"), "{result}");
     server.await.unwrap();
+}
+
+/// A Chief turn's `CMUX_MCP_TOOLS` reaches this server too (`agent_tools::scoped`): standalone,
+/// without a `cmux` server to fold into, it lists only the six coordinator tools, never `bg_*` or
+/// `team_*` (#30082 review).
+#[test]
+fn an_allowlist_keeps_only_the_acpmux_tools_it_names() {
+    let names = |v: &Value| crate::mcp_hint::names(v).map(str::to_owned).collect::<Vec<_>>();
+    let all = tools();
+    assert_eq!(names(&allowed(all.clone(), None)), names(&all));
+    let chief = allowed(all.clone(), Some(crate::agent_tools::CHIEF_TURN_TOOLS));
+    assert_eq!(names(&chief), ["send", "inbox_read", "inbox_reply", "ls", "last", "info"]);
+    assert!(names(&allowed(all, Some("render,agents_wait"))).is_empty());
 }

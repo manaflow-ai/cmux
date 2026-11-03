@@ -29,12 +29,13 @@ struct DaemonVersionHandoffTests {
             let terminalID = terminal.terminalID.rawValue
 
             // The same build is never handed off.
-            let running = try #require(old.buildCommit)
-            #expect(await launcher.handOffIfStale(identity: old, using: connection, bundledCommit: running)
+            let build = DaemonBuildStamp(identity: old)
+            let running = try #require(build.id ?? build.commit)
+            #expect(await launcher.handOffIfStale(identity: old, using: connection, bundled: build)
                 == .keep("same build"))
 
             // As if the app had been updated to another build.
-            let decision = await launcher.handOffIfStale(identity: old, using: connection, bundledCommit: "0000000")
+            let decision = await launcher.handOffIfStale(identity: old, using: connection, bundled: Self.otherBuild)
             #expect(decision == .restart(running: running, bundled: "0000000"))
 
             // The connection reconnects to the new daemon by itself.
@@ -56,7 +57,7 @@ struct DaemonVersionHandoffTests {
 
             // A second handoff to the same bundled build is not repeated.
             let again = await launcher.handOffIfStale(identity: try #require(current), using: connection,
-                                                      bundledCommit: "0000000")
+                                                      bundled: Self.otherBuild)
             #expect(again == .keep("already handed off to 0000000"))
         } catch {
             await BranchDaemonHarness.shutDown(connection)
@@ -116,11 +117,6 @@ struct DaemonVersionHandoffTests {
         await BranchDaemonHarness.shutDown(connection)
     }
 
-    @Test func decisionRules() {
-        #expect(DaemonLauncher.versionDecision(running: nil, bundled: "abc1234") == .keep("running build unknown"))
-        #expect(DaemonLauncher.versionDecision(running: "abc1234", bundled: nil) == .keep("bundled build unknown"))
-        #expect(DaemonLauncher.versionDecision(running: "abc1234", bundled: "abc1234") == .keep("same build"))
-        #expect(DaemonLauncher.versionDecision(running: "abc1234", bundled: "def5678")
-            == .restart(running: "abc1234", bundled: "def5678"))
-    }
+    /// Another build than any real one, as an updated app's bundle.
+    static let otherBuild = DaemonBuildStamp(commit: "0000000", id: "0000000")
 }

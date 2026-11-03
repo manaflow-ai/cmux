@@ -77,7 +77,9 @@ public nonisolated struct NewWorkspaceName {
                                   workspaceNameSource: WorkspaceNameSource = .auto, workspaceNameRevision: UInt64 = 0,
                                   allowsLegacyDefaults: Bool = true) -> String? {
         if let title = clean(workspaceTitle) { return title }
-        if workspaceNameSource == .user && (workspaceNameRevision > 0 || !allowsLegacyDefaults), let name = clean(workspaceName) { return name }
+        let createdDefault = workspaceNameRevision == 0 && WorkspaceModel.isNumberedDefaultName(workspaceName)
+        if workspaceNameSource == .user && !createdDefault && (workspaceNameRevision > 0 || !allowsLegacyDefaults),
+           let name = clean(workspaceName) { return name }
         if !isDefaultWorkspaceName(workspaceName), let name = clean(workspaceName) { return name }
         return tabName
     }

@@ -35,14 +35,14 @@ struct CmuxDialogClickOnlyTests {
         #expect(!allow.acceptsFirstResponder && !allow.canBecomeKeyView)
         #expect(!dialog.focusables.contains(allow), "Tab never reaches it")
         dialog.focusInitial()
-        #expect(window.firstResponder === dialog.buttonViews.first { $0.button.id == "cancel" }, "the keyboard starts on Cancel")
+        #expect(window.firstResponder === dialog, "the keyboard starts on the dialog, never on a button")
 
         var pressed: [String] = []
         dialog.onPress = { pressed.append($0) }
         let space = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
                                                   context: nil, characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49))
         allow.keyDown(with: space)
-        #expect(!pressed.contains("allow"), "Space does not press it (the key goes on to the dialog, whose keyboard is on Cancel)")
+        #expect(!pressed.contains("allow"), "Space does not press it (the key goes on to the dialog)")
 
         let shown = try #require(allow.shownAt, "armed from when it came on screen")
         #expect(!allow.takesClick(at: shown + 0.1), "a click aimed at what was there before does not land")
@@ -51,7 +51,7 @@ struct CmuxDialogClickOnlyTests {
         #expect(try #require(dialog.buttonViews.first { $0.button.id == "cancel" }).takesClick(at: shown), "other buttons are unchanged")
     }
 
-    @Test func aDialogThatDoesNotFocusItsFieldStartsOnCancel() throws {
+    @Test func aDialogThatDoesNotFocusItsFieldStartsOnTheDialog() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
@@ -59,7 +59,7 @@ struct CmuxDialogClickOnlyTests {
         try #require(window.contentView).addSubview(dialog)
         dialog.focusInitial()
         #expect(!(window.firstResponder is NSTextView), "typing does not land in the value field")
-        #expect(window.firstResponder === dialog.buttonViews.first { $0.button.id == "cancel" })
+        #expect(window.firstResponder === dialog)
         #expect(dialog.handle(.return, modifiers: []) == false, "Return saves nothing")
     }
 }

@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-20: "A plain click on a group header must only expand or collapse it." A
 /// click on the name, the chip or the bar toggles the group and opens no editor or menu; the
 /// more button and a right-click still open them.
-@MainActor @Suite(.serialized) struct GroupHeaderClickTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct GroupHeaderClickTests {
     /// A sidebar in a window with one group, and every intent the list sends.
     final class Harness {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 600), styleMask: [.borderless],

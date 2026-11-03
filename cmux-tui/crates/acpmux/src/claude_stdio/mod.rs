@@ -207,25 +207,40 @@ const LOGGED_SNAPSHOT_ITEMS: usize = 16;
 /// (`_acpmux.workflowProgressItems`); the translated `subagent_progress`
 /// keeps what changed (`workflows.rs`).
 pub fn logged_line(raw: &Value) -> Message {
-    let kind = format!(
+    let line = trimmed_snapshot(raw).unwrap_or_else(|| raw.clone());
+    Message::notification(&logged_kind(raw), line)
+}
+
+/// [`logged_line`] that moves the line into its record instead of copying it
+/// (the agent host logs every streamed line this way).
+pub fn logged_line_owned(raw: Value) -> Message {
+    let kind = logged_kind(&raw);
+    let line = trimmed_snapshot(&raw).unwrap_or(raw);
+    Message::notification(&kind, line)
+}
+
+fn logged_kind(raw: &Value) -> String {
+    format!(
         "claude.{}{}",
         raw.get("type").and_then(Value::as_str).unwrap_or("?"),
         raw.get("subtype").and_then(Value::as_str).map(|s| format!(".{s}")).unwrap_or_default()
-    );
-    let snapshot = raw.get("workflow_progress").and_then(Value::as_array);
-    let line = match (raw.as_object(), snapshot) {
-        (Some(fields), Some(items)) if items.len() > LOGGED_SNAPSHOT_ITEMS => {
-            let mut kept: serde_json::Map<String, Value> = fields
-                .iter()
-                .filter(|(key, _)| *key != "workflow_progress")
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect();
-            kept.insert("_acpmux".into(), json!({"workflowProgressItems": items.len()}));
-            Value::Object(kept)
-        }
-        _ => raw.clone(),
-    };
-    Message::notification(&kind, line)
+    )
+}
+
+/// The line without its workflow snapshot, when the snapshot is too long to log whole.
+fn trimmed_snapshot(raw: &Value) -> Option<Value> {
+    let fields = raw.as_object()?;
+    let items = raw.get("workflow_progress").and_then(Value::as_array)?;
+    if items.len() <= LOGGED_SNAPSHOT_ITEMS {
+        return None;
+    }
+    let mut kept: serde_json::Map<String, Value> = fields
+        .iter()
+        .filter(|(key, _)| *key != "workflow_progress")
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    kept.insert("_acpmux".into(), json!({"workflowProgressItems": items.len()}));
+    Some(Value::Object(kept))
 }
 
 /// The model choices offered in pickers before Claude Code's own list answers.
@@ -261,6 +276,11 @@ mod inbound;
 mod logged_bodies;
 pub use logged_bodies::leave_out_bodies;
 mod outbound;
+// A tool result's images as ACP image blocks (`result_images.rs`).
+mod result_images;
+pub(crate) use result_images::result_images;
+#[cfg(test)]
+mod result_images_tests;
 #[cfg(test)]
 mod steer_now_tests;
 // Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
@@ -270,6 +290,8 @@ mod steer_batch_tests;
 mod steer_withdraw;
 #[cfg(test)]
 mod steer_withdraw_tests;
+#[cfg(test)]
+mod stop_spares_background_tests;
 mod subagent_route;
 #[cfg(test)]
 mod subagent_tests;
@@ -471,6 +493,9 @@ pub struct Translator {
     carry_owed: tokio::sync::watch::Sender<(usize, u64)>,
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
+    /// A Send now stopped the current step (`step_interrupt`): its result ends the turn and
+    /// carries the steer Claude Code has not read (`carry.rs`). Cleared at each result.
+    step_stopped: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
     /// The skills Claude Code names in its system/init (`skills`, names
     /// without "/"): their slash commands are tagged as skills.
@@ -625,6 +650,7 @@ impl Translator {
             carry: Mutex::new(carry::Carry::new()),
             carry_owed: tokio::sync::watch::channel((0, 0)).0,
             cancelled: AtomicBool::new(false),
+            step_stopped: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
             skills: Mutex::new(Vec::new()),
             sent_commands: Mutex::new(None),

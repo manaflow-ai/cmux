@@ -24,7 +24,10 @@
 // acpmux TUI, so it is a message only when its sender is a listed chat, or its receiver is this
 // chat and its sender reads as an agent's name (`IncomingContext`). A watched chat (`client: "watch"`, hub/watch.rs) records its
 // prompts from the transcript as an adopted one does, Claude Code's envelopes in them.
+// acpmux's inbox notice (hub/inbox.rs, kind `inbox_notice`) is no prompt to draw as written: its
+// threads draw as received lines (inboxNotice.ts), its text for the agent never shows.
 import { clipMessagePreview as clip } from "./clipMessagePreview";
+import { inboxNotice, type InboxNotice } from "./inboxNotice";
 
 /// Who a family message's sender is to this chat (acpmux `fromRole`, subsession_send.rs
 /// `family_role`): the chat that started it, one it started, one further up, or another below or
@@ -40,6 +43,9 @@ const chiefOf = (provenance: Record<string, unknown>): string | undefined =>
 export type IncomingMessage = {
   /// The sender's name, or its address when it gives none.
   name: string;
+  /// A person's own words (a guest's held or declined prompt), never an agent's: nothing reads it
+  /// as a lane notice or rewrites it (laneReport.ts `laneNotice`), so every row shows it as sent.
+  fromPerson?: true;
   /// The sending chat, when it is one here that can be opened.
   sessionId?: string;
   /// Who the sender is to this chat, for a sub-session family's message.
@@ -57,6 +63,10 @@ export type IncomingMessage = {
   /// The sender's harness when the message names it (`fromHarness`: a peer's relayed message, whose
   /// chat is not listed here), for its mark.
   harness?: string;
+  /// The sender's model and thinking effort when the message names them (`fromModel`,
+  /// `fromEffort`), for its line's hover; a listed chat's own come first.
+  model?: string;
+  effort?: string;
   /// What the sender wrote.
   text: string;
   /// The prompt as the agent got it.
@@ -75,6 +85,8 @@ export type IncomingContext = { isThisChat?: (name: string) => boolean; isChat?:
 export type IncomingPrompt =
   | { kind: "message"; message: IncomingMessage }
   | { kind: "notice"; text: string }
+  /// acpmux's inbox notice: its threads, each drawn as another agent's received line.
+  | { kind: "inbox"; notice: InboxNotice }
   /// Bookkeeping only: no row.
   | { kind: "hidden" }
   /// The person's prompt, without the bookkeeping before it.
@@ -245,7 +257,7 @@ function linkEnd(line: string, from: number): number {
 /// Merged`), which the card's chip says already: a record read before the signature was taken out
 /// on every path, or a queued one, may still start with it.
 export function unsigned(text: string, name: string): string {
-  const signed = namedFirst(text) ?? fromFirst(text);
+  const signed = namedFirst(text) ?? fromFirst(text) ?? colonFirst(text);
   return signed && namesSender(signed.name, [name]) ? signed.text : text;
 }
 
@@ -258,15 +270,36 @@ export function cliHost(client: unknown): string | undefined {
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
 export function incomingPrompt(
   text: string,
-  msg: { _meta?: { provenance?: unknown }; client?: unknown; fromHarness?: unknown } | undefined,
+  msg:
+    | {
+        _meta?: { provenance?: unknown };
+        client?: unknown;
+        fromHarness?: unknown;
+        fromModel?: unknown;
+        fromEffort?: unknown;
+      }
+    | undefined,
   context?: IncomingContext,
 ): IncomingPrompt | undefined {
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
   // Relayed from another machine (acpmux hub/peers.rs): its files are that machine's, on every path.
   const remote = String(msg?.client ?? "").startsWith("acpmux-peer#") ? { remote: true as const } : {};
-  // The sender's harness, when acpmux names it (a relayed message's sender is not listed here).
+  // The sender's harness, model and effort, when acpmux names them (a relayed message's sender is
+  // not listed here).
   const fromHarness = trimmed(provenance?.fromHarness) ?? trimmed(msg?.fromHarness);
-  const harness = fromHarness ? { harness: fromHarness } : {};
+  const fromModel = trimmed(provenance?.fromModel) ?? trimmed(msg?.fromModel);
+  const fromEffort = trimmed(provenance?.fromEffort) ?? trimmed(msg?.fromEffort);
+  const harness = {
+    ...(fromHarness && { harness: fromHarness }),
+    ...(fromModel && { model: fromModel }),
+    ...(fromEffort && { effort: fromEffort }),
+  };
+  // acpmux's notice of the chat's inbox: its threads, never its text for the agent; one that names
+  // no thread is bookkeeping.
+  if (provenance?.kind === "inbox_notice") {
+    const notice = inboxNotice(text, provenance);
+    return notice ? { kind: "inbox", notice } : { kind: "hidden" };
+  }
   const fromSession =
     provenance?.kind === "subsession_message" ||
     provenance?.kind === "session_message" ||
@@ -301,20 +334,6 @@ export function incomingPrompt(
         text: signed?.text ?? text.trim(),
         raw: text,
       },
-    };
-  }
-  if (provenance?.kind === "inbox_notice") {
-    const noticeThreads = (Array.isArray(provenance.threads) ? provenance.threads : []).flatMap((value: unknown) => {
-      const thread = value as { threadId?: unknown; from?: unknown } | null;
-      if (typeof thread?.threadId !== "string") return [];
-      const from = Array.isArray(thread.from)
-        ? thread.from.filter((name): name is string => typeof name === "string")
-        : [];
-      return [{ id: thread.threadId, sender: from.join(", ") }];
-    });
-    return {
-      kind: "message",
-      message: { name: "inbox", text: text.replace(/^\[inbox\]\s*/, ""), raw: text, noticeThreads },
     };
   }
   // Messages from other agents that waited for a busy chat and went in as one turn (acpmux
@@ -442,6 +461,16 @@ const AGENT_NAME = /^[\w.@/:-]+(?: [\w.@/:-]+){0,3}$/;
 /// Brackets that are not a sender: Claude Code's interruption note and a subagent's hand-back,
 /// cmux's own message header.
 const NOT_A_NAME = /^(?:Request interrupted|Subagent hand-back|cmux agent message)/;
+
+/// A sender's name then a colon before its message, `merge-timeout: please deploy …`: one word,
+/// which `unsigned` drops only when it names the sender, so the line never names the sender twice
+/// (Leo, 2026-11-02, on "lane-vm-01/merge-timeout · lane-v… merge-timeout: please deploy …": "wtf these tool
+/// call spacing things are still weird").
+const COLON_PREFIX = /^([\w.@/-]+):\s+(\S[\s\S]*)$/;
+function colonFirst(text: string): { name: string; text: string } | undefined {
+  const prefixed = COLON_PREFIX.exec(text);
+  return prefixed ? { name: prefixed[1]!, text: prefixed[2]!.trim() } : undefined;
+}
 
 /// The agent named first in brackets in `text`, and its message after the name.
 function namedFirst(text: string): { name: string; text: string } | undefined {

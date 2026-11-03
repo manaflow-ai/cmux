@@ -7,8 +7,8 @@ import Testing
 
 /// One sidebar and no cmux Classic Mode for everyone (Lawrence 2026-10-30: "wtf is cmux classic mode
 /// get rid of it", "i dont want to see tabs expanded inside of sidebar"). A fresh profile and an old
-/// cmux.json that turned either on both get the plain workspace list: no tab rows under a workspace,
-/// no disclosure on its row, and no Settings row, palette action or App Store feature for either.
+/// cmux.json that turned either on both get the plain workspace list: one row per workspace, and no
+/// Settings row, palette action or App Store feature for either.
 @MainActor struct ClassicModeRemovedTests {
     static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
 
@@ -33,20 +33,21 @@ import Testing
         return SidebarLayout.make(sections: model.sections, metrics: .standard, options: model.listOptions()).rows
     }
 
-    static func tabRows(_ rows: [SidebarRow]) -> [SidebarRowKey] {
-        rows.map(\.key).filter { if case .tab = $0 { true } else { false } }
+    /// The rows below the section header: one per workspace, nothing listed under them.
+    static func listed(_ rows: [SidebarRow]) -> [SidebarRowKey] {
+        rows.map(\.key).filter { if case .section = $0 { false } else { true } }
     }
+
+    static let workspaceRows: [SidebarRowKey] = [.workspace(WorkspaceID("shell")), .workspace(WorkspaceID("web"))]
 
     @Test func aFreshProfileListsNoTabsInsideTheSidebar() {
         let rows = Self.rows(Self.snapshot())
-        #expect(Self.tabRows(rows).isEmpty, "a fresh profile lists tabs under its workspaces: \(Self.tabRows(rows))")
-        #expect(rows.allSatisfy { $0.tabDisclosure == nil }, "a workspace row draws a tab disclosure")
-        #expect(rows.contains { if case .workspace = $0.key { true } else { false } }, "the workspaces still list")
+        #expect(Self.listed(rows) == Self.workspaceRows, "a fresh profile lists more than its workspaces: \(Self.listed(rows))")
     }
 
     @Test func anOldFileThatListedTabsGetsTheSameSidebarQuietly() {
         let snapshot = Self.snapshot(.object(["sidebar": .object(["showWorkspaceTabs": .bool(true)])]))
-        #expect(Self.tabRows(Self.rows(snapshot)).isEmpty)
+        #expect(Self.listed(Self.rows(snapshot)) == Self.workspaceRows)
         #expect(snapshot.diagnostics.isEmpty, "a retired key loads without a warning: \(snapshot.diagnostics)")
         #expect(snapshot.retiredKeys.contains("sidebar.showWorkspaceTabs"))
     }

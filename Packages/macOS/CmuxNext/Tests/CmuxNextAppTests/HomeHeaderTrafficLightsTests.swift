@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 @testable import CmuxNextHome
 @testable import CmuxNextTabs
@@ -10,7 +11,7 @@ import Testing
 /// cmux#25593: the docked Home pane has no tab bar, so with the sidebar hidden (Cmd+B) Home's list
 /// sits at the window's top-left and its Search field was under the traffic lights. Hiding the
 /// sidebar moves the list with no resize of its own, so nothing laid its header out again.
-@MainActor @Suite(.serialized) struct HomeHeaderTrafficLightsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HomeHeaderTrafficLightsTests {
     /// A shell window as the app makes it: titled, full-size content, its traffic lights over the top row.
     private func window() -> ShellWindow {
         _ = NSApplication.shared
@@ -156,6 +157,28 @@ import Testing
         #expect(h.search.minY >= controls.maxY)
         #expect(h.search.minX == HomeSidebarHeaderLayout.inset && h.search.width >= HomeSidebarHeaderLayout.minimumField)
         #expect(h.filter.maxX <= width - HomeSidebarHeaderLayout.inset, "the row overflows \(width)")
+    }
+
+    /// The avatar-only list: the search circle and the Unread circle side by side inside the list,
+    /// centred over the avatars; a list too narrow for both keeps the filter alone (Leo,
+    /// 2026-10-19: "the filter button also just disappeared").
+    @Test(arguments: [64, 76, 100, 140, 179] as [CGFloat])
+    func theAvatarListKeepsTheFilterAndShrinksSearchToACircle(_ width: CGFloat) {
+        let h = HomeSidebarHeaderLayout(width: width, searchOpen: false)
+        let side = HomeSidebarHeaderLayout.side
+        #expect(h.compact && h.search.width == 0)
+        #expect(h.filter.width == side && h.filter.minX >= 0 && h.filter.maxX <= width)
+        if width >= 2 * side + HomeSidebarHeaderLayout.gap + 2 * HomeSidebarHeaderLayout.edge {
+            #expect(h.searchIcon.width == side && h.searchIcon.minX >= HomeSidebarHeaderLayout.edge)
+            #expect(h.searchIcon.maxX + HomeSidebarHeaderLayout.gap == h.filter.minX)
+            #expect(abs((h.searchIcon.minX + h.filter.maxX) / 2 - width / 2) <= 0.5, "the pair is off centre at \(width)")
+        } else {
+            #expect(h.searchIcon.isEmpty)
+            #expect(abs(h.filter.midX - width / 2) <= 0.5)
+        }
+        #expect(h.listTop == HomeSidebarHeaderLayout.band)
+        let open = HomeSidebarHeaderLayout(width: width, searchOpen: true)
+        #expect(open.filter.isEmpty && open.searchIcon.isEmpty && open.buttonsCovered)
     }
 
     @Test(arguments: [60, 100, 140] as [CGFloat])

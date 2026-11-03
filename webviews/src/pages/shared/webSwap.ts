@@ -25,7 +25,7 @@ export const WEB_SWAP_FOCUS = "data-cmux-swap-focus";
 export const WEB_SWAP_FOCUS_KEY = "cmux.webSwap.focus";
 /** A stash older than this is from a look that did not swap: it is ignored. */
 export const WEB_SWAP_FOCUS_FRESH_MS = 10_000;
-/** What counts as an open menu, popover or dialog (as ChatInspector and WidgetEditing read it). */
+/** What counts as an open menu, popover or dialog (as SessionInfo and WidgetEditing read it). */
 const OPEN_POPUP =
   'dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], .ui-popup, [aria-haspopup]:not([aria-haspopup="false"])[aria-expanded="true"], [role="combobox"][aria-expanded="true"]';
 

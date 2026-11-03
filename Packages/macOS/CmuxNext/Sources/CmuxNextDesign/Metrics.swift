@@ -59,7 +59,15 @@ public struct Metrics {
     /// Sidebar group / machine section header.
     public static var sidebarHeaderHeight: CGFloat { MetricTunables.sidebarHeaderHeight.value }
 
-    public static var tabHeight: CGFloat { MetricTunables.tabHeight.value }
+    /// A tab pill's height: the density's, or under `appearance.metrics.tabStripHeight` the bar's
+    /// height less the density's room around the pill, so a taller bar has taller tabs.
+    public static var tabHeight: CGFloat {
+        let tab = MetricTunables.tabHeight.value
+        guard DesignSettings.shared.overrides[.tabStripHeight] != nil else { return tab }
+        let strip = MetricTunables.tabStripHeight
+        let densityStrip = scale(strip.tunable.resolve(tokens.resolve(compact: strip.compactValue, comfortable: strip.comfortable, token: strip.name)))
+        return max(tab + tabStripHeight - densityStrip, 0)
+    }
     public static var controlHeight: CGFloat { MetricTunables.controlHeight.value }
     public static var tabMaxWidth: CGFloat { MetricTunables.tabMaxWidth.value }
     /// Chrome's crowding minimums and pinned width (`appearance.metrics.tabMinActiveWidth`,
@@ -252,6 +260,11 @@ public struct Typography {
 
     /// Tab titles, sidebar rows, palette results.
     public static var body: NSFont { system(.default, size: size(12, 13), weight: .regular) }
+    /// Tab titles: `appearance.metrics.tabFontSize` (times the interface scale when it is on), else `body`.
+    public static var tabTitle: NSFont {
+        guard let points = DesignSettings.shared.overrides[.tabFontSize] else { return body }
+        return system(.default, size: Metrics.scale(points), weight: .regular)
+    }
     /// Selected or emphasized row titles.
     public static var bodyEmphasized: NSFont { system(.default, size: size(12, 13), weight: .medium) }
     /// Subtitles, shortcut hints, counts.

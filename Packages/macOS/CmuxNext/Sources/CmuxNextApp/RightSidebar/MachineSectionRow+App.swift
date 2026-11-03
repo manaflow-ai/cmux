@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextServer
 
 /// Main actor: it reads the machine registry and each daemon's store.
@@ -10,10 +11,13 @@ extension MachineSectionRow {
     /// A joined machine the app also connects to (its `meshPeerId` is a daemon's id) stays one row:
     /// the daemon's, in that daemon's kind, carrying the joined machine so its menu offers Check,
     /// Rotate and Revoke.
+    /// A Cloud machine that is agent infrastructure (``CloudMachine/isAgentInfrastructure``: fleet lane
+    /// hosts, peers and probes our tooling made under this account) has no row: it is not one of the
+    /// person's own machines.
     static func rows(_ machines: MachineRegistry, health: MachineHealthStore, joined: JoinedMachineStore? = nil) -> [MachineSectionRow] {
         let all = joined?.machines ?? []
         let byPeer = Dictionary(all.compactMap { machine in machine.meshPeerId.map { ($0, machine) } }, uniquingKeysWith: { first, _ in first })
-        let live = machines.daemons.map { daemon in
+        let live = machines.daemons.filter { !isAgentInfrastructure($0.machineID, in: machines) }.map { daemon in
             let state = daemon.store.connectionState
             let connected = if case .connected = state { true } else { false }
             let connecting = state == .connecting
@@ -30,6 +34,11 @@ extension MachineSectionRow {
         let mesh = all.filter { $0.meshPeerId.map { !known.contains($0) } ?? true }
             .map { MachineSectionRow.joined($0, health: health.reports[JoinedMachine.healthID($0.id)]) }
         return (ServerTunables.machinesFixture.value ? live + fixtures : live) + mesh
+    }
+
+    /// Whether `machineID` is a Cloud machine that is agent infrastructure (``CloudMachine/isAgentInfrastructure``).
+    static func isAgentInfrastructure(_ machineID: String, in machines: MachineRegistry) -> Bool {
+        machines.session(machineID)?.machine.isAgentInfrastructure ?? false
     }
 
     /// What `machineID` is in `machines`: this Mac, a Cloud machine, an SSH machine, else a paired server.

@@ -46,6 +46,10 @@ export function participant(id: unknown, name: unknown, avatar?: unknown): Parti
   return { id: key, name: displayName(name) ?? displayName(key) ?? "?", ...(shown && { avatar: shown }) };
 }
 
+/// A link guest (`guest:<share>.<guest>`, design/chat-multiplayer.md): their name is the one they
+/// typed, a label rather than proof, so the pane shows it as "<name> (guest)".
+export const isGuest = (person: Participant | undefined): boolean => person?.id.startsWith("guest:") === true;
+
 /// The person who sent a `user_message` or `queued` record, or undefined for the chat owner's own.
 export function promptAuthor(msg: { _meta?: { provenance?: unknown } } | undefined): Participant | undefined {
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
