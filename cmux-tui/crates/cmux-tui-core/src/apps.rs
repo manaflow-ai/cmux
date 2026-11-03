@@ -81,7 +81,9 @@ mod terminal_ops;
 #[cfg(unix)]
 pub(crate) mod timer;
 
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
+
+use crate::panic_free::RecoverPoison;
 
 #[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
@@ -111,7 +113,7 @@ const MUX_EVENTS_SINK: u64 = u64::MAX;
 
 /// Called after an app server starts or stops (the owner's keepers watch,
 /// server/owner_keepers.rs).
-type ServerObservers = Arc<std::sync::Mutex<Vec<Box<dyn Fn() + Send + Sync>>>>;
+type ServerObservers = Arc<Mutex<Vec<Box<dyn Fn() + Send + Sync>>>>;
 
 /// The supervisor of one daemon, created on the first `apps-*` command.
 #[derive(Default)]
@@ -164,11 +166,7 @@ impl AppsSlot {
                             mux.emit(crate::MuxEvent::AppsChanged(Arc::new(event.clone())));
                         }
                         if event["event"] == "apps-server" {
-                            for observer in server_observers
-                                .lock()
-                                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                .iter()
-                            {
+                            for observer in server_observers.lock().recover_poison().iter() {
                                 observer();
                             }
                         }
@@ -217,14 +215,9 @@ impl AppsSlot {
     pub(crate) fn running_servers(&self) -> usize {
         #[cfg(unix)]
         {
-            self.supervisor.get().map_or(0, |supervisor| {
-                supervisor
-                    .inner
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .servers
-                    .len()
-            })
+            self.supervisor
+                .get()
+                .map_or(0, |supervisor| supervisor.inner.lock().recover_poison().servers.len())
         }
         #[cfg(not(unix))]
         {
@@ -236,10 +229,7 @@ impl AppsSlot {
     /// the supervisor's event delivery, outside the supervisor's lock, and
     /// must not call back into the supervisor.
     pub(crate) fn add_server_observer(&self, observer: impl Fn() + Send + Sync + 'static) {
-        self.server_observers
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(Box::new(observer));
+        self.server_observers.lock().recover_poison().push(Box::new(observer));
     }
 }
 
