@@ -17,7 +17,8 @@ export function isVisiblyEmptyText(text: string | undefined): boolean {
 /// under the received line (Leo, 2026-11-02, on that capture: "these are all so stupid looking"),
 /// and ends a background turn it had nothing to say in with "·" (Leo, 2026-11-02, on a column of
 /// them: "why do you still do these"). Only an agent's words: a person's own "." or "?" is what they
-/// sent and still draws. Blank words of any length are bare; punctuation is looked for only in words
+/// sent and still draws, and so does an agent's reply to it (`answersPerson`, turns.ts): Leo,
+/// 2026-11-03: "well there are cases (rare) that you would want to see it...". Blank words of any length are bare; punctuation is looked for only in words
 /// of at most 64 characters, so a streamed token costs no more than reading it blank did.
 const PUNCTUATION = /\p{P}/u;
 export function isBareAgentText(text: string | undefined): boolean {
@@ -56,11 +57,10 @@ export function isVisiblyEmptyMessage(row: AcpmuxRow): boolean {
       !row.pasted?.length &&
       !row.retryAttachments?.length
     );
-  if (!(row.kind === "assistant" ? isBareAgentText(row.text) : isVisiblyEmptyText(row.text))) return false;
+  const empty = row.kind === "assistant" && !row.answersPerson ? isBareAgentText : isVisiblyEmptyText;
+  if (!empty(row.text)) return false;
   const inlineVisible = row.inlineParts?.some(
-    (part) =>
-      part.kind !== "text" ||
-      !(row.kind === "assistant" ? isBareAgentText : isVisiblyEmptyText)("text" in part ? part.text : undefined),
+    (part) => part.kind !== "text" || !empty("text" in part ? part.text : undefined),
   );
   return (
     // Empty prompts can still carry recovery or delivery affordances. Keep the row so
