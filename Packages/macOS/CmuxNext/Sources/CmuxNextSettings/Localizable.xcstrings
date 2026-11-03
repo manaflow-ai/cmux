@@ -1,6 +1,242 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.imessage.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect iMessage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iMessage verbinden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecter iMessage"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توصيل iMessage"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar iMessage"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連接 iMessage"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接 iMessage"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iMessage 연결"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iMessageに接続"
+          }
+        }
+      }
+    },
+    "settings.imessage.enabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach dem Verbinden in den Sitzungsinfos dürfen Nachrichtenkonversationen auf diesem Mac gelesen werden. Zum Senden ist weiterhin dein Klick erforderlich."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser la lecture des conversations Messages sur ce Mac après la connexion dans les infos de session. L’envoi nécessite toujours votre clic."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح بقراءة محادثات الرسائل على جهاز Mac هذا بعد الاتصال من معلومات الجلسة. يظل الإرسال بحاجة إلى نقرتك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite leer conversaciones de Mensajes en este Mac después de conectarse desde la información de la sesión. Para enviar sigue siendo necesario que hagas clic."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在工作階段資訊中連接後，允許讀取這部 Mac 上的「訊息」對話。傳送仍需由你點按。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在会话信息中连接后，允许读取这台 Mac 上的“信息”对话。发送仍需由你点击。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 정보에서 연결하면 이 Mac의 메시지 대화를 읽을 수 있습니다. 전송하려면 여전히 직접 클릭해야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション情報から接続すると、このMacのメッセージの会話を読み取れます。送信には引き続きあなたのクリックが必要です。"
+          }
+        }
+      }
+    },
+    "settings.imessage.automationSkipped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip Messages Automation"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachrichten-Automation überspringen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignorer l’automatisation de Messages"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تخطي أتمتة الرسائل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omitir la automatización de Mensajes"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "略過「訊息」自動化"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳过“信息”自动化"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 자동화 건너뛰기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージのオートメーションをスキップ"
+          }
+        }
+      }
+    },
+    "settings.imessage.automationSkipped.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remember skipping the Messages Automation step. This does not grant access or authorize sending."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merken, dass der Schritt zur Nachrichten-Automation übersprungen wurde. Dies gewährt weder Zugriff noch eine Sendeberechtigung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mémoriser le choix d’ignorer l’étape d’automatisation de Messages. Cela n’accorde aucun accès et n’autorise aucun envoi."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تذكّر تخطي خطوة أتمتة الرسائل. لا يمنح هذا حق الوصول أو الإذن بالإرسال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recuerda que se omitió el paso de automatización de Mensajes. Esto no concede acceso ni autoriza el envío."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記住略過「訊息」自動化步驟的選擇。這不會授予存取權或允許傳送。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记住跳过“信息”自动化步骤的选择。这不会授予访问权限或允许发送。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 자동화 단계를 건너뛴 선택을 기억합니다. 이 설정은 접근 권한이나 전송 권한을 부여하지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージのオートメーション手順をスキップした選択を記憶します。アクセス権や送信の許可は付与されません。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.harnessPlacement": {
       "extractionState": "manual",
       "localizations": {
