@@ -20,7 +20,9 @@ Every file of one recording goes to <journey out>/video/<name>.*:
   <name>.events.json      {"hid": [every HID action: kind, args, t_sent, t_returned (host s)], "journal": the app's
                           input journal entries after the start}
   <name>.meta.json        the record_start reply (frame size, scale, rows, columns), the counts at the end, the
-                          window frame and screen (debug.layers), the app pid, the clock note
+                          window frame and screen (debug.layers), the app pid, the clock note, and "tiers": the
+                          start tier of each key-down and HID action (ext_tiers.turn_tiers; tiers_report.py)
+  <name>.tiers.json       ext_tiers' sampler: the main thread's CPU ms and cycles per core tier, every 10 ms
 
 Steps (`do`):
   video_start  {name, rows?, columns?, codec?: hevc|prores, mbps?, seconds?: 30, require_hz?: 120}
@@ -43,6 +45,7 @@ import time
 
 D = None
 R = None  # ext_realkey: the CuaDriver session and the window placement
+T = None  # ext_tiers: the main thread's core tier per turn, for every recording (HARNESS CORES, STATUS 7767)
 
 
 # cmux-ad 01:30Z (hard rule): CuaDriver is INPUT ONLY. Its screen recorder wedges the shared daemon and opens a
@@ -54,10 +57,12 @@ BYPASS_WORDS = ("bypass the system private window picker", "requesting to bypass
 
 
 def install(driver):
-    global D, R
+    global D, R, T
     D = driver
     import ext_realkey  # beside this file; load_extensions imported it already
+    import ext_tiers
     R = ext_realkey
+    T = ext_tiers
     _guard_session_calls()
 
 
@@ -189,7 +194,15 @@ def step_video_start(j, step):
         _motion(j, "trace_stop")
         j.video = None
         raise D.NotRun(f"video_start {name}: the window's display runs at {refresh} ms a frame, not {want} Hz")
-    return {"path": str(path), "start": started, "trace_views": trace.get("views"), "refresh_ms": refresh}
+    # The main thread's core tier for the whole recording (ext_tiers): on the M6 minis a turn that starts on the
+    # Efficiency cores costs about 2x one that starts on Super (STATUS 7767), so each turn's frame numbers carry
+    # its start tier. A sampler that does not start never fails the film; meta.json says why.
+    try:
+        j.video["tiers"] = T.start(j.app.pid, _vdir(j) / f"{name}.tiers.json", float(params["seconds"]) + 60, owner=j)
+    except OSError as error:
+        j.video["tiers_error"] = str(error)[-300:]
+    return {"path": str(path), "start": started, "trace_views": trace.get("views"), "refresh_ms": refresh,
+            "tiers": "sampling" if j.video.get("tiers") else j.video.get("tiers_error")}
 
 
 def step_video_stop(j, step):
@@ -198,6 +211,12 @@ def step_video_stop(j, step):
         raise D.StepError(f"video_stop {step['name']}: not recording it")
     time.sleep(float(step.get("tail", 0.6)))
     _motion(j, "record_stop")
+    tiers_data, tiers_error = None, rec.get("tiers_error")
+    if rec.get("tiers"):
+        try:
+            tiers_data = T.stop(rec["tiers"])
+        except OSError as error:
+            tiers_error = str(error)[-300:]
     base = _vdir(j) / rec["name"]
     trace_path = base.parent / f"{rec['name']}.trace.json"
     # `path`: the app writes the trace off its main thread and replies with counts (an inline reply cost 85 ms of
@@ -220,10 +239,19 @@ def step_video_stop(j, step):
         trace = {"samples": []}
     entries = [e for e in R._journal_entries(j, 400) if int(e.get("seq") or 0) > int(rec["journal_seq"])]
     (base.parent / f"{rec['name']}.events.json").write_text(json.dumps({"hid": rec["hid"], "journal": entries}))
+    tiers = {"error": tiers_error}
+    if tiers_data:
+        keys = [e["uptimeNanos"] / 1e9 for e in entries if (((e.get("kind") or {}).get("key") or {}).get("_0") or {}).get("phase") == "down"
+                and (((e.get("kind") or {}).get("key") or {}).get("_0") or {}).get("keyClass") != "modifier" and e.get("uptimeNanos")]
+        hid = [h for h in rec["hid"] if isinstance(h.get("t_sent"), (int, float))]
+        tiers = {"levels": tiers_data["levels"], "rows": len(tiers_data["rows"]), "ps": tiers_data.get("ps", [])[:6],
+                 "key_downs": T.turn_tiers(tiers_data, keys),
+                 "hid": [dict(t, kind=h.get("kind"), t_sent=h["t_sent"])
+                         for h, t in zip(hid, T.turn_tiers(tiers_data, [T.host_seconds(h["t_sent"]) for h in hid]))]}
     layers = R._layers_window(j)
     meta = {"name": rec["name"], "start": rec["start"], "counts": counts, "window": layers, "pid": j.app.pid,
             "t_start": rec["t_start"], "t_stop": D.now(), "notes": rec["notes"], "trace_views": rec["trace_views"],
-            "refresh_ms": rec.get("refresh_ms"), "display": _display_facts(),
+            "refresh_ms": rec.get("refresh_ms"), "display": _display_facts(), "tiers": tiers,
             "bypass_dialog": {"start": rec.get("bypass_dialog"), "stop": _bypass_dialog(j)},
             "smoke_env": bool(rec.get("bypass_dialog") or _bypass_dialog(j)),
             "clock": "host seconds: mach_absolute_time (time.monotonic, CACurrentMediaTime, ScreenCaptureKit display time)"}

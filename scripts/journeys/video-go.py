@@ -29,7 +29,7 @@ gate = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(gate)
 
 MINIS = ("cmux17", "cmux18", "cmux19", "cmux20", "cmux21", "cmux22", "cmux23", "cmux24")
-SUFFIXES = (".mov", ".mov.frames.json", ".mov.scan", ".trace.json", ".events.json", ".meta.json")
+SUFFIXES = (".mov", ".mov.frames.json", ".mov.scan", ".trace.json", ".events.json", ".meta.json", ".tiers.json")
 
 
 def publish(run_out, label, dest_root, journey_ids):

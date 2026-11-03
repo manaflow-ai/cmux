@@ -1,0 +1,128 @@
+{
+ "id": "video-split-key",
+ "priority": "P1",
+ "title": "Film: split one pane right with a real Cmd-D (one key-down in the film; its start core tier in meta.json)",
+ "why": "HARNESS CORES (STATUS 7767, PR #32640): an end-to-end film whose key-down gets a start tier (ext_tiers via video_start/video_stop).",
+ "source": "HARNESS CORES (agent harness-cores)",
+ "budget_seconds": 120,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window fills the screen (3 columns fit, no strip scroll)",
+   "fraction": [
+    0.0,
+    0.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "do": "hid_probe"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "rv"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "home"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace for the case (Home docks an agent chat as its main pane)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "video_start",
+   "name": "split-key",
+   "require_hz": 120
+  },
+  {
+   "do": "layout_note",
+   "as": "before"
+  },
+  {
+   "do": "hid_key",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "split",
+   "title": "a real Cmd-D splits p0 right"
+  },
+  {
+   "do": "video_stop",
+   "name": "split-key",
+   "tail": 0.8
+  },
+  {
+   "do": "use_pane",
+   "pane": "p0",
+   "click": true,
+   "title": "after: click into p0"
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "after: a real HID Ctrl-C (STATUS 6209: debug.key Ctrl-C can reach a menu)"
+  },
+  {
+   "do": "type",
+   "text": "echo rv-done-${nonce}",
+   "enter": true,
+   "mark": "after"
+  },
+  {
+   "do": "expect",
+   "title": "p0 echoes the line: app, daemon and frame",
+   "since": "after",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "rv-done-${nonce}"
+    },
+    {
+     "app_text_line": "rv-done-${nonce}"
+    },
+    {
+     "frame_text": "rv-done-${nonce}"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "restore_window",
+   "from": "before-place"
+  }
+ ]
+}
