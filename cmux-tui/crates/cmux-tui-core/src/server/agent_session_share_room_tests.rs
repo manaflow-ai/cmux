@@ -784,6 +784,7 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
                 room: None,
                 pending_room_ops: vec![json!({"op": "delete"})],
                 guests: Vec::new(),
+                invitees: Vec::new(),
             }));
             Ok(((), true))
         })
@@ -1159,6 +1160,7 @@ fn a_restart_reopens_the_host_socket_of_an_active_bridged_share() {
                 room: Some(json!({"url": room.url, "host_token": "kept-host-token"})),
                 pending_room_ops: Vec::new(),
                 guests: Vec::new(),
+                invitees: Vec::new(),
             });
             Ok(((), true))
         })
@@ -1197,6 +1199,7 @@ fn a_kick_of_an_ended_share_holds_no_capacity_and_goes_with_its_delete() {
                 room: Some(json!({"url": room.url, "host_token": "t"})),
                 pending_room_ops: vec![json!({"op": "kick", "guest_id": "g"})],
                 guests: Vec::new(),
+                invitees: Vec::new(),
             }));
             Ok(((), false))
         })

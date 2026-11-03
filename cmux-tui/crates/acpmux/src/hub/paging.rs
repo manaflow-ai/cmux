@@ -30,6 +30,12 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "prompt_retracted",
     // A steer taken back before the agent read it (`queue_edit.rs` `withdraw`).
     "steer_withdrawn",
+    // Another agent's steer a Stop ended the turn of before its agent read it: it starts the
+    // next turn (`steer_end.rs`).
+    "steer_returned",
+    // A Stop began ending the turn (`cancel.rs`): a message logged after it draws after the
+    // stop line, not above it (#33754).
+    "stopping",
     // Edit queued prompt, Move up / Move down, and a queue a failed turn holds:
     // the queue a chat client shows changes with them.
     "queue_updated",

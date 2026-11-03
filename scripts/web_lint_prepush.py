@@ -3,7 +3,7 @@
 
 The pre-push hook (scripts/git-hooks/pre-push) runs a trusted copy of this file;
 `scripts/web-lint.sh` runs it by hand, and the `web lint` job of
-cmux-next-web.yml runs it on every feat-cmux-next push. One file, so the hook,
+cmux-next-web-lint.yml runs it on every feat-cmux-next push. One file, so the hook,
 the manual command and CI cannot drift.
 
 What runs, per area touched by the change:
