@@ -45,6 +45,19 @@ One command on the fleet:
   cmux-ci run --class exclusive --measurement --label measure \\
     --script scripts/measure/perf-idle-power.sh --ref SHA \\
     --arg=scenarios=loaded --arg=config=bench --artifact artifacts/perf-idle-power.json
+
+`idle-chats` (run it alone) is the same bench at the idle-CPU stop condition (Leo, 2026-11-03:
+"im at 100% cpu rn"; done when every process idles under 5% CPU with about 40 chats open):
+40 local chats on the app's own daemon, each answered once and shown once in its own workspace,
+nothing streaming, no browser tabs, the same 3000-chat list; 60 s settle, then 120 s measured.
+Every --load-*, --settle and --measure flag still overrides it. Besides the PERF-IDLE-COST lines
+it prints one row per process (role, CPU % avg and p95, wakeups/s, main-thread CPU %, footprint,
+and whether it is over --process-budget, 5% by default) between PERF-IDLE-CHATS-TABLE-BEGIN and
+-END, and a `PERF-IDLE-CHATS verdict=PASS|OVER` line naming the busiest process. The verdict
+reports; it never fails the step. The Markdown also goes into the JSON (`markdown`) and to --md.
+  cmux-ci run --class exclusive --measurement --label measure \\
+    --script scripts/measure/perf-idle-power.sh --ref SHA \\
+    --arg=scenarios=idle-chats --arg=config=bench --artifact artifacts/perf-idle-power.json
 """
 from __future__ import annotations
 
@@ -437,14 +450,74 @@ def perf_rows(before: dict, after: dict | None, harness: str) -> list[str]:
 def loaded_result(path: str) -> dict:
     with open(path) as handle:
         data = json.load(handle)
-    found = [result for result in data.get("results", []) if result.get("label") == "loaded"]
+    found = [result for result in data.get("results", []) if result.get("label") in IDLE_COST_LABELS]
     if not found:
-        raise SystemExit(f"bench-power: {path} has no `loaded` result")
+        raise SystemExit(f"bench-power: {path} has no `loaded` or `idle-chats` result")
     return found[-1]
 
 
+# The idle-cost scenarios: `loaded` (a heavy user's mixed load) and `idle-chats` (the idle-CPU stop
+# condition). Each is a preset of the --load-*, --settle and --measure flags; a flag given wins.
+IDLE_COST_PRESETS = {
+    "loaded": {"load_remote": 20, "load_local": 5, "load_streaming": 3, "load_tabs": 10, "settle": 120, "measure": 60},
+    "idle-chats": {"load_remote": 0, "load_local": 40, "load_streaming": 0, "load_tabs": 0, "settle": 60, "measure": 120},
+}
+IDLE_COST_LABELS = tuple(IDLE_COST_PRESETS)
+# Leo's budget for an idle app: no process above this CPU % (the idle-chats verdict).
+PROCESS_BUDGET_PCT = 5.0
+
+
+def apply_preset(args, scenario: str):
+    """Fills each preset flag the command line left unset (None) from the scenario's preset."""
+    for key, value in IDLE_COST_PRESETS.get(scenario, IDLE_COST_PRESETS["loaded"]).items():
+        if getattr(args, key, None) is None:
+            setattr(args, key, value)
+    return args
+
+
+def process_rows(result: dict, budget: float) -> tuple[list[str], dict]:
+    """The per-process Markdown table of one idle-cost result, busiest first, and the verdict:
+    PASS when no process averages above `budget` CPU %, else OVER with every process above it."""
+    def num(value, digits=2):
+        return "" if value is None else f"{value:.{digits}f}"
+    rows = ["| process | pid | CPU % avg | CPU % p95 | wakeups/s | main thread CPU % | footprint MB | over budget |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    over = []
+    for proc in sorted(result["processes"], key=lambda row: -row["cpu_pct"]):
+        role = proc["role"]
+        if proc["kind"] == "cef-renderer" and not role.startswith("cef-renderer:"):
+            # No page map for this renderer (a build without debug.cef_pages): its command line says
+            # which kind it is (--extension-process, --renderer-client-id).
+            role += " `" + " ".join(arg for arg in proc.get("command", "").split()
+                                    if arg.startswith(("--renderer-client-id", "--extension-process", "--type=")))[:80] + "`"
+        flag = proc["cpu_pct"] > budget
+        if flag:
+            over.append({"pid": proc["pid"], "role": proc["role"], "cpu_pct": proc["cpu_pct"]})
+        rows.append(f"| {role} | {proc['pid']} | {num(proc['cpu_pct'])} | {num(proc.get('cpu_p95_pct'))} | "
+                    f"{num(proc.get('wakeups_per_s'), 1)} | {num(proc.get('main_thread_pct'))} | "
+                    f"{num(proc.get('footprint_mb'), 1)} | {'OVER' if flag else ''} |")
+    busiest = max(result["processes"], key=lambda row: row["cpu_pct"], default=None)
+    verdict = {"budget_pct": budget, "verdict": "OVER" if over else "PASS", "over": over,
+               "max_cpu_pct": busiest["cpu_pct"] if busiest else None,
+               "max_role": busiest["role"] if busiest else None, "max_pid": busiest["pid"] if busiest else None}
+    return rows, verdict
+
+
+def idle_cost_markdown(result: dict, budget: float) -> tuple[str, dict]:
+    """The Markdown a PR or issue pastes for one idle-cost run: the load, the per-process table with
+    the verdict, and the per-role Performance rows (before only; --compare gives before and after)."""
+    rows, verdict = process_rows(result, budget)
+    load_line = ", ".join(f"{key} {value}" for key, value in (result.get("load") or {}).items())
+    lines = [f"**{result['label']}**: {result.get('harness', '')}", "", f"Load reached: {load_line}", "",
+             f"Verdict: **{verdict['verdict']}** (budget {budget:g}% CPU per process; busiest "
+             f"{verdict['max_role']} at {verdict['max_cpu_pct']}%)", ""] + rows + ["", "Per role:", ""]
+    lines += perf_rows(result, None, result.get("harness", ""))
+    return "\n".join(lines) + "\n", verdict
+
+
 def run_loaded(args):
-    """The `loaded` scenario (see the module): load, settle, measure, report."""
+    """An idle-cost scenario (`loaded` or `idle-chats`, see the module): load, settle, measure, report."""
+    label = getattr(args, "scenario", "loaded")
     import idle_cost_load as load
     base = serve()
     signal.signal(signal.SIGTERM, bm.interrupted)
@@ -472,16 +545,28 @@ def run_loaded(args):
         pages = (rpc(sock, "debug.cef_pages") or {}).get("pages")
         roles = renderer_roles(pages or [], bm.owned(pid, args.app))
         time.sleep(5)  # test script: the debug read's own work ends before the window
-        result = measure_processes(pid, args.app, "loaded", args.measure, roles, peer.pids())
+        result = measure_processes(pid, args.app, label, args.measure, roles, peer.pids())
         result["load"] = reached
         result["renderer_roles"] = "debug.cef_pages" if pages is not None else "none (a build without debug.* methods)"
         sha = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True).stdout.strip()
         model = subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip()
-        result["harness"] = f"bench_power.py loaded @{sha or '?'} {model}, {int(args.measure)} s"
+        result["harness"] = f"bench_power.py {label} @{sha or '?'} {model}, {int(args.measure)} s"
+        result["markdown"], result["budget"] = idle_cost_markdown(result, args.process_budget)
         results.append(result)
         print("PERF-IDLE-COST-TABLE-BEGIN")
         print("\n".join(perf_rows(result, None, result["harness"])))
         print("PERF-IDLE-COST-TABLE-END", flush=True)
+        if label == "idle-chats":
+            verdict = result["budget"]
+            print("PERF-IDLE-CHATS-TABLE-BEGIN")
+            print(result["markdown"], end="")
+            print("PERF-IDLE-CHATS-TABLE-END")
+            print(f"PERF-IDLE-CHATS verdict={verdict['verdict']} budget_pct={verdict['budget_pct']} "
+                  f"max_cpu_pct={verdict['max_cpu_pct']} max_role={verdict['max_role']!r} over={len(verdict['over'])}",
+                  flush=True)
+        if args.md:
+            with open(args.md, "w") as handle:
+                handle.write(result["markdown"])
     finally:
         peer.stop()
         bm.end_bundle(args.app)
@@ -501,15 +586,19 @@ def main():
     parser.add_argument("--harness", help="--compare: the harness cell (default: the before run's)")
     parser.add_argument("--load-sessions", type=int, default=3000, help="loaded: chats in the daemon's list")
     parser.add_argument("--load-closed", type=float, default=0.6, help="loaded: share of them closed")
-    parser.add_argument("--load-remote", type=int, default=20, help="loaded: open chats on the peer")
-    parser.add_argument("--load-local", type=int, default=5, help="loaded: open chats on this Mac")
-    parser.add_argument("--load-streaming", type=int, default=3, help="loaded: open chats streaming a reply")
-    parser.add_argument("--load-tabs", type=int, default=10, help="loaded: Chromium tabs")
+    parser.add_argument("--load-remote", type=int, help="loaded: open chats on the peer (20; idle-chats 0)")
+    parser.add_argument("--load-local", type=int, help="loaded: open chats on this Mac (5; idle-chats 40)")
+    parser.add_argument("--load-streaming", type=int, help="loaded: open chats streaming a reply (3; idle-chats 0)")
+    parser.add_argument("--load-tabs", type=int, help="loaded: Chromium tabs (10; idle-chats 0)")
     parser.add_argument("--stream-rate", type=float, default=10, help="loaded: streamed chunks a second per chat")
     # Chromium does post-load work (code caching, GC, tile purges) for about two
     # minutes after tabs open or hide; shorter settles measure that, not idle.
-    parser.add_argument("--settle", type=float, default=120)
-    parser.add_argument("--measure", type=float, default=60)
+    # Unset: 120 and 60, or the idle-cost scenario's preset (idle-chats: 60 and 120).
+    parser.add_argument("--settle", type=float)
+    parser.add_argument("--measure", type=float)
+    parser.add_argument("--process-budget", type=float, default=PROCESS_BUDGET_PCT,
+                        help="idle-cost: the CPU %% per process the verdict holds each process to")
+    parser.add_argument("--md", help="idle-cost: write the per-process Markdown table here")
     parser.add_argument("--scenarios", default="terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,title,scroll,video,switch,minimized")
     parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON)")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
@@ -527,11 +616,14 @@ def main():
     if not args.app:
         parser.error("--app is required")
     scenarios = args.scenarios.split(",")
-    if "loaded" in scenarios:
-        if scenarios != ["loaded"]:
-            raise SystemExit("bench-power: the loaded scenario runs alone (--scenarios loaded)")
-        run_loaded(args)
-        return
+    for scenario in IDLE_COST_LABELS:
+        if scenario in scenarios:
+            if scenarios != [scenario]:
+                raise SystemExit(f"bench-power: the {scenario} scenario runs alone (--scenarios {scenario})")
+            args.scenario = scenario
+            run_loaded(apply_preset(args, scenario))
+            return
+    apply_preset(args, "loaded")  # the browser scenarios' settle and measure defaults (120 s, 60 s)
     base = serve()
     signal.signal(signal.SIGTERM, bm.interrupted)
     wipe_state(args.app)

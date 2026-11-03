@@ -71,3 +71,55 @@ export function withHeldFolds(folds: Folds, extra: ReadonlySet<string>): Folds {
   if (extra.size === 0) return folds;
   return { has: (id) => extra.has(id) || folds.has(id), size: folds.size + extra.size };
 }
+
+// A command still running in an earlier run is the live line's, and that run draws no row for it
+// (turns.ts `lineCall`, `codexRuns`; Leo, 2026-10-22, wanted it off its row and on the line). When
+// the line lets go of it (it finishes, a newer call takes the line, the turn ends), it went back
+// into its run as a row, and every row under it moved down one row, under a reader scrolled up
+// with that run in view (cmux#33200; Leo, 2026-11-03: "im still getting these weird layout shift
+// things when im already scrolled up due to idk tool calls shifting/messages coming in maybe that
+// should not happen"). While the reader is scrolled up it therefore stays out of its run, as the
+// line had it, and goes back in once they are at the latest row again, where the view follows.
+
+/// The call the live line names out of an earlier run in `drawn` (the row's `linedCall`), if any.
+/// The live line is the last row of the running turn, so the walk back is short.
+export function linedCallOf(drawn: readonly AcpmuxRow[]): string | undefined {
+  for (let index = drawn.length - 1; index >= 0 && index >= drawn.length - 4; index -= 1) {
+    const call = drawn[index]!.linedCall;
+    if (call !== undefined) return call;
+  }
+  return undefined;
+}
+
+/// The calls to keep out of their runs after an update, given the call the line named out of its
+/// run before it (`before`) and the one it names now (`now`): the one it let go of.
+export function callsToHold(before: string | undefined, now: string | undefined, held: ReadonlySet<string>) {
+  return before !== undefined && before !== now && !held.has(before) ? before : undefined;
+}
+
+const withoutCache = new WeakMap<AcpmuxRow, { held: ReadonlySet<string>; row: AcpmuxRow | null }>();
+
+/// `rows` without the tool calls in `held`: a row that holds one is copied without it (a row left
+/// with nothing is dropped), every other row is the same object, so turns.ts reuses what it drew.
+/// A copy's version is off every version the row itself has, so it draws again when the call comes back.
+export function withoutHeldCalls(rows: readonly AcpmuxRow[], held: ReadonlySet<string>): readonly AcpmuxRow[] {
+  if (held.size === 0) return rows;
+  let out: AcpmuxRow[] | undefined;
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index]!;
+    let next: AcpmuxRow | null = row;
+    if (row.kind === "activity" && row.items?.some((item) => item.tool && held.has(item.tool.id))) {
+      const cached = withoutCache.get(row);
+      if (cached?.held === held) next = cached.row;
+      else {
+        const items = row.items.filter((item) => !(item.tool && held.has(item.tool.id)));
+        next = items.length ? { ...row, items, version: row.version + 0.5 } : null;
+        withoutCache.set(row, { held, row: next });
+      }
+    }
+    if (next === row && !out) continue;
+    out ??= rows.slice(0, index);
+    if (next) out.push(next);
+  }
+  return out ?? rows;
+}

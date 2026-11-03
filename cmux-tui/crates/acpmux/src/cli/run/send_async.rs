@@ -3,6 +3,7 @@
 //! once for a session here or on a peer, however slow the peer or busy the target.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// How long `--no-wait` gives a target that takes the message at once (a session here) to say
 /// whether it steered in, before it prints the delivery id alone.
@@ -249,7 +250,7 @@ pub(crate) async fn list(
 ) -> Result<()> {
     let mut params = json!({"list": true});
     if let Some(caller) = caller {
-        params["caller"] = json!(caller);
+        params.set("caller", json!(caller));
     }
     let v = client.request(method::MUX_SEND_STATUS, params).await?;
     if json_out {
