@@ -837,7 +837,7 @@ jobs:
           echo $! > "$state.pid"
 
       # Reservation route (no admission above): the reservation only while it has an idle runner per job, else
-      # at most 3 min of re-reads, then the runs-on tail (hosted Ubuntu on attempt 1). Run 41481821056: 555 s.
+      # one 30 s re-read, then the runs-on tail (hosted Ubuntu on attempt 1). Run 41655282358 waited 163 s here.
       - name: Place the light jobs on the all-nightly reservation while it has idle runners
         id: place-reserved
         if: steps.decide.outputs.track == 'nightly-next' && steps.decide.outputs.should_build == 'true' && github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro'
@@ -850,6 +850,7 @@ jobs:
           REQUIRE_LIVE_CAPACITY: "1"
           NIGHTLY: "1"
           NIGHTLY_WAIT_FOR_FLEET: "1"
+          NIGHTLY_WAIT_SECONDS: "30"
           FLEET_LINUX: ""
           SIDE_LABEL: ${{ vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
           ROUTE_TOKEN: ${{ steps.early-route-token.outputs.token }}
