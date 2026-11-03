@@ -36,7 +36,8 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
   // A shell that finished or failed reads as Claude Code desktop notes it, "Background command
   // completed" in the rows' muted tone, then the command in the transcript's ink (Leo, 2026-11-03:
   // "claude code desktop's summarization of tool calls/parsing of them seem kinda good?").
-  const lead = state === "completed" ? t("bgTask.completedLead") : state === "failed" ? t("bgTask.failedLead") : undefined;
+  const lead =
+    state === "completed" ? t("bgTask.completedLead") : state === "failed" ? t("bgTask.failedLead") : undefined;
   const text =
     state === "completed"
       ? t("bgTask.completed", { command })

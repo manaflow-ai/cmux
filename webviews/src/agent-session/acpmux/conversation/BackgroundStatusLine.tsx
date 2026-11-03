@@ -23,10 +23,7 @@ export function backgroundCounts(items: readonly AcpmuxActivity[]): BackgroundCo
 }
 
 /// The line's parts in Claude's order (completed, failed, running), the first naming the commands.
-export function backgroundStatusParts(
-  t: Translate,
-  counts: BackgroundCounts,
-): { text: string; failed: boolean }[] {
+export function backgroundStatusParts(t: Translate, counts: BackgroundCounts): { text: string; failed: boolean }[] {
   const parts: { text: string; failed: boolean }[] = [];
   const states = [
     ["completed", counts.completed],

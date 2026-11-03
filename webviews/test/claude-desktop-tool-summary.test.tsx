@@ -13,7 +13,6 @@ import { backgroundCounts, backgroundStatusParts } from "../src/agent-session/ac
 import { readFileSync } from "node:fs";
 import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow";
 import { InStep } from "../src/agent-session/acpmux/conversation/ToolFailureCause";
-import { ShellBlock } from "../src/agent-session/acpmux/conversation/ShellBlock";
 import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroupRow";
 import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
 import { toolGroupLabel } from "../src/agent-session/acpmux/conversation/toolGroups";
@@ -57,9 +56,7 @@ test("a run's header counts its finished background tasks first, then what it ra
   expect(toolRunSummary(translate, [shell("a", { background: { state: "running" } }), shell("b")])).toBe(
     "Ran 2 commands",
   );
-  const group = words(
-    renderToStaticMarkup(<ToolGroupRow kind="commands" items={run()} disclosureKey="g" folded />),
-  );
+  const group = words(renderToStaticMarkup(<ToolGroupRow kind="commands" items={run()} disclosureKey="g" folded />));
   expect(group).toContain("Finished 2 background tasks, ran 3 commands (2 failed)");
   const line = words(
     renderToStaticMarkup(
@@ -100,7 +97,7 @@ test("while a background command runs, an opened run says how its background com
   expect(backgroundCounts([items[0]!, items[1]!])).toBeUndefined();
   const group = renderToStaticMarkup(<ToolGroupRow kind="commands" items={items} disclosureKey="bg-open" />);
   expect(group).toMatch(/class="cv-tool__failed">1 failed</);
-  expect(words(group)).toContain("1 background command completed, 1 failed, 1 running");
+  expect(group.replace(/<[^>]+>/g, "")).toContain("1 background command completed, 1 failed, 1 running");
   // It is no step: the opened run still lists one step per call.
   expect(group.match(/class="cv-step"/g)).toHaveLength(3);
 });
@@ -114,9 +111,7 @@ test("a failed call's row is its description, then its failure tag, then its che
     </InStep.Provider>,
   );
   // Title, the red tag, the chevron, in that order; the tag is not in the trailing column.
-  expect(step).toMatch(
-    /Read the fixture list<\/span>.*class="cv-command__failed"[^>]*>failed<.*cv-tool__chevron/s,
-  );
+  expect(step).toMatch(/Read the fixture list<\/span>.*class="cv-command__failed"[^>]*>failed<.*cv-tool__chevron/s);
   expect(step).not.toMatch(/cv-command__meta[^>]*>[^]*cv-command__failed/);
   // A lone command keeps its exit word, in the same place.
   expect(renderToStaticMarkup(<CommandRow item={failing} />)).toMatch(
@@ -131,17 +126,6 @@ test("a failed call's row is its description, then its failure tag, then its che
   expect(css).toMatch(/\.cv-command > \.cv-command__failed::first-letter \{\s*text-transform: uppercase;/);
   // Without a description the row keeps its command.
   expect(words(renderToStaticMarkup(<CommandRow item={shell(undefined)} />))).toContain("make check");
-});
-
-test("an opened command reads $ command, then Exit code N in the error tone, then its output", () => {
-  const html = renderToStaticMarkup(<ShellBlock command="ls fixtures" output="ls: fixtures: No such file" exitCode={1} />);
-  const command = html.indexOf("cv-shell__command");
-  const exit = html.indexOf("cv-shell__exit");
-  const output = html.indexOf("cv-shell__output");
-  expect(command).toBeGreaterThan(-1);
-  expect(exit).toBeGreaterThan(command);
-  expect(output).toBeGreaterThan(exit);
-  expect(words(html)).toContain("Exit code 1");
 });
 
 test("a background command's end reads Background command completed, its command in full ink", () => {

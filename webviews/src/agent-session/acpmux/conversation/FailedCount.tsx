@@ -9,7 +9,5 @@ import { useT } from "../i18n";
 export function FailedCount({ n }: { n: number }) {
   const t = useT();
   if (n <= 0) return null;
-  return (
-    <span className="cv-tool__failed is-count">{` (${t("tools.failedCount", { n })})`}</span>
-  );
+  return <span className="cv-tool__failed is-count">{` (${t("tools.failedCount", { n })})`}</span>;
 }
