@@ -69,6 +69,7 @@ class KeyMadeTerminalApp:
             for each in (first, tab):
                 if each:
                     each.pop("terminal_key", None)
+        selected["selected"] = True  # as the app's topology marks it (and selected_tab on the pane)
         pane = {"id": PANE, "selected_tab": selected["id"], "tabs": [first] + ([tab] if tab else [])}
         return {"topology": {"workspaces": [{"name": "jr-tab", "screens": [{"panes": [pane]}]}]}}
 
@@ -162,6 +163,72 @@ class PaneRowResolutionTests(unittest.TestCase):
         app = KeyMadeTerminalApp(standin_reads=0, old_tab_reads=1)
         with self.assertRaises(D.StepError):
             ext_window.daemon_terminal_of(self.journey(app), self.row())
+
+
+
+class SocketMadeTerminalApp(KeyMadeTerminalApp):
+    """An app that a script's `action.run newTab` (the socket `new_terminal` and `script_new_terminal`) made a
+    terminal in: the reply names the daemon's ids of what it created (`created`: ws_, tab_, term_; `waited`), while
+    the view and the topology may still show the creation's stand-in tab. Before the action there is no pane."""
+
+    _daemon_sock = "/tmp/fake-daemon.sock"
+
+    def __init__(self, standin_reads, created=True, **kw):
+        super().__init__(standin_reads, **kw)
+        self.created, self.acted = created, False
+
+    def panes(self):
+        return super().panes() if self.acted else []
+
+    def rpc(self, method, params=None, timeout=None):
+        if method == "action.run":
+            self.acted = True
+            made = ["ws_e4a2", DAEMON_TAB, PUBLIC_ID] if self.created else []
+            return {"action": "newTab", "args": (params or {}).get("args"), "created": made, "ran": True, "waited": True}
+        return super().rpc(method, params, timeout)
+
+
+class SocketNewTerminalTests(unittest.TestCase):
+    """`new_terminal` (via socket, the default) and `script_new_terminal` adopt the terminal the daemon says it
+    created (`created` of the newTab reply), never the stand-in's host id from the topology: on FEAT DOGFOOD BUILD
+    4cceb277 (feat 8d660c2e834a) both journeys of a round failed at `new_terminal` after 20 s on the stand-in's id
+    (`cmux terminal 86fc5b15b7384ce68e8f08a9ea3b4cfc screen read: selector.not_found`, cmux23, 18:03Z 2026-11-03)."""
+
+    def journey(self, app):
+        out = tempfile.mkdtemp(prefix="socket-terminal-")
+        return D.Journey({"id": "jr-tab", "steps": []}, app, out, D.now() + 60, 1.0)
+
+    def test_new_terminal_inside_the_standin_adopts_the_created_terminal(self):
+        app = SocketMadeTerminalApp(standin_reads=2)
+        journey = self.journey(app)
+        result = journey.step_new_terminal({"name": "jr-tab", "timeout": 3})
+        self.assertEqual(journey.term, PUBLIC_ID)
+        self.assertEqual(result["terminal"], PUBLIC_ID)
+        self.assertEqual(journey.pane, PANE)
+        self.assertNotIn(HOST_ID, app.screen_reads)
+
+    def test_new_terminal_on_a_reply_without_created_resolves_by_the_creation_key(self):
+        app = SocketMadeTerminalApp(standin_reads=2, created=False)
+        journey = self.journey(app)
+        journey.step_new_terminal({"name": "jr-tab", "timeout": 3})
+        self.assertEqual(journey.term, PUBLIC_ID)
+        self.assertNotIn(HOST_ID, app.screen_reads)
+
+    def test_script_new_terminal_inside_the_standin_adopts_the_created_terminal(self):
+        app = SocketMadeTerminalApp(standin_reads=10 ** 6)  # the topology never leaves the stand-in in this test
+        journey = self.journey(app)
+        result = journey.step_script_new_terminal({"name": "jr-tab", "timeout": 3})
+        self.assertEqual(journey.term, PUBLIC_ID)
+        self.assertEqual(result["terminal"], PUBLIC_ID)
+        self.assertNotIn(HOST_ID, app.screen_reads)
+
+    def test_script_new_terminal_on_a_reply_without_created_is_refused_by_name_not_guessed(self):
+        app = SocketMadeTerminalApp(standin_reads=0, created=False)
+        journey = self.journey(app)
+        with self.assertRaises(D.StepError) as caught:
+            journey.step_script_new_terminal({"name": "jr-tab", "timeout": 1})
+        self.assertIn("created", str(caught.exception))
+        self.assertEqual(app.screen_reads, [])
 
 
 if __name__ == "__main__":
