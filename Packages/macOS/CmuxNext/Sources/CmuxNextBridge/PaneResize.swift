@@ -55,14 +55,17 @@ public nonisolated enum PaneResize {
         }
         guard axis == .horizontal else { return nil }
         let parts = DockStripGeometry.docks(layout.columns)
-        // A side dock's inner edge: a left dock's right edge, a right dock's left edge.
+        // A side dock's inner edge: a left dock's right edge, a right dock's left edge, inside the widths it shows.
         if parts.left?.id == column.id || parts.right?.id == column.id {
             let grow = parts.right?.id == column.id ? -delta : delta
-            return stepped(column.width, by: grow, within: range, shown: nil).map { .columnWidth(column.id, $0) }
+            return stepped(column.width, by: grow, within: range, shown: shown?.dockWidth(of: column)).map { .columnWidth(column.id, $0) }
         }
         let strip = parts.scrolling
         guard let index = strip.firstIndex(where: { $0.id == column.id }) else { return nil }
         guard strip.count > 1 else {
+            // A screen whose only column is a dock shows it full width whatever its width (`DockStripGeometry.docks`): no
+            // press moves it.
+            guard strip[index].dock == nil else { return nil }
             return stepped(column.width, by: delta, within: range, shown: shown?.width(of: column)).map { .columnWidth(column.id, $0) }
         }
         let (left, right) = index + 1 < strip.count ? (strip[index], strip[index + 1]) : (strip[index - 1], strip[index])

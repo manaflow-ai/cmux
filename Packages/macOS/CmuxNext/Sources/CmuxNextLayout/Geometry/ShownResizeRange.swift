@@ -51,14 +51,18 @@ public nonisolated struct ShownResizeRange {
     /// move is whole device pixels, so both widths round the same way and neither outer edge moves by a pixel. It stops
     /// where a column reaches its minimum or the widest share, and where the divider would leave the part of the strip
     /// the window shows (``stripOffset``): past it the press would move nothing a person sees. Each column counts from
-    /// the width it shows (a stored width below its minimum shows at the minimum). Nil when nothing would move.
+    /// the width it shows: a stored width below its minimum shows at the minimum rounded up to a pixel
+    /// (`ColumnStripGeometry.frames`), so the trade starts there. Nil when
+    /// nothing would move.
     public func trade(_ left: LayoutColumn, _ right: LayoutColumn, by delta: Double) -> (left: Double, right: Double)? {
         guard geometry.isColumns, let leftFrame = geometry.columns[left.id], let rightFrame = geometry.columns[right.id],
               case let unit = geometry.stripWidth - style.stripGap, unit > 0, delta != 0 else { return nil }
         let range = ColumnWidthPreset.widthRange
+        let widest = max(1, geometry.stripWidth - style.stripGap * 2)
         func floor(_ column: LayoutColumn) -> Double {
-            max(range.lowerBound, ColumnStripGeometry.fraction(forPixelWidth: column.minimumSize(style: style).width,
-                                                               viewportWidth: geometry.stripWidth, gap: style.stripGap))
+            let minimum = SplitGeometry.ceilToPixel(min(column.minimumSize(style: style).width, widest), scale: scale)
+            return max(range.lowerBound, ColumnStripGeometry.fraction(forPixelWidth: minimum, viewportWidth: geometry.stripWidth,
+                                                                      gap: style.stripGap))
         }
         let shownLeft = min(max(left.width, floor(left)), range.upperBound)
         let shownRight = min(max(right.width, floor(right)), range.upperBound)
@@ -79,6 +83,25 @@ public nonisolated struct ShownResizeRange {
         guard pixels > 0 else { return nil }
         let share = Double((delta > 0 ? pixels : -pixels) / pixel / unit)
         return (min(max(shownLeft + share, range.lowerBound), range.upperBound), min(max(shownRight - share, range.lowerBound), range.upperBound))
+    }
+
+    /// The width fractions of a side dock the screen shows as different widths (`DockStripGeometry.place`):
+    /// from its panes' minimum to its share of the window, and for a docked dock to the room the strip leaves at its
+    /// minimum width beside the other docked dock as it shows. Past that room the two docked docks share it in
+    /// proportion, so a change of one moves both inner edges. Nil for a column that is not a placed side dock.
+    public func dockWidth(of column: LayoutColumn) -> ClosedRange<Double>? {
+        let sides = geometry.dock.filter { !$0.dock.edge.isBand }
+        guard let entry = sides.first(where: { $0.column == column.id }) else { return nil }
+        let width = geometry.viewport.width, gap = style.stripGap
+        var widest = max(1, width * (sides.count == 2 ? DockStripGeometry.maxShareBoth : DockStripGeometry.maxShare))
+        if entry.dock.mode == .docked {
+            let others = sides.filter { $0.column != column.id && $0.dock.mode == .docked }
+            let room = width - min(DockStripGeometry.minimumStripWidth, width / 2) - gap * CGFloat(others.count + 1)
+            widest = min(widest, room - others.reduce(0) { $0 + $1.frame.width })
+        }
+        let lower = ColumnStripGeometry.fraction(forPixelWidth: column.minimumSize(style: style).width, viewportWidth: width, gap: gap)
+        let upper = ColumnStripGeometry.fraction(forPixelWidth: widest, viewportWidth: width, gap: gap)
+        return lower...max(lower, upper)
     }
 
     /// Every row height of `column` after a keyboard press moves the row edge next to `pane`'s row by `delta`
