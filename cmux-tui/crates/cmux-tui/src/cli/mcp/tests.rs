@@ -2206,6 +2206,46 @@ fn open_splits_and_opens_in_one_call() {
     assert!(result.to_string().contains("needs the cmux app"), "{result}");
 }
 
+/// An app viewer an agent opens with no target goes beside its chat (a split right, made
+/// by `open`), not into the pane the person looks at, which with many workspaces is often
+/// another workspace (tests/tool-evals workspace cases). Outside a chat the app keeps its own
+/// placement: no target is sent.
+#[test]
+fn an_untargeted_viewer_from_a_chat_opens_beside_it() {
+    let pane = "pane_00000000000000000000000000000007";
+    let mut actions = fixture_actions();
+    actions["actions"].as_array_mut().unwrap().push(json!({
+        "id": "file.open", "title": "Open File", "cli_name": "file open", "cli": true,
+        "targets": ["pane"], "arguments": [{"name": "path", "kind": "string", "required": false}],
+        crate::app_identity::ACTION_SURFACE_PLAN: {"cli": "offered", "mcp": "offered"},
+    }));
+    let created = json!({"pane_id": pane, "id": pane});
+    let open = json!({"name": "app_file_open", "arguments": {"path": "/work/notes.md"}});
+    let chat = Fake {
+        actions: actions.clone(),
+        resource_result: Some(created.clone()),
+        caller: Some(json!({"workspace": "ws_a", "pane": "pane_chat"})),
+        ..Fake::default()
+    };
+    let mut server = Server::new(chat, None);
+    let result = server.call(&open).expect("a tool result");
+    assert_ne!(result["isError"], true, "{result}");
+    let sent = server.backend.sent.borrow();
+    let run = sent.iter().find(|s| s["method"] == "action.run");
+    let run = run.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(run["params"]["target"], pane, "{run}");
+    drop(sent);
+
+    let outside = Fake { actions, resource_result: Some(created), ..Fake::default() };
+    let mut server = Server::new(outside, None);
+    let result = server.call(&open).expect("a tool result");
+    assert_ne!(result["isError"], true, "{result}");
+    let sent = server.backend.sent.borrow();
+    let run = sent.iter().find(|s| s["method"] == "action.run");
+    let run = run.unwrap_or_else(|| panic!("{sent:?}"));
+    assert!(run["params"].get("target").is_none(), "{run}");
+}
+
 /// A history read answers the scrollback as lines of plain text, unstyled, where the
 /// daemon's rows of styled runs were 88k characters for 300 lines (tests/tool-evals
 /// r13a). Asked for `styled`, it answers the rows as the daemon sends them.
