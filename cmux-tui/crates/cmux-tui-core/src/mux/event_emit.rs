@@ -68,6 +68,25 @@ impl Mux {
     }
 
     pub fn emit(&self, event: MuxEvent) {
+        if matches!(event, MuxEvent::TreeChanged | MuxEvent::TreeSelectionChanged(None)) {
+            let trace = std::backtrace::Backtrace::force_capture().to_string();
+            let frames: Vec<&str> = trace
+                .lines()
+                .filter(|line| line.contains("cmux_tui_core::") && !line.contains("event_emit"))
+                .take(6)
+                .collect();
+            if let Ok(mut file) =
+                std::fs::OpenOptions::new().create(true).append(true).open("/tmp/cmux-tc-diag.log")
+            {
+                use std::io::Write as _;
+                let _ = writeln!(
+                    file,
+                    "DIAGTC {:?} {}",
+                    matches!(event, MuxEvent::TreeChanged),
+                    frames.join(" < ").replace("  ", "")
+                );
+            }
+        }
         // A selection may show a workspace whose respawns wait in line: they
         // check again (terminal_respawn.rs). Free when none waits.
         if matches!(

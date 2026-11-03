@@ -318,6 +318,7 @@ struct ClassicUpgradeSimulationTests {
         let launch = await sim.launch()
         #expect(launch.failure == nil, "\(String(describing: launch.failure))")
         print("DIAGTAP \(sim.tap?.diag() ?? "-")")
+        print("DIAGRUST " + ((try? String(contentsOfFile: "/tmp/cmux-tc-diag.log", encoding: .utf8)) ?? "-").replacingOccurrences(of: "\n", with: "\nDIAGRUST "))
         let snapshots = try #require(launch.snapshots)
         #expect(snapshots == 0, "\(snapshots) full store snapshots while the run made \(profile.expectedCount) workspaces")
         await sim.settle()
