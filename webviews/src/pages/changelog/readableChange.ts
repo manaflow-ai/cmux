@@ -102,58 +102,44 @@ const AREA_PREFIX =
     reference cut off at the end. */
 const REFS =
   /\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\p{L}\p{N}_-]*#\d+|red|review)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$|\s*\([au]\d+(?:\s*[,/]\s*[au]?\d+)*\)/giu;
+/** Internal work-stream codes no person can read (Leo 2026-11-02, on a What's New page of rows like
+    "P0 RESIZE KEYS K4: …", "… (SWITCH FRAMES SF-5 B)", "… size and scale (REOPEN-F7 part A2)" and
+    "P0 RESIZE F1 part 1 of 2": "the 0 information density one"): a leading priority code and its
+    capitalized stream words, a parenthesis that holds a stream code, and "part N of M" or "part A2".
+    The same pattern as release-notes.py WORK_CODES. */
+export const WORK_CODES = new RegExp(
+  [
+    String.raw`^P[0-3](?:\s+[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*\b)+(?:\s+part\s+(?:\d+\s+of\s+\d+|[A-Z]?\d+[A-Z]?\d*))?\s*(?::\s*|$|(?=\())`,
+    String.raw`\s*\((?=[^()]*\b(?:[A-Z]{2,}-)?[A-Z]{1,3}-?\d+[A-Z]?\d*\b)(?=[^()]*(?:\b[A-Z]{2,}\b[^()]*\b[A-Z]{2,}|\b[A-Z]{2,}-[A-Z]\d|\bpart\s))[^()]*\)`,
+    String.raw`\s*\bpart\s+(?:\d+\s+of\s+\d+|[A-Z]\d+)\b`,
+  ].join("|"),
+  "g",
+);
+/** "Cmux NEXT agent pane: …", "Cmux link sync push: …", "Cmux-tui + app: …": the product and up to
+    three area words as a label, longer than LABEL takes (release-notes.py CMUX_AREA). */
+const CMUX_AREA = /^cmux(?:[- ]?next)?(?:[ -][\w-]+){0,3}(?:\s*\+\s*[\w-]+)?\s*:\s+(?=\S)/i;
+
+/** The text without its work-stream codes (WORK_CODES), spaces tidied: "Size and scale (REOPEN-F7)."
+    reads "Size and scale.". */
+export function withoutWorkCodes(text: string): string {
+  return text
+    .replace(WORK_CODES, " ")
+    .replace(/\s+/gu, " ")
+    .replace(/ ([.,;:!?])/gu, "$1")
+    .trim();
+}
+
 /** The product's own label at the start of a human title: "cmux NEXT: …". */
 const PRODUCT_LABEL = /^(?:cmux[- ]?next|cmuxnext)\s*:\s*/i;
 
-/** An internal tracking code (Leo 2026-11-02, on What's New rows such as "P0 RESIZE KEYS K4: …",
-    "(REOPEN-F7 part A2)" and "P0 RESIZE F1 part 1 of 2"): a priority (P0-P2), a letter or two and
-    a number (K4, F7, A2), or a dashed code (SF-5, REOPEN-F7; not UTF-8 or SHA-256). scripts/
-    whats-new/validate.py refuses them in new entries; plainLine takes them off lines already
-    published. */
-const DASHED = String.raw`(?:[A-Z]{2,}-[A-Z]\d+[A-Z]?|[A-Z]{2}-\d{1,2}[A-Z]?)`;
-const CODE_TOKEN = String.raw`(?:P[0-2]|[A-Z]{1,2}\d{1,2}[A-Z]?|${DASHED})`;
-/** "(REOPEN-F7 part A2)", "(SWITCH FRAMES SF-5 B)": a parenthesis that holds a dashed code, a
-    priority or a part ("(F1)" alone stays: it can be a key). */
-const CODE_PARENS = new RegExp(String.raw`\s*\((?=[^()]*\b(?:${DASHED}|P[0-2]|part [A-Z]?\d+[A-Z]?)\b)[^()]*\)`, "g");
-/** "part 1 of 2", "part A2". */
-const CODE_PART = /\s*\bpart (?:\d+ of \d+|[A-Z]?\d+[A-Z]?)\b/g;
-/** A leading run of two or more caps words and codes with a code in it ("P0 RESIZE KEYS K4: ",
-    "P0 RESIZE F1"), or one code and a colon ("P0: "). "M4 Pro" and "PR links" stay. */
-const CODE_LEAD = new RegExp(
-  String.raw`^(?:(?=(?:[A-Z]{2,}\s+)*${CODE_TOKEN}\b)(?:(?:${CODE_TOKEN}|[A-Z]{2,})\s+)+(?:${CODE_TOKEN}|[A-Z]{2,})\b(?:\s*:)?|${CODE_TOKEN}\s*:)\s*`,
-);
-/** "SF-5", "REOPEN-F7" anywhere. */
-const CODE_DASHED = new RegExp(String.raw`\s*\b${DASHED}\b`, "g");
-/** The product and a work stream as a label: "Cmux NEXT agent pane: ", "Cmux-tui + app: ",
-    "Cmux link sync push: ". */
-const CMUX_LABEL = /^cmux(?:[- ](?:next|tui))?(?:\s*\+\s*app)?(?:\s+[a-z][\w-]*){0,3}\s*:\s+/i;
-
-/** A release line without internal tracking codes ("" when only codes were there). A machine line
-    still goes through readableChange, which judges its work-stream label first. */
-export function withoutCodes(text: string): string {
-  return tidied(codesOff(text));
-}
-
-/** A release line without internal tracking codes or a "cmux …:" work-stream label (a port of
-    plain_line in scripts/cmux-next/release-notes.py). "" when nothing a person reads is left. */
+/** A release line without work-stream codes (WORK_CODES) or a "cmux …:" label (CMUX_AREA), capitalized
+    ("" when only codes were there): a human-written title, or a line read as one key. */
 export function plainLine(text: string): string {
-  return tidied(codesOff(text).replace(CMUX_LABEL, ""));
-}
-
-function codesOff(text: string): string {
-  return text.replace(CODE_PARENS, "").replace(CODE_PART, "").replace(CODE_LEAD, "").replace(CODE_DASHED, "");
-}
-
-function tidied(text: string): string {
-  const out = text
-    .replace(/\s+/g, " ")
-    .trim()
+  const out = withoutWorkCodes(text)
+    .replace(CMUX_AREA, "")
     .replace(/^[\s:;,—-]+|[\s:;,—-]+$/gu, "");
   return out ? capitalized(out) : "";
 }
-
-/** Copy that says nothing: "Fixes and improvements", "This build brings fixes and improvements." */
-export const FILLER = /^(?:this build brings )?(?:minor )?fixes and improvements\b[.!]?/i;
 
 export type ChangeGroup = "new" | "fixed" | "changed";
 
@@ -172,7 +158,7 @@ function capitalized(text: string): string {
 }
 
 function strip(text: string): string {
-  return text
+  return withoutWorkCodes(text)
     .replace(REFS, "")
     .trim()
     .replace(/^[\s.]+|[\s.]+$/gu, "");
@@ -180,7 +166,7 @@ function strip(text: string): string {
 
 /** A machine-made line (a commit subject, or a summary line made from one) as summary_entry reads it. */
 export function readableChange(subject: string): ReadableChange {
-  let text = subject.split(/\s+/).filter(Boolean).join(" ");
+  let text = withoutWorkCodes(subject);
   const internal = (title: string): ReadableChange => ({
     title: capitalized(strip(title)),
     internal: true,
@@ -218,7 +204,7 @@ export function readableChange(subject: string): ReadableChange {
       return internal(label.rest!);
     text = label.rest!;
   }
-  text = plainLine(strip(text.replace(AREA_PREFIX, "")));
+  text = strip(text.replace(AREA_PREFIX, "").replace(CMUX_AREA, ""));
   if (
     !text ||
     INTERNAL_WORDS.test(text) ||

@@ -41,7 +41,8 @@ afterAll(() => {
 const expected = [
   "Show the Feed in Chief draws in Settings > Chief > Look",
   "Ultracode and Fast mode do not block Bring Back Local",
-  "Drop saved incognito task ids whose tasks ended",
+  // Its summary "While the app was stopped." was the rest of the line (2026-11-02): one title.
+  "Drop saved incognito task ids whose tasks ended while the app was stopped",
   "Routing follow-ups (trim recovered route, prepared presets only, cap before split)",
   "Cloud start replaces rejected Claude logins",
   "A message's More menu opens upward when it does not fit below",

@@ -104,8 +104,8 @@ test("the day Leo saw: clean lines, no filler, no infrastructure, no codes", () 
   expect(titles).toContain("Closing a pane no longer tears down its terminal during the close animation");
   expect(titles).toContain("Ctrl-Shift-J/K and Ctrl-Cmd-Down/Up move a row edge one exact step");
   expect(titles).toContain("A file drag rings the composer in the accent");
-  const pressure = rows.find((r) => r.title === "The host pressure warning is off by default");
-  expect(pressure?.line).toBe("Turn it on from the Command Palette.");
+  const pressure = rows.find((r) => r.title === "Host pressure warning is off by default");
+  expect(pressure?.line).toBe("Turn it on from the Command Palette");
   // No row's line repeats its title.
   for (const row of rows) if (row.line) expect(row.line.toLowerCase()).not.toContain(row.title.toLowerCase());
 });

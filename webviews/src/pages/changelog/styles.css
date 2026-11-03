@@ -647,6 +647,17 @@ html[data-cmux-page="changelog"] {
 }
 .cls-icon { display: grid; place-items: center; width: var(--cls-line); height: var(--cls-line); color: var(--cmux-accent, var(--page-text)); }
 .cls-icon svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+/* A row's kind (SheetPage KIND_GLYPHS) sits in the gutter under its area's glyph, out of the row's
+   flow so it moves nothing: positioned on the list, which the row's overflow clip does not cover. */
+.cls-rows { position: relative; }
+.cls-kind {
+  position: absolute;
+  margin-inline-start: calc(-1 * (var(--cls-line) + var(--ds-space-2)));
+  color: var(--page-text-3);
+}
+.cls-kind svg { stroke-width: 1.8; }
+/* Grid rows sit in two columns; only the first has a gutter. */
+.cls-grid .cls-kind { display: none; }
 .cls-row-title { color: var(--page-text); }
 .cls-row-line { color: var(--page-text-2); }
 .cls-row-line { margin-inline-start: 0.6em; }

@@ -6,16 +6,21 @@
 // first, the area list of #22838 (Leo 2026-11-02: "why is the what's new the 0 information density
 // one", on a day that listed every change as one long run of the same arrow). Each change is one
 // tight line: its title, then what its description adds; a long area shows its first rows and
-// "Show more". No internal codes, filler or infrastructure (model.ts plainItem, withoutFiller,
+// "Show more". No internal codes, filler or infrastructure (model.ts readableItem, readableChange.ts WORK_CODES,
 // readableChange). No version tags, build numbers or pull request chips: the Ledger
 // (`design=ledger`) keeps them. A day with nothing a person would notice says "Maintenance and
 // fixes". Days load as they near the viewport (JournalPage.loadNear); J and K move between them.
-// `layout` (the route's `sheet=`) sets the rows; styles.css .cls-inline.
+// `layout` (the route's `sheet=`) sets the rows; styles.css .cls-inline. A row's kind (model.ts
+// rowKind reads a machine line's wording) marks it in the gutter under the area glyph: a plus for
+// New, a check for Fixed, a shield for Security, nothing for Improved, so a day is not one run of
+// the same mark (Leo 2026-11-02). Model.ts readableItem joins a line that is the rest of its title
+// back into the title, and a line that repeats it becomes the title.
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import type { Strings } from "../shared/i18n";
 import { areaOf, byArea, type AreaKey } from "./areas";
-import { dayLabel, groupByDay, mergedView, type ReleaseView } from "./model";
+import { dayLabel, groupByDay, isFiller, mergedView, rowKind, type ReleaseView } from "./model";
+import { withoutWorkCodes } from "./readableChange";
 import { journalKeys, loadNear } from "./JournalPage";
 import { Maintenance } from "./ReleaseParts";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
@@ -119,6 +124,13 @@ function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; 
       <ul className="cls-rows">
         {shown.map((row) => (
           <li className="cls-row" key={row.key} data-category={row.category}>
+            {KIND_GLYPHS[row.category] && (
+              <span className="cls-icon cls-kind" aria-hidden="true">
+                <svg viewBox="0 0 20 20" width="14" height="14">
+                  {KIND_GLYPHS[row.category]}
+                </svg>
+              </span>
+            )}
             <span className="cls-row-title">{row.title}</span>
             {row.line && <span className="cls-row-line">{row.line}</span>}
           </li>
@@ -169,9 +181,9 @@ export function sheetRows(view: ReleaseView, _strings?: Strings): SheetRow[] {
     });
   return view.changes.map((change, index) => ({
     key: `${change.pr ?? ""}:${index}`,
-    category: "improved",
+    category: rowKind(change.title),
     title: change.title,
-    line: addedLine(change.title, change.description ? firstSentence(change.description) : undefined),
+    line: addedLine(change.title, fallbackLine(change.description)),
     area: change.area,
   }));
 }
@@ -201,7 +213,16 @@ export function addedLine(title: string, line: string | undefined): string | und
     const rest = line.slice(match.index + match[0].length).trim();
     return rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : undefined;
   }
-  return undefined;
+  // It goes on with no clause mark ("Tabs restore after restarting the app." under "The tabs
+  // restore"): the whole line says more than the title.
+  return line;
+}
+
+/** A raw change's description as its row's line: no work-stream codes, no filler ("This build brings
+    fixes and improvements."), its first sentence. */
+function fallbackLine(description: string | undefined): string | undefined {
+  const plain = description ? withoutWorkCodes(description) : "";
+  return plain && !isFiller(plain) ? firstSentence(plain) : undefined;
 }
 
 /** "A link opens in the pane. Unread dots wait." reads "A link opens in the pane."; the whole text
@@ -224,6 +245,13 @@ export function AreaIcon({ area }: { area?: AreaKey }) {
     </svg>
   );
 }
+
+/** A row's kind in the gutter (styles.css .cls-kind); Improved, the most common, shows none. */
+const KIND_GLYPHS: Partial<Record<WhatsNewCategory, ReactNode>> = {
+  new: <path d="M10 5v10M5 10h10" />,
+  fixed: <path d="M5 10.5l3.2 3.1L15 6.8" />,
+  security: <path d="M10 3.5l5.5 2v4.2c0 3.3-2.3 5.6-5.5 6.8-3.2-1.2-5.5-3.5-5.5-6.8V5.5z" />,
+};
 
 const FRAME = <rect x="3" y="4" width="14" height="12" rx="2" />;
 const AREA_GLYPHS: Record<AreaKey | "other", ReactNode> = {

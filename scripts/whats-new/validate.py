@@ -64,8 +64,9 @@ INTERNAL = [
     (re.compile(r"\b(TODO|TBD|FIXME|lorem ipsum)\b", re.I), "a placeholder"),
     # Work-tracking codes from PR titles (Leo 2026-11-02, on What's New rows such as "P0 RESIZE
     # KEYS K4: …", "(REOPEN-F7 part A2)", "(SWITCH FRAMES SF-5 B)" and "part 1 of 2"). The page
-    # strips them from lines already published (readableChange.ts plainLine); new copy has none.
-    (re.compile(r"\bP[0-2]\b"), "a priority code"),
+    # strips them from lines already published (readableChange.ts and release-notes.py
+    # WORK_CODES); new copy has none.
+    (re.compile(r"\bP[0-3]\b"), "a priority code"),
     (re.compile(r"\b(?:[A-Z]{2,}-[A-Z]\d+[A-Z]?|[A-Z]{2}-\d{1,2}[A-Z]?)\b"), "a work-tracking code"),
     (re.compile(r"\b[A-Z]{3,}\s+[A-Z]{1,2}\d{1,2}[A-Z]?\b|\b[A-Z]{1,2}\d{1,2}[A-Z]?\s+[A-Z]{3,}\b"),
      "a work-tracking code"),
