@@ -224,9 +224,16 @@ authorization for the target and effect.
 ## Agent sessions on a machine
 
 ```bash
+cmux cloud start-chat --prompt 'Summarize README.md' --wait --json         # new machine, chat, prompt, reply: one command
+cmux cloud start-chat --name dev --cwd /home/cmux/work --prompt '…' --json  # on machine "dev" (created when missing); answers once sent
 cmux cloud start-session --target machine:<id> --agent claude              # start a session in that machine's acpmux
 cmux cloud start-session --name dev --agent codex --cwd /home/cmux/work     # take machine "dev", or create it
 ```
+
+`start-chat` is `start-session` plus the prompt and, with `--wait`, the reply: it
+answers `reply` (with `--wait`), `machine_id`, `session_id`, `workspace_id`, `tab_id`,
+`surface_id` and `follow_up`, the `cloud exec` commands that send, wait and read on
+that chat in the machine's own acpmux (`cmux-tui acp send|wait|last SESSION_ID`).
 
 `start-session` answers `machine_id`, `session_id` and `host` (the machine's
 `registry:` host), plus the chat's `workspace_id` and `surface_id`. The chat's
