@@ -286,6 +286,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var hasDocument = false
     /// The current document is a real page that finished loading, or an error page (not an aborted load).
     @ObservationIgnored var documentLoaded = false
+    /// The tab comes back from the session (a reopen, a hibernation wake): keys wait for its first document (red stub: unused).
+    @ObservationIgnored public var awaitsFirstDocument = false
 
     func attach(browser: Int32) {
         browserID = browser

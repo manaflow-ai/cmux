@@ -179,11 +179,30 @@ import Testing
         #expect(tab.pageReady && reported() == 2)
     }
 
-    /// A shown tab whose browser Chromium created, and a count of its ready-for-keys reports.
-    private static func readyTab(_ runtime: CEFRuntime, browser: Int32) throws -> (CEFTab, () -> Int) {
+    /// Review of #32633: a Chromium New Tab page (a blank document, `about:blank`) never counted as ready, so Cmd-L
+    /// after Escape waited the whole bound; and every new page waited for its document. Only a tab that comes back from
+    /// the session (a reopen, a hibernation wake) waits for its first document; another page takes keys once Chromium
+    /// created it. A restored blank tab is ready once its blank document loaded.
+    @Test func onlyARestoredTabWaitsForItsDocumentAndABlankOneCountsWhenItIsTheTabs() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (fresh, freshReported) = try Self.readyTab(runtime, browser: 20, restored: nil)
+        #expect(fresh.pageReady && freshReported() == 1, "a New Tab page was not ready once Chromium created it")
+        Self.load(runtime, 20, "about:blank")
+        #expect(freshReported() == 1)
+        let (blank, blankReported) = try Self.readyTab(runtime, browser: 21, restored: "about:blank")
+        #expect(!blank.pageReady)
+        Self.load(runtime, 21, "about:blank")
+        #expect(blank.pageReady && blankReported() == 1, "a restored blank tab never got ready: its keys waited the whole bound")
+    }
+
+    /// A shown tab whose browser Chromium created, and a count of its ready-for-keys reports. `restored`: the URL a tab
+    /// that comes back from the session shows (nil: a new page).
+    private static func readyTab(_ runtime: CEFRuntime, browser: Int32, restored: String? = "https://example.com/") throws -> (CEFTab, () -> Int) {
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
         host.add(tab)
+        if let restored, let url = URL(string: restored) { (tab.awaitsFirstDocument, tab.pendingURL) = (true, url) }
         final class Count { var value = 0 }
         let count = Count()
         tab.onReadyForKeys = { count.value += 1 }
