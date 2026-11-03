@@ -82,7 +82,7 @@ export const wakeDefaultMachine = async (b: ChiefBrainDO, scope: DefaultHandScop
   const principal: Principal = { identity: `session:${scope.owner}`, kind: "session", user: scope.owner, team: scope.team }
   const read = await cloud.readOp(scope.team, principal, "cloud.machine.get", { machine: scope.connection_machine })
   if (!read.ok) throw new Error("chief.machine.carrier_unavailable")
-  const machine = (read.value as { machine: { status: string } }).machine
+  const machine = read.value as { status: string }
   if (machine.status === "running") return true
   if (machine.status === "starting" || machine.status === "pausing" || machine.status === "provisioning") return false
   if (machine.status !== "paused") throw new Error("chief.machine.carrier_unavailable")

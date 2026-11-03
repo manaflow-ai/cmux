@@ -622,3 +622,9 @@ a file read's timeout racing its last chunk, a written-then-failed-edit file lab
 | --- | --- | --- | --- |
 | Diff: Next Hunk / Previous Hunk (⌃N / ⌃P) | file diff bottom bar: double chevrons | works (menu-rows batch; live) | Each run of changed lines; a folded hunk unfolds. Next / Previous file keep the single chevrons. |
 | Diff: Search (/) | file diff toolbar **Search in File**: a find bar, "N of M", previous / next | works (menu-rows batch; live) | Ignores case and diacritics; matches are highlighted, the current one has a bar at the leading edge; folded context with a match unfolds. |
+
+## Hidden local Chief agent approvals
+
+| Mac action | Mac sends | Phone | State | Notes |
+| --- | --- | --- | --- | --- |
+| Home Allow / Deny for a hidden local owner subagent | Person-proven local `_acpmux/permission_respond`, exact pending request, `allow_once` / `reject_once` | No new phone authority | not from a phone | This surface requires the Mac app's local person proof and a fresh native click. SECURITY.md's “phone acts for the person, but is not the app” rule excludes this proof; existing phone questions retain their separate asking-mode policy. Other-person `ask` children and cloud peers remain excluded. |
