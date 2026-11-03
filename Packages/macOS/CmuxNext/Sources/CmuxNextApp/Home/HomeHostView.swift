@@ -4,6 +4,7 @@ import CmuxHomeRender
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextChiefMemory
 import CmuxNextChiefPetWiring
 import CmuxNextDesign
@@ -72,6 +73,11 @@ final class HomeHostView: NSView {
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id,
                                               diagrams: service.diagrams, openPanel: services.openPanel)
+        let approvals = ChiefApprovalDecider(home: service.chief.home, app: QuitAgents.environment(services),
+                                             work: services.work, environment: ChiefHomeAcpmux.environment)
+        transcript.approvals = approvals
+        let person = PersonInputCheck(sources: services.personInput.sources)
+        transcript.isPersonApprovalEvent = { person.isPerson($0) }
         transcript.composerSpellCheckingEnabled = services.settings?.snapshot.agentPaneComposer.spellChecking ?? false
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
@@ -229,6 +235,7 @@ final class HomeHostView: NSView {
         }
         // Settings > Home: whether attached photos and videos keep their location.
         transcript.keepLocation = { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }
+
         spellCheckingWatch = Task { [weak self, weak services] in
             for await enabled in ObservationStream({ services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false }) {
                 self?.transcript.composerSpellCheckingEnabled = enabled
