@@ -494,6 +494,18 @@ export class MockHomeProvider implements PageClient {
   private readonly pictures = new Map<string, { mediaType: string; data: string }>();
   /** Also serve the host's `cmux.chief.profile.*` relay (a page in the app). */
   hostGrants = false;
+  /** A real Chief thread shape from the Slack bridge, for the source-label gallery. */
+  addSlackThread(): void {
+    const messages = this.data.messages.get("c-chief")!;
+    const root = messages[0]!;
+    root.thread = {
+      title: "Release checklist",
+      source: "slack",
+      channelName: "release",
+      permalink: "https://example.slack.com/archives/C01234567/p1789644309000000",
+    };
+    messages[1]!.threadRoot = root.id;
+  }
   /** Every committed record state, by Chief id, oldest first (`chief.profile.history`). */
   private readonly revisions = new Map<
     string,

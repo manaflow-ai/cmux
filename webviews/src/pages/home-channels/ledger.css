@@ -532,6 +532,28 @@
 .lg-thread-line {
   padding: var(--ds-space-1) var(--lg-pad) var(--ds-space-1);
 }
+.hc-slack-source {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+  text-decoration: none;
+}
+a.hc-slack-source:hover,
+a.hc-slack-source:focus-visible {
+  color: var(--page-text);
+  text-decoration: underline;
+}
+.lg-thread-line > .hc-slack-source {
+  margin-inline-start: 24px;
+  max-width: calc(100% - 24px);
+}
 .lg-thread-row {
   display: flex;
   align-items: center;

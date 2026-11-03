@@ -12,6 +12,7 @@ import CmuxNextMacScreen
 import CmuxNextPages
 import CmuxNextServer
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextTerminal
 import CmuxNextUpdater
 import Foundation
@@ -139,7 +140,7 @@ struct PageFactory {
     func settingsPage(route: String?) -> PageWebView? {
         guard let settings = services.settings else { return nil }
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
-            ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
+            ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains().fontFamilies, "sounds": SettingsPageDomains().sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
         }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null }, wideningGate: services.wideningGate)
         provider.removeDevice = { [weak services] id in await services?.devices.remove(id: id) }
         provider.setDeviceFullAccess = { [weak services] id, on in await services?.devices.setFullAccess(id: id, on: on) }
@@ -273,7 +274,13 @@ struct PageFactory {
                                        inUse: { [weak services] in services?.settings?.snapshot.backdropSelection }, settings: services.settings,
                                        pickFolder: { [weak services] in await services?.viewers.picker.open(.init(choose: .folders))?.first })
         }
-        let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native),
+        let slack = SlackPageProvider(request: { [weak cloud = services.cloud] method in
+            guard let cloud else { throw PageError.closed }
+            do { return try await CloudAPIClient.slackRequest(configuration: cloud.configuration, auth: cloud.auth, identity: cloud.installIdentity, method: method) }
+            catch let error as CloudAPIError { throw PageError(code: "cmux.slack." + error.code, message: error.code) }
+        }, open: { LinkRouter.shared.open($0, in: .system) })
+        let routes = [PageRoute(prefix: "cmux.settings.slack.", provider: slack),
+                      PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native),
                       // Agents > Chiefs: the same Chief editor routes as Home (ChiefProfilePageRelay, AgentHarnessCenter).
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),

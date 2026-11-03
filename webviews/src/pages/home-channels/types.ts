@@ -316,6 +316,10 @@ export type HomeThreadStatus = "open" | "resolved";
 /** The owner's thread object on a root. A resolution reads as resolved only while no live reply has
  * a seq above `resolved.seq`: a new reply reopens the thread (threadStatus in model.ts). */
 export interface HomeThreadObject {
+  /** Hosted Slack bridge metadata; ordinary thread edits cannot set these fields. */
+  source?: "slack";
+  channelName?: string;
+  permalink?: string;
   /** Absent: show the root's first line (threadTitle in model.ts). */
   title?: string;
   /** A participant id: a person or a Chief. */

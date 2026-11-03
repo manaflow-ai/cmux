@@ -617,6 +617,11 @@ export class SettingsStore {
     call: <R>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
   };
 
+  /** The Slack row owns its TS state; the host forwards authenticated Cloud requests only. */
+  readonly slackCalls = {
+    call: <R>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
+  };
+
   /** Settings > Updates' channels, with the way back to `ring` (the Channel row's value); null
    * when the host has no updater. */
   async channelsState(ring?: string): Promise<ChannelsState | null> {
