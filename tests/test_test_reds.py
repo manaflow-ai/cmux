@@ -71,6 +71,44 @@ class Replay26346(unittest.TestCase):
         self.assertIn("crashed (signal 6)", json.loads(done.stdout)["reasons"][0])
 
 
+def objc_line(path="Sources/A.swift", line=12, member="viewDidMove", cls="NSView", sel="viewDidMove"):
+    return (f"objc-selectors: {path}:{line}: super.{member} ({cls} call:{sel}/0): probe needed; "
+            "run scripts/cmux-next/check-objc-selectors.py --probe --write on a Mac and commit table.json")
+
+
+class CrashClassRuleLines(unittest.TestCase):
+    # cmux#33113 added an unprobed `super` call; the rule printed this line and the job had no test name to match.
+    def test_the_line_is_a_named_failure_keyed_by_rule_site_and_selector(self):
+        found = reds.read(log(objc_line()))
+        self.assertEqual(found.failed, {"objc-selectors Sources/A.swift:12 super.viewDidMove (NSView call:viewDidMove/0)"})
+        self.assertTrue(reds.is_test_red(found))
+
+    def test_the_same_diagnostic_on_head_and_base_is_a_base_red(self):
+        verdict = reds.classify(log(objc_line()), log(objc_line()))
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(len(verdict.shared), 1)
+
+    def test_error_annotation_prefix_and_timestamp_still_match(self):
+        verdict = reds.classify(log("##[error]" + objc_line()), log(objc_line()))
+        self.assertFalse(verdict.own, verdict.reasons)
+
+    def test_a_different_file_line_or_selector_is_the_heads_own(self):
+        for other in (objc_line(path="Sources/B.swift"), objc_line(line=13),
+                      objc_line(member="mouseDown", sel="mouseDown")):
+            with self.subTest(other=other):
+                verdict = reds.classify(log(other), log(objc_line()))
+                self.assertTrue(verdict.own)
+                self.assertIn("pass or do not run", " ".join(verdict.reasons))
+
+    def test_no_base_log_excuses_nothing(self):
+        self.assertTrue(reds.classify(log(objc_line()), None).own)
+
+    def test_the_cef_contract_rule_is_keyed_by_its_detail(self):
+        line = "cef-objc-contract: NSApp foo:: verdict 'x' (review it: a, b)"
+        self.assertFalse(reds.classify(log(line), log(line)).own)
+        self.assertTrue(reds.classify(log(line), log(line.replace("foo", "bar"))).own)
+
+
 class KnownIssueSuiteCompletion(unittest.TestCase):
     # Reduced from the #27127 comparison: a completed ClassicUpgradeSimulationTests suite
     # was treated as unfinished even though its known-issue test and run summary were read.

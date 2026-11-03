@@ -252,6 +252,24 @@ def lines_of(log: str) -> list[str]:
     return [text for n, text in enumerate(lines) if n not in skip]
 
 
+# A crash-class rule's failure line (cmux-next-crash-class.yml; crash_class_fast_gate.py lists the prefixes):
+# `objc-selectors: <file>:<line>: super.<sel> (<Class> call:<sel>/<n>): probe needed; run ...` and
+# `cef-objc-contract: <detail>`. The rule is a named failure the way a test is, so a base red there is excused.
+CRASH_RULE = re.compile(r"^(?:##\[error\])?(objc-selectors|cef-objc-contract): (.+?)\s*$")
+CRASH_RULE_SITE = re.compile(r"^(\S+?:\d+): (.+?)(?:: probe needed.*|; .*)?$")
+
+
+def crash_rule_failure(text: str) -> str | None:
+    """The failure key of a crash-class rule line: `rule file:line detail` (rule, site, selector) when the line
+    carries a site, else `rule detail`; the trailing advice (`probe needed; run ...`) is not part of the key."""
+    if not (match := CRASH_RULE.match(text)):
+        return None
+    rule, detail = match.groups()
+    if site := CRASH_RULE_SITE.match(detail):
+        return f"{rule} {site.group(1)} {site.group(2)}"
+    return f"{rule} {detail}"
+
+
 def failed_names(lines: list[str]) -> set[str]:
     """The failing tests LINES name: each FAILED pattern's, an xcresult `FAILED:` line's and the names under
     xcodebuild's `Failing tests:` (XCRESULT_FAILED). LINES are a step's output (lines_of), never its echoed script."""
@@ -269,6 +287,8 @@ def failed_names(lines: list[str]) -> set[str]:
         for pattern in FAILED:
             if match := pattern.search(text):
                 found.add(match.group(1))
+        if rule := crash_rule_failure(text):
+            found.add(rule)
         if match := SUITE_FAILED.search(text):
             found.add(match.group(1).strip('"'))
         if match := XCRESULT_FAILED.match(text):
