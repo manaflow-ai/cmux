@@ -61,13 +61,17 @@ enum DebugNewTab {
             // The next opening loads cold, as after memory pressure (scripts/ci/frame-pacing/golden.py).
             services.newTabSpares.dropAll()
             return await state(services)
+        case "capacity":
+            // How many spares the pool keeps (A/B of one against two on one build).
+            services.newTabSpares.capacity = params["count"]?.intValue ?? 1
+            return await state(services)
         case "retarget":
             // What a key-window change does, for no-activate runs whose windows never become key.
             guard let window = controller(params, services)?.window else { return .object(["error": .string("no such window")]) }
             services.newTabSpares.retarget(window)
             return await state(services)
         default:
-            return .object(["error": .string("unknown action; use state, open_and_type, open_and_leave, field or open_tab")])
+            return .object(["error": .string("unknown action; use state, open_and_type, open_and_leave, field, open_tab, capacity")])
         }
     }
 
@@ -76,16 +80,11 @@ enum DebugNewTab {
     private static func state(_ services: AppServices) async -> JSONValue {
         let pool = services.newTabSpares
         let omnibar = NewTabPage.omnibar(services, excluding: nil)
-        var spare: (entry: [String: JSONValue], pid: pid_t?)?
-        if let shown = pool.spare {
-            // Ready: the page asked for its handshake, so it is loaded and rendered.
-            var entry: [String: JSONValue] = ["window": .number(Double(shown.window)), "ready": .bool(shown.view.model.hasHandshake)]
-            let pid = WebContentProcess.identifier(of: shown.view.webView)
-            if let pid { entry["pid"] = .number(Double(pid)) }
-            spare = (entry, pid)
-        }
+        // Ready: the page asked for its handshake, so it is loaded and rendered.
+        let parked = pool.spares.map { (["window": $0.window.map { .number(Double($0.windowNumber)) } ?? .null, "ready": .bool($0.model.hasHandshake)] as [String: JSONValue], WebContentProcess.identifier(of: $0.webView)) }
         var report: [String: JSONValue] = [
             "openings": .array(pool.openings.map(opening)),
+            "capacity": .number(Double(pool.capacity)),
             "target_window": pool.target.map { .number(Double($0.windowNumber)) } ?? .null,
             "last_retarget_ms": pool.lastRetargetMilliseconds.map { .number($0) } ?? .null,
             "last_recycle_refusal": pool.lastRecycleRefusal.map { .string($0) } ?? .null,
@@ -94,8 +93,10 @@ enum DebugNewTab {
             "omnibar_workspaces": .array(omnibar.workspaces.map { .object(["id": .string($0.id), "name": .string($0.name)]) }),
         ]
         var spares: [JSONValue] = []
-        if var entry = spare?.entry {
-            if let pid = spare?.pid {
+        for (base, pid) in parked {
+            var entry = base
+            entry["pid"] = pid.map { .number(Double($0)) }
+            if let pid {
                 let bytes = try? await services.work.run(.bestEffort, mayBlock: .system) { ProcessUsage.sample(pid)?.physFootprint }
                 entry["footprint_mb"] = bytes.map { .number(Double($0) / 1_048_576) } ?? .null
             }

@@ -36,7 +36,9 @@ public final class AgentPaneView: NSView {
     /// The `agent.sessionStatus` tunable (Debug Settings), followed live (``AgentPaneSessionStatus``).
     public internal(set) var sessionStatus = AgentPaneTunables.sessionStatus.value { didSet { if sessionStatus != oldValue { AgentPaneSessionStatus.push(to: self) } } }
     /// The newest device chats for the New Tab cards.
-    public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.push(deviceChats, to: self) } } }
+    public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.owe(to: self) } } }
+    /// App-wide state pushes held to one per turn, and while nobody sees the pane (``AgentPaneShownPushes``).
+    let shownPushes = AgentPaneShownPushes()
     /// The newest recently closed items for the New Tab page's Recently Closed section.
     public var recentlyClosed: AgentPaneClosedList = .empty { didSet { if recentlyClosed != oldValue { AgentPaneClosedItem.push(recentlyClosed, to: self) } } }
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
@@ -195,6 +197,7 @@ public final class AgentPaneView: NSView {
             let provider = AgentPageProvider { [weak model] _ in model }
             // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
             provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
+            provider.tailHost = model.host
             guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), testRoot: testRoot, provider: provider, renderRate: renderRate,
                                                                  chromium: chromium, panelProvider: panelProvider)
             else { return nil }

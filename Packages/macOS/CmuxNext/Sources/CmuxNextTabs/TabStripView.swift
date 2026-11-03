@@ -133,6 +133,8 @@ public final class TabStripView: NSView {
     var slotIndexCache: TabSlotIndex?
     /// The strip moves whose Core Animation transaction has not completed (`applyFrames`, `moveEnded`).
     var movesInFlight: Set<Int> = []
+    /// Work waiting for every strip move to end (``whenStill(_:)``).
+    var stillWaiters: [@MainActor () -> Void] = []
     /// Passes over every cell, by kind (`occlusion`, `separators`, `frames`): what a change cost, for
     /// the switch work budget (a tab switch at rest runs none, at any tab count).
     var rowPasses = TabStripRowPasses()

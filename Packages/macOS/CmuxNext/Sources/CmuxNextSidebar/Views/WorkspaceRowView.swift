@@ -167,6 +167,7 @@ final class WorkspaceRowView: SidebarRowView {
         layer?.addSublayer(progressTrack)
         closeButton.isHidden = true
         audioButton.isHidden = true
+        pinButton.isHidden = true // hover only (layoutPin shows it), so it makes no image before then
         placeholderBar.wantsLayer = true
         placeholderBar.layer?.cornerRadius = Metrics.chipCornerRadius(height: SidebarStyle.placeholderBarHeight)
         placeholderBar.isHidden = true
@@ -274,7 +275,8 @@ final class WorkspaceRowView: SidebarRowView {
             placeholderBar.alphaValue = 1
         }
         // The name the row draws (`sidebar.rowTitle`): the workspace's, else a breadcrumb to its focused tab.
-        let shownTitle = ws.rowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)
+        // A started session named like its parent says whose it is (`WorkspaceRowContent.subagentOf`).
+        let shownTitle = shown.subagentOf.map(Strings.subagentOf) ?? ws.rowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)
         title.stringValue = shownTitle
         lastTitle = shownTitle
         hiddenWorkspaceName = ws.namesWorkspace(shownTitle) ? nil : ws.title
@@ -343,7 +345,8 @@ final class WorkspaceRowView: SidebarRowView {
             button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue).\(control)")
         }
         setAccessibilityLabel(accessibilityText(ws, content: shown,
-                                                title: ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)))
+                                                title: shown.subagentOf.map(Strings.subagentOf)
+                                                    ?? ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)))
         needsLayout = true
         needsDisplay = true
     }

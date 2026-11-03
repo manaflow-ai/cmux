@@ -86,7 +86,7 @@ fn clean(text: &str) -> Option<String> {
         return None;
     }
     Some(match text.char_indices().nth(MAX_CHARS) {
-        Some((end, _)) => format!("{}…", text[..end].trim_end()),
+        Some((end, _)) => format!("{}…", text.get(..end).unwrap_or(text).trim_end()),
         None => text.to_owned(),
     })
 }

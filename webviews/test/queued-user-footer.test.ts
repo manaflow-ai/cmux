@@ -209,7 +209,22 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
                 const bubble = element.querySelector(".cv-user__bubble")!.getBoundingClientRect();
                 const footer = element.querySelector(".cv-user__actions")!.getBoundingClientRect();
                 const row = element.getBoundingClientRect();
+                // The controls themselves, not only their row: the last glyph's ink on the bubble's
+                // edge, the glyphs' gap under the bubble, and every icon button's square.
+                const glyphs = [...element.querySelectorAll(".cv-user__actions .cv-iconbtn > svg")].map((svg) =>
+                  svg.getBoundingClientRect(),
+                );
+                const buttons = [...element.querySelectorAll(".cv-user__actions .cv-iconbtn")].map((button) =>
+                  button.getBoundingClientRect(),
+                );
                 return {
+                  lastGlyphRight: glyphs.at(-1)!.right,
+                  glyphGap: glyphs[0]!.top - bubble.bottom,
+                  glyphSize: glyphs.at(-1)!.width,
+                  buttonSizes: buttons.map((box) => [box.width, box.height]),
+                  copySize: ((box) => [box.width, box.height])(
+                    element.querySelector('.cv-user__actions [aria-label="Copy"]')!.getBoundingClientRect(),
+                  ),
                   bubbleLeft: bubble.left,
                   bubbleRight: bubble.right,
                   bubbleWidth: bubble.width,
@@ -237,6 +252,21 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
             // end on it (design/grid.md 5.5).
             const overhang = (gridLength("transcript-action-control") - gridLength("transcript-icon-box")) / 2;
             expect(Math.abs(before.footerRight - overhang - before.bubbleRight)).toBeLessThanOrEqual(1);
+            // Send now, × and Copy sit as the sent prompt's row does (Leo, relayed 2026-11-03: "Send now ×
+            // and the copy icon float loosely under the bubble. Align them to the bubble's edge"): Copy's
+            // glyph ends on the bubble's right edge, the glyphs keep the sent row's gap under the bubble,
+            // and every icon button is the sent row's square.
+            const control = gridLength("transcript-action-control");
+            expect(Math.abs(before.lastGlyphRight - before.bubbleRight)).toBeLessThanOrEqual(1);
+            expect(Math.abs(after.lastGlyphRight - after.bubbleRight)).toBeLessThanOrEqual(1);
+            expect(Math.abs(before.glyphGap - after.glyphGap)).toBeLessThanOrEqual(1);
+            expect(before.glyphGap).toBeGreaterThan(0);
+            expect(before.glyphSize).toBe(after.glyphSize);
+            expect(after.copySize).toEqual([control, control]);
+            for (const [buttonWidth, buttonHeight] of before.buttonSizes) {
+              expect(buttonWidth).toBe(control);
+              expect(buttonHeight).toBe(control);
+            }
             for (const key of [
               "bubbleLeft",
               "bubbleRight",
