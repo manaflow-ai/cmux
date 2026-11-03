@@ -304,20 +304,16 @@ impl Rights {
         input: Option<&Value>,
         protected: &[PathBuf],
     ) -> Decision {
-        if writes_protected(tool, input, protected) {
-            return Decision::Deny {
-                who: authors
-                    .iter()
-                    .find(|a| *a != owner)
-                    .cloned()
-                    .unwrap_or_else(|| owner.to_owned()),
-                why: "the Chief's rights and audit files are never writable through a grant"
-                    .into(),
-            };
-        }
         let others: Vec<&String> = authors.iter().filter(|a| *a != owner).collect();
         if others.is_empty() {
             return Decision::Allow(Allowed::Owner);
+        }
+        if writes_protected(tool, input, protected) {
+            return Decision::Deny {
+                who: others[0].clone(),
+                why: "the Chief's rights and audit files are never writable through a grant"
+                    .into(),
+            };
         }
         if self.lifts_floor(owner, authors) {
             return Decision::Allow(Allowed::Approver);
