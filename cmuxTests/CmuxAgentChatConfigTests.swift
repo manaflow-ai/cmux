@@ -541,7 +541,7 @@ struct CmuxAgentChatConfigTests {
         ])
         #expect(
             allProviders[2].title(localContext)
-                == String(localized: "agentSession.provider.opencode", defaultValue: "OpenCode")
+                == String(localized: "menu.help.ohMyOpenCode", defaultValue: "oh-my-opencode")
         )
         #expect(allProviders[2].subtitle(localContext) == "cmux omo")
         #expect(ContentView.commandPaletteAgentLauncherContributions(availableProviders: []).isEmpty)

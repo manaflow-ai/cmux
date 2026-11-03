@@ -143,9 +143,12 @@ extension ContentView {
             contributions.append(CommandPaletteCommandContribution(
                 commandId: commandPaletteLaunchOpenCodeCommandID,
                 title: { _ in
+                    // `cmux omo` runs OpenCode with the oh-my-opencode plugin
+                    // (installed on first run), so name that mode like the
+                    // Claude Teams and Codex Teams launchers do.
                     String(
-                        localized: "agentSession.provider.opencode",
-                        defaultValue: "OpenCode"
+                        localized: "menu.help.ohMyOpenCode",
+                        defaultValue: "oh-my-opencode"
                     )
                 },
                 subtitle: { _ in "cmux omo" },
