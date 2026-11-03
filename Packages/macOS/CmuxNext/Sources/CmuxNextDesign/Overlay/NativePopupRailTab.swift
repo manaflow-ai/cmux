@@ -135,7 +135,7 @@ final class NativePopupRailTab: NSView {
         case .symbols:
             return NSSize(width: height, height: height)
         case .top:
-            let text = ceil(nameLabel?.attributedStringValue.size().width ?? 0)
+            let text = ceil(nameLabel?.naturalSize.width ?? 0)
             let width = pad + mark + (mark > 0 ? pad : 0) + text + pad
             return NSSize(width: min(available, width), height: height)
         case .left:
@@ -151,8 +151,7 @@ final class NativePopupRailTab: NSView {
     private func textHeight(width: CGFloat) -> CGFloat {
         guard let nameLabel else { return 0 }
         nameLabel.preferredMaxLayoutWidth = width
-        return ceil(nameLabel.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)).height
-            ?? nameLabel.fittingSize.height)
+        return ceil(nameLabel.size(forWidth: width).height)
     }
 
     override func layout() {
@@ -169,7 +168,7 @@ final class NativePopupRailTab: NSView {
                 x += side + pad
             }
             let width = max(0, bounds.width - x - pad)
-            let height = min(bounds.height, placement == .top ? ceil(nameLabel?.fittingSize.height ?? 0) : textHeight(width: width))
+            let height = min(bounds.height, placement == .top ? ceil(nameLabel?.naturalSize.height ?? 0) : textHeight(width: width))
             nameLabel?.frame = NSRect(x: x, y: (bounds.height - height) / 2, width: width, height: height)
         case .compact:
             var y = Metrics.space1
@@ -246,7 +245,7 @@ final class NativePopupMonogram: NSView {
 
     override func layout() {
         super.layout()
-        let height = ceil(label.fittingSize.height)
+        let height = ceil(label.naturalSize.height)
         label.frame = NSRect(x: 0, y: (bounds.height - height) / 2, width: bounds.width, height: height)
     }
 
