@@ -314,6 +314,7 @@ import {
   withSubagentLines,
 } from "./subagents/runningTray";
 import { configureSubagentTrayPlacement, useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
+import { configureSelectionReply, SelectionReplyChip, setQuoteReplySink } from "./conversation/SelectionReply";
 import { AgentTonesContext, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
@@ -476,6 +477,7 @@ import {
   turnFooterFrom,
   WORKING,
   type TurnView,
+  trayWaitAgents,
   turnViewFrom,
 } from "./conversation/turns";
 import { ArrowDown, ChevronRight } from "./conversation/icons";
@@ -2121,6 +2123,9 @@ type ReportDrawn = (
   status?: string,
 ) => void;
 
+/// Enqueues a row's pre-paint measurement after all sibling content layout effects have written.
+type QueueDrawn = (node: HTMLElement, id: string, version: number, actions?: boolean, status?: string) => () => void;
+
 /// A mounted row's drawn height, or undefined when the page has not laid it out (an undisplayed
 /// transcript, or a DOM without layout): such a box has no client rects. A laid-out row that draws
 /// nothing (a step of only quiet thoughts, a render update that joined an earlier card, a payload
@@ -2272,7 +2277,7 @@ const RowFrame = React.memo(function RowFrame({
   rowWidth,
   expanded,
   observer,
-  report,
+  queueDrawn,
   enter,
   onEntered,
   older,
@@ -2322,7 +2327,7 @@ const RowFrame = React.memo(function RowFrame({
   rowWidth: number;
   expanded: boolean;
   observer: ResizeObserver | undefined;
-  report: ReportDrawn;
+  queueDrawn: QueueDrawn;
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
   onEntered: (id: string) => void;
@@ -2390,14 +2395,7 @@ const RowFrame = React.memo(function RowFrame({
   }, [observer]);
   useLayoutEffect(() => {
     const node = ref.current;
-    if (node)
-      report(
-        row.id,
-        row.version,
-        acpmuxPerf.timed("row.measure", () => drawnHeightOf(node)),
-        replyActions,
-        status,
-      );
+    if (node) return queueDrawn(node, row.id, row.version, replyActions, status);
   }, [
     row.id,
     row.version,
@@ -2411,7 +2409,7 @@ const RowFrame = React.memo(function RowFrame({
     lastFooter,
     continuationFooter,
     lastTurn,
-    report,
+    queueDrawn,
   ]);
   const placedTop = top + THREAD_TOP;
   const integralTop = Math.floor(placedTop);
@@ -3298,6 +3296,7 @@ export function VirtualTranscript({
   // Rows place by their drawn height once drawn, and by the estimate until then.
   const [drawn, setDrawn] = useState(new Map<string, DrawnHeight>());
   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
+  const pendingMeasures = useRef(new Map<HTMLElement, () => void>());
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
   /// The last estimate, whose unchanged leading rows the next one keeps.
   const lastEstimate = useRef<
@@ -3448,6 +3447,26 @@ export function VirtualTranscript({
     },
     [sessionId],
   );
+  const queueDrawn = useCallback<QueueDrawn>(
+    (node, id, version, actions, status) => {
+      const measure = () => {
+        if (!node.isConnected || node.dataset.rowId !== id) return;
+        reportDrawn(
+          id,
+          version,
+          acpmuxPerf.timed("row.measure", () => drawnHeightOf(node)),
+          actions,
+          status,
+        );
+      };
+      pendingMeasures.current.set(node, measure);
+      // A changed row or an unmount cannot leave an old version queued for a later commit.
+      return () => {
+        if (pendingMeasures.current.get(node) === measure) pendingMeasures.current.delete(node);
+      };
+    },
+    [reportDrawn],
+  );
   // All of a commit's reports land in one update, before the frame paints.
   /// Rows whose drawn height changed since the last placement, which places again from the first.
   const changedDrawn = useRef(new Set<string>());
@@ -3474,11 +3493,13 @@ export function VirtualTranscript({
     if (!pendingDrawn.current.size) return;
     const updates = pendingDrawn.current;
     pendingDrawn.current = new Map();
-    for (const id of updates.keys()) changedDrawn.current.add(id);
+    // An equal report can correct a different height still queued at a lower priority.
+    // Compare in the updater, against the state React rebases it onto, not drawnRef.
     setDrawn((current) => {
       let next: Map<string, DrawnHeight> | undefined;
       for (const [id, entry] of updates) {
         if (sameDrawn(current.get(id), entry)) continue;
+        changedDrawn.current.add(id);
         next ??= new Map(current);
         next.set(id, entry);
       }
@@ -3582,7 +3603,15 @@ export function VirtualTranscript({
       return new Map([...current].filter(([id]) => ids.has(id)));
     });
   }, [rows, queuedTail]);
-  useLayoutEffect(flushDrawn);
+  useLayoutEffect(() => {
+    // Child layout effects enqueue; all sibling DOM writes finish before this parent effect.
+    // Read the dirty rows together, then apply the existing pre-paint placement correction.
+    // No frame/task deferral, and no scan of the mounted window or full transcript.
+    const measures = pendingMeasures.current;
+    pendingMeasures.current = new Map();
+    for (const measure of measures.values()) measure();
+    flushDrawn();
+  });
   // Minimal Mode draws another agent's closed message as its line alone (IncomingMessageCard.tsx):
   // a toggle forgets those rows' drawn heights, so rows offscreen place by the new estimate instead of
   // their old card's height, and marks them changed so the placement starts from the first of them
@@ -5786,7 +5815,7 @@ export function VirtualTranscript({
                       rowWidth={scaledRowWidth}
                       expanded={isExpanded}
                       observer={observer}
-                      report={reportDrawn}
+                      queueDrawn={queueDrawn}
                       // A session switch is a load, not a live arrival. The reset effect runs after
                       // this render, so gate it here as well to avoid a reused row id animating once.
                       enter={!sessionChanged && enteringRows.current.has(row.id)}
@@ -7258,6 +7287,8 @@ function AcpmuxPane() {
     const startedRows = withStartedSessions(sourceRows, started, startedCache.current);
     // Labs: a Claude workflow is a card where it started (summary/WorkflowCard.tsx), not a tray line.
     const rows = subagentTray ? withSubagentLines(startedRows, doneLines.current, workflowLabsEnabled) : startedRows;
+    // The tray takes the running groups out of the rows, so the live line's wait is counted first.
+    const trayAgents = subagentTray ? trayWaitAgents(startedRows) : 0;
     return acpmuxPerf.timed("app.rows", () => {
       const last = lastTurns.current;
       if (heldCalls.current.session !== shownSessionId)
@@ -7282,6 +7313,7 @@ function AcpmuxPane() {
             // Other sessions' messages among them, two or more in a run, draw as one card.
             waitingSteers: snapshot.waitingSteers,
             messageBreaks,
+            trayAgents,
           },
           last?.turns,
         );
@@ -7472,6 +7504,14 @@ function AcpmuxPane() {
     workflowSideTabOpener.current = undefined;
     setWorkflowSideTabId(undefined);
   }, []);
+  // The Background tasks panel opens from the chat's ⋯ menu and from the running tray's header
+  // (SubagentTray.tsx `onOpenPanel`). A workflow's side tab would cover it (a full-height overlay):
+  // it closes. Already open, it stays as it is (expanded, cleared and drilled in alike).
+  const panelSession = snapshot.sessionId;
+  const openBackgroundPanel = useCallback(() => {
+    clearWorkflowSideTab();
+    setBackgroundPanel((panel) => panel ?? { sessionId: panelSession, expanded: false, dismissed: new Set<string>() });
+  }, [clearWorkflowSideTab, panelSession]);
   const closeWorkflowSideTab = useCallback(() => {
     workflowSideTabFocusOnClose.current = true;
     setWorkflowSideTabId(undefined);
@@ -7998,6 +8038,7 @@ function AcpmuxPane() {
   const queuedMessageActionsRef = useRef<QueuedMessageActionsValue | undefined>(undefined);
   // The chat's Codex skills, for its sent prompts' `/$name` (conversation/skillWords.ts).
   const skillWords = useSkillWords(snapshot.commands);
+  const queueRunsNext = snapshot.queue.some((entry) => !entry.heldByStop && !entry.held && !entry.awaitingOwner);
   // The waiting tagged-ask card's first answer, which the composer's ⌘↩ on an empty prompt sends
   // (NextStepCard.tsx, TurnActions `nextStepKey`).
   const [nextStepFire, setNextStepFire] = useState<{ fire: () => void }>();
@@ -8073,14 +8114,17 @@ function AcpmuxPane() {
       // reader's prompt and starts the next turn, or queues behind one already sent. Like Restart
       // (restart.ts), never to a View Only chat, a subagent's read-only pane or where the composer
       // cannot send, and only to the chat this pane still shows, never the next during a switch's hold.
-      ...(restartChat && {
-        resume: (
-          (owner: string) => () =>
-            restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
-              ? resumeThrough(callNative)()
-              : Promise.resolve()
-        )(restartChat),
-      }),
+      // A prompt that runs next anyway (a queued one no Stop or owner holds, such as a message acpmux
+      // queued again after the Stop) starts the next turn: no Continue beside it.
+      ...(restartChat &&
+        !queueRunsNext && {
+          resume: (
+            (owner: string) => () =>
+              restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
+                ? resumeThrough(callNative)()
+                : Promise.resolve()
+          )(restartChat),
+        }),
       // A tagged ask's answer (NextStepCard.tsx) sends as Continue does, with the same reach.
       ...(restartChat && {
         nextStepKey,
@@ -8229,6 +8273,7 @@ function AcpmuxPane() {
       catalog,
       restartChat,
       snapshot.commands,
+      queueRunsNext,
       nextStepKey,
     ],
   );
@@ -8565,13 +8610,16 @@ function AcpmuxPane() {
   /// The same, for dictation's field getter (below), which is made once.
   const cloudStartingNow = useRef(false);
   cloudStartingNow.current = cloudStarting;
-  const sendToCloud = (text: string, attachmentCount: number, start: Omit<CloudStart, "task">): string | false => {
-    const refused = cloudPageRefusal(sandboxOffered, attachmentCount);
+  const sendToCloud = (
+    text: string,
+    attachments: ComposerAttachment[],
+    start: Omit<CloudStart, "task" | "attachments">,
+  ): string | false => {
+    const refused = cloudPageRefusal(sandboxOffered);
     if (refused === "cloud_not_now")
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
-    if (refused) return translate("composer.cloudAttachments");
     const key = crypto.randomUUID();
-    const started = startCloud({ task: text, ...start }, key);
+    const started = startCloud({ task: text, attachments, ...start }, key);
     // Another Return while a start waits starts nothing, and the card keeps that start.
     if (!started) return false;
     cloudStartPending.current = true;
@@ -9479,6 +9527,7 @@ function AcpmuxPane() {
                 backgroundTaskOutput !== undefined
               }
               onOpenSession={openOfferChat}
+              onOpenPanel={quick ? undefined : openBackgroundPanel}
               stop={stopSubagent}
               stopProcess={stopProcess}
               placement={trayPlacement}
@@ -9802,6 +9851,9 @@ function AcpmuxPane() {
     (quotes: string[]) => handBackQuotes(composerHandle, heldQuotes, quotes),
     [],
   );
+  // The selection's Reply chip and a row's Reply quote through the same Quote in Reply as the
+  // right-click menu (`chat.quoteReply`, conversation/SelectionReply.tsx).
+  useEffect(() => setQuoteReplySink((markdown) => quoteIntoComposer(composerHandle, heldQuotes, markdown)), []);
   useComposerKeyboard(() => {
     if (!prompt.current) return false;
     prompt.current.focus();
@@ -10543,6 +10595,7 @@ function AcpmuxPane() {
         configureTurnActionsPlacement(theme.turnActionsPlacement);
         configureSubagentTray(theme.subagentTray);
         configureSubagentTrayPlacement(theme.subagentTrayPlacement);
+        configureSelectionReply(theme.selectionReply);
       },
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));
@@ -10692,6 +10745,7 @@ function AcpmuxPane() {
     // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
     // here until a connect succeeds: a first connect that fails retries without it.
     let pendingPrompt: string | undefined;
+    let pendingAttachments: ComposerAttachment[] | undefined;
     let pendingTicket: { promptId: string; ticket: string } | undefined;
     // The harness that seeded prompt starts on (`newTab.submit --agent`), kept with it.
     let pendingHarness: string | undefined;
@@ -10746,6 +10800,7 @@ function AcpmuxPane() {
           cwd?: string;
           draft?: string;
           prompt?: string;
+          promptAttachments?: ComposerAttachment[];
           promptTicket?: { promptId?: unknown; ticket?: unknown };
           harness?: string;
           peer?: string;
@@ -10874,10 +10929,11 @@ function AcpmuxPane() {
         // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
         if (host.harnesses === true) setHarnessesOpen(true);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
+        pendingAttachments = host.promptAttachments ?? pendingAttachments;
         // A prompt a person's action seeded has a single-use host ticket bound to its promptId
         // (cx-k21v gap 4); a CLI, MCP or script seed has none and the host refuses its send.
         if (
-          host.prompt &&
+          (host.prompt || host.promptAttachments?.length) &&
           typeof host.promptTicket?.promptId === "string" &&
           typeof host.promptTicket.ticket === "string"
         )
@@ -12010,15 +12066,18 @@ function AcpmuxPane() {
         // Onboarding's first task runs without a Send press, once. If the chat cannot start,
         // the prompt waits in the composer instead of vanishing.
         const prompt = pendingPrompt;
+        const attachments = pendingAttachments ?? [];
+        const hasPrompt = Boolean(prompt || attachments.length);
         const harness = pendingHarness;
         const model = pendingModel;
         const ticket = pendingTicket;
         pendingPrompt = undefined;
+        pendingAttachments = undefined;
         pendingHarness = undefined;
         pendingModel = undefined;
         pendingTicket = undefined;
         // The seeded prompt goes with its ticket, under the ticket's promptId.
-        if (prompt && ticket) heldPrompt.keep(ticket);
+        if (hasPrompt && ticket) heldPrompt.keep(ticket);
         // A chat seeded with an agent starts on it, the prompt queued on the switch; a switch
         // that fails hands it back to the composer.
         if (host.peer && !host.sessionId && !client.attachedSession() && !client.adopted) {
@@ -12031,11 +12090,17 @@ function AcpmuxPane() {
               if (!cancelled && directClient.current === client) client.notice(errorMessage(error) || String(error));
             },
           );
-        } else if (harness && prompt) {
+        } else if (harness && hasPrompt) {
           void harnessSwitch.switchTo(harness, host.cwd, { model });
-          void send(prompt, [], undefined, false, ticket?.promptId, undefined, true).catch(() => undefined);
-        } else if (prompt)
-          void send(prompt, [], undefined, false, ticket?.promptId, undefined, true).catch(() => setDraft(prompt));
+          void send(prompt ?? "", attachments, undefined, false, ticket?.promptId, undefined, true).catch(
+            () => undefined,
+          );
+        } else if (hasPrompt)
+          void send(prompt ?? "", attachments, undefined, false, ticket?.promptId, undefined, true).catch(
+            (error: unknown) => {
+              if (!isTrustRefusal(error)) restorePrompt(prompt ?? "", attachments);
+            },
+          );
         // A new chat seeded with the harness/model starts on them with the first Send; no session opens before that.
         // A model-only seed stays sessionless until the first Send; AcpmuxDirectClient retains
         // it in its host config and ensureSession() carries it into session/new.
@@ -12761,10 +12826,7 @@ function AcpmuxPane() {
               label: t("backgroundTasks.title"),
               icon: "task.status.backlog",
               // A workflow's side tab would cover the panel (a full-height overlay): it closes.
-              onSelect: () => {
-                clearWorkflowSideTab();
-                setBackgroundPanel({ sessionId: snapshot.sessionId, expanded: false, dismissed: new Set() });
-              },
+              onSelect: openBackgroundPanel,
             },
           ]),
       ...(checkpoints.supported
@@ -13418,6 +13480,7 @@ function AcpmuxPane() {
                                                       />
                                                     )}
                                                   </ChatFindScope>
+                                                  <SelectionReplyChip />
                                                 </FailedSendsContext.Provider>
                                               </StartedMentionsContext.Provider>
                                             </SubsessionContext.Provider>
@@ -13906,10 +13969,14 @@ function AcpmuxPane() {
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               if (cloudPicked) {
                 // The chat's project, copied to the machine; none: the machine's own folder (cloudStartFolder).
-                const refused = sendToCloud(text, chips?.length ?? 0, {
-                  ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
-                  ...heldPick(composerSnapshot),
-                });
+                const refused = sendToCloud(
+                  text,
+                  shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                  {
+                    ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
+                    ...heldPick(composerSnapshot),
+                  },
+                );
                 if (refused) directClient.current?.notice(refused);
                 return false;
               }
@@ -14597,7 +14664,7 @@ function AcpmuxPane() {
                           model: string | undefined,
                           attachments: ComposerAttachment[],
                         ) =>
-                          sendToCloud(text, attachments.length, {
+                          sendToCloud(text, attachments, {
                             harness,
                             ...cloudStartFolder(cwd),
                             ...(model ? { model } : {}),

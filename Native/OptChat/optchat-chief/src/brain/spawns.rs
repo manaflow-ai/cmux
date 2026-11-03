@@ -1125,6 +1125,10 @@ impl Brain {
         else {
             return;
         };
+        // A cancelled subagent's sign-ins wait on nobody now (every stop path ends here).
+        if self.state.sub(id).is_some_and(|(_, s)| s.cancelled) {
+            self.sign_ins.abandoned(id);
+        }
         // control interrupt|restart with a message: the cut run reports
         // nothing; the message is its next prompt, sent now that it stopped.
         let follow = self.state.sub_mut(id).and_then(|s| s.after_stop.take());
@@ -2284,6 +2288,10 @@ impl Brain {
             self.tell_mode(id, message, queue)
                 .map(|answer| format!("outcome: done. {answer}"))
         };
+        if answer.is_ok() {
+            // "Signed in to SITE ...; go on." (chief-auth-escalation): its Feed request closes.
+            self.sign_ins.told(id, message);
+        }
         if answer.is_ok()
             && !told_for.is_empty()
             && let Some(sub) = self.state.sub_mut(id)

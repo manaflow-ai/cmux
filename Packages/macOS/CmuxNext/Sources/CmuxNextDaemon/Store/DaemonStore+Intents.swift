@@ -146,8 +146,7 @@ extension DaemonStore {
     private func releaseSettledProvisionalPanes() {
         guard !provisionalPanes.isEmpty else { return }
         let pending = Set(intentLog.entries.compactMap { entry -> String? in
-            if !entry.closeWhenCreated, case .splitPane(_, _, _, let provisional) = entry.kind { return provisional.paneID }
-            return nil
+            entry.closeWhenCreated ? nil : entry.kind.provisionalPane?.paneID
         })
         provisionalPanes = provisionalPanes.filter { pending.contains($0.key) }
     }
