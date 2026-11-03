@@ -223,7 +223,8 @@ struct TerminalSurfaceCommitSizeTests {
         var fallbacks: Int { TerminalFramePresenter.forWindow(window).stats.fallbacks }
 
         /// One press: whether p2 moved, and the key turn's main-thread time, from the press to the end of that turn's
-        /// Core Animation commit (nil when the boundary missed it). Then 6 more commits, for the frames to land.
+        /// Core Animation commit (nil when the boundary missed it). Then commits until neither terminal waits for its
+        /// frame (at most 2 s), so each press's presents count for that press.
         func press(_ direction: LayoutDirection) async -> (moved: Bool, turnMs: Double?) {
             let frame = root.context.hosts["p2"]?.frame
             let pressed = ContinuousClock.now
@@ -231,7 +232,11 @@ struct TerminalSurfaceCommitSizeTests {
             let committed = await withCheckedContinuation { (done: CheckedContinuation<ContinuousClock.Instant?, Never>) in
                 CommitBoundary().after { outcome in done.resume(returning: outcome == .committed ? .now : nil) }
             }
-            for _ in 0..<6 { await Self.commit() }
+            let presenter = TerminalFramePresenter.forWindow(window)
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            while ContinuousClock.now < deadline, sessions.contains(where: { presenter.isWaiting($0.surfaceView) }) {
+                await Self.commit()
+            }
             let ms = committed.map { end -> Double in
                 let turn = pressed.duration(to: end)
                 return Double(turn.components.seconds) * 1000 + Double(turn.components.attoseconds) / 1e15
