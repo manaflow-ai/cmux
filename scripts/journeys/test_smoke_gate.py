@@ -236,7 +236,9 @@ class Verdicts(unittest.TestCase):
             is_key = st.get("do") in ("key", "smoke_key")
             if is_key and st.get("key") == "n" and mods == ["cmd"]:
                 break  # a new workspace: the counts below are another workspace's
-            if (is_key and st.get("key") == "d") or (st.get("do") == "action" and st.get("action") == "newColumn"):
+            # Cmd-D (Split Right) and New Column (its build's key, KEY SET A: Ctrl-Cmd-X) each make one pane.
+            if (is_key and (st.get("key") == "d" or st.get("command") == "newColumn")) \
+                    or (st.get("do") == "action" and st.get("action") == "newColumn"):
                 panes += 1
             for cond in st.get("all", []):
                 if "smoke_panes" in cond:
@@ -275,17 +277,19 @@ class Verdicts(unittest.TestCase):
             text = open(os.path.join(tmp, "out", "summary.txt")).read()
             self.assertIn("first failure after the KNOWN GAP at step 43: step 49 expect:", text)
 
-    def test_every_real_new_column_key_check_has_the_known_gap_and_a_fallback(self):
+    def test_every_real_new_column_key_requires_key_set_a_and_has_no_known_gap(self):
+        # KEY SET A (#29866, Lawrence 2026-11-03): New Column is Ctrl-Cmd-X. The Look Up known gap is gone: a build
+        # without the key fails its New Column step in a real-key round, never a stand-in through the app's action.
         with open(HERE / "journeys" / "dogfood" / "smoke-dogfood.json") as f:
             steps = json.load(f)["steps"]
         keyed = [i for i, st in enumerate(steps) if st.get("do") == "smoke_key" and st.get("command") == "newColumn"]
         self.assertEqual(len(keyed), 2)
         for i in keyed:
-            gap = steps[i + 1].get("known_gap")
-            self.assertTrue(gap and gap["key_path"] == "real_hid" and gap["ref"] == "STATUS 1712/1724", i)
-            self.assertEqual([s["do"] for s in gap["fallback"]], ["smoke_key", "wait", "expect", "action", "expect"])
-            self.assertEqual(gap["fallback"][3]["action"], "newColumn")
-            self.assertEqual((gap["key"], gap["modifiers"], gap["problems"]), ("d", ["control", "cmd"], ["0 new columns, not 1"]))
+            self.assertEqual((steps[i]["key"], steps[i]["modifiers"]), ("x", ["control", "cmd"]))
+            self.assertEqual(steps[i]["real_key_requires"]["keys"], "cmd+ctrl+x")
+            self.assertNotIn("known_gap", steps[i + 1])
+        self.assertFalse([st for st in steps if "known_gap" in st])
+        self.assertNotIn("Look Up", json.dumps(steps))
 
     def test_a_passed_round_with_a_key_gap_is_not_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -671,6 +675,31 @@ class RealKeySteps(unittest.TestCase):
         with self.assertRaises(self.NotRun):
             self.ext.step_smoke_key(j, {"command": "newColumn", "key": "d", "modifiers": ["control", "cmd"]})
         self.assertEqual(self.sent, [])
+
+    def test_a_real_key_round_needs_the_chosen_key_and_a_build_without_it_fails(self):
+        need = {"keys": "cmd+ctrl+x", "ref": "KEY SET A"}
+        step = {"command": "newColumn", "key": "x", "modifiers": ["control", "cmd"], "real_key_requires": need}
+        j = self.journey("real")
+        j.key_window = "W1"
+        old = [{"command": "newColumn", "key": "cmd+ctrl+d", "when": None, "source": "default"}]
+        j.app.rpc = self.bindings(old, {"cmd+ctrl+d": {"outcome": "run", "winner": {"command": "newColumn", "source": "default"}}})
+        with self.assertRaises(self.ext.D.StepError) as caught:
+            self.ext.step_smoke_key(j, step)
+        self.assertIn("cmd+ctrl+d, not cmd+ctrl+x", str(caught.exception))
+        self.assertNotIsInstance(caught.exception, self.NotRun)
+        self.assertEqual(self.sent, [])  # the old key (Look Up) is never pressed
+        new = [{"command": "newColumn", "key": "ctrl+cmd+x", "when": None, "source": "default"}]
+        j.app.rpc = self.bindings(new, {"ctrl+cmd+x": {"outcome": "run", "winner": {"command": "newColumn", "source": "default"}}})
+        done = self.ext.step_smoke_key(j, step)
+        self.assertEqual(self.sent, [("hotkey", {"scope": "desktop", "keys": ["ctrl", "cmd", "x"]})])
+        self.assertEqual(done["key_source"]["binding"], "ctrl+cmd+x")
+        # A debug.key round sends the build's own key and judges its outcome; the requirement is for real keys only.
+        j2 = self.journey("debug")
+        j2.app.rpc = self.bindings(old, {"cmd+ctrl+d": {"outcome": "run", "winner": {"command": "newColumn", "source": "default"}}})
+        try:
+            self.ext.step_smoke_key(j2, step)
+        except self.ext.D.StepError as error:
+            self.assertNotIn("not cmd+ctrl+x", str(error))
 
     def test_a_build_without_keybinding_list_keeps_the_journeys_key(self):
         j = self.journey("real")

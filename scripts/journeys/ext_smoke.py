@@ -296,6 +296,8 @@ def step_smoke_key(j, step):
     `command`, the key is the one the build binds to that action (`_bound_key`)."""
     key, mods, source = _bound_key(j, step)
     step = dict(step, key=key, modifiers=mods)
+    if _key_path(j) != "debug.key" and step.get("real_key_requires"):
+        _require_key_set(step, key, mods, source)
     if _key_path(j) == "debug.key":
         j.smoke_last_key_landed = None  # a later page-key failure must not name an older real key's landing
         return dict(j.step_key(step), key_path="debug.key", key_source=source)
@@ -315,6 +317,20 @@ def step_smoke_key(j, step):
     j.smoke_last_key_landed = landed
     return {"key": step["key"], "modifiers": step.get("modifiers", []), "key_path": "real_hid", "cua_effect": effect,
             "send_ms": sent_ms, "landed": landed, "waited_out_hold_s": held, "key_source": source}
+
+
+def _require_key_set(step, key, mods, source):
+    """A real-key round presses the key Lawrence chose for the step's command (`real_key_requires`: {"keys":
+    "cmd+ctrl+x", "ref": ...}; KEY SET A, #29866, 2026-11-03). A build that binds the command to another key
+    (Ctrl-Cmd-D, which macOS's Look Up takes before the app) FAILS the step: the step stays red until a build
+    has the chosen key, never a known gap and never a stand-in."""
+    want = step["real_key_requires"]
+    norm = lambda keys: (frozenset(_MOD_NAMES.get(m, m) for m in keys[:-1]), _KEY_TOKENS.get(keys[-1], keys[-1]))
+    got = (frozenset(_MOD_NAMES.get(m, m) for m in mods), key)
+    if got != norm(str(want["keys"]).split("+")):
+        raise D.StepError(f"{step.get('command') or 'the step'}: the build's key is "
+                          f"{source.get('binding') or '+'.join(list(mods) + [key])}, not {want['keys']} "
+                          f"({want.get('ref', 'the chosen key')}): this build does not have it, so the real key is not pressed")
 
 
 # Named keys (Carbon kVK_*) a smoke_key step may press, beside the characters of _KEYCODES.

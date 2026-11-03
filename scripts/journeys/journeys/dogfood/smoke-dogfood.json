@@ -87,24 +87,8 @@
        {"smoke_frame": {}}
      ]},
     {"do": "smoke_widths", "name": "cols1"},
-    {"do": "smoke_key", "command": "newColumn", "key": "d", "modifiers": ["control", "cmd"], "mark": "r3b-split"},
+    {"do": "smoke_key", "command": "newColumn", "key": "x", "modifiers": ["control", "cmd"], "mark": "r3b-split", "real_key_requires": {"keys": "cmd+ctrl+x", "ref": "KEY SET A, #29866 (Lawrence 2026-11-03)"}},
     {"do": "expect", "title": "R3b: New Column's key (the build's binding) adds a column and every existing column keeps exactly its width", "since": "r3b-split", "timeout": 15, "settle": 1.5,
-     "known_gap": {"name": "New Column real key", "key_path": "real_hid", "key": "d", "modifiers": ["control", "cmd"],
-       "problems": ["0 new columns, not 1"],
-       "ref": "STATUS 1712/1724",
-       "why": "macOS Look Up (hotkey 70) takes a real Ctrl-Cmd-D until KEY SET A (#29866) or KEY SET B (#29867) is picked",
-       "fallback": [
-         {"do": "smoke_key", "key": "escape", "optional": true, "title": "close what the stray real key opened (Look Up), if anything"},
-         {"do": "wait", "seconds": 0.5},
-         {"do": "expect", "title": "Known-gap stand-in: the window is key again after the stray key (no Look Up panel left)", "timeout": 5,
-          "all": [{"smoke_key_window": {}}]},
-         {"do": "action", "action": "newColumn", "mark": "r3b-split-fallback", "title": "New Column through the app's action path (the known gap's stand-in)"},
-         {"do": "expect", "title": "Known-gap stand-in: New Column through the app's action adds a column and every existing column keeps exactly its width", "since": "r3b-split-fallback", "timeout": 15, "settle": 1.5,
-          "all": [
-            {"smoke_same_widths": {"since": "cols1", "new": 1}},
-            {"smoke_frame": {}}
-          ]}
-       ]},
      "all": [
        {"smoke_same_widths": {"since": "cols1", "new": 1}},
        {"smoke_frame": {}}
@@ -189,24 +173,8 @@
      ]},
     {"do": "smoke_adopt_line", "line": "w4-${nonce}-42", "as": "first"},
     {"do": "smoke_widths", "name": "cols_first"},
-    {"do": "smoke_key", "command": "newColumn", "key": "d", "modifiers": ["control", "cmd"], "mark": "r3b-first"},
+    {"do": "smoke_key", "command": "newColumn", "key": "x", "modifiers": ["control", "cmd"], "mark": "r3b-first", "real_key_requires": {"keys": "cmd+ctrl+x", "ref": "KEY SET A, #29866 (Lawrence 2026-11-03)"}},
     {"do": "expect", "title": "R3b: New Column's key (the build's binding) as the first new column of a new one-pane workspace (Cmd-N, Ctrl-`) keeps the old column's exact width", "since": "r3b-first", "timeout": 15, "settle": 1.5,
-     "known_gap": {"name": "New Column real key", "key_path": "real_hid", "key": "d", "modifiers": ["control", "cmd"],
-       "problems": ["0 new columns, not 1"],
-       "ref": "STATUS 1712/1724",
-       "why": "macOS Look Up (hotkey 70) takes a real Ctrl-Cmd-D until KEY SET A (#29866) or KEY SET B (#29867) is picked",
-       "fallback": [
-         {"do": "smoke_key", "key": "escape", "optional": true, "title": "close what the stray real key opened (Look Up), if anything"},
-         {"do": "wait", "seconds": 0.5},
-         {"do": "expect", "title": "Known-gap stand-in: the window is key again after the stray key (no Look Up panel left)", "timeout": 5,
-          "all": [{"smoke_key_window": {}}]},
-         {"do": "action", "action": "newColumn", "mark": "r3b-first-fallback", "title": "New Column through the app's action path (the known gap's stand-in)"},
-         {"do": "expect", "title": "Known-gap stand-in: New Column through the app's action as the first new column of a new one-pane workspace keeps the old column's exact width", "since": "r3b-first-fallback", "timeout": 15, "settle": 1.5,
-          "all": [
-            {"smoke_same_widths": {"since": "cols_first", "new": 1}},
-            {"smoke_frame": {}}
-          ]}
-       ]},
      "all": [
        {"smoke_same_widths": {"since": "cols_first", "new": 1}},
        {"smoke_frame": {}}

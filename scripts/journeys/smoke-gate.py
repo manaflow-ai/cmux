@@ -18,9 +18,10 @@ Verdict:
     round's lease and results, and this gate's own git commit. A gate with uncommitted changes never writes it.
   - FAIL when any round failed: the summary names each failing round, its step and the reason.
   - NOT JUDGED when no round failed but some did not run (no lease, a known gap, no memory pressure): no .pass
-    file. A round with a step the driver recorded as a named KNOWN GAP (the New Column real key until KEY SET A or B is
-    picked, STATUS 1712/1724) is never a pass: the summary names the gap on its own line, the round goes on with the
-    gap's fallback (New Column through the app's action), and a round that failed after it names that later failure.
+    file. A round with a step the driver recorded as a named KNOWN GAP (a journey's `known_gap`; the smoke journey
+    has none since KEY SET A, #29866: its real-key rounds press Ctrl-Cmd-X and a build without that key FAILS the
+    New Column step) is never a pass: the summary names the gap on its own line, the round goes on with the gap's
+    fallback, and a round that failed after it names that later failure.
     A round whose type-at-once step could not make the window key (`known gap: ...`) is never a pass, and
     a passed journey counts only when the round's hog log shows memory pressure (pressure() below). Such a round
     is run again in its slot (at most --rounds replacements per run; see the note at PRESSURE_SAMPLES), so the verdict
@@ -226,8 +227,8 @@ def failing_step(out):
 
 
 def known_gap_steps(out):
-    """The journey steps recorded as a named KNOWN GAP (driver `known_gap`: the New Column real key until KEY SET A or
-    B is picked, STATUS 1712/1724): [(step, text)]. Such a step is no result; the round went on past it."""
+    """The journey steps recorded as a named KNOWN GAP (driver `known_gap`): [(step, text)]. Such a step is no
+    result; the round went on past it."""
     path = out / JOURNEY / "result.json"
     try:
         steps = json.loads(path.read_text()).get("steps", []) if path.is_file() else []
