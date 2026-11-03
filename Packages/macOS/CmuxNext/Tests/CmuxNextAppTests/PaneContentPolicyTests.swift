@@ -186,7 +186,8 @@ struct PaneContentPolicyTests {
         let host = try #require(rig.root.context.hosts["p2"])
         let terminal = try #require(rig.provider.sessions["p2"]?.session.view)
         let ground = try #require(terminal.layer?.backgroundColor, "SETUP: the terminal paints no ground")
-        let layersBefore = Self.layerCount(rig.root.layer)
+        let layersBefore = Self.layerCount(rig.root), closedLayers = Self.layerCount(host) + Self.layerCount(host.chrome)
+        try #require(closedLayers > 2, "SETUP: the closing pane has \(closedLayers) layers")
         _ = try #require(rig.model.showPaneClose("p2"))
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
@@ -208,7 +209,10 @@ struct PaneContentPolicyTests {
         #expect(host.superview == nil && host.chrome.superview == nil, "the closing host or its ring is left in the view tree")
         #expect(rig.root.context.closingHost("p2", of: "s") == nil, "the closing host is still retired after the landing")
         #expect(!Self.contains(rig.root, host) && !Self.contains(rig.root, host.content), "the closed pane's views are left in the window")
-        #expect(Self.layerCount(rig.root.layer) < layersBefore, "no layer left the tree with the closed pane")
+        let layersAfter = Self.layerCount(rig.root)
+        #expect(layersAfter <= layersBefore - closedLayers,
+                "the window has \(layersAfter) layers after the landing; \(layersBefore) before the close less the closed pane's \(closedLayers)")
+        #expect(host.layer?.superlayer == nil && host.chrome.layer?.superlayer == nil, "a closed pane's layer is still in a layer tree")
     }
 
     /// A close taken back before it landed shows the same host again, with its content, from where its closing frame
@@ -237,10 +241,9 @@ struct PaneContentPolicyTests {
         #expect(host.superview != nil && !host.isHidden, "the host taken back is not in the layout after the landing")
     }
 
-    /// Sublayers of `layer`, itself included.
-    static func layerCount(_ layer: CALayer?) -> Int {
-        guard let layer else { return 0 }
-        return 1 + (layer.sublayers ?? []).reduce(0) { $0 + layerCount($1) }
+    /// The layers of `view`'s tree: each view's backing layer, the views under it included.
+    static func layerCount(_ view: NSView) -> Int {
+        (view.layer == nil ? 0 : 1) + view.subviews.reduce(0) { $0 + layerCount($1) }
     }
 
     static func contains(_ root: NSView, _ view: NSView) -> Bool { view.isDescendant(of: root) }

@@ -69,46 +69,49 @@ struct KeyboardResizeContentHoldTests {
     }
 
     /// FRAME OWNER S3 (`motion.frameOwner.contentPolicy`), the app's pane content with a terminal in each pane. On: the
-    /// containers (each terminal host) follow their pane in every frame of the spring, and the producer (the terminal
-    /// surface) takes a new size once, its final size in the key's turn, and never again in the press. Off: the content
-    /// area holds each host whole; host and surface each take a new size at most once.
+    /// containers (each terminal host) take their pane's content area in every frame of the spring, and the producer (the
+    /// terminal surface) takes a new size once, its final size in the key's turn, and never again in the press. Off: the
+    /// content area holds each host whole at its start size; host and surface each take a new size at most once.
     @Test(arguments: [false, true])
     func theProducerResizesOnceAndTheContainersFollowEveryFrame(policy: Bool) throws {
         let rig = PaneGroundCoversPaneTests.Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
         rig.root.context.contentPolicyOverride = policy
         let panes: [PaneID] = ["p1", "p2"]
-        var hosts: [PaneID: [CGSize]] = [:], surfaces: [PaneID: [CGSize]] = [:]
+        var hosts: [PaneID: [CGSize]] = [:], surfaces: [PaneID: [CGSize]] = [:], off: [String] = []
         var last: [PaneID: (host: CGSize, surface: CGSize)] = [:]
-        func note() throws {
+        func note(_ label: String) throws {
             for pane in panes {
                 let session = try #require(rig.provider.sessions[pane]?.session)
+                let area = try #require(session.view.superview, "\(pane)'s terminal host is not in its pane")
                 let now = (host: session.view.frame.size, surface: session.surfaceView.frame.size)
                 if let was = last[pane] {
                     if now.host != was.host { hosts[pane, default: []].append(now.host) }
                     if now.surface != was.surface { surfaces[pane, default: []].append(now.surface) }
                 }
                 last[pane] = now
+                if policy, now.host != area.bounds.size { off.append("\(label): \(pane)'s host \(now.host) in its area \(area.bounds.size)") }
             }
         }
-        try note()
+        try note("at rest")
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
-        try note()
+        try note("the key's turn")
         var frames = 0
         while frames < 240, rig.frame() {
             frames += 1
-            try note()
+            try note("frame \(frames)")
         }
         rig.commit()
-        try note()
+        try note("after the landing")
         #expect(frames > 3, "the press did not spring (\(frames) frames)")
+        #expect(off.isEmpty, "a terminal host (a container) did not follow its pane: \(off.prefix(3))")
         for pane in panes {
             let session = try #require(rig.provider.sessions[pane]?.session)
             #expect((surfaces[pane] ?? []).count <= 1, "\(pane)'s surface (the producer) took \(surfaces[pane]?.count ?? 0) sizes in one press")
             if policy {
-                #expect((hosts[pane] ?? []).count >= frames - 2, "\(pane)'s terminal host (a container) followed its pane in \(hosts[pane]?.count ?? 0) of \(frames) frames")
+                #expect((hosts[pane] ?? []).count > 3, "\(pane)'s terminal host took \(hosts[pane]?.count ?? 0) sizes in a \(frames)-frame spring")
             } else {
                 #expect((hosts[pane] ?? []).count <= 1, "\(pane)'s terminal host resized \(hosts[pane]?.count ?? 0) times with the policy off")
             }

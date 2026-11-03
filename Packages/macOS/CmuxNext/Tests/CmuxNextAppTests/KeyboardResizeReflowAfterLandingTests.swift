@@ -78,16 +78,15 @@ struct KeyboardResizeReflowAfterLandingTests {
         rig.root.layoutSubtreeIfNeeded()
         let atPress = try sizes()
         #expect(TerminalSurfaceView.gridReports - reports == UInt64(panes.count), "the key's turn sent \(TerminalSurfaceView.gridReports - reports) grids for \(panes.count) terminals")
-        var frames = 0, hostMoves = 0, surfaceMoves: [String] = []
-        var last = atPress
+        var frames = 0, hostsOff: [String] = [], surfaceMoves: [String] = []
         while frames < 240, rig.frame() {
             frames += 1
             let now = try sizes()
             for pane in panes {
-                if now[pane]?.host != last[pane]?.host { hostMoves += 1 }
+                let area = try #require(rig.provider.sessions[pane]?.session.view.superview)
+                if now[pane]?.host != area.bounds.size { hostsOff.append("frame \(frames): \(pane)'s host \(String(describing: now[pane]?.host)) in \(area.bounds.size)") }
                 if now[pane]?.surface != atPress[pane]?.surface { surfaceMoves.append("frame \(frames): \(pane) \(String(describing: now[pane]?.surface))") }
             }
-            last = now
         }
         rig.commit()
         let landed = try sizes()
@@ -97,7 +96,7 @@ struct KeyboardResizeReflowAfterLandingTests {
             #expect(landed[pane]?.surface == atPress[pane]?.surface, "\(pane)'s surface laid out again after the landing")
         }
         #expect(surfaceMoves.isEmpty, "a surface laid out in a frame of the spring: \(surfaceMoves.prefix(3))")
-        #expect(hostMoves >= 2 * (frames - 2), "the terminal hosts followed their panes in \(hostMoves) pane frames of \(2 * frames)")
+        #expect(hostsOff.isEmpty, "a terminal host did not lay out at its pane's area in a frame: \(hostsOff.prefix(3))")
         #expect(TerminalSurfaceView.gridReports - reports == UInt64(panes.count), "the press sent \(TerminalSurfaceView.gridReports - reports) grids for \(panes.count) terminals")
     }
 }
