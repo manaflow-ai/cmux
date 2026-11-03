@@ -23,15 +23,15 @@ struct DragMarginTriggerProbeTests {
         let columns = (0..<4).map { PaneMotionBench.column($0, rows: 3, width: 0.25) }
         let probe = LayoutWorkProbe(.columns(columns), focused: PaneID("p0-0"))
         defer { probe.close() }
-        probe.window.orderFront(nil)
-        flush(probe.window)
         var next = columns
         next[1] = PaneMotionBench.column(1, rows: 2, width: 0.25)
         probe.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(next))])
         for _ in 0..<4 { await Task.yield() }
         MarginSpy.reset()
         var frames = 0
-        while frames < 120, probe.root.advanceFrame(1.0 / 120) {
+        var moving = true
+        while moving, frames < 120 {
+            moving = probe.root.advanceFrame(1.0 / 120)
             frames += 1
             flush(probe.window)
         }
