@@ -102,6 +102,28 @@ const AREA_PREFIX =
     reference cut off at the end. */
 const REFS =
   /\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\p{L}\p{N}_-]*#\d+|red|review)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$|\s*\([au]\d+(?:\s*[,/]\s*[au]?\d+)*\)/giu;
+/** Internal work-stream codes no person can read (Leo 2026-11-02, on a What's New page of rows like
+    "P0 RESIZE KEYS K4: …", "… (SWITCH FRAMES SF-5 B)", "… size and scale (REOPEN-F7 part A2)" and
+    "P0 RESIZE F1 part 1 of 2": "the 0 information density one"): a leading priority code and its
+    capitalized stream words, a parenthesis that holds a stream code, and "part N of M" or "part A2".
+    The same pattern as release-notes.py WORK_CODES. */
+export const WORK_CODES = new RegExp(
+  [
+    String.raw`^P[0-3](?:\s+[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*\b)+(?:\s+part\s+(?:\d+\s+of\s+\d+|[A-Z]?\d+[A-Z]?\d*))?\s*(?::\s*|$|(?=\())`,
+    String.raw`\s*\((?=[^()]*\b(?:[A-Z]{2,}-)?[A-Z]{1,3}-?\d+[A-Z]?\d*\b)(?=[^()]*(?:\b[A-Z]{2,}\b[^()]*\b[A-Z]{2,}|\b[A-Z]{2,}-[A-Z]\d|\bpart\s))[^()]*\)`,
+    String.raw`\s*\bpart\s+(?:\d+\s+of\s+\d+|[A-Z]\d+)\b`,
+  ].join("|"),
+  "g",
+);
+/** "Cmux NEXT agent pane: …", "Cmux link sync push: …", "Cmux-tui + app: …": the product and up to
+    three area words as a label, longer than LABEL takes (release-notes.py CMUX_AREA). */
+const CMUX_AREA = /^cmux(?:[- ]?next)?(?:[ -][\w-]+){0,3}(?:\s*\+\s*[\w-]+)?\s*:\s+(?=\S)/i;
+
+/** The text without its work-stream codes (WORK_CODES), spaces tidied. */
+export function withoutWorkCodes(text: string): string {
+  return text.replace(WORK_CODES, " ").replace(/\s+/gu, " ").trim();
+}
+
 /** The product's own label at the start of a human title: "cmux NEXT: …". */
 const PRODUCT_LABEL = /^(?:cmux[- ]?next|cmuxnext)\s*:\s*/i;
 
@@ -122,7 +144,7 @@ function capitalized(text: string): string {
 }
 
 function strip(text: string): string {
-  return text
+  return withoutWorkCodes(text)
     .replace(REFS, "")
     .trim()
     .replace(/^[\s.]+|[\s.]+$/gu, "");
@@ -130,7 +152,7 @@ function strip(text: string): string {
 
 /** A machine-made line (a commit subject, or a summary line made from one) as summary_entry reads it. */
 export function readableChange(subject: string): ReadableChange {
-  let text = subject.split(/\s+/).filter(Boolean).join(" ");
+  let text = withoutWorkCodes(subject);
   const internal = (title: string): ReadableChange => ({
     title: capitalized(strip(title)),
     internal: true,
@@ -168,7 +190,7 @@ export function readableChange(subject: string): ReadableChange {
       return internal(label.rest!);
     text = label.rest!;
   }
-  text = strip(text.replace(AREA_PREFIX, ""));
+  text = strip(text.replace(AREA_PREFIX, "").replace(CMUX_AREA, ""));
   if (
     !text ||
     INTERNAL_WORDS.test(text) ||

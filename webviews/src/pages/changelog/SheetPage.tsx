@@ -8,10 +8,13 @@
 // says "Maintenance and fixes". Days load as they near the viewport (JournalPage.loadNear); J and K
 // move between them. The rows use the pane's width, dense (Leo 2026-11-01: "this is way too narrow
 // and not info dense enough"): `layout` (the route's `sheet=`) sets them; styles.css .cls-inline.
+// Each row says what changed (Leo 2026-11-02: "the 0 information density one"): model.ts
+// readableItem drops filler rows and lines, work-stream codes, lines that are a piece of their title
+// or the title again, and gives a pipeline line its kind (rowKind), so the icons differ.
 import type { CSSProperties } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import type { Strings } from "../shared/i18n";
-import { dayLabel, groupByDay, mergedView, type ReleaseView } from "./model";
+import { dayLabel, groupByDay, mergedView, rowKind, type ReleaseView } from "./model";
 import { journalKeys, loadNear } from "./JournalPage";
 import { Maintenance } from "./ReleaseParts";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
@@ -133,7 +136,7 @@ export function sheetRows(view: ReleaseView, strings: Strings): SheetRow[] {
     }));
   return view.changes.map((change, index) => ({
     key: `${change.pr ?? ""}:${index}`,
-    category: "improved",
+    category: rowKind(change.title),
     title: change.title,
     line: change.area ? strings.t(`updates.area.${change.area}`) : undefined,
   }));

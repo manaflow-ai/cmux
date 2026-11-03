@@ -6,7 +6,7 @@ import nightly3913596493801 from "./fixtures/nightly-3913596493801-span.json";
 import realChanges from "./fixtures/real-pr-changes.json";
 import type { ReleaseNotes } from "./types";
 import { clipNotes, clipRoute } from "./clipFixtures";
-import { dayOfNightlies, journalNotes } from "./whatsNewFixtures";
+import { dayOfNightlies, journalNotes, lowDensityDay } from "./whatsNewFixtures";
 
 /** Where build `index` of the 18 starts in realChanges: each takes (index % 5) + 1, none shared. */
 const start = (index: number) => Array.from({ length: index }, (_, i) => (i % 5) + 1).reduce((a, b) => a + b, 0);
@@ -84,6 +84,20 @@ export default changelogPageEntry({
     "sheet-day-of-nightlies": {
       note: "A day of nightlies whose digests all name their entries summary-0, summary-1, …: each change once (Leo 2026-11-01 saw rows twice).",
       notes: dayOfNightlies,
+    },
+    "sheet-low-density": {
+      note: "The day Leo called \"the 0 information density one\" (2026-11-02), Inline (the default and the densest: one line per change): no Fixes and improvements row, no work-stream codes, no line that is a piece of its title or repeats it, and each pipeline line's kind (fixed, new, improved) picks its icon.",
+      notes: lowDensityDay,
+    },
+    "sheet-low-density-stack": {
+      note: "The same day, Stack (sheet=stack): the muted line under its title. Taller per change than Inline.",
+      notes: lowDensityDay,
+      route: "#/?sheet=stack",
+    },
+    "sheet-low-density-grid": {
+      note: "The same day, Grid (sheet=grid): two columns of stacked rows at wide widths. Shorter, but a row's words split across a narrow column.",
+      notes: lowDensityDay,
+      route: "#/?sheet=grid",
     },
     "sheet-real-nightlies": {
       note: "The sheet over real nightly-next notes: curated changes with their summary's first sentence, a day with no curated note lists its readable changes with their area.",

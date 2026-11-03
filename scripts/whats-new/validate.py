@@ -62,6 +62,11 @@ INTERNAL = [
     (re.compile(r"\bR\d{2,3}\b"), "a spec requirement id"),
     (re.compile(r"\b[A-Z][A-Z0-9]+(?:-[A-Z0-9]+){2,}\b"), "a decision codename"),
     (re.compile(r"\b(TODO|TBD|FIXME|lorem ipsum)\b", re.I), "a placeholder"),
+    # Work-stream codes ("P0 RESIZE KEYS K4", "REOPEN-F7", "part 1 of 2"; Leo 2026-11-02 on What's New
+    # rows that carried them: "the 0 information density one"). release-notes.py WORK_CODES strips them.
+    (re.compile(r"\bP[0-3]\s+[A-Z]{2,}\b"), "a work-stream code"),
+    (re.compile(r"\b[A-Z]{2,}-[A-Z]\d+[A-Z]?\d*\b"), "a work-stream code"),
+    (re.compile(r"\bpart\s+(?:\d+\s+of\s+\d+|[A-Z]\d+)\b"), "a work-stream part"),
 ]
 SENTENCE_END = re.compile(r"[.!?。！？](?=[)'\"”’»]*\s|[)'\"”’»]*$)")
 ABBREVIATED_SENTENCE = re.compile(r"\b(?:e\.g|i\.e|etc|vs|dr|mr|mrs|ms|no)\.$", re.I)
