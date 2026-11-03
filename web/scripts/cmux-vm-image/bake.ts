@@ -631,8 +631,8 @@ async function recordDaemonInfo(ctx: Ctx): Promise<void> {
 
 /**
  * The cmux guest kernel (guest-kernel.ts): written with its script, shutdown hook and units, then
- * the builder switches to it. Everything before this step is files on disk, which the switch keeps;
- * everything after it runs on the cmux kernel, so the snapshot's memory image is that kernel's.
+ * the builder switches to it, before any other setup step. Everything after it runs on the cmux
+ * kernel, so the snapshot's memory image is that kernel's and no prepared state goes through a boot.
  */
 async function installGuestKernel(ctx: Ctx, built: BuiltGuestKernel): Promise<void> {
   const { vm, L, lock, options, result } = ctx;
@@ -785,7 +785,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   const fs = freestyleClient();
   const t0 = Date.now();
   let builder: Awaited<ReturnType<typeof createVm>> | null = null;
-  // The kernel builds on its own VM while the image's first steps run; awaited before the switch.
+  // The kernel builds on its own VM while the builder starts and checks its base.
   const kernelAbort = new AbortController();
   const kernelBuild = buildGuestKernel(fs, ledger, L, lock.kernel, name, options.promotion || options.prodCopy === true, kernelAbort.signal);
   kernelBuild.catch(() => undefined);
@@ -796,13 +796,16 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
     const ctx: Ctx = { vm: builder.vm, L, lock, lockText, options, result, name };
     await checkBase(ctx);
     result.dfStart = (await L.step(ctx.vm, "df-start", "df -B1 --output=used / | tail -1")).trim();
+    // The switch is a full boot: units that recreate missing per-machine files on boot (ssl-cert's
+    // snakeoil key, among others) run then. Switch before any step that removes or sets up such
+    // state, so nothing the image prepares goes through a boot before the snapshot.
+    await installGuestKernel(ctx, await awaitKeepingAlive(ctx.vm, kernelBuild));
     await L.step(ctx.vm, "snapshot-clock", devboxSnapshotClockCommand);
     await L.step(ctx.vm, "identity", devboxIdentityInstallCommand());
     await L.step(ctx.vm, "work-user", devboxWorkUserSetupCommand());
     result.npmStrip = await L.step(ctx.vm, "npm-strip", npmStripCommand(ctx.lock));
     await installApt(ctx);
     await installStore(ctx);
-    await installGuestKernel(ctx, await awaitKeepingAlive(ctx.vm, kernelBuild));
     await wireCmuxTui(ctx);
     await configureSystem(ctx);
     await installMetadataGuard(ctx);
