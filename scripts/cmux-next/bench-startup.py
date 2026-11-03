@@ -1212,6 +1212,17 @@ def one_run(tag, mode, timeout, profile=None):
                 launch.marks.pop(late, None)
                 launch.arrived.pop(late, None)
         daemons = read_daemons(tag)  # while the app runs: the daemons that served this launch
+        if TIERS:  # scratch (REOPEN-F7): how many sidebar row views the launch made, and the sidebar's size
+            try:
+                client = app_client(tag)
+                try:
+                    perf = client.call("debug.sidebar_perf").get("result") or {}
+                finally:
+                    client.close()
+                print("BENCH-SIDEBAR " + json.dumps({k: perf.get(k) for k in ("row_views_made", "spare_row_views",
+                                                                           "list_reloads", "row_configures")}), flush=True)
+            except Exception as error:
+                print(f"BENCH-SIDEBAR error {error!r}", flush=True)
         if profile == "stress":  # the per-pane reopen rows (#32274); other profiles keep their run time
             launch.terminals = launch_terminals(tag)
             launch.frames_before_quit = frame_files(tag)  # the keeper's files while the app runs (#31967)
