@@ -152,8 +152,7 @@ enum BrowserHandlers {
     /// chat a person's browser is a tab in the strip.
     ///
     /// Returns what the caller hands the registry (``ActionRegistry/settle(_:of:_:)``, or a bound handler's return).
-    /// Where the daemon serves it the split and its tab show in the key's turn (BrowserTabSplitCommand); else one
-    /// waiting effect (`daemonEcho`) opens the tab and moves it. Either failure is reported, not only logged.
+    /// Where the daemon serves it the split and its tab show in the key's turn (BrowserTabSplitCommand); else one waiting effect (`daemonEcho`) opens the tab and moves it. Either failure is reported.
     static func splitBrowser(from pane: PaneController, direction: SplitDirection, url: URL? = nil, profile: String? = nil,
                              byPerson: Bool, context: AppActionContext) throws -> ActionEffect {
         let handle = pane.pane.handle, model = pane.pane
@@ -174,10 +173,7 @@ enum BrowserHandlers {
             return .done
         }
         if let refusal = browserTabs.refusal(in: model) { throw ActionFailure(message: refusal) }
-        if PaneBrowserTabOpener(controller: pane).opensInSplit { // as a link opened to the right (Leo 2026-11-03)
-            _ = pane.newBrowserTab(url: url, profile: profile, split: BrowserTabSplitRequest(direction: direction) { _ in })
-            return .done
-        }
+        if PaneBrowserTabOpener(controller: pane).opensInSplit { _ = pane.newBrowserTab(url: url, profile: profile, split: BrowserTabSplitRequest(direction: direction) { _ in }); return .done } // as a link to the right
         // The split goes to the pane's own machine (cx-2cob); `refusal` named a disconnected one.
         let daemon = context.services.daemon(for: model)
         let connection = try daemon.isLocal ? context.requireConnection() : daemon.connection ?? context.requireConnection()
