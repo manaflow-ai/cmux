@@ -43,6 +43,14 @@ struct ChromiumHostInputAllocationTests {
         sink &+= Self.mouseReads(try Self.moves()[0], in: view)
         sink &+= Self.keyReads(try Self.keys()[0])
         sink &+= Self.wheelReads(try Self.wheels()[0], in: view)
+        // Each counted loop body runs once, uncounted, on events of its own first: a one-time cost of the loop or
+        // the hook falls in neither side, and every counted event is still fresh (AppKit may fill an event's
+        // fields on first read, on both sides alike).
+        let (warmMoves, warmKeys, warmWheels) = (try Self.moves(), try Self.keys(), try Self.wheels())
+        _ = HostInputMallocProbe.allocations { for frame in frames { sink &+= Int(frame.rawKind) } }
+        _ = HostInputMallocProbe.allocations { for event in warmMoves { sink &+= Self.mouseReads(event, in: view) } }
+        _ = HostInputMallocProbe.allocations { for event in warmKeys { sink &+= Self.keyReads(event) } }
+        _ = HostInputMallocProbe.allocations { for event in warmWheels { sink &+= Self.wheelReads(event, in: view) } }
 
         let mouseReads = try #require(HostInputMallocProbe.allocations { for event in controlMoves { sink &+= Self.mouseReads(event, in: view) } })
         let mouse = try #require(HostInputMallocProbe.allocations { for event in moves { view.mouseMoved(with: event) } })
@@ -58,7 +66,7 @@ struct ChromiumHostInputAllocationTests {
               + " (\(Self.events) events each; controls: frame loop \(frameLoop), AppKit reads mouse \(mouseReads), "
               + "key \(keyReads), scroll \(wheelReads); sink \(sink & 1))")
         for (name, count) in counts {
-            #expect(count <= 0, "a forwarded \(name) made \(per(count)) allocations per event of its own")
+            #expect(count == 0, "a forwarded \(name) made \(per(count)) allocations per event of its own")
         }
     }
 
@@ -139,7 +147,10 @@ private final class HostWire {
     init() throws {
         var toHost: [Int32] = [0, 0]
         var fromHost: [Int32] = [0, 0]
-        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &toHost) == 0, socketpair(AF_UNIX, SOCK_STREAM, 0, &fromHost) == 0 else {
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &toHost) == 0 else { throw POSIXError(.EIO) }
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fromHost) == 0 else {
+            Darwin.close(toHost[0])
+            Darwin.close(toHost[1])
             throw POSIXError(.EIO)
         }
         connection = ChromiumHostConnection(readFD: fromHost[0], writeFD: toHost[0])
@@ -149,6 +160,7 @@ private final class HostWire {
         let thread = Thread {
             var buffer = [UInt8](repeating: 0, count: 64 * 1024)
             while buffer.withUnsafeMutableBytes({ Darwin.read(drained, $0.baseAddress, $0.count) }) > 0 {}
+            Darwin.close(drained)  // EOF: `close()` shut the descriptor down; the drain owns it
         }
         thread.start()
     }
