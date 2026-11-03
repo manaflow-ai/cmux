@@ -217,6 +217,38 @@ import Testing
         #expect(tab.pageReady && reported() == 1)
     }
 
+    /// Lead on STATUS 8132 (cycleb-v11 set 1 a3: the restored tab never logged ready-for-keys and its held keys waited
+    /// the whole 2 s bound, though the page took them then). Two orders of Chromium's events lost the signal: the first
+    /// paint message comes on the page channel and can reach the app before the commit (`.loadStart`) of its own
+    /// document, which then forgot it; and loading can stop before the load end, after which no event asked again.
+    @Test func theReadySignalSurvivesAPaintBeforeItsCommitAndAStopBeforeTheLoadEnd() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (early, earlyReported) = try Self.readyTab(runtime, browser: 25, restored: "http://127.0.0.1:8080/?c=1")
+        runtime.handle(.loadingState(browser: 25, loading: true, canGoBack: false, canGoForward: false))
+        Self.paint(runtime, 25) // the new document's first paint, delivered before its commit
+        runtime.handle(.loadStart(browser: 25, url: "http://127.0.0.1:8080/?c=1", fromPost: false))
+        runtime.handle(.loadEnd(browser: 25, httpStatus: 200))
+        runtime.handle(.loadingState(browser: 25, loading: false, canGoBack: false, canGoForward: false))
+        #expect(early.pageReady && earlyReported() == 1, "a paint delivered before its document's commit was forgotten: the keys waited the whole bound")
+        let (late, lateReported) = try Self.readyTab(runtime, browser: 26, restored: "http://127.0.0.1:8080/?c=2")
+        runtime.handle(.loadingState(browser: 26, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadStart(browser: 26, url: "http://127.0.0.1:8080/?c=2", fromPost: false))
+        Self.paint(runtime, 26)
+        runtime.handle(.loadingState(browser: 26, loading: false, canGoBack: false, canGoForward: false))
+        #expect(!late.pageReady, "ready before the document's load end")
+        runtime.handle(.loadEnd(browser: 26, httpStatus: 200))
+        #expect(late.pageReady && lateReported() == 1, "loading stopped before the load end, and nothing asked again: the keys waited the whole bound")
+        let (twice, twiceReported) = try Self.readyTab(runtime, browser: 27, restored: "http://127.0.0.1:8080/?c=3")
+        runtime.handle(.loadingState(browser: 27, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadStart(browser: 27, url: "http://127.0.0.1:8080/?c=3", fromPost: false))
+        Self.paint(runtime, 27) // a first document of this load painted
+        runtime.handle(.loadStart(browser: 27, url: "http://127.0.0.1:8080/?c=4", fromPost: false)) // replaced in the same load
+        runtime.handle(.loadEnd(browser: 27, httpStatus: 200))
+        runtime.handle(.loadingState(browser: 27, loading: false, canGoBack: false, canGoForward: false))
+        #expect(!twice.pageReady && twiceReported() == 0, "the paint of a document the same load replaced counted for the next one")
+    }
+
     /// A shown tab whose browser Chromium created, and a count of its ready-for-keys reports. `restored`: the URL the tab
     /// was asked to show before Chromium made it (a reopen by address; nil: a page with nothing to load).
     private static func readyTab(_ runtime: CEFRuntime, browser: Int32, restored: String? = "https://example.com/") throws -> (CEFTab, () -> Int) {
