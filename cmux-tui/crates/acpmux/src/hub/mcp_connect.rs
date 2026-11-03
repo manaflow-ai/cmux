@@ -40,20 +40,24 @@ pub const SCOPES: [&str; 5] = ["chat", "chief", "allChiefs", "agents", "everywhe
 
 #[derive(Default)]
 pub(crate) struct McpConnects {
-    pending: StdMutex<HashMap<String, Pending>>,
+    pub(super) pending: StdMutex<HashMap<String, Pending>>,
 }
 
-struct Pending {
-    session: String,
-    reply: oneshot::Sender<Answer>,
+pub(super) struct Pending {
+    pub(super) session: String,
+    pub(super) reply: oneshot::Sender<Answer>,
+    /// A tool call card (`mcp_calls.rs`), not a connect card: each is answered only by its own
+    /// method.
+    pub(super) call: bool,
 }
 
 /// The person's answer. `key` is what the person typed into the card's secure field: it goes
-/// only into the server's own header, never a record, a reply or a log.
-struct Answer {
-    approve: bool,
-    scope: String,
-    key: Option<Zeroizing<String>>,
+/// into the secret store and the server's own header, never a record, a reply or a log. For a
+/// tool call card, `scope` is `once` or `always`.
+pub(super) struct Answer {
+    pub(super) approve: bool,
+    pub(super) scope: String,
+    pub(super) key: Option<Zeroizing<String>>,
 }
 
 /// The longest key accepted, in characters.
@@ -142,8 +146,11 @@ impl Hub {
         {
             let mut pending = self.mcp_connects.pending.lock().unwrap_or_else(|e| e.into_inner());
             // Dropping the old card's reply answers its asker `cancelled`.
-            pending.retain(|_, p| p.session != session.id);
-            pending.insert(request_id.clone(), Pending { session: session.id.clone(), reply: tx });
+            pending.retain(|_, p| p.session != session.id || p.call);
+            pending.insert(
+                request_id.clone(),
+                Pending { session: session.id.clone(), reply: tx, call: false },
+            );
         }
         if session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed {
             self.mcp_connects.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&request_id);
@@ -177,7 +184,7 @@ impl Hub {
             return Ok(json!({"status": status, "name": name}));
         };
         let connected = self
-            .first_connect(session, &request_id, &card, key.as_deref().map(String::as_str))
+            .first_connect(session, &request_id, &card, &scope, key.as_deref().map(String::as_str))
             .await;
         let mut reply = json!({"status": status, "name": name, "scope": scope});
         if let (Value::Object(extra), Some(out)) = (connected, reply.as_object_mut()) {
@@ -195,6 +202,7 @@ impl Hub {
         session: &Session,
         request_id: &str,
         card: &Value,
+        scope: &str,
         key: Option<&str>,
     ) -> Value {
         let result = match field(card, "transport").as_str() {
@@ -224,6 +232,9 @@ impl Hub {
                                 "tools": report,
                                 "pinned": pin.tools.len(),
                                 "withKey": keyed,
+                                // The definitions, for the record only: taken off before any
+                                // reply or event (`keep_connection`).
+                                "_tools": tools,
                             })
                         }
                         super::mcp_probe::Probe::SignIn { resource_metadata, scopes } => json!({
@@ -241,6 +252,10 @@ impl Hub {
             // A local command runs only in the sandbox (design step 2b); it is not started here.
             _ => json!({"connect": "notStarted", "why": "local servers start in the sandbox step"}),
         };
+        let mut result = result;
+        if let Some(id) = self.keep_connection(session, card, scope, &mut result, key) {
+            result["connectionId"] = json!(id);
+        }
         let mut record = result.clone();
         record.set("requestId", json!(request_id));
         record.set("name", field(card, "name").clone());
@@ -280,7 +295,7 @@ impl Hub {
         let pending = {
             let mut map = self.mcp_connects.pending.lock().unwrap_or_else(|e| e.into_inner());
             match map.get(request_id) {
-                Some(p) if p.session == session.id => map.remove(request_id),
+                Some(p) if p.session == session.id && !p.call => map.remove(request_id),
                 _ => None,
             }
         };

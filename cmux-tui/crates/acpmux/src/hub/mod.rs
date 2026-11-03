@@ -149,8 +149,12 @@ mod github_owner;
 mod lane_report_reads;
 mod lane_report_text;
 mod lane_reports;
+mod mcp_calls;
 mod mcp_connect;
+mod mcp_oauth;
 pub(crate) mod mcp_probe;
+pub(crate) mod mcp_secrets;
+pub(crate) mod mcp_store;
 mod meta_save;
 mod offer_results;
 mod offers;
@@ -783,6 +787,8 @@ pub struct Hub {
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
     pub(super) mcp_connects: mcp_connect::McpConnects,
+    /// The approved MCP connections, their secrets and audit log (`mcp_store.rs`).
+    pub(crate) mcp_store: mcp_store::McpStore,
     /// Sub-session starts waiting on a folder's trust card, and Not nows (`trust_wait.rs`).
     pub(super) trust_waits: trust_wait::Waits,
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
@@ -868,6 +874,8 @@ impl Hub {
             start_mode_state::StartModeCell::load(start_mode_state::state_file(&config).as_deref());
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
+        // The approved MCP connections live in the same home (`mcp_store.rs`).
+        let mcp_store = mcp_store::McpStore::open(home.as_deref());
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
@@ -1003,6 +1011,7 @@ impl Hub {
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
             mcp_connects: Default::default(),
+            mcp_store,
             trust_waits: Default::default(),
             outbox: Default::default(),
             mesh: Default::default(),
