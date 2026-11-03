@@ -68,7 +68,7 @@ export const INTERNAL_WORDS = new RegExp(
     String.raw`machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|` +
     String.raw`boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|` +
     String.raw`consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|byte limit|` +
-    String.raw`fits the validator|validates? release headings|release[- ]notary|notes check)\b`,
+    String.raw`fits the validator|validates? release headings|release[- ]notary|notes check|ad hoc builds?|superseded runs?|counted as failing)\b`,
   "i",
 );
 /** Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND). */
@@ -104,6 +104,56 @@ const REFS =
   /\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\p{L}\p{N}_-]*#\d+|red|review)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$|\s*\([au]\d+(?:\s*[,/]\s*[au]?\d+)*\)/giu;
 /** The product's own label at the start of a human title: "cmux NEXT: …". */
 const PRODUCT_LABEL = /^(?:cmux[- ]?next|cmuxnext)\s*:\s*/i;
+
+/** An internal tracking code (Leo 2026-11-02, on What's New rows such as "P0 RESIZE KEYS K4: …",
+    "(REOPEN-F7 part A2)" and "P0 RESIZE F1 part 1 of 2"): a priority (P0-P2), a letter or two and
+    a number (K4, F7, A2), or a dashed code (SF-5, REOPEN-F7; not UTF-8 or SHA-256). scripts/
+    whats-new/validate.py refuses them in new entries; plainLine takes them off lines already
+    published. */
+const DASHED = String.raw`(?:[A-Z]{2,}-[A-Z]\d+[A-Z]?|[A-Z]{2}-\d{1,2}[A-Z]?)`;
+const CODE_TOKEN = String.raw`(?:P[0-2]|[A-Z]{1,2}\d{1,2}[A-Z]?|${DASHED})`;
+/** "(REOPEN-F7 part A2)", "(SWITCH FRAMES SF-5 B)": a parenthesis that holds a dashed code, a
+    priority or a part ("(F1)" alone stays: it can be a key). */
+const CODE_PARENS = new RegExp(String.raw`\s*\((?=[^()]*\b(?:${DASHED}|P[0-2]|part [A-Z]?\d+[A-Z]?)\b)[^()]*\)`, "g");
+/** "part 1 of 2", "part A2". */
+const CODE_PART = /\s*\bpart (?:\d+ of \d+|[A-Z]?\d+[A-Z]?)\b/g;
+/** A leading run of two or more caps words and codes with a code in it ("P0 RESIZE KEYS K4: ",
+    "P0 RESIZE F1"), or one code and a colon ("P0: "). "M4 Pro" and "PR links" stay. */
+const CODE_LEAD = new RegExp(
+  String.raw`^(?:(?=(?:[A-Z]{2,}\s+)*${CODE_TOKEN}\b)(?:(?:${CODE_TOKEN}|[A-Z]{2,})\s+)+(?:${CODE_TOKEN}|[A-Z]{2,})\b(?:\s*:)?|${CODE_TOKEN}\s*:)\s*`,
+);
+/** "SF-5", "REOPEN-F7" anywhere. */
+const CODE_DASHED = new RegExp(String.raw`\s*\b${DASHED}\b`, "g");
+/** The product and a work stream as a label: "Cmux NEXT agent pane: ", "Cmux-tui + app: ",
+    "Cmux link sync push: ". */
+const CMUX_LABEL = /^cmux(?:[- ](?:next|tui))?(?:\s*\+\s*app)?(?:\s+[a-z][\w-]*){0,3}\s*:\s+/i;
+
+/** A release line without internal tracking codes ("" when only codes were there). A machine line
+    still goes through readableChange, which judges its work-stream label first. */
+export function withoutCodes(text: string): string {
+  return tidied(codesOff(text));
+}
+
+/** A release line without internal tracking codes or a "cmux …:" work-stream label (a port of
+    plain_line in scripts/cmux-next/release-notes.py). "" when nothing a person reads is left. */
+export function plainLine(text: string): string {
+  return tidied(codesOff(text).replace(CMUX_LABEL, ""));
+}
+
+function codesOff(text: string): string {
+  return text.replace(CODE_PARENS, "").replace(CODE_PART, "").replace(CODE_LEAD, "").replace(CODE_DASHED, "");
+}
+
+function tidied(text: string): string {
+  const out = text
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[\s:;,—-]+|[\s:;,—-]+$/gu, "");
+  return out ? capitalized(out) : "";
+}
+
+/** Copy that says nothing: "Fixes and improvements", "This build brings fixes and improvements." */
+export const FILLER = /^(?:this build brings )?(?:minor )?fixes and improvements\b[.!]?/i;
 
 export type ChangeGroup = "new" | "fixed" | "changed";
 
@@ -168,7 +218,7 @@ export function readableChange(subject: string): ReadableChange {
       return internal(label.rest!);
     text = label.rest!;
   }
-  text = strip(text.replace(AREA_PREFIX, ""));
+  text = plainLine(strip(text.replace(AREA_PREFIX, "")));
   if (
     !text ||
     INTERNAL_WORDS.test(text) ||
@@ -187,7 +237,7 @@ export function readableChange(subject: string): ReadableChange {
 /** A human-written title (a reviewed What's New entry, a highlight): only bead ids and the
     product's own label come off; nothing is judged internal. */
 export function tidyTitle(title: string): string {
-  return capitalized(strip(title.replace(PRODUCT_LABEL, "")));
+  return capitalized(plainLine(strip(title.replace(PRODUCT_LABEL, ""))));
 }
 
 /** The subject a `Revert "…"` commit undoes, else undefined. */

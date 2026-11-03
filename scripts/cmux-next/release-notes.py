@@ -79,7 +79,7 @@ INTERNAL_WORDS = re.compile(
     r"machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|"
     r"boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|"
     r"consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|byte limit|"
-    r"fits the validator|validates? release headings|release[- ]notary|notes check)\b", re.I | re.A)
+    r"fits the validator|validates? release headings|release[- ]notary|notes check|ad hoc builds?|superseded runs?|counted as failing)\b", re.I | re.A)
 # Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND).
 BRANDS = re.compile(r"\b(?:[Mm]acOS|[Ii]OS|[Ii]PadOS|[Ii]Cloud|[Ii]Phone|[Ii]Pad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b")
 # Code-looking subjects (dotted names, snake_case, versioned ids, bead ids, backticks) are internal.
@@ -125,6 +125,30 @@ PRODUCT_WORDS = {"cmux", "next", "cmux-next", "cmuxnext"}
 REFS = re.compile(r"\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\w-]*#\d+|red|review)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$"
                   r"|\s*\([au]\d+(?:\s*[,/]\s*[au]?\d+)*\)", re.I)
 
+# Internal tracking codes (Leo 2026-11-02, on What's New rows such as "P0 RESIZE KEYS K4: …",
+# "(REOPEN-F7 part A2)" and "P0 RESIZE F1 part 1 of 2"), as readableChange.ts plainLine reads them:
+# a priority (P0-P2), a letter or two and a number (K4, F7), or a dashed code (SF-5, REOPEN-F7; not
+# UTF-8). scripts/whats-new/validate.py refuses them in new entries.
+CODE_DASHED_TOKEN = r"(?:[A-Z]{2,}-[A-Z]\d+[A-Z]?|[A-Z]{2}-\d{1,2}[A-Z]?)"
+CODE_TOKEN = rf"(?:P[0-2]|[A-Z]{{1,2}}\d{{1,2}}[A-Z]?|{CODE_DASHED_TOKEN})"
+CODE_PARENS = re.compile(rf"\s*\((?=[^()]*\b(?:{CODE_DASHED_TOKEN}|P[0-2]|part [A-Z]?\d+[A-Z]?)\b)[^()]*\)", re.A)
+CODE_PART = re.compile(r"\s*\bpart (?:\d+ of \d+|[A-Z]?\d+[A-Z]?)\b", re.A)
+CODE_LEAD = re.compile(rf"^(?:(?=(?:[A-Z]{{2,}}\s+)*{CODE_TOKEN}\b)(?:(?:{CODE_TOKEN}|[A-Z]{{2,}})\s+)+"
+                       rf"(?:{CODE_TOKEN}|[A-Z]{{2,}})\b(?:\s*:)?|{CODE_TOKEN}\s*:)\s*", re.A)
+CODE_DASHED = re.compile(rf"\s*\b{CODE_DASHED_TOKEN}\b", re.A)
+# The product and a work stream as a label: "Cmux NEXT agent pane: ", "Cmux-tui + app: ".
+CMUX_LABEL = re.compile(r"^cmux(?:[- ](?:next|tui))?(?:\s*\+\s*app)?(?:\s+[a-z][\w-]*){0,3}\s*:\s+", re.I | re.A)
+
+
+def plain_line(text):
+    """A release line without internal tracking codes or a "cmux …:" work-stream label
+    (readableChange.ts plainLine). "" when nothing a person reads is left."""
+    for pattern in (CODE_PARENS, CODE_PART, CODE_LEAD, CODE_DASHED, CMUX_LABEL):
+        text = pattern.sub("", text, count=1 if pattern in (CODE_LEAD, CMUX_LABEL) else 0)
+    text = re.sub(r"\s+", " ", text).strip().strip(" :;,—-")
+    return capitalized(text) if text else ""
+
+
 # A brand that starts lowercase keeps its casing at the start of a title: "macOS 26 …".
 LEADING_BRAND = re.compile(r"^(?:macOS|iOS|iPadOS|iCloud|iPhone|iPad)\b")
 
@@ -159,7 +183,7 @@ def summary_entry(subject):
             return None
         text = label["rest"]
     text = AREA_PREFIX.sub("", text)
-    text = REFS.sub("", text).strip(" .")
+    text = plain_line(REFS.sub("", text).strip(" ."))
     if (not text or INTERNAL_WORDS.search(text) or INTERNAL_BACKEND_WORDS.search(text)
             or CODE_LIKE.search(BRANDS.sub("", text))
             or TOOL_NAME.search(text) or PR_NUMBER.search(text) or SQUASH_REPAIR.search(text)):
@@ -281,7 +305,9 @@ def _plain_line(text):
 
 def pr_description(body, fallback=""):
     """Extract one plain-language sentence from a PR body, without headings or markup."""
-    fallback = _candidate_description(fallback) or ("Fixes and improvements." if fallback else "")
+    # No description beats filler: "Fixes and improvements." under a title says nothing (Leo
+    # 2026-11-02, "0 information density"); the page shows the title alone.
+    fallback = _candidate_description(fallback)
     if not body:
         return fallback
     body = HTML_COMMENT.sub("", body.replace("\r", ""))

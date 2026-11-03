@@ -13,7 +13,17 @@ import type {
 } from "./types";
 import { subjectArea, type AreaKey } from "./areas";
 import type { UpdateHighlightItem, UpdateHighlights } from "./updateHighlights";
-import { openParens, readableChange, revertedSubject, shortTitle, tidyTitle, titleTail } from "./readableChange";
+import {
+  FILLER,
+  openParens,
+  plainLine,
+  readableChange,
+  revertedSubject,
+  shortTitle,
+  tidyTitle,
+  titleTail,
+  withoutCodes,
+} from "./readableChange";
 
 export const CATEGORY_ORDER: readonly WhatsNewCategory[] = ["new", "improved", "fixed", "security"];
 
@@ -152,7 +162,9 @@ function pickHero(items: ReleaseItem[]): ReleaseItem | undefined {
     bead ids and the product's own label. A title an older pipeline cut with "…" is made whole from
     the line it came from; a summary that repeats the title keeps only what it adds; a long title
     with no summary ends at its first clause and the rest becomes the summary. */
-function readableItem(item: ReleaseItem, changes: ChangeItem[], machine: boolean): ReleaseItem | undefined {
+function readableItem(source: ReleaseItem, changes: ChangeItem[], machine: boolean): ReleaseItem | undefined {
+  const item = plainItem(source);
+  if (!item) return undefined;
   const clean = (text: string) => (machine ? readableChange(text).title : tidyTitle(text));
   if (machine && readableChange(item.title).internal) return undefined;
   let full = clean(item.title);
@@ -188,6 +200,28 @@ function readableItem(item: ReleaseItem, changes: ChangeItem[], machine: boolean
     summary = capitalized(titleTail(full, short));
   }
   return { ...item, title, summary: distinctSummary(title, summary) };
+}
+
+/** The item without internal codes (Leo 2026-11-02, on rows such as "P0 RESIZE F1 part 1 of 2" over
+    "Closing a pane no longer tears down its terminal…"): a title that was all codes takes its
+    summary's first sentence. Undefined when nothing is left. */
+function plainItem(item: ReleaseItem): ReleaseItem | undefined {
+  let summary = item.summary.includes("\n") ? item.summary : withoutCodes(item.summary);
+  let title = withoutCodes(item.title);
+  if (!title) {
+    const lead = summary.split("\n")[0]!.trim();
+    const end = /[.!?](?=\s|$)/.exec(lead);
+    title = (end ? lead.slice(0, end.index) : lead).trim();
+    summary = end ? lead.slice(end.index + 1).trim() : "";
+  }
+  return title ? { ...item, title, summary } : undefined;
+}
+
+/** The page's copy without filler (Leo 2026-11-02: "0 information density"): a "Fixes and
+    improvements" row is no change, and "This build brings fixes and improvements." no line. */
+function withoutFiller(item: ReleaseItem): ReleaseItem | undefined {
+  if (FILLER.test(item.title.trim())) return undefined;
+  return FILLER.test(item.summary.trim()) ? { ...item, summary: "" } : item;
 }
 
 /** The update card's and popup's items (`UpdateHighlights`, at most three) as the page reads them:
@@ -287,6 +321,11 @@ export function releaseView(notes: ReleaseNotes, language: string): ReleaseView 
   // an entry the validator refuses), then the summary lines no highlight already says. Each as a
   // person reads it; internal work is left out.
   const raw = changeItems(notes);
+  // A change the notes mark internal (release-notes.py tooling_only, backend plumbing) stays out of
+  // the curated rows too, even from a digest or summary line published before that flag.
+  const internal = new Set(
+    raw.filter((c) => c.internal).map((c) => titleKey(plainLine(readableChange(c.title).title) || c.title)),
+  );
   const items: ReleaseItem[] = [];
   const ids = new Set<string>();
   const seen = new Set<string>();
@@ -294,10 +333,11 @@ export function releaseView(notes: ReleaseNotes, language: string): ReleaseView 
   // even when the entry's title is in another language.
   const add = (item: ReleaseItem, byId: boolean, machine: boolean) => {
     if (byId && ids.has(entryId(item.id))) return;
-    const readable = readableItem(item, raw, machine);
+    const found = readableItem(item, raw, machine);
+    const readable = found && withoutFiller(found);
     if (!readable) return;
     const key = titleKey(readable.title);
-    if (seen.has(key)) return;
+    if (seen.has(key) || (machine && [...internal].some((k) => k === key || k.startsWith(`${key} `)))) return;
     ids.add(entryId(item.id));
     seen.add(key);
     items.push(readable);
