@@ -166,4 +166,18 @@ describe("VM receiver policy", () => {
     });
     expect((await policy()).status).toBe(503);
   });
+
+  it("reads in a bounded number of serial database round trips", async () => {
+    // Each round trip is a Worker-to-database hop (about 0.1 s on staging), so the read issues its
+    // independent queries together: before, its fifteen mesh store calls ran one after another.
+    const delayMs = 50;
+    h.mesh.delayStoreCalls(delayMs);
+    const started = Date.now();
+    const response = await policy();
+    const elapsed = Date.now() - started;
+    h.mesh.delayStoreCalls(0);
+    expect(response.status).toBe(200);
+    // Four serial waves today (member reads with the ACL, the address refresh, the inventory, the fence); allow eight.
+    expect(elapsed).toBeLessThan(8 * delayMs);
+  });
 });
