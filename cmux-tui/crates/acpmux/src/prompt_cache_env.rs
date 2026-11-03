@@ -10,8 +10,9 @@
 //! `CLAUDE_CODE_PROMPT_CACHE_TTL`, then the `promptCacheTtl` setting, then
 //! `ENABLE_PROMPT_CACHING_1H`; subagents read
 //! `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL`. A profile, route or person that
-//! names any of these keeps its value: acpmux only fills what is unset, and
-//! sets nothing when `FORCE_PROMPT_CACHING_5M` is on. Its settings files'
+//! names any of these keeps its value, in its env or its login shell: acpmux
+//! only fills what is unset, and sets nothing when `FORCE_PROMPT_CACHING_5M`
+//! or `DISABLE_PROMPT_CACHING` is on. Its settings files'
 //! `env` still win over the process env, as for every Claude Code variable.
 
 use std::collections::BTreeMap;
@@ -61,25 +62,34 @@ impl PromptCache {
 }
 
 /// Fills Claude Code's cache TTL variables in `env` for `cache`, keeping
-/// every one already set. Nothing when `FORCE_PROMPT_CACHING_5M` is on.
-pub fn apply(env: &mut BTreeMap<String, String>, cache: PromptCache) {
-    let forced = env.get(FORCE_5M_ENV).is_some_and(|v| !v.trim().is_empty() && v.trim() != "0");
-    if forced {
+/// every one already set there or in `login` (the login shell's value the
+/// agent gets, applied after `env` is built: `agent/command.rs`). Nothing
+/// when either turns caching off (`DISABLE_PROMPT_CACHING*`) or forces
+/// five minutes (`FORCE_PROMPT_CACHING_5M`).
+pub fn apply(
+    env: &mut BTreeMap<String, String>,
+    cache: PromptCache,
+    login: &dyn Fn(&str) -> Option<String>,
+) {
+    let on = |v: &str| !v.trim().is_empty() && v.trim() != "0";
+    let set = |key: &str| env.get(key).cloned().or_else(|| login(key));
+    if set(FORCE_5M_ENV).is_some_and(|v| on(&v)) {
         return;
     }
-    let mut fill = |key: &str, value: &str| {
-        env.entry(key.to_owned()).or_insert_with(|| value.to_owned());
+    let disabled = ["DISABLE_PROMPT_CACHING", "DISABLE_PROMPT_CACHING_OPUS"];
+    if disabled.iter().any(|key| set(key).is_some_and(|v| on(&v)))
+        || env.iter().any(|(k, v)| k.starts_with("DISABLE_PROMPT_CACHING") && on(v))
+    {
+        return;
+    }
+    let wanted: &[(&str, &str)] = match cache {
+        PromptCache::OneHour => &[(TTL_ENV, "1h"), (SUBAGENT_TTL_ENV, "1h"), (ONE_HOUR_ENV, "1")],
+        PromptCache::FiveMinutes => &[(TTL_ENV, "5m"), (SUBAGENT_TTL_ENV, "5m")],
     };
-    match cache {
-        PromptCache::OneHour => {
-            fill(TTL_ENV, "1h");
-            fill(SUBAGENT_TTL_ENV, "1h");
-            fill(ONE_HOUR_ENV, "1");
-        }
-        PromptCache::FiveMinutes => {
-            fill(TTL_ENV, "5m");
-            fill(SUBAGENT_TTL_ENV, "5m");
-        }
+    let missing: Vec<(&str, &str)> =
+        wanted.iter().copied().filter(|(key, _)| set(key).is_none()).collect();
+    for (key, value) in missing {
+        env.insert(key.to_owned(), value.to_owned());
     }
 }
 

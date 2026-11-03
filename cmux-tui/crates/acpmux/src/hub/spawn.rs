@@ -329,10 +329,19 @@ impl Hub {
         // subscription, five minutes on an API key or any other endpoint:
         // acpmux starts it on the cache `agents.promptCache` names (one
         // hour by default, prompt_cache_env.rs). A profile's own value wins.
+        // The login shell's values are applied after this env (agent/command.rs), so one it
+        // sets counts as set; a remote-origin chat gets no login env.
         if crate::agent_tools::is_claude_code(&meta.harness, profile) {
+            let family = crate::config::derive_family(&meta.harness, profile);
+            let remote = meta.remote_origin;
+            let login = |key: &str| {
+                crate::login_env::var(key)
+                    .filter(|v| !remote && crate::login_env::allowed(key, v, Some(&family)))
+            };
             crate::prompt_cache_env::apply(
                 &mut p.env,
                 crate::prompt_cache_env::PromptCache::current(),
+                &login,
             );
         }
         // The MCP servers this chat turned off (`tools.rs`): Claude Code never calls their tools.
