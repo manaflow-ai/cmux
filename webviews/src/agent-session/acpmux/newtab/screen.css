@@ -345,7 +345,7 @@
 .nt-all-row[data-untitled] .nt-all-title{color:var(--acpmux-composer-dim)}
 .nt-all-project{flex:0 10000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-meta,.nt-all-state{flex:none;margin-left:auto;padding-left:var(--ds-space-3);color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-variant-numeric:tabular-nums;letter-spacing:var(--text-detail--letter-spacing)}
-.nt-all-row[data-state=input] .nt-all-state{color:var(--agent-warning,var(--agent-text))}
+.nt-all-row[data-state=input] .nt-all-state,.nt-all-row[data-needs-input] .nt-all-state{color:var(--agent-warning,var(--agent-text))}
 .nt-all-row[data-state=error] .nt-all-state,.nt-all-row[data-state=failed] .nt-all-state{color:var(--agent-danger)}
 /* A project's header in Projects: its folder and count; a click folds its chats. */
 .nt-all-group{display:flex;align-items:center;gap:var(--ds-space-2);width:100%;height:100%;padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border:0;border-radius:var(--ds-radius-control);background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);text-align:left;white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
