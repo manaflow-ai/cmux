@@ -738,16 +738,24 @@ impl Spawner {
         default: &str,
         peer: Option<&str>,
     ) -> Result<(SubagentSettings, String), String> {
-        let catalog = self.agents.harness_catalog_on(peer);
-        let health_read = self.agents.harness_health_on(peer);
-        let health = health_read.as_ref().cloned().unwrap_or_default();
-        let unavailable = match (&catalog, &health_read) {
-            (Err(_), _) => Some("could not read this machine's harnesses".into()),
-            (Ok(_), Err(_)) => Some("could not read this machine's logins".into()),
-            (Ok(c), Ok(_)) => crate::place_route::unavailable(c, &health, &launch.harness),
+        let catalog = self.agents.harness_catalog_on(peer).ok();
+        let health = self.agents.harness_health_on(peer).unwrap_or_default();
+        // Old daemons and VMs still starting may not report scoped metadata.
+        // Only a confirmed sign-out/expiry authorizes changing the harness.
+        let unavailable = |harness: &str| {
+            let profile = catalog
+                .as_ref()
+                .and_then(|catalog| crate::harness_gate::admit(catalog, harness).ok())
+                .map_or_else(|| harness.to_owned(), |admitted| admitted.profile);
+            health["harnesses"]
+                .as_array()
+                .and_then(|rows| rows.iter().find(|row| row["id"] == profile))
+                .and_then(|row| row["auth"].as_str())
+                .filter(|auth| matches!(*auth, "signedOut" | "expired"))
+                .map(|_| "its login is unavailable on this machine")
         };
         let mut note = String::new();
-        if let Some(why) = unavailable {
+        if let Some(why) = unavailable(&launch.harness) {
             if launch.harness != default {
                 note = format!(
                     " ({} unavailable: {why}; using default {default})",
@@ -775,10 +783,7 @@ impl Spawner {
                     });
                 }
             }
-            if let Ok(catalog) = &catalog
-                && let Some(why) =
-                    crate::place_route::unavailable(catalog, &health, &launch.harness)
-            {
+            if let Some(why) = unavailable(&launch.harness) {
                 return Err(format!("{} unavailable: {why}", launch.harness));
             }
         }
@@ -791,6 +796,15 @@ impl Spawner {
                 "the person has not given this Chief's subagents the {} harness",
                 launch.harness
             ));
+        }
+        // Launch the exact remote profile whose login we checked. The grant
+        // above covers the requested route; a missing catalog keeps it intact.
+        if peer.is_some()
+            && let Some(admitted) = catalog
+                .as_ref()
+                .and_then(|c| crate::harness_gate::admit(c, &launch.harness).ok())
+        {
+            launch.harness = admitted.profile;
         }
         Ok((launch, note))
     }
@@ -1887,6 +1901,15 @@ impl Orchestrator for Spawner {
             };
             let task = match &sub_cloud {
                 Some(c) => c.task(id, cwd.as_deref(), task),
+                None if paired => {
+                    let instructions = self
+                        .cloud_text
+                        .as_deref()
+                        .or_else(|| self.cloud.as_ref().map(|c| c.instructions.as_str()))
+                        .or(self.settings.claude_md.as_deref())
+                        .unwrap_or(crate::prompt::SUBAGENT);
+                    format!("{}\n\n{task}", instructions.trim_end())
+                }
                 None => task.clone(),
             };
             // On a VM that is up: its own sandbox key, named in its task.
