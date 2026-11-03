@@ -163,7 +163,7 @@ else
   if [ "$CONFIGURED" = 1 ]; then
     # A retry after a lost exec response does not start a second persistent hand.
     command -v flock >/dev/null 2>&1 || { echo "cmux-hand: configured service needs flock" >&2; exit 1; }
-    env -u ACPMUX_HOME -u ACPMUX_SOCKET CMUX_HAND_HOME="$HOME_DIR" CMUX_CLAUDE_AUTH=own CMUX_CODEX_AUTH=own nohup flock -n "$HOME_DIR/run.lock" "$BIN" hand run >>"$LOG" 2>&1 &
+    env -u ACPMUX_HOME -u ACPMUX_SOCKET CMUX_HAND_HOME="$HOME_DIR" CMUX_CLAUDE_AUTH=own CMUX_CODEX_AUTH=own nohup flock --close -n "$HOME_DIR/run.lock" "$BIN" hand run >>"$LOG" 2>&1 &
   else
     env -u ACPMUX_HOME -u ACPMUX_SOCKET CMUX_HAND_HOME="$HOME_DIR" nohup "$BIN" hand run >>"$LOG" 2>&1 &
   fi
