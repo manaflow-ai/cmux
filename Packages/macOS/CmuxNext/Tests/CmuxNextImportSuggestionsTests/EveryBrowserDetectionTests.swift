@@ -151,6 +151,87 @@ struct EveryBrowserDetectionTests {
         #expect(acme.browser.family == .chromium)
     }
 
+    /// Records the Keychain items an import asks for; returns no key.
+    final class RecordingKeys: SafeStorageKeyProviding, @unchecked Sendable {
+        // Written once per test from the importer's one read; read after it returns.
+        var asked: [SafeStorageName] = []
+        func password(service: String) throws(CookieImportError) -> SecretBytes { try password(service: service, account: nil) }
+        func password(service: String, account: String?) throws(CookieImportError) -> SecretBytes {
+            asked.append(SafeStorageName(service: service, account: account))
+            throw .keyNotFound(service: service)
+        }
+    }
+
+    struct NoCookies: CookieDestination {
+        func setCookies(_ cookies: [ImportedCookie], profileID: String) async throws -> CookieWriteResult {
+            CookieWriteResult(written: 0, rejected: cookies.count)
+        }
+    }
+
+    static func detect(_ home: Home, keychain: [SafeStorageName]) -> [BrowserSource] {
+        BrowserSourceDetector(environment: ImportEnvironment(homeDirectory: home.url, locateApp: { _ in nil },
+                                                             safeStorageNames: { keychain })).detect()
+    }
+
+    /// An Electron app found from its folder uses the Keychain item named
+    /// after it, and its Electron account when the service has two.
+    @Test func foundAppUsesTheKeychainItemNamedAfterIt() async throws {
+        let home = try Home()
+        try home.write("\(Self.support)/Acme Notes/Local State", "{}")
+        try home.write("\(Self.support)/Acme Notes/Cookies")
+        let keychain = [SafeStorageName(service: "Acme Notes Safe Storage", account: "Acme Notes"),
+                        SafeStorageName(service: "Acme Notes Safe Storage", account: "Acme Notes Key")]
+        let acme = try #require(Self.detect(home, keychain: keychain).first { $0.browser.displayName == "Acme Notes" })
+        let profile = try #require(acme.profiles.first)
+        #expect(profile.availability(of: .cookies) == .available)
+        #expect(acme.browser.safeStorageService == "Acme Notes Safe Storage")
+        #expect(acme.browser.safeStorageAccount == "Acme Notes Key")
+
+        let keys = RecordingKeys()
+        _ = try? await CookieImporter(destination: NoCookies(), keys: keys).run(profile, into: "p")
+        #expect(keys.asked == [SafeStorageName(service: "Acme Notes Safe Storage", account: "Acme Notes Key")])
+    }
+
+    /// Without a Keychain item, a found app's cookies show as encrypted, not as importable.
+    @Test func foundAppWithoutKeychainItemKeepsCookiesLocked() throws {
+        let home = try Home()
+        try home.chromium("\(Self.support)/Acme Notes")
+        let acme = try #require(Self.detect(home, keychain: []).first { $0.browser.displayName == "Acme Notes" })
+        #expect(acme.profiles.first?.availability(of: .cookies) == .unsupported(.sourceEncrypted))
+    }
+
+    /// A registry row whose item is not confirmed takes the one the Keychain lists.
+    @Test func unconfirmedRowTakesTheListedItem() throws {
+        let home = try Home()
+        try home.chromium("\(Self.support)/com.openai.atlas/browser-data/host")
+        let atlas = try #require(Self.detect(home, keychain: [SafeStorageName(service: "ChatGPT Atlas Safe Storage", account: "ChatGPT Atlas")])
+            .first { $0.browser.rawValue == "chatGPTAtlas" })
+        #expect(atlas.browser.safeStorageService == "ChatGPT Atlas Safe Storage")
+        #expect(atlas.profiles.first?.availability(of: .cookies) == .available)
+    }
+
+    /// The Claude app's cookie read asks for its Electron account.
+    @Test func claudeCookiesAskForTheClaudeKeyAccount() async throws {
+        let home = try Home()
+        try home.write("\(Self.support)/Claude/Local State", "{}")
+        try home.write("\(Self.support)/Claude/Cookies")
+        let claude = try #require(Self.detect(home).first { $0.browser.displayName == "Claude" })
+        let keys = RecordingKeys()
+        _ = try? await CookieImporter(destination: NoCookies(), keys: keys).run(try #require(claude.profiles.first), into: "p")
+        #expect(keys.asked == [SafeStorageName(service: "Claude Safe Storage", account: "Claude Key")])
+    }
+
+    /// A stored id of a found browser decodes to the same browser.
+    @Test func foundBrowserIdentityIsItsRawValue() throws {
+        let home = try Home()
+        try home.chromium("\(Self.support)/Acme Notes")
+        let acme = try #require(Self.detect(home).first { $0.browser.displayName == "Acme Notes" }).browser
+        let decoded = try JSONDecoder().decode(ImportBrowser.self, from: JSONEncoder().encode(acme))
+        #expect(decoded == acme)
+        #expect(acme.rawValue == "found.acme-notes")
+        #expect(acme.isFoundOnDisk)
+    }
+
     /// cmux's own browser data is never offered as a source.
     @Test func cmuxOwnFoldersAreNotSources() throws {
         let home = try Home()
