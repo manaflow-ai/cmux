@@ -32,7 +32,8 @@ enum DebugInstantCreateBench {
     private static let frames = BenchFrames()
 
     enum Command: String, CaseIterable {
-        case newWorkspace = "new_workspace", newTab = "new_tab", newTerminal = "new_terminal", splitRight = "split_right", splitDown = "split_down", newBrowser = "new_browser", linkRight = "link_right"
+        case newWorkspace = "new_workspace", newTab = "new_tab", newTerminal = "new_terminal", splitRight = "split_right", splitDown = "split_down", newBrowser = "new_browser", linkRight = "link_right",
+             splitBrowser = "split_browser"
 
         var key: (String, [String]) {
             switch self {
@@ -41,7 +42,7 @@ enum DebugInstantCreateBench {
             case .newTerminal: ("`", ["control"])
             case .splitRight: ("d", ["command"])
             case .splitDown: ("d", ["command", "shift"])
-            case .newBrowser, .linkRight: ("l", ["command", "shift"])
+            case .newBrowser, .linkRight, .splitBrowser: ("l", ["command", "shift"])
             }
         }
     }
@@ -62,7 +63,7 @@ enum DebugInstantCreateBench {
             services.linkOpener.placement = { .splitRight }
             services.linkOpener.openWeb(url, from: controller.content?.focusedPane, background: false)
             services.linkOpener.placement = placement
-        } else if let action = params["run"]?.stringValue {
+        } else if let action = params["run"]?.stringValue ?? (command == .splitBrowser ? "splitBrowserRight" : nil) {
             let arguments = params["url"]?.stringValue.map { ["url": ActionValue.string($0)] } ?? [:]
             _ = services.registry.perform(ActionID(rawValue: action), invocation: ActionInvocation(arguments: arguments))
         } else { _ = DebugKey.send(["key": .string(key), "modifiers": .array(modifiers.map(JSON.string)), "window": .string(controller.state.id)], services: services) }
@@ -129,7 +130,7 @@ enum DebugInstantCreateBench {
             case .newTab, .newTerminal: now.pane == pane && now.tab != nil && now.tab != tab
             case .newBrowser: now.pane == pane && now.tab != nil && now.tab != tab && now.tab == now.selected
             case .splitRight, .splitDown: now.workspace == workspace && now.pane != pane && now.paneCount > paneCount
-            case .linkRight: now.workspace == workspace && now.paneCount > paneCount
+            case .linkRight, .splitBrowser: now.workspace == workspace && now.paneCount > paneCount
             }
         }
 
@@ -137,7 +138,7 @@ enum DebugInstantCreateBench {
             let realTab = tab.map { !$0.hasPrefix(ProvisionalTab.idPrefix) } ?? false
             switch command {
             case .newWorkspace, .newTab, .newTerminal, .newBrowser: return realTab
-            case .splitRight, .splitDown, .linkRight: return realTab && (paneHandle ?? .max) < (1 << 62)
+            case .splitRight, .splitDown, .linkRight, .splitBrowser: return realTab && (paneHandle ?? .max) < (1 << 62)
             }
         }
     }
