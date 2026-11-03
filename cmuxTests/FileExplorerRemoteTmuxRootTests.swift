@@ -78,11 +78,39 @@ struct FileExplorerRemoteTmuxRootTests {
         harness.connection.beginReconnecting()
         #expect(sshRoot(harness.workspace)?.path == nil)
         #expect(sshRoot(harness.workspace)?.available == false)
+        #expect(harness.windowMirror?.cwdByPaneId[11] == nil)
 
-        harness.connection.handleMessageForTesting(
-            .subscriptionChanged(name: "cmux_cwd_11", value: "/home/dev/moved")
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting, label: "files-root-reconnect-test",
+            maxPendingBytes: 1 << 16, onFailure: {}
         )
+        defer {
+            writer.close()
+            try? pipe.fileHandleForReading.close()
+        }
+        harness.connection.installStdinWriterForTesting(writer)
+        harness.connection.handleMessageForTesting(.enter)
+        harness.connection.reseedAfterReconnect()
+        var queriedPaths: [Int] = []
+        var commandNumber = 1
+        while let kind = harness.connection.pendingCommandKindsForTesting.first, commandNumber < 200 {
+            let lines: [String]
+            switch kind {
+            case let .panePath(paneId):
+                queriedPaths.append(paneId)
+                lines = ["/home/dev/moved"]
+            default:
+                lines = []
+            }
+            harness.connection.handleMessageForTesting(
+                .commandResult(commandNumber: commandNumber, lines: lines, isError: false)
+            )
+            commandNumber += 1
+        }
+        #expect(queriedPaths == [11])
         #expect(sshRoot(harness.workspace)?.path == "/home/dev/moved")
+        #expect(sshRoot(harness.workspace)?.available == true)
     }
 
     @Test func activePaneWithoutCwdWithholdsThePreviousPaneDirectory() throws {

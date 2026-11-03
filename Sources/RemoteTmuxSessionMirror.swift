@@ -261,6 +261,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                     self?.titleFilters.removeAll()
                     self?.notificationFilters.removeAll()
                     self?.clearPendingPaneSeedDeliveries()
+                    self?.forgetPaneDirectories()
                     self?.windowMirrorByWindowId.values.forEach {
                         $0.cancelPendingControlPaneFocus()
                     }
@@ -509,9 +510,29 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         windowMirrorByWindowId[windowId]?.noteRemoteActivePane(paneId)
         guard let workspace,
               windowMirrorByWindowId[windowId] != nil,
-              let panelId = panelIdByWindow[windowId],
-              let path = cwdByPane[paneId] else { return }
+              let panelId = panelIdByWindow[windowId] else { return }
+        // Until this pane reports, the tab must not keep the previous pane's folder.
+        guard let path = cwdByPane[paneId] else {
+            clearTabDirectory(panelId: panelId)
+            return
+        }
         _ = workspace.updateRemotePanelDirectoryWithMetadata(panelId: panelId, directory: path)
+    }
+
+    /// Drops directories trusted on a dead control stream. The reconnect reseed
+    /// queries every pane's path again, and those replies restore the tabs.
+    private func forgetPaneDirectories() {
+        cwdByPane.removeAll()
+        windowMirrorByWindowId.values.forEach { $0.cwdByPaneId.removeAll() }
+        panelIdByWindow.values.forEach(clearTabDirectory(panelId:))
+    }
+
+    private func clearTabDirectory(panelId: UUID) {
+        // Clearing also drops branch and PR metadata, so skip tabs with nothing to clear.
+        guard let workspace,
+              workspace.panelDirectories[panelId] != nil ||
+              workspace.remoteDirectoryReportPanelIds.contains(panelId) else { return }
+        workspace.clearRemotePanelDirectory(panelId: panelId)
     }
 
     /// The workspace-owned container panel id of the tab that renders `paneId`.
