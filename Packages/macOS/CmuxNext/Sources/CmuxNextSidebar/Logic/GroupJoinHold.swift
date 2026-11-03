@@ -64,21 +64,21 @@ public struct GroupJoinHold: Sendable, Equatable {
 /// never landed shows with no other change to wake the sidebar.
 @MainActor @Observable
 public final class GroupJoinRows {
-    @ObservationIgnored private var hold = GroupJoinHold()
+    @ObservationIgnored private var state = GroupJoinHold()
     /// Bumped at the limit: the sidebar's tracked pass reads it, so it runs again.
     private var checks = 0
     @ObservationIgnored private let limit = DemandTimer(owner: "GroupJoinRows.limit")
 
     public init() {}
 
-    public func hold(_ id: String) { hold.hold(id) }
-    public func release(_ id: String) { hold.release(id) }
+    public func hold(_ id: String) { state.hold(id) }
+    public func release(_ id: String) { state.release(id) }
 
     /// The held workspaces `listed` shows loose, to leave out of this pass.
     public func hidden(in listed: [SidebarSection]) -> Set<String> {
         _ = checks
-        guard !hold.isEmpty else { return [] }
-        let hidden = hold.hiding(in: listed, now: .now)
+        guard !state.isEmpty else { return [] }
+        let hidden = state.hiding(in: listed, now: .now)
         if !hidden.isEmpty { limit.scheduleIfIdle(after: GroupJoinHold.limit) { @MainActor [weak self] in self?.checks &+= 1 } }
         return hidden
     }
