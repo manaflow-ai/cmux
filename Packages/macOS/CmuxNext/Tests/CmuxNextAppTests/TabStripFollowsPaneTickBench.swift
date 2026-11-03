@@ -14,8 +14,8 @@ import Testing
 /// keyboard resizes, with `motion.frameOwner.tabStrip` off (the strip held with the content, as before S1) and on (each
 /// resizing strip lays out at its pane's width in every frame). Three panes in a 1600 x 1000 window, each the app's pane
 /// content with 6 tabs over stub content; 12 presses alternate Ctrl-Shift-L and H on the middle pane; each frame runs
-/// what one display frame runs: `advanceFrame` (springs, pane frames, strip layout), the layout pass, display, and the
-/// landing's after-commit release. Both switch values run in one process, interleaved, so the host's noise falls on both.
+/// what one display frame runs: `advanceFrame` (springs, pane frames, strip layout), the layout pass, display, the layers'
+/// display (what the commit draws: re-truncated tab titles) and the landing's after-commit release. Both switch values run in one process, interleaved, so the host's noise falls on both.
 /// Run optimized on the fleet: package-test-lane.sh suite with CMUX_SWIFT_SUITE_CONFIGURATION=release.
 @MainActor
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_KEY_RESIZE_STRIP_BENCH"] == "1"), .closesItsWindows)
@@ -35,6 +35,14 @@ struct TabStripFollowsPaneTickBench {
             view.show(content)
             return view
         }
+    }
+
+    /// What the frame's Core Animation commit draws on the main thread: every layer that needs display draws now (a tab
+    /// title re-truncated at a new width redraws its text there).
+    static func displayLayers(_ layer: CALayer?) {
+        guard let layer else { return }
+        layer.displayIfNeeded()
+        for sublayer in layer.sublayers ?? [] { displayLayers(sublayer) }
     }
 
     /// Wall seconds of every frame of `presses` key presses on p2 with the switch `on`.
@@ -65,12 +73,14 @@ struct TabStripFollowsPaneTickBench {
                     moving = root.advanceFrame(1.0 / 120)
                     root.layoutSubtreeIfNeeded()
                     root.displayIfNeeded()
+                    Self.displayLayers(root.layer)
                     if !moving {
                         let release = afterCommit
                         afterCommit.removeAll()
                         for work in release { work() }
                         root.layoutSubtreeIfNeeded()
                         root.displayIfNeeded()
+                        Self.displayLayers(root.layer)
                     }
                     times.append(CACurrentMediaTime() - start)
                     frames += 1
