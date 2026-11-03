@@ -51,12 +51,12 @@ struct TerminalSurfaceCommitSizeTests {
         // A size goes to Ghostty and waits for this turn's commit; the terminal hides in the same turn and its host
         // lays it out at another size.
         fixture.container.terminalWidth = 520
-        fixture.container.layoutSubtreeIfNeeded() // sync-layout: the request, in this turn
+        fixture.layoutNow()
         let surface = fixture.session.surfaceView
-        #expect(TerminalFramePresenter.forWindow(fixture.window).isWaiting(surface), "520 pt did not wait for its frame")
+        try #require(TerminalFramePresenter.forWindow(fixture.window).isWaiting(surface), "520 pt did not wait for its frame")
         fixture.session.view.isHidden = true
         fixture.container.terminalWidth = 460
-        fixture.container.layoutSubtreeIfNeeded() // sync-layout: the hidden terminal's newest size
+        fixture.layoutNow()
         await fixture.commits(3)
         #expect(surface.frame.width == 460, "the hidden terminal is \(surface.frame.width) pt wide, its host gave it 460")
         fixture.session.view.isHidden = false
@@ -346,6 +346,14 @@ struct TerminalSurfaceCommitSizeTests {
         func firstTurnAt(width: CGFloat) -> Turn? {
             let scale = session.surfaceView.layer?.contentsScale ?? 2
             return turns.first { $0.layer.width == Int((width * scale).rounded()) }
+        }
+
+        /// Lays the container and the terminal's host out now, in this turn (the host's own layout places the surface).
+        func layoutNow() {
+            container.needsLayout = true
+            container.layoutSubtreeIfNeeded() // sync-layout: the test's own turn is the one under test
+            session.view.needsLayout = true
+            session.view.layoutSubtreeIfNeeded() // sync-layout: a hidden host is laid out too
         }
 
         /// Resizes the terminal to `width` through the next display cycle's layout and returns after that commit.
