@@ -488,7 +488,10 @@ extension SidebarListViewComponents {
         hasViewport = true
         guard drag == nil, external == nil, !displayed.rows.isEmpty, let extent = selectionReveal(in: displayed, height: height) else { return }
         revealedActive = selectionRevealKey
-        let target = displayed.viewport(height: height).reveal(extent, from: clip.bounds.minY, padding: SidebarLayout.revealPadding)
+        let viewport = displayed.viewport(height: height)
+        // A row already wholly in view does not move (close-focus.md rule 7, as `revealSelectionNow`).
+        guard !viewport.isFullyVisible(extent, at: clip.bounds.minY, padding: 0) else { return }
+        let target = viewport.reveal(extent, from: clip.bounds.minY, padding: SidebarLayout.revealPadding)
         guard target != clip.bounds.minY else { return }
         clip.setBoundsOrigin(NSPoint(x: clip.bounds.minX, y: target))
         enclosingScrollView?.reflectScrolledClipView(clip)
