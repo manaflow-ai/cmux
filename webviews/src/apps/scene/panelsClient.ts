@@ -42,7 +42,7 @@ function readPanels(value: unknown): AppPanel[] {
 export class AppPanelsClient {
   private snapshot: readonly MountedPanel[] = EMPTY;
   private readonly listeners = new Set<() => void>();
-  private readonly entries = new Map<string, Entry>();
+  private readonly entries = new Map<ReturnType<typeof panelId>, Entry>();
   private active = false;
   private lifetime = 0;
   private listing = 0;

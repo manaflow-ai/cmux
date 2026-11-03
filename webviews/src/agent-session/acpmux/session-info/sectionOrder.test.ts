@@ -17,7 +17,7 @@ const session = "app:session-tools#summary" as const;
 afterEach(resetSectionOrderForTests);
 
 test("built-in order is unchanged without installed apps", () => {
-  expect(sectionOrder([])).toEqual(DEFAULT_ORDER);
+  expect(sectionOrder([])).toEqual([...DEFAULT_ORDER]);
 });
 
 test("new app sections follow Leo's four in the default view and never tuck", () => {
