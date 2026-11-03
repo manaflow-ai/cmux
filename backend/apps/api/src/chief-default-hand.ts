@@ -54,7 +54,7 @@ type Install = { id: string; kind: string; grant: string; revoked_at: unknown; b
 type Grant = { id: string; grantee: string; revoked_at: unknown; expires_at: number | null; op_classes: ReadonlyArray<string> }
 
 /** Fresh on every start/resume: both the user's grant and CloudDO's current VM carrier must agree. */
-export const authorizeDefaultMachine = async (env: Env, scope: DefaultHandScope): Promise<DefaultCloud> => {
+export const authorizeDefaultMachine = async (env: Env, scope: DefaultHandScope, options: { running?: boolean } = {}): Promise<DefaultCloud> => {
   const { owner, chief, team, workspace, install, connection_machine: carrier } = scope
   if (team !== personalTeamIdFor(owner) || workspace !== `chief-default-${owner}` || !/^vm_[a-z0-9]{20}$/.test(carrier)) throw new Error("chief.machine.invalid_scope")
   const user = env.USER_DO.get(env.USER_DO.idFromName(owner)) as unknown as ReadStub
@@ -77,7 +77,7 @@ export const authorizeDefaultMachine = async (env: Env, scope: DefaultHandScope)
     grant: i.grant, install_kind: "vm", bound_machine: carrier, grant_classes: ["vm-self"],
   }, "cloud.vm.self.get", { machine: carrier })
   if (!self.ok || (self.value as { machine?: { status?: string; creator?: string } }).machine?.creator !== owner) throw new Error("chief.machine.carrier_changed")
-  if ((self.value as { machine?: { status?: string } }).machine?.status !== "running") throw new Error("chief.machine.not_running")
+  if (options.running !== false && (self.value as { machine?: { status?: string } }).machine?.status !== "running") throw new Error("chief.machine.not_running")
   return cloud
 }
 
