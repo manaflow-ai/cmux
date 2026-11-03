@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-03: a workspace icon follows the sidebar density. Leo, verbatim: "generally we can have stuff more dynamically
+  sized for compact/etc rn i think it's just a one size for these workspace icons". The icon's glyph was clamped to the
+  compact 16 pt square at every density, so comfortable only widened an empty slot. It now fills the density's icon
+  column (`SidebarStyle.workspaceGlyphSide` = `iconColumnBox`: 16 compact, 20 comfortable, wider with the text size),
+  with its symbol and favicon drawn at the matching size; a group's own icon shares it. Compact, expanded (title-line
+  icon on the compact column), text, rows and the column itself are unchanged. Regression:
+  `SidebarWorkspaceIconDensityTests`.
+
 - 2026-11-03: app panels can occupy the existing band below the workspace list. Leo (2026-11-02):
   "let’s do all these" — "A sidebar panel slot plus ’an agent writes the app, it hot-reloads’. This covers his PR view,
   makes Session Info extensible, and is mostly built." Only app sections draw there; cx-n0i9 still keeps ordinary
