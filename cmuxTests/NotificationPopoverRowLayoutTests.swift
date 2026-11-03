@@ -118,3 +118,60 @@ struct NotificationPopoverRowLayoutTests {
         return bounds
     }
 }
+
+/// What VoiceOver reads on a notifications-popover row.
+@MainActor
+@Suite("Notification popover row accessibility", .serialized)
+struct NotificationPopoverRowAccessibilityTests {
+    /// The digit shortcut is the row button's value whether or not the modifier is held, as
+    /// Jump to Latest gives its shortcut, since a VoiceOver user cannot see the hint pill.
+    @Test("each row's digit shortcut is its accessibility value", arguments: [false, true])
+    func rowShortcutIsTheAccessibilityValue(showsHint: Bool) throws {
+        let id = UUID()
+        let row = NotificationPopoverRow(
+            notification: TerminalNotification(
+                id: id,
+                tabId: UUID(),
+                surfaceId: nil,
+                title: "Agent finished",
+                subtitle: "",
+                body: "",
+                createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isRead: false
+            ),
+            workspaceTitle: "main",
+            shortcut: "⌘3",
+            showsShortcutHint: showsHint,
+            onOpen: {},
+            onClear: {},
+            onToggleRead: {}
+        )
+        _ = NSApplication.shared
+        let host = NSHostingView(rootView: row.frame(width: 320))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 80),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = host
+        host.frame = window.contentLayoutRect
+        for _ in 0..<30 {
+            host.layoutSubtreeIfNeeded()
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+        }
+        let button = try #require(Self.element(in: host, identifier: "NotificationPopoverRow.\(id.uuidString)"))
+        #expect(button.accessibilityValue() as? String == "⌘3")
+    }
+
+    /// The first node under `root` whose accessibility identifier is `identifier`.
+    private static func element(in root: NSView, identifier: String) -> NSAccessibilityProtocol? {
+        var queue: [Any] = [root]
+        while !queue.isEmpty {
+            guard let node = queue.removeFirst() as? NSAccessibilityProtocol else { continue }
+            if node.accessibilityIdentifier() == identifier { return node }
+            queue.append(contentsOf: node.accessibilityChildren() ?? [])
+        }
+        return nil
+    }
+}

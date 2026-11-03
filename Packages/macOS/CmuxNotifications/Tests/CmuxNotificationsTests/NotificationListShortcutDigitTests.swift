@@ -36,4 +36,17 @@ import Testing
         #expect(numbering.digit(forRowIndex: 11) == 9)
         #expect(NotificationListShortcutDigit(rowCount: 9).digit(forRowIndex: 8) == 9)
     }
+
+    /// The popover drew a, b and c, and n arrived before the press. A digit opens the row it
+    /// labelled, not whatever sits at that position in the list now.
+    @Test func aDigitOpensTheRowItLabelledAfterTheListChanged() {
+        let drawn = ["a", "b", "c"]
+        #expect(NotificationListShortcutDigit.item(forDigit: 1, displayed: drawn, current: ["n", "a", "b", "c"], id: { $0 }) == "a")
+        #expect(NotificationListShortcutDigit.item(forDigit: 9, displayed: drawn, current: ["a", "b", "c", "n"], id: { $0 }) == "c")
+    }
+
+    @Test func aDigitWhoseRowIsGoneOpensNothing() {
+        #expect(NotificationListShortcutDigit.item(forDigit: 1, displayed: ["a", "b"], current: ["b"], id: { $0 }) == nil)
+        #expect(NotificationListShortcutDigit.item(forDigit: 3, displayed: ["a", "b"], current: ["a", "b", "c"], id: { $0 }) == nil)
+    }
 }
