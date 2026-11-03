@@ -7,7 +7,9 @@ that lists the chat branch's pull requests. cmux watches the folder: each save
 reloads the app, and the first save installs it. There is no restart and no
 install click.
 
-The daemon reads manifest v2 only. One app implements each interface once, so
+`cmux-tui/crates/cmux-app-manifest/tests/customize_example.rs` validates the two
+files below as written. The daemon reads manifest v2 only. One app implements
+each interface once, so
 the customize app has at most one sidebar section (`cmux.section/1`) and one
 Session Info section (`cmux.session.info.section/1`).
 
