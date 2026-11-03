@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-03: app panels can occupy the existing band below the workspace list. Leo (2026-11-02):
+  "let’s do all these" — "A sidebar panel slot plus ’an agent writes the app, it hot-reloads’. This covers his PR view,
+  makes Session Info extensible, and is mostly built." Only app sections draw there; cx-n0i9 still keeps ordinary
+  item sections hidden and the footer separate. Existing band caps, scrolling and scene mounts apply. A header
+  drag forwards the document move within bottom or between top and bottom. Regression: `SidebarAppBottomBandTests`.
+
 - 2026-11-03: a row's working spinner draws at the row's status glyph size, not the warning's. Leo, verbatim: "i think
   the spinners are maybe a bit too big in this situation" (the compact sidebar). Since #30236's follow-up (Leo
   2026-11-01, "every icon is still f***ing small") every non-dot row badge drew in a 14 pt box, so at compact the

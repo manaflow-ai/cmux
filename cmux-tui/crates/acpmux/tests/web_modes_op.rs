@@ -75,7 +75,14 @@ async fn the_unix_socket_reads_the_table_the_lists_and_a_session() {
     }
     assert_eq!(
         v["freeConfigIds"],
-        json!(["model", "effort", "reasoning_effort", "thought_level", "thinking"]),
+        json!([
+            "model",
+            "effort",
+            "reasoning_effort",
+            "thought_level",
+            "thinking",
+            "session-recap"
+        ]),
         "{r}"
     );
     assert_eq!(v["cloudMobileStrictFloor"], json!(1), "{r}");

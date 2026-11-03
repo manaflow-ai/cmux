@@ -38,7 +38,7 @@ struct CloudStartChatMachineTests {
         #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: true) == nil)
         #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false) == "not_signed_in")
         #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: true) == "cloud_disabled")
-        #expect(CloudStartChat.accountText([Self.me, nil]) == "user-leo/")
+        #expect(CloudStartCore().accountText([Self.me, nil]) == "user-leo/")
         try CloudStartChat.checkAccount(teamA, now: teamA, listCurrent: true)
         #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: teamB, listCurrent: true) }
         #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: teamA, listCurrent: false) }
