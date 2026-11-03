@@ -163,6 +163,7 @@ final class SidebarPriorityRowView: NSView {
 
     override func layout() {
         super.layout()
+        indicator.dotDiameter = SidebarStyle.statusDotSize // the unread dot's diameter (Lawrence msg 19696)
         let b = bounds, inset = SidebarStyle.horizontalInset, pad = Metrics.space2
         title.font = SidebarStyle.titleFont
         placeLabel.font = SidebarStyle.titleFont
@@ -196,7 +197,7 @@ final class SidebarPriorityRowView: NSView {
                 indicator.frame = NSRect(x: trailing - mark, y: pad + (lineHeight - mark) / 2, width: mark, height: mark)
                 trailing = indicator.frame.minX - Metrics.space1
             }
-            let dot = SidebarStyle.unreadDotSize
+            let dot = SidebarStyle.statusDotSize
             unreadDot.frame = CGRect(x: trailing - dot, y: pad + (lineHeight - dot) / 2, width: dot, height: dot)
             unreadDot.cornerRadius = dot / 2
             if entry.unread { trailing = unreadDot.frame.minX - Metrics.space1 }
