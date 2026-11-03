@@ -353,12 +353,18 @@ def main():
         answer = bp.rpc(sock, "settings.set", {"path": "browser.freezeHiddenTabs", "value": args.freeze})
         if answer.get("error"):
             print(f"   settings.set browser.freezeHiddenTabs: {answer['error']}", file=sys.stderr)
-        if chromium:
+        report["freeze_set"] = not answer.get("error")
+        if chromium and report["freeze_set"]:
             frozen = wait_for(lambda: chromium <= set(hibernation(sock).get("frozen") or []), 120, 1)
             print(f"PERF-HIBERNATE-FROZEN all={bool(frozen)} frozen={len(hibernation(sock).get('frozen') or [])} "
                   f"awake_frozen_at_end={report['awake_frozen_at_end']}", flush=True)
+            report["all_frozen"] = bool(frozen)
             time.sleep(5)  # test script: settle after the freeze
-            phase(pid, bundle, "frozen", args.measure, report, sock)
+            # A "frozen" phase is measured only when every bench page froze; else it would be hidden pages under that name.
+            if frozen:
+                phase(pid, bundle, "frozen", args.measure, report, sock)
+            else:
+                print("PERF-HIBERNATE-FROZEN-SKIPPED not every bench page froze: no frozen phase", flush=True)
         for tab in tabs:
             reply = app.run("hibernateTab", target=tab)
             if reply.get("error"):
@@ -483,7 +489,8 @@ def feed_pressure(sock: str, level: str) -> str | None:
 def pressure(app, sock, engines, ports, count, open_tab, front, opened_extra, reuse=None, wait=0,
              pid=None, bundle=None, measure=20, report=None) -> dict:
     """Critical memory pressure: the time until every hidden page hibernated, the footprint
-    before and after, and that the media page and the agent-driven page never did."""
+    before and after, that the audible page and the agent-driven page never did, and that the
+    page-muted page did (nothing is heard)."""
     if reuse is None:
         tabs = [t for engine in engines for t in (open_tab(engine, page_url(engine, 100 + i, ports)) for i in range(count)) if t]
         opened_extra.extend(tabs)

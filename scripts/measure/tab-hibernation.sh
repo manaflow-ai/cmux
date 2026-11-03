@@ -47,7 +47,8 @@ import json, sys
 report = json.load(open(sys.argv[1]))
 pressure = report.get("pressure") or {}
 if pressure.get("skipped"):
-    sys.exit("tab-hibernation: the pressure phase did not run: " + pressure["skipped"])
+    print("PERF-HIBERNATE-VERDICT UNJUDGED (the pressure phase did not run: " + pressure["skipped"] + ")")
+    sys.exit(3)
 audible = pressure.get("playing_audible") or {}
 played = bool(audible) and all(value is True for value in audible.values())
 bad = (pressure.get("playing_hibernated") or []) + (pressure.get("driven_hibernated") or [])
