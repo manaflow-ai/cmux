@@ -86,11 +86,11 @@ await requireBrowserLane("inbox-group-hover-anchor-browser.test.ts", async () =>
       expect(onWords.text).toBeTruthy();
       expectAt(onWords.rect, await box(head.locator(".cv-tool__text")), "group row, pointer on its words");
 
-      // The pointer on the row's mark shows the same tooltip at the same place.
+      // The pointer on the row's mark shows the same tooltip at the same place (within the fade-in's rise).
       const onMark = await tooltipFor(page, head.locator(".cv-tool__icon"));
       expect(onMark.text).toBe(onWords.text);
-      expect(Math.abs(onMark.rect.left - onWords.rect.left)).toBeLessThanOrEqual(1);
-      expect(Math.abs(onMark.rect.top - onWords.rect.top)).toBeLessThanOrEqual(1);
+      expect(Math.abs(onMark.rect.left - onWords.rect.left)).toBeLessThanOrEqual(3);
+      expect(Math.abs(onMark.rect.top - onWords.rect.top)).toBeLessThanOrEqual(3);
 
       // Opened, a sender's name shows its own tooltip at the name.
       await head.click();
