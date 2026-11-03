@@ -242,8 +242,11 @@ async fn a_running_chat_takes_new_folders_on_its_next_start() {
     let mut c = Client::new(&hub);
     let (_root, a, b) = folders();
 
-    // Started with nothing: a plain chat.
-    let created = c.new_session("fakeclaude", None, Value::Null).await.expect("session/new");
+    // Started with nothing: a plain chat in a folder of its own.
+    let created = c
+        .new_session("fakeclaude", Some(&std::env::temp_dir()), Value::Null)
+        .await
+        .expect("session/new");
     let id = created["sessionId"].as_str().unwrap().to_owned();
     assert!(c.add_dirs(&id).await.is_empty());
 
@@ -278,10 +281,11 @@ async fn an_acp_chat_loads_its_new_folders() {
     let hub = hub();
     let mut c = Client::new(&hub);
     let (_root, a, _) = folders();
-    let created = c.new_session("fake", None, Value::Null).await.expect("session/new");
+    let created =
+        c.new_session("fake", Some(&std::env::temp_dir()), Value::Null).await.expect("new");
     let id = created["sessionId"].as_str().unwrap().to_owned();
-    assert_eq!(c.said(&id, "dirs").await, "null");
+    assert_eq!(c.dirs(&id).await, Value::Null);
     let set = json!({"sessionId": id, "additionalDirectories": [a]});
     c.call("_acpmux/set_directories", set).await.0.expect("set_directories");
-    assert_eq!(c.said(&id, "dirs").await, json!([s(&a)]).to_string(), "session/load");
+    assert_eq!(c.dirs(&id).await, json!([s(&a)]), "session/load");
 }
