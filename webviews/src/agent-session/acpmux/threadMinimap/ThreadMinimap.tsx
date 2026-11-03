@@ -918,7 +918,8 @@ export function ThreadMinimap({
         scrolls={scrolls}
         placement={placement}
         marks={marks}
-        jump={jump}
+        // The map numbers the loaded turns from 0; `turns` starts with the earlier and pending ones.
+        jump={(turn, how) => jump(turn + loadedStart, how)}
       />
     );
   if (!shown) return null;
