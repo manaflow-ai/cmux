@@ -63,11 +63,8 @@ enum BrowserChordTable {
     /// Italic, Underline, Insert Link, Strikethrough, bulleted and numbered lists, and paragraph
     /// alignment. Chrome gives a page these keys before its own menus; cmux does the same in a
     /// Chromium tab, and runs the cmux action bound to the chord (Cmd-B Toggle Sidebar, Cmd-I New
-    /// Agent Chat) only when the page leaves the key unhandled. The match is on the chord typed,
-    /// not the action, so any action rebound onto one of these waits too, except an action that
-    /// opens a tab (``KeyRouter/opensTabActions``): Shift-Cmd-L New Browser Tab runs before the
-    /// page, as Chrome's Cmd-T does, though Google Docs makes Shift-Cmd-L Left Align
-    /// (https://github.com/manaflow-ai/cmux/issues/32789).
+    /// Agent Chat) only when the page leaves the key unhandled, matched on the chord typed. Shift-Cmd-L
+    /// New Browser Tab (``KeyRouter/opensBrowserActions``) runs first, as Chrome's Cmd-T, not Left Align.
     nonisolated static let pageEditingChords: Set<Shortcut> = [
         Shortcut("b"), Shortcut("i"), Shortcut("u"), Shortcut("k"),
         Shortcut("x", modifiers: [.command, .shift]), Shortcut("7", modifiers: [.command, .shift]),
