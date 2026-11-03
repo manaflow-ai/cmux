@@ -4,7 +4,7 @@ import Testing
 
 /// The gallery of a Chief avatar's state looks: one row per style, one strip per state (idle, working,
 /// waiting, failed) and one for the cues (a turn ending, a failure), each sampled into eight frames of a
-/// synthetic orb. Each frame is drawn from the real look: ``SidebarAvatarLooks/show(_:on:seed:)`` builds
+/// synthetic orb (turns and scales drawn 3x so they read). Each frame is drawn from the real look: ``SidebarAvatarLooks/show(_:on:seed:)`` builds
 /// its layers and animations, and the sheet applies their keyframes at that frame's time. One sheet is
 /// written to the package's `.build/chief-avatar-motion-gallery.png` (ignored by git), which a fleet step
 /// returns with `cmux-ci run --artifact Packages/Shared/CmuxMessagesLab/.build/chief-avatar-motion-gallery.png`.
@@ -19,7 +19,8 @@ struct ChiefAvatarMotionGalleryTests {
     /// on a sheet; the loop's own timing curve is in the code).
     static func value(_ animation: CAAnimation?, at time: CFTimeInterval) -> Double? {
         guard let animation, animation.duration > 0 else { return nil }
-        let t = ((time + animation.timeOffset).truncatingRemainder(dividingBy: animation.duration)) / animation.duration
+        // From the loop's own start (no per-conversation phase), so each strip shows where it moves.
+        let t = time.truncatingRemainder(dividingBy: animation.duration) / animation.duration
         if let basic = animation as? CABasicAnimation {
             let from = (basic.fromValue as? NSNumber)?.doubleValue ?? 0
             guard let to = (basic.toValue as? NSNumber)?.doubleValue else { return from }
@@ -42,8 +43,9 @@ struct ChiefAvatarMotionGalleryTests {
         var turn = 0.0, scale = 1.0
         for animation in [avatar.animation(forKey: key), cue].compactMap({ $0 as? CAPropertyAnimation }) {
             let v = Self.value(animation, at: time) ?? 0
-            if animation.keyPath == "transform.rotation.z" { turn += v }
-            if animation.keyPath == "transform.scale" { scale *= v }
+            // 3x so a few degrees and a 4% pop read on the sheet.
+            if animation.keyPath == "transform.rotation.z" { turn += v * 3 }
+            if animation.keyPath == "transform.scale" { scale *= 1 + (v - 1) * 3 }
         }
         let d = Self.size
         let face = NSRect(x: -d / 2, y: -d / 2, width: d, height: d)
