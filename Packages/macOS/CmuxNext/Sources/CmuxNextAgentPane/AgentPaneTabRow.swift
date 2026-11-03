@@ -20,6 +20,8 @@ import CmuxNextSettings
     var tabsShown = true
     /// Native chrome holes, in page coordinates; Session Info adds its own overlay hole.
     var holes: [CGRect] = []
+    /// What the pane's toolbar hole paints (``holeFill(chromium:shares:tabsShown:page:)``), set with each offer.
+    public private(set) var holeFill: CGColor?
     private var offeredNativeRowTools: Bool?
     /// Only a shared page host has the return event stream needed by native controls.
     var supportsNativeTools = false
@@ -72,6 +74,8 @@ import CmuxNextSettings
         let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0, soloTab: on && !row.tabsShown)
         let shares = on && row.toolsWidth > 0
         view.setTabRowCover(shares ? height : 0) // the pane lays the view under the strip only then
+        row.holeFill = holeFill(chromium: view.page != nil, shares: shares, tabsShown: row.tabsShown,
+                                page: view.performWithTheme { AgentPaneTheme.pageBackground(view.themeTokens, surface: view.surfaceKind) })
         if let page = view.page {
             // A Chromium chat is a window above the pane: it leaves the pane's tabs and toolbar uncovered.
             // The holes are worked out from the row's top-left corner; the chat view is not flipped, so
@@ -87,6 +91,17 @@ import CmuxNextSettings
         row.offeredNativeRowTools = nativeRowTools
         let event = row.event
         view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applyTabRow?.(\(event.value.compactText));"])
+    }
+
+    /// The color the pane's toolbar hole paints so the row reads as one surface (``PaneTabRowSharing/tabRowHoleFill``):
+    /// a Chromium chat is a window above the pane that leaves the toolbar uncovered, and alone in its pane its page
+    /// paints `page` (`--cmux-surface-background`) across the whole row (header.css, `[data-solo-tab]`), so the hole
+    /// paints it too. With its tabs shown the page leaves the row clear, and on WebKit the page is under the toolbar:
+    /// nil, as is a clear page color. A theme change lays the pane out again, which offers the row and reads it anew.
+    static func holeFill(chromium: Bool, shares: Bool, tabsShown: Bool, page: @autoclosure () -> ThemeRGB) -> CGColor? {
+        guard chromium, shares, !tabsShown else { return nil }
+        let color = page()
+        return color.alpha > 0 ? color.cgColor : nil
     }
 }
 
@@ -118,4 +133,5 @@ extension PaneTabRowSharing where Self: AgentPaneView {
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) { AgentPaneTabRow.offer(points: height, trailingInset: trailingInset, to: self) }
     public func setTabRowTabs(shown: Bool) { model.tabRow.tabsShown = shown }
     public var tabRowTakesLoneTab: Bool { true }
+    public var tabRowHoleFill: CGColor? { model.tabRow.holeFill }
 }

@@ -23,11 +23,17 @@ public protocol PaneTabRowSharing: AnyObject {
     func setTabRowTabs(shown: Bool)
     /// The view takes the whole row when its pane holds one tab, and the pane hides that tab (a chat; Leo 2026-11-03).
     var tabRowTakesLoneTab: Bool { get }
+    /// What the pane's toolbar fills its frame with while the view shares the row, so the toolbar reads as the
+    /// surface the view paints around it: a view that is a window above the pane (a Chromium chat) leaves the
+    /// toolbar a hole, and where it paints its own surface across the row (alone in its pane) the hole would
+    /// show the pane's instead, a block of another shade beside the tools. Nil: the row is clear there.
+    var tabRowHoleFill: CGColor? { get }
 }
 
 extension PaneTabRowSharing {
     public func setTabRowTabs(shown: Bool) {}
     public var tabRowTakesLoneTab: Bool { false }
+    public var tabRowHoleFill: CGColor? { nil }
 
     /// Points the strip gives up beside the view's tools in a row `room` wide (at most half of it).
     public func tabRowWidth(room: CGFloat) -> CGFloat { min(max(0, tabRowToolsWidth ?? 0), max(0, room / 2)) }
@@ -39,13 +45,15 @@ extension PaneTabRowSharing {
 
     /// Offers the view the row (`height` 0: none); a change in its tools' width lays `pane` out
     /// again while the view is still in it (a view another pane took gets its row from that pane).
-    public func offerTabRow(height: CGFloat, trailingInset: CGFloat, tabs: Bool = true, in pane: NSView) {
+    /// `toolbar`: the pane's own buttons at the row's trailing end, filled with ``tabRowHoleFill`` after the offer.
+    public func offerTabRow(height: CGFloat, trailingInset: CGFloat, tabs: Bool = true, toolbar: NSView? = nil, in pane: NSView) {
         onTabRowToolsChange = { [weak self, weak pane] in
             guard let pane, let view = self as? NSView, view.isDescendant(of: pane) else { return }
             pane.needsLayout = true
         }
         setTabRowTabs(shown: tabs || height <= 0)
         setTabRow(height: height, trailingInset: height > 0 ? trailingInset : 0)
+        toolbar?.paintTabRowHole(height > 0 ? tabRowHoleFill : nil)
     }
 }
 
@@ -67,6 +75,7 @@ extension PaneTabRowForwarding {
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) { tabRowSharer?.setTabRow(height: height, trailingInset: trailingInset) }
     public func setTabRowTabs(shown: Bool) { tabRowSharer?.setTabRowTabs(shown: shown) }
     public var tabRowTakesLoneTab: Bool { tabRowSharer?.tabRowTakesLoneTab ?? false }
+    public var tabRowHoleFill: CGColor? { tabRowSharer?.tabRowHoleFill }
 }
 
 extension NSView {
@@ -97,4 +106,12 @@ extension NSView {
     }
 
     private static let tabRowCoverID = NSUserInterfaceItemIdentifier("cmux.tabRowCover")
+
+    /// Fills a pane's toolbar with `fill` (``PaneTabRowSharing/tabRowHoleFill``: a Chromium chat alone in its pane
+    /// paints its surface across the row and leaves the toolbar a hole, which would show the pane's own shade beside
+    /// the chat's tools, #33261); nil leaves it clear.
+    public func paintTabRowHole(_ fill: CGColor?) {
+        if fill != nil { wantsLayer = true }
+        if layer?.backgroundColor != fill { layer?.backgroundColor = fill }
+    }
 }

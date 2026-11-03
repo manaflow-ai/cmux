@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
@@ -76,6 +77,40 @@ struct AgentPaneTabRowHolesTests {
         view.model.tabRow.tabsShown = true
         AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
         #expect(holes(page, in: view).count == 2)
+    }
+
+    /// Leo (2026-11-03, the nightly): "latest nightly still not fixed yet?" / "i mean the rectangle near the
+    /// buttons". Alone in its pane a Chromium chat paints its own surface (`appearance.surfaces.agentPane`)
+    /// across the whole row, but its page window leaves the pane's toolbar a hole, where the pane's own shade
+    /// showed: a block of another color beside the tools (#33261). The toolbar hole paints the page's surface,
+    /// so nothing in the row differs from the surface around it; a row the page leaves clear paints nothing.
+    @Test func aLoneChromiumChatsToolbarHolePaintsThePagesSurface() {
+        let chat = ThemeRGB(hex: 0x282938)
+        #expect(AgentPaneTabRow.holeFill(chromium: true, shares: true, tabsShown: false, page: chat) == chat.cgColor)
+        // Tabs shown: the page leaves the row clear, so the hole shows the same pane the page does.
+        #expect(AgentPaneTabRow.holeFill(chromium: true, shares: true, tabsShown: true, page: chat) == nil)
+        // WebKit: the page is under the toolbar and already paints there.
+        #expect(AgentPaneTabRow.holeFill(chromium: false, shares: true, tabsShown: false, page: chat) == nil)
+        // Out of the row, or a clear page (glass): nothing.
+        #expect(AgentPaneTabRow.holeFill(chromium: true, shares: false, tabsShown: false, page: chat) == nil)
+        #expect(AgentPaneTabRow.holeFill(chromium: true, shares: true, tabsShown: false, page: chat.withAlpha(0)) == nil)
+    }
+
+    /// The chat hands its pane the fill with each offer, in its own theme scope, and drops it with the row.
+    @Test func aLoneChromiumChatHandsThePaneItsSurfaceForTheToolbar() async throws {
+        let (view, _) = try await chromiumChat()
+        view.model.tabRow.report(width: 120)
+        view.model.tabRow.tabsShown = false
+        AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
+        let surface = view.performWithTheme { AgentPaneTheme.pageBackground(view.themeTokens, surface: .agentPane) }
+        #expect(view.tabRowHoleFill == (surface.alpha > 0 ? surface.cgColor : nil))
+
+        view.model.tabRow.tabsShown = true
+        AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
+        #expect(view.tabRowHoleFill == nil)
+        view.model.tabRow.tabsShown = false
+        AgentPaneTabRow.offer(points: 0, trailingInset: 0, to: view)
+        #expect(view.tabRowHoleFill == nil)
     }
 
     @Test func aChatOutOfTheRowCoversNothing() async throws {

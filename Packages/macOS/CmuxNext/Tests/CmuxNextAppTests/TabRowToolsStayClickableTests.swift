@@ -19,6 +19,7 @@ import Testing
         private(set) var shared: CGFloat = 0
         private(set) var tabsShown = true
         var onTabRowToolsChange: (() -> Void)?
+        var tabRowHoleFill: CGColor?
         init(need: CGFloat, takesLoneTab: Bool = false) {
             self.need = need
             tabRowTakesLoneTab = takesLoneTab
@@ -133,5 +134,35 @@ import Testing
         pane.themeDidChange()
         let fill = try #require(pane.stripView.layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) })
         #expect(abs(fill.blueComponent - barColor.blue) < 0.01, "the strip paints \(fill), not the tab bar's \(barColor)")
+    }
+
+    /// #33261: a Chromium chat alone in its pane paints its surface across the row and leaves the pane's "…" a
+    /// hole; the toolbar fills its frame with the chat's fill (`tabRowHoleFill`), so the row is one surface, and
+    /// goes clear again when the chat leaves the row or gives no fill.
+    @Test func theToolbarPaintsTheChatsHoleFill() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil); window.close() }
+        let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("t0"), title: "Chat")]), reveal: LaunchReveal(deadline: .zero))
+        pane.frame = window.contentLayoutRect
+        window.contentView = pane
+        let chat = RowChat(need: 220, takesLoneTab: true)
+        let fill = ThemeRGB(hex: 0x282938).cgColor
+        chat.tabRowHoleFill = fill
+        _ = pane.show(chat)
+        let settle = {
+            for _ in 0..<4 {
+                pane.needsLayout = true
+                pane.layoutSubtreeIfNeeded()
+            }
+        }
+        settle()
+        let toolbar = try #require(pane.toolbar?.view)
+        #expect(pane.contentHost.frame.minY < pane.stripView.frame.maxY, "the chat shares the row")
+        #expect(toolbar.layer?.backgroundColor == fill)
+        chat.tabRowHoleFill = nil
+        settle()
+        #expect(toolbar.layer?.backgroundColor == nil)
     }
 }
