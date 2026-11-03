@@ -6,7 +6,7 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CompactionNote } from "./CompactionNote";
-import { Spinner } from "./icons";
+import { Spinner, workingArcPath } from "./icons";
 
 test("a running compaction draws the transcript spinner", () => {
   const html = renderToStaticMarkup(<CompactionNote compaction={{ state: "running" }} />);
@@ -79,4 +79,18 @@ test("agent work draws ChatGPT's gap ring: a 0.72 arc at stroke 2 over a faint t
   const desktop = await Bun.file(`${dir}/../../../pages/shared/desktop.css`).text();
   expect(desktop).toMatch(/--cmux-spinner-period: 1400ms;/);
   expect(await Bun.file(`${dir}/spinner.css`).text()).toContain("var(--cmux-spinner-period, 1400ms)");
+});
+
+// The working arc ends on its ring, at its share of the turn (#32730 drew the end as an offset from
+// the start, so the arc left the track and bulged up and right of it).
+test("the working arc runs along its ring and ends at its share of the turn", () => {
+  for (const share of [0.25, 0.5, 0.72]) {
+    const match = workingArcPath(share).match(/^M([\d.]+) ([\d.]+)([aA])([\d.]+) [\d.]+ 0 [01] 1 (-?[\d.]+) (-?[\d.]+)$/);
+    expect(match).not.toBeNull();
+    const [, sx, sy, command, radius, ex, ey] = match!;
+    const end = command === "a" ? [Number(sx) + Number(ex), Number(sy) + Number(ey)] : [Number(ex), Number(ey)];
+    expect(Math.hypot(end[0] - 8, end[1] - 8)).toBeCloseTo(Number(radius), 1);
+    const turned = (Math.atan2(end[0] - 8, 8 - end[1]) / (2 * Math.PI) + 1) % 1;
+    expect(turned).toBeCloseTo(share, 2);
+  }
 });
