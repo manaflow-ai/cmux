@@ -455,7 +455,6 @@ pub fn decide(d: &Inputs) -> Decision {
             && d.caller_owns == Some(true)
             && choice(d) != Some(Choice::None),
         guest_takes_login: guest_takes_login(kind, d.release),
-        guest_takes_login: guest_takes_login(kind),
         skipped_team_machine: reason == Reason::GuestNotOwner && kind == Some("team"),
         summary: summary(d, step, reason),
     }
