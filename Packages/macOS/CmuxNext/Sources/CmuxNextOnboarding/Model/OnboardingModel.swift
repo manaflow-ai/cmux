@@ -10,6 +10,8 @@ public import Observation
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
+        // The app may host importData as Bring your history (web); the standalone browser
+        // importer remains this model's native import tool.
         case importData, computerUse
     }
 

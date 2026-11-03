@@ -315,7 +315,10 @@ final class WindowManager {
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
-        Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
+        Task {
+            await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace)
+            services.onboarding.showHistoryAtFirstRun(isFirstRun: firstWorkspace != nil && document.windows.isEmpty)
+        }
         savedWindowsUnread = false
         recordSaver.scheduleSave()
     }
