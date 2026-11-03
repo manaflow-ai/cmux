@@ -283,6 +283,8 @@ class BisectTests(unittest.TestCase):
         self.assertIs(coalesce.probe_verdict(f, wanted, {f: True}, None, here), False)  # a passing file, no states
         self.assertIsNone(coalesce.probe_verdict(f, wanted, {f: False}, {"result": "TIMEOUT", "completed": False},
                                                  here))
+        # Red with no test named, though bun closed with its tally (`Ran 0 tests across 1 file.` after a load error).
+        self.assertIsNone(coalesce.probe_verdict(f, wanted, {f: False}, done, here))
         self.assertIs(coalesce.probe_verdict(f, wanted, {}, None, gone), False)  # not in the commit yet
         self.assertIsNone(coalesce.probe_verdict(f, wanted, {}, None, here))
         # A file-level red (no test named at HEAD): any red in the file.

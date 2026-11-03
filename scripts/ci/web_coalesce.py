@@ -349,8 +349,10 @@ def probe_verdict(file: str, wanted: set[str], got: dict, state, present) -> boo
         return None if present() else False
     if any(mine.get(name) is False for name in wanted):
         return True
-    if mine and completed:
+    if mine and completed and got.get(file) is not False:
         return False  # the file ran to its end and none of the new red tests failed
+    # A file red with no test named (it did not load, an error outside a test) gives no verdict for the tests in it,
+    # even when bun printed its closing tally.
     if mine or state:
         return None  # it failed (a timeout, a crash, a load error) before the new tests gave a verdict
     return None if present() else False
