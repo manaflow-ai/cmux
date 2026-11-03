@@ -159,9 +159,10 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
     for (const { name: row, tabRow } of rows)
       test(`${name}, ${row}: Push always keeps every header tool in the native reserved strip`, async () => {
         current = browsers.get(name)!;
-        const page = await pane!.open({ width: 900, height: 640 });
+        const page = await pane!.open({ width: 1100, height: 640 });
         try {
-          // A 900px pane's gutter cannot hold it, so it pushes by default too.
+          // A 1100px pane's gutter cannot hold it, and a push keeps the column's width, so it pushes by
+          // default too.
           const { panel, toggle } = await openSessionInfo(page, tabRow, "push", "overlay");
           await toggle.click();
           await panel.waitFor({ state: "detached" });
@@ -179,10 +180,11 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
           expect(await positions()).toEqual(closed);
           // Native tabs cover everything left of this reserved strip. A real click at the old
           // position must still reach the toggle after opening, including after a pane resize.
-          await page.setViewportSize({ width: 1050, height: 640 });
+          // 1130px: Push always still keeps the column's width there (SessionInfo.tsx pushKeepsColumn).
+          await page.setViewportSize({ width: 1130, height: 640 });
           await page.waitForFunction(
             (x) => Math.abs(document.querySelector(".acpmux-session-info-toggle")!.getBoundingClientRect().x - x) < 0.5,
-            closed[0]!.x + 150,
+            closed[0]!.x + 30,
           );
           const opened = await positions();
           await page.mouse.click(opened[0]!.x + 12, opened[0]!.y + 12);
@@ -251,7 +253,7 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
       current = browsers.get(name)!;
       for (const [width, placement] of [
         [1600, "overlay"],
-        [700, "push"],
+        [1100, "push"],
       ] as const)
         for (const height of [1400, 800, 420]) {
           const page = await pane!.open({ width, height });
@@ -303,7 +305,7 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
       current = browsers.get(name)!;
       for (const [width, placement] of [
         [1600, "overlay"],
-        [700, "push"],
+        [1100, "push"],
       ] as const) {
         const cards: ({ height: number } & Awaited<ReturnType<typeof fit>>)[] = [];
         let folded: { shrank: boolean; endsAtContent: boolean; scrolls: boolean } | undefined;
@@ -512,7 +514,7 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
     for (const contents of [false, true])
       test(`${name}: in a narrow pane, a busy Session Info pushes the chat and never covers the composer${contents ? " (dock display: contents)" : ""}`, async () => {
         current = browsers.get(name)!;
-        const page = await pane!.open({ width: 900, height: 900 });
+        const page = await pane!.open({ width: 1100, height: 900 });
         try {
           if (contents)
             await page.addStyleTag({

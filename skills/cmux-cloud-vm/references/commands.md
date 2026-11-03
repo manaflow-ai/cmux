@@ -20,7 +20,7 @@ API key and no app; see [headless.md](headless.md).
   are menu-only: the CLI never writes the clipboard.
 - **Results** come back in the action result's `result` object (`--json` prints it);
   nothing opens on the person's screen. `cloud exec` returns `exit_code`, `stdout` and
-  `stderr`; `new-machine` returns `machine_id` and `target` (or `pending: true` while
+  `stderr`; `cmux machine new` (the `new-machine` action) returns `machine_id` and `target` (or `pending: true` while
   the server still provisions); `ssh` and `new-terminal-on-machine` return `machine_id`,
   `workspace_id` and, when known, the new terminal's `surface_id` (see [Terminals](#terminals));
   `machine-status`, `machine-ports`, `machine-tools`, `hand-off-machine`,
@@ -40,7 +40,7 @@ API key and no app; see [headless.md](headless.md).
 
 `cmux cloud list-machines` is read only: it answers the app's own Cloud machine list,
 the one the sidebar's Cloud machines show, so an agent can check whether its machine
-already exists before it runs `new-machine`. It takes no target. Run by a person from
+already exists before it runs `cmux machine new`. It takes no target. Run by a person from
 the palette, it shows the Cloud sidebar instead.
 
 ```bash

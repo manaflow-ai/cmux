@@ -61,3 +61,15 @@ fn inbox_notices_and_digests_are_notices_and_messages_are_not() {
     assert!(!is_notice(Some(&json!({"kind": "session_message", "fromName": "coord"}))));
     assert!(!is_notice(None), "the person's own prompt");
 }
+
+/// A tool's notice (`prompt_provenance::notice`) leaves its sender and title on the summary, not
+/// the `[notice from …]` line its agent got.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tools_notice_reads_as_its_sender_and_title() {
+    let notice =
+        json!({"sender": "base-red-watch", "severity": "fire", "title": "fast tier failed"});
+    let text = crate::prompt_provenance::notice_text(&notice, "3 PRs red");
+    let p = crate::prompt_provenance::notice(&notice, "s2");
+    let m = prompted(&text, "test", Some(p)).await;
+    assert_eq!(m.last_prompt.as_deref(), Some("base-red-watch: fast tier failed"));
+}

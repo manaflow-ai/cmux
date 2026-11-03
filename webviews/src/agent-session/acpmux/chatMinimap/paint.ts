@@ -5,7 +5,8 @@
 // rest (dates, notices, the working line) draws nothing. Each kind is one path and one fill, and
 // rows that land on the same device pixel line merge, so a draw is bounded by the canvas's height,
 // not by the number of rows, after one pass over them.
-import type { AcpmuxRow, ConversationLayout } from "../model";
+import type { AcpmuxRow } from "../model";
+import type { GeometrySource, LayoutGeometry } from "../conversationGeometry";
 import { THREAD_PADDING_TOP } from "../threadMinimap/model";
 
 /// The minimap's width in CSS px, and the room it keeps from the pane's right edge.
@@ -61,19 +62,42 @@ export type MinimapContext = Pick<
   "setTransform" | "clearRect" | "beginPath" | "rect" | "fill" | "fillStyle" | "globalAlpha"
 >;
 
+/// Every row's top and height, for the full passes below: an estimate's own arrays, or one ordered
+/// walk of a placement's index, kept per geometry (a placement is immutable), so a draw and the
+/// change check before it walk it once. The map's passes are O(rows) as before; nothing per token
+/// reads this while a reply streams (the picture stops above it).
+const places = new WeakMap<LayoutGeometry, { tops: Float64Array; heights: Float64Array }>();
+export function rowPlaces(layout: GeometrySource): { tops: ArrayLike<number>; heights: ArrayLike<number> } {
+  if (!("geometry" in layout)) return layout;
+  const geometry = layout.geometry;
+  let kept = places.get(geometry);
+  if (!kept) {
+    const tops = new Float64Array(geometry.count);
+    const heights = new Float64Array(geometry.count);
+    geometry.scan(0, geometry.count, (index, top, height) => {
+      tops[index] = top;
+      heights[index] = height;
+    });
+    kept = { tops, heights };
+    places.set(geometry, kept);
+  }
+  return kept;
+}
+
 /// The first row whose place, height, identity or kind on the map differs between two drawn states:
 /// a draw whose rows all match the last one's is skipped. A new object for the same row (a token)
 /// is no change.
 export function firstChangedRow(
   rows: readonly AcpmuxRow[],
-  layout: ConversationLayout,
-  before: { rows: readonly AcpmuxRow[]; layout: ConversationLayout },
+  layout: GeometrySource,
+  before: { rows: readonly AcpmuxRow[]; layout: GeometrySource },
 ): number {
-  const count = Math.min(rows.length, layout.tops.length);
-  const kept = Math.min(count, before.rows.length, before.layout.tops.length);
+  const now = rowPlaces(layout);
+  const prior = rowPlaces(before.layout);
+  const count = Math.min(rows.length, now.tops.length);
+  const kept = Math.min(count, before.rows.length, prior.tops.length);
   for (let index = 0; index < kept; index += 1) {
-    if (layout.tops[index] !== before.layout.tops[index] || layout.heights[index] !== before.layout.heights[index])
-      return index;
+    if (now.tops[index] !== prior.tops[index] || now.heights[index] !== prior.heights[index]) return index;
     const row = rows[index]!;
     const was = before.rows[index]!;
     if (row !== was && (row.id !== was.id || minimapKind(row) !== minimapKind(was))) return index;
@@ -104,7 +128,7 @@ const jitter = (seed: number, line: number) => 0.55 + (((seed + line * 17) % 41)
 export function paintMinimap(
   ctx: MinimapContext,
   rows: readonly AcpmuxRow[],
-  layout: ConversationLayout,
+  layout: GeometrySource,
   {
     width,
     height,
@@ -122,7 +146,8 @@ export function paintMinimap(
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
   if (scale <= 0) return 0;
-  const count = Math.min(rows.length, layout.tops.length);
+  const { tops, heights } = rowPlaces(layout);
+  const count = Math.min(rows.length, tops.length);
   const kinds = Array.from({ length: count }, (_, index) => minimapKind(rows[index]!));
   const pixel = 1 / dpr;
   let drawn = 0;
@@ -135,9 +160,9 @@ export function paintMinimap(
     let lastLine = -1;
     for (let index = 0; index < count; index += 1) {
       if (kinds[index] !== kind) continue;
-      const rowHeight = layout.heights[index]! * scale;
+      const rowHeight = heights[index]! * scale;
       if (rowHeight <= 0) continue;
-      const top = (layout.tops[index]! + THREAD_PADDING_TOP) * scale;
+      const top = (tops[index]! + THREAD_PADDING_TOP) * scale;
       if (top >= height) break;
       const line = Math.floor(top * dpr);
       // Under a device pixel: one pixel line, unless this kind already drew on it.

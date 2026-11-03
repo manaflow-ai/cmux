@@ -55,7 +55,11 @@ after it and they leave the pull request's default changes as reviewed
 workflow's token cannot see a private org membership (GitHub reports such a
 member as CONTRIBUTOR to it), so a receipt's author who reads as untrusted is
 looked up once: write, maintain or admin access to the repository trusts them
-too. An approving review of the head from a call owner in
+too. A call owner in .github/defaults-call-owners.json (read from the base) is
+trusted without that lookup: the lookup spends the workflow token's REST quota,
+which other jobs share, and a spent quota trusted nobody (#32983 stayed red on
+a call owner's SHIP, "API rate limit exceeded for installation"). A lookup that
+fails for any other reason than 404 is named in the error. An approving review of the head from a call owner in
 .github/defaults-call-owners.json other than the author still passes too. The
 `needs a call` label alone never passes. The workflow (pull_request_target
 only) runs this script and reads the owners file from the base branch, so a
@@ -689,17 +693,21 @@ def owners_for(text: str | None) -> list[str]:
     return [str(o) for o in json.loads(text).get(APP, [])]
 
 
-def repo_writers(repo: str, pull: Mapping[str, object], head: str) -> list[str]:
+def repo_writers(repo: str, pull: Mapping[str, object], head: str, known: Iterable[str] = (),
+                 failed: dict[str, str] | None = None) -> list[str]:
     """The authors of receipts on the head whose association reads as untrusted but who have write,
     maintain or admin access to the repository. GitHub hides a private org membership from the
     workflow's token, so such a member reads as CONTRIBUTOR here (#26153). One lookup per author;
-    a lookup that fails (404: not a collaborator) trusts nobody."""
+    an author in `known` (already trusted: the call owners) is not looked up. A lookup that fails
+    (404: not a collaborator) trusts nobody; any other failure (a spent rate limit) is also recorded
+    in `failed`, login to error, so the verdict can say the receipt was not checked."""
+    known = {k.lower() for k in known}
     logins: dict[str, str] = {}
     for item, _ in receipt_items(pull):
         author = item.get("author") or {}
         login = str(author.get("login") or "")
-        if (login and author.get("__typename") == "User" and item.get("authorAssociation") not in TRUSTED
-                and receipt_line(item, head)):
+        if (login and login.lower() not in known and author.get("__typename") == "User"
+                and item.get("authorAssociation") not in TRUSTED and receipt_line(item, head)):
             logins.setdefault(login.lower(), login)
     writers = []
     for login in logins.values():
@@ -710,6 +718,8 @@ def repo_writers(repo: str, pull: Mapping[str, object], head: str) -> list[str]:
         elif result.returncode != 0 and "404" not in result.stderr:
             print(f"::warning title=Defaults reviewer lookup failed::{command_text(login)}: "
                   f"{command_text(result.stderr.strip()[:200])}")
+            if failed is not None:
+                failed[login] = result.stderr.strip()[:200]
     return writers
 
 
@@ -810,7 +820,8 @@ def carried_ship(pull: Mapping[str, object], head: str, writers: Iterable[str], 
                 continue  # not only merges after it: a commit of the pull request's own came after the review
             # A private org member reads as untrusted; their receipts at this earlier head are looked up like the
             # head's, so their SHIP counts and their BLOCK still wins (#32027).
-            verdict = receipt_verdict(pull, earlier, [*writers, *(repo_writers(repo, pull, earlier) if repo else [])])
+            verdict = receipt_verdict(pull, earlier,
+                                      [*writers, *(repo_writers(repo, pull, earlier, writers) if repo else [])])
             if not verdict or verdict[0] != "ship":
                 continue
             base = git(history, "merge-base", tip, earlier)
@@ -1007,7 +1018,10 @@ def command_check(args: argparse.Namespace) -> int:
                 break
             time.sleep(5)
             pull = fetch_pull(args.repo, args.pr)
-    writers = repo_writers(args.repo, pull, head_sha) if pull is not None and args.repo else []
+    # The call owners come from the trusted base, so a receipt of theirs needs no REST lookup (#32983).
+    lookup_failed: dict[str, str] = {}
+    writers = [*owners, *(repo_writers(args.repo, pull, head_sha, owners, lookup_failed)
+                          if pull is not None and args.repo else [])]
     verdict = approval(owners, pull, writers) if pull is not None else None
     needed = [c for c in found if c not in free]
     if pull is not None and verdict is not None and needed and not verdict.approved and not verdict.blocked:
@@ -1039,6 +1053,10 @@ def command_check(args: argparse.Namespace) -> int:
         print(f"::error title=Default changes need a review::{len(needed)} default(s) changed; needs a comment or review "
               f"whose first line is `Review (<reviewer>): SHIP at {head_sha}` from a member (not a self-review), "
               f"or an approving review on {head_sha[:12]} from {who}")
+        for login, error in lookup_failed.items():
+            print(f"::error title=Defaults reviewer not checked::the receipt by {command_text(login)} was not counted: "
+                  f"GitHub did not say whether they have write access ({command_text(error)}); re-run this check "
+                  "when the API quota resets")
         return 1
     return 0
 
