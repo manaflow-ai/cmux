@@ -547,6 +547,8 @@ test("a large merged saved draft clears after sending", async () => {
   await settle();
   await settle();
   expect(prompt()).toBe(`${saved}\n\nx`);
+  expect(state.held).toBe(`${saved}\n\nx`);
+  expect(state.written.some((text) => !text.trim())).toBe(false);
   await act(async () => void handle.current!.send());
   await until(() => prompt() === "", "the send's clear");
   await settle();
@@ -555,7 +557,7 @@ test("a large merged saved draft clears after sending", async () => {
   await until(() => prompt() === "", "the cleared draft");
   await settle();
   expect(state.held).toBeUndefined();
-  expect(state.written.some((text) => !text.trim())).toBe(false);
+  expect(state.written.at(-1)).toBe("");
 });
 
 test("a read asked before an edit's write was answered never puts the old draft back", async () => {
