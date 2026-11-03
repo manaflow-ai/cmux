@@ -144,6 +144,16 @@ public final class HomeNativeFixture {
         return true
     }
 
+    /// Switches the fixture to its team chat, or with `team` false to the Chief's own chat, as Home's list does:
+    /// a new transcript view for the other conversation, and nothing posted (chat-switch frame recordings).
+    /// False before the conversation shows.
+    public func debugShowChat(team: Bool) -> Bool {
+        guard shown != nil else { return false }
+        // task-owner: one switch, ends when the other conversation's view is shown
+        Task { _ = await showChat(team: team) }
+        return true
+    }
+
     /// Holds the fixture's activity state for matching light/dark captures.
     /// No agent runs and no timer is installed; closing the fixture stops its store.
     public func debugTyping(_ on: Bool) -> Bool {
