@@ -39,12 +39,15 @@ public final class ChatMuteList {
 
     public func setMuted(_ on: Bool, mac: String, session: String) {
         let key = Self.key(mac: mac, session: session)
-        guard on != keys.contains(key) else { return }
-        if on { keys.insert(key) } else { keys.remove(key) }
+        // Before the stored list loads, the set in memory is not the truth yet: every edit is
+        // kept (an unmute of a stored mute included) and applied on top of it in `load`.
         if early != nil {
             early?[key] = on
+            if on { keys.insert(key) } else { keys.remove(key) }
             return
         }
+        guard on != keys.contains(key) else { return }
+        if on { keys.insert(key) } else { keys.remove(key) }
         save?(keys)
     }
 }
