@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "ef240d107b99c34bf160fbc2aca37a7e60ddc4ea405dc1e9075d6bc325d94a85";
+pub const ir_sha256 = "47637ebe3c71d9707dfc8b69874b829737f43a3d66914b589b00946abe0a2892";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1400,6 +1400,7 @@ pub const NewScreenResult = struct {
     screen: wire.Field(Id) = .absent,
     surface: Id,
     terminal_id: wire.Field([]const u8) = .absent,
+    terminal_incarnation: wire.Field([]const u8) = .absent,
 };
 
 pub const NoteSizeActivityResult = struct {

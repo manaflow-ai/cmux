@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ef240d107b99c34bf160fbc2aca37a7e60ddc4ea405dc1e9075d6bc325d94a85. */
+/* cmux-tui mux protocol 12, IR 47637ebe3c71d9707dfc8b69874b829737f43a3d66914b589b00946abe0a2892. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -747,6 +747,7 @@ export type NewScreenResult = {
   "screen"?: (Id) | null;
   "surface": Id;
   "terminal_id"?: (string) | null;
+  "terminal_incarnation"?: (string) | null;
 };
 
 export type NoteSizeActivityResult = {

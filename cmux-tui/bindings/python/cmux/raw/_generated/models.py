@@ -1181,6 +1181,7 @@ class NewScreenResult:
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     screen: Union[Id, None, MissingType] = field(default=MISSING)
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

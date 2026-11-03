@@ -15,6 +15,7 @@ public final class NewScreenResult implements WireValue {
     private final Field<UInt64> screen;
     private final UInt64 surface;
     private final Field<String> terminalId;
+    private final Field<String> terminalIncarnation;
 
     private NewScreenResult(Builder builder) {
         this.pane = builder.pane;
@@ -22,6 +23,7 @@ public final class NewScreenResult implements WireValue {
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
         this.terminalId = builder.terminalId;
+        this.terminalIncarnation = builder.terminalIncarnation;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -30,6 +32,7 @@ public final class NewScreenResult implements WireValue {
     public Field<UInt64> screen() { return screen; }
     public UInt64 surface() { return surface; }
     public Field<String> terminalId() { return terminalId; }
+    public Field<String> terminalIncarnation() { return terminalIncarnation; }
 
     public static NewScreenResult fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "NewScreenResult");
@@ -48,6 +51,10 @@ public final class NewScreenResult implements WireValue {
         if (!Wire.isMissing(rawTerminalId)) {
             builder.terminalId(rawTerminalId == null ? null : Wire.string(rawTerminalId, "NewScreenResult.terminal_id"));
         }
+        Object rawTerminalIncarnation = Wire.optional(object, "terminal_incarnation");
+        if (!Wire.isMissing(rawTerminalIncarnation)) {
+            builder.terminalIncarnation(rawTerminalIncarnation == null ? null : Wire.string(rawTerminalIncarnation, "NewScreenResult.terminal_incarnation"));
+        }
         return builder.build();
     }
 
@@ -58,17 +65,18 @@ public final class NewScreenResult implements WireValue {
         Wire.put(object, "screen", screen);
         Wire.put(object, "surface", surface);
         Wire.put(object, "terminal_id", terminalId);
+        Wire.put(object, "terminal_incarnation", terminalIncarnation);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewScreenResult that)) return false;
-        return Objects.equals(pane, that.pane) && Objects.equals(screen, that.screen) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId);
+        return Objects.equals(pane, that.pane) && Objects.equals(screen, that.screen) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(pane, screen, surface, terminalId); }
+    public int hashCode() { return Objects.hash(pane, screen, surface, terminalId, terminalIncarnation); }
 
     @Override
     public String toString() { return "NewScreenResult" + toWire(); }
@@ -79,6 +87,7 @@ public final class NewScreenResult implements WireValue {
         private UInt64 surface;
         private boolean surfaceSet;
         private Field<String> terminalId = Field.omitted();
+        private Field<String> terminalIncarnation = Field.omitted();
 
         public Builder pane(UInt64 value) {
             this.pane = Field.ofNullable(value);
@@ -95,6 +104,10 @@ public final class NewScreenResult implements WireValue {
         }
         public Builder terminalId(String value) {
             this.terminalId = Field.ofNullable(value);
+            return this;
+        }
+        public Builder terminalIncarnation(String value) {
+            this.terminalIncarnation = Field.ofNullable(value);
             return this;
         }
         public NewScreenResult build() { return new NewScreenResult(this); }

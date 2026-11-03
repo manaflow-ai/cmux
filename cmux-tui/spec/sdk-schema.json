@@ -3547,6 +3547,15 @@
      "presence": "optional",
      "nullable": true,
      "since": 9
+    },
+    "terminal_incarnation": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 9
     }
    },
    "additional_properties": false

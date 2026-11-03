@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "ef240d107b99c34bf160fbc2aca37a7e60ddc4ea405dc1e9075d6bc325d94a85";
+inline constexpr std::string_view kProtocolIrSha256 = "47637ebe3c71d9707dfc8b69874b829737f43a3d66914b589b00946abe0a2892";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -4084,6 +4084,7 @@ struct NewScreenResult {
     Field<Id> screen{};
     Id surface{};
     Field<std::string> terminal_id{};
+    Field<std::string> terminal_incarnation{};
     friend bool operator==(const NewScreenResult&, const NewScreenResult&) = default;
 };
 

@@ -5825,6 +5825,11 @@ Result<Json> Codec<NewScreenResult>::encode(const NewScreenResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("terminal_id", std::move(encoded).value());
     }
+    if (!value.terminal_incarnation.is_absent()) {
+        auto encoded = encode_value(value.terminal_incarnation);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_incarnation", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -5869,6 +5874,16 @@ Result<NewScreenResult> Codec<NewScreenResult>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_terminal_id);
             if (!decoded) return std::move(decoded).error();
             result.terminal_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_terminal_incarnation = value.find("terminal_incarnation");
+    if (field_terminal_incarnation) {
+        if (field_terminal_incarnation->is_null()) {
+            result.terminal_incarnation = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_terminal_incarnation);
+            if (!decoded) return std::move(decoded).error();
+            result.terminal_incarnation = Field<std::string>(std::move(decoded).value());
         }
     }
     return result;
