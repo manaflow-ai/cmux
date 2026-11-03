@@ -3519,7 +3519,7 @@
     "subtitle": "إصدارات تجريبية من تطبيق cmux القادم",
     "metaTitle": "cmux NEXT NIGHTLY — إصدارات تجريبية",
     "metaDescription": "نزّل cmux NEXT NIGHTLY، معاينة لتطبيق cmux القادم تُبنى تلقائيًا من أحدث commit. يعمل بجانب cmux مع تحديثات تلقائية خاصة به.",
-    "description": "cmux NEXT NIGHTLY هو معاينة للإصدار القادم من cmux، يُبنى تلقائيًا من أحدث commit. له معرّف حزمة خاص به، لذا يعمل بجانب cmux وcmux NIGHTLY دون تعارض. يتطلب جهاز Mac بشريحة Apple.",
+    "description": "cmux NEXT NIGHTLY هو معاينة للإصدار القادم من cmux، يُبنى تلقائيًا من أحدث commit. يُثبَّت باسم cmux NIGHTLY (معرّف الحزمة com.cmuxterm.app.nightly)، لذا يحل محل cmux NIGHTLY ويعمل بجانب cmux. يتطلب جهاز Mac بشريحة Apple.",
     "download": "نزّل NEXT NIGHTLY لنظام Mac",
     "warning": "قد تحتوي إصدارات NEXT NIGHTLY على أخطاء أو ميزات غير مكتملة. إذا حدث خلل، أبلغ عنه على <githubLink>GitHub</githubLink> أو في <discordLink>#nightly-bugs على Discord</discordLink>، وعُد إلى الإصدار المستقر."
   },

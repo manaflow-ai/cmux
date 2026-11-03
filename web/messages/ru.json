@@ -3522,7 +3522,7 @@
     "subtitle": "Предварительные сборки нового приложения cmux",
     "metaTitle": "cmux NEXT NIGHTLY — предварительные сборки",
     "metaDescription": "Скачайте cmux NEXT NIGHTLY — предварительную версию нового приложения cmux, автоматически собираемую из последнего коммита. Работает рядом с cmux и обновляется сама.",
-    "description": "cmux NEXT NIGHTLY — предварительная версия следующего cmux, автоматически собираемая из последнего коммита. У неё собственный bundle ID, поэтому она работает рядом с cmux и cmux NIGHTLY без конфликтов. Нужен Mac с чипом Apple.",
+    "description": "cmux NEXT NIGHTLY — предварительная версия следующего cmux, автоматически собираемая из последнего коммита. Она устанавливается как cmux NIGHTLY (bundle ID com.cmuxterm.app.nightly), поэтому заменяет cmux NIGHTLY и работает рядом с cmux. Нужен Mac с чипом Apple.",
     "download": "Скачать NEXT NIGHTLY для Mac",
     "warning": "Сборки NEXT NIGHTLY могут содержать ошибки или незавершённые функции. Если что-то сломалось, сообщите об этом на <githubLink>GitHub</githubLink> или в <discordLink>#nightly-bugs в Discord</discordLink> и вернитесь к стабильной версии."
   },
