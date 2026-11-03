@@ -574,58 +574,134 @@ class SwitchStepTests(unittest.TestCase):
             self.assertIn(words, str(caught.exception))
 
 
+# Sweep sweep-b08cc6f-120x2 on cmux22 (build 8e149f2e, feat b08cc6f4d398, kit 5f254a9c6b4): px_agent failed in all 4
+# journeys with an agent pane. px-col-drag-4's result.json cut both texts at 300 characters; these are them, verbatim.
+REAL_ROW_TEXT = ('{"attach": "live", "blank": false, "cold_keep_alive": false, "collapsed": false, "content_in_window": true, '
+                 '"content_installed": true, "content_size": "434x764", "content_visible": true, "focused": true, "font_scale": 1, '
+                 '"foreign_pages": 0, "frame_held": false, "grid": {"cell_height": 17, "cell_widt')
+REAL_ANSWER_TEXT = ('{"action": "palette.newAgentChat", "args": {}, "created": [], "idempotency_key": null, "ran": true, "resolved": '
+                    '{"id": "pane_3320ea05eb0244f6b9600af0454137f2", "key": "pane_3320ea05eb0244f6b9600af0454137f2", "kind": "pane"}, '
+                    '"result": {"pane": "pane_3320ea05eb0244f6b9600af0454137f2", "tab": "tab_fa5')
+REAL_PANE = "pane_3320ea05eb0244f6b9600af0454137f2"
+CHAT_TAB = "tab_fa5" + "0" * 29  # the run's text stops at "tab_fa5"
+TERMINAL_TAB = "tab_p2_terminal"  # after the cut: the tab the pane showed before
+# The row in full, its keys sorted as the app sends them. Up to the cut, the run's; after it, the fields
+# SurfaceDiagnosticsReport.make and PaneSurfaceStatus.json add for a terminal tab at b08cc6f4d398. "attach", "grid",
+# "font_scale" and "frame_held" come only from a terminal tab (`case .terminal(let entry)`): the pane showed its terminal.
+REAL_ROW = {"attach": "live", "blank": False, "cold_keep_alive": False, "collapsed": False, "content_in_window": True,
+            "content_installed": True, "content_size": "434x764", "content_visible": True, "focused": True, "font_scale": 1,
+            "foreign_pages": 0, "frame_held": False,
+            "grid": {"cell_height": 17, "cell_width": 8, "frame_height": 764, "frame_width": 434, "frame_x": 852, "frame_y": 74,
+                     "origin_x": 856, "origin_y": 78, "window": "win_1"},
+            "kind": "terminal", "last_frame_holds": 0, "link": "connected", "local_history_mismatch": 0, "local_snapshots": 0,
+            "pane": REAL_PANE, "phase": "live", "presence": "visible", "selected_tab": TERMINAL_TAB, "shown_tab": TERMINAL_TAB,
+            "skipped_images": 0, "snapshots": 0, "surface": {"exists": True, "grid": "54x44", "paused": None},
+            "surface_swaps": 0, "visible": True, "window_drawable": True, "window_occluded": False, "workspace": "ws_case"}
+# The same pane once the chat tab is selected: TabContent.agent reports kind "agent" (PaneController+Diagnostics.swift),
+# no terminal fields; its content_visible is content_installed.
+AGENT_ROW = {"blank": False, "cold_keep_alive": False, "collapsed": False, "content_in_window": True, "content_installed": True,
+             "content_size": "434x764", "content_visible": True, "focused": True, "foreign_pages": 0, "kind": "agent",
+             "pane": REAL_PANE, "phase": "live", "presence": "visible", "selected_tab": CHAT_TAB, "shown_tab": CHAT_TAB,
+             "visible": True, "window_drawable": True, "window_occluded": False, "workspace": "ws_case"}
+REAL_ANSWER = {"action": "palette.newAgentChat", "args": {}, "created": [], "idempotency_key": None, "ran": True,
+               "resolved": {"id": REAL_PANE, "key": REAL_PANE, "kind": "pane"},
+               "result": {"pane": REAL_PANE, "tab": CHAT_TAB, "workspace": "ws_case"}}
+
+
+class TargetedChatApp(FakeApp):
+    """The app at b08cc6f4d398 for px_agent. palette.newAgentChat aimed at a pane a window shows opens the chat tab in it
+    and leaves the selection alone (AgentHandlers.openTargetedChat: AgentChatPlacement.openTab(selects: shown == nil),
+    #23085), so debug.surfaces keeps the pane's terminal (REAL_ROW); with `selects` (a pane no window shows) the app selects
+    it. tab.focus aimed at the chat tab (a focus action: its run may change the selection) selects it: AGENT_ROW."""
+
+    def __init__(self, selects=False, honours_focus=True, answer=None):
+        super().__init__()
+        self.selected, self.chat = TERMINAL_TAB, None
+        self.selects, self.honours_focus = selects, honours_focus
+        self.answer = REAL_ANSWER if answer is None else answer
+
+    def rpc(self, method, params=None, timeout=None):
+        params = params or {}
+        if method == "action.run" and params.get("action") == "palette.newAgentChat":
+            self.calls.append((method, params))
+            self.chat = CHAT_TAB
+            if self.selects:
+                self.selected = CHAT_TAB
+            return json.loads(json.dumps(self.answer))
+        if method == "action.run" and params.get("action") == "tab.focus":
+            self.calls.append((method, params))
+            if self.honours_focus and self.chat and params.get("target") == f"tab:{self.chat}":
+                self.selected = self.chat
+            return {"action": "tab.focus", "args": {}, "created": [], "ran": True,
+                    "resolved": {"id": str(params.get("target", ""))[4:], "kind": "tab"}}
+        if method == "debug.surfaces":
+            self.calls.append((method, params))
+            row = AGENT_ROW if self.selected == CHAT_TAB else REAL_ROW
+            return {"windows": [{"window": "1", "panes": [json.loads(json.dumps(row))]}]}
+        return super().rpc(method, params, timeout)
+
+
 class AgentPaneTests(unittest.TestCase):
-    """px_agent: palette.newAgentChat aimed at the named pane (target pane:<id>, no focus: the app's targeted path opens
-    the chat tab in that pane, AgentHandlers.openTargetedChat; with focus or no target a script's chat goes to a new
-    left chat dock, NewChatPlacement .newDock), then the pane's selected tab is the chat (debug.surfaces kind
-    conversation) and the pane is focused again."""
+    """px_agent: palette.newAgentChat aimed at the named pane (target pane:<id>, no focus: with focus or no target a
+    script's chat goes to a new left chat dock, NewChatPlacement .newDock). The run names the chat tab; in a pane a window
+    shows the app does not select it, so px_agent selects it (tab.focus), waits until debug.surfaces reports that tab
+    shown with kind "agent" (the app's name for an agent chat; "conversation" is a native Home conversation tab), and
+    focuses the pane again. Sweep sweep-b08cc6f-120x2 (cmux22) failed all 4 agent journeys: the kit waited for
+    "conversation" and never selected the tab."""
 
-    def test_opens_the_chat_in_its_pane(self):
-        class App(FakeApp):
-            def __init__(self):
-                super().__init__()
-                self.kind = "terminal"
+    def setUp(self):
+        self.clock = FakeClock()
+        self.saved = (X.D.now, X.time)
+        X.D.now, X.time = self.clock.monotonic, self.clock
 
-            def rpc(self, method, params=None, timeout=None):
-                params = params or {}
-                if method == "action.run" and params.get("action") == "palette.newAgentChat":
-                    self.calls.append((method, params))
-                    self.kind = "conversation"
-                    return {"ran": True, "tab": "tab_chat"}
-                if method == "debug.surfaces":
-                    self.calls.append((method, params))
-                    return {"windows": [{"window": 1, "panes": [{"pane": "pane-b", "focused": True, "kind": self.kind,
-                                                                 "selected_tab": "tab_chat"}]}]}
-                return super().rpc(method, params, timeout)
+    def tearDown(self):
+        X.D.now, X.time = self.saved
 
-        app = App()
+    def journey(self, app):
         j = FakeJourney(app, tempfile.mkdtemp())
-        out = X.step_px_agent(j, {"pane": "p1", "timeout": 5})
-        run = next(p for m, p in app.calls if m == "action.run")
-        self.assertEqual(run["target"], "pane:pane-b")
-        self.assertNotIn("focus", run)
-        self.assertEqual(run["args"], {})
-        self.assertEqual(out["kind"], "conversation")
-        self.assertIn(("cmux", ("pane", "pane-b", "focus")), app.calls)
+        j.ext_panes["p2"] = {"pane": REAL_PANE, "term": "t-c", "host_pid": 1, "window": "w1"}
+        return j
 
-    def test_a_chat_that_never_shows_fails(self):
-        class App(FakeApp):
-            def rpc(self, method, params=None, timeout=None):
-                if method == "action.run":
-                    return {"ran": True}
-                if method == "debug.surfaces":
-                    return {"windows": [{"window": 1, "panes": [{"pane": "pane-b", "focused": True, "kind": "terminal"}]}]}
-                return super().rpc(method, params, timeout)
+    def runs(self, app, action):
+        return [p for m, p in app.calls if m == "action.run" and p.get("action") == action]
 
-        clock = FakeClock()
-        saved = (X.D.now, X.time)
-        X.D.now, X.time = clock.monotonic, clock
-        try:
-            with self.assertRaises(D.StepError) as caught:
-                X.step_px_agent(FakeJourney(App(), tempfile.mkdtemp()), {"pane": "p1", "timeout": 5})
-        finally:
-            X.D.now, X.time = saved
-        self.assertIn("p1", str(caught.exception))
+    def test_the_rows_are_the_runs(self):
+        self.assertEqual(json.dumps(REAL_ROW)[:300], REAL_ROW_TEXT)
+        self.assertEqual(json.dumps(REAL_ANSWER)[:300], REAL_ANSWER_TEXT)
+
+    def test_selects_the_chat_tab_the_open_left_unselected(self):
+        app = TargetedChatApp()
+        out = X.step_px_agent(self.journey(app), {"pane": "p2", "timeout": 20})
+        self.assertEqual(self.runs(app, "palette.newAgentChat"),
+                         [{"action": "palette.newAgentChat", "target": f"pane:{REAL_PANE}", "args": {}}])
+        self.assertEqual(self.runs(app, "tab.focus"), [{"action": "tab.focus", "target": f"tab:{CHAT_TAB}"}])
+        self.assertEqual((out["kind"], out["tab"], out["pane"]), ("agent", CHAT_TAB, REAL_PANE))
+        self.assertEqual(app.calls[-1], ("cmux", ("pane", REAL_PANE, "focus")))
+        self.assertLess(self.clock.t - 1000.0, 1.0)  # shown on the first read after the select: no 20 s wait
+
+    def test_a_chat_the_app_selected_needs_no_select(self):
+        app = TargetedChatApp(selects=True)
+        out = X.step_px_agent(self.journey(app), {"pane": "p2"})
+        self.assertEqual((out["kind"], out["tab"]), ("agent", CHAT_TAB))
+        self.assertEqual(self.runs(app, "tab.focus"), [])
+
+    def test_a_chat_that_never_shows_fails_with_the_fields_that_matter(self):
+        app = TargetedChatApp(honours_focus=False)
+        with self.assertRaises(D.StepError) as caught:
+            X.step_px_agent(self.journey(app), {"pane": "p2", "timeout": 20})
+        text = str(caught.exception)
+        self.assertIn(CHAT_TAB, text)
+        self.assertIn('"kind": "terminal"', text)
+        self.assertIn(f'"selected_tab": "{TERMINAL_TAB}"', text)
+        self.assertGreaterEqual(self.clock.t - 1000.0, 20.0)  # the same 20 s as before
+        self.assertLess(self.clock.t - 1000.0, 21.0)
+
+    def test_an_answer_without_a_tab_fails_at_once(self):
+        app = TargetedChatApp(answer={"action": "palette.newAgentChat", "ran": True, "result": {"pane": REAL_PANE}})
+        with self.assertRaises(D.StepError) as caught:
+            X.step_px_agent(self.journey(app), {"pane": "p2", "timeout": 20})
+        self.assertIn("no chat tab", str(caught.exception))
+        self.assertLess(self.clock.t - 1000.0, 1.0)
 
 
 class SwitchVariantTests(unittest.TestCase):
