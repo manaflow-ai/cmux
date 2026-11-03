@@ -1120,6 +1120,118 @@ fn paired_mac_takes_ios_work_from_a_busy_mac_or_a_linux_chief() {
 }
 
 #[test]
+fn older_cloud_daemon_keeps_the_configured_cloud_harness() {
+    // An old peer either refuses scoped metadata (no catalog in this fake)
+    // or answers without harness rows. Neither proves a signed-out login.
+    for old_answer in [None, Some(serde_json::json!({"peer": "chief-sub-a1"}))] {
+        let mut h = Harness::new(default_script());
+        h.agents.hold(true);
+        if let Some(answer) = old_answer {
+            h.agents
+                .inner
+                .lock()
+                .unwrap()
+                .peer_catalogs
+                .insert("chief-sub-a1".into(), answer);
+        }
+        let vms = Arc::new(PerAgentVms::default());
+        let sp = Arc::new(
+            Arc::try_unwrap(spawner(
+                &h,
+                Some(CloudPlacement {
+                    peer: optchat_chief::subagents::PER_AGENT.into(),
+                    harness: "codex".into(),
+                    ..cloud()
+                }),
+            ))
+            .ok()
+            .unwrap()
+            .with_cloud_vms(Some(vms.clone())),
+        );
+        h.brain.set_cloud_vms(Some(vms), Duration::from_secs(3600));
+        set_cloud(&mut h, &sp, optchat_chief::subagents::PER_AGENT);
+        let answer = run(&mut h, move || {
+            sp.spawn(vec!["build a hello web page".into()], None)
+        })
+        .unwrap();
+        let specs = subs(&h);
+        assert_eq!(specs.len(), 1, "{answer}");
+        assert_eq!(specs[0].0.peer.as_deref(), Some("chief-sub-a1"));
+        assert_eq!(specs[0].0.harness, "codex", "{answer}");
+        assert!(!answer.contains("using default"), "{answer}");
+    }
+}
+
+#[test]
+fn a_paired_agent_gets_the_chiefs_subagent_instructions() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(&h, None))
+            .ok()
+            .unwrap()
+            .with_cloud_text("CHIEF SUBAGENT INSTRUCTIONS: report the result to Chief".into()),
+    );
+    h.agents.inner.lock().unwrap().machine_status = Some(serde_json::json!({
+        "here": {"os": "macos", "pressure": {"ok": true}},
+        "peers": [{"name": "mini", "connected": true, "health": {"os": "macos", "pressure": {"ok": true}}}]
+    }));
+    let answer = run(&mut h, move || {
+        sp.spawn_placed(
+            vec!["build a hello iOS view".into()],
+            None,
+            None,
+            Some("mini".into()),
+        )
+    })
+    .unwrap();
+    let prompts = subs(&h);
+    assert_eq!(prompts.len(), 1, "{answer}");
+    assert!(
+        prompts[0].1.contains("CHIEF SUBAGENT INSTRUCTIONS"),
+        "{}",
+        prompts[0].1
+    );
+    assert!(prompts[0].1.contains("build a hello iOS view"));
+    assert!(!prompts[0].1.contains("not on the user's Mac"));
+}
+
+#[test]
+fn remote_launch_uses_the_resolved_profile_whose_login_was_checked() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    {
+        let mut a = h.agents.inner.lock().unwrap();
+        a.machine_status = Some(
+            serde_json::json!({"here": {"os": "macos"}, "peers": [{"name": "mini", "connected": true, "health": {"os": "macos", "pressure": {"ok": true}}}]}),
+        );
+        a.peer_catalogs.insert(
+            "mini".into(),
+            serde_json::json!({"harnesses": {"my-direct-login": {
+                "kind": "claude-stdio", "argv": ["/usr/local/bin/claude"], "family": "claude"
+            }}}),
+        );
+        a.harness_health.insert(
+            "mini".into(),
+            serde_json::json!({"harnesses": [{"id": "my-direct-login", "auth": "signedIn"}]}),
+        );
+    }
+    let sp = spawner(&h, None);
+    let answer = run(&mut h, move || {
+        sp.spawn_placed(
+            vec!["build a hello iOS view".into()],
+            None,
+            None,
+            Some("mini".into()),
+        )
+    })
+    .unwrap();
+    let specs = subs(&h);
+    assert_eq!(specs.len(), 1, "{answer}");
+    assert_eq!(specs[0].0.harness, "my-direct-login", "{answer}");
+}
+
+#[test]
 fn chosen_peer_login_blocks_an_automatic_harness_switch() {
     use optchat_chief::acpmux::Family;
     let mut h = Harness::new(default_script());
