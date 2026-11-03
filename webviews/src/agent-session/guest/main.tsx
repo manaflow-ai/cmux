@@ -1,5 +1,5 @@
 // The guest page's entry (vite.config.guest-page.mjs; scripts/cmux-next/build-guest-page-web.sh
-// builds it for the room to serve at /g/<share_id>). The page carries the agent pane's own
+// builds it for the room to serve at /g/<share_id>, and at /i/<share_id> for an invite). The page carries the agent pane's own
 // stylesheet, the one the app ships and the gallery draws (dev-server/galleryHost.ts), so the
 // transcript looks as the owner sees it.
 import "virtual:cmux-gallery/agent-pane.css";
@@ -8,7 +8,16 @@ import { createRoot } from "react-dom/client";
 import { UiProvider } from "../../ui/UiProvider";
 import { AcpmuxDirectClient, nextFrame } from "../acpmux/direct";
 import { GuestPage } from "./GuestPage";
-import { attemptId, joinedAs, joinedName, redeemOverFetch, rememberJoined, takeGuestLink } from "./redeem";
+import {
+  acceptOverFetch,
+  attemptId,
+  joinedAs,
+  joinedName,
+  joinedRole,
+  redeemOverFetch,
+  rememberJoined,
+  takeGuestLink,
+} from "./redeem";
 import { followBrowserTheme } from "./theme";
 import { installGuestHost } from "./guestHost";
 
@@ -36,10 +45,13 @@ createRoot(root).render(
       secret={link?.secret}
       guestId={link ? joinedAs(shareId, storage) : undefined}
       name={link ? joinedName(shareId, storage) : undefined}
+      role={link ? joinedRole(shareId, storage) : undefined}
       storage={storage}
       redeem={redeemOverFetch()}
+      invite={link?.invite === true}
+      accept={acceptOverFetch()}
       attempt={() => attemptId(shareId, storage)}
-      onJoined={(guestId, name) => rememberJoined(shareId, guestId, storage, name)}
+      onJoined={(guestId, name, role) => rememberJoined(shareId, guestId, storage, name, role)}
       socketUrl={socketUrl}
     />
   </UiProvider>,

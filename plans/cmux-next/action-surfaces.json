@@ -6244,7 +6244,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "d",
+        "key" : "x",
         "modifiers" : [
           "ctrl",
           "cmd"
@@ -6306,7 +6306,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "d",
+        "key" : "x",
         "modifiers" : [
           "ctrl",
           "shift",
@@ -10645,6 +10645,34 @@
       "palette_suggested" : null,
       "title" : "Archive Chief",
       "title_key" : "action.home.archiveChief",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home primary-chief",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.setPrimaryChief",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "noTargetSurface",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Make Primary Chief",
+      "title_key" : "action.home.setPrimaryChief",
       "title_table" : "HomeActions"
     },
     {
@@ -15650,7 +15678,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "d",
+        "key" : "x",
         "modifiers" : [
           "opt",
           "cmd"
@@ -15684,7 +15712,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "d",
+        "key" : "x",
         "modifiers" : [
           "opt",
           "shift",
@@ -25461,6 +25489,62 @@
       "palette_suggested" : null,
       "title" : "Remove Guest",
       "title_key" : "action.agent.share.kick",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "share invite",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agent.share.invite",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Invite People to Chat…",
+      "title_key" : "action.agent.share.invite",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "share uninvite",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agent.share.uninvite",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Remove Invited Person",
+      "title_key" : "action.agent.share.uninvite",
       "title_table" : "ActionCatalog"
     },
     {

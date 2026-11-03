@@ -39,6 +39,7 @@ mod nightly;
 mod open;
 mod open_link;
 mod page;
+mod renderers;
 mod right;
 mod run;
 mod settings;
@@ -81,7 +82,7 @@ const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
 /// A run that waits for a person's answer in the app (an agent's cookie
 /// import shows a consent panel, then macOS asks for a password; Invite to
 /// Team waits for Send in its dialog; an agent's or script's Share Chat with
-/// Guest waits for the owner's Make Link, #30263): the app
+/// Guest or Invite People waits for the owner's Make Link or Invite, #30263): the app
 /// bounds it at 200 s (`ActionDescriptor.personDeadline`).
 pub(super) const PERSON_RUN_TIMEOUT: Duration = Duration::from_secs(210);
 /// The CLI names and ids of the actions the app marks `waitsForPerson` (the
@@ -104,6 +105,8 @@ const PERSON_ACTIONS: &[&str] = &[
     "workspace.importClassic",
     "share chat",
     "agent.share",
+    "share invite",
+    "agent.share.invite",
 ];
 
 /// How long the CLI or `cmux mcp` waits for a waiting `action.run` of `action`.
@@ -156,6 +159,10 @@ pub(super) enum AppCommand {
     Screenshot {
         params: Value,
         out: Option<String>,
+    },
+    /// `app renderers`: `renderers.list`, joined into one row per renderer pid (app/renderers.rs).
+    Renderers {
+        params: Value,
     },
     /// `settings list|schema|validate` (app/settings.rs).
     Settings(settings::Command),
@@ -264,6 +271,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("ping")) => call("system.ping", json!({})),
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
+        ("app", Some("renderers")) => renderers::parse(rest)?,
         ("window", Some("list")) => AppCommand::Call {
             method: "snapshot.get",
             params: json!({}),
@@ -773,6 +781,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         }
         AppCommand::DebugCall { method, params } => {
             return Ran::Done(call::run(global, stream, &method, params));
+        }
+        AppCommand::Renderers { params } => {
+            return Ran::Done(renderers::run(global, stream, params));
         }
         AppCommand::Settings(command) => return Ran::Done(command.run_on(global, stream)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),

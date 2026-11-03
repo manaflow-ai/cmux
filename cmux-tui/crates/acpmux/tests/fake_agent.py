@@ -237,6 +237,10 @@ def codex_prompt(rid, params):
 
 # FAKE_CLAUDE_STEER: sessions with a running turn.
 claude_turns = set()
+# FAKE_CLAUDE_STEER with FAKE_STEER_STEP: steers not read yet, by their hub promptId, and those
+# taken back (`_acpmux/steer_withdraw`, as Claude Code's cancel_async_message drops one).
+claude_unread = set()
+claude_withdrawn = set()
 
 
 def claude_prompt(rid, params):
@@ -252,9 +256,17 @@ def claude_prompt(rid, params):
         # FAKE_STEER_STEP=<fifo>: the steer is read at the agent's next tool step, which the
         # test makes by writing to the FIFO, as Claude Code answers a steer only there.
         step = os.environ.get("FAKE_STEER_STEP")
+        prompt_id = (params.get("_meta") or {}).get("promptId")
         if step:
+            with lock:
+                claude_unread.add(prompt_id)
             with open(step) as gate:
                 gate.read()
+            with lock:
+                claude_unread.discard(prompt_id)
+                if prompt_id in claude_withdrawn:
+                    send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": "steer: withdrawn before the agent read it"}})
+                    return
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "steered"}})
         return
     try:
@@ -1693,6 +1705,15 @@ def main():
                     clock.sleep(0.02)
         elif m == "session/cancel":
             cancelled.add(params.get("sessionId"))
+        elif m == "_acpmux/steer_withdraw" and os.environ.get("FAKE_CLAUDE_STEER") == "1":
+            # A steer still unread is dropped; one read already (or none) stays.
+            with lock:
+                prompt_id = params.get("promptId")
+                # FAKE_STEER_KEEP=1: it cannot take one back (codex-acp; a batched line).
+                dropped = prompt_id in claude_unread and os.environ.get("FAKE_STEER_KEEP") != "1"
+                if dropped:
+                    claude_withdrawn.add(prompt_id)
+            send({"jsonrpc": "2.0", "id": rid, "result": {"withdrawn": dropped}})
         elif rid is not None:
             send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": "no such method"}})
 

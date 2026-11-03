@@ -23,6 +23,7 @@
 //! auth over the [`client::Http`] and [`client::Store`] traits), [`github`]
 //! (GitHub tokens for the machine's git and `gh` over the agent socket),
 //! [`github_repos`] (repository discovery through the platform connector),
+//! [`github_status`] (the person's connected GitHub account, no token),
 //! [`handoff`] (hand-off reports for the machine's agent sessions, over the
 //! same socket), `github_minter` (the thread that answers both off the poll
 //! loop),
@@ -40,6 +41,7 @@ pub mod github;
 #[cfg(unix)]
 pub mod github_minter;
 pub mod github_repos;
+pub mod github_status;
 pub mod handoff;
 pub mod private_bootstrap;
 pub mod receiver;
@@ -69,6 +71,8 @@ mod trajectory_tests;
 
 #[cfg(test)]
 mod github_repos_tests;
+#[cfg(test)]
+mod github_status_tests;
 #[cfg(test)]
 mod receiver_client_tests;
 #[cfg(all(test, target_os = "linux"))]
