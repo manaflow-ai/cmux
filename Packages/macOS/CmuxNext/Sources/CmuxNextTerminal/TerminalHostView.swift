@@ -18,8 +18,15 @@ public final class TerminalHostView: NSView {
     var theme: GhosttyThemeConfig? {
         didSet { paintBackground() }
     }
-    /// Shown over the last screen while the link is down (click-through).
-    private let banner = TerminalStatusBanner()
+    /// The label over the last screen while the link is down (click-through), built the first time
+    /// a label shows: a new terminal's "connected" or quick "Restoring…" builds and shows nothing.
+    private lazy var statusLabel = TerminalStatusLabel(clock: statusClock, install: { [weak self] banner in
+        guard let self else { return }
+        // Where it stood when the host built it first: above the scroller and the accessory,
+        // below the find bar, the buttons and the top overlay.
+        addSubview(banner, positioned: .above, relativeTo: bottomAccessory ?? scroller)
+    }, didReveal: { [weak self] in self?.needsLayout = true })
+    private let statusClock: any Clock<Duration>
     /// The scroller: thin, shown only while scrolling (SCROLLBARS-THIN).
     private let scroller = TerminalScroller()
     private var shownStatus: TerminalConnectionStatus = .connected
@@ -84,7 +91,7 @@ public final class TerminalHostView: NSView {
             oldValue?.removeFromSuperview()
             if let topOverlay {
                 topOverlay.translatesAutoresizingMaskIntoConstraints = true
-                addSubview(topOverlay, positioned: .above, relativeTo: banner)
+                addSubview(topOverlay, positioned: .above, relativeTo: overlayFloor)
             }
             needsLayout = true
         }
@@ -111,7 +118,9 @@ public final class TerminalHostView: NSView {
     /// Held here: scopes keep their responders weakly.
     private let aroundListener = TerminalHostThemeListener()
 
-    init() {
+    /// - Parameter clock: The clock of the status label's reveal delays; tests pass a manual clock.
+    init(clock: any Clock<Duration> = ContinuousClock()) {
+        statusClock = clock
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         wantsLayer = true
         // A surface frame of another size (the host-sized drawable before its
@@ -120,8 +129,7 @@ public final class TerminalHostView: NSView {
         paintBackground()
         // Frame layout (`layout()`), not Auto Layout: a pane resized every
         // frame of a drag solves no constraints here.
-        addSubview(banner)
-        addSubview(scroller, positioned: .below, relativeTo: banner)
+        addSubview(scroller)
         scroller.onStyleChange = { [weak self] in self?.needsLayout = true }
         scroller.onScrollToRow = { [weak self] row in _ = self?.current?.performBindingAction("scroll_to_row:\(row)") }
         scroller.onWheel = { [weak self] event in self?.current?.scrollWheel(with: event) }
@@ -159,19 +167,24 @@ public final class TerminalHostView: NSView {
         guard !subviews.contains(where: { $0 is TerminalFindBarView }) else { return }
         let bar = TerminalFindBarView(find: find)
         bar.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
-        addSubview(bar, positioned: .above, relativeTo: banner)
+        addSubview(bar, positioned: .above, relativeTo: overlayFloor)
         needsLayout = true
     }
 
-    /// The link status label over the terminal (hidden while connected).
-    var statusText: String? {
-        banner.isHidden ? nil : TerminalStatusBanner.text(for: shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
-    }
+    /// The link status label over the terminal, nil while none shows (connected, or a transient
+    /// status still within its reveal delay).
+    var statusText: String? { statusLabel.shownText }
+
+    /// Whether a transient status waits out its reveal delay before its label shows (tests).
+    var statusLabelWaits: Bool { statusLabel.isWaiting }
+
+    /// The view the overlays stack above: the status label once built, else the accessory or the scroller.
+    private var overlayFloor: NSView { statusLabel.banner ?? bottomAccessory ?? scroller }
 
     func showStatus(_ status: TerminalConnectionStatus) {
         shownStatus = status
-        banner.show(status, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
-        syncRestartButton()
+        var changed = statusLabel.show(status, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
+        changed = syncRestartButton() || changed
         if retryButton == nil, TerminalRetryButton.shows(status) {
             let button = TerminalRetryButton()
             // The same re-attach a click in the disconnected terminal starts.
@@ -179,21 +192,33 @@ public final class TerminalHostView: NSView {
             addOverlay(button)
             retryButton = button
         }
-        retryButton?.show(status)
-        needsLayout = true
+        if let retryButton {
+            let hidden = retryButton.isHidden
+            retryButton.show(status)
+            changed = changed || hidden != retryButton.isHidden
+        }
+        // A new terminal's "connected" (or a label still waiting) changes nothing on screen: no layout.
+        if changed { needsLayout = true }
     }
 
     /// Builds the restart button once the shell has ended, or cmux lost its
-    /// link to it (Recover), and the App gave an action.
-    private func syncRestartButton() {
+    /// link to it (Recover), and the App gave an action. Returns whether it was built or its
+    /// visibility changed.
+    @discardableResult
+    private func syncRestartButton() -> Bool {
         let offered = shownStatus == .exited || shellStall == .linkLost
+        var built = false
         if restartButton == nil, offered, restartAction != nil {
             let button = TerminalRestartButton()
             addOverlay(button)
             restartButton = button
+            built = true
         }
-        restartButton?.onRestart = restartAction
-        restartButton?.show(shownStatus, stall: shellStall)
+        guard let restartButton else { return false }
+        let hidden = restartButton.isHidden
+        restartButton.onRestart = restartAction
+        restartButton.show(shownStatus, stall: shellStall)
+        return built || hidden != restartButton.isHidden
     }
 
     /// The restart button's title while shown ("Restart Shell Here" or
@@ -205,7 +230,7 @@ public final class TerminalHostView: NSView {
 
     /// Above the status banner, as the find bar is.
     private func addOverlay(_ view: NSView) {
-        addSubview(view, positioned: .above, relativeTo: banner)
+        addSubview(view, positioned: .above, relativeTo: overlayFloor)
     }
 
     /// The "Sized for" chip's text, nil while hidden (diagnostics and tests).
@@ -228,16 +253,14 @@ public final class TerminalHostView: NSView {
     func showHostLoss(_ loss: TerminalHostLoss?, cause: TerminalHostLossCause?) {
         hostLoss = loss
         hostLossCause = cause
-        banner.show(shownStatus, hostLoss: loss, cause: cause, stall: shellStall)
-        needsLayout = true
+        if statusLabel.show(shownStatus, hostLoss: loss, cause: cause, stall: shellStall) { needsLayout = true }
     }
 
     /// A shell the daemon cannot reach is labeled even while the view's link is up.
     func showShellStall(_ stall: TerminalShellStall?) {
         shellStall = stall
-        banner.show(shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: stall)
-        syncRestartButton()
-        needsLayout = true
+        let changed = statusLabel.show(shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: stall)
+        if syncRestartButton() || changed { needsLayout = true }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -339,7 +362,7 @@ public final class TerminalHostView: NSView {
     /// the find bar in the top-trailing corner. Hidden ones are skipped.
     private func layoutOverlays() {
         let buttons: [NSView] = ([restartButton, retryButton] as [NSButton?]).compactMap { $0 }.filter { !$0.isHidden }
-        if !banner.isHidden || !buttons.isEmpty {
+        if statusLabel.banner?.isHidden == false || !buttons.isEmpty {
             layoutStatus(buttons: buttons)
         }
         let inset = Metrics.panelInset
@@ -366,9 +389,13 @@ public final class TerminalHostView: NSView {
     }
 
     private func layoutStatus(buttons: [NSView]) {
-        let banner = place(self.banner, maxWidth: bounds.width - 24) { size in
-            CGPoint(x: (self.bounds.width - size.width) / 2, y: self.terminalBounds.minY + 12)
-        }
+        // Every status that shows a button shows a label too; with none built, the buttons sit where it would.
+        let bottom = CGRect(x: bounds.midX, y: terminalBounds.minY + 12, width: 0, height: 0)
+        let banner = statusLabel.banner.map { label in
+            place(label, maxWidth: bounds.width - 24) { size in
+                CGPoint(x: (self.bounds.width - size.width) / 2, y: self.terminalBounds.minY + 12)
+            }
+        } ?? bottom
         for button in buttons {
             _ = place(button, maxWidth: bounds.width) { size in
                 CGPoint(x: (self.bounds.width - size.width) / 2, y: banner.maxY + 8)

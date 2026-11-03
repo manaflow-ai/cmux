@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextTerminal
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// Every new terminal view (a new tab, a split, a reopen, a workspace switch that makes its
@@ -21,5 +22,25 @@ import Testing
         host.showStatus(.connected)
         #expect(Self.banners(in: host).isEmpty, "a Restoring… that clears within its wait builds no label")
         #expect(host.statusText == nil)
+    }
+
+    /// A restore that lasts past its wait builds the label then and shows it; a lasting status
+    /// builds it at once. Either way it is built once.
+    @Test func aLastingStatusBuildsTheLabelOnce() async throws {
+        let clock = ManualClock()
+        let host = TerminalHostView(clock: clock)
+        host.showStatus(.restoring)
+        #expect(Self.banners(in: host).isEmpty)
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(TerminalStatusBanner.restoringRevealDelay))
+        var turns = 0
+        while host.statusText == nil, turns < 200 { await Task.yield(); turns += 1 }
+        #expect(host.statusText == "Restoring…")
+        #expect(Self.banners(in: host).count == 1)
+        host.showStatus(.connected)
+        #expect(host.statusText == nil)
+        host.showStatus(.exited)
+        #expect(host.statusText == "Process exited", "a lasting status shows at once")
+        #expect(Self.banners(in: host).count == 1, "built once")
     }
 }
