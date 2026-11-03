@@ -282,6 +282,37 @@ The driver decides, not the author:
 
 Check the clip anyway: a pass says the checked text showed; the clip shows what else did.
 
+## Film judges and judge goldens
+
+The film judges read the in-app recorder's films (`debug.motion` `record_*` and `trace_*`): `video_judge.py`
+(pacing, exact-scanline geometry, model against shown, content, recorder faults), `video-cases/judge_trace.py`
+(per-frame geometry of a layout motion, one motion per drag), `video-cases/judge_keys.py` (each keyboard resize
+press) and `video-cases/judge_scan.py` (repeated pictures in motion). They run on the VM with the venv
+(`/work/tmp/bv-venv/bin/python -I`, numpy and imageio_ffmpeg), never on a mini. This folder holds the one copy;
+the kit branches' copies are older (REWRITE R-HARNESS, handoff/rewrites/R-HARNESS/DESIGN.md).
+
+Every change to a judge reproduces the judge goldens: every gallery film, frozen read-only in
+`/work/goldens/judge-films` (sha256-pinned by `judge-goldens/films.json`), with the judges' results on it
+(`judge-goldens/expected.json`, one line per film).
+
+```bash
+PY=/work/tmp/bv-venv/bin/python
+$PY -I scripts/journeys/judge_goldens.py run                    # every result reproduced: exit 0
+$PY -I scripts/journeys/judge_goldens.py run --only 'feat-5851715-120x2/*'
+$PY -I scripts/journeys/judge_goldens.py bless --reason "TEXT"  # after a reviewed judge change: new results
+$PY -I scripts/journeys/judge_goldens.py snapshot --source /Users/lawrence/fun/wt/handoff/resize-videos
+$PY -I scripts/journeys/test_judge_goldens.py                   # the runner's own tests
+```
+
+- `run` exits 1 and prints each film and judge whose result changed (the summary that moved and the first JSON
+  paths); it exits 2 (NO VERDICT) when a store file changed or is missing, or the toolchain (python, numpy, the
+  ffmpeg binary) is not the blessed one.
+- A judge PR runs `run` on its head, names the changed films and why each change is right, then `bless` with that
+  reason in the same PR (the bless needs the judge files committed and records their commit). A change on no film
+  needs a new film that shows it: a new film in the gallery, `snapshot`, `bless`.
+- `snapshot` takes a gallery folder only when no file in it changed for 10 minutes, never replaces a stored file
+  (the store is immutable: a changed film needs a new folder name) and copies with reflink, so it needs no space.
+
 ## Gate a dogfood build
 
 ```bash

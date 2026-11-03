@@ -49,14 +49,23 @@ STUB_KEYS = '''
 def judge(base):
     return {"case": base.rsplit("/", 1)[-1], "presses": 0, "items": [], "faults": [], "no_motion": []}
 '''
+STUB_SCAN = '''
+import argparse, json, sys
+ap = argparse.ArgumentParser()
+ap.add_argument("scan"); ap.add_argument("--trace"); ap.add_argument("--scale"); ap.add_argument("--json")
+o = ap.parse_args()
+json.dump({"frames": len(open(o.scan, "rb").read()), "counts": {}, "defects": [], "scale": o.scale}, open(o.json, "w"))
+sys.exit(0)
+'''
 
 
-def write_judges(root, video=STUB_VIDEO, trace=STUB_TRACE, keys=STUB_KEYS):
+def write_judges(root, video=STUB_VIDEO, trace=STUB_TRACE, keys=STUB_KEYS, scan=STUB_SCAN):
     root = Path(root)
     (root / "video-cases").mkdir(parents=True, exist_ok=True)
     (root / "video_judge.py").write_text(textwrap.dedent(video))
     (root / "video-cases" / "judge_trace.py").write_text(textwrap.dedent(trace))
     (root / "video-cases" / "judge_keys.py").write_text(textwrap.dedent(keys))
+    (root / "video-cases" / "judge_scan.py").write_text(textwrap.dedent(scan))
     return root
 
 
@@ -70,6 +79,7 @@ def write_film(folder, name, frames=4, scale=2, samples=3):
                                                             "samples": [{"t": i * 8.33} for i in range(samples)]}))
     (folder / f"{name}.events.json").write_text(json.dumps({"hid": [], "journal": []}))
     (folder / f"{name}.meta.json").write_text(json.dumps({"start": {"scale": scale}}))
+    (folder / f"{name}.mov.scan").write_bytes(b'{"width": 1, "height": 1, "rows": [0], "columns": []}\n' + bytes(frames))
     (folder / f"{name}.view.mp4").write_bytes(b"derived media: not judged, not copied")
     return base
 
@@ -98,11 +108,11 @@ class Workspace:
     def cli(self, *args):
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = jg.main([args[0], "--store", str(self.store), "--manifest", str(self.manifest), *args[1:]])
+            code = jg.guarded_main([args[0], "--store", str(self.store), "--manifest", str(self.manifest), *args[1:]])
         return code, out.getvalue() + err.getvalue()
 
     def snapshot(self):
-        return self.cli("snapshot", "--source", str(self.gallery))
+        return self.cli("snapshot", "--source", str(self.gallery), "--settled-minutes", "0")
 
     def bless(self, judges=None, reason="test bless"):
         return self.cli("bless", "--judges", str(judges or self.judges), "--reason", reason, "--jobs", "2",
@@ -147,7 +157,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertTrue(copied.is_file())
         self.assertFalse(os.stat(copied).st_mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH))
         self.assertFalse((self.w.store / "films" / "build-a-120x2" / "col-drag.view.mp4").exists())
-        files = films["folders"]["build-a-120x2"]["files"]
+        files = jg.files_table(self.w.store, films)["build-a-120x2"]
         self.assertEqual(files["col-drag.mov.frames.json"][1], jg.sha256_file(copied))
 
     def test_a_second_snapshot_of_the_same_films_changes_nothing(self):
@@ -156,6 +166,21 @@ class SnapshotTests(unittest.TestCase):
         code, out = self.w.snapshot()
         self.assertEqual(code, 0, out)
         self.assertEqual((self.w.manifest / "films.json").read_text(), before)
+
+    def test_a_folder_a_round_still_writes_is_taken_later(self):
+        code, out = self.w.cli("snapshot", "--source", str(self.w.gallery), "--settled-minutes", "60")
+        self.assertEqual(code, 0, out)
+        self.assertIn("later: build-a-120x2", out)
+        self.assertEqual(json.loads((self.w.manifest / "films.json").read_text())["films"], {})
+
+    def test_a_new_film_in_a_recorded_folder_is_added_and_the_old_files_stay(self):
+        self.assertEqual(self.w.snapshot()[0], 0)
+        write_film(self.w.gallery / "build-a-120x2", "col-drag-fast", frames=3)
+        code, out = self.w.snapshot()
+        self.assertEqual(code, 0, out)
+        films = json.loads((self.w.manifest / "films.json").read_text())
+        self.assertIn("build-a-120x2/col-drag-fast", films["films"])
+        self.assertIn("col-drag.trace.json", jg.files_table(self.w.store, films)["build-a-120x2"])
 
     def test_a_changed_source_film_is_refused_the_store_is_immutable(self):
         self.assertEqual(self.w.snapshot()[0], 0)
@@ -179,13 +204,13 @@ class RunTests(unittest.TestCase):
     def test_unchanged_judges_reproduce_every_golden(self):
         code, out = self.w.run()
         self.assertEqual(code, 0, out)
-        self.assertIn("reproduced 9 of 9", out)
+        self.assertIn("reproduced 12 of 12", out)
 
     def test_a_changed_judge_result_is_a_difference_with_the_film_and_the_judge(self):
         changed = write_judges(self.w.root / "judges-changed", video=STUB_VIDEO.replace("SHIFT = 0", "SHIFT = 1"))
         code, out = self.w.run(changed)
         self.assertEqual(code, 1, out)
-        self.assertIn("reproduced 6 of 9", out)
+        self.assertIn("reproduced 9 of 12", out)
         self.assertIn("video_judge build-a-120x2/col-drag", out)
         self.assertIn("dropped", out)
 
@@ -194,6 +219,19 @@ class RunTests(unittest.TestCase):
         code, out = self.w.run(broken)
         self.assertEqual(code, 1, out)
         self.assertIn("ValueError: boom", out)
+
+    def test_a_judge_module_that_does_not_load_is_no_verdict_not_a_difference(self):
+        broken = write_judges(self.w.root / "judges-unloadable", video="raise ImportError('half a file')\n")
+        code, out = self.w.run(broken)
+        self.assertEqual(code, 2, out)
+        self.assertIn("NO VERDICT: the runner failed", out)
+
+    def test_a_worker_that_dies_is_no_verdict_not_a_difference(self):
+        dying = write_judges(self.w.root / "judges-dying", trace="import os\ndef load_trace(p):\n    os._exit(9)\n"
+                                                                  "def judge(*a):\n    return {}\n")
+        code, out = self.w.run(dying)
+        self.assertEqual(code, 2, out)
+        self.assertIn("NO VERDICT: the runner failed", out)
 
     def test_a_changed_store_file_is_no_verdict(self):
         f = self.w.store / "films" / "build-b-120x1" / "rk-held.events.json"
@@ -212,6 +250,24 @@ class RunTests(unittest.TestCase):
         self.assertEqual(code, 2, out)
         self.assertIn("NO VERDICT", out)
 
+    def test_a_changed_files_table_is_no_verdict(self):
+        films = json.loads((self.w.manifest / "films.json").read_text())
+        table = self.w.store / "tables" / f"{films['files_table']}.json"
+        os.chmod(table, 0o644)
+        table.write_text(table.read_text().replace('"build-b-120x1"', '"build-c-120x1"'))
+        code, out = self.w.run()
+        self.assertEqual(code, 2, out)
+        self.assertIn("does not hash to its name", out)
+
+    def test_a_changed_blessed_result_is_not_read_as_the_blessed_one(self):
+        expected = json.loads((self.w.manifest / "expected.json").read_text())
+        sha = expected["films"]["build-a-120x2/col-drag"]["video_judge"]["sha256"]
+        with self.assertRaises(ValueError):
+            path = self.w.store / "expected" / f"{sha}.json"
+            os.chmod(path, 0o644)
+            path.write_text(path.read_text().replace('"dropped"', '"dropped_x"'))
+            jg.load_expected(self.w.store, sha)
+
     def test_another_toolchain_is_no_verdict(self):
         expected = json.loads((self.w.manifest / "expected.json").read_text())
         expected["toolchain"]["numpy"] = "0.0.0"
@@ -228,7 +284,7 @@ class RunTests(unittest.TestCase):
     def test_only_selects_films(self):
         code, out = self.w.run(None, "--only", "build-b-120x1/*")
         self.assertEqual(code, 0, out)
-        self.assertIn("reproduced 3 of 3", out)
+        self.assertIn("reproduced 4 of 4", out)
 
     def test_a_bless_records_its_reason_and_the_changed_films(self):
         changed = write_judges(self.w.root / "judges-changed", video=STUB_VIDEO.replace("SHIFT = 0", "SHIFT = 1"))
@@ -282,7 +338,7 @@ class RealJudgeTests(unittest.TestCase):
             self.assertEqual(code, 0, out)
             code, out = w.cli("run", "--judges", str(HERE), "--jobs", "1")
             self.assertEqual(code, 0, out)
-            self.assertIn("reproduced 3 of 3", out)
+            self.assertIn("reproduced 4 of 4", out)
         finally:
             w.close()
 
