@@ -218,3 +218,38 @@ fn native_workflow_host_rechecks_permissions_before_replaying_raw_tool_results()
     assert!(journal.last_id().is_none(), "denied replay advanced the journal");
     assert_eq!(server.backend.effects.get(), 0);
 }
+
+#[test]
+fn native_workflow_host_journals_large_activity_results_without_mcp_preview_truncation() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = "return await agent('x'.repeat(300000));";
+    let mut server = Server::new(Fake::default(), None);
+    for budget in [1, 0] {
+        let mut journal = Journal::open(directory.path(), source, budget).unwrap();
+        let mut pending = BTreeMap::new();
+        let mut tools = None;
+        let mut images = Vec::new();
+        let result = code_mode::workflow_exec(
+            source,
+            json!([]),
+            code_mode::Limits::default(),
+            &mut |request| {
+                handle(
+                    &mut server,
+                    &proof(),
+                    &mut journal,
+                    &mut pending,
+                    &mut tools,
+                    &mut images,
+                    request,
+                )
+                .unwrap()
+            },
+        )
+        .unwrap();
+        assert_ne!(result["isError"], true, "{result}");
+        assert_eq!(result["structuredContent"]["result"].as_str().unwrap().len(), 300000);
+        journal.finish().unwrap();
+    }
+    assert_eq!(server.backend.effects.get(), 1);
+}
