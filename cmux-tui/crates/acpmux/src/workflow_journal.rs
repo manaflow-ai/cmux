@@ -206,7 +206,7 @@ impl Journal {
     }
 
     fn ordinal(&self, id: &str) -> Option<usize> {
-        let ordinal = id.strip_prefix(&self.id)?.strip_prefix(':')?.parse().ok()?;
+        let ordinal = id.strip_prefix(&self.id)?.strip_prefix(':')?.parse::<usize>().ok()?;
         self.entries.get(ordinal).filter(|entry| entry.id == id).map(|_| ordinal)
     }
 
