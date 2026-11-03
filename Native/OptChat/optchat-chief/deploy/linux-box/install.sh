@@ -60,7 +60,7 @@ for b in "$CHIEF" "$TUI" "$ACPMUX"; do [[ -x "$b" ]] || die "not an executable: 
 [[ -z "$CLI" || -x "$CLI" ]] || die "not an executable: '$CLI'"
 [[ "$OWNER" =~ ^user_[A-Za-z0-9_-]+$ ]] || die "--owner must be the owner's cmux account id, user_... (got '$OWNER')"
 [[ "$U" =~ ^[a-z_][a-z0-9_-]{0,31}$ && "$U" != root ]] || die "--user must be a plain system user name, not root (got '$U')"
-[[ "$PREFIX" =~ ^/[A-Za-z0-9._/-]+$ && "$PREFIX" != / ]] || die "--prefix must be an absolute path without spaces (got '$PREFIX')"
+[[ "$PREFIX" =~ ^/[A-Za-z0-9._/-]*$ ]] || die "--prefix must be an absolute path without spaces (got '$PREFIX')"
 case "$PREFIX" in /|/usr|/usr/*|/etc|/etc/*|/bin|/sbin|/lib*|/boot*|/proc*|/sys*|/dev*|/root|/root/*|/home|/home/*) die "--prefix '$PREFIX' is a system or home directory (the units hide /home)" ;; esac
 [[ "$CPU" =~ ^[1-9][0-9]*%$ ]] || die "--cpu-quota must be a percent like 400% (got '$CPU')"
 [[ "$MEM" =~ ^[1-9][0-9]*[KMGT]$ ]] || die "--memory-max must be like 16G (got '$MEM')"
