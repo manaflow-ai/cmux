@@ -105,7 +105,8 @@ public final class ImportHistoryPageProvider: PageProvider {
             var arguments = writing ? command.write(source, batch: nativeBatch) : command.dryRun(source)
             if !origin.isEmpty { arguments += ["--origin", origin] }
             defer { if writing { restart() } }
-            return try await run(arguments, writing ? .seconds(3600) : .seconds(600))
+            if writing { return try await completeTransaction(arguments, timeout: .seconds(3600)) }
+            return try await run(arguments, .seconds(600))
         case "cmux.importHistory.undo":
             try requireGesture(context)
             guard !busy, let batch, let nativeBatch, params["batch"]?.stringValue == batch else {
@@ -113,7 +114,7 @@ public final class ImportHistoryPageProvider: PageProvider {
             }
             busy = true
             defer { busy = false; restart() }
-            let result = try await run(command.undo() + ["--batch", nativeBatch], .seconds(300))
+            let result = try await completeTransaction(command.undo() + ["--batch", nativeBatch], timeout: .seconds(300))
             self.batch = nil
             self.nativeBatch = nil
             return result
@@ -125,6 +126,16 @@ public final class ImportHistoryPageProvider: PageProvider {
             return [:]
         default: throw PageError.unknownOp(op)
         }
+    }
+
+    private func completeTransaction(_ arguments: [String], timeout: Duration) async throws -> JSONValue {
+        try Task.checkCancellation()
+        // task-owner: one already-started memory write/restore, bounded by the CLI timeout and
+        // joined here. Closing the page cancels its router call, never the transaction midway
+        // through its database write and import ledger. This call retains the paste files until
+        // the transaction settles, then its defer restarts the Chief and releases the provider.
+        let transaction = Task { @MainActor [run] in try await run(arguments, timeout) }
+        return try await transaction.value
     }
 
     private func requireGesture(_ context: PageCallContext) throws {

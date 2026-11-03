@@ -117,4 +117,40 @@ import Testing
             _ = try await provider.call("cmux.importHistory.begin", params: ["batch": "replacement"], context: click(3))
         }
     }
+
+    @Test(arguments: ["write", "undo"])
+    func closingThePageLetsItsStartedTransactionFinish(_ verb: String) async throws {
+        let (started, signalStarted) = AsyncStream<Void>.makeStream()
+        let (held, release) = AsyncStream<Void>.makeStream()
+        defer { signalStarted.finish(); release.finish() }
+        var completed = false
+        var restarts = 0
+        let provider = ImportHistoryPageProvider(muxHome: "/test/mux", personOnlyMessage: "Click Import") { args, _ in
+            if args.contains("detect") { return ["sources": [["source": "codex", "count": 1]]] }
+            signalStarted.yield(())
+            for await _ in held { break }
+            try Task.checkCancellation()
+            completed = true
+            return ["written": 1]
+        }
+        provider.restart = { restarts += 1 }
+        _ = try await provider.call("cmux.importHistory.detect", params: [:], context: passive)
+        _ = try await provider.call("cmux.importHistory.begin", params: ["batch": "b1"], context: click(1))
+        let requestContext = verb == "undo" ? click(2) : passive
+        let request = Task { @MainActor in
+            try await provider.call("cmux.importHistory." + verb, params: ["source": "codex", "batch": "b1"], context: requestContext)
+        }
+        var events = started.makeAsyncIterator()
+        _ = await events.next()
+        // PageRouter.close cancels its in-flight request after Skip closes the page.
+        _ = try await provider.call("cmux.importHistory.finish", params: ["completed": false], context: click(3))
+        request.cancel()
+        release.yield(())
+        _ = try await request.value
+        #expect(completed)
+        #expect(restarts == 1)
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.importHistory.write", params: ["source": "codex", "batch": "b1"], context: passive)
+        }
+    }
 }
