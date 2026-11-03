@@ -437,7 +437,10 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
                 sampleCount: samples.length,
                 swapFrames: lastChanged + 1,
                 shiftScore: shifts
-                  .filter((shift) => shift.at >= cached.frame)
+                  // The first target frame replaces the previous chat. Its shift belongs to
+                  // that deliberate switch, not a later movement of text already painted.
+                  // LayoutShift timestamps fall after rAF, so use the post-paint observation.
+                  .filter((shift) => shift.at > started + cached.at)
                   .reduce((sum, shift) => sum + shift.value, 0),
                 allShiftScore: shifts.reduce((sum, shift) => sum + shift.value, 0),
               };
