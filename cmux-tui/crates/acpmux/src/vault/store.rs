@@ -1,7 +1,9 @@
 //! The OS secret store that holds vault env values: the macOS Keychain
 //! (`/usr/bin/security`) or the Secret Service (`secret-tool`) on Linux. Item
-//! service `cmux-vault`, account `env/<NAME>`. There is no file fallback: a
-//! machine without either refuses to store env values.
+//! service `cmux-vault`, account `env/<home-id>/<NAME>`: `<home-id>` names
+//! this `ACPMUX_HOME` ([`home_id`]), so two daemons of one user (a second
+//! home, a test home) never share or delete each other's items. There is no
+//! file fallback: a machine without either refuses to store env values.
 //!
 //! A value never goes into argv, a log or an error: it is written to the
 //! store command's stdin (`harness_secret::store_item`), base64-encoded so
@@ -21,7 +23,21 @@ pub const UNAVAILABLE: &str = "vault.secret_store_unavailable";
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 pub fn account(name: &str) -> String {
-    format!("env/{name}")
+    account_in(&crate::config::home(), name)
+}
+
+/// The account of `name` for the daemon home `home`.
+pub fn account_in(home: &std::path::Path, name: &str) -> String {
+    format!("env/{}/{name}", home_id(home))
+}
+
+/// A stable id of a daemon home: the first 16 hex digits of the sha256 of
+/// its path (canonical when it exists).
+pub fn home_id(home: &std::path::Path) -> String {
+    use sha2::{Digest, Sha256};
+    let path = std::fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf());
+    let digest = Sha256::digest(path.as_os_str().as_encoded_bytes());
+    digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
 }
 
 /// Where values go. The OS store in the product; a map in tests.

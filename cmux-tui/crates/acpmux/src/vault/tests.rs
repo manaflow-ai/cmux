@@ -485,6 +485,7 @@ fn a_failed_write_fails_the_pull_and_keeps_the_rest() {
 #[cfg(unix)]
 fn an_incomplete_load_is_read_again_without_a_state_change() {
     let _one = LOADED_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    super::reset_loaded();
     use std::sync::atomic::Ordering;
     let home = tempfile::tempdir().unwrap();
     let store = MemoryStore::default();
@@ -567,20 +568,64 @@ fn a_withdrawal_during_the_load_gives_the_next_spawn_nothing() {
         raced: std::sync::atomic::AtomicBool::new(false),
     };
     let at = std::time::Instant::now();
-    assert!(super::deliver_at(home.path(), &racing, live(), at).is_empty());
+    super::reset_loaded();
+    assert!(super::deliver_at(home.path(), &racing, &live, at).is_empty());
     assert!(racing.raced.load(std::sync::atomic::Ordering::SeqCst), "the race ran");
     // The next spawn reloads the saved state, which lists nothing.
-    assert!(super::deliver_at(home.path(), &store, live(), at).is_empty());
+    assert!(super::deliver_at(home.path(), &store, &live, at).is_empty());
     assert!(super::loaded_names().is_empty());
 
     // A grant again: the value is given.
     let answer = Answer::Granted { env: vec![active("API_TOKEN", 2, SECRET_A)], refused: 0 };
     pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 10).unwrap();
-    let given = super::deliver_at(home.path(), &store, live(), at);
+    let given = super::deliver_at(home.path(), &store, &live, at);
     assert_eq!(given.len(), 1);
     // A held removal gives nothing, before any reload.
     pull::hold(home.path()).unwrap();
-    assert!(super::deliver_at(home.path(), &store, live(), at).is_empty());
+    assert!(super::deliver_at(home.path(), &store, &live, at).is_empty());
+}
+
+/// A store whose reads see the machine credential replaced or revoked
+/// while they run (`machine join --replace` during the daemon's load).
+struct SwitchingStore<'a> {
+    inner: &'a MemoryStore,
+    credential: &'a std::sync::Mutex<Option<(String, bool)>>,
+    to: Option<(String, bool)>,
+}
+
+impl SecretStore for SwitchingStore<'_> {
+    fn kind(&self) -> &'static str {
+        "memory"
+    }
+    fn put(&self, name: &str, value: &str) -> Result<(), &'static str> {
+        self.inner.put(name, value)
+    }
+    fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, &'static str> {
+        *self.credential.lock().unwrap() = self.to.clone();
+        self.inner.get(name)
+    }
+    fn delete(&self, name: &str) -> Result<(), &'static str> {
+        self.inner.delete(name)
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn a_credential_replaced_or_revoked_during_the_load_gives_nothing() {
+    let _one = LOADED_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    for to in [Some(("cmm_replaced".to_owned(), false)), Some((CRED.to_owned(), true)), None] {
+        let home = tempfile::tempdir().unwrap();
+        let store = MemoryStore::default();
+        let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
+        pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+        let credential = std::sync::Mutex::new(live());
+        let switching = SwitchingStore { inner: &store, credential: &credential, to };
+        let read = || credential.lock().unwrap().clone();
+        let at = std::time::Instant::now();
+        super::reset_loaded();
+        assert!(super::deliver_at(home.path(), &switching, &read, at).is_empty());
+        assert_eq!(read(), switching.to, "the switch ran during the load");
+    }
 }
 
 #[test]
@@ -828,6 +873,17 @@ fn a_missing_or_changed_store_item_is_rewritten_at_the_same_revision() {
     let outcome =
         pull::settle(home.path(), "https://hub.test", CRED, answer(), &store, &live, 3).unwrap();
     assert!(outcome.stored.is_empty());
+}
+
+#[test]
+fn store_accounts_are_scoped_to_their_daemon_home() {
+    let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let account = super::store::account_in(a.path(), "API_TOKEN");
+    assert_eq!(account, super::store::account_in(a.path(), "API_TOKEN"), "stable");
+    assert_ne!(account, super::store::account_in(b.path(), "API_TOKEN"));
+    let id = super::store::home_id(a.path());
+    assert_eq!(account, format!("env/{id}/API_TOKEN"));
+    assert_eq!(id.len(), 16);
 }
 
 #[test]

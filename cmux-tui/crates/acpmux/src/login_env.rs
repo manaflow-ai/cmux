@@ -748,24 +748,38 @@ pub(crate) fn reference_var(key: &str) -> Option<String> {
 /// current local machine declarations it removed; never restore an inherited
 /// value or expose this overlay to remote-origin launches.
 pub(crate) fn restore_machine_tokio(cmd: &mut tokio::process::Command) {
-    cmd.envs(
-        crate::vault::env_for_children()
-            .into_iter()
-            .filter(|(key, _)| crate::config::is_nested_claude_key(key)),
-    );
-    cmd.envs(
-        machine::read().into_iter().filter(|(key, _)| crate::config::is_nested_claude_key(key)),
-    );
+    cmd.envs(nested_local(crate::vault::env_for_children(), machine::read()));
+}
+
+/// The nested-Claude keys of the local overlay a scrub removed, in the order
+/// a launch puts them back: the vault's, then `machine.env`'s.
+pub(crate) fn nested_local(
+    vault: Vec<(String, String)>,
+    machine: BTreeMap<String, String>,
+) -> Vec<(String, String)> {
+    vault
+        .into_iter()
+        .chain(machine)
+        .filter(|(key, _)| crate::config::is_nested_claude_key(key))
+        .collect()
 }
 
 fn pairs_for(
     family: Option<&str>,
     profile: Option<&BTreeMap<String, String>>,
 ) -> Vec<(String, String)> {
+    pairs_with(family, profile, crate::vault::env_for_children(), machine::read())
+}
+
+fn pairs_with(
+    family: Option<&str>,
+    profile: Option<&BTreeMap<String, String>>,
+    vault: Vec<(String, String)>,
+    machine: BTreeMap<String, String>,
+) -> Vec<(String, String)> {
     // A name delivered to this machine (`cmux cloud deliver-secrets`) goes to
     // every local child: the person sent it for this machine's shells and
     // agents. Remote-origin launches never call this (`apply_remote_tokio`).
-    let machine = machine::read();
     let names = machine::names();
     let values: BTreeMap<_, _> = pairs()
         .into_iter()
@@ -776,7 +790,7 @@ fn pairs_for(
     // Read literals at the local spawn boundary; never expose them through
     // var/allowed_var/nested_overrides or persist them in login-env.json.
     // Explicit profile/preset/session env is applied after this overlay.
-    overlay(values, crate::vault::env_for_children(), machine)
+    overlay(values, vault, machine)
 }
 
 /// The local overlay over the allow-listed login values: the person's vault
@@ -830,13 +844,18 @@ pub fn effective_for(
     profile: &BTreeMap<String, String>,
 ) -> BTreeMap<String, String> {
     let nested = std::env::var_os("CLAUDECODE").is_some();
-    let local = pairs_for(family, Some(profile));
+    let (vault, machine) = (crate::vault::env_for_children(), machine::read());
+    // A launch's scrub removes the nested keys, then puts back the login
+    // values, the vault's and `machine.env`'s (`restore_machine_tokio`).
+    let mut restored = nested_overrides(family);
+    restored.extend(nested_local(vault.clone(), machine.clone()));
+    let local = pairs_with(family, Some(profile), vault, machine);
     let names = machine::names();
     layered(
         std::env::vars().filter(|(key, _)| !names.contains(key)),
         nested,
         local,
-        nested_overrides(family),
+        restored,
         profile,
     )
 }
@@ -1486,5 +1505,40 @@ mod effective_tests {
         assert!(!nested.contains_key("ANTHROPIC_API_KEY"));
         assert_eq!(nested["CLAUDE_CODE_OAUTH_TOKEN"], "login");
         assert_eq!(nested["HOME"], "/u");
+    }
+
+    /// Under a nested Claude Code session the scrub drops the vault's and
+    /// `machine.env`'s Claude keys too; a launch puts them back
+    /// (`restore_machine_tokio`) and a sign-in check must see the same:
+    /// session over machine over vault over login over the daemon.
+    #[test]
+    fn a_nested_check_restores_the_vault_and_machine_like_a_launch() {
+        let vault = pairs(&[("ANTHROPIC_BASE_URL", "vault"), ("ANTHROPIC_MODEL", "vault")]);
+        let machine = BTreeMap::from([("ANTHROPIC_MODEL".to_owned(), "machine".to_owned())]);
+        let login = BTreeMap::from([
+            ("ANTHROPIC_BASE_URL".to_owned(), "login".to_owned()),
+            ("ANTHROPIC_SMALL_FAST_MODEL".to_owned(), "login".to_owned()),
+        ]);
+        let mut restored = pairs(&[("ANTHROPIC_SMALL_FAST_MODEL", "login")]);
+        restored.extend(nested_local(vault.clone(), machine.clone()));
+        let profile = BTreeMap::from([("ANTHROPIC_MODEL".to_owned(), "session".to_owned())]);
+        let env = layered(
+            pairs(&[("CLAUDECODE", "1"), ("ANTHROPIC_BASE_URL", "daemon"), ("HOME", "/u")]),
+            true,
+            overlay(login, vault, machine.clone()),
+            restored,
+            &profile,
+        );
+        assert_eq!(env["ANTHROPIC_BASE_URL"], "vault");
+        assert_eq!(env["ANTHROPIC_SMALL_FAST_MODEL"], "login");
+        assert_eq!(env["ANTHROPIC_MODEL"], "session");
+        let env = layered(
+            pairs(&[("CLAUDECODE", "1")]),
+            true,
+            Vec::new(),
+            nested_local(pairs(&[("ANTHROPIC_MODEL", "vault")]), machine),
+            &BTreeMap::new(),
+        );
+        assert_eq!(env["ANTHROPIC_MODEL"], "machine");
     }
 }

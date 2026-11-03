@@ -170,6 +170,17 @@ fn refresh_at(path: &std::path::Path, store: &dyn SecretStore, at: std::time::In
     loaded.incomplete_at = (!skipped.is_empty()).then_some(at);
 }
 
+/// Forget the values held in memory, so the next spawn loads (tests).
+#[cfg(test)]
+fn reset_loaded() {
+    let mut loaded = LOADED.write().unwrap_or_else(|e| e.into_inner());
+    loaded.seen = None;
+    loaded.signature.clear();
+    loaded.state = None;
+    loaded.vars.clear();
+    loaded.incomplete_at = None;
+}
+
 /// The values held in memory now (tests).
 #[cfg(test)]
 fn loaded_names() -> Vec<String> {
@@ -183,18 +194,20 @@ pub fn env_for_children() -> Vec<(String, String)> {
     if !ACTIVE.load(Ordering::SeqCst) {
         return Vec::new();
     }
-    deliver_at(&crate::config::home(), &store::OsStore, pull::current_credential(), Instant::now())
+    deliver_at(&crate::config::home(), &store::OsStore, &pull::current_credential, Instant::now())
 }
 
 /// What a spawn gets, checked against a withdrawal racing the load: nothing
 /// while a removal is held, and nothing when the state file changed or a
 /// hold was placed while the values were read (a pull or `forget` that ran
-/// during `load_values` may have saved a state without them). The next
-/// spawn reloads.
+/// during `load_values` may have saved a state without them), or when the
+/// machine credential was replaced or revoked meanwhile (`machine join
+/// --replace` changes neither file). The credential is read after the load
+/// and again after the values are taken. The next spawn reloads.
 fn deliver_at(
     home: &std::path::Path,
     store: &dyn SecretStore,
-    current: Option<(String, bool)>,
+    current: pull::CurrentCredential,
     at: Instant,
 ) -> Vec<(String, String)> {
     if pull::held(home) {
@@ -202,13 +215,15 @@ fn deliver_at(
     }
     let path = pull::state_path(home);
     refresh_at(&path, store, at);
+    let credential = current();
     let (seen, values) = {
         let loaded = LOADED.read().unwrap_or_else(|e| e.into_inner());
-        (loaded.seen.clone(), given(&loaded, current))
+        (loaded.seen.clone(), given(&loaded, credential.clone()))
     };
-    // Checked after the values were taken: a save or a hold since then (or
-    // during the load) means they may include a withdrawn entry.
-    if seen != Some(stamp_of(&path)) || pull::held(home) {
+    // Checked after the values were taken: a save, a hold or a credential
+    // change since then (or during the load) means they may include a
+    // withdrawn entry.
+    if seen != Some(stamp_of(&path)) || pull::held(home) || current() != credential {
         return Vec::new();
     }
     values
