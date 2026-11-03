@@ -5,6 +5,10 @@
 # out of the unit files, and bad input is refused before anything is written.
 # Runs anywhere (no root, no systemd); with systemd-analyze present the units are verified too.
 set -euo pipefail
+# Refuse root before anything runs: as root, a call without --no-system would add or change a
+# real `chief` user and write real units. Run it as an unprivileged user.
+if [[ "$(id -u)" == 0 ]]; then echo "install.test.sh: refusing to run as root; run it as an unprivileged user" >&2; exit 1; fi
+exec 3>&2  # for failures inside redirected installer calls
 here="$(cd "$(dirname "$0")/.." && pwd)"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -16,7 +20,14 @@ pre="$tmp/srv/chief" units="$tmp/units" bins="$tmp/usrbin"
 base=(--optchat-chief "$tmp/bin/optchat-chief" --cmux-tui "$tmp/bin/cmux-tui" --acpmux "$tmp/bin/acpmux"
   --owner user_ann --prefix "$pre" --unit-dir "$units" --bin-dir "$bins" --no-system)
 fail() { echo "FAIL: $*"; exit 1; }
-run() { "$here/install.sh" "$@" > "$tmp/out.log" 2>&1 || { cat "$tmp/out.log"; fail "install.sh $*"; }; }
+# Every call goes through inst: --no-system and the temp unit and bin dirs, or the test fails.
+inst() {
+  local a=" $* "
+  [[ "$a" == *" --no-system "* && "$a" == *" --unit-dir $units "* && "$a" == *" --bin-dir $bins "* ]] \
+    || { echo "FAIL: the test called install.sh without --no-system and its temp --unit-dir/--bin-dir" >&3; exit 1; }
+  "$here/install.sh" "$@"
+}
+run() { inst "$@" > "$tmp/out.log" 2>&1 || { cat "$tmp/out.log"; fail "install.sh $*"; }; }
 has() { grep -qxF -- "$2" "$units/$1" || fail "$1 lacks '$2'"; }
 lacks() { if grep -q -- "$2" "$units/$1"; then fail "$1 has '$2'"; fi; }
 
@@ -84,11 +95,11 @@ grep -qxF "CHIEF_BOX_USER=chief" "$pre/chief-box.env" || fail "chief-box.env los
 # A kept model.env that is a symlink, or has the wrong mode, is refused.
 mv "$pre/model.env" "$tmp/model.env.real"
 ln -s "$tmp/model.env.real" "$pre/model.env"
-if "$here/install.sh" "${base[@]}" > "$tmp/out.log" 2>&1; then fail "install.sh accepted a symlinked model.env"; fi
+if inst "${base[@]}" > "$tmp/out.log" 2>&1; then fail "install.sh accepted a symlinked model.env"; fi
 grep -q -E "model.env is not a regular file|refusing to write through a symlink: .*/model.env" "$tmp/out.log" || fail "symlinked model.env refused for another reason: $(cat "$tmp/out.log")"
 rm "$pre/model.env"; mv "$tmp/model.env.real" "$pre/model.env"
 chmod 0644 "$pre/model.env"
-if "$here/install.sh" "${base[@]}" > "$tmp/out.log" 2>&1; then fail "install.sh accepted a 0644 model.env"; fi
+if inst "${base[@]}" > "$tmp/out.log" 2>&1; then fail "install.sh accepted a 0644 model.env"; fi
 grep -q "model.env must be owned by uid" "$tmp/out.log" || fail "0644 model.env refused for another reason: $(cat "$tmp/out.log")"
 chmod 0600 "$pre/model.env"
 
@@ -105,28 +116,28 @@ has chief-box-acpmux.service "Environment=ANTHROPIC_BASE_URL=http://router.test:
 for f in chief-box-daemon.service chief-box-acpmux.service chief-box-host.service; do lacks "$f" "sk-test"; done
 
 # An optchat-chief without the rights table and audit log (before cmux#33003) is refused.
-if "$here/install.sh" "${base[@]/$tmp\/bin\/optchat-chief/$tmp/bin/old-chief}" > "$tmp/out.log" 2>&1; then fail "install.sh accepted an optchat-chief without audit"; fi
+if inst "${base[@]/$tmp\/bin\/optchat-chief/$tmp/bin/old-chief}" > "$tmp/out.log" 2>&1; then fail "install.sh accepted an optchat-chief without audit"; fi
 grep -q "no rights table or audit log" "$tmp/out.log" || fail "old optchat-chief refused for another reason: $(cat "$tmp/out.log")"
 
 # Root never writes through a symlink the Chief could plant (brain/ and home/ are the Chief's).
 mv "$bin" "$tmp/bin.real"; ln -s "$tmp/elsewhere" "$bin"
-if "$here/install.sh" "${base[@]}" > "$tmp/out.log" 2>&1; then fail "install.sh wrote through a symlinked bin/"; fi
+if inst "${base[@]}" > "$tmp/out.log" 2>&1; then fail "install.sh wrote through a symlinked bin/"; fi
 grep -q "refusing to write through a symlink: $bin" "$tmp/out.log" || fail "symlinked bin/ refused for another reason: $(cat "$tmp/out.log")"
 [[ ! -e "$tmp/elsewhere" ]] || fail "install.sh wrote outside the prefix"
 rm "$bin"; mv "$tmp/bin.real" "$bin"
 ln -s "$tmp/elsewhere" "$tmp/pre-link"
-if "$here/install.sh" "${base[@]/$pre/$tmp/pre-link}" > "$tmp/out.log" 2>&1; then fail "install.sh accepted a symlinked prefix"; fi
+if inst "${base[@]/$pre/$tmp/pre-link}" > "$tmp/out.log" 2>&1; then fail "install.sh accepted a symlinked prefix"; fi
 grep -q "refusing to write through a symlink" "$tmp/out.log" || fail "symlinked prefix refused for another reason: $(cat "$tmp/out.log")"
 
 # A unit path that is a symlink (a masked unit, -> /dev/null) is refused and its target untouched.
 echo keep > "$tmp/masked"; chmod 0600 "$tmp/masked"
 mv "$units/chief-box-acpmux.service" "$tmp/acpmux.unit.real"; ln -s "$tmp/masked" "$units/chief-box-acpmux.service"
-if "$here/install.sh" "${base[@]}" > "$tmp/out.log" 2>&1; then fail "install.sh wrote over a symlinked unit"; fi
+if inst "${base[@]}" > "$tmp/out.log" 2>&1; then fail "install.sh wrote over a symlinked unit"; fi
 grep -q "refusing to write through a symlink: $units/chief-box-acpmux.service" "$tmp/out.log" || fail "symlinked unit refused for another reason: $(cat "$tmp/out.log")"
 [[ "$(cat "$tmp/masked")" == keep && "$(stat -c %a "$tmp/masked" 2>/dev/null || stat -f %Lp "$tmp/masked")" == 600 ]] || fail "install.sh changed a symlinked unit's target"
 rm "$units/chief-box-acpmux.service"; mv "$tmp/acpmux.unit.real" "$units/chief-box-acpmux.service"
 mv "$units/chief-box.slice" "$tmp/slice.real"; ln -s "$tmp/masked" "$units/chief-box.slice"
-if "$here/install.sh" "${base[@]}" > "$tmp/out.log" 2>&1; then fail "install.sh wrote over a symlinked slice"; fi
+if inst "${base[@]}" > "$tmp/out.log" 2>&1; then fail "install.sh wrote over a symlinked slice"; fi
 [[ "$(cat "$tmp/masked")" == keep ]] || fail "install.sh wrote through a symlinked slice"
 rm "$units/chief-box.slice"; mv "$tmp/slice.real" "$units/chief-box.slice"
 # Units are replaced by rename, never rewritten in place.
@@ -145,14 +156,10 @@ for bad in "--owner ann|--owner must be" "--owner user_x;rm|--owner must be" "--
   "--claude-base-url http://r.test --harness claude-sr|both set the Claude route"; do
   args="${bad%%|*}" why="${bad#*|}"
   # shellcheck disable=SC2086
-  if "$here/install.sh" "${base[@]}" $args > "$tmp/out.log" 2>&1; then fail "install.sh accepted $args"; fi
+  if inst "${base[@]}" $args > "$tmp/out.log" 2>&1; then fail "install.sh accepted $args"; fi
   grep -qF -- "$why" "$tmp/out.log" || fail "install.sh refused $args for another reason: $(cat "$tmp/out.log")"
 done
 diff -r "$tmp/units.before" "$units" >/dev/null || fail "a refused install changed the units"
-if "$here/install.sh" --optchat-chief "$tmp/bin/optchat-chief" --cmux-tui "$tmp/bin/cmux-tui" --acpmux "$tmp/bin/acpmux" \
-  --owner user_ann --prefix "$pre" --unit-dir "$units" --bin-dir "$bins" > "$tmp/out.log" 2>&1 && [[ "$(id -u)" != 0 ]]; then
-  fail "install.sh without --no-system ran as a non-root user"
-fi
 
 if command -v systemd-analyze >/dev/null 2>&1; then
   # Verify the unit syntax only (the binaries and user exist on a real box, not here).
