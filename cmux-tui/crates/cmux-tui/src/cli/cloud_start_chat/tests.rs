@@ -363,14 +363,14 @@ fn a_session_that_stops_answering_fails_at_once() {
 /// A machine here: `cloud exec` runs its script with bash in a home of its own, whose
 /// `~/.cmux/bin/cmux-tui` keeps what `acp send` reads; every other step answers from a queue.
 /// `command_cap` refuses a longer command as the cmux API does (nothing of it runs).
-struct Machine {
+struct Guest {
     home: tempfile::TempDir,
     command_cap: Option<usize>,
     answers: VecDeque<Ran>,
     execs: Vec<String>,
 }
 
-impl Machine {
+impl Guest {
     fn new(command_cap: Option<usize>) -> Self {
         let home = tempfile::tempdir().unwrap();
         let bin = home.path().join(".cmux/bin");
@@ -400,7 +400,7 @@ impl Machine {
     }
 }
 
-impl Runner for Machine {
+impl Runner for Guest {
     fn cmux(&mut self, args: &[String]) -> Ran {
         if args.get(1).map(String::as_str) != Some("exec") {
             return self.answers.pop_front().expect("an answer for every step");
@@ -453,7 +453,7 @@ fn big_prompt(bytes: usize) -> String {
 #[test]
 fn a_prompt_of_several_mib_reaches_the_chat_whole() {
     let prompt = big_prompt(5 * 1024 * 1024);
-    let mut machine = Machine::new(None);
+    let mut machine = Guest::new(None);
     let asked = request(&["--prompt", prompt.as_str(), "--name", "dev"]);
     let Outcome::Done(answer) = run(&mut machine, &asked) else { panic!("not sent") };
     assert_eq!(answer["sent"], true);
@@ -469,7 +469,7 @@ fn a_prompt_of_several_mib_reaches_the_chat_whole() {
 #[test]
 fn a_route_that_takes_64_kib_commands_gets_small_pieces_and_the_whole_prompt() {
     let prompt = big_prompt(3 * 1024 * 1024 + 17);
-    let mut machine = Machine::new(Some(64 * 1024));
+    let mut machine = Guest::new(Some(64 * 1024));
     let asked = request(&["--prompt", prompt.as_str(), "--name", "dev"]);
     let Outcome::Done(answer) = run(&mut machine, &asked) else { panic!("not sent") };
     assert_eq!(answer["sent"], true);
@@ -483,7 +483,7 @@ fn a_route_that_takes_64_kib_commands_gets_small_pieces_and_the_whole_prompt() {
 
 #[test]
 fn a_short_prompt_still_goes_inside_the_send() {
-    let mut machine = Machine::new(Some(64 * 1024));
+    let mut machine = Guest::new(Some(64 * 1024));
     let asked = request(&["--prompt", "What is 2+2? It's $5 `now`", "--name", "dev"]);
     let Outcome::Done(_) = run(&mut machine, &asked) else { panic!("not sent") };
     assert_eq!(machine.execs.len(), 1);
