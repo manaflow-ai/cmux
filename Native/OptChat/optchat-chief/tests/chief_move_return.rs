@@ -99,6 +99,18 @@ type Calls = Arc<Mutex<Vec<(String, String, Value)>>>;
 /// A stand-in for the cloud API holding the hosted Chief after the move: the two copied
 /// messages plus two it got in the cloud, and a memory that grew by two messages.
 fn fake_cloud(local_memory: Vec<(String, String)>) -> (String, Calls) {
+    fake_cloud_asking(local_memory, None)
+}
+
+/// The fake cloud, its Chief having asked to teleport to `teleport`.
+fn fake_cloud_asking(
+    local_memory: Vec<(String, String)>,
+    teleport: Option<&str>,
+) -> (String, Calls) {
+    let mut teleport: Value = teleport.map_or(
+        Value::Null,
+        |to| json!({"to": to, "id": "tp-1", "at": "2026-11-03T00:00:00Z"}),
+    );
     use std::io::{BufRead, BufReader, Read, Write as _};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
@@ -162,12 +174,16 @@ fn fake_cloud(local_memory: Vec<(String, String)>) -> (String, Calls) {
             let (status, reply) = if auth != "authorization: Bearer app-token" {
                 (401, json!({"ok": false}))
             } else if path.contains("/brain") && method == "PUT" {
-                brain = body["enabled"] == true;
+                if body.get("teleport").is_some() {
+                    teleport = body["teleport"].clone();
+                } else {
+                    brain = body["enabled"] == true;
+                }
                 (200, json!({"ok": true, "value": {}}))
             } else if path.contains("/brain") {
                 (
                     200,
-                    json!({"ok": true, "value": {"config": {"enabled": brain}}}),
+                    json!({"ok": true, "value": {"config": {"enabled": brain, "teleport": teleport}}}),
                 )
             } else if path.contains("/runs") {
                 // A turn would still be running while the brain is on.
@@ -295,7 +311,7 @@ fn brain_puts(seen: &Calls) -> Vec<bool> {
     seen.lock()
         .unwrap()
         .iter()
-        .filter(|c| c.0 == "PUT" && c.1.contains("/brain"))
+        .filter(|c| c.0 == "PUT" && c.1.contains("/brain") && c.2.get("enabled").is_some())
         .map(|c| c.2["enabled"] == true)
         .collect()
 }
@@ -411,4 +427,157 @@ fn the_app_token_for_another_cloud_is_refused() {
         "no call with a token for another cloud"
     );
     assert!(src.join("state/moved.json").exists());
+}
+
+/// A stand-in `ssh` that runs the remote command in `remote_home` (as chief_move.rs).
+fn fake_ssh(dir: &Path, remote_home: &Path) -> PathBuf {
+    let path = dir.join("fake-ssh");
+    write(
+        &path,
+        &format!(
+            "#!/bin/sh\nwhile [ \"$1\" = -o ]; do shift 2; done\nshift\ncd '{h}' && HOME='{h}' exec sh -c \"$1\"\n",
+            h = remote_home.display()
+        ),
+    );
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// The round trip the person asks for in chat: this Mac -> cloud -> Mac mini -> this
+/// Mac. The Cloud Chief asks to go to the mini (its teleport tool), the Chief on the
+/// mini asks to come home (its move tool's request file); this Mac's watcher carries
+/// out both, and the home ends with every message from every stop.
+#[test]
+fn a_round_trip_from_the_cloud_to_a_mini_and_home_loses_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let probe = tempfile::tempdir().unwrap();
+    let seed_home = moved_home(probe.path(), "http://127.0.0.1:1");
+    let (base, seen) = fake_cloud_asking(local_memory(&seed_home), Some("ssh:mini"));
+    let src = moved_home(dir.path(), &base);
+    let cli = fake_app_cli(dir.path(), &base);
+    let remote = dir.path().join("mini-user");
+    std::fs::create_dir_all(&remote).unwrap();
+    let remote = std::fs::canonicalize(remote).unwrap();
+    let ssh = fake_ssh(dir.path(), &remote);
+    // The watcher's first look: the Cloud Chief asked for the mini.
+    let first = Command::new(BIN)
+        .args([
+            "move",
+            "watch",
+            "--every",
+            "1",
+            "--remote-bin",
+            BIN,
+            "--home",
+            src.to_str().unwrap(),
+        ])
+        .env("OPTCHAT_MOVE_CMUX", &cli)
+        .env("OPTCHAT_MOVE_SSH", &ssh)
+        .env_remove("CMUX_CLOUD_SESSION_TOKEN")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let on_mini = remote.join(".cmux/chief/src");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    while !on_mini.join("state/moved-in.json").exists() && std::time::Instant::now() < deadline {
+        // Bounded wait for the watcher's first move.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    let moved: Value =
+        serde_json::from_str(&std::fs::read_to_string(src.join("state/moved.json")).unwrap())
+            .unwrap();
+    assert!(
+        moved["to"].as_str().unwrap().starts_with("ssh:mini:"),
+        "{moved}"
+    );
+    assert_eq!(
+        local_memory(&on_mini).len(),
+        4,
+        "the cloud's memory reached the mini"
+    );
+    assert_eq!(brain_puts(&seen), vec![false]);
+    assert!(
+        seen.lock()
+            .unwrap()
+            .iter()
+            .any(|c| c.2.get("teleport").is_some_and(Value::is_null)),
+        "the cloud request is cleared"
+    );
+    // A conversation message on the mini, then its Chief asks to come home.
+    let mini_conv = on_mini
+        .join("tui")
+        .join(session_dir(&on_mini))
+        .join("conversations.sqlite3");
+    let conn = rusqlite::Connection::open(&mini_conv).unwrap();
+    conn.execute_batch(
+        r#"INSERT INTO message VALUES ('conv_L',5,'msg_E','{"id":"msg_E","seq":5,"author":"user_local","parts":[{"type":"text","text":"said on the mini"}]}');
+           UPDATE conversation SET last_seq = 5;"#,
+    )
+    .unwrap();
+    drop(conn);
+    write(
+        &on_mini.join("state/teleport-request.json"),
+        &json!({"to": "home", "id": "tp-2"}).to_string(),
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    let mut first = first;
+    while first.try_wait().unwrap().is_none() && std::time::Instant::now() < deadline {
+        // Bounded wait for the watcher to bring the Chief home and exit.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    let _ = first.kill();
+    assert!(
+        !src.join("state/moved.json").exists(),
+        "the home answers again"
+    );
+    assert_eq!(local_memory(&src).len(), 4);
+    let conv = conversation(&src);
+    assert_eq!(conv.len(), 5, "{conv:?}");
+    assert_eq!(conv[4]["parts"][0]["text"], "said on the mini");
+    assert!(
+        on_mini.join("state/moved.json").exists(),
+        "the mini's copy is retired"
+    );
+    assert!(!on_mini.join("state/teleport-request.json").exists());
+}
+
+/// `move --to local:<the home>` on a home that moved over SSH brings it back.
+#[test]
+fn a_chief_on_a_mini_comes_back_into_the_home_it_left() {
+    let dir = tempfile::tempdir().unwrap();
+    let probe = tempfile::tempdir().unwrap();
+    let seed_home = moved_home(probe.path(), "http://127.0.0.1:1");
+    let (base, _seen) = fake_cloud(local_memory(&seed_home));
+    let src = moved_home(dir.path(), &base);
+    let cli = fake_app_cli(dir.path(), &base);
+    let remote = dir.path().join("mini-user");
+    std::fs::create_dir_all(&remote).unwrap();
+    let remote = std::fs::canonicalize(remote).unwrap();
+    let ssh = fake_ssh(dir.path(), &remote);
+    let run = |to: String| {
+        Command::new(BIN)
+            .args([
+                "move",
+                "--to",
+                &to,
+                "--remote-bin",
+                BIN,
+                "--home",
+                src.to_str().unwrap(),
+            ])
+            .env("OPTCHAT_MOVE_CMUX", &cli)
+            .env("OPTCHAT_MOVE_SSH", &ssh)
+            .env_remove("CMUX_CLOUD_SESSION_TOKEN")
+            .output()
+            .unwrap()
+    };
+    let r = report(&run("ssh:mini".into()));
+    assert_eq!(r["moved"], true, "{r}");
+    let r = report(&run(format!("local:{}", src.display())));
+    assert_eq!(r["moved"], true, "{r}");
+    assert!(!src.join("state/moved.json").exists());
+    assert_eq!(local_memory(&src).len(), 4);
+    assert_eq!(conversation(&src).len(), 4);
 }
