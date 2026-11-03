@@ -8,7 +8,11 @@
 //! them shells idle at a prompt for a median 148 h with no client; every
 //! new workspace then failed to spawn).
 //!
-//! When free PTYs fall under [`PTY_RESERVE`], the owner parks idle shells
+//! When free PTYs fall under [`PTY_RESERVE`], the owner first ends the terminals
+//! of closed tabs that wait out the reap grace (no tab shows them; longest closed
+//! first, never a kept or attached one), since a burst of tab closes otherwise
+//! holds the machine's PTYs for the whole grace (STATUS 7938). If that is not
+//! enough, it parks idle shells
 //! (`park-tabs`, `tab-park-v1`) until [`PTY_REFILL`] are free: the tab stays,
 //! shows `relaunch: {cwd}`, and the app starts it again when it is shown. A
 //! shell is parked only when all of these hold, so no work is ever lost:
@@ -207,6 +211,17 @@ impl Mux {
         if want == 0 {
             return Vec::new();
         }
+        // Closed tabs' terminals waiting out the reap grace go first: no tab shows them, and a
+        // burst of closes held the machine's PTYs with them until every new tab was refused
+        // (STATUS 7938). Each ends through the reaper's own guarded close.
+        let ended = self.end_unplaced_terminals_for_ptys(want);
+        let want = want.saturating_sub(ended);
+        if want == 0 {
+            eprintln!(
+                "cmux-tui: PTYs low ({used} of {max} in use): ended {ended} closed tabs' terminals"
+            );
+            return Vec::new();
+        }
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
@@ -232,6 +247,41 @@ impl Mux {
                 Vec::new()
             }
         }
+    }
+
+    /// Ends up to `want` terminals that no tab shows and that wait out the reap grace, longest
+    /// unplaced first; returns how many ended. A kept terminal, or one a client is attached to, is
+    /// never one of them (`reap_unplaced_terminal` checks again atomically with the close).
+    fn end_unplaced_terminals_for_ptys(&self, want: usize) -> usize {
+        let mut rows_empty = false;
+        let unplaced = match self.reapable_terminals_unplaced_for(&mut rows_empty) {
+            Ok(unplaced) => unplaced,
+            Err(error) => {
+                self.report_internal_diagnostic(format!(
+                    "PTY reclaim could not list closed terminals: {error:#}"
+                ));
+                return 0;
+            }
+        };
+        let mut oldest: Vec<(Duration, String)> = unplaced
+            .into_iter()
+            .map(|(terminal_id, unplaced_for)| (unplaced_for, terminal_id))
+            .collect();
+        oldest.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+        let mut ended = 0;
+        for (_, terminal_id) in oldest {
+            if ended == want {
+                break;
+            }
+            match self.reap_unplaced_terminal(&terminal_id) {
+                Ok(super::terminal_reap::ReapOutcome::Reaped) => ended += 1,
+                Ok(_) => {}
+                Err(error) => self.report_internal_diagnostic(format!(
+                    "PTY reclaim could not end closed terminal {terminal_id}: {error:#}"
+                )),
+            }
+        }
+        ended
     }
 
     /// Every running terminal of this owner with the facts
