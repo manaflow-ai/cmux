@@ -93,6 +93,9 @@ LIGHT_COMMANDS = (("vp", "fmt", "--check"),)
 LIGHT_SCRIPT_TOOLS = {"python3": (".py", ("-I",)), "bun": (".ts", ())}
 # `bun run NAME`: a piece that runs another script of the same package.json; resolved, never run as a whole.
 SCRIPT_RUNNER = ("bun", "run")
+# The UI-review AST walk scans the whole webviews tree. It remains part of the full `bun run check`
+# and CI fast gate, but a light host defers it to the fleet rather than treating it as a cheap source check.
+LIGHT_SCRIPT_EXCLUSIONS = {"scripts/check-ui-review.ts"}
 # Characters that make a piece more than one plain command: such a piece is never light.
 SHELL_SYNTAX = frozenset(";|&$`()<>*?[]{}~!#'\"\\\n\r\t")
 MAX_SCRIPT_DEPTH = 8
@@ -346,6 +349,8 @@ def light_script(package: ScriptPackage, argv: list[str]) -> bool:
     if rest[0].startswith("/"):
         return False
     path = posixpath.normpath(posixpath.join(package.directory, rest[0]))
+    if posixpath.relpath(path, package.directory) in LIGHT_SCRIPT_EXCLUSIONS:
+        return False
     return (not path.startswith("../") and "scripts" in path.split("/")[:-1]
             and executed_changes(package, [path]) == [path])
 

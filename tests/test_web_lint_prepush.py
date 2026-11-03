@@ -808,11 +808,24 @@ class WebLintPrePushTests(unittest.TestCase):
                       "python3 -I src/lint/scripts/x.py"):
             with self.subTest(piece=piece):
                 self.assertFalse(lint.is_light(piece, webviews))
+
         for piece in ("python3 scripts/check.py", "python3 -I scripts/check.py --root ..",
                       "python3 ../scripts/cmux-next/check-layers.py", "bun scripts/check-fixed-waits.ts",
                       "bun scripts/lint/x.ts"):
             with self.subTest(piece=piece):
                 self.assertTrue(lint.is_light(piece, webviews))
+
+    def test_ui_review_is_deferred_from_light_hosts_but_kept_in_full_checks(self):
+        lint = load_lint(self.repo)
+        webviews = lint.SCRIPT_PACKAGES[0]
+        pieces = ["bun scripts/check-ui-review.ts", "vp fmt --check"]
+        light, deferred = lint.light_leaves(webviews, pieces, {})
+        self.assertEqual(light, ["vp fmt --check"])
+        self.assertEqual(deferred, ["bun scripts/check-ui-review.ts"])
+        with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "0", "CI": "", "GITHUB_ACTIONS": ""}):
+            self.assertFalse(lint.local_heavy_checks())
+        with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "0", "CI": "true", "GITHUB_ACTIONS": ""}):
+            self.assertTrue(lint.local_heavy_checks(), "CI still runs the complete check, including UI review")
 
     def test_every_light_script_is_one_the_hook_refuses_to_lint_when_a_push_changes_it(self):
         lint = load_lint(self.repo)
