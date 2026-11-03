@@ -147,9 +147,7 @@ export function subagentsSection(
   };
   const runningAgents = nestAgents(
     agents.filter((agent) => live(subagentStatus(agent, waiting, now))).sort(waitsFirst),
-  ).map(
-    ({ agent, depth }) => agentLine(agent, depth),
-  );
+  ).map(({ agent, depth }) => agentLine(agent, depth));
   const children = orderedSessions(sessions);
   const running: SubagentLine[] = [
     ...children.filter((child) => sessionStatus(child) === "waiting").map(sessionLine),
@@ -159,11 +157,7 @@ export function subagentsSection(
   const ended: SubagentLine[] = [
     ...agents.filter((agent) => !live(subagentStatus(agent, waiting, now))).map((agent) => agentLine(agent, 0)),
     ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
-  ].sort(
-    (a, b) =>
-      ENDED_RANK[a.status] - ENDED_RANK[b.status] ||
-      b.at - a.at,
-  );
+  ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);
   const endedCounts = (lines: readonly SubagentLine[]): string => {
     const count = (status: SubagentStatus) => lines.filter((line) => line.status === status).length;
     return [

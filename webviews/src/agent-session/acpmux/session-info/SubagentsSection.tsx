@@ -242,9 +242,7 @@ export function SubagentsSection({
     a.startedAt - b.startedAt;
   const runningAgents = nestAgents(
     agents.filter((agent) => live(subagentStatus(agent, waiting, now))).sort(waitsFirst),
-  ).map(
-    ({ agent, depth }) => agentLine(agent, depth),
-  );
+  ).map(({ agent, depth }) => agentLine(agent, depth));
   const children = orderedSessions(sessions);
   const runningLines = [
     ...children.filter((child) => sessionStatus(child) === "waiting").map(sessionLine),

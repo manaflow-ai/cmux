@@ -239,12 +239,55 @@ const waveAgents: Subagent[] = Array.from({ length: RUNNING + 2 }, (_, index) =>
 /// out of "running" in the head too), one met first through its progress and named by its prompt
 /// rather than its id, and the chat-start limit named for what it counts.
 const idleAgents: Subagent[] = [
-  { id: "idle-a", parent: null, name: "Drop server login", state: "running", startedAt: started - 6_900_000, quietSince: started - 6_600_000 },
-  { id: "idle-b", parent: null, name: "Audit Session Info strings", state: "running", startedAt: started - 6_890_000, quietSince: started - 6_500_000 },
-  { id: "busy-a", parent: null, name: "Fix the running tray", state: "running", startedAt: started - 300_000, quietSince: started - 5_000, action: "Reading SubagentTray.tsx" },
-  { id: "busy-b", parent: null, name: "Measure the rail", state: "running", startedAt: started - 200_000, action: "Running bun test" },
-  { id: "acp-1/toolu_c", parent: null, name: "Check the permission receipt", state: "running", startedAt: started - 120_000, quietSince: started - 2_000 },
-  { id: "done-a", parent: null, name: "Read the design spec", state: "completed", startedAt: started - 7_000_000, endedAt: started - 6_800_000 },
+  {
+    id: "idle-a",
+    parent: null,
+    name: "Drop server login",
+    state: "running",
+    startedAt: started - 6_900_000,
+    quietSince: started - 6_600_000,
+  },
+  {
+    id: "idle-b",
+    parent: null,
+    name: "Audit Session Info strings",
+    state: "running",
+    startedAt: started - 6_890_000,
+    quietSince: started - 6_500_000,
+  },
+  {
+    id: "busy-a",
+    parent: null,
+    name: "Fix the running tray",
+    state: "running",
+    startedAt: started - 300_000,
+    quietSince: started - 5_000,
+    action: "Reading SubagentTray.tsx",
+  },
+  {
+    id: "busy-b",
+    parent: null,
+    name: "Measure the rail",
+    state: "running",
+    startedAt: started - 200_000,
+    action: "Running bun test",
+  },
+  {
+    id: "acp-1/toolu_c",
+    parent: null,
+    name: "Check the permission receipt",
+    state: "running",
+    startedAt: started - 120_000,
+    quietSince: started - 2_000,
+  },
+  {
+    id: "done-a",
+    parent: null,
+    name: "Read the design spec",
+    state: "completed",
+    startedAt: started - 7_000_000,
+    endedAt: started - 6_800_000,
+  },
 ];
 
 /// Where the play holds every wave loop: one point on each loop's own timeline, past its delay (the
@@ -1392,7 +1435,11 @@ export default componentEntry<Props>({
         ...full,
         agents: idleAgents,
         sessions: [],
-        summary: { ...summary, harness: "claude", subsessionLimits: { maxRunning: 1000, maxRunningSource: "settings" } },
+        summary: {
+          ...summary,
+          harness: "claude",
+          subsessionLimits: { maxRunning: 1000, maxRunningSource: "settings" },
+        },
       },
       play: async (ctx) => {
         await ctx.waitFor(() => /2 idle/.test(text(ctx)) && /Started chats: 0 of 1000 at once/.test(text(ctx)));
