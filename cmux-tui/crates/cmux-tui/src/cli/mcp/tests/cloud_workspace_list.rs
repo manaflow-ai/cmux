@@ -10,11 +10,11 @@ fn fake() -> Fake {
     Fake {
         resource_result: Some(json!({"id": LOCAL, "name": "Home", "index": 0})),
         cloud_machines: Some(json!({"loaded": true, "machines": [
-            {"id": "vm-aaa", "title": "fs-lane-12", "daemon": "connected", "workspaces": [
+            {"id": "vm-aaa", "title": "build-box", "daemon": "connected", "workspaces": [
                 {"id": "a40723c3", "name": "workspace-1", "resource_id": "ws_d0e6"},
                 {"id": "bf156a1d", "name": "workspace-2", "resource_id": "ws_9e2a"},
             ]},
-            {"id": "vm-bbb", "title": "leo-cloud", "daemon": "connected", "workspaces": [
+            {"id": "vm-bbb", "title": "review-box", "daemon": "connected", "workspaces": [
                 {"id": "a40723c3", "name": "workspace-1", "resource_id": "ws_d0e6"},
             ]},
         ]})),
@@ -40,7 +40,7 @@ fn workspace_list_adds_each_cloud_machines_workspaces_marked_with_the_machine() 
         .find(|row| row["machine_id"] == "vm-aaa" && row["workspace_id"] == "bf156a1d")
         .expect("the new Cloud workspace");
     assert_eq!(opened["target"], "machine:vm-aaa");
-    assert_eq!(opened["machine_name"], "fs-lane-12");
+    assert_eq!(opened["machine_name"], "build-box");
     assert_eq!(opened["origin"], "cloud");
     assert_eq!(listed[3]["machine_id"], "vm-bbb");
 
@@ -63,7 +63,7 @@ fn the_cloud_rows_page_with_the_daemons() {
 
 #[test]
 fn machine_lists_one_cloud_machines_workspaces_without_the_daemon() {
-    for selector in ["vm-aaa", "machine:vm-aaa", "fs-lane-12"] {
+    for selector in ["vm-aaa", "machine:vm-aaa", "build-box"] {
         let mut server = Server::new(fake(), None);
         let listed = items(&call(&mut server, "workspace_list", json!({"machine": selector})));
         assert_eq!(listed.len(), 2, "{selector}");

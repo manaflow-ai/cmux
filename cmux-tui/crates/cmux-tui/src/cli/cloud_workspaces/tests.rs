@@ -7,12 +7,12 @@ use super::{append, find, machine_rows, machines_of, rows};
 /// `cloud new-workspace` opened, and one without a daemon yet.
 fn machines() -> Vec<Value> {
     json!([
-        {"id": "vm-aaa", "title": "fs-lane-12", "daemon": "connected",
+        {"id": "vm-aaa", "title": "build-box", "daemon": "connected",
          "machine_id": "machine_1111", "workspaces": [
             {"id": "a40723c3", "name": "workspace-1", "resource_id": "ws_d0e60f13"},
             {"id": "bf156a1d", "name": "workspace-2", "resource_id": "ws_9e2a"},
         ]},
-        {"id": "vm-bbb", "title": "fs-lane-11", "daemon": "connected",
+        {"id": "vm-bbb", "title": "build-box-2", "daemon": "connected",
          "machine_id": "machine_1111", "workspaces": [
             {"id": "a40723c3", "name": "workspace-1", "resource_id": "ws_d0e60f13"},
         ]},
@@ -34,7 +34,7 @@ fn every_cloud_workspace_is_a_row_marked_with_its_machine() {
             "workspace_id": "bf156a1d",
             "name": "workspace-2",
             "machine_id": "vm-aaa",
-            "machine_name": "fs-lane-12",
+            "machine_name": "build-box",
             "target": "machine:vm-aaa",
             "origin": "cloud",
             "daemon": "connected",
@@ -68,7 +68,7 @@ fn a_workspace_without_a_ws_id_is_named_by_its_durable_id() {
 #[test]
 fn a_machine_is_found_by_its_id_target_or_unique_title() {
     let machines = machines();
-    for selector in ["vm-aaa", "machine:vm-aaa", "fs-lane-12"] {
+    for selector in ["vm-aaa", "machine:vm-aaa", "build-box"] {
         let found = find(&machines, selector).unwrap().expect(selector);
         assert_eq!(found["id"], "vm-aaa", "{selector}");
     }
@@ -76,8 +76,8 @@ fn a_machine_is_found_by_its_id_target_or_unique_title() {
     assert_eq!(find(&machines, "machine_1111").unwrap(), None, "a catalog id is no Cloud id");
 
     let mut twins = machines.clone();
-    twins[1]["title"] = json!("fs-lane-12");
-    let ambiguous = find(&twins, "fs-lane-12").unwrap_err();
+    twins[1]["title"] = json!("build-box");
+    let ambiguous = find(&twins, "build-box").unwrap_err();
     assert_eq!(ambiguous["code"], "selector.ambiguous");
     assert_eq!(ambiguous["details"]["candidates"], json!(["vm-aaa", "vm-bbb"]));
     // The id still names one.
