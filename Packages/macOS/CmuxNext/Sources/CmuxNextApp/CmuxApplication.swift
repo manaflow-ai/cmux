@@ -45,6 +45,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     /// Set once by `AppServices`. Gets the key-down and the window it goes
     /// to; returns true when it consumed the key.
     var keyDownInterceptor: ((NSEvent, NSWindow?) -> Bool)?
+    /// A key-up or a mouse-down before AppKit dispatches it: true when it is taken (link hints hold a key-up behind its key-down).
+    var keyUpOrClickInterceptor: ((NSEvent) -> Bool)?
     /// Set once by `AppServices`: sees every event first (input journal).
     var inputObserver: ((NSEvent) -> Void)?
     /// Set once by `AppServices`: true when a key-down typed into one cmux window would reach
@@ -132,6 +134,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
         }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         if event.type == .keyDown, FindPillView.forwardArrowKeyDown(event, in: keyWindow ?? event.window) { return }
+        if event.type == .keyUp || event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown, keyUpOrClickInterceptor?(event) == true { return }
         if event.type == .leftMouseDown || event.type == .leftMouseUp {
             BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) }
         } else {
