@@ -551,11 +551,28 @@ final class RemoteTmuxViewConnection {
         if !read.marksSettled {
             // One sequence, so the view is flagged only once every mark has landed; if any
             // fails, the next bringup reads the view the old way again.
-            let settle = read.toMark.map { RemoteTmuxViewSession.linkedMarkCommand(windowId: $0) }
-                + ["set-option -t \(quoted(view.sessionName)) \(RemoteTmuxViewSession.optMarksSettled) 1"]
-            _ = conn.send(settle.joined(separator: " ; "))
+            _ = Self.settleMarks(read.toMark, viewSessionName: view.sessionName, on: conn)
         }
         return true
+    }
+
+    /// Marks `windowIds` as cmux's and then flags the view as settled, in one sequence, so the
+    /// view is flagged only once every mark has landed. If any fails, the next bringup reads the
+    /// view the old way again.
+    static func settleMarks(
+        _ windowIds: [String], viewSessionName: String, on connection: RemoteTmuxControlConnection
+    ) -> Bool {
+        let settle = windowIds.map { RemoteTmuxViewSession.linkedMarkCommand(windowId: $0) }
+            + ["set-option -t \(RemoteTmuxHost.shellSingleQuoted(viewSessionName)) \(RemoteTmuxViewSession.optMarksSettled) 1"]
+        return connection.send(settle.joined(separator: " ; "))
+    }
+
+    /// Links `windowId` into the view and marks it as cmux's.
+    static func linkIntoView(
+        _ windowId: String, viewSessionName: String, on connection: RemoteTmuxControlConnection
+    ) -> Bool {
+        connection.send(RemoteTmuxViewSession.linkAndMark(
+            "link-window -s \(windowId) -t \(RemoteTmuxHost.shellSingleQuoted(viewSessionName))", windowId: windowId))
     }
 
     /// The bringup's `list-windows -F` format: id, linked flag, the window's mark, and the
@@ -816,8 +833,7 @@ final class RemoteTmuxViewConnection {
         for action in plan.reconcileActions {
             switch action {
             case let .link(windowId):
-                if conn.send(RemoteTmuxViewSession.linkAndMark(
-                    "link-window -s \(windowId) -t \(quoted(view.sessionName))", windowId: windowId)) {
+                if Self.linkIntoView(windowId, viewSessionName: view.sessionName, on: conn) {
                     ownedWindowIds.insert(windowId)
                 }
             case let .unlinkFromView(windowId):
@@ -836,7 +852,7 @@ final class RemoteTmuxViewConnection {
                 ownedWindowIds.remove(windowId)
             }
         }
-        Self.adopt(plan.adoptions, send: { conn.sendTracked($0, completion: $1) }, onLinked: { [weak self] windowId in
+        Self.adopt(plan.adoptions, on: conn, onLinked: { [weak self] windowId in
             guard let self else { return }
             self.ownedWindowIds.insert(windowId)
             self.requestReconcile()

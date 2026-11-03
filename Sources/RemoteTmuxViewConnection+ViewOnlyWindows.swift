@@ -20,4 +20,13 @@ extension RemoteTmuxViewConnection {
             }
         }
     }
+
+    /// ``adopt(_:send:onLinked:)`` on the view's control stream.
+    static func adopt(
+        _ adoptions: [RemoteTmuxViewOnlyWindows.Adoption],
+        on connection: RemoteTmuxControlConnection,
+        onLinked: @escaping (String) -> Void
+    ) {
+        adopt(adoptions, send: { connection.sendTracked($0, completion: $1) }, onLinked: onLinked)
+    }
 }

@@ -186,6 +186,73 @@ import Testing
         #expect(owned == ["@7"])
     }
 
+    /// The writes that link or mark view windows, each sent on the view's control stream.
+    enum ViewWrite: CaseIterable {
+        case adoption, link, twoMarksAndTheSettledFlag
+
+        /// How many commands the write's sequence holds, so how many blocks tmux answers it with.
+        var commandCount: Int { self == .twoMarksAndTheSettledFlag ? 3 : 2 }
+    }
+
+    /// Replies are matched to commands by position, and tmux answers every command of an `a ; b`
+    /// sequence with its own block. A link and its mark that reserved one reply slot left the
+    /// mark's reply to whatever was sent next, and every reply after that went to the command
+    /// before it: here a new window would get no id.
+    @Test(arguments: ViewWrite.allCases) @MainActor
+    func aViewWriteLeavesTheNextCommandItsOwnReply(_ write: ViewWrite) {
+        let stream = AttachedControlStream()
+        defer { stream.close() }
+        let connection = stream.connection
+        var linked: [String] = []
+        switch write {
+        case .adoption:
+            RemoteTmuxViewConnection.adopt(
+                [.init(windowId: "@7", sessionName: "main", afterWindowId: "@1")],
+                on: connection,
+                onLinked: { linked.append($0) }
+            )
+        case .link:
+            #expect(RemoteTmuxViewConnection.linkIntoView("@7", viewSessionName: view, on: connection))
+        case .twoMarksAndTheSettledFlag:
+            #expect(RemoteTmuxViewConnection.settleMarks(["@7", "@8"], viewSessionName: view, on: connection))
+        }
+        var newWindowId: Int?
+        var newWindowAnswered = false
+        #expect(connection.sendNewWindow("new-window -P -F '#{window_id}'") {
+            newWindowAnswered = true
+            newWindowId = $0
+        })
+
+        for _ in 0..<write.commandCount { stream.reply([]) }
+        stream.reply(["@9"])
+
+        #expect(newWindowAnswered)
+        #expect(newWindowId == 9, "the new window got the reply meant for the \(write)")
+        if write == .adoption { #expect(linked == ["@7"]) }
+    }
+
+    /// tmux runs nothing after a command that fails, so a refused link gets one block and its
+    /// mark none. The window stays unowned and the next command still gets its own reply.
+    @Test @MainActor func aRefusedAdoptionLeavesTheNextCommandItsOwnReply() {
+        let stream = AttachedControlStream()
+        defer { stream.close() }
+        let connection = stream.connection
+        var linked: [String] = []
+        RemoteTmuxViewConnection.adopt(
+            [.init(windowId: "@7", sessionName: "gone", afterWindowId: "@1")],
+            on: connection,
+            onLinked: { linked.append($0) }
+        )
+        var newWindowId: Int?
+        #expect(connection.sendNewWindow("new-window -P -F '#{window_id}'") { newWindowId = $0 })
+
+        stream.reply(["can't find session: gone"], isError: true)
+        stream.reply(["@9"])
+
+        #expect(linked.isEmpty)
+        #expect(newWindowId == 9)
+    }
+
     /// The bringup reads which view windows cmux linked from the mark it leaves on each window,
     /// not from the window being in the view. A window that is in the view alone and carries no
     /// mark was created there, and must stay free to be adopted; marking it ours would get it
@@ -270,5 +337,42 @@ private final class ViewOnlyTmuxServer {
     func stop() {
         _ = try? run(["kill-server"])
         try? FileManager.default.removeItem(at: directory)
+    }
+}
+
+/// A control connection past its attach, writing to a pipe, so the test can answer its commands.
+@MainActor
+private struct AttachedControlStream {
+    let connection: RemoteTmuxControlConnection
+    let writer: RemoteTmuxControlPipeWriter
+    let pipe: Pipe
+
+    init() {
+        connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "view-only-windows.test"),
+            sessionName: "work"
+        )
+        pipe = Pipe()
+        writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-view-only-windows-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        connection.handleMessageForTesting(.commandResult(commandNumber: 0, lines: [], isError: false))
+        connection.handleMessageForTesting(.commandResult(commandNumber: 1, lines: [], isError: false))
+    }
+
+    /// Answers the oldest command still waiting for a reply.
+    func reply(_ lines: [String], isError: Bool = false) {
+        connection.handleMessageForTesting(.commandResult(commandNumber: 0, lines: lines, isError: isError))
+    }
+
+    func close() {
+        connection.stop()
+        writer.close()
+        try? pipe.fileHandleForReading.close()
     }
 }
