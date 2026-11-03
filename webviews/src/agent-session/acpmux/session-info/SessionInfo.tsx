@@ -52,6 +52,7 @@ import { chatGlass, chatUnderGlass } from "../chatUnderGlass";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
 import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatSizing, type ChatColumn } from "../chatWidth";
+import { FIND_HIDE_EVENT, FIND_OPEN_EVENT } from "../conversation/chatFind";
 import { PanelToggle } from "../header/PanelToggle";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
@@ -239,6 +240,27 @@ export const sessionInfoStage = (
 
 /// The shell's pin on the transcript's column while Session Info pushes (sessionInfo.css).
 const SESSION_INFO_COLUMN = "--acpmux-session-info-column";
+
+/// The shell's room Find in Chat's bar keeps from the chat's right edge (conversation.css .acpmux-find__bar).
+export const SESSION_INFO_CLEAR = "--acpmux-session-info-clear";
+
+/// How far the panel's left edge lies inside the chat's right edge, in every stage: the panel and its
+/// margin, less the room a push takes from the chat beside it (`room`, pushedRoom; 0 floating or over the
+/// chat). Find in Chat's bar keeps this clear, so it sits in the chat's column left of the panel and
+/// never under it (Leo, 2026-11-03: "oh no the command f overlaps with the session info..").
+export const sessionInfoClear = (panelWidth: number, room: number) =>
+  Math.max(0, Math.round(panelWidth + FLOAT_MARGIN - room));
+
+/// Find in Chat's bar at its narrowest (ui/findPill.css: its padding, icon, a 40px field, the count,
+/// the separator and three buttons), and its inset from the column's edges (--find-pill-inset).
+export const FIND_BAR_MIN = 230;
+export const FIND_BAR_INSET = 10;
+
+/// Whether a chat `chatWidth` wide has no room for Find in Chat's bar at its narrowest beside the panel
+/// (`clear`, sessionInfoClear): Session Info then steps aside when Find opens (FIND_OPEN_EVENT), as it
+/// does for a diff in place, instead of covering the bar; its toggle brings it back. Unmeasured (0) counts as room.
+export const findBarCramped = (chatWidth: number, clear: number) =>
+  chatWidth > 0 && chatWidth - clear - 2 * FIND_BAR_INSET < FIND_BAR_MIN;
 
 /// Whether a push that takes `room` from the chat's right end keeps the transcript's column at the
 /// width it has in the whole pane (model.ts transcriptColumn): only the gutters shrink, so the column
@@ -888,6 +910,9 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // end: by default only what the gutter lacks, so the chat narrows gradually (pushedRoom).
   const panelWidth = push ? pushedWidth(paneWidth, width) : width;
   const room = push ? pushedRoom(paneWidth, panelWidth, column, overflow, pushes(display.sessionInfo)) : 0;
+  // How far the panel reaches into the chat's right edge: Find's bar keeps clear of it (sessionInfoClear).
+  const clear = sessionInfoClear(panelWidth, room);
+  const cramped = findBarCramped(paneWidth - room, clear);
   // In a short pane, over the chat it is a popover that a click elsewhere hides (POPOVER_BELOW_HEIGHT).
   const popover = sessionInfoPopover(paneHeight, overChat);
   // Open only from a saved state (a new chat, a relaunch), it waits for the person where it would lie
@@ -942,6 +967,28 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     // pane's trailing edge. Reuse the measured room (excluding an artifact beside the chat).
     if (paneWidth > 0) shell.style.setProperty("--acpmux-header-room", `${paneWidth}px`);
   }, [shell, drawn, push, paneWidth, column]);
+  // Find in Chat's bar keeps left of the panel (sessionInfoClear, conversation.css .acpmux-find__bar). Its
+  // own effect, so a width drag only moves the bar and fires no chat layout event per frame.
+  useLayoutEffect(() => {
+    if (!shell || !drawn) return;
+    shell.style.setProperty(SESSION_INFO_CLEAR, `${clear}px`);
+    return () => {
+      shell.style.removeProperty(SESSION_INFO_CLEAR);
+    };
+  }, [shell, drawn, clear]);
+  // Where the chat has no room for Find's bar beside the panel (findBarCramped), the panel steps aside
+  // when Find opens, and Find steps aside when the toggle opens the panel over an open bar: the bar is
+  // never under it. The panel stays aside after Find closes, until its toggle opens it.
+  useEffect(() => {
+    if (!shell || !drawn || !cramped) return;
+    const away = () => onSuppress();
+    if (shell.querySelector(".acpmux-find__bar")) {
+      if (asked) shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(FIND_HIDE_EVENT));
+      else onSuppress();
+    }
+    shell.addEventListener(FIND_OPEN_EVENT, away);
+    return () => shell.removeEventListener(FIND_OPEN_EVENT, away);
+  }, [shell, drawn, cramped, asked, onSuppress]);
   useLayoutEffect(() => {
     if (!shell) return;
     return () => {
