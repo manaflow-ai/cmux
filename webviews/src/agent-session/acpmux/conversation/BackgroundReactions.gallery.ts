@@ -58,7 +58,11 @@ const opening = [
   user("Run the tests and the orders bench in the background, and have a subagent review the PR", 14, {
     id: "gallery-react-prompt",
   }),
-  activity([suite, bench], 13.9),
+  // Each call in its own run: a note of two paragraphs keeps the runs apart (turns.ts
+  // mergeShortNotes), so the suite's call draws as its own row.
+  activity([suite], 13.9),
+  assistant("Started the workspace tests.\n\nOn to the bench.", 13.85),
+  activity([bench], 13.82),
   assistant("Started both, and a reviewer.", 13.8),
   summary(13.8, { status: "completed", durationMs: 6_000 }),
 ];
@@ -127,10 +131,9 @@ const loudResult: AcpmuxRow[] = [
   ),
 ];
 
-/// The finished turn folds its calls under "Worked for" (turns.ts): open it, then the suite's call.
+/// Opens the suite's call (a harness that folds a finished turn's work opens "Worked for" first).
 const openSuite = async (ctx: import("../../../gallery/play").PlayContext) => {
-  const worked = { selector: '[data-row-id="worked-gallery-react-prompt"] button.cv-worked' };
-  await ctx.click(worked);
+  if (ctx.document.querySelector(".cv-worked.is-toggle")) await ctx.click({ selector: ".cv-worked.is-toggle" });
   await ctx.waitFor(() => ctx.document.querySelector('[data-tool-id="gallery-react-suite"]'));
   const call = { selector: '[data-tool-id="gallery-react-suite"]' };
   await ctx.click(call);
