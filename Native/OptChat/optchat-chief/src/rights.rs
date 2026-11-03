@@ -139,8 +139,9 @@ pub struct Person {
 pub struct Rights {
     #[serde(default)]
     pub version: u32,
-    /// The Chief's model login, as the owner declared it (None: personal,
-    /// unless the host's environment shows an API key or a provider).
+    /// The Chief's model login, as the owner declared it (None: personal).
+    /// The host does not guess it from its own environment: the turns run
+    /// on their harness's login, which may differ.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<AuthKind>,
     /// The Chief's own spend cap per local day, in USD (every turn counts).
@@ -763,7 +764,7 @@ pub const USAGE: &str = "usage: rights [show] [--json] | grant PERSON PATTERN...
 
 /// The table as lines for a person to read (the auth this process sees).
 pub fn render(rights: &Rights) -> String {
-    render_with(rights, rights.auth_kind(AuthKind::detect(&|k| std::env::var(k).ok())))
+    render_with(rights, rights.auth_kind(None))
 }
 
 /// [`render`] with the Chief's login `auth`.

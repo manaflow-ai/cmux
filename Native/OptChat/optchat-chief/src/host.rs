@@ -1738,13 +1738,14 @@ fn start(
     let brain = if env("OPTCHAT_RIGHTS").as_deref() == Some("0") {
         brain
     } else {
-        brain.with_rights(crate::brain::RightsCtx {
-            root: paths.root.clone(),
-            detected: crate::rights::AuthKind::detect(&|k| std::env::var(k).ok()),
-            host: host_name(),
-            cwd: Some(paths.session.display().to_string()),
-            ..Default::default()
-        })
+        brain.with_rights(crate::brain::RightsCtx::new(
+            paths.root.clone(),
+            // The turns' login is the harness's, not this process's: only
+            // the owner's declaration (`/auth`) counts, else personal.
+            None,
+            host_name(),
+            Some(paths.session.display().to_string()),
+        ))
     };
     let mut brain = brain;
     brain.set_sub_starter(sub_starter);

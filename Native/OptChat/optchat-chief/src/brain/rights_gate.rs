@@ -56,11 +56,28 @@ pub(super) enum Admit {
 /// The id prefix of a person no message named (fail closed in `decide`).
 const UNKNOWN: &str = "unknown-person";
 
+impl RightsCtx {
+    pub fn new(root: PathBuf, detected: Option<AuthKind>, host: String, cwd: Option<String>) -> RightsCtx {
+        RightsCtx {
+            root,
+            detected,
+            host,
+            cwd,
+            ..RightsCtx::default()
+        }
+    }
+}
+
 impl Brain {
     /// Turns the rights table and the audit on (the host does; tests may).
     pub fn with_rights(mut self, ctx: RightsCtx) -> Brain {
         self.rights = Some(ctx);
         self
+    }
+
+    /// [`Self::with_rights`] on a brain already made.
+    pub fn set_rights(&mut self, ctx: RightsCtx) {
+        self.rights = Some(ctx);
     }
 
     /// The table as it is on disk now; one that does not parse grants
@@ -471,9 +488,12 @@ impl Brain {
             .and_then(|rest| rest.split_once(']'))
             .map(|(name, _)| name.to_owned())
             .filter(|n| !n.is_empty() && !n.contains(char::is_whitespace));
-        let (Some(_), Some(from)) = (&self.rights, from) else {
-            self.queue(text, super::Source::Note);
-            return;
+        let from = match from {
+            Some(from) if self.rights.is_some() => from,
+            _ => {
+                self.queue(text, super::Source::Note);
+                return;
+            }
         };
         let person = format!("{}{from}", crate::rights::CHIEF_PREFIX);
         let owner = self.settings.membership.owner.clone();
