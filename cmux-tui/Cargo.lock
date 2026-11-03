@@ -1279,6 +1279,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-journal"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "libc",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-json"
 version = "0.1.0"
 dependencies = [
