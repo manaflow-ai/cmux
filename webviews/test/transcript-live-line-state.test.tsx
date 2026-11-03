@@ -10,6 +10,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/mode
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
+import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import longWait from "../src/agent-session/acpmux/conversation/LongSubagentWait.gallery";
 import { GALLERY_NOW } from "../src/gallery/clock";
@@ -143,4 +144,23 @@ test("the long-wait gallery entry's live line names its subagents and the turn's
   expect(drawn(line, GALLERY_NOW)).toBe("Waiting on 3 subagents · 1h 24m 7s total");
   const step = codex(longWait.variants["finished-step"]!.snapshot.rows).at(-1)!;
   expect(drawn(step, GALLERY_NOW)).toBe("Opened 1 agent session 3m 27s · 1h 24m 7s total");
+});
+
+test("a running call reads its own time, then the turn's total", () => {
+  const start = 1_000_000;
+  const html = renderToStaticMarkup(
+    <Thinking since={start} doing="bun test" doingShell doingAt={start + 5_000} turnTotal now={() => start + 13_000} />,
+  );
+  expect(words(html)).toBe("Running bun test 8s · 13s total");
+});
+
+test("waiting on subagents, the line does not count them a second time", () => {
+  const start = 1_000_000;
+  const counts = { agents: 2, commands: 1, sessions: 0, openAgents() {}, openCommands() {}, openSessions() {} };
+  const html = renderToStaticMarkup(
+    <WorkingCountsContext.Provider value={counts}>
+      <Thinking since={start} liveState="subagents" liveAgents={2} turnTotal now={() => start + 60_000} />
+    </WorkingCountsContext.Provider>,
+  );
+  expect(words(html)).toBe("Waiting on 2 subagents · 1m total · 1 command");
 });

@@ -23,6 +23,8 @@ import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
 
 /// How long streaming text must hold still before the live line comes back under it.
 export const QUIET_MS = 1200;
+/// How long a paused answer still reads "Writing"; a longer pause is the agent thinking again.
+export const WRITING_MS = 5000;
 
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
 function useQuiet(key: string | undefined, ms = QUIET_MS): boolean {
@@ -113,12 +115,15 @@ export function Thinking({
   const timed = !waiting && from !== undefined;
   const time = useTicking(timed, now);
   const quiet = useQuiet(waiting || doing !== undefined ? undefined : quietKey);
+  // A reply that paused only a moment is still being written; one silent for longer is the agent
+  // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
+  const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS);
   const sendName = useSubsessionInfo(sendSession)?.name ?? sendTo;
   const label =
     doing === undefined
       ? liveState === "subagents" && liveAgents > 0
         ? t("turn.live.waitingOnSubagents", { n: liveAgents })
-        : liveState === "writing"
+        : liveState === "writing" && stillWriting
           ? t("turn.live.writing")
           : t("thinking")
       : sendName !== undefined
@@ -135,14 +140,26 @@ export function Thinking({
   // own time when it has one: "Ran grep -n x 2s · 15s total", "Waiting on 2 subagents · 1h 24m total"
   // (Leo, 2026-11-03: "i think the "thinking" accounting is also off pretty frequently").
   const total = turnTotal && turnTime !== undefined ? t("turn.live.total", { time: turnTime }) : undefined;
-  const elapsed = total ? (done && doneMs !== undefined ? formatDuration(doneMs) : undefined) : turnTime;
+  // The step's own time beside it: a finished step's start to end, a running call's start to now.
+  const stepTime =
+    doing === undefined
+      ? undefined
+      : done
+        ? doneMs
+        : doingAt !== undefined && timed
+          ? Math.max(0, time - doingAt)
+          : undefined;
+  const elapsed = total ? (stepTime !== undefined ? formatDuration(stepTime) : undefined) : turnTime;
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
   // (App.tsx counts nothing while the tray lists it).
   const counts = useContext(WorkingCountsContext);
   const tokens = counts?.tokens;
   const showTokens = Boolean(tokens) && timed;
-  const parts = counts && !waiting ? workingParts(t, counts) : [];
+  // The label already names the subagents it waits on: no second count of them.
+  const parts = (counts && !waiting ? workingParts(t, counts) : []).filter(
+    (part) => !(liveState === "subagents" && part.key === "agents"),
+  );
   // The `silent` and `spinner` start looks keep the line's box (`.cv-worked`'s height) with no words.
   if (startLook !== "thinking")
     return (
