@@ -122,8 +122,8 @@ pub(crate) struct AppsSlot {
     supervisor: OnceLock<Arc<Supervisor>>,
     #[cfg(not(unix))]
     supervisor: OnceLock<Arc<()>>,
-    /// Told of each `apps-server` start and stop the supervisor broadcasts,
-    /// from its event sink (outside the supervisor's lock).
+    /// Told of each app server start and stop; the supervisor gets them
+    /// when it is created and calls them outside its lock.
     server_observers: ServerObservers,
 }
 
@@ -156,7 +156,6 @@ impl AppsSlot {
                 // from `subscribe` (page-router.json `events`), so the open
                 // App Store page re-reads after an install made elsewhere.
                 let events = Arc::downgrade(mux);
-                let server_observers = self.server_observers.clone();
                 supervisor.register_client(
                     MUX_EVENTS_SINK,
                     Arc::new(move |event: &serde_json::Value| {
@@ -165,16 +164,10 @@ impl AppsSlot {
                         {
                             mux.emit(crate::MuxEvent::AppsChanged(Arc::new(event.clone())));
                         }
-                        if event.get("event").and_then(serde_json::Value::as_str)
-                            == Some("apps-server")
-                        {
-                            for observer in server_observers.lock().recover_poison().iter() {
-                                observer();
-                            }
-                        }
                         true
                     }),
                 );
+                supervisor.observe_kept_servers(self.server_observers.clone());
                 supervisor
             })
             .clone()
@@ -212,14 +205,13 @@ impl AppsSlot {
         let _ = (client, &self.supervisor);
     }
 
-    /// App server processes running now (none before the supervisor exists,
-    /// and none off Unix, where apps never run).
-    pub(crate) fn running_servers(&self) -> usize {
+    /// App servers that keep the daemon's owner (the supervisor's
+    /// `kept_servers`; none before the supervisor exists, and none off Unix,
+    /// where apps never run).
+    pub(crate) fn kept_servers(&self) -> usize {
         #[cfg(unix)]
         {
-            self.supervisor
-                .get()
-                .map_or(0, |supervisor| supervisor.inner.lock().recover_poison().servers.len())
+            self.supervisor.get().map_or(0, |supervisor| supervisor.kept_servers())
         }
         #[cfg(not(unix))]
         {

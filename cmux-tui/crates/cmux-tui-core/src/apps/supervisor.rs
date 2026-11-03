@@ -9,7 +9,7 @@
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
@@ -22,6 +22,7 @@ use super::mirror::{self, Effect, Mirror, Op, Origin, Record, SetOp};
 use super::storage::Storage;
 use super::timer::{TimerId, Timers};
 use crate::backoff::Backoff;
+use crate::panic_free::RecoverPoison;
 use cmux_json::JsonSet as _;
 
 /// Writes one event or response to a control client; false when it is gone.
@@ -258,6 +259,9 @@ pub struct Supervisor {
     pub(super) link_changed: Mutex<(bool, bool)>,
     /// Deployed instances of apps with a `deploy` block (`deploy.rs`).
     pub(super) deployments: super::deploy::Deployments,
+    /// The owner's keepers observers (`AppsSlot::add_server_observer`),
+    /// told outside the lock after an app server starts or stops.
+    server_observers: OnceLock<super::ServerObservers>,
 }
 
 pub(super) fn now_ms() -> u64 {
@@ -362,6 +366,7 @@ impl Supervisor {
             transactions: AtomicU64::new(1),
             link_changed: Mutex::new((false, false)),
             deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
+            server_observers: OnceLock::new(),
         });
         if seeded {
             let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);
@@ -538,6 +543,25 @@ impl Supervisor {
             .collect()
     }
 
+    /// App servers that keep the daemon's owner (server/owner_keepers.rs):
+    /// the running ones.
+    pub(super) fn kept_servers(&self) -> usize {
+        self.inner.lock().recover_poison().servers.len()
+    }
+
+    /// Hands over the owner's keepers observers (`AppsSlot`), once.
+    pub(super) fn observe_kept_servers(&self, observers: super::ServerObservers) {
+        let _ = self.server_observers.set(observers);
+    }
+
+    fn notify_kept_servers(&self) {
+        if let Some(observers) = self.server_observers.get() {
+            for observer in observers.lock().recover_poison().iter() {
+                observer();
+            }
+        }
+    }
+
     pub(super) fn emit(&self, mut outs: Vec<Out>) {
         let sinks = {
             let mut inner = self.inner.lock().unwrap();
@@ -568,6 +592,9 @@ impl Supervisor {
                 Out::Broadcast(value) => {
                     for sink in sinks.values() {
                         sink(&value);
+                    }
+                    if value.get("event").and_then(Value::as_str) == Some("apps-server") {
+                        self.notify_kept_servers();
                     }
                 }
                 Out::Respond(responder, result) => responder(result),

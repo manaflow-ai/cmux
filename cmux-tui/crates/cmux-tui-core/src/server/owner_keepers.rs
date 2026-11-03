@@ -87,7 +87,7 @@ pub(crate) fn owner_keepers(mux: &Mux) -> Keepers {
         armed: mux.control_clients.frontend_seen(),
         clients: mux.control_clients.user_client_count(),
         browser_host: mux.control_clients.browser_host.is_running(),
-        app_servers: mux.control_clients.apps().running_servers(),
+        app_servers: mux.control_clients.apps().kept_servers(),
         terminals: None,
     };
     if keepers.terminals_decide() {

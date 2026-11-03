@@ -497,3 +497,73 @@ mod terminal_ops_tests;
 
 #[path = "supervisor_relay_tests.rs"]
 mod relay;
+
+/// An `always` server that appends `start` to its marker (its first argument)
+/// and exits at once: it crashes on every start.
+fn crash_server(dir: &Path, marker: &Path) -> Value {
+    write_script(dir, "crash-server", "#!/bin/sh\necho start >> \"$1\"\nexit 1\n");
+    let mut server = native_server(marker, json!({ "start": "always" }));
+    server["binaries"] = json!({ "darwin-arm64": "crash-server", "darwin-x64": "crash-server", "linux-arm64": "crash-server", "linux-x64": "crash-server" });
+    server
+}
+
+/// R-LIFECYCLE S1b: an `always` server that crashed and waits for its
+/// restart keeps the daemon's owner (server/owner_keepers.rs) as a running
+/// one does, and every end of what keeps the owner reaches its observers,
+/// also a disable during that wait, which broadcasts no `apps-server` event.
+#[test]
+fn an_always_server_waiting_for_its_crash_restart_keeps_the_owner() {
+    let root = temp_dir();
+    let marker = root.0.join("crash.marker");
+    let server = crash_server(&root.0.join("servers"), &marker);
+    write_server_app(&root.0.join("bundled"), "srv", server);
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    let told = Arc::new(Mutex::new(0_usize));
+    let observers: crate::apps::ServerObservers = Arc::default();
+    let count = told.clone();
+    observers.lock().unwrap().push(Box::new(move || *count.lock().unwrap() += 1));
+    f.supervisor.observe_kept_servers(observers);
+    f.install("cmux/srv");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while std::fs::read_to_string(&marker).unwrap_or_default().is_empty() {
+        assert!(Instant::now() < deadline, "the always server never started");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // From its first start on, it runs or waits for its restart (about 0.5 s,
+    // then 1 s; it gives up only after 5 restarts): it keeps the owner all along.
+    let watched = Instant::now() + Duration::from_millis(1500);
+    while Instant::now() < watched {
+        assert!(
+            f.supervisor.kept_servers() >= 1,
+            "a crashed always server waiting for its restart kept nothing"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // Disable the app while a restart waits and no server runs.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let waiting = {
+            let inner = f.supervisor.inner.lock().unwrap();
+            !inner.servers.contains_key("cmux/srv")
+                && inner.server_crashes.get("cmux/srv").is_some_and(|c| c.restart.is_some())
+        };
+        if waiting {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no crash restart waited");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let before = *told.lock().unwrap();
+    f.set("off", "cmux/srv", Origin::User, |o| o.enabled = Some(false)).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while f.supervisor.kept_servers() > 0 || *told.lock().unwrap() == before {
+        assert!(
+            Instant::now() < deadline,
+            "after the disable: {} app servers keep the owner and the observers were told {} \
+             times (before: {before})",
+            f.supervisor.kept_servers(),
+            *told.lock().unwrap()
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
