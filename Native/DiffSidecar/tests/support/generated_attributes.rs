@@ -60,9 +60,13 @@ impl Fixture {
             std::fs::write(repo.join(path), b"after\n").expect("change tracked file");
         }
         let listing_bytes = paths.iter().map(|path| path.len() + 1).sum();
+        let excluded = [
+            format!("{prefix}/plain.text"),
+            format!("{prefix}/cleared.unset"),
+        ];
         let generated = paths
             .into_iter()
-            .filter(|path| !path.ends_with(".text") && !path.ends_with(".unset"))
+            .filter(|path| !excluded.contains(path))
             .collect();
         Self {
             root,
