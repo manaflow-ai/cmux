@@ -179,6 +179,14 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         ".github/workflows/nightly*.yml", RELEASE_WORDS, NEXT + "CmuxNextUpdater/*", "Packages/macOS/CmuxUpdater/*",
         "scripts/ci/lib/*",
     )),
+    # The pre-push hook's trust boundary (docs/contributor-verification.md): what decides which check code the hook
+    # runs on a push (web_lint_prepush.py, run-check-pieces.py), the hook itself, and how its reviewed copy is
+    # installed and refreshed. A normal change could make the hook run code a push controls; #34124 closed nine such
+    # routes. The lint rules it runs (scripts/cmux-next/check-*.py, the package check scripts) stay normal.
+    ("high", "the pre-push hook's trust boundary", (
+        "scripts/web_lint_prepush.py", "scripts/cmux-next/run-check-pieces.py", "scripts/git-hooks/pre-push",
+        "scripts/git-hooks/refresh_checks.py", "scripts/install-git-hooks.sh",
+    )),
     # The gate grades every other pull request, so a change to it gets a person.
     ("high", "the risk gate itself", (
         ".github/CODEOWNERS", ".github/workflows/risk-tier.yml", ".github/workflows/risk-tier-tests.yml",
