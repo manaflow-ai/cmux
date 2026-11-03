@@ -171,7 +171,9 @@ def step_hold_key(j, step):
     j.before_keys()
     window = j.window_for(step.get("window"))
     seconds, delay, interval = float(step.get("seconds", 2)), float(step.get("delay", 0.25)), float(step.get("interval", 0.033))
-    start = uptime() + 0.05
+    # `start_at` (uptime, the app's clock): the first key-down at that time, so a step can act a fixed time after it
+    # (ext_pixel px_hold_tab_close); else 50 ms from now.
+    start = float(step["start_at"]) if step.get("start_at") is not None else uptime() + 0.05
     schedule = [(start, False)]
     t = start + delay
     while t < start + seconds:

@@ -27,8 +27,10 @@ Steps (`do`):
                scale 1, in memory). reduce: `debug.motion reduce true` (the springs at their defaults). Not run when S
                needs the store and it is inactive. reset: springs reset (when the store is active) and `debug.motion reduce
                null` (the system setting again): the case's `finally`. Overrides persist in debug-tunables.json until reset.
-  px_tunable   {key, value}  one `debug.tunables set` (value null resets it), read back; `applied` false when the value
-               did not take (store inactive): recorded, never a failure; the note says what the app kept
+  px_tunable   {key, value, required?}  one `debug.tunables set` (value null resets it), read back; `applied` false when
+               the value did not take (store inactive): recorded, never a failure; the note says what the app kept.
+               With `required` (a film fixture the case cannot film without, such as the tab outline) a value that does
+               not take makes the round "not run" with the reason.
   px_page      {pane, bg, label?, x?, y?, z?, timeout?}
                Opens page.html (/tmp/jr-pixel-page.html, a `file` step wrote it) in a new browser tab of the named
                pane: `cmux pane <id> focus`, then `action.run openBrowser {url: file:///tmp/jr-pixel-page.html?bg=..,
@@ -86,15 +88,32 @@ Steps (`do`):
                drags at 120 events a second and up, which AppKit's own resize tracking reads as a person's drag (the path
                the R3a journeys take). A CuaDriver drag never reached the corner on cmux22 (2026-11-03). Logged in the
                film's events (kind window_drag) with the frame before and after.
+  px_tab_new   {pane, timeout?: 20}
+               One more terminal tab in the named pane: `action.run newSurface` aimed at the pane's selected tab (a pane
+               target is refused) with the run's focus; waits until snapshot.get, the snapshot action.run resolves
+               targets against, lists exactly one new terminal tab with a terminal, selects it with tab.focus unless the
+               pane selected it, waits until debug.surfaces shows it and its shell has drawn, then makes its terminal the
+               journey's terminal and the pane's named terminal (rk_focus, neutral_prompt and the after check read it).
+  px_hold_tab_close {key, modifiers?, seconds?, delay?, interval?, mark?, close: {pane, which: middle, after_ms: 50},
+                     timeout?: 5}
+               The held key of rk_hold with its first key-down fixed CLOSE_LEAD_S ahead (ext_spam hold_key `start_at`, the
+               app's clock), and on its own thread a script's `action.run closeTab` of the pane's middle tab (its id from
+               snapshot.get, 3 tabs or more) AFTER_MS after that key-down. Waits until snapshot.get no longer lists the
+               tab. The film's pixel note gets `tab_close`: the pane, its label, the tab and its index, the tabs before
+               and after, the first key-down, the planned and the real delay, and the close's send and return times on
+               the host clock (CLOCK_UPTIME_RAW: the trace's t0_s and the scan's frame times), so the judge finds the
+               first frame after the close; events.json gets it as kind tab_close.
 """
 import json
 import os
+import threading
 import time
 import urllib.parse
 
 D = None
 V = None  # ext_video: video_start, the recording
 W = None  # ext_window: named panes
+S = None  # ext_spam: uptime (the app's clock: CLOCK_UPTIME_RAW, the trace's and the scan's) for the held keys
 
 # Every spring token (MotionTunables.springDefaults): the whole app runs at the case's speed, so a pane and the strip
 # camera that reveals it never move at two speeds.
@@ -123,7 +142,7 @@ FilmNotStarted = None  # install(): a driver NotRun (this file must not import t
 
 
 def install(driver):
-    global D, V, W, FilmNotStarted
+    global D, V, W, S, FilmNotStarted
     D = driver
 
     class FilmNotStarted(driver.NotRun):  # the module's name (global above), bound once the driver is
@@ -131,9 +150,10 @@ def install(driver):
         px_film makes that film one "not run" line and the journey goes on: before its recorder starts a film only
         focuses and waits (gen_pixel.py), so the layout is still the one the next film expects. Elsewhere a NotRun."""
 
+    import ext_spam
     import ext_video
     import ext_window
-    V, W = ext_video, ext_window
+    V, W, S = ext_video, ext_window, ext_spam
 
 
 def _tunables(j, **params):
@@ -261,6 +281,9 @@ def step_px_tunable(j, step):
     rec = {"key": key, "wanted": wanted, "value": value, "default": row.get("default"), "applied": bool(applied) and "error" not in row,
            "store_active": store["active"], "why": "" if applied else (row.get("error") or store["why"] or "the value did not take")}
     _state(j)["tunables"][key] = rec
+    if step.get("required") and not rec["applied"]:
+        # A fixture the case cannot film without (the tab outline): a build that does not take it is not run.
+        raise D.NotRun(f"px_tunable: {key} = {json.dumps(wanted)} did not take: {rec['why']}")
     return rec
 
 
@@ -693,6 +716,137 @@ def step_px_agent(j, step):
                       f"palette.newAgentChat: {json.dumps(opened)[:300]})")
 
 
+TAB_STEP_TIMEOUT_S = 20.0
+CLOSE_LEAD_S = 0.15  # the hold's first key-down this long after px_hold_tab_close starts it: room for its key threads
+CLOSE_GONE_S = 5.0  # the closed tab leaves the control snapshot within this
+
+
+def _tab_terminal(tab):
+    term = tab.get("terminal")
+    return term.get("id") if isinstance(term, dict) else term
+
+
+def _real_tabs(pane):
+    return [t for t in _pane_tabs(pane) if not str(t["id"]).startswith(PROVISIONAL_TAB)]
+
+
+def step_px_tab_new(j, step):
+    """A new terminal tab in the named pane, shown and adopted (see the module doc)."""
+    name = step["pane"]
+    rec = W.named(j, name)
+    pane_key = rec["pane"]
+    timeout = float(step.get("timeout", TAB_STEP_TIMEOUT_S))
+    pane = _topology_pane(j, pane_key)
+    tabs = _real_tabs(pane)
+    if not tabs:
+        raise D.StepError(f"px_tab_new {name}: snapshot.get lists no tab in pane {pane_key}")
+    before = {t["id"] for t in tabs}
+    beside = pane.get("selected_tab") if pane.get("selected_tab") in before else tabs[-1]["id"]
+    # newSurface opens a terminal tab beside a tab (a pane target is refused); the run's own focus makes it a person's open.
+    reply = j.app.rpc("action.run", {"action": "newSurface", "target": f"tab:{beside}", "focus": True})
+    t0 = D.now()
+    new = []
+    while True:
+        pane = _topology_pane(j, pane_key) or {}
+        new = [t for t in _real_tabs(pane) if t["id"] not in before and t.get("kind") == "terminal" and _tab_terminal(t)]
+        if len(new) == 1 or D.now() >= t0 + timeout:
+            break
+        time.sleep(0.1)  # orchestration poll of the app's own report
+    if len(new) != 1:
+        listed = [{k: t.get(k) for k in ("id", "kind")} for t in _pane_tabs(pane)]
+        raise D.StepError(f"px_tab_new {name}: snapshot.get lists {len(new)} new terminal tab(s) in the pane within {timeout:.0f} s "
+                          f"(the pane lists {json.dumps(listed)}; newSurface: {json.dumps(reply)[:200]})")
+    tab, term = new[0]["id"], _tab_terminal(new[0])
+    selected = None
+    if pane.get("selected_tab") != tab:
+        selected = j.app.rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab}"})
+    row = {}
+    while True:
+        row = _surface_row(j, pane_key) or {}
+        if row.get("kind") == "terminal" and row.get("selected_tab") == tab and row.get("shown_tab") == tab:
+            break
+        if D.now() >= t0 + timeout:
+            raise D.StepError(f"px_tab_new {name}: the pane does not show its new tab {tab} within {timeout:.0f} s "
+                              f"(pane {json.dumps({k: row.get(k) for k in AGENT_FACTS if k in row})})")
+        time.sleep(0.1)  # orchestration poll of the app's own report
+    while not (j.app.screen(term).get("text") or "").strip():
+        if D.now() >= t0 + timeout:
+            raise D.StepError(f"px_tab_new {name}: terminal {term} of tab {tab} shows nothing within {timeout:.0f} s")
+        time.sleep(0.1)  # orchestration poll of the daemon's screen
+    host_pid = int(row["host_pid"]) if row.get("host_pid") else None
+    j.pane, j.term, j.host_pid = pane_key, term, host_pid
+    rec.update(term=term, host_pid=host_pid)
+    return {"pane": pane_key, "tab": tab, "terminal": term, "tabs": [t["id"] for t in _real_tabs(_topology_pane(j, pane_key))],
+            "selected": selected, "reply": reply}
+
+
+def step_px_hold_tab_close(j, step):
+    """The held key with a script's closeTab of the pane's middle tab AFTER_MS after its first key-down (module doc)."""
+    close = step.get("close") or {}
+    name = close.get("pane", "p0")
+    rec = W.named(j, name)
+    pane_key = rec["pane"]
+    if close.get("which", "middle") != "middle":
+        raise D.StepError(f"px_hold_tab_close: which is middle, not {close.get('which')!r}")
+    tabs = [t["id"] for t in _real_tabs(_topology_pane(j, pane_key))]
+    if len(tabs) < 3:
+        raise D.StepError(f"px_hold_tab_close: pane {name} lists {len(tabs)} tab(s) in snapshot.get, not 3 or more: {tabs}")
+    index = len(tabs) // 2
+    tab = tabs[index]
+    after = float(close.get("after_ms", 50)) / 1000.0
+    waits = getattr(j, "before_keys", None)
+    if waits:
+        waits()  # a creation hold first, so the hold's own wait is none and the first key-down stays where it is set
+    first_key = S.uptime() + CLOSE_LEAD_S
+    sent = {}
+
+    def send():
+        wait = first_key + after - S.uptime()
+        if wait > 0:
+            time.sleep(wait)
+        sent.update(t_sent_host=S.uptime(), t_sent=D.now())
+        try:
+            sent["reply"] = j.app.rpc("action.run", {"action": "closeTab", "target": f"tab:{tab}"})
+        except Exception as error:  # the step reports it after the hold
+            sent["error"] = str(error)[:300]
+        sent.update(t_returned_host=S.uptime(), t_returned=D.now())
+
+    closer = threading.Thread(target=send, name="px-tab-close", daemon=True)
+    closer.start()
+    hold = {k: step[k] for k in ("key", "modifiers", "seconds", "delay", "interval", "mark", "window") if k in step}
+    held = j.step_rk_hold(dict(hold, start_at=first_key))
+    closer.join(10)
+    info = {"pane": pane_key, "label": name, "tab": tab, "index": index, "which": "middle", "tabs_before": tabs,
+            "first_key_host": first_key, "planned_after_ms": round(after * 1000, 3),
+            "clock": "host seconds (CLOCK_UPTIME_RAW): the trace's t0_s and the scan's frame times"}
+    for key in ("t_sent_host", "t_returned_host", "reply", "error"):
+        if key in sent:
+            info[key] = sent[key]
+    if "t_sent_host" in sent:
+        info["after_ms"] = round((sent["t_sent_host"] - first_key) * 1000, 3)
+    video = getattr(j, "video", None)
+    if video is not None:
+        video["notes"].setdefault("pixel", {})["tab_close"] = info
+        if "t_sent" in sent:
+            V._hid_log(j, "tab_close", {"pane": pane_key, "tab": tab, "index": index, "after_ms": info["planned_after_ms"]},
+                       sent["t_sent"], sent["t_returned"], sent.get("reply") or {"error": sent.get("error")})
+    if "t_sent_host" not in sent:
+        raise D.StepError(f"px_hold_tab_close: the close of tab {tab} was not sent within 10 s of the hold's end")
+    if "error" in sent:
+        raise D.StepError(f"px_hold_tab_close: closeTab {tab} refused: {sent['error']}")
+    timeout = float(step.get("timeout", CLOSE_GONE_S))
+    end = D.now() + timeout
+    while True:
+        left = [t["id"] for t in _real_tabs(_topology_pane(j, pane_key))]
+        if tab not in left:
+            break
+        if D.now() >= end:
+            raise D.StepError(f"px_hold_tab_close: snapshot.get still lists the closed tab {tab} {timeout:.0f} s after the close: {left}")
+        time.sleep(0.05)  # orchestration poll of the app's own report
+    info["tabs_after"] = left
+    return {"hold": held, "tab_close": info}
+
+
 def step_px_window_frame(j, step):
     ms = float(step.get("ms", 600))
     events = max(2, int(round(ms / 1000.0 * 120)))
@@ -707,7 +861,8 @@ def step_px_window_frame(j, step):
 
 
 STEPS = {"px_switch": step_px_switch, "px_agent": step_px_agent, "px_window_frame": step_px_window_frame, "px_film": step_px_film, "px_springs": step_px_springs, "px_tunable": step_px_tunable, "px_page": step_px_page,
-         "px_agent_css": step_px_agent_css, "px_record_start": step_px_record_start}
+         "px_agent_css": step_px_agent_css, "px_record_start": step_px_record_start, "px_tab_new": step_px_tab_new,
+         "px_hold_tab_close": step_px_hold_tab_close}
 CONDITIONS = {}
 
 

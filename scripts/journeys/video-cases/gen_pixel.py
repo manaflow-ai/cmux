@@ -54,6 +54,9 @@ Cases (layouts: T terminal fixture, P page fixture, A agent pane; | a vertical d
   px-row-drag-*      the horizontal divider dragged 120 pt down in 1 s, back in 0.1 s               T|(P/T)
   px-keys-single-*   Ctrl-Shift-L, H, J, K, one press each                                         T|(T/P), 3x2 mixed
   px-keys-held-*     Ctrl-Shift-L held 1.5 s (debug.key repeat), then 30 real H presses 33 ms apart T|P
+  px-keys-held-2-tabclose  the same, with p0 in 3 terminal tabs, every tab outlined (motion.frameOwner.tabOutline,
+                     required), and p0's middle tab closed by a script 50 ms after the hold's first key-down (one tab
+                     back after each film); p0's fill is blue (the outline is yellow)                   T(3 tabs)|P
   px-new-column-*    New Column (action newColumn), then Cmd-W on the new column                   columns T|P
   px-new-row-*       New Row (action newRow) under p0, then Cmd-W on the new row                   columns T|P
   px-close-pane-*    Cmd-W on the middle split pane; it comes back before the next speed            T|T|P
@@ -64,6 +67,7 @@ The key of New Column will be Ctrl-Cmd-X after #29866; the cases run the action,
 import argparse
 import json
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -88,11 +92,18 @@ MOVIE_MBPS = 60
 SPEEDS_S1R = (("s1", 1.0), ("reduce", None))
 # Seconds, from the first rounds (cmux22, 2026-11-03: a pane's set-up took 1-3 s); MARGIN on top.
 EST_BASE, EST_PANE, EST_FOCUS, EST_FILM, EST_REBUILD, EST_AFTER = 12, {"tui": 4, "page": 12, "agent": 5}, 1, 9, 7, 8
+EST_TAB = 5  # one more terminal tab with its fixture (px_tab_new, the neutral prompt, the TUI)
 MARGIN, BUDGET_MIN = 1.2, 40
 H, J, K, L = (("h", ["control", "shift"]), ("j", ["control", "shift"]), ("k", ["control", "shift"]),
               ("l", ["control", "shift"]))
 NAMES = {"h": "Ctrl-Shift-H", "j": "Ctrl-Shift-J", "k": "Ctrl-Shift-K", "l": "Ctrl-Shift-L"}
 BUDGET_MAX = 250  # run.py refuses over 260 (one lease: 540 s less the set-up reserve)
+# The app's tab film fixture (TabFrameFixture, #33874; DEV and bench builds): a 1 device-px #FFFF00 border on every tab cell,
+# so a film finds each tab's two edges on the strip row. It is a `springs` section tunable: the Reduce Motion film's reset of
+# that section turns it off, so a case sets it again in each film (after the speed).
+TAB_OUTLINE = "motion.frameOwner.tabOutline"
+# A journey id is its case id, or the case id and one of these: -a.. (a sweep in parts), -s1r, -sw-<short>[-a..].
+JOURNEY_SUFFIX = re.compile(r"(-[a-h]|-s1r|-sw-[a-z0-9]+(-[a-c])?)?")
 
 
 # -- fixtures -------------------------------------------------------------------------------------------------------
@@ -137,9 +148,9 @@ def after_check():
     return [focus("p0"), settings_back(), check[1], ready] + check[2:]
 
 
-def start_tui(name, fill):
+def start_tui(name, fill, label=None):
     mark = f"tui-{name}"
-    return [{"do": "type", "text": f"python3 {TUI_PATH} --fill {fill.lstrip('#')} --label {name}", "enter": True, "mark": mark,
+    return [{"do": "type", "text": f"python3 {TUI_PATH} --fill {fill.lstrip('#')} --label {label or name}", "enter": True, "mark": mark,
              "title": f"set-up: the terminal fixture in {name} (fill {fill})"},
             {"do": "expect", "title": f"set-up: the fixture runs in {name} (its alternate screen hides the prompt)", "since": mark,
              "timeout": 8, "all": [{"daemon_lacks": "J> "}]}]
@@ -154,6 +165,11 @@ def new_pane(name, action):
 
 def focus(name):
     return {"do": "rk_focus", "pane": name, "title": f"set-up: focus {name} (cmux pane focus)"}
+
+
+def new_tab(name):
+    """One more terminal tab in NAME, shown and adopted (ext_pixel px_tab_new), with the neutral prompt."""
+    return [{"do": "px_tab_new", "pane": name, "title": f"set-up: a new terminal tab in {name} (newSurface)"}, {"do": "neutral_prompt"}]
 
 
 def make_kind(name, kind, fill):
@@ -171,10 +187,12 @@ def make_kind(name, kind, fill):
 class Layout:
     """The panes of a case: [(name, kind, fill, how)], how = (action, pane focused first) or None for p0. window: the
     window's fractions of its screen (window_place) instead of the first pane's 90%; widths: a column width preset given
-    to each new column and, at the end, to the first one (columns layouts)."""
+    to each new column and, at the end, to the first one (columns layouts); tabs: {terminal pane: its number of tabs},
+    each tab the pane's fixture (the last one shown)."""
 
-    def __init__(self, key, text, panes, window=None, widths=None):
+    def __init__(self, key, text, panes, window=None, widths=None, tabs=None):
         self.key, self.text, self.panes, self.window, self.widths = key, text, panes, window, widths
+        self.tabs = tabs or {}
 
     @property
     def fixture(self):
@@ -200,13 +218,24 @@ class Layout:
             steps += make_kind(name, kind, fill)
         if self.widths:
             steps += [focus("p0"), {"do": "try_action", "action": self.widths, "title": "set-up: p0's column takes its share"}]
+        fills = {name: (kind, fill) for name, kind, fill, _ in self.panes}
+        for name, count in self.tabs.items():
+            if fills[name][0] != "tui":
+                raise ValueError("more tabs only in a terminal fixture pane")
+            steps.append(focus(name))
+            for i in range(2, count + 1):
+                steps += new_tab(name) + start_tui(name, fills[name][1], label=f"{name}.{i}")
         return steps
 
     def seconds(self):
-        return sum(EST_PANE[k] for k in self.kinds()) + EST_FOCUS * sum(1 for p in self.panes if p[3] and p[3][1])
+        return (sum(EST_PANE[k] for k in self.kinds()) + EST_FOCUS * sum(1 for p in self.panes if p[3] and p[3][1])
+                + sum(EST_FOCUS + EST_TAB * (n - 1) for n in self.tabs.values()))
 
 
 T2 = Layout("2", "p0 T | p1 P", [("p0", "tui", YELLOW, None), ("p1", "page", GREEN, ("splitRight", None))])
+# T2 with p0 in 3 terminal tabs. p0's fill is blue: the tab outline is #FFFF00, and a yellow fill would make an outline next
+# to the strip's black and a title's white read as p0's own rings to the side judge.
+T2T = Layout("2", "p0 T in 3 tabs | p1 P", [("p0", "tui", BLUE, None), ("p1", "page", GREEN, ("splitRight", None))], tabs={"p0": 3})
 # Strip columns (newColumn; p3 a row under p2, newRow), every pane a fixture pane, the window at the screen's full width.
 # As splits of one 1153 pt pane area, p1 and p2 get 191.5 pt each (cmux22, sweep c7cef08: the strip squeezes splits),
 # so no divider had 150 pt of room. As columns sharing 1304 pt (layout.newColumnWidth fitScreen) each is about 435 pt:
@@ -257,10 +286,19 @@ class Case:
     """One case on one layout: its input per speed (play), the spring the input rides (None: the pointer or a live resize
     drives it, so no curve is declared), and its rebuild after the recording (a close)."""
 
-    def __init__(self, cid, title, layout, play, spring, input_kind, before=None, rebuild=None, play_seconds=None):
+    def __init__(self, cid, title, layout, play, spring, input_kind, before=None, rebuild=None, play_seconds=None,
+                 fixture_tunables=()):
         self.cid, self.title, self.layout, self.play, self.spring = cid, title, layout, play, spring
         self.input, self.before, self.rebuild = input_kind, before or [], rebuild or []
         self.play_seconds = play_seconds
+        # [(key, value)]: Debug tunables the case films with (the tab outline). Required (a build that does not take one
+        # is not run), set at the set-up and again in each film after its speed, back to the default in finally.
+        self.fixture_tunables = list(fixture_tunables)
+
+    def fixture_steps(self, when):
+        return [{"do": "px_tunable", "key": key, "value": value, "required": True,
+                 "title": f"{when}: {key} {json.dumps(value)} (the film's fixture; a build without it is not run)"}
+                for key, value in self.fixture_tunables]
 
     def recording(self, jid, label, speed, last=False, switch=None):
         """One px_film step (the speed, the switch when given, the film and the rebuild after it) and its estimated seconds."""
@@ -273,7 +311,8 @@ class Case:
                  "title": f"start the 120 Hz movie, the trace and scan lines across every pane border and tab strip ({name})"}
         if self.spring:
             start["spring_default"] = {"response": RESPONSE[self.spring], "damping": DAMPING[self.spring]}
-        steps = list(self.before) + [G.settle(0.8), start] + self.play(speed) + [G.kit_record_stop(name, 0.4)]
+        steps = (list(self.before) + self.fixture_steps("the film's fixture") + [G.settle(0.8), start] + self.play(speed)
+                 + [G.kit_record_stop(name, 0.4)])
         rebuild = [] if last else list(self.rebuild)  # the journey's last film needs no pane back
         film = {"do": "px_film", "name": name, "steps": steps, "after": rebuild,
                 "title": (f"film {name}: Reduce Motion" if speed is None else f"film {name}: every motion.spring.* response / {speed:g}")}
@@ -308,6 +347,16 @@ def held_play(speed):
              "title": "Ctrl-Shift-L held 1.5 s (debug.key auto-repeat)"}, rest(land(speed)),
             {"do": "rk_press", "key": "h", "modifiers": ["control", "shift"], "count": 30, "gap_ms": 33, "mark": "burst",
              "title": "Ctrl-Shift-H x30, 33 ms apart (real HID)"}, rest(land(speed))]
+
+
+def held_close_play(speed):
+    """held_play with p0's middle tab closed by a script 50 ms after the hold's first key-down (ext_pixel px_hold_tab_close)."""
+    steps = held_play(speed)
+    assert steps[0]["do"] == "rk_hold", steps[0]
+    hold = dict(steps[0], do="px_hold_tab_close", close={"pane": "p0", "which": "middle", "after_ms": 50},
+                title="Ctrl-Shift-L held 1.5 s (debug.key auto-repeat); 50 ms after its first key-down a script closes p0's "
+                      "middle tab (action closeTab, the tab from snapshot.get)")
+    return [hold] + steps[1:]
 
 
 def new_and_close_play(action, what):
@@ -348,6 +397,13 @@ def cases():
                         "keys", before=[focus(under)], play_seconds=lambda s: 4 * (0.1 + land(s))))
     out.append(Case(f"px-keys-held-{T2.key}", f"Ctrl-Shift-L held, then Ctrl-Shift-H x30 every 33 ms, on p0 ({T2.text})", T2,
                     held_play, None, "held keys", before=[focus("p0")], play_seconds=lambda s: 2.6 + 2 * land(s)))
+    # Stage S1B 1b (frame-owner-s1b): a tab closes while the held key resizes its pane; every tab outlined, so the judge can
+    # read each tab cell against its strip. One tab back in p0 after each film, so the next starts with 3 tabs again.
+    out.append(Case(f"px-keys-held-{T2T.key}-tabclose",
+                    f"Ctrl-Shift-L held with p0's middle tab closed 50 ms after its first key-down, then Ctrl-Shift-H x30 every "
+                    f"33 ms, on p0 ({T2T.text})", T2T, held_close_play, None, "held keys (a tab closes during the hold)",
+                    before=[focus("p0")], rebuild=[focus("p0")] + new_tab("p0") + start_tui("p0", BLUE) + [G.settle(1.0)],
+                    play_seconds=lambda s: 2.6 + 2 * land(s), fixture_tunables=[(TAB_OUTLINE, True)]))
     play, secs = new_and_close_play("newColumn", "New Column")
     out.append(Case(f"px-new-column-{C2.key}", f"New Column on p1, then Cmd-W on it ({C2.text})", C2, play, "split", "new column",
                     before=[focus("p1")], play_seconds=secs))
@@ -378,6 +434,7 @@ def journey(case, jid, speeds, part_note, switch_key=None):
                   "title": "set-up: a Chromium page that lags shows the gap (browserResize.pageBackdrop off, where the store takes it)"})
     if "agent" in case.layout.kinds():
         steps.append({"do": "px_agent_css", "fill": AGENT_FILL, "title": "set-up: agent-pane/theme.css: the agent ground and its rings"})
+    steps += case.fixture_steps("set-up")
     steps += case.layout.build() + [G.settle(1.5)]
     seconds = EST_BASE + case.layout.seconds()
     names = []
@@ -392,6 +449,8 @@ def journey(case, jid, speeds, part_note, switch_key=None):
     budget = int(min(BUDGET_MAX, max(BUDGET_MIN, round(seconds * MARGIN))))
     final = ([{"do": "px_tunable", "key": switch_key, "value": None, "title": f"clean-up: {switch_key} back to its default"}]
              if switch_key else []) + [
+             {"do": "px_tunable", "key": key, "value": None, "title": f"clean-up: {key} back to its default"}
+             for key, _ in case.fixture_tunables] + [
              {"do": "px_springs", "reset": True, "title": "clean-up: springs and Reduce Motion back"},
              {"do": "px_tunable", "key": "browserResize.pageBackdrop", "value": None, "title": "clean-up: the page backdrop back"},
              {"do": "px_agent_css", "remove": True, "title": "clean-up: agent-pane/theme.css removed"},
@@ -463,7 +522,7 @@ def main():
     if opts.switch:
         # The switch journeys of the chosen cases only: --only px-col-drag-2 matches px-col-drag-2-sw-terminals[-a|-b].
         every = [j for j in every if "-sw-" in j["id"]]
-    chosen = [j for j in every if not opts.only or any(j["id"] == o or j["id"].startswith(o + "-") for o in opts.only)]
+    chosen = [j for j in every if not opts.only or any(of_case(j["id"], o) for o in opts.only)]
     if opts.list or not opts.out:
         for j in chosen:
             print(f"{j['id']:28} {j['budget_seconds']:4} s  {len(j['recordings'])} rec  {j['title']}")
@@ -477,6 +536,12 @@ def main():
     print(f"{len(chosen)} journeys in {opts.out}" + (f"; removed {len(removed)} this generator no longer makes: {', '.join(removed)}"
                                                      if removed else ""))
     return 0
+
+
+def of_case(jid, only):
+    """Whether journey JID is ONLY's (a case id or a journey id): ONLY itself, or ONLY and a journey suffix. A case id that
+    starts another one (px-keys-held-2, px-keys-held-2-tabclose) never takes the other's journeys."""
+    return jid.startswith(only) and JOURNEY_SUFFIX.fullmatch(jid[len(only):]) is not None
 
 
 def prune(out, keep):
