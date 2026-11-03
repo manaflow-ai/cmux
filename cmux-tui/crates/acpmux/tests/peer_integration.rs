@@ -3489,3 +3489,48 @@ async fn first_no_history_attach_keeps_its_baseline_across_peer_reconnect() {
     );
     peer.stop();
 }
+
+/// A tool's notice to a chat on a peer goes on as it came: B records it as a notice. One beside
+/// a caller's own provenance is refused by A before the forward (which drops that provenance).
+#[tokio::test]
+async fn a_notice_through_a_peer_is_recorded_as_one_and_a_conflicting_one_is_refused_first() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "notice").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "coordinator"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let notice =
+        json!({"sender": "base-red-watch", "severity": "fire", "title": "fast tier failed"});
+    let sent = |id: &str| {
+        json!({"sessionId": "b/coordinator", "prompt": [{"type": "text", "text": "body"}],
+        "_meta": {"acpmux": {"promptId": id, "fromAgent": "base-red-watch", "notice": notice.clone()}}})
+    };
+    ca.call(method::SESSION_PROMPT, sent("n-peer")).await.unwrap();
+
+    let mut both = sent("n-both");
+    both["_meta"]["acpmux"]["provenance"] = json!({"kind": "agent_message", "from": "acp:x",
+        "to": format!("acp:{remote_id}"), "msgId": "m", "threadId": "t"});
+    let refused = ca.call(method::SESSION_PROMPT, both).await.unwrap_err();
+    assert!(format!("{refused:?}").contains("provenance"), "{refused:?}");
+
+    let page = cb
+        .call("_acpmux/events", json!({"sessionId": remote_id, "kinds": ["user_message"]}))
+        .await
+        .unwrap();
+    let messages: Vec<&Value> =
+        page["events"].as_array().unwrap().iter().map(|e| &e["msg"]).collect();
+    let got = messages.iter().find(|m| m["promptId"] == "n-peer").expect("the notice ran on B");
+    let provenance = &got["_meta"]["provenance"];
+    assert_eq!(provenance["kind"], "notice", "{got}");
+    assert_eq!(provenance["fromName"], "base-red-watch", "{got}");
+    assert_eq!(provenance["notice"], notice, "{got}");
+    assert!(
+        messages.iter().all(|m| m["promptId"] != "n-both"),
+        "a refused notice ran: {messages:?}"
+    );
+}
