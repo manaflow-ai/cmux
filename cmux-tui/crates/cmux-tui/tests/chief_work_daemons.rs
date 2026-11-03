@@ -84,7 +84,7 @@ fn start(mut cmd: Command, root: &Path, name: &str, acpmux: bool) -> Daemon {
             .unwrap(),
     );
     drop(inherited);
-    let mut stdout = daemon.0.stdout.take().unwrap();
+    let stdout = daemon.0.stdout.take().unwrap();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let ready = if acpmux {
