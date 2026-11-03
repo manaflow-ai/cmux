@@ -158,6 +158,17 @@ impl Reader {
         self.query_messages(&sql, params![after_rowid, clamp(limit)])
     }
 
+    /// Messages edited or unsent after `after_mark` (not implemented yet).
+    pub fn changed_since(&self, after_mark: i64, limit: usize) -> Result<Vec<Message>, MirrorError> {
+        let _ = (after_mark, limit);
+        Ok(Vec::new())
+    }
+
+    /// The newest edit or unsend mark (not implemented yet).
+    pub fn latest_change_mark(&self) -> Result<i64, MirrorError> {
+        Ok(0)
+    }
+
     /// The highest message rowid, the watermark live updates start from (0 when empty).
     pub fn latest_rowid(&self) -> Result<i64, MirrorError> {
         Ok(self
@@ -240,6 +251,8 @@ fn message_row(row: &Row<'_>) -> rusqlite::Result<Message> {
         date_ms: row.get::<_, Option<i64>>(5)?.and_then(apple_to_unix_ms),
         text: text_of(row.get(6)?, row.get(7)?),
         attachments: Vec::new(),
+        edited: false,
+        unsent: false,
     })
 }
 
