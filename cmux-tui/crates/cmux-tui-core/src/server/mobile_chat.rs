@@ -597,6 +597,17 @@ mod tests {
     }
 
     #[test]
+    fn history_answers_without_waiting_for_a_restarted_daemons_log_restore() {
+        let (seen, requests) = std::sync::mpsc::channel();
+        let (link, _dir) =
+            scripted_seen(vec![shown(), json!({"events": [], "nextSeq": 1})], None, Some(seen));
+        dispatch(&link, "mobile-chat-history", json!({"session_id":"s1"}), None, None, &none)
+            .unwrap();
+        let attach = requests.try_iter().find(|r| r["method"] == "_acpmux/attach").unwrap();
+        assert_eq!(attach["params"]["waitLogs"], json!(false), "{attach}");
+    }
+
+    #[test]
     fn relay_send_waits_for_prompt_acceptance_and_surfaces_errors() {
         let (tx, rx) = sync_channel(2);
         let (link, _dir) = scripted(vec![shown(), json!({"$accept": true})], Some(tx.clone()));
