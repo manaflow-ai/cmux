@@ -31336,7 +31336,9 @@ struct CMUXCLI {
             callerTerminalBinding: callerTTYBindingProvider,
             agentPid: liveHookAgentPID,
             viewerSnapshot: viewerSnapshot,
-            trustedViewerTarget: viewerTarget
+            trustedViewerTarget: viewerTarget.map {
+                CallerTerminalBinding(workspaceId: $0.workspaceId, surfaceId: $0.surfaceId)
+            }
         )
         hookRouting.allowsPidProbe = liveProcessIdentityAllowed
         let hookCwd = relayOrigin ? nil : parsedInput.cwd
