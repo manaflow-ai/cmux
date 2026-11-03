@@ -39,7 +39,7 @@ public final class AppsPanelsPageProvider: PageProvider {
         case Self.namespace + "list":
             do {
                 let panels = try await client.sessionInfoPanels()
-                return .object(["panels": .array(panels.map(Self.json))])
+                return .object(["panels": .array(panels.map(panelJSON))])
             } catch {
                 throw PageError(code: "cmux.apps.panels.failed", message: String(describing: error), retryable: true)
             }
@@ -67,7 +67,7 @@ public final class AppsPanelsPageProvider: PageProvider {
             let mountID = filter["mount_id"]?.stringValue
             sceneListeners[id] = (mountID, onEvent)
             if let mountID, let ops = unheard.removeValue(forKey: mountID) {
-                onEvent(Self.sceneJSON(mountID: mountID, ops: ops, reset: true))
+                onEvent(sceneJSON(mountID: mountID, ops: ops, reset: true))
             }
             return PageSubscription { [weak self] in self?.sceneListeners.removeValue(forKey: id) }
         }
@@ -120,7 +120,7 @@ public final class AppsPanelsPageProvider: PageProvider {
                 unheard[mountID] = reset ? ops : (unheard[mountID] ?? []) + ops
                 return
             }
-            let data = Self.sceneJSON(mountID: mountID, ops: ops, reset: reset)
+            let data = sceneJSON(mountID: mountID, ops: ops, reset: reset)
             for listener in listeners { listener.callback(data) }
         case .changed:
             for listener in changedListeners.values { listener(.null) }
@@ -128,39 +128,41 @@ public final class AppsPanelsPageProvider: PageProvider {
             break
         }
     }
+}
 
-    private static func json(_ panel: AppSessionInfoPanel) -> JSONValue {
-        var value: [String: JSONValue] = ["app": .string(panel.app), "section": .string(panel.section), "title": .string(panel.title)]
-        if let symbol = panel.symbol { value["symbol"] = .string(symbol) }
-        if let maxRows = panel.maxRows { value["maxRows"] = .number(Double(maxRows)) }
-        return .object(value)
+// The page speaks JSONValue, the apps client AppJSON: the same JSON, converted at this edge.
+
+private func panelJSON(_ panel: AppSessionInfoPanel) -> JSONValue {
+    var value: [String: JSONValue] = ["app": .string(panel.app), "section": .string(panel.section), "title": .string(panel.title)]
+    if let symbol = panel.symbol { value["symbol"] = .string(symbol) }
+    if let maxRows = panel.maxRows { value["maxRows"] = .number(Double(maxRows)) }
+    return .object(value)
+}
+
+private func sceneJSON(mountID: String, ops: [AppSceneOp], reset: Bool) -> JSONValue {
+    var value: [String: JSONValue] = ["mount_id": .string(mountID), "ops": .array(ops.map { pageJSON($0.json) })]
+    if reset { value["reset"] = .bool(true) }
+    return .object(value)
+}
+
+private func pageJSON(_ value: AppJSON) -> JSONValue {
+    switch value {
+    case .null: .null
+    case let .bool(value): .bool(value)
+    case let .number(value): .number(value)
+    case let .string(value): .string(value)
+    case let .array(values): .array(values.map(pageJSON))
+    case let .object(values): .object(values.mapValues(pageJSON))
     }
+}
 
-    private static func sceneJSON(mountID: String, ops: [AppSceneOp], reset: Bool) -> JSONValue {
-        var value: [String: JSONValue] = ["mount_id": .string(mountID), "ops": .array(ops.map { pageJSON($0.json) })]
-        if reset { value["reset"] = .bool(true) }
-        return .object(value)
-    }
-
-    private static func pageJSON(_ value: AppJSON) -> JSONValue {
-        switch value {
-        case .null: .null
-        case let .bool(value): .bool(value)
-        case let .number(value): .number(value)
-        case let .string(value): .string(value)
-        case let .array(values): .array(values.map(pageJSON))
-        case let .object(values): .object(values.mapValues(pageJSON))
-        }
-    }
-
-    private func appJSON(_ value: JSONValue) -> AppJSON {
-        switch value {
-        case .null: .null
-        case let .bool(value): .bool(value)
-        case let .number(value): .number(value)
-        case let .string(value): .string(value)
-        case let .array(values): .array(values.map(appJSON))
-        case let .object(values): .object(values.mapValues(appJSON))
-        }
+private func appJSON(_ value: JSONValue) -> AppJSON {
+    switch value {
+    case .null: .null
+    case let .bool(value): .bool(value)
+    case let .number(value): .number(value)
+    case let .string(value): .string(value)
+    case let .array(values): .array(values.map(appJSON))
+    case let .object(values): .object(values.mapValues(appJSON))
     }
 }
