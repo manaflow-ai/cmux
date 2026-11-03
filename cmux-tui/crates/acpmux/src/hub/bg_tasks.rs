@@ -147,6 +147,7 @@ impl Hub {
             cwd,
             env,
             segment,
+            retain_all: fixed_id.is_some(),
             generation,
         };
         bg_spawn(&runner, &spec).await.map_err(|e| RpcError::internal(format!("{e:#}")))?;
@@ -241,24 +242,10 @@ impl Hub {
         })
         .await
         .map_err(internal)??;
-        let mut output = String::new();
-        let mut cursor = 0;
-        let mut view;
-        loop {
-            view = self.bg_output(session, id, Some(cursor), None)?;
-            if view.get("skippedBytes").and_then(Value::as_u64).unwrap_or(0) != 0 {
-                return Err(RpcError::internal("workflow machine output was lost from its spool"));
-            }
-            output.push_str(view.get("text").and_then(Value::as_str).unwrap_or(""));
-            let next = view.get("nextByte").and_then(Value::as_u64).unwrap_or(cursor);
-            if next <= cursor
-                || next >= view.get("totalBytes").and_then(Value::as_u64).unwrap_or(next)
-            {
-                break;
-            }
-            cursor = next;
-        }
-        view.set("text", json!(output));
+        let (dir, record) = self.bg_record(session, id)?;
+        let view = tokio::task::spawn_blocking(move || workflow_bg_output(&dir, &record))
+            .await
+            .map_err(internal)??;
         if view.get("state").and_then(Value::as_str) != Some("exited")
             || view.get("exitCode").and_then(Value::as_i64) != Some(0)
         {
@@ -474,6 +461,40 @@ async fn bg_wait_gone(dir: &std::path::Path, id: &str) -> bool {
     true
 }
 
+/// Workflow results are collected after the runner releases its liveness lock. Decode once:
+/// a UTF-8 character can cross a read boundary, and binary output must round-trip exactly.
+fn workflow_bg_output(dir: &std::path::Path, record: &Record) -> Result<Value, RpcError> {
+    use base64::Engine;
+    let mut output = Vec::new();
+    let mut cursor = 0;
+    loop {
+        let read =
+            bg_run::read_output(dir, &record.id, Some(cursor), OUTPUT_DEFAULT).map_err(internal)?;
+        if read.start != cursor {
+            return Err(RpcError::internal("workflow machine output was lost from its spool"));
+        }
+        let next = read.start + read.data.len() as u64;
+        output.extend_from_slice(&read.data);
+        if next >= read.total {
+            break;
+        }
+        if next <= cursor {
+            return Err(RpcError::internal("workflow machine output spool ended unexpectedly"));
+        }
+        cursor = next;
+    }
+    if record.output_error.is_some() {
+        return Err(RpcError::internal("workflow machine output spool failed"));
+    }
+    let mut view = bg_view(dir, record, 0);
+    view.set("data", json!(base64::engine::general_purpose::STANDARD.encode(&output)));
+    view.set("text", json!(String::from_utf8_lossy(&output)));
+    view.set("fromByte", json!(0));
+    view.set("nextByte", json!(output.len()));
+    view.set("skippedBytes", json!(0));
+    Ok(view)
+}
+
 /// A task as the wire carries it: `state` is `running`, `exited`, `stopped`, `killed` (a signal
 /// nobody here sent) or `lost` (its runner died without a word), with its last `tail` bytes.
 fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
@@ -550,5 +571,58 @@ async fn bg_spawn(runner: &crate::self_command::SelfCommand, spec: &bg_run::Spec
         Ok(Ok(_)) => Err(anyhow!("the task did not start")),
         Ok(Err(e)) => Err(e),
         Err(_) => Err(anyhow!("the task's runner did not answer in time")),
+    }
+}
+
+#[cfg(test)]
+mod workflow_output_tests {
+    use super::*;
+    use base64::Engine;
+
+    fn result(data: &[u8]) -> Value {
+        let dir = cmux_unix_socket::short_test_dir("workflow-bg-result");
+        let mut spool =
+            bg_run::Spool::create_with_retention(dir.path(), "task", 1024, true).unwrap();
+        spool.write(data).unwrap();
+        drop(spool);
+        let record = Record {
+            id: "task".into(),
+            ended_at: Some(1),
+            exit_code: Some(0),
+            ..Record::default()
+        };
+        workflow_bg_output(dir.path(), &record).unwrap()
+    }
+
+    #[test]
+    fn workflow_output_decodes_utf8_once_across_read_boundaries() {
+        let text = format!("{}🦀tail", "x".repeat((OUTPUT_DEFAULT - 1) as usize));
+        let view = result(text.as_bytes());
+        assert_eq!(view["text"], text);
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(view["data"].as_str().unwrap())
+                .unwrap(),
+            text.as_bytes()
+        );
+        assert_eq!(view["fromByte"], 0);
+        assert_eq!(view["nextByte"], text.len());
+    }
+
+    #[test]
+    fn workflow_output_keeps_complete_binary_data() {
+        let bytes: Vec<u8> =
+            (0..(OUTPUT_DEFAULT as usize * 3 + 5)).map(|i| (i % 256) as u8).collect();
+        let view = result(&bytes);
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(view["data"].as_str().unwrap())
+                .unwrap(),
+            bytes
+        );
+        assert_eq!(view["text"], String::from_utf8_lossy(&bytes).as_ref());
+        assert_eq!(view["totalBytes"], bytes.len());
+        assert_eq!(view["nextByte"], bytes.len());
+        assert_eq!(view["skippedBytes"], 0);
     }
 }

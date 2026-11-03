@@ -326,6 +326,16 @@
       "title" : "cmux Model Router Model",
       "type" : "string"
     },
+    "agents.promptCache" : {
+      "default" : "1h",
+      "description" : "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more.",
+      "enum" : [
+        "1h",
+        "5m"
+      ],
+      "title" : "Prompt Cache",
+      "type" : "string"
+    },
     "agents.subsessions.answerQuestions" : {
       "default" : false,
       "description" : "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.",
