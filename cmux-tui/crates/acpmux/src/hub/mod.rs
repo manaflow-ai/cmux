@@ -5,6 +5,7 @@
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
 mod activity;
+pub(crate) mod additional_dirs;
 pub(crate) mod admission;
 mod adopted_fences;
 mod adoption;

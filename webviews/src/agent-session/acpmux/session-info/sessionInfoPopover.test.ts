@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sessionInfoPopover, sessionInfoPushes, POPOVER_BELOW_HEIGHT } from "./SessionInfo";
+import { sessionInfoPopover, sessionInfoPushes, sessionInfoStage, POPOVER_BELOW_HEIGHT } from "./SessionInfo";
 
 describe("sessionInfoPopover", () => {
   test("only over the chat in a short pane", () => {
@@ -10,11 +10,14 @@ describe("sessionInfoPopover", () => {
     expect(sessionInfoPopover(0, true)).toBe(false);
   });
 
-  // cmuxterm-hq#6137: a narrow pane never makes it a popover: it pushes, at a narrower floor.
-  test("a narrow, tall pane pushes instead", () => {
+  // cmuxterm-hq#6137: a narrow, tall pane never makes it a popover. Where pushing would leave the chat
+  // under 440px it lies over the chat above the composer (Leo, 2026-11-03: "but you should still be able
+  // to have it be an overlay"); with room it pushes; Push always pushes at every width.
+  test("a narrow, tall pane lies over the chat, not as a popover", () => {
     expect(sessionInfoPopover(960, true)).toBe(false);
-    expect(sessionInfoPushes("overlay", { width: 370, height: 960 }, 320)).toBe(true);
-    expect(sessionInfoPushes("overlay", { width: 600, height: 960 }, 320)).toBe(true);
+    expect(sessionInfoStage("overlay", { width: 370, height: 960 }, 320)).toBe("overlay");
+    expect(sessionInfoStage("overlay", { width: 600, height: 960 }, 320)).toBe("overlay");
+    expect(sessionInfoStage("overlay", { width: 740, height: 960 }, 320)).toBe("push");
     expect(sessionInfoPushes("push", { width: 370, height: 960 }, 320)).toBe(true);
   });
 });

@@ -112,6 +112,13 @@
   --cv-row-icon-gap: var(--grid-gap);
   --cv-tool-text-inset: var(--grid-transcript-text-gap);
   --cv-disclosure-gap: var(--ds-space-1, 4px);
+  /* A transcript row's disclosure chevron, ChatGPT's "Worked for 11s ⌄" (Leo, 2026-11-03: "this how
+     chatgpt does their chevrons"): its glyph box, and the gap from the last visible word to its ink.
+     Gallery agent-pane.transcript-chevron-after-label compares sizes and gaps. */
+  --cv-chevron-glyph: 12px;
+  --cv-chevron-gap: 5px;
+  /* The turned ChevronRight's ink starts 4.25/16 into its box (icons.tsx). */
+  --cv-chevron-ink: calc(var(--cv-chevron-glyph) * 0.265625);
   /* A message's hover row fades as Claude Code desktop's (--cds-message-actions-reveal-*): in after
      100ms over 120ms, out at once (Claude's 60ms is off the motion scale: its quick 80ms), both on
      Claude's snap curve. */
@@ -2552,8 +2559,9 @@ pre.cv-math-source {
 .cv-iconbtn:focus:not(:focus-visible) {
   outline: none;
 }
-/* One right chevron, turned a quarter when open; a message head's shows on hover. It turns with the
-   fold it opens (fold.ts), on the same token. */
+/* One chevron, the way ChatGPT draws "Worked for 11s ⌄" (Leo, 2026-11-03: "this how chatgpt does
+   their chevrons"): in a transcript row it points down while closed and turns to point up while open.
+   A message head's shows on hover. It turns with the fold it opens (fold.ts), on the same token. */
 .cv-rotor {
   flex: none;
 }
@@ -2576,6 +2584,57 @@ pre.cv-math-source {
 }
 .cv-rotor.is-open {
   transform: rotate(90deg);
+}
+.acpmux-row .cv-rotor {
+  transform: rotate(90deg);
+}
+.acpmux-row .cv-rotor.is-open {
+  transform: rotate(-90deg);
+}
+/* A row's chevron right after its words, never at the line's end: one glyph size, its ink
+   --cv-chevron-gap after the last visible word (the row's flex gap and the glyph's own inset taken
+   back). A cut label keeps it after the ellipsis: the chevron is the label's sibling and never
+   shrinks, the label does. test/transcript-chevron-after-label.test.ts. */
+.acpmux-row svg.cv-rotor {
+  width: var(--cv-chevron-glyph);
+  height: var(--cv-chevron-glyph);
+}
+.acpmux-row :is(.cv-tool__chevron, .cv-worked__chevron, .cv-disclosure__toggle:not(.is-chevron) > .cv-rotor) {
+  flex: none;
+  width: var(--cv-chevron-glyph);
+  height: var(--cv-chevron-glyph);
+  justify-content: flex-start;
+  margin-inline-start: calc(var(--cv-chevron-gap) - var(--grid-gap) - var(--cv-chevron-ink));
+}
+/* A message line (SentMessageLine.tsx, AgentMessageRow.tsx; the whole line still toggles): the
+   sentence takes its words' width, the chevron follows it,
+   then the hover Copy, and the delivery word sits at the line's end. Home's run ledger, outside the
+   transcript, keeps its own layout (ledger.css). */
+.acpmux-row .cv-sent > .cv-agentmsg__sentence,
+.acpmux-row .cv-agentmsg__line .cv-agentmsg__toggle,
+.acpmux-row .cv-agentmsg__line .cv-agentmsg__preview {
+  flex: 0 1 auto;
+}
+/* A message row's hover Copy is inside its sentence (AgentMessageRow.tsx): in the transcript the
+   sentence's parts join the line, so the chevron can come before Copy. The preview still takes the
+   one ellipsis; the chip keeps its own cap. */
+.acpmux-row .cv-agentmsg__line > .cv-agentmsg__sentence {
+  display: contents;
+}
+.acpmux-row .cv-sent > .cv-sent__actions,
+.acpmux-row .cv-agentmsg__line > .cv-agentmsg__sentence > .cv-sent-actions {
+  order: 4;
+}
+.acpmux-row .cv-tool > .cv-tool__trail {
+  order: 5;
+  margin-inline-start: auto;
+}
+/* A line that opens a chat keeps its chevron its own 20px button (DisclosureRow.css), the glyph
+   centred in it. */
+.acpmux-row .cv-disclosure__line > .cv-disclosure__toggle.is-chevron {
+  margin-inline-start: calc(
+    var(--cv-chevron-gap) - var(--grid-gap) - (20px - var(--cv-chevron-glyph)) / 2 - var(--cv-chevron-ink)
+  );
 }
 .cv-rotor.is-hover:not(.cv-tool__chevron) {
   visibility: hidden;
@@ -3444,7 +3503,9 @@ button.cv-video-frames__frame:focus-visible {
 }
 .cv-received .cv-disclosure__label {
   display: flex;
-  flex: 1 1 auto;
+  /* Its words' width, so the chevron follows them (conversation.css "chevron right after its
+     words"); the toggle still takes the line's free width as its target. */
+  flex: 0 1 auto;
   align-items: baseline;
   gap: calc(var(--ds-space-1) + 2px);
   font-weight: 400;
@@ -3452,8 +3513,8 @@ button.cv-video-frames__frame:focus-visible {
 .cv-received__hover {
   position: absolute;
   inset-block: 0;
-  /* Before the chevron (12px), one small gap clear of it. */
-  inset-inline-end: calc(12px + var(--ds-space-1));
+  /* At the line's end: the chevron follows the words, so nothing else sits there. */
+  inset-inline-end: 0;
   display: inline-flex;
   align-items: center;
   padding-inline-start: var(--ds-space-2);

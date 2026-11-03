@@ -10,7 +10,13 @@ import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
-import { composerCopy, forgetCopy, pastePlan, rememberCopy } from "../src/agent-session/acpmux/composer/composerCopy";
+import {
+  composerCopy,
+  forgetCopy,
+  pastePlan,
+  rememberCopy,
+  writeComposerCopy,
+} from "../src/agent-session/acpmux/composer/composerCopy";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 
 const scope = globalThis as Record<string, unknown>;
@@ -216,6 +222,7 @@ const MARK = "\uFFFC";
 
 /// What the page posted to the host (`window.webkit.messageHandlers.agentSession`).
 let posted: { method: string; params: Record<string, unknown> }[] = [];
+let copiedID = "";
 function recordHost() {
   posted = [];
   (dom.window as unknown as { webkit: unknown }).webkit = {
@@ -223,10 +230,16 @@ function recordHost() {
       agentSession: {
         postMessage: (message: { method: string; params: Record<string, unknown> }) => {
           // The composer's other host calls (a project's icon) are not the copy's.
-          if (message.method === "composer.copy") posted.push({ method: message.method, params: message.params });
+          if (message.method === "composer.copy") {
+            posted.push({ method: message.method, params: message.params });
+            copiedID = crypto.randomUUID();
+          }
           // As AgentPaneComposerCopy.swift answers: each item kept, under its plain name.
           const items = (message.params.items as { name: string }[] | undefined) ?? [];
-          return { ok: true, value: { files: items.map((item, index) => ({ item: index, name: item.name })) } };
+          return {
+            ok: true,
+            value: { copyID: copiedID, files: items.map((item, index) => ({ item: index, name: item.name })) },
+          };
         },
       },
     },
@@ -247,11 +260,12 @@ async function clip(type: "copy" | "cut") {
 }
 
 /// A paste of what the host wrote for a copy: its text, then each attachment as a file.
-async function pasteBack(plain: string, files: File[]) {
+async function pasteBack(plain: string, files: File[], copyID?: string) {
+  const html = copyID ? `<span data-cmux-composer-copy="${copyID}"></span>` : "";
   const data = {
     files,
     types: [...(files.length ? ["Files"] : []), ...(plain ? ["text/plain"] : [])],
-    getData: (type: string) => (type === "text/plain" ? plain : ""),
+    getData: (type: string) => (type === "text/plain" ? plain : type === "text/html" ? html : ""),
   };
   const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
   Object.defineProperty(event, "clipboardData", { value: data });
@@ -361,7 +375,7 @@ test("a copy pasted into another composer brings the text and the attachments ba
   // WebKit gives a page a pasteboard of file URLs as its files with no text (it keeps the paths
   // private): the text comes back from the copy kept here (review at f90c7e8c).
   void written;
-  await pasteBack("", [screenshot("Screenshot.png"), screenshot("Second.png")]);
+  await pasteBack("", [screenshot("Screenshot.png"), screenshot("Second.png")], copiedID);
   await until(() => (second.current!.wakeState().attachments ?? []).length === 2, "the pasted attachments");
   await until(() => field().querySelectorAll("[data-inline-attachment]").length === 2, "both in the text");
   const value = markdownField().value();
@@ -387,25 +401,57 @@ test("a copy pasted back into the same composer brings copies of its attachments
   const { written } = await clip("copy");
   // Pasted at the end, after the original.
   await act(async () => markdownField().setCaret(markdownField().value().length));
-  await pasteBack(written.get("text/plain")!, []);
+  await pasteBack(written.get("text/plain")!, [], copiedID);
   await until(() => (composer.current!.wakeState().attachments ?? []).length === 2, "the copy of the image");
   expect(markdownField().value()).toMatch(
     new RegExp(`^a ${MARK}shot${MARK} ba ${MARK}shot%7Ecopy-[0-9a-f]{8}${MARK} b$`),
   );
 });
 
+test("a fresh clipboard screenshot never restores a previous prompt with the same image name", async () => {
+  recordHost();
+  const composer = await openComposer();
+  await act(async () =>
+    composer.current!.restore(`old prompt ${inlineToken(IMAGE.id)}`, [{ ...IMAGE, name: "image.png" }]),
+  );
+  await until(() => Boolean(field().querySelector("[data-inline-attachment]")), "the first inline screenshot");
+  await act(async () => markdownField().selectAll());
+  await clip("copy");
+  act(() => root?.unmount());
+  root = undefined;
+  const next = await openComposer();
+  expect(markdownField().plainText()).toBe("");
+
+  // Control-Shift-Command-4 replaces the clipboard with a screenshot and no prompt text.
+  await pasteBack("", [screenshot()]);
+  expect(markdownField().plainText()).not.toContain("old prompt");
+  await until(() => (next.current!.wakeState().attachments ?? []).length === 1, "the new screenshot");
+  expect(next.current!.wakeState().attachments?.[0]?.id).not.toBe(IMAGE.id);
+});
+
 test("pastePlan: only a paste of the remembered copy is put back in order", () => {
   const store = dom.window.localStorage;
   const copy = composerCopy([{ text: "a " }, { id: "x" }, { text: " b" }], false, [{ ...IMAGE, id: "x" }])!;
-  const transfer = (plain: string, files: File[]) =>
-    ({ files, getData: (type: string) => (type === "text/plain" ? plain : "") }) as unknown as DataTransfer;
+  const copyID = crypto.randomUUID();
+  const transfer = (plain: string, files: File[], marker: string | undefined = copyID) =>
+    ({
+      files,
+      getData: (type: string) =>
+        type === "text/plain"
+          ? plain
+          : type === "text/html" && marker
+            ? `<span data-cmux-composer-copy="${marker}"></span>`
+            : "",
+    }) as unknown as DataTransfer;
   const file = screenshot("Screenshot.png");
   // Before the host answers which files it wrote, files are not known as the copy's.
   rememberCopy(copy, undefined, store);
   expect(pastePlan(transfer("", [file]), () => false, store)).toBeUndefined();
-  rememberCopy(copy, ["Screenshot.png"], store);
+  rememberCopy(copy, ["Screenshot.png"], store, copyID);
   // WebKit's paste of file URLs: the files, no text. The text is the copy's.
   expect(pastePlan(transfer("", [file]), () => false, store)).toEqual([{ text: "a " }, { file }, { text: " b" }]);
+  expect(pastePlan(transfer("", [file], ""), () => false, store)).toBeUndefined();
+  expect(pastePlan(transfer("", [file], crypto.randomUUID()), () => false, store)).toBeUndefined();
   // Other files, another count, or another text: not that copy.
   expect(pastePlan(transfer("", [screenshot("other.png")]), () => false, store)).toBeUndefined();
   expect(pastePlan(transfer("", [file, file]), () => false, store)).toBeUndefined();
@@ -418,11 +464,47 @@ test("pastePlan: only a paste of the remembered copy is put back in order", () =
   ]);
   expect(pastePlan(transfer("a  b", []), () => false, store)).toBeUndefined();
   // A file the host left out is left out of the paste; the text stays.
-  rememberCopy(copy, [null], store);
+  rememberCopy(copy, [null], store, copyID);
   expect(pastePlan(transfer("a  b", []), () => false, store)).toBeUndefined();
   // A copy of text alone forgets it.
   forgetCopy(store);
   expect(pastePlan(transfer("a  b", []), (id) => id === "x", store)).toBeUndefined();
+});
+
+function pendingCopies() {
+  const replies: ((reply: unknown) => void)[] = [];
+  (dom.window as unknown as { webkit: unknown }).webkit = {
+    messageHandlers: { agentSession: { postMessage: () => new Promise((resolve) => replies.push(resolve)) } },
+  };
+  return replies;
+}
+
+test("an older native copy reply cannot replace a newer copy's prompt", async () => {
+  const replies = pendingCopies();
+  const old = composerCopy([{ text: "old prompt" }, { id: IMAGE.id }], false, [IMAGE])!;
+  const current = composerCopy([{ text: "current prompt" }, { id: IMAGE.id }], false, [IMAGE])!;
+  writeComposerCopy(old);
+  writeComposerCopy(current);
+  const copyID = crypto.randomUUID();
+  const value = { copyID, files: [{ item: 0, name: IMAGE.name }] };
+  await act(async () => replies[1]!({ ok: true, value }));
+  await act(async () => replies[0]!({ ok: true, value: { ...value, copyID: crypto.randomUUID() } }));
+  const file = screenshot(IMAGE.name);
+  const data = {
+    files: [file],
+    getData: (type: string) => (type === "text/html" ? `<span data-cmux-composer-copy="${copyID}"></span>` : ""),
+  } as unknown as DataTransfer;
+  expect(pastePlan(data, () => false)).toEqual([{ text: "current prompt" }, { file }]);
+});
+
+test("a native copy reply arriving after a text-only copy cannot restore its old prompt", async () => {
+  const replies = pendingCopies();
+  writeComposerCopy(composerCopy([{ text: "old prompt" }, { id: IMAGE.id }], false, [IMAGE])!);
+  forgetCopy();
+  await act(async () =>
+    replies[0]!({ ok: true, value: { copyID: crypto.randomUUID(), files: [{ item: 0, name: IMAGE.name }] } }),
+  );
+  expect(dom.window.localStorage.getItem("cmux.composer.copy.v1")).toBeNull();
 });
 
 test("composerCopy leaves out an image past what the host writes, never the copy's other attachments", () => {

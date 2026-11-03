@@ -9,7 +9,7 @@ public import Foundation
 /// recently used of their own idle machines, then creates, and the answer names it (`made_room`). Only when every
 /// machine of theirs is busy does the create come back refused (`cloud.quota.exceeded`, `details.busy`), and the app
 /// shows one card: Pause one (each busy machine), Upgrade, or Run on This Mac. The classic link makes no room (it
-/// gets no new features before the DEV cutover): it shows the same card with the person's own running machines. A
+/// gets no new features before the DEV cutover): it shows the same card, with Pause only where pausing frees room. A
 /// free plan has nothing to pause: Upgrade or Run on This Mac. Never another workspace's machine, never a teammate's.
 public nonisolated struct CloudMachineCap: Equatable, Sendable {
     /// One of the person's own machines that counts against the cap.
@@ -72,10 +72,12 @@ public nonisolated struct CloudMachineCap: Equatable, Sendable {
         }
     }
 
-    /// The card for a refusal the app read itself (its plan gate, the classic link's 402): a free plan's offers no
-    /// pause; otherwise `user`'s own machines (``busy(machines:user:)``).
-    public static func plan(freePlan: Bool, machines: [CloudMachine], user: String?) -> CloudMachineCap {
-        CloudMachineCap(busy: freePlan ? [] : busy(machines: machines, user: user), freePlan: freePlan)
+    /// The card for a refusal the app read itself (its plan gate, the classic link's 402): `user`'s own machines
+    /// (``busy(machines:user:)``) only when pausing one frees what refused the create (`pauseFrees`), else no pause.
+    /// The classic link's machine allowance counts paused machines too (web/services/vms/repository.ts), so there only
+    /// its vCPU and memory pool refusal, which counts running machines alone, offers Pause (cmux#32710).
+    public static func plan(freePlan: Bool, pauseFrees: Bool, machines: [CloudMachine], user: String?) -> CloudMachineCap {
+        CloudMachineCap(busy: freePlan || !pauseFrees ? [] : busy(machines: machines, user: user), freePlan: freePlan)
     }
 
     /// The classic link's card: `user`'s own machines that count against the cap (running or on their way), newest

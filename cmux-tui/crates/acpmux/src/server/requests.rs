@@ -1191,6 +1191,7 @@ async fn dispatch_request(
                 return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
             }
             let disallowed_tools = disallowed_tools(meta)?;
+            let additional_directories = crate::hub::additional_dirs::requested(&params).await?;
             // Its parent is the session this connection proved it runs in (`hub/lineage.rs`):
             // an agent's `acpmux new`. An adopted chat or an ephemeral run is nobody's child.
             let parent_ask = crate::hub::lineage::parent_ask(meta)?;
@@ -1245,6 +1246,7 @@ async fn dispatch_request(
                 lineage,
                 disallowed_tools,
                 checked_cwd: None,
+                additional_directories,
                 person: person_asks(conn),
             };
             let s = match &admitted {
