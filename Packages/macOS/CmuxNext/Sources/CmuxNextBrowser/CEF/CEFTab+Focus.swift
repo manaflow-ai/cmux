@@ -51,6 +51,14 @@ extension CEFRuntime {
     }
 }
 
+/// The app's key window, read and changed (AppKit's in the app, a recorder in a test).
+struct CEFKeyWindows {
+    var keyWindow: @MainActor () -> NSWindow?
+    var makeKey: @MainActor (NSWindow) -> Void
+
+    static var appKit: CEFKeyWindows { CEFKeyWindows(keyWindow: { NSApp.keyWindow }, makeKey: { $0.makeKey() }) }
+}
+
 extension CEFTab {
     /// Chromium asks to focus this page (`CefFocusHandler::OnSetFocus`), in process only
     /// (``CEFRuntime/installFocusRequestPolicy(_:)``).
@@ -70,10 +78,19 @@ extension CEFTab {
     /// Gives the page focus on cmux's behalf. CEF asks back through
     /// `chromiumRequestsFocus` inside this call (the shim's calls run on
     /// CEF's UI thread, the main thread).
+    ///
+    /// Chromium's model is one key window per browser window, which hands its keys to the focused page. In process the
+    /// page is a child window that must itself be key, and CEF's SetFocus is the one call that makes it so. When it
+    /// gives the page focus but moves no key (seen after an address-bar load in a fresh launch), the cmux window that
+    /// shows the page keeps the keys with itself as first responder, and a typed key reaches no view: the page window
+    /// takes them here, in the grant every path uses. Still one key change per request (#24913); never from another
+    /// window or an inactive app. A hosted page has no page window: nothing changes there.
     func grantFocus(_ browser: Int32) {
         isGrantingFocus = true
         defer { isGrantingFocus = false }
         runtime.shim?.setFocus(browser, 1)
+        guard let window = pageWindow, let key = keyWindows.keyWindow(), key !== window, window.parent === key else { return }
+        keyWindows.makeKey(window)
     }
 }
 

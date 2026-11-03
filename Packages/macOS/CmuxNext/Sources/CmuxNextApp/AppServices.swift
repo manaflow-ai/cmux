@@ -895,7 +895,7 @@ final class AppServices {
         keyRouter.services = self
         keyRouter.whichKey = WhichKeyController()
         // The hint sessions turn the router's modes on and off: in normal mode a typing key skips them.
-        linkHints.keyModes = keyRouter.modes
+        linkHints.activeChanged = { [modes = keyRouter.modes] in modes.set(.linkHints, $0) }; linkHints.listen(to: inputTap, deadlines: mainDeadlines)
         windowHints.keyModes = keyRouter.modes
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
