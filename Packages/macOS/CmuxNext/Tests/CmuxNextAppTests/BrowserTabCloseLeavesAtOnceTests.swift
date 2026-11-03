@@ -162,6 +162,30 @@ struct BrowserTabCloseLeavesAtOnceTests {
         }
     }
 
+    /// The page's question comes right at the deadline, before its watch wakes: the deadline brings the tab back for the
+    /// question, never closes it (that would answer Leave for the person). Review of #32876 at 9b8ed262253.
+    @Test func aQuestionAtTheDeadlineBringsTheTabBackNeverClosesIt() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let pane = try #require(services.windows.active?.focusedPane)
+            let handle = pane.pane.handle
+            let kept = try await connection.newFrontendBrowserTab(url: "https://example.com/kept", engine: .webkit, in: handle, activate: false)
+            let asking = try await connection.newFrontendBrowserTab(url: "https://example.com/form", engine: .webkit, in: handle, activate: false)
+            try await PinnedPageTests.until({ [kept, asking].allSatisfy { store.tab(surface: $0.surface).map { pane.orderedIDs.map(\.rawValue).contains($0.id) } == true } })
+            let tab = try #require(store.tab(surface: asking.surface))
+            let undo = try #require(services.closedTabs?.undoToasts)
+            nonisolated(unsafe) var asks = false
+            undo.hiddenPages.hide([(id: tab.id, surface: tab.surface, asks: { asks })], in: pane, store: store)
+            try #require(!pane.orderedIDs.map(\.rawValue).contains(tab.id))
+            asks = true
+            undo.hiddenPages.expire(tab.id) // in the same turn: the watch has not woken
+            #expect(!undo.hiddenPages.contains(tab.id))
+            #expect(pane.orderedIDs.map(\.rawValue).contains(tab.id), "the deadline did not bring the asking tab back")
+            try await Task.sleep(for: .milliseconds(500))
+            #expect(store.liveTreeLists(tab: tab.id) == true, "the deadline closed a page that asks")
+        }
+    }
+
     /// The measure (same harness at base and head): a person's close of a deciding page's tab to the
     /// tab gone from its strip, 20 rounds. The page never answers within the round's 1 s, as a slow
     /// renderer; then it closes the tab (the `closeTab` its page's close runs). Prints p50/p95.
