@@ -123,10 +123,10 @@ class Workspace:
 
 
 class NormalizeTests(unittest.TestCase):
-    def test_paths_are_dropped_and_floats_rounded(self):
-        got = jg.normalize({"base": "/a/b", "t": [0.1234567891, -0.0], "n": 3, "s": "/store/x/y", "nested": {"v": 1.5}},
+    def test_paths_are_rooted_and_floats_rounded(self):
+        got = jg.normalize({"base": "/store/a/b", "t": [0.1234567891, -0.0], "n": 3, "s": "/store/x/y", "nested": {"v": 1.5}},
                            roots=["/store"])
-        self.assertNotIn("base", got)
+        self.assertEqual(got["base"], "<root>/a/b")
         self.assertEqual(got["t"], [0.123457, 0.0])
         self.assertEqual(got["s"], "<root>/x/y")
         self.assertEqual(got["nested"], {"v": 1.5})
