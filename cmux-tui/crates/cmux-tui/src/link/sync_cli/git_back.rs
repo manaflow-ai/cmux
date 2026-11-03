@@ -408,7 +408,7 @@ fn copy_objects(
             }
             let target = quarantine.join("objects").join(&relative);
             std::fs::create_dir_all(target.parent().context("no parent")?)?;
-            let mut out = std::fs::File::create(&target)?;
+            let mut out = File::create(&target)?;
             let source = format!("{objects}/{relative}");
             if remote.read_into(&source, &mut out)?.is_none() {
                 drop(out);
