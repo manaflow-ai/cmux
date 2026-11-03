@@ -99,7 +99,7 @@ chief-box audit head       # the last hash, to note elsewhere
 
 ## Operating
 
-`chief-box logs [N]` (journal of the three units), `chief-box stop`. The caps cover the
+`chief-box logs [N]` (journal of the three units), `chief-box stop` (stops the host and acpmux, so no agent keeps running or spending). The caps cover the
 whole slice, so a runaway agent hits `MemoryMax` or `CPUQuota` before the box's other work
 does. Disk is not capped by systemd: give `/srv/chief` its own volume or filesystem quota
 when the box is shared with other stacks.

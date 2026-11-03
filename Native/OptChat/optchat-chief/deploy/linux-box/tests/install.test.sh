@@ -57,6 +57,31 @@ grep -q 'systemctl restart chief-box-acpmux; systemctl enable chief-box-host' "$
 [[ -x "$bins/chief-box" ]] || fail "no chief-box command"
 bash -n "$bins/chief-box" || fail "chief-box does not parse"
 grep -q 'cloud pair --install "$B/cloud/install.json"' "$bins/chief-box" || fail "chief-box pair does not pair this box's install"
+# chief-box runs as root: it reads no settings file at run time (a Chief-writable file would be root's shell).
+if grep -E '^[[:space:]]*(\.|source)[[:space:]]' "$bins/chief-box"; then fail "chief-box sources a file"; fi
+grep -qxF "CHIEF_BOX_USER=chief CHIEF_BOX_HOME=$ch MUX_HOME=$b/mux OPTCHAT_CHIEF_OWNER=user_ann" "$bins/chief-box" || fail "chief-box does not carry its settings"
+grep -q 'stop) systemctl stop chief-box-host chief-box-acpmux' "$bins/chief-box" || fail "chief-box stop leaves acpmux (agents) running"
+
+# A settings file someone else wrote is replaced by a fresh file, not rewritten in place.
+printf 'CHIEF_BOX_USER=$(id)\n' > "$pre/chief-box.env"; chmod 0666 "$pre/chief-box.env"
+ino_before="$(ls -i "$pre/chief-box.env" | awk '{print $1}')"
+run "${base[@]}"
+[[ "$(ls -i "$pre/chief-box.env" | awk '{print $1}')" != "$ino_before" ]] || fail "chief-box.env was rewritten in place"
+[[ "$(stat -c %a "$pre/chief-box.env" 2>/dev/null || stat -f %Lp "$pre/chief-box.env")" == 644 ]] || fail "chief-box.env is not 0644"
+grep -q 'id)' "$pre/chief-box.env" && fail "chief-box.env kept the injected line"
+grep -qxF "CHIEF_BOX_USER=chief" "$pre/chief-box.env" || fail "chief-box.env lost its settings"
+[[ -z "$(ls -A "$pre" | grep '^\.chief-box\.')" ]] || fail "temp settings files left in the prefix"
+
+# A kept model.env that is a symlink, or has the wrong mode, is refused.
+mv "$pre/model.env" "$tmp/model.env.real"
+ln -s "$tmp/model.env.real" "$pre/model.env"
+if "$here/install.sh" "${base[@]}" > "$tmp/out.log" 2>&1; then fail "install.sh accepted a symlinked model.env"; fi
+grep -q "model.env is not a regular file" "$tmp/out.log" || fail "symlinked model.env refused for another reason: $(cat "$tmp/out.log")"
+rm "$pre/model.env"; mv "$tmp/model.env.real" "$pre/model.env"
+chmod 0644 "$pre/model.env"
+if "$here/install.sh" "${base[@]}" > "$tmp/out.log" 2>&1; then fail "install.sh accepted a 0644 model.env"; fi
+grep -q "model.env must be owned by uid" "$tmp/out.log" || fail "0644 model.env refused for another reason: $(cat "$tmp/out.log")"
+chmod 0600 "$pre/model.env"
 
 # A rerun keeps the owner's model login, rights and audit; flags change the caps and the route.
 echo "ANTHROPIC_API_KEY=sk-test" > "$pre/model.env"

@@ -101,6 +101,14 @@ nolink() {
 }
 for p in "$PREFIX" "$BIN" "$PREFIX/chief-box.env" "$PREFIX/model.env" "$CH" "$PREFIX/ws" "$B" "$UNIT_DIR" "$BIN_DIR" "$BIN_DIR/chief-box"; do nolink "$p"; done
 for n in optchat-chief cmux-tui acpmux cmux; do nolink "$BIN/$n"; done
+# A kept model.env must be a plain file the Chief cannot write: owned by root (by the
+# installing user with --no-system), mode 0600. Anything else is refused, never repaired.
+me="$(id -u)"
+if [[ -e "$PREFIX/model.env" || -L "$PREFIX/model.env" ]]; then
+  [[ -f "$PREFIX/model.env" && ! -L "$PREFIX/model.env" ]] || die "$PREFIX/model.env is not a regular file; move it aside and run again"
+  meta="$(stat -c '%u %a' "$PREFIX/model.env" 2>/dev/null || stat -f '%u %Lp' "$PREFIX/model.env")"
+  [[ "$meta" == "$me 600" ]] || die "$PREFIX/model.env must be owned by uid $me with mode 600 (it is: uid/mode $meta); check its contents, fix it and run again"
+fi
 
 # The optchat-chief must have the rights table and the audit log (cmux#33003): `audit head`
 # on an empty home answers "0 <genesis hash>"; an older build prints its usage and exits 2.
@@ -128,18 +136,23 @@ for pair in "optchat-chief:$CHIEF" "cmux-tui:$TUI" "acpmux:$ACPMUX" "cmux:${CLI:
   rm -f "$BIN/$name"
   install -m 0755 "$src" "$BIN/$name"
 done
-# The non-secret settings `chief-box` and the units share.
-cat > "$PREFIX/chief-box.env" <<EOF
+# The non-secret settings the units read. Written as a fresh root-owned file and renamed over
+# the old one, so a file the Chief once owned is replaced, never reused.
+put() { # dest mode: stdin to a new file in the root-owned PREFIX, then rename over dest
+  local t; t="$(mktemp "$PREFIX/.chief-box.XXXXXX")"
+  cat > "$t"; chmod "$2" "$t"
+  if ((SYSTEM)); then chown root:root "$t"; fi
+  mv -f "$t" "$1"
+}
+put "$PREFIX/chief-box.env" 0644 <<EOF
 CHIEF_BOX_USER=$U
 CHIEF_BOX_PREFIX=$PREFIX
 CHIEF_BOX_HOME=$CH
 MUX_HOME=$B/mux
 OPTCHAT_CHIEF_OWNER=$OWNER
 EOF
-chmod 0644 "$PREFIX/chief-box.env"
 # systemd reads it as root; the Chief's processes get its values, never the file.
-[[ -e "$PREFIX/model.env" ]] || : > "$PREFIX/model.env"
-chmod 0600 "$PREFIX/model.env"
+[[ -e "$PREFIX/model.env" ]] || put "$PREFIX/model.env" 0600 </dev/null
 
 # The Chief's own directories sit directly under the root-owned PREFIX, so the Chief cannot
 # swap them; anything inside them is made by the Chief's user, never by root.
@@ -244,8 +257,9 @@ cat > "$BIN_DIR/chief-box" <<EOF
 #!/usr/bin/env bash
 # The Chief on this box (deploy/linux-box/README.md). Written by install.sh.
 set -euo pipefail
-. "$PREFIX/chief-box.env"
-B="\$CHIEF_BOX_PREFIX/brain" BIN="\$CHIEF_BOX_PREFIX/bin"
+# The settings are fixed here at install time, never read from a file at run time.
+CHIEF_BOX_USER=$U CHIEF_BOX_HOME=$CH MUX_HOME=$B/mux OPTCHAT_CHIEF_OWNER=$OWNER
+B=$B BIN=$BIN
 as_chief() {
   if [[ "\$(id -un)" == "\$CHIEF_BOX_USER" ]]; then env HOME="\$CHIEF_BOX_HOME" MUX_HOME="\$MUX_HOME" OPTCHAT_CHIEF_OWNER="\$OPTCHAT_CHIEF_OWNER" "\$@"
   else runuser -u "\$CHIEF_BOX_USER" -- env HOME="\$CHIEF_BOX_HOME" MUX_HOME="\$MUX_HOME" OPTCHAT_CHIEF_OWNER="\$OPTCHAT_CHIEF_OWNER" "\$@"; fi
@@ -259,7 +273,7 @@ case "\${1:-}" in
          # model.env or the binaries may have changed: acpmux and the host read them at start.
          systemctl restart $P-acpmux; systemctl enable $P-host; systemctl restart $P-host ;;
   reload-model) systemctl restart $P-acpmux $P-host ;;
-  stop) systemctl stop $P-host ;;
+  stop) systemctl stop $P-host $P-acpmux ;;  # acpmux too: no agent keeps running or spending
   rights|audit|usage) as_chief "\$BIN/optchat-chief" "\$@" ;;
   logs) journalctl --no-pager -n "\${2:-200}" -u $P-host -u $P-acpmux -u $P-daemon ;;
   *) echo "usage: chief-box pair --api-base URL | status | start | stop | reload-model | rights ... | audit [verify|head] | usage | logs [N]" >&2; exit 2 ;;
