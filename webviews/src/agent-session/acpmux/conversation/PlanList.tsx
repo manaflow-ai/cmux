@@ -7,7 +7,7 @@
 import { memo } from "react";
 import { useT, type StringKey } from "../i18n";
 import type { AcpmuxPlanEntry } from "../model";
-import { Check } from "./icons";
+import { Check, Spinner } from "./icons";
 
 const STATUS: Record<AcpmuxPlanEntry["status"], StringKey> = {
   completed: "plan.status.completed",
@@ -37,6 +37,8 @@ export const PlanList = memo(function PlanList({
           <li key={index} className="cv-plan__item" data-status={entry.status}>
             <span className="cv-plan__mark" aria-hidden="true">
               {entry.status === "completed" && <Check size={10} />}
+              {/* The step at work turns the one shared spinner (icons.tsx), never a ring of its own. */}
+              {entry.status === "in_progress" && !ended && <Spinner size={12} />}
             </span>
             <span className="cv-plan__text">{entry.content}</span>
             {/* The marks are drawn only; a screen reader hears the state. */}

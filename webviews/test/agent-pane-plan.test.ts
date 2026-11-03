@@ -242,7 +242,13 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
         });
       }),
     ).toBe(true);
-    expect((await mark("in_progress")).animation).toBe("cmux-spin");
+    // The step at work turns the one shared Spinner inside its mark (icons.tsx), not a ring of its own.
+    expect((await mark("in_progress")).animation).toBe("none");
+    expect(
+      await page
+        .locator('.cv-plan__item[data-status="in_progress"] .cv-plan__mark .cv-spinner')
+        .evaluate((node) => getComputedStyle(node).animationName),
+    ).toBe("cmux-spin");
     expect(await mark("pending")).toEqual({ animation: "none", border: "dashed" });
     await page.close();
   });
