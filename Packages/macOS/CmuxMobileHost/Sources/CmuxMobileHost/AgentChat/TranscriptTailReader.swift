@@ -6,7 +6,8 @@ struct TranscriptTailLimits: Sendable, Equatable {
     let maxLines: Int
     /// Total bytes of the records a window may decode.
     let maxBytes: Int
-    /// Bytes above which one record is skipped instead of decoded.
+    /// Bytes above which one record is skipped instead of decoded. Must not
+    /// exceed `maxBytes`, so a kept trailing fragment stays within the budget.
     let maxRecordBytes: Int
 }
 

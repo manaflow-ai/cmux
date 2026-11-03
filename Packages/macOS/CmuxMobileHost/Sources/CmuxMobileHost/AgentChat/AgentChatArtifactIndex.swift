@@ -32,7 +32,7 @@ public actor AgentChatArtifactIndex {
         case notInSet
     }
 
-    private struct CacheKey: Sendable, Equatable {
+    struct CacheKey: Sendable, Equatable {
         let transcriptPath: String
         let workingDirectory: String?
         let fileSize: UInt64
