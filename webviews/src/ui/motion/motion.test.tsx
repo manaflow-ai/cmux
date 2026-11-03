@@ -1,0 +1,185 @@
+import { afterEach, expect, test } from "bun:test";
+import { act, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { JSDOM } from "jsdom";
+import { MOTION_MS, MOTION_SPRING } from "../../motion/scale.generated";
+import { motionMode } from "./motionMode";
+import { SlidingIndicator } from "./SlidingIndicator";
+import { swapFrames, ViewSwap } from "./ViewSwap";
+
+// The ui/motion primitives: the selection and the new view are there on the click, and the motion is
+// transform (or opacity, clip) only, finite, and off under Reduce Motion or motion off.
+let dom: JSDOM | undefined;
+let root: Root | undefined;
+const scope = globalThis as Record<string, unknown>;
+const saved = new Map<string, unknown>();
+
+type Played = { element: Element; frames: Keyframe[]; timing: KeyframeAnimationOptions };
+let played: Played[] = [];
+
+function installDom(options: { reduced?: boolean } = {}): HTMLElement {
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  const win = dom.window as unknown as Window & typeof globalThis;
+  win.matchMedia = ((query: string) => ({ matches: Boolean(options.reduced) && query.includes("reduce") })) as never;
+  // jsdom lays nothing out: each element's box is its data-box (x,y,w,h), the host's at 0,0.
+  win.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+    const [x = 0, y = 0, w = 0, h = 0] = (this.dataset.box ?? "").split(",").map(Number);
+    return { x, y, left: x, top: y, width: w, height: h, right: x + w, bottom: y + h, toJSON() {} } as DOMRect;
+  };
+  win.HTMLElement.prototype.animate = function (
+    this: HTMLElement,
+    frames: Keyframe[],
+    timing: KeyframeAnimationOptions,
+  ) {
+    played.push({ element: this, frames, timing });
+    return { cancel() {}, playState: "running", onfinish: null } as unknown as Animation;
+  } as never;
+  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
+    if (!saved.has(key)) saved.set(key, scope[key]);
+  Object.assign(scope, {
+    window: win,
+    document: win.document,
+    navigator: win.navigator,
+    Node: win.Node,
+    HTMLElement: win.HTMLElement,
+    Element: win.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  return win.document.getElementById("root")!;
+}
+
+afterEach(async () => {
+  if (root) await act(async () => root!.unmount());
+  root = undefined;
+  played = [];
+  dom?.window.close();
+  dom = undefined;
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
+  saved.clear();
+});
+
+let select: (index: number) => void = () => {};
+
+function Tabs() {
+  const [value, setValue] = useState(0);
+  select = setValue;
+  return (
+    <div className="ui-slide-host" data-box="0,0,200,32">
+      <SlidingIndicator selected={value} look="pill" />
+      {["A", "Bbbb"].map((label, index) => (
+        <button
+          key={label}
+          type="button"
+          role="tab"
+          className="ui-slide-item"
+          aria-selected={index === value}
+          data-box={index === 0 ? "4,4,40,24" : "48,4,80,24"}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+test("the indicator sits on the selected tab in its first frame, with no motion", async () => {
+  const mount = installDom();
+  await act(async () => {
+    root = createRoot(mount);
+    root.render(<Tabs />);
+  });
+  const mark = mount.querySelector<HTMLElement>(".ui-slide-indicator")!;
+  expect(mark.style.transform).toBe("translate(4px, 4px)");
+  expect(mark.style.width).toBe("40px");
+  expect(played).toEqual([]);
+});
+
+test("a selection change places it on the new tab at once and slides on transform only, on the spring", async () => {
+  const mount = installDom();
+  await act(async () => {
+    root = createRoot(mount);
+    root.render(<Tabs />);
+  });
+  await act(async () => select(1));
+  const mark = mount.querySelector<HTMLElement>(".ui-slide-indicator")!;
+  // Its resting place is the new tab's in the same commit; the animation plays over it.
+  expect(mark.style.transform).toBe("translate(48px, 4px)");
+  expect(mark.style.width).toBe("80px");
+  expect(mount.querySelectorAll('[aria-selected="true"]')[0]!.textContent).toBe("Bbbb");
+  expect(played).toHaveLength(1);
+  const [{ frames, timing }] = played as [Played];
+  for (const frame of frames) expect(Object.keys(frame)).toEqual(["transform"]);
+  expect(frames[0]!.transform).toBe("translate(4px, 4px) scale(0.5, 1)");
+  expect(timing).toEqual({ duration: MOTION_MS.large, easing: MOTION_SPRING });
+});
+
+test("Reduce Motion and motion off place it with no slide", async () => {
+  for (const setup of [
+    () => installDom({ reduced: true }),
+    () => {
+      const mount = installDom();
+      mount.ownerDocument.documentElement.dataset.agentMotion = "off";
+      return mount;
+    },
+  ]) {
+    const mount = setup();
+    await act(async () => {
+      root = createRoot(mount);
+      root.render(<Tabs />);
+    });
+    await act(async () => select(1));
+    expect(mount.querySelector<HTMLElement>(".ui-slide-indicator")!.style.transform).toBe("translate(48px, 4px)");
+    expect(played).toEqual([]);
+    await act(async () => root!.unmount());
+    root = undefined;
+    dom?.window.close();
+  }
+});
+
+test("motionMode reads the host's switches", () => {
+  const mount = installDom();
+  const doc = mount.ownerDocument;
+  expect(motionMode(doc)).toBe("full");
+  doc.documentElement.dataset.cmuxMotion = "reduced";
+  expect(motionMode(doc)).toBe("reduced");
+  doc.documentElement.dataset.cmuxMotion = "off";
+  expect(motionMode(doc)).toBe("none");
+});
+
+test("a view swap shows the new content in the same commit and animates only paint", async () => {
+  const mount = installDom();
+  let show: (key: string) => void = () => {};
+  function Swap() {
+    const [key, setKey] = useState("one");
+    show = setKey;
+    return (
+      <ViewSwap swapKey={key} order={key === "one" ? 0 : 1} look="slide">
+        <button type="button">{key}</button>
+      </ViewSwap>
+    );
+  }
+  await act(async () => {
+    root = createRoot(mount);
+    root.render(<Swap />);
+  });
+  expect(played).toEqual([]);
+  await act(async () => show("two"));
+  expect(mount.querySelector("button")!.textContent).toBe("two");
+  expect(played).toHaveLength(1);
+  for (const frame of played[0]!.frames) expect(Object.keys(frame).sort()).toEqual(["opacity", "transform"]);
+  expect(played[0]!.timing.duration).toBeLessThanOrEqual(MOTION_MS.large);
+});
+
+test("every swap look moves paint only and comes from the side it is told", () => {
+  for (const look of ["fade", "slide", "wipe", "sweep"] as const) {
+    const frames = swapFrames(look, "forward");
+    const keys = new Set([...(frames.content ?? []), ...(frames.band ?? [])].flatMap((frame) => Object.keys(frame)));
+    for (const key of keys) expect(["opacity", "transform", "clipPath"]).toContain(key);
+  }
+  const first = (direction: "forward" | "back") => (swapFrames("slide", direction).content![0] as Keyframe).transform;
+  expect(first("forward")).toBe("translateX(8px)");
+  expect(first("back")).toBe("translateX(-8px)");
+});
