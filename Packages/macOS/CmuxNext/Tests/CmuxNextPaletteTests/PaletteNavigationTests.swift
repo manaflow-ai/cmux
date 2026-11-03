@@ -187,6 +187,7 @@ struct PaletteNavigationTests {
     @Test func aLoneTabsTitleAndSessionFindItsWorkspace() {
         #expect(PaletteWorkspace.loneTabWords(title: "Racking the Studios", session: "acp-b1") == ["Racking the Studios", "acp:acp-b1", "acp-b1"])
         #expect(PaletteWorkspace.loneTabWords(title: "", session: nil).isEmpty)
+        #expect(PaletteWorkspace.loneTabWords(title: "Docs", url: "https://example.com/docs", session: nil) == ["Docs", "https://example.com/docs"])
     }
 
     @Test func aLoneRepeatIsNamedByItsKindAndSameNamesInOtherWorkspacesStay() {

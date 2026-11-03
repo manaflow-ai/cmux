@@ -20,9 +20,9 @@ public struct PaletteWorkspace: Identifiable, Sendable, Hashable {
 
     /// The words that find a workspace whose one tab Go to Workspace folds into its row (a lone
     /// tab is its workspace; Leo 2026-11-03: "some of these are way too duplicated"): the tab's
-    /// shown title and an agent chat's acpmux session, as its `acp:` handle and bare id.
-    public static func loneTabWords(title: String?, session: String?) -> [String] {
-        [title].compactMap { $0?.isEmpty == false ? $0 : nil }
+    /// shown title, its address and an agent chat's acpmux session, as its `acp:` handle and bare id.
+    public static func loneTabWords(title: String?, url: String? = nil, session: String?) -> [String] {
+        [title, url].compactMap { $0?.isEmpty == false ? $0 : nil }
             + NavigationPaletteProvider.sessionWords(session.map { PaletteNavigationEntry.acpPrefix + $0 })
     }
 
