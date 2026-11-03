@@ -1680,6 +1680,11 @@ async fn dispatch_request(
                 let set = crate::hub::SetRequest::Mode(mode.to_owned());
                 return heap(|| hub.set_for_full_access_device(&s, &device, set)).await;
             }
+            // The person's pick of a mode that does not ask widens a narrower policy first
+            // (`policy_mode.rs`, user 20336).
+            if conn.is_person() && !conn.origin.web_class() {
+                heap(|| hub.person_widens_policy_for(&s, method::SESSION_SET_MODE, &params)).await;
+            }
             // A mode pick holds for this chat only; new chats start in the default (start_mode.rs).
             heap(|| hub.set_mode(&s, mode)).await
         }
@@ -1694,6 +1699,10 @@ async fn dispatch_request(
             if let Some(device) = super::remote_guard::full_access_device(hub, conn, &params) {
                 let set = crate::hub::SetRequest::Config(id.to_owned(), value);
                 return heap(|| hub.set_for_full_access_device(&s, &device, set)).await;
+            }
+            if conn.is_person() && !conn.origin.web_class() {
+                let m = method::SESSION_SET_CONFIG_OPTION;
+                heap(|| hub.person_widens_policy_for(&s, m, &params)).await;
             }
             // The app pane's effort pick is saved for the next new chat (start_defaults.rs).
             heap(|| hub.client_set_config(&s, id, value, conn.origin == Origin::LocalApp)).await
