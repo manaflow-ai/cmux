@@ -407,9 +407,16 @@ class GeneratedFoldTest(unittest.TestCase):
 
     def test_the_check_script_skips_the_build_only_when_asked(self):
         script = (ROOT / "scripts/cmux-next/check-action-surfaces.sh").read_text()
-        self.assertRegex(script, re.escape('[[ "${CMUX_ACTION_SURFACES_SKIP_BUILD:-}" != 1 ]] || skip_build=(--skip-build)'))
+        skip, _, built = script.partition('if [[ "${CMUX_ACTION_SURFACES_SKIP_BUILD:-}" == 1 ]]; then')
+        self.assertTrue(built, "check-action-surfaces.sh has no CMUX_ACTION_SURFACES_SKIP_BUILD=1 branch")
+        asked, _, otherwise = built.partition("\nfi\n")
+        # Asked: no build, only the tests of the build the CI job already made.
+        self.assertIn("--skip-build", asked)
+        self.assertNotIn("cmux_next_warm_build", asked)
+        # Otherwise it builds (under the warm-slot contract) before it tests that build.
+        self.assertIn('cmux_next_warm_build "$root"', otherwise)
         # bash 3.2 (macOS /bin/bash) treats an empty "${a[@]}" as unbound under set -u.
-        self.assertIn('${skip_build[@]+"${skip_build[@]}"}', script)
+        self.assertIn('${jobs[@]+"${jobs[@]}"}', otherwise)
 
 
 if __name__ == "__main__":

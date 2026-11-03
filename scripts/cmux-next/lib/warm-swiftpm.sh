@@ -15,8 +15,9 @@
 #   # cmux-ci-warm-contract: swiftpm-v1
 # and the fleet gives its step a warm slot only then.
 #
-# cmux_next_warm_build PKGDIR
-#   The guard, the test build of PKGDIR, then the built ref. Returns the
+# cmux_next_warm_build PKGDIR [ARG...]
+#   The guard, the test build of PKGDIR (ARGs added, such as -j N: build
+#   parallelism leaves the outputs alone), then the built ref. Returns the
 #   guard's 75 (fetch failed, nothing built) or the build's status.
 # cmux_next_swift_args
 #   The flags every later build and test of PKGDIR passes.
@@ -35,12 +36,13 @@ cmux_next_swift_args=(${swift_test_debug_info_args[@]+"${swift_test_debug_info_a
 
 cmux_next_warm_build() {
   local pkgdir="$1" built_ref="$1/.build/.cmux-ci-built-ref"
+  shift
   if [ -f "$built_ref" ]; then
     echo "ci-phase .build last built at $(cut -c1-12 "$built_ref")"
   else
     echo "ci-phase .build has no earlier build (cold or first use)"
   fi
   swiftpm_binary_module_guard "$pkgdir" || return $?
-  swift build ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --package-path "$pkgdir" --build-tests || return $?
+  swift build ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --package-path "$pkgdir" --build-tests "$@" || return $?
   git -C "$pkgdir" rev-parse HEAD > "$built_ref"
 }

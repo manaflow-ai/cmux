@@ -36,7 +36,7 @@ if [[ "${CMUX_ACTION_SURFACES_SKIP_BUILD:-}" == 1 ]]; then
 fi
 # Otherwise build in place under the warm contract (lib/warm-swiftpm.sh), then test that build.
 # The fleet grant (CMUX_CI_CPU_BUDGET, --jobs in the shared flags) wins over -j.
-cmux_next_warm_build "$root"
 jobs=(-j "${CMUX_NEXT_SWIFT_JOBS:-4}")
 [[ " ${cmux_next_swift_args[*]-} " != *" --jobs "* ]] || jobs=()
+cmux_next_warm_build "$root" ${jobs[@]+"${jobs[@]}"}
 CMUX_CHECK_GENERATED_EXPORTS=1 exec swift test ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} ${jobs[@]+"${jobs[@]}"} --skip-build --filter "$filter"
