@@ -40,6 +40,7 @@ unreadable marker. A corrupted marker reads as another token only when the corru
 Tests: scripts/journeys/test_ext_marker.py (no app, no fleet; a corpus of thousands of markers).
 """
 import hashlib
+import itertools
 import os
 import re
 import shutil
@@ -149,15 +150,18 @@ def read_png(path):
     if len(raw) != height * (stride + 1):
         raise ValueError(f"{Path(path).name}: {len(raw)} bytes of pixel data for {width}x{height}")
     rows, prev, at = [], bytearray(stride), 0
+    lanes_low, lanes_high = int.from_bytes(b"\x7f" * stride, "big"), int.from_bytes(b"\x80" * stride, "big")
     for _ in range(height):
         kind, line = raw[at], bytearray(raw[at + 1:at + 1 + stride])
         at += 1 + stride
         if kind == 1:
-            for x in range(bpp, stride):
-                line[x] = (line[x] + line[x - bpp]) & 255
+            # Sub: a running sum per channel, mod 256 (accumulate runs in C; the mask keeps each byte).
+            for c in range(bpp):
+                line[c::bpp] = bytes(v & 255 for v in itertools.accumulate(line[c::bpp]))
         elif kind == 2:
-            for x in range(stride):
-                line[x] = (line[x] + prev[x]) & 255
+            # Up: a byte-wise add of the row above with no carry between bytes (SWAR on one integer).
+            a, b = int.from_bytes(line, "big"), int.from_bytes(prev, "big")
+            line = bytearray((((a & lanes_low) + (b & lanes_low)) ^ ((a ^ b) & lanes_high)).to_bytes(stride, "big"))
         elif kind == 3:
             for x in range(stride):
                 line[x] = (line[x] + (((line[x - bpp] if x >= bpp else 0) + prev[x]) >> 1)) & 255
