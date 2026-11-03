@@ -138,16 +138,17 @@ struct CloudStartSessionTests {
         let task = try #require(run.results.first, "start-session tracked no result")
         let asking = try #require(await Self.cards(shown) { !$0.isEmpty }, "the agent's card never showed")
         #expect(asking.first?.state == .ask)
+        // The agent's run answers pending as soon as its card asks, naming the dialog that answers it.
+        guard case .success(let pending) = await task.value else {
+            Issue.record("the agent's run did not answer pending once its card asked")
+            return
+        }
+        #expect(pending["pending"] == .bool(true) && pending["dialog_id"] != nil)
         // What the account observer does on a sign-out or team switch.
         f.services.cloud.startSessionRuns.forgetAll()
         f.services.cloud.startSessionAsks.endAll()
-        guard case .failure(let failure) = await task.value else {
-            Issue.record("the agent's run went on after its account ended")
-            return
-        }
-        let request = CloudStartSession.Request(machineID: f.session.machineID, name: nil, agent: "claude", cwd: nil)
-        #expect(failure.message == CloudStartSessionStrings.accountChanged(request.asked(machine: f.session.machine.title)))
         #expect(await Self.cards(shown) { $0.isEmpty } != nil, "the agent's card stayed")
+        #expect(f.services.cloud.startSessionAsks.waiting.isEmpty, "the ask still waits after its account ended")
         #expect(f.session.daemon.connection == nil, "nothing connected")
     }
 

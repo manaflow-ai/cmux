@@ -726,6 +726,13 @@ mark {
   width: 240px;
 }
 
+/* Fit font names and the search field, while keeping long installed family names in the viewport. */
+.font-picker-panel {
+  width: max-content;
+  min-width: min(220px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
+}
+
 .domain-list {
   max-height: 260px;
   margin: 0;
