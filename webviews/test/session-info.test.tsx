@@ -638,9 +638,10 @@ test("three stages by the pane's width: in the gutter, pushing gradually, over t
 
 test("pushing, the column moves left and keeps its width at every pushing pane width", () => {
   const gutterFits = firstAt("push") + 1;
-  // Just inside the push range it takes almost nothing: the chat does not jump.
+  // Just inside the push range it takes almost nothing: the chat does not jump. The room comes in 8s,
+  // so the column's 4-grid inset moves a step of 4 (design/grid.md 5.5).
   expect(pushedRoom(gutterFits, 320)).toBe(0);
-  expect(pushedRoom(gutterFits - 1, 320)).toBeLessThanOrEqual(2);
+  expect(pushedRoom(gutterFits - 1, 320)).toBeLessThanOrEqual(8);
   let pushed = 0;
   for (let pane = 2400; pane >= 300; pane--) {
     if (sessionInfoStage("overlay", tall(pane), 320) !== "push") continue;
@@ -648,7 +649,7 @@ test("pushing, the column moves left and keeps its width at every pushing pane w
     const panel = pushedWidth(pane, 320);
     const room = pushedRoom(pane, panel);
     const chat = pane - room;
-    expect(room % 2).toBe(0);
+    expect(room % 8).toBe(0);
     expect(pushKeepsColumn(pane, room)).toBe(true);
     expect(transcriptColumn(chat).width).toBe(transcriptColumn(pane).width);
     // The column stays a margin clear of the panel (its left edge is the pane less the panel and margin).

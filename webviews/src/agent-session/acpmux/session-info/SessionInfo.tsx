@@ -235,9 +235,19 @@ export const sessionInfoStage = (
     if (!sessionInfoOverChat(pane.width, width + (wide ? 0 : Math.max(0, overflow)), column, wide)) return "float";
     if (wide || sessionInfoPopover(pane.height, true) || !sessionInfoFits(pane.width)) return "overlay";
   }
-  const room = pushedRoom(pane.width, pushedWidth(pane.width, width), column, overflow, pushes(placement));
-  return pushKeepsColumn(pane.width, room, column) ? "push" : "overlay";
+  const panel = pushedWidth(pane.width, width);
+  const room = pushedRoom(pane.width, panel, column, overflow, pushes(placement));
+  if (!pushKeepsColumn(pane.width, room, column)) return "overlay";
+  // A push that leaves the chat's overflow under the panel would need a narrower column to clear it:
+  // over the chat instead (Leo, 2026-11-03: "if it would need to be then session info should be an
+  // overlay"). The column's 0-7 px share of the 4 grid's leftover can keep its width where the pushed
+  // chat is too wide to clear, so its width alone does not say so. Push always pushes regardless.
+  return pushes(placement) || pushClears(pane.width, panel, room, column, overflow) ? "push" : "overlay";
 };
+
+/// Whether the chat `room` narrower ends its column, `overflow` past it, a margin clear of the panel.
+const pushClears = (paneWidth: number, panel: number, room: number, column?: ChatColumn, overflow = 0) =>
+  columnEnd(paneWidth - room, column) <= paneWidth - panel - 2 * FLOAT_MARGIN - Math.max(0, overflow);
 
 /// The shell's pin on the transcript's column while Session Info pushes (sessionInfo.css).
 const SESSION_INFO_COLUMN = "--acpmux-session-info-column";
