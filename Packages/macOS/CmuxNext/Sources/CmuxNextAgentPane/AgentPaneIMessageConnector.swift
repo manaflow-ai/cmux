@@ -73,7 +73,7 @@ public final class AgentPaneIMessageConnector {
 
     /// The existing app Rust JSON channel; SQLite reads stay off-main.
     @concurrent nonisolated private static func call(_ request: JSONValue) async -> JSONValue? {
-        CloudStartCore().call("imessage", request, as: JSONValue.self)
+        CloudStartCore().call("imessage", IMessageWire(request), as: IMessageWire.self)?.value
     }
 
     private func invalidate() { for view in views.allObjects { view.iMessageChanged() } }
@@ -96,6 +96,34 @@ public final class AgentPaneIMessageConnector {
             for await _ in ObservationStream({ (settings()?.snapshot.imessageEnabled, settings()?.snapshot.imessageAutomationSkipped) }) {
                 self?.invalidate()
             }
+        }
+    }
+}
+
+/// Settings' JSONValue carries no Codable conformance; the FFI channel speaks Codable.
+private nonisolated struct IMessageWire: Codable, Sendable {
+    let value: JSONValue
+    init(_ value: JSONValue) { self.value = value }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() { value = .null }
+        else if let bool = try? container.decode(Bool.self) { value = .bool(bool) }
+        else if let number = try? container.decode(Double.self) { value = .number(number) }
+        else if let string = try? container.decode(String.self) { value = .string(string) }
+        else if let array = try? container.decode([IMessageWire].self) { value = .array(array.map(\.value)) }
+        else { value = .object(try container.decode([String: IMessageWire].self).mapValues(\.value)) }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch value {
+        case .null: try container.encodeNil()
+        case .bool(let bool): try container.encode(bool)
+        case .number(let number): try container.encode(number)
+        case .string(let string): try container.encode(string)
+        case .array(let array): try container.encode(array.map(IMessageWire.init))
+        case .object(let object): try container.encode(object.mapValues(IMessageWire.init))
         }
     }
 }
