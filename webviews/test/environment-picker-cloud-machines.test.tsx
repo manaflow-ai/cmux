@@ -108,6 +108,9 @@ async function mount(environments: boolean, extra: Record<string, unknown> = {})
     onConnect: () => undefined,
     onCloudMachine: (machine: CloudMachine) => picks.push(["cloud", machine.id]),
     cloudMachines: account,
+    // The one combined control's Machines… list; the shipped strip's Cloud chip is
+    // environment-picker.test.tsx's "three chips" tests.
+    stripLayout: "combined",
     ...extra,
   } as unknown as Parameters<typeof ComposerContext>[0];
   root = createRoot(host);
@@ -324,6 +327,7 @@ test("a Cloud machine picked while paused takes the chat once acpmux lists it re
   const picks: unknown[][] = [];
   const base = {
     environments: true,
+    stripLayout: "combined",
     summary: { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local" },
     sessions: [],
     localName: "this-mac",
@@ -408,6 +412,7 @@ async function waitOnBuildBox() {
   const props = (extra: Record<string, unknown>) =>
     ({
       environments: true,
+      stripLayout: "combined",
       summary: { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local" },
       sessions: [],
       peers: ["gpu-box"],

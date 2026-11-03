@@ -11,6 +11,31 @@ pub(crate) struct Briefs {
 }
 
 impl Briefs {
+    /// A workflow's dispatch identity must be on stable storage before the
+    /// session or prompt can be admitted. Unlike the legacy advisory ledger,
+    /// a failed write refuses the effect and never publishes the new row.
+    pub(crate) fn put_durable(&self, row: Value) -> anyhow::Result<Value> {
+        let id = row
+            .get("briefId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("durable brief needs an id"))?;
+        let mut rows = self.rows.lock().unwrap_or_else(|error| error.into_inner());
+        let mut next = rows.clone();
+        next.insert(id.to_owned(), row.clone());
+        if let Some(path) = &self.path {
+            if let Some(parent) = path.parent() {
+                crate::config::private_state_dir(parent)?;
+            }
+            crate::config::write_atomic(path, &serde_json::to_vec(&next)?)?;
+            #[cfg(unix)]
+            if let Some(parent) = path.parent() {
+                std::fs::File::open(parent)?.sync_all()?;
+            }
+        }
+        *rows = next;
+        Ok(row)
+    }
     /// The ledger saved at `path` (`Store::briefs_path`), or one in memory only.
     pub(crate) fn open(path: Option<std::path::PathBuf>) -> Self {
         let Some(path) = path else { return Self::default() };
@@ -87,6 +112,13 @@ impl Briefs {
             .unwrap_or_else(|| format!("brief-{}", uuid::Uuid::now_v7()));
         row.set("briefId", json!(id));
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        // Advisory imports (including another peer's colliding brief ID) may
+        // never downgrade or replace a scoped durable dispatch reservation.
+        if let Some(previous) = rows.get(&id)
+            && previous.get("durable").and_then(Value::as_bool) == Some(true)
+        {
+            return previous.clone();
+        }
         rows.insert(id, row.clone());
         self.save(&rows);
         row
@@ -164,6 +196,40 @@ pub(crate) fn event(kind: &str, row: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn durable_brief_cannot_be_downgraded_by_an_advisory_peer_import() {
+        let briefs = Briefs::default();
+        let reserved = briefs
+            .put_durable(json!({"briefId":"stable","durable":true,
+            "fromSession":"owner","dispatchFingerprint":"private-capability-hash"}))
+            .unwrap();
+        let imported = briefs.put(json!({"briefId":"stable","fromSession":"other",
+            "outcome":{"Ok":{"finalReply":"forged"}}}));
+        assert_eq!(imported, reserved);
+        assert_eq!(briefs.get("stable"), Some(reserved));
+    }
+
+    #[test]
+    fn durable_brief_reservation_survives_reopen_before_any_effect() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("briefs.json");
+        let row = json!({"briefId":"stable","sessionId":"wfd-stable","promptId":"wfp-stable",
+            "dispatchFingerprint":"source-and-options","status":"starting"});
+        Briefs::open(Some(path.clone())).put_durable(row.clone()).unwrap();
+        assert_eq!(Briefs::open(Some(path)).get("stable"), Some(row));
+    }
+
+    #[test]
+    fn durable_brief_failed_persistence_does_not_publish_the_effect_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("not-a-directory");
+        std::fs::write(&path, b"blocking-file").unwrap();
+        let briefs = Briefs::open(Some(path.join("briefs.json")));
+        let row = json!({"briefId":"stable","status":"starting"});
+        assert!(briefs.put_durable(row).is_err());
+        assert!(briefs.get("stable").is_none());
+    }
 
     #[test]
     fn brief_identity_keeps_non_claude_harness_pair() {

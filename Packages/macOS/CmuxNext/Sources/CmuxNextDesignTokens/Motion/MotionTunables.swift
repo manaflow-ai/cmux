@@ -74,6 +74,18 @@ public nonisolated enum MotionTunables {
         help: "Seconds of release velocity a divider looks ahead for a snap point.",
         default: 0.05, range: 0...0.3, step: 0.01, unit: .seconds, code: "MotionTunables.dividerReleaseProjection")
 
+    /// FRAME OWNER REFACTOR stage S2 (timing), a switch read on every frame so one build films the old and the new
+    /// path; it goes with the old path once S2's films pass. On: every spring and motion frame client of a window
+    /// steps to the time its frame shows (the display link's target, `FrameTick.frameElapsed`), so a late frame lands
+    /// on the curve instead of behind it (at most `FrameScheduler.catchUpLimit`), and a divider, column-edge or
+    /// row-edge drag lays the layout out once per display frame, in the window's frame tick, at the newest pointer.
+    /// On by default (S2 films and typing-load-l6 passed). Off: springs step by the time between the vsyncs that began the frames, at most 1/30 s, and each
+    /// drag event writes the model, which the layout syncs in the next turn.
+    public static let frameOwnerTiming = Tunable<Bool>.toggle(
+        "motion.frameOwner.timing", .springs, "Frame timing (frame owner S2)",
+        help: "On: springs step to the time each frame shows and catch up after a late frame; a divider, column-edge or row-edge drag lays the layout out once per display frame, in the frame tick, at the newest pointer. Off: springs step by the time between vsyncs (at most 1/30 s) and every drag event lays the layout out.",
+        default: true, code: "MotionTunables.frameOwnerTiming")
+
     // MARK: Fades and loops
 
     /// Every timed fade is a `MotionScale` step (or 0, instant), so nothing reads slow (Leo
@@ -109,7 +121,7 @@ public nonisolated enum MotionTunables {
     })
 
     package static let loopDefaults: [MotionLoop: (TimeInterval, String)] = [
-        .spinner: (1.4, "One turn of the busy spinner (ChatGPT turns slower than our old 0.9 s)."),
+        .spinner: (0.9, "One turn of the busy spinner."),
         .pulse: (1.8, "One cycle of the agent-waiting pulse."),
         .flash: (1, "Pane attention flash (two blinks; at least 1 s, the 2 Hz cap)."),
         .sweep: (1.3, "One pass of an unmeasured progress bar's segment (the update card while checking)."),
@@ -205,7 +217,7 @@ public nonisolated enum MotionTunables {
 
     /// Every Motion tunable, for the catalog.
     public static var all: [TunableDescriptor] {
-        MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor, dividerReleaseProjection.descriptor]
+        MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor, dividerReleaseProjection.descriptor, frameOwnerTiming.descriptor]
             + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
             + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,

@@ -1413,6 +1413,8 @@ export function ContextRing({
   used,
   size,
   setup,
+  cacheExpiresAt,
+  now,
   breakdown: reported,
   onOpenDetails,
 }: {
@@ -1420,6 +1422,10 @@ export function ContextRing({
   size?: number;
   /// Tokens the agent took before the conversation; the card splits it out when known.
   setup?: number;
+  /// When the chat's prompt cache lapses (unix ms, from acpmux); the card counts down to it.
+  cacheExpiresAt?: number;
+  /// The clock the cache countdown reads (the gallery pins it).
+  now?: () => number;
   /// Claude Code's /context (`summary.contextBreakdown`): its categories replace the bar and parts.
   breakdown?: unknown;
   /// Opens Session Info at its Context section; the card shows Details › only with it.
@@ -1595,6 +1601,8 @@ export function ContextRing({
               used={used}
               size={size}
               setup={setup}
+              cacheExpiresAt={cacheExpiresAt}
+              now={now}
               breakdown={reported}
               onOpenDetails={
                 onOpenDetails &&

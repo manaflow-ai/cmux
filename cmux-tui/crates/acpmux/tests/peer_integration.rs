@@ -3234,6 +3234,83 @@ async fn an_agent_link_resolves_to_its_session_here_or_on_a_peer() {
     assert!(e.contains("no session"), "{e}");
 }
 
+/// `_acpmux/resolve` and an opaque agent link (`?id=aid-...`, a public PR's footer): with the
+/// key in this daemon's home, the id resolves to the session here or on a peer it is the keyed
+/// hash of; an id of no listed session, or any id without the key, is the same not-found as any
+/// unknown session, so the caller opens the web page. Unix only: it writes and removes the key in
+/// this process's acpmux home, which is the hermetic scratch HOME only where `daemon_env` starts the
+/// process again (Windows runs with the host's HOME, where that is a person's real key).
+#[cfg(unix)]
+#[tokio::test]
+async fn an_opaque_agent_link_resolves_to_its_session_where_the_key_is() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "opaque").await;
+    let mut cb = client(b.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "far-opaque"}}});
+    let far =
+        cb.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let far_info = cb.call(method::MUX_INFO, json!({"session": far})).await.unwrap();
+    let far_agent = far_info["agentSessionId"].as_str().expect("an agent session id").to_owned();
+
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "near-opaque"}}});
+    let near =
+        ca.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let near_info = ca.call(method::MUX_INFO, json!({"session": near})).await.unwrap();
+    let near_agent = near_info["agentSessionId"].as_str().expect("an agent session id").to_owned();
+    let family = near_info["family"].as_str().or(near_info["harness"].as_str()).unwrap().to_owned();
+    let link = |id: &str| format!("https://cmux.com/deeplink/agent?id={id}");
+    let unknown = "aid-0123456789abcdef0123";
+
+    // No key here: nothing resolves, as before. The key file is this process's own: refuse to
+    // touch it unless the home is the hermetic scratch one.
+    let home = acpmux::config::home();
+    let scratch = std::path::PathBuf::from(std::env::var_os("HOME").expect("the hermetic HOME"));
+    assert!(
+        std::env::var_os("ACPMUX_TEST_HERMETIC").is_some() && home.starts_with(&scratch),
+        "not a hermetic acpmux home: {}",
+        home.display()
+    );
+    let key_file = home.join(acpmux::opaque_agent_id::KEY_FILE);
+    let _ = std::fs::remove_file(&key_file);
+    let e = ca.call("_acpmux/resolve", json!({"query": link(unknown)})).await.unwrap_err();
+    assert!(e.contains("no session"), "{e}");
+
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(&key_file, "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&key_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let key = acpmux::opaque_agent_id::Key::load(&home).expect("the key just written");
+    let here = acpmux::pairing::machine_name();
+
+    // This machine's session, from a whole footer line.
+    let id = key.id(&here, &family, &near_agent);
+    let footer = format!("Agent session: [session]({})", link(&id));
+    let r = ca.call("_acpmux/resolve", json!({"query": footer})).await.unwrap();
+    assert_eq!(r["session"]["sessionId"], near, "{r}");
+    assert_eq!(r["session"]["peer"], Value::Null, "{r}");
+    assert_eq!(r["matches"].as_array().unwrap().len(), 1, "only the session it hashes: {r}");
+    assert_eq!(r["link"], Value::Null, "{r}");
+
+    // A peer's session, by the bare id: the peer's name is its host.
+    let id = key.id("b", &family, &far_agent);
+    let r = ca.call("_acpmux/resolve", json!({"query": id})).await.unwrap();
+    assert_eq!(r["session"]["qualifiedSessionId"], format!("b/{far}"), "{r}");
+    assert_eq!(r["matches"].as_array().unwrap().len(), 1, "{r}");
+
+    // An id no session here or on a peer hashes to.
+    let e = ca.call("_acpmux/resolve", json!({"query": link(unknown)})).await.unwrap_err();
+    assert!(e.contains("no session") && e.contains("peers (b)"), "{e}");
+    let _ = std::fs::remove_file(&key_file);
+}
+
 /// hq#2509 for `_acpmux/resolve`: a peer's connection reads a resolved session's own words
 /// masked, as it reads them in a session list; the owning daemon's client reads them raw.
 #[tokio::test]
@@ -3488,4 +3565,69 @@ async fn first_no_history_attach_keeps_its_baseline_across_peer_reconnect() {
         !events.iter().any(|event| event.to_string().contains("old history before subscription"))
     );
     peer.stop();
+}
+
+/// A tool's notice to a chat on a peer goes on as it came: B records it as a notice. One beside
+/// a caller's own provenance is refused by A before the forward (which drops that provenance).
+#[tokio::test]
+async fn a_notice_through_a_peer_is_recorded_as_one_and_a_conflicting_one_is_refused_first() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "notice").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "coordinator"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let notice =
+        json!({"sender": "base-red-watch", "severity": "fire", "title": "fast tier failed"});
+    let sent = |id: &str| {
+        json!({"sessionId": "b/coordinator", "prompt": [{"type": "text", "text": "body"}],
+        "_meta": {"acpmux": {"promptId": id, "fromAgent": "base-red-watch", "notice": notice.clone()}}})
+    };
+    ca.call(method::SESSION_PROMPT, sent("n-peer")).await.unwrap();
+
+    let mut both = sent("n-both");
+    both["_meta"]["acpmux"]["provenance"] = json!({"kind": "agent_message", "from": "acp:x",
+        "to": format!("acp:{remote_id}"), "msgId": "m", "threadId": "t"});
+    let refused = ca.call(method::SESSION_PROMPT, both).await.unwrap_err();
+    assert!(format!("{refused:?}").contains("provenance"), "{refused:?}");
+
+    let page = cb
+        .call("_acpmux/events", json!({"sessionId": remote_id, "kinds": ["user_message"]}))
+        .await
+        .unwrap();
+    let messages: Vec<&Value> =
+        page["events"].as_array().unwrap().iter().map(|e| &e["msg"]).collect();
+    let got = messages.iter().find(|m| m["promptId"] == "n-peer").expect("the notice ran on B");
+    let provenance = &got["_meta"]["provenance"];
+    assert_eq!(provenance["kind"], "notice", "{got}");
+    assert_eq!(provenance["fromName"], "base-red-watch", "{got}");
+    assert_eq!(provenance["notice"], notice, "{got}");
+    assert!(
+        messages.iter().all(|m| m["promptId"] != "n-both"),
+        "a refused notice ran: {messages:?}"
+    );
+}
+
+/// A person who shows a chat through a peer daemon (a visible attach forwarded over the link) makes
+/// it one that gets a session recap on the daemon that owns it (`hub/away_recap.rs`); the
+/// `session/new` that made it does not.
+#[tokio::test]
+async fn a_person_viewing_through_a_peer_makes_the_chat_get_a_recap() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "recap").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "recapped"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    assert!(!b.recap_person_seen(&remote_id), "session/new is no person showing it");
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    ca.call("_acpmux/attach", json!({"sessionId": "b/recapped", "limit": 0})).await.unwrap();
+    assert!(b.recap_person_seen(&remote_id), "a visible attach through the peer is a person");
 }

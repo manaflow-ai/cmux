@@ -95,6 +95,16 @@ public final class HomeChiefSettingsView: NSView {
     /// Renames the Chief: the daemon's set-title op for a Chief of this Mac, the account's
     /// `chief.update` for a cloud Chief. Nil when the name was saved, else why it was not.
     public var onRename: @MainActor (String) async -> HomeChiefRenameFailure? = { _ in nil }
+    /// Makes this Chief the account's primary one (texts to the cmux line reach it); nil when it
+    /// is primary now, else why not. The app sets it for a cloud Chief.
+    public var onMakePrimary: @MainActor () async -> String? = { nil }
+    /// The Primary Chief checkbox and its note; hidden for a Chief with no account record (``setPrimary(_:)``).
+    let primaryBox = NSButton(checkboxWithTitle: HomeEngineStrings.primaryRow, target: nil, action: nil)
+    let primaryNote = HomeChiefSettingsView.footnote(HomeEngineStrings.primaryNote)
+    /// Runs On: where this Mac's Chief runs, whose chip opens the Teleport menu (``showTeleport(_:)``); hidden for other Chiefs.
+    let teleportRow = NSStackView()
+    /// Follows the shown Chief's default flag (``bindPrimary(directory:conversation:)``).
+    var primaryWatch: Task<Void, Never>?
     /// Where Choose Picture… and Use Default Picture write, and for which Chief: the daemon's
     /// registry for a Chief of this Mac (set by the header view); nil writes this panel's
     /// mux home's files (a cloud Chief).
@@ -167,6 +177,8 @@ public final class HomeChiefSettingsView: NSView {
         failure.ink = .danger
         failure.isHidden = true
         addFullWidth(failure)
+        addPrimaryRow()
+        addTeleportRow()
         addFullWidth(Self.sectionHeader(HomeEngineStrings.agentSection))
         for (button, label) in [(harness, HomeEngineStrings.harness), (model, HomeEngineStrings.model), (effort, HomeEngineStrings.effort),
                                 (speed, HomeEngineStrings.speed)] {

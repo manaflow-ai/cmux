@@ -5,11 +5,13 @@
 // real useSessionInfo's, open as the viewer left it (sessionInfoState.ts), wired as App.tsx wires it
 // (`covered` while the diff is in place, `beside` with a document in the side panel), so each state
 // shows where it draws, and whether its toggle can be reached, with the surface under it.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { activity, chat, CWD, tool } from "../../../gallery/fixtures/acpmux";
 import { ArtifactPanel, useArtifactCoversPane } from "../conversation/ArtifactPanel";
+import { ChatFindBar } from "../conversation/ChatFindBar";
+import { useChatFind } from "../conversation/chatFind";
 import { DiffPanel } from "../DiffPanel";
 import { diffHunks, diffLines, type TurnFile } from "../diff";
 import { ChatHeaderTools } from "../header/ChatHeaderTools";
@@ -75,9 +77,26 @@ const DOCUMENT = {
 };
 
 type Surface = "transcript" | "diff" | "document";
-type Props = { surface: Surface };
+type Props = { surface: Surface; find?: boolean };
 
-export function GalleryPane({ surface: initial }: Props) {
+/// Find in Chat over the pane's sample rows, opened by Cmd-F as the App's page action opens it.
+function GalleryFind() {
+  const find = useChatFind(snapshot.rows);
+  const { show } = find;
+  useEffect(() => {
+    const open = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        show();
+      }
+    };
+    document.addEventListener("keydown", open);
+    return () => document.removeEventListener("keydown", open);
+  }, [show]);
+  return find.open ? <ChatFindBar find={find} /> : null;
+}
+
+export function GalleryPane({ surface: initial, find }: Props) {
   const [surface, setSurface] = useState<Surface>(initial);
   const narrowPane = useArtifactCoversPane();
   const [shell, setShell] = useState<HTMLElement | null>(null);
@@ -115,6 +134,7 @@ export function GalleryPane({ surface: initial }: Props) {
             </div>
           </header>
           <div className="acpmux-scroll" style={{ padding: "16px 24px", overflow: "hidden" }}>
+            {find && <GalleryFind />}
             {TRANSCRIPT.map((line, index) =>
               index % 2 === 0 ? (
                 <div key={line} className="acpmux-user" style={{ margin: "12px 0" }}>

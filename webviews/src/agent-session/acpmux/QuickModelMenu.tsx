@@ -25,6 +25,7 @@ import { resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { CHAT_COLUMN } from "./modelPickerLayout";
 import { useOpenSide } from "../../ui/openSide";
 import { OnNewTab } from "./newTabComposer";
+import { useScrollEdges } from "../../ui/scrollEdges";
 import {
   Menu,
   MenuButton,
@@ -280,7 +281,13 @@ export function searchGroups(
   const tabOf = new Map(tabs.flatMap((tab) => tab.routes.map((route) => [route.id, tab] as const)));
   const groups = new Map<string, QuickSearchGroup & { lead?: string; seen: Map<string, number> }>();
   for (const tab of tabs)
-    groups.set(tab.key, { id: tab.key, name: tab.name, rows: [], lead: leadRoute(tab, running).id, seen: new Map() });
+    groups.set(tab.key, {
+      id: tab.key,
+      name: tab.name,
+      rows: [],
+      lead: leadRoute(tab, running).id,
+      seen: new Map(),
+    });
   for (const row of found) {
     const key = tabOf.get(row.family)?.key ?? row.family;
     let group = groups.get(key);
@@ -385,7 +392,6 @@ export function QuickModelMenu({
   const moreListId = useId();
   // Reset as the menu opens, in render: the composer re-renders while it is open (a streaming
   // reply), and an effect on the families would throw away the tab and the typed filter.
-  const [scrolled, setScrolled] = useState(false);
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
@@ -394,7 +400,6 @@ export function QuickModelMenu({
       setQuery("");
       setMoreFor(undefined);
       setHeldFast(undefined);
-      setScrolled(false);
     }
   }
   // Typing can unmount the focused row (Effort, Account, a model it filters out); keyboard focus
@@ -407,6 +412,15 @@ export function QuickModelMenu({
   // A changed tab or filter starts with its first model in view.
   const body = useRef<HTMLDivElement | null>(null);
   const rail = useRef<HTMLFieldSetElement | null>(null);
+  const railEdges = useScrollEdges();
+  const bodyEdges = useScrollEdges();
+  const bodyRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      body.current = node;
+      bodyEdges(node);
+    },
+    [bodyEdges],
+  );
   useLayoutEffect(() => {
     const selected = rail.current?.querySelector<HTMLElement>('[aria-pressed="true"]');
     selected?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
@@ -419,6 +433,7 @@ export function QuickModelMenu({
   const holdsWidth = menu.widthLook !== "wide";
   const railRef = useCallback(
     (node: HTMLFieldSetElement | null) => {
+      railEdges(node);
       rail.current = node;
       railWidth.current?.disconnect();
       railWidth.current = null;
@@ -437,11 +452,10 @@ export function QuickModelMenu({
       observer.observe(popupNode);
       railWidth.current = observer;
     },
-    [holdsWidth],
+    [holdsWidth, railEdges],
   );
   const toTop = () => {
     if (body.current) body.current.scrollTop = 0;
-    setScrolled(false);
   };
   const focusedFor = useRef<string | undefined>(undefined);
   const search = menu.search;
@@ -591,7 +605,10 @@ export function QuickModelMenu({
       : model.efforts !== undefined
         ? reasoningChoices(
             model.efforts.map((value) => ({ value })),
-            { efforts: model.efforts, ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}) },
+            {
+              efforts: model.efforts,
+              ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}),
+            },
             t,
           )
         : [];
@@ -1344,7 +1361,11 @@ export function QuickModelMenu({
           {families ? (
             <div className="acpmux-quick-layout">
               {/* One harness strip at the chip-facing edge: its position stays put as rows change. */}
-              <fieldset ref={railRef} className="acpmux-quick-rail" aria-label={t("picker.harness")}>
+              <fieldset
+                ref={railRef}
+                className="acpmux-quick-rail ui-scroll-edge-fade"
+                aria-label={t("picker.harness")}
+              >
                 {tabs.map((entry) => {
                   const family = entry === shownTab ? shown! : leadRoute(entry, families.current);
                   const name = entry.name;
@@ -1411,12 +1432,7 @@ export function QuickModelMenu({
                   </button>
                 )}
               </fieldset>
-              <div
-                className="acpmux-quick-body"
-                ref={body}
-                data-scrolled={scrolled ? "" : undefined}
-                onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 0)}
-              >
+              <div className="acpmux-quick-body ui-scroll-edge-fade" ref={bodyRef}>
                 <div className="acpmux-quick-list">{list}</div>
               </div>
             </div>
