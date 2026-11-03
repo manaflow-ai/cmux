@@ -38,7 +38,13 @@ async fn handle(
         let id = str_param(params, "requestId")
             .ok_or_else(|| RpcError::invalid_params("requestId is required"))?;
         let approve = params.get("approve").and_then(Value::as_bool).unwrap_or(false);
-        hub.answer_mcp_connect(&session, id, approve, str_param(params, "scope"))?;
+        // A key typed into the card's secure field: held in memory for the connect only.
+        let typed = params
+            .get("key")
+            .and_then(Value::as_str)
+            .filter(|k| !k.is_empty())
+            .map(|k| zeroize::Zeroizing::new(k.to_owned()));
+        hub.answer_mcp_connect(&session, id, approve, str_param(params, "scope"), typed)?;
         return Ok(json!({}));
     }
     if conn.origin != Origin::Local {

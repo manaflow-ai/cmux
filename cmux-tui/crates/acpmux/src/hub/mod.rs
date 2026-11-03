@@ -145,6 +145,7 @@ mod lane_report_reads;
 mod lane_report_text;
 mod lane_reports;
 mod mcp_connect;
+pub(crate) mod mcp_probe;
 mod meta_save;
 mod offer_results;
 mod offers;

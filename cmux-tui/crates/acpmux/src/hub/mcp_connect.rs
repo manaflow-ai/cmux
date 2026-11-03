@@ -14,7 +14,10 @@
 //!   `cancelled` (T18). A chat a remote device started asks for none (T17).
 //! - A card nobody answers is cancelled after [`ASK_TTL`], and with the turn
 //!   (`cancel_pending_mcp_connects`).
-//! - No record holds a secret: sign-in and keys are later steps on the person's connection.
+//! - No record holds a secret. A key comes only with the person's answer (the card's secure
+//!   field), lives in memory for the first connect, and goes only into the server's own header.
+//! - After an approval the daemon connects once (`mcp_probe`): the tools, screened and classed, or
+//!   `signInNeeded` with the server's RFC 9728 metadata URL, go on the card and to the agent.
 
 use super::{Hub, Session, SessionStatus};
 use crate::rpc::RpcError;
@@ -26,6 +29,7 @@ use std::sync::Mutex as StdMutex;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tokio::sync::oneshot;
+use zeroize::Zeroizing;
 
 pub(super) const ASK_TTL: Duration = Duration::from_secs(15 * 60);
 const MAX_REASON_CHARS: usize = 300;
@@ -43,11 +47,16 @@ struct Pending {
     reply: oneshot::Sender<Answer>,
 }
 
-/// The person's answer.
+/// The person's answer. `key` is what the person typed into the card's secure field: it goes
+/// only into the server's own header, never a record, a reply or a log.
 struct Answer {
     approve: bool,
     scope: String,
+    key: Option<Zeroizing<String>>,
 }
+
+/// The longest key accepted, in characters.
+const MAX_KEY_CHARS: usize = 4096;
 
 fn auth_word(kind: AuthKind) -> &'static str {
     match kind {
@@ -137,10 +146,11 @@ impl Hub {
         self.append(session, "mux", "mcp_connect_request", card);
         let prev = session.status();
         self.set_status(session, SessionStatus::Waiting);
-        let answer = tokio::time::timeout(ASK_TTL, rx).await.ok().and_then(Result::ok);
+        let mut answer = tokio::time::timeout(ASK_TTL, rx).await.ok().and_then(Result::ok);
         self.mcp_connects.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&request_id);
+        let key = answer.as_mut().and_then(|a| a.key.take());
         let (status, scope) = match &answer {
-            Some(Answer { approve: true, scope }) => ("approved", Some(scope.clone())),
+            Some(Answer { approve: true, scope, .. }) => ("approved", Some(scope.clone())),
             Some(Answer { approve: false, .. }) => ("declined", None),
             None => ("cancelled", None),
         };
@@ -157,10 +167,78 @@ impl Hub {
         {
             self.set_status(session, super::permissions::status_after_ask(session, prev));
         }
-        Ok(match scope {
-            Some(scope) => json!({"status": status, "name": name, "scope": scope}),
-            None => json!({"status": status, "name": name}),
-        })
+        let Some(scope) = scope else {
+            return Ok(json!({"status": status, "name": name}));
+        };
+        let connected = self
+            .first_connect(session, &request_id, &card, key.as_deref().map(String::as_str))
+            .await;
+        let mut reply = json!({"status": status, "name": name, "scope": scope});
+        if let (Value::Object(extra), Some(out)) = (connected, reply.as_object_mut()) {
+            out.extend(extra);
+        }
+        Ok(reply)
+    }
+
+    /// After the person approves: connects once and lists the tools (`mcp_probe`), records the
+    /// result on the card (`mcp_connect_result`) and answers the agent with names and policies.
+    /// A server that wants a sign-in answers `connect: signInNeeded`; the sign-in runs on the
+    /// person's side (Chief's `escalate_auth`), never with a token in the chat.
+    async fn first_connect(
+        &self,
+        session: &Session,
+        request_id: &str,
+        card: &Value,
+        key: Option<&str>,
+    ) -> Value {
+        let result = match card["transport"].as_str() {
+            Some("remote") => {
+                let url = card["url"].as_str().unwrap_or_default();
+                let key_header = match (card["auth"].as_str(), card["keyName"].as_str(), key) {
+                    (Some("key"), Some(name), Some(value)) => {
+                        Some(super::mcp_probe::KeyHeader { name, value })
+                    }
+                    _ => None,
+                };
+                if card["auth"] == "key"
+                    && card["keyOptional"] != json!(true)
+                    && key_header.is_none()
+                {
+                    json!({"connect": "keyNeeded", "keyName": card["keyName"]})
+                } else {
+                    let keyed = key_header.is_some();
+                    match super::mcp_probe::probe(url, key_header).await {
+                        super::mcp_probe::Probe::Tools { tools, server } => {
+                            let report = cmux_mcp_connect::wire::tool_report(&tools);
+                            let pin = cmux_mcp_connect::pin::ToolPin::of(&tools);
+                            json!({
+                                "connect": "connected",
+                                "server": server.get("name").cloned().unwrap_or(Value::Null),
+                                "tools": report,
+                                "pinned": pin.tools.len(),
+                                "withKey": keyed,
+                            })
+                        }
+                        super::mcp_probe::Probe::SignIn { resource_metadata, scopes } => json!({
+                            "connect": "signInNeeded",
+                            "auth": card["auth"],
+                            "resourceMetadata": resource_metadata,
+                            "challengeScopes": scopes,
+                        }),
+                        super::mcp_probe::Probe::Failed(why) => {
+                            json!({"connect": "failed", "why": why})
+                        }
+                    }
+                }
+            }
+            // A local command runs only in the sandbox (design step 2b); it is not started here.
+            _ => json!({"connect": "notStarted", "why": "local servers start in the sandbox step"}),
+        };
+        let mut record = result.clone();
+        record["requestId"] = json!(request_id);
+        record["name"] = card["name"].clone();
+        self.append(session, "mux", "mcp_connect_result", record);
+        result
     }
 
     /// The person's answer to a connect card. `scope` is theirs (the card's menu); it must be one
@@ -171,7 +249,17 @@ impl Hub {
         request_id: &str,
         approve: bool,
         scope: Option<&str>,
+        key: Option<Zeroizing<String>>,
     ) -> Result<(), RpcError> {
+        if key
+            .as_ref()
+            .is_some_and(|k| k.chars().count() > MAX_KEY_CHARS || k.chars().any(char::is_control))
+        {
+            return Err(RpcError::invalid_params(
+                "the key is too long or holds control characters",
+            ));
+        }
+        let key = if approve { key } else { None };
         let scope = match (approve, scope) {
             (true, Some(s)) if SCOPES.contains(&s) => s.to_owned(),
             (true, _) => {
@@ -194,7 +282,7 @@ impl Hub {
         })?;
         pending
             .reply
-            .send(Answer { approve, scope })
+            .send(Answer { approve, scope, key })
             .map_err(|_| RpcError::invalid_params("the agent stopped waiting for this card"))
     }
 

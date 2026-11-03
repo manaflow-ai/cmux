@@ -3,7 +3,7 @@ import Testing
 
 /// The MCP connect card's state machine (plans/cmux-next/mcp-connect-DESIGN.md sections 3 and 4):
 /// only the person's steps approve, the scope is theirs, and a key never prints.
-@Suite struct McpConnectCardFlowTests {
+@MainActor @Suite struct McpConnectCardFlowTests {
     private func card(_ auth: McpConnectCard.Auth, scope: McpConnectCard.Scope = .chief) -> McpConnectCard {
         McpConnectCard(requestID: "r1", agent: "Chief", reason: "file issues", title: "Linear", publisher: "linear.app",
                        verified: true, transport: .remote(url: "https://mcp.linear.app/mcp"), auth: auth, proposedScope: scope)

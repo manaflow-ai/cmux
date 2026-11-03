@@ -15,6 +15,7 @@ pub mod registry;
 pub mod resolve;
 pub mod screen;
 pub mod target;
+pub mod wire;
 
 /// Why an input is refused before any card is shown. The text is what the
 /// agent gets back, so it names the rule, never a secret.
