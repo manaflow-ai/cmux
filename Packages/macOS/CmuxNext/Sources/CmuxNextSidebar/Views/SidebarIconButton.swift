@@ -60,7 +60,7 @@ final class SidebarIconButton: ClickableButton {
         self.label = label
         self.pointSize = pointSize
         super.init(frame: .zero)
-        renderIcon()
+        // The image comes when the button first shows (``renderIcon()``): a row's hover controls stay hidden.
         imagePosition = .imageOnly
         // An image-only button: no "Button" title for VoiceOver and hint mode (they read the label).
         title = ""
@@ -79,8 +79,6 @@ final class SidebarIconButton: ClickableButton {
     convenience init(symbol: String, pointSize: @escaping () -> CGFloat = { Metrics.smallIconSize }, label: String) {
         self.init(icon: IconName(symbol), pointSize: pointSize, label: label)
         self.symbol = symbol
-        renderedSize = 0
-        renderIcon()
     }
 
     @available(*, unavailable)
@@ -132,9 +130,13 @@ final class SidebarIconButton: ClickableButton {
         onMenuOpenChange?(false)
     }
 
+    /// Makes the icon image for the current point size, once the button shows: a hidden button, or one in a
+    /// hidden row, has none yet (REOPEN-F7: each workspace row's 5 hover-only buttons made theirs before the
+    /// window's first frame, about 4 ms of it). Showing, joining a window, a layout and a size read make it.
     private func renderIcon() {
+        guard !isHiddenOrHasHiddenAncestor else { return }
         let size = pointSize()
-        guard size != renderedSize else { return }
+        guard size != renderedSize || image == nil else { return }
         renderedSize = size
         let side = CGFloat.iconRowSize(forLabelPointSize: size)
         let image = symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(icon, size: side)
@@ -145,6 +147,12 @@ final class SidebarIconButton: ClickableButton {
     override func layout() {
         super.layout()
         renderIcon()
+    }
+
+    /// Sized by its image, as an image-only button is.
+    override var intrinsicContentSize: NSSize {
+        if image == nil { renderIcon() }
+        return super.intrinsicContentSize
     }
 
     nonisolated override var wantsUpdateLayer: Bool { true }
@@ -169,6 +177,7 @@ final class SidebarIconButton: ClickableButton {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window != nil { renderIcon() }
         if takesKeyFocus { keyRepaint.track() }
     }
 
@@ -212,6 +221,7 @@ final class SidebarIconButton: ClickableButton {
 
     override func viewDidUnhide() {
         super.viewDidUnhide()
+        renderIcon()
         hover.pointer?.refresh()
     }
 }
