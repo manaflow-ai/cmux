@@ -61,14 +61,19 @@ struct WindowStateBytesPerCreateTests {
             await windows.recordSaver.flushSaves()
         }
         let before = try await Self.walBytes(connection)
+        var daemonPart: UInt64 = 0
         for _ in 0..<creates {
+            // DIAG (#32408): the create's own commit (read at its reply), apart from what the app writes after it.
+            let b0 = try await Self.walBytes(connection)
             let made = try await connection.createWorkspace().key.rawValue
+            daemonPart += try await Self.walBytes(connection) - b0
             try await PinnedPageTests.until({ store.workspace(id: made) != nil && windows.registry.value.owner(of: made) == window },
                                             within: .seconds(30), report: { "workspace \(made) is not listed in its window" })
             // The window state of this create is stored before the next one starts.
             await windows.recordSaver.flushSaves()
         }
         let after = try await Self.walBytes(connection)
+        print("DIAG-BYTES at=\(workspaces) total_per_create=\((after - before) / UInt64(creates)) create_commit=\(daemonPart / UInt64(creates)) app_after=\((after - before - daemonPart) / UInt64(creates))")
         return (after - before) / UInt64(creates)
     }
 
