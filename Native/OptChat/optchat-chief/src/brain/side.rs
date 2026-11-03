@@ -206,6 +206,14 @@ impl Brain {
             matches!(part, Part::Attachment { mime_type, .. } if mime_type.starts_with("image/"))
         });
         let has_files = message.parts.iter().any(super::files::is_file_part);
+        if self.try_command(summary, &message, &text, Some(conversation)) {
+            let waiting = self.queued_messages_of(Some(conversation));
+            let floor = self.state.side.entry(conversation.to_owned()).or_default();
+            let seq = if waiting { floor.seq } else { message.seq };
+            floor.handled(seq, &message.id);
+            self.save();
+            return;
+        }
         if (!text.trim().is_empty() || has_images || has_files)
             && chief_wakes(
                 &self.settings.membership.rule(true),

@@ -53,6 +53,9 @@ pub(super) enum Admit {
     Answered,
 }
 
+/// The chat commands the host answers itself.
+const COMMANDS: [&str; 7] = ["/audit", "/rights", "/grant", "/revoke", "/approver", "/cap", "/auth"];
+
 /// The id of a person no message named (fail closed in `decide`).
 const UNKNOWN: &str = "unknown-person";
 /// The person of another agent's words sent through the owner's CLI: no
@@ -120,6 +123,48 @@ impl Brain {
             }
             Some(p) => p.person.clone().unwrap_or_else(|| p.id.clone()),
             None => message.author.clone(),
+        }
+    }
+
+    /// A chat command (`/audit`, `/rights`, `/grant`, `/revoke`,
+    /// `/approver`, `/cap`, `/auth`) from a person in the conversation,
+    /// answered by the host whether or not the message would wake the Chief
+    /// (a shared chat wakes it only on a mention). True: answered.
+    pub(super) fn try_command(
+        &mut self,
+        summary: &Summary,
+        message: &Message,
+        text: &str,
+        target: Option<&str>,
+    ) -> bool {
+        if self.rights.is_none() {
+            return false;
+        }
+        let trimmed = text.trim();
+        let verb = trimmed.split_whitespace().next().unwrap_or("");
+        if !COMMANDS.contains(&verb) {
+            return false;
+        }
+        let human = summary.participants.iter().any(|p| {
+            p.id == message.author && p.kind == cmux_conversation::ParticipantKind::Human
+        });
+        if !human || message.author == self.settings.membership.participant {
+            return false;
+        }
+        let owner_msg = self.settings.membership.is_owner_message(summary, message);
+        let owner = self.settings.membership.owner.clone();
+        // Another agent's words through the owner's CLI change nothing.
+        let person = if owner_msg { owner.clone() } else { Self::person_of(summary, message) };
+        if !owner_msg && person == owner {
+            return false;
+        }
+        let rights = self.rights_table();
+        match self.command(&rights, summary, &person, owner_msg, trimmed, &message.id) {
+            Some(answer) => {
+                self.answer_message(target, message, "rights", &answer);
+                true
+            }
+            None => false,
         }
     }
 
@@ -542,14 +587,21 @@ impl Brain {
                     "permissionDecisionReason": format!("allowed by the rights table ({})", decision.by()),
                 }}),
             ),
-            (Decision::Deny { who, why }, _) => (
+            (Decision::Deny { who, why }, _) => {
+                // Counted like a refused permission request: a model that
+                // keeps asking for it is stopped.
+                if gated {
+                    self.count_denial(&tool, input, super::approvals::DenyWhy::OtherPerson);
+                }
+                (
                 "deny".to_owned(),
                 json!({"hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
                     "permissionDecisionReason": format!("refused: {}: {why}", rights.name_of(who)),
                 }}),
-            ),
+                )
+            }
         };
         self.audit(Entry {
             who: people,

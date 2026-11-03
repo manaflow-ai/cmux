@@ -369,3 +369,37 @@ fn another_agents_words_through_the_owners_cli_stay_under_the_floor() {
     h.settle();
     assert_eq!(h.agents.inner.lock().unwrap().specs[0].policy, "ask");
 }
+
+#[test]
+fn a_plain_command_in_a_shared_chat_is_answered_without_a_mention() {
+    let mut h = harness(Some(commercial()), default_script());
+    let m: Message = {
+        let mut owner = h.owner.lock().unwrap();
+        let seq = owner.messages.len() as u64 + 1;
+        let m = message(seq, "user_local", "/rights");
+        owner.messages.push(m.clone());
+        m
+    };
+    h.brain.step(Input::from(DaemonEvent::Changed {
+        conversation: CONV.into(),
+        change: Change::Message { message: m },
+    }));
+    h.settle_posts();
+    assert!(posted(&h).iter().any(|t| t.contains("Login: api-key")), "{:?}", posted(&h));
+    assert!(h.agents.inner.lock().unwrap().specs.is_empty(), "no turn ran");
+}
+
+#[test]
+fn a_hook_denial_asked_for_again_and_again_stops_the_turn() {
+    let mut h = harness(Some(commercial()), held());
+    h.agents.hold(true);
+    say(&mut h, TEAMMATE, "@Chief look around");
+    h.step();
+    h.agents.wait_prompts(1);
+    wait_turn(&mut h);
+    for _ in 0..4 {
+        assert_eq!(decision(&pre(&mut h, "Bash", json!({"command": "ls -la"}))).as_deref(), Some("deny"));
+    }
+    h.agents.wait_cancels(1);
+    finish(&mut h);
+}
