@@ -90,8 +90,7 @@ export async function waitForResend<Client extends ResendWaiter>(
   for (;;) {
     const next = await clients.next(previous, connectMs);
     if (!next) return undefined;
-    if (lost.hostResends !== false && (await next.awaitResent(lost.sessionId, lost.promptId, showMs)))
-      return next;
+    if (lost.hostResends !== false && (await next.awaitResent(lost.sessionId, lost.promptId, showMs))) return next;
     if (!next.isClosed && lost.params && next.resendLost && (await next.resendLost(lost, showMs))) return next;
     if (!next.isClosed) return undefined;
     previous = next;
