@@ -64,6 +64,14 @@ instructions, personality, the lock (`locked`) or a grant field (`tools`, `harne
 avatar. Chief messages render links and rich text in this page, so injected content must not plant
 behavior a Chief acts on, widen its grant or delete it without the person's click. The page may call nothing else of the catalog.
 
+With `chief-work-v1`, the authenticated owner WebSocket of `home-channels` may
+also send the raw `chief-work {chief}` command to read that Chief's owned
+subagents and harness background commands on its configured machine. It uses the
+Chief registry's owner-page admission, independently of the catalog allow list:
+other pages, paired devices, remote connections and bound agents gain no read.
+The command does not admit a page relay or start a subscription; see
+`commands.md` for its source scope, bounds and errors.
+
 ## Events (`page-events-v1`)
 
 A page entry's `events` names the subscribe events (events.md) that page hears. A page relay's

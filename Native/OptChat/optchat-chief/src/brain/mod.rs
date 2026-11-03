@@ -928,6 +928,13 @@ pub struct Brain {
     /// A Chief that is not the default: a compactor fault is also its message.
     compactor_messages: bool,
     turn_clock: Option<Instant>,
+    /// When each queued human message was posted (its `created_at`), by
+    /// message id, until a turn takes it: the trace's posted-to-first-words
+    /// time (`turns::FirstWords`).
+    posted: HashMap<String, String>,
+    /// The running turn's first-words clock (`turn.end`'s `first_draft_ms`
+    /// and `posted_to_first_draft_ms`).
+    first_words: turns::FirstWords,
     /// The running turn's view with its new messages, what a `spawn` in it
     /// gives its subagents (no wait for the compactor to summarize the
     /// turn's own messages and tool calls).
@@ -1143,6 +1150,8 @@ impl Brain {
             settle_status: None,
             compactor_messages: false,
             turn_clock: None,
+            posted: HashMap::new(),
+            first_words: turns::FirstWords::default(),
             turn_view: None,
             turn_engine: None,
             turn_route: None,
