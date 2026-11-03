@@ -72,6 +72,7 @@ fn account_action(verb: &str, rest: &[String]) -> Result<(String, Vec<String>), 
         flags.push(word.clone());
         // `--name value`: the next word is the flag's, not the account (switches take none).
         if !SWITCHES.contains(&word.as_str())
+            && !ACTION_SWITCHES.contains(&word.as_str())
             && !word.contains('=')
             && let Some(value) = words.next()
         {
@@ -139,6 +140,9 @@ pub(super) fn take_output_switches(args: &mut Vec<String>) -> Vec<String> {
     });
     taken
 }
+
+/// The action parser's own valueless switches (`app::run_action`): never followed by a value.
+const ACTION_SWITCHES: &[&str] = &["--wait", "--no-wait", "--interactive", "--focus"];
 
 /// The switches `share revoke` and `share kick` take besides their ids.
 const SWITCHES: &[&str] = &["--json", "--jsonl", "--quiet", "--help", "-h", "--"];
@@ -286,6 +290,15 @@ mod tests {
             Some(Ok(("share invite".to_owned(), words("--account leo@cmux.com"))))
         );
         assert_eq!(action(&words("share invite")), Some(Ok(("share invite".to_owned(), vec![]))));
+        // The action parser's valueless switches take no value: the account after one is still it.
+        assert_eq!(
+            action(&words("share invite --wait @theo")),
+            Some(Ok(("share invite".to_owned(), words("--account=@theo --wait"))))
+        );
+        assert_eq!(
+            action(&words("share uninvite --focus --no-wait @theo")),
+            Some(Ok(("share uninvite".to_owned(), words("--account=@theo --focus --no-wait"))))
+        );
     }
 
     #[test]
@@ -303,7 +316,7 @@ mod tests {
     #[test]
     fn the_action_parser_reads_the_invite() {
         let Some(Ok((name, args))) =
-            action(&words("share invite --role view leo@cmux.com --surface 2"))
+            action(&words("share invite --role view leo@cmux.com --ttl 7d"))
         else {
             panic!("share invite names its account")
         };
@@ -314,9 +327,8 @@ mod tests {
             panic!("share invite is an action call")
         };
         assert_eq!(params["action"], "share invite", "{params}");
-        assert_eq!(params["args"]["account"], "leo@cmux.com", "{params}");
-        assert_eq!(params["args"]["role"], "view", "{params}");
-        assert_eq!(params["args"]["surface"], "2", "{params}");
+        let expected = json!({"account": "leo@cmux.com", "role": "view", "ttl": "7d"});
+        assert_eq!(params["args"], expected, "{params}");
         // An agent's or script's invite waits for the owner's Allow in the app (#30263).
         assert_eq!(timeout, Some(super::super::app::PERSON_RUN_TIMEOUT));
     }
