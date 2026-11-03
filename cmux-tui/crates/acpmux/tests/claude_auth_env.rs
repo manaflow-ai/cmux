@@ -995,11 +995,13 @@ async fn session_info_names_host_sign_in_route_settings_and_limits() {
     std::fs::write(home.join("settings.json"), r#"{"model": "opus"}"#).unwrap();
     std::fs::create_dir_all(dir.join(".claude")).unwrap();
     std::fs::write(dir.join(".claude/settings.local.json"), "{}").unwrap();
-    let profile = claude(json!({
+    // Not `claude()`: its sign-in mode answers every prompt itself, with no rate_limit_event.
+    let env = json!({
         "CLAUDE_CONFIG_DIR": home,
         "ANTHROPIC_AUTH_TOKEN": "status-secret-token",
         "ANTHROPIC_BASE_URL": "http://sr2-gateway.example:4016",
-    }));
+    });
+    let profile = json!({"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio", "env": env});
     let d = start(&dir, json!({"claude": profile}), &[]).await;
     let mut rpc = Rpc::connect(&d.socket).await;
     let created = rpc
