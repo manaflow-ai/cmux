@@ -41,9 +41,6 @@ extension LayoutRootView {
     /// server still slides (``ScreenSwitchFlight``) hides when it lands, and a
     /// placement that moves or fades it here takes that property from its
     /// springs and its rings' and dims' (the overlay sync places them again).
-    /// Device pixels per point of the screens' origins (``applyScreenFrames()``, ``springScreensOnRenderServer()``).
-    var screenPixelScale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
-
     func applyScreenFrames() {
         for (id, frame) in screenFrames {
             guard let view = screenViews[id] else { continue }
@@ -51,7 +48,7 @@ extension LayoutRootView {
             let springing = screenSwitch.screens.contains(id)
             // A sliding screen's origin is a spring value: on the device-pixel grid, or every pane in it shows
             // off the grid (resampled) for the whole slide.
-            let origin = frame.rect.pixelEdges(screenPixelScale).origin
+            let origin = frame.rect.pixelEdges(window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2).origin
             if view.frame.origin != origin {
                 if springing { stopSwitchSprings(of: id, keyPaths: ["position"]) }
                 view.setFrameOrigin(origin)
@@ -142,21 +139,16 @@ extension LayoutRootView {
         guard !moving.isEmpty, isLive, Motion.panes.renderSpring(.screen).animates("position", in: self),
               !moving.keys.contains(where: { screenViews[$0]?.displayedHosts.contains(where: \.showsChildWindowContent) == true })
         else { return false }
-        let size = bounds.size, scale = screenPixelScale
+        let size = bounds.size
         var slides: [ScreenID: ScreenSwitchFlight.Slide] = [:]
         for (id, frame) in moving {
             screenFrames[id]?.snap()
             guard let view = screenViews[id] else { continue }
-            // At rest on the device-pixel grid, the origin `applyScreenFrames` places it at: a raw rest (a slide-out
-            // 18 % of a width that is not a multiple of 25 pt) would read as moved there, and the next placement in
-            // flight (a second switch, a layout pass) would stop its springs. The slide comes from where it showed,
-            // on the grid too.
-            let rest = frame.targetRect.pixelEdges(scale).origin, shown = frame.rect.pixelEdges(scale).origin
-            view.frame = CGRect(origin: rest, size: size)
+            view.frame = CGRect(origin: frame.targetRect.origin, size: size)
             view.alphaValue = frame.alpha.target
             // A screen moves, never resizes: only its origin's velocity carries over.
             slides[id] = ScreenSwitchFlight.Slide(
-                offset: CGPoint(x: shown.x - rest.x, y: shown.y - rest.y),
+                offset: CGPoint(x: frame.rect.minX - frame.targetRect.minX, y: frame.rect.minY - frame.targetRect.minY),
                 velocity: CGPoint(x: frame.x.velocity, y: frame.y.velocity),
                 fromAlpha: frame.alpha.value, toAlpha: frame.alpha.target, alphaVelocity: frame.alpha.velocity)
             view.scrollbar?.syncOccluder()
