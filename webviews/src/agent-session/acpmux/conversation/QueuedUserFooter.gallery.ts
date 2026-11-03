@@ -40,21 +40,19 @@ const stack = () => {
 /// × and the copy icon float loosely under the bubble. Align them to the bubble's edge"): the last
 /// glyph ends on the bubble's right edge, and the glyphs are the sent row's gap under the bubble.
 const checkAligned = (ctx: PlayContext) => {
-  const glyphGap = (user: Element) => {
-    const bubble = user.querySelector(".cv-user__bubble")!.getBoundingClientRect();
-    const glyphs = [...user.querySelectorAll(".cv-user__actions .cv-iconbtn > svg")].map((svg) =>
-      svg.getBoundingClientRect(),
-    );
-    const last = glyphs.at(-1)!;
-    return { right: last.right - bubble.right, top: glyphs[0]!.top - bubble.bottom };
+  // Copy's glyph in each row: the last control in both, and never a version chevron.
+  const copyGlyph = (row: Element) => {
+    const bubble = row.querySelector(".cv-user__bubble")!.getBoundingClientRect();
+    const copy = row.querySelector('.cv-user__actions [aria-label="Copy"] > svg')!.getBoundingClientRect();
+    return { right: copy.right - bubble.right, top: copy.top - bubble.bottom };
   };
-  const users = [...ctx.document.querySelectorAll(".cv-user")].filter((user) => user.querySelector(".cv-user__bubble"));
-  const sent = users.find((user) => !user.querySelector(".cv-user__pending"));
-  const waiting = users.filter((user) => user.querySelector(".cv-user__pending"));
+  const rows = [...ctx.document.querySelectorAll(".cv-user")].filter((row) => row.querySelector(".cv-user__bubble"));
+  const sent = rows.find((row) => !row.querySelector(".cv-user__pending"));
+  const waiting = rows.filter((row) => row.querySelector(".cv-user__pending"));
   if (!sent || waiting.length === 0) throw new Error("no sent prompt or waiting steer to compare");
-  const reference = glyphGap(sent);
-  for (const user of waiting) {
-    const box = glyphGap(user);
+  const reference = copyGlyph(sent);
+  for (const row of waiting) {
+    const box = copyGlyph(row);
     if (Math.abs(box.right) > 1) throw new Error("a waiting steer's last control is not on its bubble's right edge");
     if (Math.abs(box.top - reference.top) > 1)
       throw new Error("a waiting steer's controls are not the sent row's gap under the bubble");
