@@ -61,6 +61,17 @@ enum SidebarStyle {
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
+    /// A workspace or group icon's glyph square: the leading icon column it sits in, so the icon follows the sidebar
+    /// density (16 compact, 20 comfortable, wider with the text size) instead of one size at every density. Leo
+    /// 2026-11-03: "generally we can have stuff more dynamically sized for compact/etc rn i think it's just a one size
+    /// for these workspace icons". Compact keeps its old 16 pt glyph exactly.
+    static var workspaceGlyphSide: CGFloat { iconColumnBox }
+    /// How much a workspace icon's drawing grows with `workspaceGlyphSide`: 1 at compact.
+    static var workspaceGlyphScale: CGFloat { workspaceGlyphSide / iconBox }
+    /// A workspace icon's symbol point size: the title's, grown with its glyph square.
+    static var workspaceSymbolPointSize: CGFloat { (titleFont.pointSize * workspaceGlyphScale).rounded() }
+    /// A workspace icon's favicon side: the row glyph's, grown with its glyph square.
+    static var workspaceFaviconSide: CGFloat { (kindGlyphSize * workspaceGlyphScale).rounded() }
     /// Reserve the icon column only when a visible icon precedes the title.
     static func titleTextX(leading: CGFloat, iconSide: CGFloat, swatch: Bool = false) -> CGFloat {
         columns(rowWidth: 0, leadingOffset: leading - titleLeading).text(hasLeadingMark: iconSide > 0)
@@ -219,7 +230,7 @@ enum SidebarStyle {
     /// sits this much before the edge its text aligns to.
     static var labelCellPadding: CGFloat { LayoutGrid.halfStep }
     /// A user-chosen SF Symbol at the title's point size, where symbols match the text beside them.
-    static var glyphConfig: NSImage.SymbolConfiguration { .init(pointSize: titleFont.pointSize, weight: .regular) }
+    static var glyphConfig: NSImage.SymbolConfiguration { .init(pointSize: workspaceSymbolPointSize, weight: .regular) }
     /// A header's disclosure chevron, filling its `Metrics.smallIconSize` box.
     static func chevron(collapsed: Bool) -> NSImage {
         NSImage.icon(collapsed ? .disclosureCollapsed : .disclosureExpanded, size: Metrics.smallIconSize)

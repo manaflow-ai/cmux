@@ -16,6 +16,9 @@ public actor CloudMachineLink {
     public nonisolated let machineID: String
     /// Whether the running link redials, from its later snapshots.
     public nonisolated let redial = CloudLinkRedial()
+    /// The start's step and its last failure (``CloudLinkProgress``): what a start that did not come
+    /// up says, and whether waiting on it can still help.
+    public nonisolated let progress = CloudLinkProgress()
     /// ``callerOwnsVM`` for the main actor (Settings > Machines' row), on the same link.
     public nonisolated let ownership = CloudLinkOwnership()
     private let api: CloudAPIClient
@@ -72,6 +75,7 @@ public actor CloudMachineLink {
 
     private func invalidate() {
         generation += 1
+        progress.ended()
         starting?.cancel()
         starting = nil
         child?.terminate()
@@ -156,7 +160,45 @@ public actor CloudMachineLink {
     /// PID of the running link process, for diagnostics.
     public var pid: Int32? { child?.pid }
 
+    /// One start: every step has a deadline and a log line (``CloudLinkStep``), and a failure, the
+    /// step's or its deadline's, is logged with the step and kept in ``progress``, so a start never
+    /// waits silently (2026-11-02: a nightly's Cloud chat start waited 3 minutes with no line).
     private func start(generation: Int) async throws -> String {
+        let began = ContinuousClock.now
+        logger.notice("link start for \(self.machineID, privacy: .public)")
+        do {
+            let path = try await startSteps(generation: generation)
+            progress.succeeded()
+            logger.notice("link up for \(self.machineID, privacy: .public) in \(Self.seconds(since: began), privacy: .public)")
+            return path
+        } catch is CancellationError {
+            progress.ended()
+            logger.notice("link start for \(self.machineID, privacy: .public) ended (superseded) after \(Self.seconds(since: began), privacy: .public)")
+            throw CancellationError()
+        } catch {
+            let failure = CloudLinkStartError(step: progress.snapshot.step ?? .remoteConnect, error: error)
+            progress.failed(failure)
+            logger.error("link for \(self.machineID, privacy: .public) failed at \(failure.step.rawValue, privacy: .public) after \(Self.seconds(since: began), privacy: .public): \(failure.reason, privacy: .public)")
+            throw failure
+        }
+    }
+
+    static func seconds(since instant: ContinuousClock.Instant) -> String {
+        let elapsed = instant.duration(to: .now)
+        return String(format: "%.1f s", Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)
+    }
+
+    /// Runs `step` under its deadline with a began/done log line.
+    private func step<T: Sendable>(_ step: CloudLinkStep, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        progress.began(step)
+        let began = ContinuousClock.now
+        logger.notice("link \(self.machineID, privacy: .public): \(step.rawValue, privacy: .public) began")
+        let value = try await runLinkStep(step, work)
+        logger.notice("link \(self.machineID, privacy: .public): \(step.rawValue, privacy: .public) done in \(Self.seconds(since: began), privacy: .public)")
+        return value
+    }
+
+    private func startSteps(generation: Int) async throws -> String {
         try checkGeneration(generation)
         child?.terminate()
         child = nil
@@ -166,9 +208,10 @@ public actor CloudMachineLink {
         let deviceFingerprint = paths.loadLinkDeviceFingerprint(machineID: machineID)
         // Lifecycle transitions can run during every await. A stale start
         // must never publish a socket or replace a newer link.
-        let endpoint = try await api.attachEndpoint(machineID, deviceFingerprint: deviceFingerprint)
+        let (api, hub, machineID) = (api, hub, machineID)
+        let endpoint = try await step(.attachEndpoint) { try await api.attachEndpoint(machineID, deviceFingerprint: deviceFingerprint) }
         try checkGeneration(generation)
-        let hubEndpoint = try await hub.endpoint()
+        let hubEndpoint = try await step(.hub) { try await hub.endpoint() }
         try checkGeneration(generation)
         unlink(paths.linkSocket(machineID: machineID))
         let inviteFile = endpoint.invitation.map { _ in
@@ -197,11 +240,13 @@ public actor CloudMachineLink {
         arguments += ["--wireguard-hub", hubEndpoint.socket, "--wireguard-hub-token-stdin"]
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.linkState.path
+        progress.began(.remoteConnect)
         guard FileManager.default.isExecutableFile(atPath: binary.path) else { throw ChildProcessError.missingBinary(binary.path) }
         let child = ChildProcess(executable: binary, arguments: arguments, environment: environment,
                                  input: Data((hubEndpoint.clientToken + "\n").utf8))
         try child.start()
         self.child = child
+        logger.notice("link \(self.machineID, privacy: .public): remote-connect spawned pid \(child.pid ?? 0)")
         do {
             let socketTask = Task {
                 try await child.firstLine(within: .seconds(60), label: "cmux-tui remote connect") { line in
@@ -211,11 +256,12 @@ public actor CloudMachineLink {
             }
             defer { socketTask.cancel() }
             if let invitation = endpoint.invitation {
-                let approval = try await api.approveCmuxRemoteEnrollment(machineID, invitationID: invitation.invitationId)
+                let approval = try await step(.approve) { try await api.approveCmuxRemoteEnrollment(machineID, invitationID: invitation.invitationId) }
                 guard approval.approved, approval.state == "approved" || approval.state == "already_enrolled" else {
                     socketTask.cancel()
                     throw CloudAPIError.decoding("/api/vm/\(machineID)/cmux-remote/approve")
                 }
+                progress.began(.remoteConnect)
                 if let fingerprint = approval.deviceFingerprint, !fingerprint.isEmpty {
                     try paths.writeSecret(fingerprint + "\n", to: paths.linkDeviceFingerprint(machineID: machineID))
                 }
@@ -227,7 +273,7 @@ public actor CloudMachineLink {
             let redial = redial
             await MainActor.run { redial.isRedialing = false }
             watchSnapshots(child)
-            logger.info("link up for \(self.machineID, privacy: .public) pid \(child.pid ?? 0)")
+            logger.notice("link \(self.machineID, privacy: .public): remote-connect up, pid \(child.pid ?? 0)")
             return path
         } catch {
             if endpoint.invitation == nil, !endpoint.trustedCarrier, deviceFingerprint != nil {
@@ -237,7 +283,6 @@ public actor CloudMachineLink {
             }
             child.terminate()
             if self.child === child { self.child = nil }
-            logger.error("link for \(self.machineID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             throw error
         }
     }

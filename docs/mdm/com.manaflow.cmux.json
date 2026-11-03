@@ -297,6 +297,12 @@
       "title" : "Chat Folders",
       "type" : "array"
     },
+    "agents.chats.sessionRecap" : {
+      "default" : true,
+      "description" : "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage.",
+      "title" : "Session Recap",
+      "type" : "boolean"
+    },
     "agents.defaultPermissionMode" : {
       "default" : "fullAccess",
       "description" : "What a new chat may do without asking. A mode you pick in a chat applies to that chat only.",
@@ -1926,6 +1932,12 @@
       "default" : false,
       "description" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
       "title" : "Run New Workspaces in Cloud",
+      "type" : "boolean"
+    },
+    "cloud.useMyClaudeLoginOnMyCloudMachines" : {
+      "default" : false,
+      "description" : "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
+      "title" : "Use My Claude Login on My Own Cloud Machines",
       "type" : "boolean"
     },
     "computerUse.driver" : {

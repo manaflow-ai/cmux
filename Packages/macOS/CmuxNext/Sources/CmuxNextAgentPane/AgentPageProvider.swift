@@ -76,6 +76,7 @@ public final class AgentPageProvider: PageProvider {
     public static let hostEvents = "cmux.agent.host.events"
 
     private let prepare: Prepare
+    private let tailGeneration = AgentPaneTailCache.shared.generation
     private var listeners: [UInt64: @MainActor (JSONValue) -> Void] = [:]
     private var bufferedEvents: [AgentPageEvent] = []
     private var transportConnection: Int?
@@ -123,6 +124,8 @@ public final class AgentPageProvider: PageProvider {
     public var pendingAsksSocket: @MainActor () -> String? = { nil }
     /// Reads `chat.asks.pending` through ``pendingAsksSocket`` (tests inject the reader).
     public var pendingAsks = AgentPanePendingAsks()
+    /// The pane host, available before its handshake or transport socket.
+    public var tailHost: (any AgentPaneHostProviding)?
     /// The debug UI pointer report from an app-owned page. The native picker
     /// owns the crop and composer delivery; the page only supplies metadata.
     public var onUiPointerReport: @MainActor (JSONValue) -> Void = { _ in }
@@ -367,7 +370,9 @@ public final class AgentPageProvider: PageProvider {
         // Named, not a prefix: `scrollAnchor` treats anything but `.get` as a write, so a later
         // `chat.scrollAnchor.forget` would have erased a chat's place instead of being refused.
         if AgentPaneScrollAnchors.handles(method: method) { return try Self.scrollAnchor(method, params: params, op: op) }
-        if AgentPaneTailCache.handles(method: method) { return try Self.tail(method, params: params, op: op) }
+        if AgentPaneTailCache.handles(method: method) {
+            return try await Self.tail(method, params: params, op: op, host: tailHost, pageGeneration: tailGeneration)
+        }
         // Needs you's read of a chat's open requests: the host's, never the relay's (AgentPanePendingAsks).
         if method == "chat.asks.pending" { return try await pendingAsks.reply(params, op: op, socket: pendingAsksSocket()) }
         if method == "uiPointer.report" {
