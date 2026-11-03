@@ -82,18 +82,26 @@ impl Hub {
         self.workflow_runs.stop_runner(&run.id).await;
         for activity in run.activities.values().filter(|a| a.outcome.is_none()) {
             match &activity.child {
-                Child::Agent { session_id, prompt_id } => {
+                Child::Agent { session_id, prompt_id, host } => {
+                    anyhow::ensure!(
+                        host.as_deref().is_none_or(|host| host == "local"),
+                        "remote workflow agent cancellation is not supported on this route"
+                    );
                     let session = match self.resolve(session_id) {
                         Ok(session) => session,
                         Err(error) if error.code == RpcError::not_found("").code => continue,
                         Err(error) => return Err(anyhow::anyhow!(error.message)),
                     };
                     self.remove_queued(&session, prompt_id);
-                    if session.turn().is_some_and(|turn| turn.prompt_id == *prompt_id) {
-                        self.cancel(&session).await.map_err(|e| anyhow::anyhow!(e.message))?;
-                    }
+                    self.cancel_prompt(&session, prompt_id)
+                        .await
+                        .map_err(|e| anyhow::anyhow!(e.message))?;
                 }
-                Child::Machine { session_id, task_id } => {
+                Child::Machine { session_id, task_id, host } => {
+                    anyhow::ensure!(
+                        host.as_deref().is_none_or(|host| host == "local"),
+                        "remote workflow machine cancellation is not supported on this route"
+                    );
                     let session = match self.resolve(session_id) {
                         Ok(session) => session,
                         Err(error) if error.code == RpcError::not_found("").code => continue,

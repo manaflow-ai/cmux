@@ -68,18 +68,32 @@ fn durable_activity_identity_is_exact_and_results_survive_resume() {
         id: "activity-1".into(),
         kind: "agent".into(),
         fingerprint: "hash".into(),
-        child: Child::Agent { session_id: "child".into(), prompt_id: "prompt".into() },
+        child: Child::Agent { session_id: "child".into(), prompt_id: "prompt".into(), host: None },
+        policy: Value::Null,
         outcome: None,
     };
     store.register_activity(&run.id, run.generation, "owner", activity.clone()).unwrap();
     let mut other = activity.clone();
     other.fingerprint = "another prompt".into();
     assert!(store.register_activity(&run.id, run.generation, "owner", other).is_err());
+    let policy = json!({"attempt":1,"correction":"return JSON"});
+    store
+        .update_activity_policy(&run.id, run.generation, "owner", &activity.id, policy.clone())
+        .unwrap();
+    assert_eq!(
+        store.activity(&run.id, run.generation, "owner", &activity.id).unwrap().unwrap().policy,
+        policy
+    );
     let outcome = Ok(json!({"reply":"green"}));
     store
         .complete_activity(&run.id, run.generation, "owner", &activity.id, outcome.clone())
         .unwrap();
     let paused = store.pause(&run.id, "owner").unwrap();
+    assert!(
+        store
+            .update_activity_policy(&run.id, run.generation, "owner", &activity.id, json!({}))
+            .is_err()
+    );
     store.paused(&run.id, paused.generation).unwrap();
     let resumed = store.resume(&run.id, "owner", false).unwrap();
     assert_eq!(

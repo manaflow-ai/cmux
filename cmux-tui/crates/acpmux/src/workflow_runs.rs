@@ -28,8 +28,18 @@ pub enum State {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Child {
-    Agent { session_id: String, prompt_id: String },
-    Machine { session_id: String, task_id: String },
+    Agent {
+        session_id: String,
+        prompt_id: String,
+        #[serde(default)]
+        host: Option<String>,
+    },
+    Machine {
+        session_id: String,
+        task_id: String,
+        #[serde(default)]
+        host: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -39,6 +49,8 @@ pub struct ActivityRecord {
     pub kind: String,
     pub fingerprint: String,
     pub child: Child,
+    #[serde(default)]
+    pub policy: Value,
     pub outcome: Option<Result<Value, Value>>,
 }
 
@@ -223,6 +235,29 @@ impl Store {
             Ok(())
         })?;
         record.activities.get(&activity_id).cloned().context("activity was not registered")
+    }
+
+    /// Persist the schema/stall decision before the executor performs its next effect.
+    pub fn update_activity_policy(
+        &self,
+        id: &str,
+        generation: u64,
+        owner: &str,
+        activity_id: &str,
+        policy: Value,
+    ) -> Result<ActivityRecord> {
+        let record = self.change(id, |run| {
+            authorize(run, generation, owner)?;
+            let activity =
+                run.activities.get_mut(activity_id).context("unknown workflow activity")?;
+            ensure!(
+                activity.outcome.is_none(),
+                "completed workflow activity has no next policy action"
+            );
+            activity.policy = policy;
+            Ok(())
+        })?;
+        record.activities.get(activity_id).cloned().context("activity disappeared")
     }
 
     pub fn complete_activity(
