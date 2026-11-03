@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import sys
 import tempfile
 import time
@@ -120,6 +121,12 @@ def owned(root: str, name: str) -> bool:
     return isinstance(manifest, dict) and manifest.get("format") == FORMAT and manifest.get("key") == name
 
 
+def _digest_ok(want) -> bool:
+    """A manifest's file record: {"bytes": int, "sha256": 64 hex digits}."""
+    return isinstance(want, dict) and type(want.get("bytes")) is int and isinstance(want.get("sha256"), str) \
+        and len(want["sha256"]) == 64 and all(c in "0123456789abcdef" for c in want["sha256"])
+
+
 def _safe_name(name: str) -> bool:
     return bool(name) and "/" not in name and name not in (".", "..") and not name.startswith(".")
 
@@ -140,8 +147,9 @@ def get(root: str, key: str) -> dict | None:
             raise ValueError("manifest lists no templates")
         templates = {}
         for name, entry in manifest["templates"].items():
-            if not _safe_name(name) or not isinstance(entry, dict) or not isinstance(entry.get("events"), dict) \
-                    or not entry["events"] or not all(_safe_name(e) for e in entry["events"]):
+            if not _safe_name(name) or not isinstance(entry, dict) or not isinstance(entry.get("id"), str) \
+                    or not entry["id"] or not _digest_ok(entry.get("meta")) or not isinstance(entry.get("events"), dict) \
+                    or not entry["events"] or not all(_safe_name(e) and _digest_ok(w) for e, w in entry["events"].items()):
                 raise ValueError(f"manifest entry {name!r} is malformed")
             base = os.path.join(folder, name)
 
@@ -231,10 +239,14 @@ def prune(root: str, now: float | None = None, max_age_s: float = MAX_AGE_S, max
     removed, entries = [], []
     for name in names:
         path = os.path.join(root, name)
-        if not os.path.isdir(path) or os.path.islink(path):
+        try:
+            info = os.lstat(path)
+        except OSError:
+            continue  # gone already (another run's prune) or unreadable
+        if not stat.S_ISDIR(info.st_mode):
             continue
         if name.startswith(TMP_PREFIX):
-            if now - os.lstat(path).st_mtime > TMP_STALE_S:
+            if now - info.st_mtime > TMP_STALE_S:
                 shutil.rmtree(path, ignore_errors=True)
                 removed.append(name)
             continue

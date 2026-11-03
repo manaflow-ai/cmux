@@ -60,7 +60,10 @@ class CacheTests(unittest.TestCase):
     def test_a_malformed_manifest_is_a_miss(self):
         sc.put(self.root, key("small"), {}, {"small": template()}, 1.0)
         path = os.path.join(self.root, key("small"), "manifest.json")
-        for templates in ([], {}, {"small": []}, {"small": {"id": "x", "meta": {}, "events": []}}, {"../x": {}}):
+        for templates in ([], {}, {"small": []}, {"small": {"id": "x", "meta": {}, "events": []}}, {"../x": {}},
+                          {"small": {"id": 7, "meta": {"bytes": 1, "sha256": "0" * 64}, "events": {"0.ndjson": {"bytes": 1, "sha256": "0" * 64}}}},
+                          {"small": {"id": "x", "meta": {"bytes": "1", "sha256": "0" * 64}, "events": {"0.ndjson": {"bytes": 1, "sha256": "0" * 64}}}},
+                          {"small": {"id": "x", "meta": {"bytes": 1, "sha256": "0" * 64}, "events": {"0.ndjson": {"bytes": 1, "sha256": None}}}}):
             with open(path, "w") as handle:
                 json.dump({"format": sc.FORMAT, "key": key("small"), "templates": templates}, handle)
             self.assertIsNone(sc.get(self.root, key("small")))
@@ -74,6 +77,18 @@ class CacheTests(unittest.TestCase):
         self.assertFalse(sc.put(root, key("small"), {}, {"small": template()}, 1.0))
         self.assertIsNone(sc.get(root, key("small")))
         self.assertEqual(sc.prune(root), [])
+
+    def test_prune_survives_a_folder_that_vanishes(self):
+        os.makedirs(os.path.join(self.root, sc.TMP_PREFIX + "racing"))
+        real = os.lstat
+
+        def lstat(path, *a, **k):
+            if path.endswith("racing"):
+                raise FileNotFoundError(path)
+            return real(path, *a, **k)
+
+        with mock.patch.object(sc.os, "lstat", lstat):
+            self.assertEqual(sc.prune(self.root), [])
 
     def test_the_worker_cache_root_comes_first(self):
         with mock.patch.dict(os.environ, {"CMUX_CI_CACHE_DIR": "/w"}, clear=False):
