@@ -1001,6 +1001,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
             policy: Some(PermissionPolicy::ApproveAll),
             prefer: vec!["fake-pool".into()],
             env: BTreeMap::new(),
+            permission_mode: None,
         },
     );
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
