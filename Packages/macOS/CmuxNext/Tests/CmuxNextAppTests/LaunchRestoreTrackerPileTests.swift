@@ -24,7 +24,7 @@ struct LaunchRestoreTrackerPileTests {
         func scheduleFrame(_ work: @escaping @MainActor @Sendable () -> Void) { Task { @MainActor in work() } }
     }
 
-    final class Flag: @unchecked Sendable {
+    nonisolated final class Flag: @unchecked Sendable {
         var fired = false
     }
 
