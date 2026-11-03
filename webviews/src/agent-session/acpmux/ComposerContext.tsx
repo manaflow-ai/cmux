@@ -372,12 +372,12 @@ export function ComposerContext({
   const currentFolder = savedFolderPick
     ? normalizeCwd(savedFolderPick.folder)
     : summaryFolder
-    ? isAgentHome(summaryFolder)
-      ? undefined
-      : normalizeCwd(summaryFolder)
-    : projectChoices
-      ? undefined
-      : folders[0]?.id;
+      ? isAgentHome(summaryFolder)
+        ? undefined
+        : normalizeCwd(summaryFolder)
+      : projectChoices
+        ? undefined
+        : folders[0]?.id;
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
   // A started chat's picker lists only where it runs, with that machine's warning too.
   const currentPickerComputer =

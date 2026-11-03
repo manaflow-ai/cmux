@@ -532,7 +532,9 @@ test("a saved local environment that is only a folder is in the folder menu, not
   expect(row("Web")).toBeUndefined();
   await click(environmentButton());
   await pickFolderRow(APP);
-  expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ${t("composer.thisMac")}`);
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(
+    `${t("composer.environment")}: ${t("composer.thisMac")}`,
+  );
   expect(folderButton()).not.toBeNull();
   // It is still the saved environment: Edit environment opens it.
   await click(await moreItem(t("environment.edit")));
