@@ -276,9 +276,6 @@ mod inbound;
 mod logged_bodies;
 pub use logged_bodies::leave_out_bodies;
 mod outbound;
-pub mod prompt_suggestions;
-#[cfg(test)]
-mod prompt_suggestions_tests;
 pub mod prompt_cache;
 pub mod prompt_suggestions;
 #[cfg(test)]
