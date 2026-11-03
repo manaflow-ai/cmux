@@ -579,7 +579,7 @@ fn chief_pipe_no_wait_returns_at_delivery_while_the_chief_is_in_a_turn() {
     assert!(text_of(&message).contains("lane-x"), "{message}");
 
     let output =
-        chief_cli(&server, &["-p", "again", "--from", "lane-x", "--no-wait", "--json"], "");
+        chief_cli(&server, &["--json", "-p", "again", "--from", "lane-x", "--no-wait"], "");
     assert_success(&output);
     let line: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(line["delivered"], true, "{line}");

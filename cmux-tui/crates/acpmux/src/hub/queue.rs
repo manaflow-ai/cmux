@@ -1509,6 +1509,11 @@ impl Hub {
             if !asked && self.hold_in_protected_folder(session) {
                 continue;
             }
+            // A copy's first start: no restored wait or held message goes in (`clone_boot.rs`).
+            if self.clone_of().is_some() {
+                self.start_restored(session);
+                continue;
+            }
             self.restore_auto_resume(session);
             // What the restored inbox holds new goes in as it may (`inbox.rs`).
             {
