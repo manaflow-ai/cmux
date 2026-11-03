@@ -20,7 +20,7 @@ ACPMUX="${ACPMUX:-acpmux}"
 WAIT="${TELEPORT_EVAL_WAIT:-600}"
 
 stamp="$(date +%Y%m%d%H%M%S)"
-name="teleport-eval-${harness}-${stamp}"
+name="teleport-eval-${harness}-t${stamp}"
 word="WORD-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n' | tr a-f A-F)"
 dir="$HOME/teleport-eval/${harness}-${stamp}"
 mkdir -p "$dir"
@@ -33,7 +33,8 @@ on() {
 import json, sys
 name = sys.argv[1]
 d = json.load(sys.stdin)
-for p in (d.get("peers") or d.get("machines") or d if isinstance(d, list) else []):
+peers = d if isinstance(d, list) else (d.get("peers") or d.get("machines") or [])
+for p in peers:
     if str(p.get("name", "")).lower() == name.lower():
         u = p.get("url", "")
         print(u.split("://", 1)[-1])
@@ -53,8 +54,9 @@ ask() {
 
 results=()
 where=local
-( cd "$dir" && "$ACPMUX" new -m "$harness" -n "$name" -d --quiet \
-    "Remember the code word $word. Reply only: ok" ) >/dev/null
+# `--machine local`: a new chat on a person's Mac is otherwise placed on another machine.
+"$ACPMUX" new -m "$harness" -n "$name" --machine local --cwd "$dir" -d --quiet \
+  "Remember the code word $word. Reply only: ok" >/dev/null
 echo "chat $name ($harness) in $dir, code word $word"
 
 prev=local
