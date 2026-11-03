@@ -112,6 +112,17 @@ pub struct SystemRunner;
 
 impl CommandRunner for SystemRunner {
     fn run(&self, program: &str, args: &[String]) -> std::io::Result<CommandOutput> {
+        TimedRunner { timeout: SEND_TIMEOUT }.run(program, args)
+    }
+}
+
+/// Runs the program as a child process, stopping it after `timeout`.
+pub struct TimedRunner {
+    pub timeout: Duration,
+}
+
+impl CommandRunner for TimedRunner {
+    fn run(&self, program: &str, args: &[String]) -> std::io::Result<CommandOutput> {
         let mut child = Command::new(program)
             .args(args)
             .stdin(Stdio::null())
@@ -132,7 +143,7 @@ impl CommandRunner for SystemRunner {
         let collect = |reader: Option<std::thread::JoinHandle<String>>| {
             reader.and_then(|handle| handle.join().ok()).unwrap_or_default()
         };
-        let deadline = Instant::now() + SEND_TIMEOUT;
+        let deadline = Instant::now() + self.timeout;
         loop {
             if let Some(status) = child.try_wait()? {
                 return Ok(CommandOutput { success: status.success(), stderr: collect(reader) });
