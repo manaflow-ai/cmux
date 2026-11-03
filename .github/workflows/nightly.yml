@@ -4726,21 +4726,27 @@ jobs:
       # took a p50 of 133 s for the 355 MB app (hosted Linux: 9 s) and ran out its 5 minutes in 4 of 26
       # runs; run 41478567483 ran out both tries and its tip never published. This reads it in parallel
       # ranges, asks again for a range that stalls, and checks the zip's upload digest. When it fails,
-      # download-artifact below takes over as before.
+      # download-artifact below takes over as before. The SSH daemon assets come down beside it: read
+      # after it in turn they cost 39 s on the feed's critical path (run 41665278171).
       - name: Download the signed app (parallel ranges)
         continue-on-error: true
         timeout-minutes: 5
         # A JavaScript step, so the script gets the job's runtime token for the artifact service in its
         # own environment (download-artifact's route, no GITHUB_TOKEN permission); nothing goes to $GITHUB_ENV
-        # but the flag.
+        # but the flags.
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           ARTIFACT: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           FETCH_DEST: signer-app
         with:
           script: |
-            const run = require('child_process').spawnSync('python3', ['-I', '.publish-tooling/scripts/ci/fetch_run_artifact.py', '--name', process.env.ARTIFACT, '--dest', process.env.FETCH_DEST], {stdio: 'inherit'})
-            if (run.status !== 0) core.setFailed(`fetch_run_artifact.py exited ${run.status ?? run.signal}`)
+            const fetch = (name, dest) => new Promise((done) => require('child_process')
+              .spawn('python3', ['-I', '.publish-tooling/scripts/ci/fetch_run_artifact.py', '--name', name, '--dest', dest], {stdio: 'inherit'})
+              .on('error', (error) => done(error.message)).on('close', (code, signal) => done(code === 0 ? 0 : code ?? signal)))
+            const [app, daemon] = await Promise.all([fetch(process.env.ARTIFACT, process.env.FETCH_DEST),
+              fetch('cmux-nightly-remote-daemon', 'remote-daemon-assets')])
+            if (daemon === 0) core.exportVariable('SIGNER_DAEMON_FETCHED', 'true')
+            if (app !== 0) core.setFailed(`fetch_run_artifact.py exited ${app}`)
             else core.exportVariable('SIGNER_APP_FETCHED', 'true')
       # An env flag, not a step outcome, so the ranged step's result decides.
       - &signer-download-app
@@ -4772,7 +4778,12 @@ jobs:
           PACKAGE_HANDOFF: "false"
           PACKAGE_UNNOTARIZED_ZIP: "false"
         run: bash scripts/ci/signed-app-checks.sh start "$SIGNER_WORK/$CHANNEL_APP_NAME.app"
-      - *download-ssh-daemon-assets-2
+      - name: Download SSH daemon assets
+        if: env.SIGNER_DAEMON_FETCHED != 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-remote-daemon
+          path: remote-daemon-assets
       - name: Start the verify-signed checks
         env:
           NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
