@@ -77,5 +77,9 @@ fn the_act_as_me_covers_are_the_macos_hosts() {
     ))
     .into_iter()
     .collect();
-    assert_eq!(policy().act_as_me_covers, swift, "policy.json act_as_me_covers vs AgentPaneActAsMe.covers");
+    assert_eq!(
+        policy().act_as_me_covers,
+        swift,
+        "policy.json act_as_me_covers vs AgentPaneActAsMe.covers"
+    );
 }

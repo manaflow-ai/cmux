@@ -248,6 +248,38 @@ export const mockSessions: MockSession[] = [
       "The lane wasn't foregrounded by acpmux or cmux NEXT. It ran about 40 slow Bash calls in the foreground itself, and they stalled the turn. Separately, the activity-row timer bug went to the timer helper.\n\n[outward] Add a hook that pushes known-slow commands to the background?\n- Yes, add the hook\n- Not now\n- Fix CI first",
   },
   {
+    // The person came back to a Claude chat after 5+ minutes away (Leo, 2026-11-03: "lkewise with
+    // teh cli summarization thing? how do those get turned on? maybe we can expose it in cmux-next
+    // too"): acpmux's `recap` record, drawn as the recap row under the last turn.
+    sessionId: "mock-session-recap",
+    title: "Make the parser tolerate missing fields",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9200,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "The parser now skips absent optional fields.",
+    history: (at) => [
+      { ago: at + 900_000, mux: "user_message", msg: { text: "Make the parser in foo.rs tolerate missing fields." } },
+      { ago: at + 900_000, mux: "turn_started" },
+      {
+        ago: at + 860_000,
+        update: text("The parser now skips absent optional fields; required ones still fail with their name."),
+      },
+      { ago: at + 860_000, mux: "turn_result", msg: { status: "completed" } },
+      {
+        ago: at,
+        mux: "recap",
+        msg: {
+          text: "Goal: make the parser in foo.rs tolerate missing fields; optional ones are done. Next: decide how required fields should fail.",
+          awayMs: 840_000,
+        },
+      },
+    ],
+  },
+  {
     sessionId: "mock-typing-latency",
     title: "Measure typing latency in split panes",
     harness: "claude",

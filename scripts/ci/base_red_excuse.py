@@ -10,7 +10,9 @@ compile error, say), and warnings never are: they vary run to run (SwiftPM's
 cache warnings refused #18147 on 2026-10-07). Names are compared, not counts:
 the base may fail more. A runner refusal (no steps, a failed setup step, or the glaeda
 hook's refusal), a cancelled or timed-out job, and a failure with no test or
-error line to compare are never excused. One base red then no longer freezes
+error line to compare are never excused. A job whose runner was lost (test_reds.lost_runner: GitHub's "lost
+communication with the server" annotation, a step left unfinished, no log stored) is refused as infra, not a
+verdict: never the PR's own red, it needs a re-run like a cancelled job. One base red then no longer freezes
 every pull request into that base (2026-10-07: four base reds, and the PRs
 fixing them deadlocked on each other's reds).
 
@@ -1077,6 +1079,34 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_log: str, 
             f"fails the same way ({url}): {what[:400]}")
 
 
+class Infra(Refused):
+    """A red that is the infrastructure's (test_reds.lost_runner: the runner was lost), not a verdict: never the
+    pull request's own red, never excused, and it needs a re-run, like a cancelled job."""
+
+
+def infra(name: str, job: dict, why: str) -> Infra:
+    return Infra(f"'{name}' is infra, not a verdict (job {job.get('id')}: {why}); it is never this PR's own red "
+                 "and needs a re-run, like a cancelled job")
+
+
+def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
+    """JOB's log, after refusing a job that lost its runner (test_reds.lost_runner) as Infra. Its steps decide first, at
+    no cost; a log GitHub cannot serve (a lost runner leaves none: BlobNotFound) has its check run's annotations read
+    to tell a lost runner from an unreadable verdict, which stays the refusal it was."""
+    if why := test_reds.lost_runner(job):
+        raise infra(name, job, why)
+    try:
+        return github.log(repo, job)
+    except Refused as error:
+        try:
+            notes = github.json(f"repos/{repo}/check-runs/{job['id']}/annotations")
+        except (Refused, KeyError, ValueError):
+            notes = []
+        if why := test_reds.lost_runner(job, notes if isinstance(notes, list) else [], str(error)):
+            raise infra(name, job, why) from None
+        raise
+
+
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = ()) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not."""
     audit: list[str] = []
@@ -1094,7 +1124,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             raise Refused(f"'{name}' is {job.get('conclusion')}: it has no verdict to compare with the base; re-run it")
         if refused_at_setup(job):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
-        head_log = github.log(repo, job)
+        head_log = lost_runner_log(repo, name, job, github)
         if refused_at_setup(job, head_log):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
         if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
@@ -1184,6 +1214,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check)
+    except Infra as error:
+        print(f"not excused: infra, not a verdict: {error}", file=sys.stderr)
+        return 1
     except (Refused, KeyError, ValueError) as error:
         print(f"not excused: {error}", file=sys.stderr)
         return 1
