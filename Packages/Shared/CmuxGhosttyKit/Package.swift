@@ -121,8 +121,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-34e73ba8ba7cb8da0115caeb780065e3a12f2f62-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "32cb09bbc69510a099df9206a460cc8e7f2aba41a1a5489de98f185da07154a4"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-21226722c7f4a5efff98372d31355470bd3aa534-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "13886b9948e1ef0f624e064b9da6c8f1908054a9db0ee7586a27fa0f62271785"
         ),
     ]
 )

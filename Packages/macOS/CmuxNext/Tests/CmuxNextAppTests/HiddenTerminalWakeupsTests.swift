@@ -5,6 +5,7 @@ import CmuxNextBridge
 @testable import CmuxNextTerminal
 import CmuxNextWakeups
 import Foundation
+import GhosttyNextKit
 import Testing
 
 /// SWITCH FRAMES warm-set gate (lead 2026-11-03, "batch hidden output"): a warm hidden terminal costs the app process
@@ -19,15 +20,35 @@ import Testing
 struct HiddenTerminalWakeupsTests {
     static let terminals = 4
 
-    /// One hidden terminal's output-path work so far: reader-thread reads, consumer passes, lane blocks.
+    /// One hidden terminal's work so far on every thread it wakes: the attach reader's reads, the consumer's passes, the
+    /// lane's blocks, and Ghostty's renderer and termio thread wakes by source (ghostty_surface_render_counters, fork #73).
     struct Work: CustomStringConvertible {
         var reads: UInt64, passes: UInt64, blocks: UInt64
+        var rendererWakeups: UInt64, drawNow: UInt64, timers: UInt64, ioWakeups: UInt64, ioTimers: UInt64
         static func of(_ entry: TerminalEntry) -> Work? {
-            guard let reads = entry.io.driver.machine.liveLink?.link.transportReads, let lane = entry.session.surfaceView.lane else { return nil }
-            return Work(reads: reads, passes: entry.session.frameChanges.generation, blocks: lane.blocks)
+            guard let reads = entry.io.driver.machine.liveLink?.link.transportReads, let lane = entry.session.surfaceView.lane,
+                  let surface = entry.session.surfaceView.surface else { return nil }
+            let c = ghostty_surface_render_counters(surface)
+            return Work(reads: reads, passes: entry.session.frameChanges.generation, blocks: lane.blocks,
+                        rendererWakeups: c.renderer_wakeups, drawNow: c.renderer_draw_now,
+                        timers: c.renderer_cursor_timer_fires &+ c.renderer_animation_timer_fires &+ c.renderer_compression_timer_fires,
+                        ioWakeups: c.io_wakeups, ioTimers: c.io_timer_fires)
         }
-        static func - (a: Work, b: Work) -> Work { Work(reads: a.reads &- b.reads, passes: a.passes &- b.passes, blocks: a.blocks &- b.blocks) }
-        var description: String { "\(reads) reads, \(passes) consumer passes, \(blocks) lane blocks" }
+        static func - (a: Work, b: Work) -> Work {
+            Work(reads: a.reads &- b.reads, passes: a.passes &- b.passes, blocks: a.blocks &- b.blocks,
+                 rendererWakeups: a.rendererWakeups &- b.rendererWakeups, drawNow: a.drawNow &- b.drawNow, timers: a.timers &- b.timers,
+                 ioWakeups: a.ioWakeups &- b.ioWakeups, ioTimers: a.ioTimers &- b.ioTimers)
+        }
+        /// Wake chains started: each read of a batch starts one; the lane, renderer and termio hand-offs of that batch go on
+        /// the same chain, and any wake past one per lane block (or a timer fire) starts another.
+        var chains: UInt64 {
+            func past(_ wakes: UInt64) -> UInt64 { wakes > blocks ? wakes - blocks : 0 }
+            return reads &+ timers &+ ioTimers &+ past(rendererWakeups) &+ past(ioWakeups) &+ past(drawNow)
+        }
+        var description: String {
+            "\(reads) reads, \(passes) consumer passes, \(blocks) lane blocks, renderer \(rendererWakeups) wakeups + \(drawNow) draw-now"
+                + " + \(timers) timer fires, termio \(ioWakeups) wakeups + \(ioTimers) timer fires"
+        }
     }
 
     @Test func aHiddenTerminalsOutputPathRunsOncePerBatchAndNeverWhileIdle() async throws {
@@ -95,12 +116,13 @@ struct HiddenTerminalWakeupsTests {
             let batches = UInt64(printed.components.seconds) + 2
             let report = "printed in \(printed), at most \(batches) batches; idle \(idle); per 64 KiB \(output)"
             print("hidden-terminal-work: " + report)
+            // The lead's gate (a bound from the floor): idle at most 0.2 wake chains a second; with output at most 1.5 per batch.
             for (index, work) in idle.enumerated() {
-                #expect(work.passes == 0 && work.blocks == 0 && work.reads <= 1, "idle hidden terminal \(index) did output-path work: \(work); \(report)")
+                #expect(Double(work.chains) <= 0.2 * 6, "idle hidden terminal \(index) woke its threads: \(work); \(report)")
             }
             for (index, work) in output.enumerated() {
-                #expect(work.passes <= batches && work.blocks <= batches && work.reads <= 3 * batches,
-                        "hidden terminal \(index) ran its output path more than once per batch: \(work); \(report)")
+                let perBatch = Double(work.chains) / Double(max(work.blocks, 1))
+                #expect(perBatch <= 1.5, "hidden terminal \(index) started \(perBatch) wake chains per batch: \(work); \(report)")
             }
         }
     }
