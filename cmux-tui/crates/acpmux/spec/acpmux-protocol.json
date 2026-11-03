@@ -5464,6 +5464,23 @@
             "null"
           ]
         },
+        "cacheReadShare24h": {
+          "description": "Of those calls' prompt tokens (input, cache read and cache write), the share the prompt\ncache served (0 to 1); null with no calls or when the day is not read whole.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "calls24h": {
+          "description": "Model calls of the last 24 hours, subagents' included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "compactions24h": {
           "description": "Compactions in the last 24 hours.",
           "format": "uint64",
@@ -5488,6 +5505,14 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "costPerCallUsd24h": {
+          "description": "`costUsd24h` over the priced calls: what one call costs at list prices, USD.",
+          "format": "double",
+          "type": [
+            "number",
             "null"
           ]
         },
@@ -5552,9 +5577,12 @@
       "required": [
         "autocompact",
         "autocompactCap",
+        "cacheReadShare24h",
+        "calls24h",
         "compactions24h",
         "contextTokens",
         "contextWindow",
+        "costPerCallUsd24h",
         "costUsd24h",
         "launcher",
         "subagents1h",

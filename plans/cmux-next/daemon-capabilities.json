@@ -6,6 +6,7 @@
     "agent-inventory-watch-admission-v1",
     "agent-session-attach-v1",
     "agent-session-children-v1",
+    "agent-session-content-v1",
     "agent-session-folders-v1",
     "agent-session-login-v1",
     "agent-session-observe-v1",

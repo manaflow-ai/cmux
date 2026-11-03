@@ -35,6 +35,7 @@ import { turnCopyParts } from "./turnCopy";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { isThought, thoughtDuration } from "./thoughts";
 import {
+  BACKGROUND_TURN,
   backgroundTurnRowId,
   collectFoldedBackgroundId,
   foldBackgroundTurns,
@@ -477,6 +478,28 @@ function openFolds(rows: readonly AcpmuxRow[], start: number, end: number, expan
   return "";
 }
 
+/// `rows` with each agent reply of a lone "." marked `answersPerson` when `user` is the person's own
+/// prompt, so it still draws (visibleMessage.ts): a reply to the person is theirs to see, however
+/// short (Leo, 2026-11-03, on hiding punctuation-only replies: "well there are cases (rare) that you
+/// would want to see it..."). The "." answering another agent's message stays hidden: the walk stops
+/// at the turn's summary, the first background row or another agent's steered message, since what
+/// follows is not an answer to the person. Only a bare reply is copied; without one, `rows` itself.
+function answeringPerson(user: AcpmuxRow, rows: AcpmuxRow[]): AcpmuxRow[] {
+  if (user.kind !== "user" || user.incoming || user.received || user.inBackground !== undefined) return rows;
+  let out: AcpmuxRow[] | undefined;
+  for (let at = 0; at < rows.length; at += 1) {
+    const row = rows[at]!;
+    if (row.kind === "turnSummary" || row.kind === BACKGROUND_TURN || row.kind === "backgroundTask") break;
+    // Another agent's message steered into the turn: what follows answers it.
+    if (row.kind === "user" && row.incoming) break;
+    if (row.kind !== "assistant" || row.inBackground !== undefined || row.answersPerson) continue;
+    if (!isVisiblyEmptyMessage(row) || isVisiblyEmptyMessage({ ...row, answersPerson: true })) continue;
+    out ??= rows.slice();
+    out[at] = { ...row, answersPerson: true };
+  }
+  return out ?? rows;
+}
+
 /// The drawn rows of the turn at `rows[start]` (its prompt) up to `end`, then its held prompts.
 function shapedTurn(
   rows: readonly AcpmuxRow[],
@@ -539,7 +562,7 @@ function shapedTurn(
   );
   // A turn the agent ran on its own after this one ended (no prompt starts it) draws in its tail:
   // a quiet one, or one still running, as its one line (backgroundTurns.ts).
-  const turn = foldBackgroundTurns(kept, expanded);
+  const turn = foldBackgroundTurns(answeringPerson(user, kept), expanded);
   const held = source.filter((row) => row.kind === "user" && !continuesTurn(row));
   const visibleTurn =
     !isVisiblyEmptyMessage(user) || turn.some((row) => row.kind !== "turnSummary" && !isVisiblyEmptyMessage(row));

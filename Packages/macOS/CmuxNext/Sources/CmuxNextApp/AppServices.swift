@@ -447,6 +447,7 @@ final class AppServices {
     private(set) lazy var onboarding = OnboardingService(services: self)
     /// Agent permission requests (`permissions.request`): the card, the store and the TCC reads.
     private(set) lazy var agentPermissions = AgentPermissionsService(services: self)
+    private(set) lazy var imessage = AgentPaneIMessageConnector(host: self)
     /// Provider sign-ins and CodeRouter accounts (Settings > Accounts, onboarding).
     private(set) lazy var accounts = AccountsService(services: self)
     /// Agent harness profiles (Settings > Agents, `agent.harness.*`), through acpmux.

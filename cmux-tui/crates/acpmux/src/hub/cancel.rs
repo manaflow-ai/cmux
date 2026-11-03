@@ -40,6 +40,18 @@
 //! queue is resumed, so they do not start a turn the moment the stopped one ends. The person's
 //! own queued prompts run next as before.
 //!
+//! Another agent's message is never lost to a Stop (2026-11-02: a coordinator's message sent a
+//! second after Stop was steered into the cancelling turn, answered by its forced end, and the
+//! chat sat idle with it unread). A message that comes while a Stop ends the turn
+//! ([`is_stopping`]) does not go into it, and one the turn's end answered before its agent
+//! answered it is not answered when it never reached the agent (it waited behind the Stop), or
+//! when it did and the agent confirms it dropped it unread (Claude Code's
+//! `cancel_async_message`): it comes back (`steer_returned`, `steer_end.rs`) and starts the
+//! next turn, at once when the chat is idle. One the agent may have read (codex-acp answers
+//! steers only at the turn's end, a batched line stays, a dead process cannot say) ends with
+//! the turn as before: a second copy could repeat its work. An inbox notice's messages are new again and go in as a turn
+//! of their own (`inbox.rs` `notice_done`). After the person's Stop they wait as its hold says.
+//!
 //! A stopped turn always ends as stopped (`cancelled`), so clients offer Continue on it: also one
 //! whose adapter answers the cancel `end_turn` (`turns.rs` `finish_turn`), and one a Stop reached
 //! while the chat had no agent (it started, or a failover's fallback did): that Stop is taken, the
@@ -68,6 +80,18 @@ pub(super) fn forced_answer(restarted: bool) -> Value {
         mux.set("restarted", json!(true));
     }
     json!({"stopReason": "cancelled", "_meta": {"acpmux": mux}})
+}
+
+/// Whether a Stop is ending turn `turn_id` (it reads `stopping`, or acpmux ended it already):
+/// another agent's message does not go into it (`steer_end.rs` `steer_turn`, `inbox.rs`).
+pub(super) fn is_stopping(session: &Session, turn_id: &str) -> bool {
+    session.stopping.lock().unwrap_or_else(|e| e.into_inner()).as_deref() == Some(turn_id)
+        || forced_turn(session, turn_id)
+}
+
+/// Whether acpmux ended turn `turn_id` itself, its agent never answering the Stop.
+pub(super) fn forced_turn(session: &Session, turn_id: &str) -> bool {
+    session.cancel_forced_turn.lock().unwrap_or_else(|e| e.into_inner()).as_deref() == Some(turn_id)
 }
 
 impl Hub {
