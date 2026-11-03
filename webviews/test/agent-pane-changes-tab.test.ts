@@ -73,9 +73,12 @@ test("the chat opens Changes as a tab for remote chats and non-repository turns,
   const beside = app.slice(app.indexOf("diffBeside.current = async"), app.indexOf("diffBeside.current = async") + 2400);
   // A remote or Cloud chat's folder is read on its machine; only Quick Chat has no tab.
   expect(beside).toContain("if (quick || !chatCwd) return false;");
-  expect(beside).not.toContain("localCwd");
+  expect(beside).not.toContain("quick || !localCwd");
   // Outside a repository, or a file outside it: the turn's own patch for the tab.
   expect(beside).toMatch(/viewChangesPatch\(rows, rowId, path, chatCwd, files\)[\s\S]*target = \{ patch \}/);
+  // A turn with no checkpoint pair opens the folder's diff only for a chat on this Mac; a remote
+  // chat's opens the turn's own patch, not the machine's whole diff.
+  expect(beside).toMatch(/else if \(root && localCwd && viewChangesBeside\(rows, rowId, root\)\) target = \{\};/);
   // The header's Changes in a folder outside a repository asks for the tab first.
   const header = app.slice(app.indexOf("const toggleChanges = "), app.indexOf("const toggleChanges = ") + 900);
   expect(header).toContain("headerChangesInPlace(chatCwd");
