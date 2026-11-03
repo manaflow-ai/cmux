@@ -347,6 +347,59 @@ enum OnboardingHandlers {
                 self.assertEqual(result.returncode, 1, result.stdout)
                 self.assertIn("DEFAULTS tunable-source." + expected, result.stdout)
 
+    def test_self_typealias_subclass_and_protocol_helper_calls_are_tunable_sources(self):
+        # Review of #33161: these reach a Tunable (or its helper) with no Tunable token and no `Type.helper` of a
+        # type declared in the helper's file. The guard caught each before #33161 and must still.
+        base_files = {
+            "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Chrome.swift": """enum Chrome {
+    static func points(_ name: String, _ value: Double) -> Tunable<Double> { .number(name, .status, name, default: value) }
+    static let viaSelf = Self.points("viaSelf", 1)
+}
+""",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Alias.swift": """typealias TD = Tunable<Double>
+enum Alias {
+    static let qualified = TD.number("qualified", .status, "Q", default: 1)
+    static let implicit: TD = .number("implicit", .status, "I", default: 1)
+}
+""",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Base.swift": """class BaseTunables {
+    static func gap(_ name: String, _ value: Double) -> Tunable<Double> { .number(name, .status, name, default: value) }
+}
+protocol TunableFactory {}
+extension TunableFactory {
+    static func flag(_ name: String, _ value: Bool) -> Tunable<Bool> { .toggle(name, .status, name, default: value) }
+}
+""",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Sub.swift": """final class SubTunables: BaseTunables {
+    static let inherited = gap("inherited", 1)
+    static let qualified = SubTunables.gap("subQualified", 1)
+}
+struct Flags: TunableFactory {
+    static let conformed = flag("conformed", true)
+}
+""",
+        }
+        for path, text in base_files.items():
+            self.repo.write(path, text)
+        self.base = self.repo.commit("reachable helper forms")
+        for path, old, new, expected in (
+            ("CmuxNextDesign/Chrome.swift", '"viaSelf", 1', '"viaSelf", 2', "Chrome.swift:viaSelf"),
+            ("CmuxNextDesign/Alias.swift", 'default: 1)\n    static let implicit', 'default: 2)\n    static let implicit',
+             "Alias.swift:qualified"),
+            ("CmuxNextDesign/Alias.swift", '"I", default: 1', '"I", default: 2', "Alias.swift:implicit"),
+            ("CmuxNextTabs/Sub.swift", '"inherited", 1', '"inherited", 2', "Sub.swift:inherited"),
+            ("CmuxNextTabs/Sub.swift", '"subQualified", 1', '"subQualified", 2', "Sub.swift:qualified"),
+            ("CmuxNextTabs/Sub.swift", '"conformed", true', '"conformed", false', "Sub.swift:conformed"),
+        ):
+            with self.subTest(expected=expected):
+                full = "Packages/macOS/CmuxNext/Sources/" + path
+                files = dict(base_files)
+                files[full] = files[full].replace(old, new)
+                self.assertNotEqual(files[full], base_files[full], expected)
+                result = self.check(self.head(extra=files))
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("DEFAULTS tunable-source." + path.split("/")[0] + "/" + expected, result.stdout)
+
     def test_two_flags_with_one_name_are_judged_apart(self):
         two = "enum A {\n    static let isEnabled = false\n}\nenum B {\n    static let isEnabled = true\n}\n"
         self.repo.write("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Trace.swift", two)
