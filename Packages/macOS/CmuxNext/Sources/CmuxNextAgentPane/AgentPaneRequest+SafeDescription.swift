@@ -11,6 +11,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
     private var caseName: String {
         switch self {
         case .ready: "ready"
+        case .imessage: "imessage"
         case .reconnect: "reconnect"
         case .uiPointerReport: "uiPointerReport"
         case .restartAcpmux: "restartAcpmux"

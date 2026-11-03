@@ -20,7 +20,7 @@ public nonisolated enum SettingsSchema {
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
             + AgentDefaultsSettingsSchema.descriptors + HangReportsSettingsSchema.descriptors
             + MacScreenSettingsSchema.descriptors + MacScreenDebugSettingsSchema.descriptors
-            + DeviceHubSettingsSchema.descriptors + [ContextMenusSetting.showCustomizeItemDescriptor]
+            + DeviceHubSettingsSchema.descriptors + [ContextMenusSetting.showCustomizeItemDescriptor] + CmuxConfigSnapshot.imessageDescriptors
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
     }()

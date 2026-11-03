@@ -17,6 +17,7 @@ crate-type = ["staticlib", "rlib"]
 cmux-bookmarks-core = { path = "../cmux-bookmarks-core" }
 cmux-cloud-start-core = { path = "../cmux-cloud-start-core" }
 cmux-focus-core = { path = "../cmux-focus-core" }
+cmux-imessage = { path = "../cmux-imessage" }
 cmux-layout-reducer = { path = "../cmux-layout-reducer" }
 cmux-tasks-core = { path = "../cmux-tasks-core" }
 serde = { version = "1", features = ["derive"] }
