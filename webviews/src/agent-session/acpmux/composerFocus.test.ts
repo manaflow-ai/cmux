@@ -178,19 +178,23 @@ describe("composer click-away focus", () => {
       root = createRoot(container);
       root.render(React.createElement(Counting));
     });
+    // fixed-wait: proving a dropped claim never fires means outwaiting its settle (120 ms); no event marks its absence.
     const settle = () => new Promise((resolve) => setTimeout(resolve, ACTIVATION_SETTLE_MS + 30));
     // Past the first-paint claim, so only the activations below count.
+    // fixed-wait: the first-paint claim has no event of its own to wait for.
     await act(settle);
     claims = 0;
     await act(async () => {
       dom!.window.dispatchEvent(new dom!.window.Event("focus"));
       dom!.window.dispatchEvent(new dom!.window.Event("blur"));
+      // fixed-wait: a dropped claim never fires; only outwaiting its settle shows that.
       await settle();
     });
     expect(claims).toBe(0);
     // Activation that holds still claims an idle keyboard.
     await act(async () => {
       dom!.window.dispatchEvent(new dom!.window.Event("focus"));
+      // fixed-wait: the claim fires after its settle (120 ms), the behavior under test.
       await settle();
     });
     expect(claims).toBe(1);
