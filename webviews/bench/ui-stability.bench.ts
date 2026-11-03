@@ -112,10 +112,13 @@ async function round(
     let result: Round;
     if (surface.kind === "open") {
       if (!reports.load) throw new Error(`${surface.entry}: no load report`);
+      // The stage's body growing from its "Loading …" line to the mounted surface is the frame's, not the
+      // surface's: nothing that was drawn moves. Every other shift of the load counts.
+      const own = reports.load.shifts.filter((shift) => shift.sources.some((source) => source !== "body"));
       result = {
         settled: lastChange,
         afterPaint: firstContent ? Math.max(0, lastChange - firstContent) : lastChange,
-        cls: cls(reports.load),
+        cls: isChromium ? own.reduce((sum, shift) => sum + shift.value, 0) : reports.load.boxShift,
         shifted: reports.load.shifts.map((shift) => `${shift.value.toFixed(4)} ${shift.sources.join(" ")}`),
       };
     } else {
