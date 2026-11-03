@@ -2,9 +2,13 @@
 // are important"; 2026-11-02: one "Sign in to Claude" button): inline in the failed turn's card,
 // never a modal. One click on Sign in to Claude (or Codex) starts that agent's login on the machine
 // (cloudAgentLogin.ts) and opens its page: the host lets the start that took the click open the
-// page it names, once. Open sign-in page stays as a quiet way back to it. Claude's page gives a
-// code to paste back (the sign-in completes in the claude binary on the machine; cmux keeps no
-// token); Codex's asks for the code the card shows, copied on the start. Use an API key, a link
+// page it names, once. Open sign-in page stays as a quiet way back to it. Claude's automatic page
+// opens in a Chromium tab whose localhost is the chat's machine (Leo 2026-11-02: one click plus the
+// provider's approve page, with nothing else): its approve redirects to Claude's own listener there,
+// so Claude signs in with no code (cmux only carries the bytes; it never reads the code or keeps a
+// token). Where the host cannot open that tab (WebKit, a machine without remote localhost), and on
+// "Paste a code instead", Claude's other page gives a code to paste back. Codex's page asks for the
+// code the card shows, copied on the start. Use an API key, a link
 // beside it, saves one on the machine instead. Once signed in, the failed prompt goes again on the
 // person's click.
 // The code and the key live only in this component's state while it is up: never in a row, a
@@ -17,6 +21,7 @@ import { LoginStepError, type CloudSignIn as SignIn, type LoginFailure, type Log
 type Stage =
   | { at: "idle" }
   | { at: "starting" }
+  | { at: "approve"; login: LoginStart }
   | { at: "code"; login: LoginStart; busy?: boolean }
   | { at: "device"; login: LoginStart }
   | { at: "key"; busy?: boolean }
@@ -107,6 +112,30 @@ export function CloudSignIn({
       );
   };
 
+  /// Finishes a login that ends by itself: Codex's approval, or Claude's approve on its automatic
+  /// page. A code pasted meanwhile (Paste a code instead) reaches the same login and ends this too.
+  const waitFor = (login: LoginStart, mine: number) => {
+    void signIn.finish(login.loginId).then(
+      (done) => {
+        if (mine !== generation.current) return;
+        if (done) signedIn();
+        else setStage({ at: "failed", failure: "failed" });
+      },
+      (error) => {
+        if (mine !== generation.current) return;
+        open.current = undefined;
+        setStage({ at: "failed", failure: failureOf(error) });
+      },
+    );
+  };
+
+  /// The approve page did not work out (or the person prefers it): Claude's other page, on this click,
+  /// and the code field. The wait for the approve goes on.
+  const pasteInstead = (login: LoginStart) => {
+    signIn.open(login.url);
+    setStage({ at: "code", login });
+  };
+
   const start = () => {
     const mine = ++generation.current;
     setStage({ at: "starting" });
@@ -117,9 +146,25 @@ export function CloudSignIn({
           return;
         }
         open.current = login.loginId;
+        setCopied(false);
+        const auto = login.autoUrl;
+        if (auto) {
+          // The Sign in click opens Claude's automatic page on the machine; a host that cannot opens
+          // the page that gives a code instead (the same click's page credit either way).
+          void signIn.openOnMachine(auto).then((opened) => {
+            if (mine !== generation.current) return;
+            if (!opened) {
+              signIn.open(login.url);
+              setStage({ at: "code", login });
+              return;
+            }
+            setStage({ at: "approve", login });
+            waitFor(login, mine);
+          });
+          return;
+        }
         // The Sign in click opens the page too (the host lets its start open it, once).
         signIn.open(login.url);
-        setCopied(false);
         if (login.needsCode) {
           setStage({ at: "code", login });
           return;
@@ -128,18 +173,7 @@ export function CloudSignIn({
         // Codex's page asks for the code the card shows: it is on the clipboard already.
         if (login.userCode)
           void copyTextResult(login.userCode).then((done) => mine === generation.current && setCopied(done));
-        void signIn.finish(login.loginId).then(
-          (done) => {
-            if (mine !== generation.current) return;
-            if (done) signedIn();
-            else setStage({ at: "failed", failure: "failed" });
-          },
-          (error) => {
-            if (mine !== generation.current) return;
-            open.current = undefined;
-            setStage({ at: "failed", failure: failureOf(error) });
-          },
-        );
+        waitFor(login, mine);
       },
       (error) => {
         if (mine === generation.current) setStage({ at: "failed", failure: failureOf(error) });
@@ -219,6 +253,15 @@ export function CloudSignIn({
       {t("turn.signIn.openPage")}
     </button>
   );
+  const machinePageButton = (login: LoginStart) => (
+    <button
+      type="button"
+      className="cv-turn-auth-action"
+      onClick={() => login.autoUrl && void signIn.openOnMachine(login.autoUrl)}
+    >
+      {t("turn.signIn.openPage")}
+    </button>
+  );
   const cancelButton = (
     <button type="button" className="cv-turn-auth-action" onClick={cancel}>
       {t("turn.signIn.cancel")}
@@ -250,6 +293,19 @@ export function CloudSignIn({
             {t("turn.signIn.apiKey")}
           </button>
         </>
+      );
+    case "approve":
+      return (
+        <div className="cv-turn-signin">
+          <span className="cv-turn-signin__row">
+            {machinePageButton(stage.login)}
+            {cancelButton}
+          </span>
+          <span className="cv-turn-signin__text">{t("turn.signIn.approve")}</span>
+          <button type="button" className="cv-turn-error__offer-link" onClick={() => pasteInstead(stage.login)}>
+            {t("turn.signIn.pasteInstead")}
+          </button>
+        </div>
       );
     case "code":
       return (

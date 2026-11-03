@@ -61,4 +61,61 @@ struct AgentPaneSignInPageTests {
         #expect(!AgentPaneSignInPage.allowed(URL(string: "https://user:pass@claude.ai/oauth")!))
         #expect(!AgentPaneSignInPage.allowed(URL(string: "javascript:alert(1)")!))
     }
+
+    static let automatic = URL(string: "https://claude.com/cai/oauth/authorize?code=true&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback&state=s")!
+
+    /// Claude's automatic page: an allowed page whose one redirect is its own listener's
+    /// `http://localhost:<port>/callback` on the chat's machine (Leo 2026-11-02: no code to paste).
+    @Test func onlyClaudesAutomaticPageNamesALocalhostCallback() {
+        #expect(AgentPaneSignInPage.callbackPort(Self.automatic) == 54545)
+        #expect(AgentPaneSignInPage.callbackPort(Self.page) == nil)
+        let redirect = { (target: String) -> URL in
+            var parts = URLComponents(string: "https://claude.com/cai/oauth/authorize")!
+            parts.queryItems = [URLQueryItem(name: "redirect_uri", value: target)]
+            return parts.url!
+        }
+        #expect(AgentPaneSignInPage.callbackPort(redirect("http://localhost:49152/callback")) == 49152)
+        for bad in ["https://platform.claude.com/oauth/code/callback", "http://evil.example:54545/callback",
+                    "http://localhost.evil.example:54545/callback", "http://127.0.0.1:54545/callback",
+                    "https://localhost:54545/callback", "http://localhost:54545/other", "http://localhost/callback",
+                    "http://localhost:0/callback", "http://localhost:070/callback", "http://localhost:+80/callback",
+                    "http://localhost:99999/callback"] {
+            #expect(AgentPaneSignInPage.callbackPort(redirect(bad)) == nil, "\(bad)")
+        }
+        let two = URL(string: "https://claude.com/x?redirect_uri=http%3A%2F%2Flocalhost%3A1%2Fcallback&redirect_uri=http%3A%2F%2Flocalhost%3A2%2Fcallback")!
+        #expect(AgentPaneSignInPage.callbackPort(two) == nil)
+        let elsewhere = URL(string: "https://evil.example/oauth?redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback")!
+        #expect(AgentPaneSignInPage.callbackPort(elsewhere) == nil)
+    }
+
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    @MainActor private final class Opens { var count = 0 }
+
+    /// The page asks for the automatic page on the chat's machine (`browser.openIn` with
+    /// `cmux-chat-machine`): the host opens it only when it can make that tab, only for that page,
+    /// and only on the person's click; a host that cannot keeps the click for the code page.
+    @Test func theAutomaticPageOpensOnTheChatsMachineOnlyWhenTheHostCan() async {
+        let model = AgentPaneModel(host: NoHost(), sessionId: "chat")
+        let request = AgentPaneReplyRequest.openIn(url: Self.automatic, browserId: AgentPaneSignInPage.chatMachineBrowser)
+        model.transport.gestures.record(click: true)
+        #expect(await model.respond(to: request)["ok"] as? Bool == false, "no host open")
+        #expect(model.transport.gestures.isAvailable, "the click stays for the code page")
+
+        let opens = Opens()
+        model.onOpenSignInOnMachine = { url in
+            url == Self.automatic ? { opens.count += 1; return true } : nil
+        }
+        #expect(await model.respond(to: request)["ok"] as? Bool == true)
+        #expect(opens.count == 1)
+        #expect(await model.respond(to: request)["ok"] as? Bool == false, "no click, no open")
+        #expect(opens.count == 1)
+
+        model.transport.gestures.record(click: true)
+        let codePage = AgentPaneReplyRequest.openIn(url: Self.page, browserId: AgentPaneSignInPage.chatMachineBrowser)
+        #expect(await model.respond(to: codePage)["ok"] as? Bool == false, "only the automatic page")
+        #expect(opens.count == 1)
+    }
 }

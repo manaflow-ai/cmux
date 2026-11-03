@@ -433,6 +433,7 @@ final class TabContentCache {
         }
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
+        pageRequests.services?.remoteLocalhost.adoptPage(page, key: key)  // a chat's sign-in page (ChatMachineSignInTab)
         browsers[key] = entry
         pageInstalls.bump([key])
         // Pages are kept by hibernation, never by the terminal warm set.

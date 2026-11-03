@@ -585,7 +585,7 @@ import { InboxNoticeCard } from "./conversation/InboxNoticeCard";
 import { mergeInboxNotices, type InboxMessage } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
-import { cloudAgentLogin, localApiKeyLogin } from "./cloudAgentLogin";
+import { cloudAgentLogin, localApiKeyLogin, SIGN_IN_ON_MACHINE } from "./cloudAgentLogin";
 import { handoffTurns } from "./cloudHandoffTurn";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -8172,6 +8172,13 @@ function AcpmuxPane() {
         gesture: (intent) =>
           postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
         openURL: (url) => void callChipHost("browser.openIn", { url, browserId: "cmux" }),
+        // Claude's automatic page in a Chromium tab whose localhost is the chat's machine
+        // (AgentPaneSignInPage.swift); the host refuses where it cannot, and the card pastes instead.
+        openOnMachine: (url) =>
+          postNative("browser.openIn", { url, browserId: SIGN_IN_ON_MACHINE }).then(
+            () => true,
+            () => false,
+          ),
         isCurrent: (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
         currentClient: () => directClient.current ?? undefined,
       }),

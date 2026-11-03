@@ -245627,6 +245627,60 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "在瀏覽器中核准，然後貼上顯示的代碼。" } }
       }
     },
+    "turn.signIn.approve": {
+      "comment": "Agent pane: Cloud sign-in card, after Claude's sign-in page opened in a tab that reaches the Cloud machine: approving there signs Claude in with no code to paste.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Approve on the sign-in page; it finishes on its own." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "وافق في صفحة تسجيل الدخول، وسيكتمل الأمر تلقائيًا." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Odobri na stranici za prijavu; završit će se samo od sebe." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Godkend på login-siden; resten sker af sig selv." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Auf der Anmeldeseite bestätigen; der Rest geschieht von selbst." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Aprueba en la página de inicio de sesión; termina solo." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Approuvez sur la page de connexion ; la suite se fait toute seule." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Approva nella pagina di accesso; il resto avviene da solo." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サインインページで承認してください。あとは自動で完了します。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "យល់ព្រមនៅលើទំព័រចូល វានឹងបញ្ចប់ដោយខ្លួនឯង។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "로그인 페이지에서 승인하세요. 나머지는 자동으로 완료됩니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Godkjenn på påloggingssiden; resten skjer av seg selv." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zatwierdź na stronie logowania; reszta zrobi się sama." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Aprove na página de login; o resto acontece sozinho." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Подтвердите на странице входа — дальше всё произойдёт само." } },
+        "th": { "stringUnit": { "state": "translated", "value": "อนุมัติในหน้าลงชื่อเข้าใช้ ที่เหลือจะเสร็จเอง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Giriş sayfasında onaylayın; gerisi kendiliğinden tamamlanır." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Підтвердьте на сторінці входу — далі все станеться само." } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Phê duyệt trên trang đăng nhập; phần còn lại sẽ tự hoàn tất." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在登录页面上批准，其余会自动完成。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "在登入頁面上核准，其餘會自動完成。" } }
+      }
+    },
+    "turn.signIn.pasteInstead": {
+      "comment": "Agent pane: Cloud sign-in card, a quiet link that switches to pasting the sign-in code by hand.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Paste a code instead" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لصق رمز بدلًا من ذلك" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Umjesto toga zalijepi kod" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Indsæt en kode i stedet" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Stattdessen einen Code einfügen" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Pegar un código en su lugar" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Coller un code à la place" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Incolla invece un codice" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "代わりにコードを貼り付ける" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បិទភ្ជាប់កូដជំនួសវិញ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "대신 코드 붙여 넣기" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Lim inn en kode i stedet" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zamiast tego wklej kod" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Colar um código em vez disso" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Вставить код вместо этого" } },
+        "th": { "stringUnit": { "state": "translated", "value": "วางรหัสแทน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bunun yerine kod yapıştır" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Натомість вставити код" } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Dán mã thay vào đó" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "改为粘贴代码" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "改為貼上代碼" } }
+      }
+    },
     "turn.signIn.codeLabel": {
       "comment": "Agent pane: Cloud sign-in card, accessible name of the field for Claude's sign-in code.",
       "extractionState": "manual",
