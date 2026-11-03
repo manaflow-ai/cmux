@@ -68,9 +68,9 @@ describe("a tagged ask in the transcript", () => {
     expect(answerText(turnView(turn(ANSWER, "cancelled"), new Set()))).toBe(ANSWER);
   });
 
-  test("another agent's message after the turn leaves the ask in the prose", () => {
+  test("another agent's notice after the turn leaves the ask in the prose", () => {
     const drawn = turnView(
-      [...turn(ANSWER), user("Report from the timer helper", 1, { incoming: { kind: "message" } as AcpmuxRow["incoming"] })],
+      [...turn(ANSWER), user("Report from the timer helper", 1, { incoming: { kind: "notice", text: "Timer fixed" } })],
       new Set(),
     );
     expect(nextSteps(drawn)).toHaveLength(0);
@@ -87,7 +87,7 @@ describe("NextStepCard", () => {
   test("waiting: the question and one button per answer, the first with ⌘↩", () => {
     const html = renderToStaticMarkup(createElement(NextStepCard, { ask, onAnswer: async () => undefined }));
     expect(html).toContain("Add a hook that pushes them to the background?");
-    expect(html.match(/acpmux-next-step__answer/g)).toHaveLength(3);
+    expect(html.match(/acpmux-next-step__answer\b(?!s)/g)).toHaveLength(3);
     expect(html).toContain('aria-keyshortcuts="Meta+Enter"');
     expect(html).toContain("⌘↩");
   });
