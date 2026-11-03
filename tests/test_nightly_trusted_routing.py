@@ -926,21 +926,42 @@ class DaemonBesideTheApp(unittest.TestCase):
         self.assertIn('nightly_version.py marketing --track "$TRACK"', build['run'])
         self.assertIn('--next-base "$(python3 scripts/ci/nightly_version.py next-base)"', build['run'])
 
-    def test_the_daemon_takes_the_helper_pick_else_blacksmith_linux(self):
+    def test_the_daemon_takes_the_helper_pick_else_the_owned_nightly_pool(self):
+        # Nightlies take our own runners first: run 41683652930 built the daemon on
+        # blacksmith-32vcpu-ubuntu-2404 because the helper pick was empty. With no helper, NEXT's first
+        # attempt takes the all-nightly reservation; the Linux pool stays its overflow (no pins).
         source = DOC['jobs']['build-nightly-remote-daemon']['runs-on'].removeprefix('${{').removesuffix('}}')
         mini = 'glaeda-side-std-xcode-26.6'
-        base = {'github.repository_owner': 'manaflow-ai', 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
+        base = {'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux',
+                'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
+                'needs.decide.outputs.track': 'nightly-next',
                 'vars.LINUX_RUNNER': 'blacksmith-32vcpu-ubuntu-2404',
+                'vars.CI_NIGHTLY_ONLY_RUNNER': 'glaeda-nightly-only-m4pro',
                 'needs.pick-nightly-build-runner.outputs.attempt': '1',
                 'needs.pick-nightly-build-runner.outputs.helper': mini,
                 'needs.pick-nightly-build-runner.outputs.dedicated': 'glaeda-nightly-dedicated'}
         self.assertEqual(evaluate(parse_expression(source), base), mini)
         for changes in ({'needs.pick-nightly-build-runner.outputs.helper': ''},
-                        {'needs.pick-nightly-build-runner.outputs.dedicated': mini},
-                        {'github.run_attempt': 2},
-                        {'github.ref': 'refs/heads/main'}):
+                        {'needs.pick-nightly-build-runner.outputs.dedicated': mini}):
             with self.subTest(changes=changes):
-                self.assertEqual(evaluate(parse_expression(source), {**base, **changes}), 'blacksmith-32vcpu-ubuntu-2404')
+                self.assertEqual(evaluate(parse_expression(source), {**base, **changes}), 'glaeda-nightly-only-m4pro')
+        for changes in ({'github.run_attempt': 2},
+                        {'github.ref': 'refs/heads/main', 'needs.decide.outputs.track': 'nightly'},
+                        {'needs.pick-nightly-build-runner.outputs.helper': '', 'vars.CI_NIGHTLY_ONLY_RUNNER': ''}):
+            with self.subTest(changes=changes):
+                self.assertIn('RUNNER_POOLS', source)
+                self.assertNotEqual(evaluate(parse_expression(source), {**base, **changes}), 'glaeda-nightly-only-m4pro')
+        self.assertEqual(evaluate(parse_expression(source), {**base, 'github.repository_owner': 'fork'}), 'ubuntu-24.04')
+
+    def test_the_daemon_attestation_takes_the_owned_nightly_pool_first(self):
+        job = DOC['jobs']['attest-nightly-remote-daemon']
+        source = job['runs-on'].removeprefix('${{').removesuffix('}}')
+        context = {'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux',
+                   'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
+                   'vars.CI_NIGHTLY_ONLY_RUNNER': 'glaeda-nightly-only-m4pro'}
+        self.assertEqual(evaluate(parse_expression(source), context), 'glaeda-nightly-only-m4pro')
+        self.assertEqual(evaluate(parse_expression(source), {'github.repository_owner': 'fork'}), 'ubuntu-24.04')
+        self.assertEqual(job['permissions'], {'contents': 'read', 'attestations': 'write', 'id-token': 'write'})
 
     def test_the_daemon_is_a_peer_the_app_build_stops_for(self):
         peers = DOC['jobs']['build-nightly-app']['env']['NIGHTLY_PUBLISH_PEERS'].split()

@@ -316,6 +316,11 @@ pub struct HubEvent {
     pub session_id: String,
     pub record: Arc<EventRecord>,
     pub remote: Option<RemoteRef>,
+    /// The record's `session/update` line as attached connections that read it raw get it (every
+    /// origin but a peer daemon's), built by the first connection that sends it and shared by the
+    /// rest (`server::deliver`). HOT PATH AUDIT area F, row A4: a streamed token is copied and
+    /// encoded once, not once per attached connection.
+    pub update_line: Arc<std::sync::OnceLock<Option<Arc<str>>>>,
 }
 
 /// One `_acpmux/message` copy in a journal: its message id, plus for a sender's copy the chat
@@ -755,6 +760,10 @@ pub struct Hub {
     /// `_acpmux/wait` requests subscribed and not yet answered (`server/wait.rs`), shown
     /// as `_acpmux/status` `openWaits`.
     pub(crate) open_waits: std::sync::atomic::AtomicUsize,
+    /// `session/update` lines built for attached connections since start (`server::deliver`): each
+    /// copies, merges and encodes the record's params. HOT PATH AUDIT area F, row A4: once per record,
+    /// not once per connection.
+    pub(crate) session_update_encodes: std::sync::atomic::AtomicU64,
     /// `_acpmux/wait` row evaluations since start (`server/wait.rs`): each builds the summaries of
     /// the chats it waits on. A streamed token must cost none (HOT PATH AUDIT area F, row A1).
     pub(crate) wait_evaluations: std::sync::atomic::AtomicU64,
@@ -975,6 +984,7 @@ impl Hub {
             admitting: Default::default(),
             subsession_runs: Default::default(),
             open_waits: Default::default(),
+            session_update_encodes: Default::default(),
             wait_evaluations: Default::default(),
             subagent_retries: Default::default(),
             transfer_lease_changed: Notify::new(),
@@ -1991,6 +2001,7 @@ impl Hub {
                 session_id: session.id.clone(),
                 record: Arc::new(record.clone()),
                 remote: None,
+                update_line: Default::default(),
             });
         }
         (record, stored)

@@ -102,7 +102,7 @@ class SummaryTests(unittest.TestCase):
         self.assertFalse(summary["complete"])
         self.assertEqual((summary["n"], summary["ok"]), (3, 2))
         self.assertIsNone(summary["first_content_ms"]["median"])
-        self.assertEqual(cos.cell(summary, "sidebar"), "FAILED (2/3 valid)")
+        self.assertEqual(cos.cell(summary, "sidebar"), "FAILED (2/3 valid; timed_out 1)")
 
     def test_timed_out_open_with_numbers_still_fails_the_case(self):
         # The trace gave up but still reported the times it had: they are not the open's.
@@ -110,15 +110,41 @@ class SummaryTests(unittest.TestCase):
         summary = cos.summarize([open_(100), open_(200), slow])
         self.assertFalse(summary["complete"])
         self.assertEqual((summary["n"], summary["ok"], summary["timed_out"]), (3, 2, 1))
-        self.assertEqual(cos.cell(summary, "big"), "FAILED (2/3 valid)")
+        self.assertEqual(cos.cell(summary, "big"), "FAILED (2/3 valid; timed_out 1)")
         errored = cos.summarize([open_(100), open_(120, error="wait: closed")])
-        self.assertEqual(cos.cell(errored, "subagent"), "FAILED (1/2 valid)")
+        self.assertEqual(cos.cell(errored, "subagent"), "FAILED (1/2 valid; error 1)")
 
     def test_missing_empty_time_is_missing_not_zero(self):
         summary = cos.summarize([open_(100, 50), {"first_content_ms": 120, "flashes": 0}])
         self.assertFalse(summary["complete"])
         self.assertIsNone(summary["longest_empty_ms"])
-        self.assertEqual(cos.cell(summary, "restore"), "FAILED (1/2 valid)")
+        self.assertEqual(cos.cell(summary, "restore"), "FAILED (1/2 valid; no_empty_time 1)")
+
+    def test_an_open_with_no_content_that_did_not_time_out_is_invalid_as_no_content(self):
+        # #32448's step 3bbdee10: the loading watchdog ended the wait (pane_painted/loading_left with no
+        # web paint, after the trace's frame cap), so the trace said timed_out false with no first content.
+        blank = {"timed_out": False, "first_content_ms": None, "longest_empty_ms": 4800.0, "frame_count": 400,
+                 "marks_ms": {"spare_adopted": 40.0, "pane_painted": 900.0}}
+        self.assertEqual(cos.invalid_reason(blank), "no_content")
+        self.assertEqual(cos.invalid_reason({**blank, "timed_out": True}), "timed_out")
+        self.assertEqual(cos.invalid_reason(open_(100, frame_count=0)), "no_frames")
+        self.assertIsNone(cos.invalid_reason(open_(100, frame_count=12)))
+        summary = cos.summarize([open_(100), blank, blank])
+        self.assertFalse(summary["complete"])
+        self.assertEqual((summary["ok"], summary["timed_out"], summary["no_first_content"]), (1, 0, 2))
+        self.assertEqual(summary["invalid"], {"no_content": 2})
+        self.assertEqual(cos.cell(summary, "sidebar"), "FAILED (1/3 valid; no_content 2)")
+
+    def test_marks_medians_cover_every_open_that_ran_the_mark_even_when_incomplete(self):
+        # An incomplete case once reported marks_median_ms {}, which hid spare_adopted on 21 of 24 opens.
+        blank = {"timed_out": False, "first_content_ms": None, "longest_empty_ms": 4800.0,
+                 "marks_ms": {"spare_adopted": 30.0, "web_paint": None}}
+        summary = cos.summarize([open_(100, marks_ms={"spare_adopted": 10.0, "web_paint": 90.0}),
+                                 open_(200, marks_ms={"spare_adopted": 20.0, "web_paint": 190.0}),
+                                 blank, {"error": "arm: None", "marks_ms": {"spare_adopted": 999.0}}])
+        self.assertFalse(summary["complete"])
+        self.assertEqual(summary["marks_median_ms"], {"spare_adopted": 20.0, "web_paint": 140.0})
+        self.assertEqual(summary["marks_n"], {"spare_adopted": 3, "web_paint": 2})
 
     def test_error_and_empty_cases_fail(self):
         self.assertFalse(cos.summarize([{"error": "arm: None"}])["complete"])

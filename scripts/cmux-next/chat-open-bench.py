@@ -84,7 +84,7 @@ import bench_memory as bm  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 from bench_power import wipe_state  # noqa: E402  (the tagged app's saved state under the real ~/Library)
 import chat_open_frames as cof  # noqa: E402
-from chat_open_summary import cell, summarize  # noqa: E402
+from chat_open_summary import cell, invalid_reason, summarize  # noqa: E402
 import chat_open_seed_cache as seed_cache  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -510,7 +510,7 @@ def why(record):
     """What an open's log line says beyond its times, so a run with no artifact (a failed step returns
     none) still shows why an open had no first content."""
     parts = []
-    for key in ("error", "timed_out"):
+    for key in ("error", "timed_out", "invalid_reason"):
         if record.get(key):
             parts.append(f"{key}={str(record[key])[:200]}")
     if not record.get("first_content_ms"):
@@ -606,9 +606,10 @@ def watch_layout(run, out, stop_at):
     started = time.monotonic()
     while time.monotonic() < stop_at:
         asked = time.monotonic()
+        asked_wall = time.time()
         reply = run.rpc("debug.agent_pane", {"action": "layout_watch", "ms": max(100, opts.strip_ms - 200)}, timeout=20)
         if isinstance(reply, dict) and not reply.get("error") and "frames" in reply:
-            out["watch"], out["watch_asked"] = reply, asked
+            out["watch"], out["watch_asked"], out["watch_asked_wall"] = reply, asked, asked_wall
             return
         out["watch_error"] = reply
         errors = out.setdefault("watch_errors", [])
@@ -656,6 +657,7 @@ def frame_click(run, key, label, keep=False):
     # frame_strip clicks 120 ms after it starts recording (DebugFrameStrip's lead), or once ScreenCaptureKit's first
     # frame is in when that is later: the click's monotonic time, corrected from the reply's lead_ms.
     asked = time.monotonic()
+    asked_wall = time.time()
     clicked = asked + 0.12
     strip = run.rpc("debug.new_tab", params, timeout=opts.strip_ms / 1000 + 60) or {}
     if isinstance(strip.get("lead_ms"), (int, float)):
@@ -686,7 +688,9 @@ def frame_click(run, key, label, keep=False):
                                round(f.get("flatness") or 0, 4), bool(f.get("blank"))] for f in strip.get("frames") or []],
                    "frames_columns": ["ms", "content_vs_before", "content_vs_final", "flatness", "blank"],
                    "layout_watch": out.get("watch"), "drift": cof.row_drift(out.get("watch")),
-                   "watch_started_ms": round((out["watch_asked"] - clicked) * 1000) if out.get("watch_asked") else None})
+                   "watch_asked_ms": round((out["watch_asked"] - clicked) * 1000) if out.get("watch_asked") else None,
+                   "watch_started_ms": cof.watch_started_ms(out.get("watch"), out.get("watch_asked"), clicked,
+                                                            asked_wall + (clicked - asked))})
     record["transcript_ms"] = cof.transcript_ms(out.get("watch"), record["watch_started_ms"], opts.strip_ms)
     record["layout_watch_errors"] = out.get("watch_errors")  # the asks before one answered too: why the watch started late
     if not out.get("watch"):
@@ -798,9 +802,11 @@ def main():
                         say(f"chat-open: {condition} {case} {index}: first_content_frame_ms={record.get('first_content_ms')} "
                             f"final_frame_ms={record.get('final_frame_ms')} first_is_final={record.get('first_is_final')} "
                             f"between={record.get('between_frames')} blank={record.get('blank_frames')} "
+                            f"transcript_ms={record.get('transcript_ms')} watch_started_ms={record.get('watch_started_ms')} "
                             f"drift={json.dumps(record.get('drift'))}" + (f" error={str(record['error'])[:300]}" if record.get("error") else ""))
                         continue
                     record = measure_case(run, case, sessions[condition], index)
+                    record["invalid_reason"] = invalid_reason(record)
                     records.append(record)
                     say(f"chat-open: {condition} {case} {index}: first_content_ms={record.get('first_content_ms')} "
                         f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}{why(record)}")
@@ -828,6 +834,7 @@ def main():
                             time.sleep(0.5)  # test script: waiting for the app's recorder to finish
                         if not recorded(record_dir):
                             say(f"chat-open: {condition} restore {index}: the launch recording wrote no frames.json")
+                    record["invalid_reason"] = invalid_reason(record)
                     records.append(record)
                     say(f"chat-open: {condition} restore {index}: first_content_ms={record.get('first_content_ms')} "
                         f"first_image_ms={record.get('first_image_ms')} saved_pictures={pictures}{why(record)}")
