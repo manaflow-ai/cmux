@@ -295,6 +295,17 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "session search",
+        &[
+            (
+                "Find coord's own replies that named a merge sha",
+                "acpmux session search coord merged sha --role assistant",
+            ),
+            ("Search a peer session's last day", "acpmux session search mini-3/review-27310 base red --since 24h"),
+            ("The newest 5 hits as JSON", "acpmux --json session search coord broker quota -n 5"),
+        ],
+    ),
+    (
         "session queue",
         &[
             ("List the prompts waiting on coord", "acpmux session queue list coord"),
