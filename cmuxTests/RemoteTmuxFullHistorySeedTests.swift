@@ -228,7 +228,13 @@ import Testing
         connection.installStdinWriterForTesting(writer)
         connection.handleMessageForTesting(.enter)
         connection.handleMessageForTesting(.commandResult(commandNumber: 0, lines: [], isError: false))
-        connection.handleMessageForTesting(.commandResult(commandNumber: 1, lines: [], isError: false))
+        // Answer whatever the attach sent next (the window list, and any subscription), so each
+        // test starts from an empty queue.
+        var number = 1
+        while !connection.pendingCommandKindsForTesting.isEmpty {
+            connection.handleMessageForTesting(.commandResult(commandNumber: number, lines: [], isError: false))
+            number += 1
+        }
         _ = pipe.fileHandleForReading.availableData
         return Fixture(connection: connection, writer: writer, pipe: pipe)
     }
