@@ -193,6 +193,7 @@ pub(super) async fn wait(
     // Since when each chat's row has said its failed turn's retry is being decided.
     let mut deciding: HashMap<String, tokio::time::Instant> = HashMap::new();
     let mut evaluate = |hub: &Hub| -> (Vec<Value>, Vec<Value>) {
+        hub.wait_evaluations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let now = tokio::time::Instant::now();
         let summaries = hub.session_summaries_of(&ids);
         let mut rows = Vec::new();
@@ -407,3 +408,7 @@ mod turn_ended_tests {
         assert!(TurnEnded::parse(None).is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "wait_stream_tests.rs"]
+mod wait_stream_tests;
