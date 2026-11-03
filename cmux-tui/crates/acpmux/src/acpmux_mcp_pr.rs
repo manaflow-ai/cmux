@@ -200,7 +200,8 @@ pub(super) fn receipt(line: &str) -> Option<Receipt> {
 /// The newest comment's last receipt line, with the comment's author.
 fn newest_receipt(comments: &[Value]) -> Option<(Receipt, String)> {
     comments.iter().rev().find_map(|c| {
-        let found = c["body"].as_str().unwrap_or_default().lines().filter_map(receipt).last()?;
+        let found =
+            c["body"].as_str().unwrap_or_default().lines().filter_map(receipt).next_back()?;
         Some((found, c["author"]["login"].as_str().unwrap_or_default().to_owned()))
     })
 }
@@ -214,20 +215,20 @@ fn checks(rollup: &[Value]) -> (Vec<String>, usize, usize) {
         if c["__typename"].as_str() == Some("StatusContext") || c.get("context").is_some() {
             match up("state").as_str() {
                 "FAILURE" | "ERROR" => failing.push(name),
-                "PENDING" | "EXPECTED" | "" => pending += 1,
-                _ => passed += 1,
+                "PENDING" | "EXPECTED" | "" => pending = pending.saturating_add(1),
+                _ => passed = passed.saturating_add(1),
             }
             continue;
         }
         if up("status") != "COMPLETED" {
-            pending += 1;
+            pending = pending.saturating_add(1);
             continue;
         }
         match up("conclusion").as_str() {
             "FAILURE" | "TIMED_OUT" | "CANCELLED" | "STARTUP_FAILURE" | "ACTION_REQUIRED" => {
                 failing.push(name)
             }
-            _ => passed += 1,
+            _ => passed = passed.saturating_add(1),
         }
     }
     failing.sort();
@@ -292,7 +293,7 @@ pub(super) fn pr_state(pr: &Value) -> (String, Value) {
             let checks_part = if !failing.is_empty() {
                 let mut names = failing.iter().take(NAMES_SHOWN).cloned().collect::<Vec<_>>();
                 if failing.len() > NAMES_SHOWN {
-                    names.push(format!("+{} more", failing.len() - NAMES_SHOWN));
+                    names.push(format!("+{} more", failing.len().saturating_sub(NAMES_SHOWN)));
                 }
                 format!("{} ({})", plural(failing.len(), "failing check"), names.join(", "))
             } else if pending > 0 {
