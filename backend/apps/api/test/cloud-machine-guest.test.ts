@@ -175,7 +175,7 @@ describe("/v1/cloud/machines/{machine}/exec and /fs/{op}", { timeout: 60_000 }, 
     const calls = (await stub.fakeControl({})).guest_calls.slice(before) as Array<{ command: string; stdin?: string }>
     const pieces = Math.ceil(command.length / STAGE_PIECE_BYTES)
     expect(calls.length).toBe(pieces + 1)
-    const path = /\/tmp\/\.cmux-exec-[0-9a-f]{32}/.exec(calls[0].command)![0]
+    const path = /\/tmp\/\.cmux-exec-[0-9a-f]{32}/.exec(calls[0]!.command)![0]
     calls.slice(0, pieces).forEach((piece, n) => expect(piece.command).toBe(stageCommand(path, n === 0)))
     // The pieces put together are the command, byte for byte; no call's command holds it.
     expect(calls.slice(0, pieces).map((piece) => piece.stdin).join("")).toBe(command)

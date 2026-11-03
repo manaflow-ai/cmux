@@ -718,7 +718,7 @@ fn a_command_of_several_mib_runs_whole_through_the_direct_route() {
     while payload.len() < 5 * 1024 * 1024 {
         n = n.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         payload.push_str(&format!("word{} ", n % 1_000_003));
-        if n % 7 == 0 {
+        if n.is_multiple_of(7) {
             payload.push('\n');
         }
     }
