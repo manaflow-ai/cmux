@@ -16,14 +16,17 @@
 //! binary adopts them (docs/cloud-guest-upgrades.md). A new daemon that does
 //! not serve within ten minutes is replaced by the previous binary, which is
 //! trusted only once it serves again. The outcome goes to `--result` as one
-//! JSON object: `{"state":"updated"|"rolled_back"|"pending"|"failed",
+//! JSON object: `{"state":"updated"|"rolled_back"|"pending"|"busy"|"foreign"|"failed",
 //! "detail":...}`.
 //!
 //! A daemon still running an earlier copy of this same install (a binary an
 //! earlier update or upgrade replaced while that daemon kept running, which
 //! `/proc/<pid>/exe` names `<install> (deleted)`, or `cmux-tui.prev`) is
 //! updated like any other: stopping it is what that earlier update could not
-//! finish ([`runs_this_install`]).
+//! finish ([`runs_this_install`]). A daemon on any other binary (someone's
+//! own build run from another path) is `foreign`: left as it is, and no
+//! failure, since nothing went wrong with the update. A daemon that restarted
+//! since the Mac read its pid is `busy`: the next update reads it again.
 //!
 //! The lock orders this mode's own runs only; the image's root fleet
 //! upgrade script keeps its own lock.
@@ -172,7 +175,7 @@ fn apply(args: &Args) -> (&'static str, String) {
     let _ = write_atomically(&args.result, RUNNING.as_bytes());
     let own = match check(args) {
         Ok(own) => own,
-        Err(why) => return ("failed", why),
+        Err((state, why)) => return (state, why),
     };
     let previous = args.install.with_file_name("cmux-tui.prev");
     let exe = PathBuf::from(format!("/proc/{}/exe", args.daemon_pid));
@@ -273,50 +276,57 @@ fn own_install(install: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Every check before anything changes.
-fn check(args: &Args) -> Result<Staged, String> {
-    own_install(&args.install)?;
-    let canonical =
-        |path: &Path| std::fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()));
-    let own = std::env::current_exe().map_err(|e| e.to_string())?;
+/// Every check before anything changes; a refusal is its outcome state
+/// (`failed`, or the quiet `foreign` and `busy`) and a detail line.
+fn check(args: &Args) -> Result<Staged, (&'static str, String)> {
+    let failed = |why: String| ("failed", why);
+    own_install(&args.install).map_err(failed)?;
+    let canonical = |path: &Path| {
+        std::fs::canonicalize(path).map_err(|e| failed(format!("{}: {e}", path.display())))
+    };
+    let own = std::env::current_exe().map_err(|e| failed(e.to_string()))?;
     if own.parent() != canonical(&args.install)?.parent() {
-        return Err("the new build is not staged beside the binary".into());
+        return Err(failed("the new build is not staged beside the binary".into()));
     }
     // Hash the file through one descriptor, and remember which file it was.
-    let mut file = std::fs::File::open(&own).map_err(|e| e.to_string())?;
-    let opened = file.metadata().map_err(|e| e.to_string())?;
+    let mut file = std::fs::File::open(&own).map_err(|e| failed(e.to_string()))?;
+    let opened = file.metadata().map_err(|e| failed(e.to_string()))?;
     let mut digest = Sha256::new();
-    std::io::copy(&mut file, &mut digest).map_err(|e| e.to_string())?;
+    std::io::copy(&mut file, &mut digest).map_err(|e| failed(e.to_string()))?;
     let sha256: String = digest.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
     if sha256 != args.sha256 {
-        return Err("the staged build does not match the pinned checksum".into());
+        return Err(failed("the staged build does not match the pinned checksum".into()));
     }
     let exe = format!("/proc/{}/exe", args.daemon_pid);
-    let running =
-        std::fs::read_link(&exe).map_err(|e| format!("cannot read the daemon's binary: {e}"))?;
+    let running = std::fs::read_link(&exe)
+        .map_err(|e| failed(format!("cannot read the daemon's binary: {e}")))?;
     let install = canonical(&args.install)?;
-    let installed = std::fs::metadata(&install).map_err(|e| e.to_string())?;
     // The file the daemon runs, even when no path names it any more.
     let ran = std::fs::metadata(&exe).ok().map(|ran| (ran.dev(), ran.ino()));
     if !runs_this_install(&running, &install, ran) {
-        return Err(format!(
-            "the daemon (pid {}) runs {}, not this machine's {} (inode {}); restart the machine's cmux daemon from {}, then update again",
-            args.daemon_pid,
-            running.display(),
-            install.display(),
-            installed.ino(),
-            install.display(),
-        ));
+        // Someone's own build, run from another path: not this update's to
+        // replace, and nothing failed (the Mac shows nothing for it).
+        return Err(("foreign", foreign(args.daemon_pid, &running, &install)));
     }
     // The pid is the daemon serving this terminal's socket now, not a pid
-    // reused since the Mac read it.
-    let socket = socket().ok_or("no daemon socket in this terminal")?;
-    let identity =
-        super::super::machine_gate::identify(&socket).ok_or("the daemon socket did not answer")?;
+    // reused since the Mac read it. A daemon that restarted since is `busy`:
+    // nothing changed, and the next update reads its pid again.
+    let socket = socket().ok_or_else(|| failed("no daemon socket in this terminal".into()))?;
+    let identity = super::super::machine_gate::identify(&socket)
+        .ok_or_else(|| failed("the daemon socket did not answer".into()))?;
     if identity["pid"].as_i64() != Some(i64::from(args.daemon_pid)) {
-        return Err("the daemon pid is not the one serving this machine".into());
+        return Err(("busy", "the daemon restarted since the update read its pid".into()));
     }
     Ok(Staged { path: own, dev: opened.dev(), ino: opened.ino(), running: ran })
+}
+
+/// The detail of a daemon on another binary than this install.
+fn foreign(pid: i32, running: &Path, install: &Path) -> String {
+    format!(
+        "the daemon (pid {pid}) runs {}, not this machine's {}; left as it is",
+        running.display(),
+        install.display(),
+    )
 }
 
 /// What `/proc/<pid>/exe` reads for a deleted file.
