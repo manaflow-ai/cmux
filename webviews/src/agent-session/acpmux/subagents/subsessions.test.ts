@@ -6,6 +6,7 @@ import { sessionEntry } from "../sessionList";
 import {
   SubsessionStore,
   subagentDisplayName,
+  subagentTaskLabel,
   subsessionDisplayName,
   subsessionInfo,
   subsessionRows,
@@ -239,4 +240,30 @@ test("a subagent named only by its raw session/tool call id shows as Subagent, n
   expect(subagentDisplayName(t, { id: "s/call_7", name: "s/call_7" })).toBe("Subagent");
   const thread = "019a3f2e-7c41-7d22-9b1e-5a6c0d4e8f13";
   expect(subagentDisplayName(t, { id: thread, name: thread })).toBe("Subagent");
+});
+
+test("the tray line names a subagent by its task, then its name, and Subagent only when nothing names it", () => {
+  const t = translate;
+  const id = "01a19ea8-7040-7e00-879d-1e267984f2f7/toolu_01H9Jk66ek2xu2m2SaOS09M1";
+  // Leo, 2026-11-02, on a done line that read just "Subagent": its task names it.
+  expect(subagentTaskLabel(t, { id, name: id, task: "Review the subagent tray row" })).toBe(
+    "Review the subagent tray row",
+  );
+  expect(subagentTaskLabel(t, { id: "a", name: "Reviewer", task: "Review the tray motion diff" })).toBe(
+    "Review the tray motion diff",
+  );
+  expect(subagentTaskLabel(t, { id: "a", name: "Reviewer" })).toBe("Reviewer");
+  expect(subagentTaskLabel(t, { id: "a", name: "Reviewer", task: "  First line\nsecond line" })).toBe("First line");
+  // A raw id never names it; what was asked, then its kind, before "Subagent".
+  expect(subagentTaskLabel(t, { id, name: id, task: id })).toBe("Subagent");
+  expect(subagentTaskLabel(t, { id, name: id, prompt: "\nFind the regressing PR\nthen fix it" })).toBe(
+    "Find the regressing PR",
+  );
+  expect(subagentTaskLabel(t, { id, name: id, kind: "Explore" })).toBe("Explore");
+  expect(subagentTaskLabel(t, { id, name: id })).toBe("Subagent");
+  // Every other line that names it by its name still falls back to its task before "Subagent".
+  expect(subagentDisplayName(t, { id, name: id, task: "Review the subagent tray row" })).toBe(
+    "Review the subagent tray row",
+  );
+  expect(subagentDisplayName(t, { id: "a", name: "Reviewer", task: "Review the tray motion diff" })).toBe("Reviewer");
 });

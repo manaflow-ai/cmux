@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 792,
+    "verbs": 793,
     "mcp": 708
   },
   "nouns": [
@@ -12,6 +12,13 @@
           "command": "cmux accounts connect",
           "title": "Connect Account to CodeRouter…",
           "id": "accounts.connect",
+          "mcp": false,
+          "mcpTool": null
+        },
+        {
+          "command": "cmux accounts github-connect",
+          "title": "Connect GitHub",
+          "id": "accounts.githubConnect",
           "mcp": false,
           "mcpTool": null
         },
@@ -5781,7 +5788,7 @@
     }
   ],
   "mcpExempt": {
-    "credentials": 6,
+    "credentials": 7,
     "endsApp": 4,
     "systemChange": 74
   }

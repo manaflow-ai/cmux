@@ -183,3 +183,59 @@ async fn native_receiver_stream_daemon_closes_when_authority_is_cleared() {
 async fn native_receiver_stream_daemon_cancels_before_entry_readiness() {
     daemon(false).await;
 }
+
+/// A revocation while the entry is still being verified closes the entry
+/// connection at once (base red, macOS 4 of 5): the verification thread
+/// held its own copy of the socket, so the entry stayed connected until
+/// the signature check returned, seconds later.
+#[tokio::test]
+async fn a_revocation_during_entry_verification_closes_the_entry_at_once() {
+    let f = fixture();
+    let verifier = owned_receiver(30_000);
+    let directory = cmux_unix_socket::short_test_dir("stream-verify");
+    let session = directory.path().join("s.sock");
+    let path = cmux_link::entry_path::remote_entry_socket_path(&session);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let entry = tokio::net::UnixListener::bind(&path).unwrap();
+    // The verification thread waits until the test has checked the entry.
+    let (verifying_tx, verifying_rx) = std::sync::mpsc::channel::<()>();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    super::super::inbound::verify_hold::set(
+        &path,
+        Box::new(move || {
+            let _ = verifying_tx.send(());
+            let _ = release_rx.recv();
+        }),
+    );
+    let me = HostIdentity {
+        host: f["claims"]["aud"].as_str().unwrap(),
+        epoch: 4,
+        session_socket: &session,
+        sshd: "127.0.0.1:1".parse().unwrap(),
+    };
+    let (mut caller, inbound) = tokio::io::duplex(65536);
+    caller
+        .write_all(
+            format!("{}\n", json!({"service":"daemon","epoch":4,"link_token":f["token"]}))
+                .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let source =
+        SocketAddr::new(IpAddr::V6(overlay_address(f["claims"]["sub"].as_str().unwrap())), 40000);
+    let serve = serve_host_inbound(inbound, [b'a'; 32], source, &verifier, &me);
+    let check = async {
+        let (mut stream, _) = entry.accept().await.unwrap();
+        tokio::task::spawn_blocking(move || verifying_rx.recv().unwrap()).await.unwrap();
+        verifier.clear_authority();
+        let mut byte = [0u8; 1];
+        let closed = tokio::time::timeout(Duration::from_secs(1), stream.read(&mut byte)).await;
+        let _ = release_tx.send(());
+        assert!(
+            matches!(closed, Ok(Ok(0))),
+            "the entry stayed connected while its verification ran: {closed:?}"
+        );
+    };
+    let (result, ()) = tokio::join!(serve, check);
+    assert!(result.is_err());
+}

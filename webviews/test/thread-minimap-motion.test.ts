@@ -96,30 +96,6 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
       }
     });
 
-  /// Samples, after every painted frame for `ms` from now, the tick's bar width and the transcript's
-  /// offset, with the time.
-  const sample = (page: Page, ms: number) =>
-    page.evaluate((duration) => {
-      const samples: { t: number; width: number; scroll: number }[] = [];
-      (window as unknown as { __samples: typeof samples }).__samples = samples;
-      const start = performance.now();
-      return new Promise<void>((resolve) => {
-        window.cmuxAfterPaint(() => {
-          const bar = document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar');
-          const matrix = bar ? new DOMMatrixReadOnly(getComputedStyle(bar).transform) : undefined;
-          samples.push({
-            t: performance.now(),
-            width: 26 * (matrix?.a ?? 0),
-            scroll: document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop,
-          });
-          if (performance.now() - start < duration) return true;
-          resolve();
-          return false;
-        });
-      });
-    }, ms);
-  const samples = (page: Page) =>
-    page.evaluate(() => (window as unknown as { __samples: { t: number; width: number; scroll: number }[] }).__samples);
   /// The center of row `index`'s tick, in page coordinates.
   const tickPoint = (page: Page, index: number) =>
     page.evaluate((at) => {
@@ -258,23 +234,38 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     // The hover settles: the tick grown and its preview card open.
     await page.locator(".acpmux-minimap__card").waitFor({ timeout: 5_000 });
     await settled(page);
-    const sampling = sample(page, 900);
     // The click, while the target's row is mounted (an unmounted one jumps at once, by design).
-    const mounted = await page.evaluate((index) => {
+    // Capture painted frames after the click rather than waiting for a wall-clock sample window:
+    // the click writes the landing in its task, and two held paints are the state we need.
+    const clickResult = await page.evaluate((index) => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const row = document.querySelector(`.acpmux-row[data-row-id="t${index}-user"]`);
-      (window as unknown as { __over: number }).__over = performance.now();
-      document.querySelector<HTMLElement>(`[data-tick="${index}"]`)!.click();
-      return row !== null;
+      const frames: number[] = [];
+      return new Promise<{ mounted: boolean; frames: number[] }>((resolve) => {
+        let previous = node.scrollTop;
+        let steady = 0;
+        document.querySelector<HTMLElement>(`[data-tick="${index}"]`)!.click();
+        window.cmuxAfterPaint(() => {
+          const current = node.scrollTop;
+          frames.push(current);
+          if (Math.abs(current - previous) <= 1) steady += 1;
+          else steady = 0;
+          previous = current;
+          if (steady >= 2) {
+            resolve({ mounted: row !== null, frames });
+            return false;
+          }
+          return true;
+        });
+      });
     }, target);
-    expect(mounted).toBe(true);
-    await sampling;
-    const clicked = await page.evaluate(() => (window as unknown as { __over: number }).__over);
-    const scrolls = (await samples(page)).filter((entry) => entry.t >= clicked);
-    const final = scrolls.at(-1)!.scroll;
+    expect(clickResult.mounted).toBe(true);
+    const scrolls = clickResult.frames;
+    const final = scrolls.at(-1)!;
     expect(final).toBeGreaterThan(500);
-    // Every frame after the click already shows the landing: the scroll was set in the click's task.
+    // Every painted frame after the click already shows the landing: the scroll was set in the click's task.
     expect(scrolls.length).toBeGreaterThan(0);
-    for (const entry of scrolls) expect(Math.abs(entry.scroll - final)).toBeLessThanOrEqual(1);
+    for (const scroll of scrolls) expect(Math.abs(scroll - final)).toBeLessThanOrEqual(1);
     const landing = await page.evaluate((index) => {
       const view = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
       const bubble = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="t${index}-user"] .cv-user__bubble`)!;
@@ -297,20 +288,40 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     const page = await open(false);
     await page.mouse.move(900, 400);
     await settled(page);
-    const sampling = sample(page, 900);
-    await page.evaluate(() => {
-      (window as unknown as { __over: number }).__over = performance.now();
-      window.dispatchEvent(new CustomEvent("cmux-acpmux-nextTurn"));
+    // Observe the motion's own per-frame event and then wait for the painted scroll position to hold.
+    // This checks that Next Turn glides without making the result depend on elapsed milliseconds or
+    // how many WebKit frames a loaded runner happened to paint.
+    const glide = await page.evaluate(() => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const motionFrames: number[] = [];
+      const painted: number[] = [];
+      const recordMotion = () => motionFrames.push(node.scrollTop);
+      return new Promise<{ before: number; painted: number[]; motion: number[] }>((resolve) => {
+        let previous = node.scrollTop;
+        let steady = 0;
+        node.addEventListener("acpmux-motion-scroll", recordMotion);
+        const before = node.scrollTop;
+        window.dispatchEvent(new CustomEvent("cmux-acpmux-nextTurn"));
+        window.cmuxAfterPaint(() => {
+          const current = node.scrollTop;
+          painted.push(current);
+          if (Math.abs(current - previous) <= 1) steady += 1;
+          else steady = 0;
+          previous = current;
+          if (steady >= 2) {
+            node.removeEventListener("acpmux-motion-scroll", recordMotion);
+            resolve({ before, painted, motion: motionFrames });
+            return false;
+          }
+          return true;
+        });
+      });
     });
-    await sampling;
-    const started = await page.evaluate(() => (window as unknown as { __over: number }).__over);
-    const scrolls = (await samples(page)).filter((entry) => entry.t >= started);
-    const final = scrolls.at(-1)!.scroll;
+    const final = glide.painted.at(-1)!;
     expect(final).toBeGreaterThan(0);
-    // Some painted frame shows the scroll part of the way there, and it lands after a few frames.
-    expect(scrolls.some((entry) => entry.scroll > 1 && entry.scroll < final - 1)).toBe(true);
-    const landed = scrolls.find((entry) => Math.abs(entry.scroll - final) <= 1)!;
-    expect(landed.t - started).toBeGreaterThan(50);
+    // The explicit step emits a changing motion frame before it holds at the destination.
+    expect(new Set(glide.motion).size).toBeGreaterThan(1);
+    expect(glide.motion.some((scroll) => scroll > glide.before && scroll < final - 1)).toBe(true);
     await page.close();
   });
 

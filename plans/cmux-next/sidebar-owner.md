@@ -1,5 +1,46 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-02: a remote group's machine mark is a row mark's size. Leo, verbatim: "the sizes of the icons for groups
+  and workspaces aren't the same size anymore they should be". #29833 drew each workspace row's trailing marks at a
+  status mark's size (`SidebarStyle.statusGlyphSize`) but left the group header's trailing machine mark (from
+  4ef89f17eba, the remote group) at the leading glyph's side, larger than the rows under it. The header now draws it at
+  the status mark's size (`GroupHeaderRowView.machineMarkSide`, its own image so it does not depend on the rows'
+  machine mark, which #32688 removes); the non-default leading look keeps the icon column's glyph size. A group's own
+  icon already shares the workspace icon's box. Regression: `SidebarGroupIconSizeTests`, at each density and text size.
+- 2026-11-02: a group's fold clips its members to the group's height. Leo, verbatim, on collapsing a group: "the
+  collapsing group animation is kinda funky looking when the text all races up" ("*compared to claude code"). Each
+  member slid up to its header's y over its own distance while fading, so the members raced past each other and drew
+  over the rows rising below. Now the members stay where they are and fade, each masked to the group's slot under its
+  header (`SidebarListView.clipFold`), whose bottom edge closes on the `.move` spring with the rows below; an expand
+  opens the slot down the same way. The masks are render-server springs (no layout per frame), come off when the fold
+  ends or the row is reused, and are never added with motion off. Only a person's own fold of a group moves this way
+  (`foldGroup`); reload-driven folds keep the slide under the header. Regression:
+  `SidebarRowsMoveOnRenderServerTests.collapsingAGroupClipsItsMembersInPlace`,
+  `expandingAGroupOpensItsSlotOverTheMembersInPlace`, `aFoldWithoutMotionLeavesNoMask`.
+
+- 2026-11-02: a group nobody colored draws no bar, chip or wash: a plain row with only its hover and drop fills. Leo,
+  on an uncolored group's header: "WTF IS THIS GROUP COLOUR????" / "THE GROUP COLOUR SOMEHOW BEING THE THEME COLOUR???"
+  / "IT'S USELESS". `GroupTint.none.headerChip` and `headerWash` were the opaque `sidebarBackground`, which drew the
+  theme's color as a solid bar over the translucent sidebar (visible since #32198). Machine groups start with no
+  color, the members' line falls back to none (not grey), and the editor's first dot (spoken "No color") stores none
+  like the menu's clear item instead of a grey band. Picked colors draw as before. Regression:
+  `GroupNoChosenColorTests.noColorHeaderDrawsNoBarAndNoColorDotClears`.
+- 2026-11-02: a row's fill keeps an even gap from both sidebar edges and has a rounder corner. Leo, comparing
+  ChatGPT's selected sidebar row with ours: "CHATGPT HAS A SLIGHT GAP" / "WE DON'T" / "JUST ADD A SLIGHT GAP (PADDING)
+  AND SMOOTH OUT A BIT MORE OF OUR CORNERS ON THE SIDEBAR WORKSPACES". `SidebarStyle.rowEdgeGap` (the fill to the
+  sidebar's trailing edge) and `rowToPaneGap` (the fill to the curved main-pane card) are now the leading inset (6 pt
+  compact, 8 comfortable), replacing Leo 2026-10-27's 1.5 pt / 2.5 pt; `SidebarDensityTokens.rowCornerRadius` is the
+  item corner plus `space1` (8 compact, 9 comfortable, continuous). ChatGPT keeps 8 pt beside its 30 pt row, corner
+  about 9 to 10 pt. Trailing marks stay on the grid's 24 pt column; row height, icons, text and colours are unchanged.
+  Regression: `SidebarRowGutterTests`, `SidebarGridAlignmentTests`; surface spec: leo-workspace `design/sidebar.md`.
+  The trailing clearance is measured from where the fill used to end (`trailingClearanceEdge`, 1.5 pt in), so the
+  gap moves the fill and never the trailing column or a slot's resize-band clamp (`trailingColumnFrame`), at every
+  density and text size.
+
+- 2026-11-02: pinned-section header text uses the shared optical midline (`SidebarStyle.textY`), as machine
+  headers already do. Centering its full line box left the visible capitals off the chevron's center line.
+  Regression: `SidebarIconColumnTests.aBandHeaderTitleAndChevronShareTheMidLine`, across sidebar densities and text sizes.
+
 - 2026-11-02: groups with no user-chosen colour draw no dot, line, chip fill or wash.
   Leo (ask-c88148faefe): "WHY DOES THIS HAVE A LINE AND COLOR?????? WHERE IS ORANGE COMING FROM?????????? AN ORANGE DOT????"
   New groups and missing stored colours use `GroupTint.none`; explicitly chosen palette and custom colours
@@ -70,6 +111,12 @@
   painted the status artwork's 6 pt dot inside its 10 pt box. Its blue unread artwork now uses the same
   `SidebarStyle.unreadDotSize` token while retaining its cell, center and stack spacing. Other status marks
   keep their sizes; red-warning sizing is a separate change. `SidebarUnreadDotSizeTests` measures ink bounds.
+
+- 2026-11-02: Leo, beside ChatGPT's "Sent from dot" line: "this is what the chatgpt dot does" / "i don't think we
+  necessarily want these chief-operated ones looking like this". Chief-operated rows no longer draw the Chief's avatar
+  at the trailing column (replaces the 2026-11-01 entry below, cmux#30243): they look like any other row, with the one
+  spinner while running and unread/status marks as normal. The ownership mapping from acpmux tags stays; who sent a
+  message moves into the transcript. `SidebarChiefAvatarTests` covers both.
 
 - 2026-11-01: Leo: "they even show chief-operated chats". Chats owned by a Chief show that Chief’s profile avatar on the shared trailing column. The existing acpmux `mux.parent` / `mux.children` / `cmux.chief.participant` tags identify the operating Chief; names never do. Existing unread and status marks stay to its left, and hover controls replace the avatar as they replace other trailing marks. No Chief execution or chat ownership changes. `SidebarChiefAvatarTests` covers tag mapping, named Chiefs and the native hover layout.
 
@@ -261,6 +308,12 @@ Owner: the sidebar-owner agent (Chief subagent, Oct 23 2026, "one new agent that
 sidebar from now on"). Scope: workspace and group rows, nested groups, the group rail, the hover card,
 the row close (X), unread dots, densities, drag and reorder, the Home/pinned band, and sidebar
 performance.
+
+- 2026-10-30: sidebar pane gap (PR #28052, commits `8a92353e0b2`, `4e3a0a16d4c` and `c4f11ab868f` and `852496a26e1` and `ded89ea2064` and `9cf5deb0a3c`): Leo, "THE FUCKING OPERATIVE SITUATION IS THE SPACING" / "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". Card style keeps a scaled 2.5 pt plain sidebar band after each row; the resize line remains above the card in the titlebar, while `flat-sidebar-line` remains unchanged. Geometry: `SidebarPaneGapTests`.
+- 2026-10-30: sidebar pane gap style-switch repair (PR #28052, commit `4c25ba92f1b`): Leo, "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". Card and flat styles remount the resize line when the visual pane reach changes, even when their hit bands are equal. Regression: `SidebarPaneGapTests.styleSwitchRemountsTheDividerAtTheNewSurfaceEdge`.
+- 2026-10-30: sidebar pane gap synchronous remount (PR #28052, commit `b3e080abff7`): Leo, "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". `apply()` remounts the resize line immediately when pane reach changes, before its observation task can run.
+- 2026-10-30: sidebar pane gap hit-test coordinate repair (PR #28052, commit `0c7a18ed432`): Leo, "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". Pane-reach hit testing converts AppKit's superview point once, preserving right-sidebar card clicks.
+- 2026-10-30: sidebar pane gap right-sidebar hit-test repair (PR #28052, commit `de5e5413804`): Leo, "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". Extended-band hit testing preserves AppKit's superview coordinates, visibility, and right-pane clicks.
 
 ## Rule for every sidebar change
 
@@ -533,6 +586,7 @@ the gap, no row left out of place after drop or cancel).
 | [e7de5cd227e](https://github.com/manaflow-ai/cmux/commit/e7de5cd227ece4aca7bf476bba6eb985a5a62d23) | PR [#25654](https://github.com/manaflow-ai/cmux/pull/25654) (issue [#25650](https://github.com/manaflow-ai/cmux/issues/25650), first Cmd-N after launch inserts at the bottom), committed without a `Sidebar-Look:` trailer. No visual change: its only sidebar file, `Store/SidebarDocStore+Intents.swift`, adds `reshow(live:)`, which reprojects the accepted create placement with the store's last connected remotes. Projection timing only; no drawing, row layout or styling. Reviewed and logged for the Sidebar-Look sweep. |
 | [b16f04f365e..b671d11b764](https://github.com/manaflow-ai/cmux/compare/b16f04f365e...b671d11b764) | Group drag rewrite: capped card, frozen base, the pointer alone picks the slot; no blue drop line |
 | [3110ef77bed..7542622b53e](https://github.com/manaflow-ai/cmux/compare/3110ef77bed...7542622b53e) Updated card x (a592: a069f81c3d1 red, 7542622b53e fix) | The "Updated to Nightly" card's x is native again (`SidebarUpdatedCardHost`): it shows on hover at the card's top right (8 by 7 pt inset, 18 pt, the page's old spot) and takes the first click, Escape closes the card. The page's own x never showed or clicked while a Chromium page's window had the key (Lawrence 2026-10-23: "i cant X this out anymore even when hovering on it"). No row, rail or indent change. |
+| lane/update-toast-theme Updated card theme | The "Updated to Nightly" card's glass takes the theme's cast: `SidebarUpdatedCardHost` sets `CardSurfaceView.takesThemeTint`, so its veil is the theme's glass tint (`Palette.glassTint`) at the card veil's opacity instead of the neutral gray (Leo 2026-11-02: "why is the update thing unthemed"). Rim, light hairline and Reduce Transparency fill unchanged; the other sidebar cards keep the neutral veil. `Sidebar-Look: why is the update thing unthemed`. `SidebarCardSurfaceTests.theUpdatedCardTakesTheThemesTint`. |
 | [62c427ab5bd..a1af264c7a7](https://github.com/manaflow-ai/cmux/compare/62c427ab5bd...a1af264c7a7) | The Sidebar-Look gate and SidebarLookContractTests |
 | [89dbae323b5..30d164e1ec6](https://github.com/manaflow-ai/cmux/compare/89dbae323b5...30d164e1ec6) | Row close back to the trailing x (takes back #23783's dog-ear); a row without an icon starts its title at the inset (takes back c779988d57d's empty slot); look gallery test |
 | #24945 Update Ready card switch | The Automatic Updates switch starts its row at the card's text edge and the label follows (Leo 2026-10-22: "he preferred the checkbox on the left"; 2026-10-24: "I thought we said we were gonna put the toggle on the left"). The switch's size, colours, slide and cap-midline alignment, and every other part of the card, are unchanged. No row, rail or indent change. |
@@ -546,6 +600,21 @@ the gap, no row left out of place after drop or cancel).
 | sb-home-drag: the "(red)" test commit (fleet step 5afe4078388bf943720b31b7, failed as expected), the gallery commit, then this fix (green step GREEN_STEP) | Home: never draggable, and an interrupted drag leaves no look behind (Lawrence 2026-10-30, "i tried to drag home around and now it's stuck in this state"). Root cause: Home was movable like any band item (`SidebarRegionView.makeItem` wired every non-transient item's drag, `dragTile` lifted any item), and Home alone in its section dropped back there was a real move to the reducer (`place_run` gives it a new order key, so its reply carries an undo step) that changes nothing the list shows. The list's settle ends only on a refusal, a no-op reply, or a change to `sectionsRevision` or the blocks, so none came: the card stayed at rest over Home's slot with Home's tile hidden under it. Also, a block item's pressed fill was its own (`SidebarItemRowView.isPressed`), cleared only by its own release, so a press or drag ended by key loss, app deactivation, Escape or a lost release left it lit. Now `LayoutItem.isMovable` (false for Home) refuses the drag at press time (`SidebarItemRowView.isMovable`, `SidebarRegionView.isMovable`, `dragTile`), the drop table keeps a gap off the place before Home (`keepingFixed`), a drop that keeps the items where they are sends nothing and goes back as a cancel (`dropKeepsPlace`), and `SidebarListView.endPointerGesture` is the one end of every press and drag the list owns, block items included (`endItemPresses`, `holdsPointerGesture`); Escape (a local key monitor) and a release that did not reach the drag (any window, after its dispatch) run it. Tests: `SidebarHomeDragTests`, `SidebarInterruptedDragLookTests`; `SidebarListTilePressTests` and `MouseDownSelectsTests` drag the App Store now. Gallery `AAHomeDragGalleryTests` (`home-drag-gallery.tar`). |
 | sb-pinned-noclose: the "(red)" test commit 25dc4385b070 (fleet step d9c7000aa8bdfea4117679f6, failed as expected), then this fix (green step 429487410d159326bcc70d59, 11 suites; after the rebase onto bb5fb9695d26's slot grid, step 86bf274364ead68ede41bddf, compiled 09ab58dd459b860f6967ff87 and, after the landing rebase, b807f5fa67d0aa23c1238598; `SidebarLookContractTests.theHoverCloseIsTheRowsTrailingX` at comfortable fails the same on the base d9aed8ada067, step f370c699a01cbe63b7ed507b, in unpinned workspace rows this range does not touch) | Pinned rows and pinned tabs show no hover close (Lawrence msg 19392: "hover on pinned tab should not have close button, should only be able to close in right click"). `SidebarItemRowView+HoverActions` drew a close x beside the ⋮ on every workspace band item (all of them pinned: the Pinned block, "cmux Performance Lead"); the x, `onClose` and `SidebarRegionView.onCloseWorkspace` are gone, and the ⋮ sits where the x sat (the trailing column). A pinned workspace drawn as a list row (`WorkspaceRowView`, `SidebarModel.workspacePin`) draws no x on hover either; its ⋮ takes the x's place as on a row that cannot close. `TabChromeVisibility.resolve` keeps a pinned tab's icon on hover with no x (it swapped them, HQ #4743), so the tab has no close hit rect and no accessibility close child. Close stays in each right-click menu; Cmd-W unchanged. Middle-click unchanged: a band row ignores it (`SidebarMiddleClick` acts only on list workspace rows), a pinned tab closes. Tests: `PinnedNoHoverCloseTests`; `TabHoverCloseVisibilityTests`, `SidebarMenuHeldControlsTests` and `SidebarTrailingSlotTests` updated to the rule. Gallery `AAPinnedNoCloseGalleryTests` (`pinned-noclose-gallery.tar`), crops in `~/fun/cmux-galleries/pinned-noclose/` (before step 0e4d0d61949f9c07103cd323, after step bce755189ce1fa20d1a55aad). Middle-click on a tab has no behavior test here: a synthesized middle button did not reach the strip's close on the runner. |
 | [bb5fb9695d26](https://github.com/manaflow-ai/cmux/commit/bb5fb9695d264084176a2b75bebc270d52c4a352) (#27954, Leo, merged on GitHub with no `Sidebar-Look:` trailer; reviewed), then sb-x-contract 157dc0ebd18d (base red: step f370c699a01cbe63b7ed507b at d9aed8ada067, no new red commit; green step 2c3fb74dc697a3e6dcfcd020, 10 suites; compiled 8e2f5c131839bb80523facbd and, after the landing rebase, 1fdacf8793bc773eb6471f7a) | #27954 keeps trailing accessories clear of the resize edge: the band now reaches 2 pt into the sidebar (was 4) and the trailing column's inset became a fixed clearance, `space1` + that 2 pt + Search's overhang over the slot (7 pt at the app's compact density), in place of the row's `horizontalInset`. That moved the column 1 pt left at compact (6 pt inset) and 1 pt right at comfortable (8 pt inset), so a hovered comfortable row's × ended 0.5 pt past its row's inset: `SidebarLookContractTests.theHoverCloseIsTheRowsTrailingX` failed for every unpinned workspace row (loose, member, nested). Lawrence's rule wins (the hover close is the row's own × at the end of the title's line, inside the row's inset, centered on that line, controlSize square; dots and spinners share one trailing column), and Leo's goal is kept: `SidebarStyle.trailingColumnInset` is now `max(horizontalInset, resize clearance)`, the one constant every row, header, band item and the footer Search read. Comfortable is back on the pre-#27954 column; compact keeps #27954's. Look change: none against the contract (comfortable trailing marks and controls 1 pt left of #27954, where they were before it). Tests: `SidebarLookContractTests`, `SidebarTrailingColumnTests`, `SidebarTrailingSlotTests`, `SidebarRowTitleAndCloseTests`, `PinnedNoHoverCloseTests`, `TabHoverCloseVisibilityTests`, `SidebarMenuHeldControlsTests`, `SidebarResizeHitAreaTests`, `SidebarFooterSearchGeometryTests`, `SidebarSearchButtonTests`. |
+| [1982cb11cee](https://github.com/manaflow-ai/cmux/commit/1982cb11cee) | PR [#30372](https://github.com/manaflow-ai/cmux/pull/30372): keeps the sidebar's queued events across a snapshot refresh (`Store/SidebarDocStore.swift`). Store timing only; no visual change. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
+| [2fed73b74db](https://github.com/manaflow-ai/cmux/commit/2fed73b74db) | PR [#29653](https://github.com/manaflow-ai/cmux/pull/29653): the update download card can be cancelled: text on the left, a larger cancel button on the right, centred vertically (`SidebarNoticeCard`, `SidebarNoticeCardView`, `SidebarIconButton`). Visual change to the update card. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
+| [47f791e53da](https://github.com/manaflow-ai/cmux/commit/47f791e53da) | PR [#28205](https://github.com/manaflow-ai/cmux/pull/28205): stops the cascade when several rows are inserted at the top (`Logic/SidebarInsertMotion.swift`). Motion only; resting look unchanged. Its record is the section "Top workspace insert lands without a cascade (2026-10-31)", not a row here, which the sweep does not read; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
+| [5cdb7e74e99](https://github.com/manaflow-ai/cmux/commit/5cdb7e74e99) | PR [#28024](https://github.com/manaflow-ai/cmux/pull/28024): removes the redundant `local · <session title>` second line from rows and hover cards (Leo, 2026-10-30: "i dont like this double line thing"; `WorkspaceRowContent`, `WorkspaceHoverCardContent`). Visual change: rows are one line. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
+| [8b5e78e5e78](https://github.com/manaflow-ai/cmux/commit/8b5e78e5e78) | PR [#31783](https://github.com/manaflow-ai/cmux/pull/31783): a folded session's step or title change no longer relays out the list; only its roll-up state does (`SidebarSessionTree`, `SidebarRowIndex`). Performance; no visual change. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
+| [9175c1bb438](https://github.com/manaflow-ai/cmux/commit/9175c1bb438) | PR [#28651](https://github.com/manaflow-ai/cmux/pull/28651): chat history rows keep their harness identity and icon (`SidebarChatHistory`, `SidebarChatHistoryRow`, `SidebarChatHistoryView`). Visual change: the right harness mark per row. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
+| [96a5b7918b4](https://github.com/manaflow-ai/cmux/commit/96a5b7918b4) | PR [#32081](https://github.com/manaflow-ai/cmux/pull/32081): Priority rows tint the machine tag with `MachineColor`, as the list rows do (`Views/Priority/SidebarPriorityRowView.swift`). Visual change to the Priority machine tag. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
+| [c1497145539](https://github.com/manaflow-ai/cmux/commit/c1497145539) | PR [#30984](https://github.com/manaflow-ai/cmux/pull/30984): a hovered row with no tree control or chip keeps its title's full width instead of reserving trailing space (`WorkspaceRowView+Rendering.swift`). Visual change: no title truncation on hover. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
+| [d71ebe832a0](https://github.com/manaflow-ai/cmux/commit/d71ebe832a0) | PR [#29633](https://github.com/manaflow-ai/cmux/pull/29633): the blue unread dot is 8 pt everywhere, from one token (`SidebarStyle`, `UnreadBadgeView`, `SidebarItemRowView`, `SidebarPriorityRowView`). Visual change: one dot size. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
+| [d87662ff9de](https://github.com/manaflow-ai/cmux/commit/d87662ff9de) | PR [#32330](https://github.com/manaflow-ai/cmux/pull/32330): a picked-up row stands on the window's own glass with no frost of its own (`Views/DragLiftView.swift`). Visual change to the drag lift; its `Sidebar-Look:` trailer quotes Leo ("when you're tracking a workspace, or you're tracking a group") but the commit did not update this note. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
+| [e716128c91a](https://github.com/manaflow-ai/cmux/commit/e716128c91a) | PR [#31285](https://github.com/manaflow-ai/cmux/pull/31285): a picked-up workspace or group stays see-through, clear glass (`Views/DragLiftView.swift`). Visual change to the drag lift; superseded in part by d87662ff9de above. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
+| [f1c4971aed6](https://github.com/manaflow-ai/cmux/commit/f1c4971aed6) | PR [#28407](https://github.com/manaflow-ai/cmux/pull/28407): carry of #28037: Cloud machine transitions and failed changes show in the section and hover card (`MachineLinkState`, `SidebarSection`, `WorkspaceHoverCardContent`). Visual change; its `Sidebar-Look:` trailer quotes Leo (2026-10-29, Cloud UI "up to snuff") but the commit did not update this note. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
+| [f4aaef25c31](https://github.com/manaflow-ai/cmux/commit/f4aaef25c31) | PR [#30332](https://github.com/manaflow-ai/cmux/pull/30332): rolls up group status without per-row allocations (`Model/SidebarGroup.swift`). Performance; no visual change. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
+| [fc4ad465bae](https://github.com/manaflow-ai/cmux/commit/fc4ad465bae) | Direct commit: the Updated card follows the sidebar's density: padding, text, button and corner (`SidebarDensityTokens`, `SidebarUpdatedCardHost`). Visual change to the Updated card. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
+| [fc77da95056](https://github.com/manaflow-ai/cmux/commit/fc77da95056) | PR [#31416](https://github.com/manaflow-ai/cmux/pull/31416): every row status mark draws at the red warning's size (`Views/RowBadgeView.swift`). Visual change: one status-mark size. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
 
 ## Daemon hand-off: new groups first below Home (for the next PL-daemon owner)
 
@@ -1051,6 +1120,38 @@ An empty group now keeps only its header at rest. The header's existing + appear
 ## Each space owns its pins and groups (2026-10-29)
 
 - Leo 2026-10-29: "could u guys also now work on the per space pins and groups? rn anything u make in teh default space goes across to new ones". No visual change: rows, headers, insets and the Pinned block look the same. What changes is which space draws a group or a Pinned link, tab or app: a new group stores the acting window's space as its `profile`, a Pinned item stores it as `extra.room`, and a window on space S draws only the ones that belong to S (anything made before reads as the default space's). Commits 68c7d49b5bc and 9fcf4ab6c1c carry no trailer; reviewed and logged here as no visual change. A link, tab or app moved into Pinned from another band (the band's Move, a document drag) stores the acting window's space too, in the same change (`item.update {room}`): 4e44c4baef8 and af2b1a3f8eb, no trailer, logged here as no visual change. A machine section's group lists with its parent in every space (`SidebarDocSections.sections`). Test: `SidebarSpaceOwnsPinsAndGroupsTests`. Pending `item.update` fields and a pending New Group's space (28d1f36386e, no trailer) are logged here as no visual change. An item or group naming a space that is gone (deleted, not mirrored back yet) reads as the default space's (`SidebarDocItem.owningRoom`), so none is left in no window; Delete Space with `moveTo` and Move Group to Space move the stored space with it.
+
+## A Cloud or remote workspace is named once, in the hover card's header (2026-11-02)
+
+- Leo 2026-11-02, on the hover card of a Cloud workspace that said Cloud four times (a cloud icon before the title, a
+  "Cloud" row with another cloud icon, "Cloud" under the Terminal tab, and the tiny cloud on the row behind it): "isn't
+  this extremely stupid looking?" / "the tiny cloud icon the repeated cloud cloud cloud". The card's header names the
+  machine once, "Cloud" or the remote machine's name in the secondary ink (its color pick when the person picked one)
+  right after the title, its connection dot beside it; the title has no icon on such a card and the separate Cloud row
+  is gone. A tab row names a machine only when the tab runs somewhere other than the header says; this Mac's rows name
+  no machine either (see the next section). The workspace row draws no machine glyph (the trailing machine mark of #29833, itself replacing #22763's
+  leading glyph); its accessibility label still names the machine. Replaces the hover host row of #30244 and the
+  per-row machine of #31511 on remote cards. Gallery: "Cloud workspace · machine named once · chosen". Tests:
+  `WorkspaceHoverHostIdentityTests.aCloudCardNamesItsMachineExactlyOnce`, `WorkspaceTabHoverCardRichRowsTests`,
+  `SidebarMachineMarkTests.aRowOnAnotherMachineDrawsNoMachineGlyph`, `HoverCardMachineColorTests`.
+
+## Hover card tab rows close on ✕, never flicker, and keep their line short (2026-11-02)
+
+- Leo 2026-11-02 23:55Z: "YOU SHOULD BE ABLE TO CLOSE THESE TABS FROM THE HOVER PREVIEW AND THE HOVER PREVIEW SHOULD NOT
+  MAKE THE SIDEBAR FLICKER ... I HAVE IT AS MY LAST HOVERED THING THEN I LEAVE IT THEN I GO BACK AND IT RE-RENDERS THE
+  SPINNER VIEW" / "PLUS THE PLACEMENT LOOKS LIKE SHIT".
+- A hovered tab row shows a ✕ in its trailing slot (over the unread dot) that sends `SidebarIntent.closeTab`; the card
+  stays open and the closed tab leaves it through `contentChanged`. A card with no `onClose` shows no ✕.
+- Coming back to the row whose card is still fading out shows the same card with no crossfade
+  (`HoverCardMachine.lastShownID`; `HoverCardPanel.present` no longer crossfades a body over itself), so its spinners
+  keep turning in place; a row shown again for the same tab keeps its hover state.
+- The row's spinner sits right after its title, centred on the title line. Its meta line drops "Working" (the spinner
+  says it), names "This Mac" only on the `namesLocalMachine` variant, ends in an ellipsis when too long, and a lane
+  session name ("lane-vm-11/nightly-rollback") shows its last part. Gallery: "Tab rows · spinner after the title ·
+  chosen", "Tab rows · close ✕ on hover · chosen", "Tab rows · only another machine named · chosen". Tests:
+  `WorkspaceTabHoverCardTests.aHoveredRowsCloseButtonClosesItsTabAndKeepsTheCard`,
+  `WorkspaceHoverCardBehaviorTests.comingBackToTheSameRowShowsTheSameCardWithNoCrossfade`,
+  `WorkspaceTabHoverCardRichRowsTests`.
 
 ## Reviewed behavior-only commits
 

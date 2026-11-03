@@ -162,6 +162,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
 
+      - name: Validate push triggers name their branches
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_push_trigger_branches.py
+
       - name: Validate the CI timing readout
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_timing_readout.py
@@ -979,9 +983,9 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_runner_label_policy.py
 
-      - name: Validate no new job takes one Linux runner size
+      - name: Validate no job takes one runner size
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_linux_single_size.py
+        run: python3 tests/test_ci_linux_single_size.py && python3 tests/test_ci_no_single_size_pins.py
 
       - name: Validate stalled CI paths use the runner set
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1833,6 +1837,7 @@ jobs:
           python3 tests/test_release_signer_nightly.py
           python3 tests/test_dev_app_linux.py
           python3 tests/test_nightly_signer_jobs.py
+          python3 tests/test_fetch_run_artifact.py
           python3 tests/test_signer_parity_compare.py
 
       - name: Validate the release app signer

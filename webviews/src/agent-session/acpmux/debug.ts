@@ -164,7 +164,7 @@ export function createAcpmuxDebug(
                 : fixture === "organization"
                   ? organizationRows(Date.now() - 120_000)
                   : fixture === "shared"
-                    ? sharedRows(Date.now() - 720_000)
+                    ? sharedRows(Date.now() - 1_020_000)
                     : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
@@ -388,10 +388,11 @@ export function createAcpmuxDebug(
   };
 }
 
-/// The prompts as drawn, top first: the "From the Chief" label, the collapsed view line and the bubble.
+/// The prompts as drawn, top first: who it is from (the "Sent from <Chief>" label, or a person's author
+/// chip, "Sam (guest)"), the collapsed view line and the bubble.
 function userBubblesState() {
   return [...document.querySelectorAll<HTMLElement>(".cv-user")].slice(0, 8).map((row) => ({
-    from: row.querySelector(".cv-user__from")?.textContent ?? null,
+    from: (row.querySelector(".cv-user__from") ?? row.querySelector(".cv-author__name"))?.textContent ?? null,
     context: row.querySelector(".cv-user__context summary")?.textContent ?? null,
     text: (row.querySelector(".cv-user__bubble")?.textContent ?? "").slice(0, 400),
     top: Math.round(row.getBoundingClientRect().top),

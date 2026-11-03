@@ -8,6 +8,7 @@ mod activity;
 pub(crate) mod admission;
 mod adopted_fences;
 mod adoption;
+pub(crate) mod agent_hold;
 mod agent_pairs;
 mod message_events;
 pub use agent_pairs::PairGuard;
@@ -44,6 +45,8 @@ mod first_work_tests;
 mod fork;
 #[cfg(test)]
 mod host_notice_tests;
+#[cfg(test)]
+mod peer_notice_cost_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]

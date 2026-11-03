@@ -8,8 +8,15 @@ enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
     /// Every row highlight ends on the same outer inset.
     static var rowTrailingTrim: CGFloat { rowEdgeGap - horizontalInset }
-    /// Leo 2026-10-27: "one or two pixels, 1.5"; content columns do not change the fill edge.
-    static let rowEdgeGap: CGFloat = 1.5
+    /// The gap between a row's fill and the sidebar's trailing edge: the same as its leading inset, so a
+    /// highlight sits inside the sidebar with an even gap on both sides, as ChatGPT's does (8 pt beside its
+    /// 30 pt row; ours is 6 compact, 8 comfortable). Leo 2026-11-02: "CHATGPT HAS A SLIGHT GAP" / "WE DON'T".
+    /// Replaced Leo 2026-10-27's 1.5 pt ("one or two pixels, 1.5"). Content columns do not change the fill edge.
+    static var rowEdgeGap: CGFloat { horizontalInset }
+    /// The plain sidebar background between a row's trailing edge and the curved main-pane card: the
+    /// same gap as `rowEdgeGap`, so a selected row stops as far short of the card as of a flat
+    /// sidebar's edge, with no resize line or chrome shade in the band.
+    static var rowToPaneGap: CGFloat { rowEdgeGap }
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// Height of a placeholder row's bar (about a caption's x-height).
     static var placeholderBarHeight: CGFloat { Metrics.space3 }
@@ -184,8 +191,8 @@ enum SidebarStyle {
     /// The Debug `sidebar.groupLineLayout` choice.
     static var groupLineLayout: SidebarGroupLineLayout { groupChromeShape ? .joined : SidebarGroupLineLayout.tunable.value }
     /// How far inside a header's left edge Chrome sets its line (Leo 2026-10-19: about 4 to 5 pt): the line's right
-    /// edge meets the end of the bar's corner arc.
-    static var groupLineCornerInset: CGFloat { max(0, rowCornerRadius - groupBarWidth) }
+    /// edge meets the end of the app's item corner arc (the row fill's own corner is rounder since 2026-11-02).
+    static var groupLineCornerInset: CGFloat { max(0, Metrics.itemCornerRadius - groupBarWidth) }
     /// How much further left than its rail a group header's bar reaches: `inside`, the corner inset, so the line sits
     /// under the bar's rounded corner (never past the list's edge, `SidebarListView.railReach(for:)`).
     static var groupHeaderOverhang: CGFloat { groupLineLayout == .inside ? groupLineCornerInset : 0 }

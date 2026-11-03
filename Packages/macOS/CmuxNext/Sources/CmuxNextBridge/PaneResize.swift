@@ -10,6 +10,8 @@ public nonisolated enum PaneResize {
     public enum Change: Equatable, Sendable {
         case splitRatio(LayoutSplitID, Double)
         case columnWidth(LayoutColumnID, Double)
+        /// Every row height of a rows-v1 column (permille), one row edge moved.
+        case rowHeights(LayoutColumnID, [RowHeight])
     }
 
     /// Default keyboard step: 5% of the split or of the viewport width.
@@ -29,6 +31,10 @@ public nonisolated enum PaneResize {
             return stepped(ratio, by: delta, within: SplitRatio.range, shown: shown?.ratio(of: split)).map { .splitRatio(split, $0) }
         }
         guard let column = layout.column(containing: pane) else { return nil }
+        // A pane in a row (rows-v1) with no vertical split of its own: up and down move its row's edge.
+        if axis == .vertical, column.hasRows, column.dock?.edge.isBand != true {
+            return shown?.rowHeights(moving: pane, in: column, by: delta).map { .rowHeights(column.id, $0) }
+        }
         let range = ColumnWidthPreset.widthRange
         // A top or bottom dock's extent is its height: up and down move its
         // inner edge (down grows a top dock, up grows a bottom dock).
@@ -53,6 +59,27 @@ public nonisolated enum PaneResize {
         let current = min(max(value, lower), upper)
         let next = min(max(current + delta, lower), upper)
         return abs(next - current) < 1e-9 ? nil : next
+    }
+
+    /// One keyboard resize press on `pane` (`resizePane*`): the change ``change(for:direction:in:shown:step:)`` makes,
+    /// inside what `view` shows, written to `model`. False when nothing can move that way (the caller refuses
+    /// quietly); true for a pane on no screen (nothing to say).
+    @MainActor
+    public static func press(_ pane: LayoutPaneID, _ direction: LayoutDirection, model: LayoutModel, view: LayoutRootView) -> Bool {
+        guard let screen = model.screen(containing: pane) else { return true }
+        let change = change(for: pane, direction: direction, in: screen.layout, shown: view.shownResizeRange(ofScreenContaining: pane))
+        // Every pane of the screen keeps its content's size through the spring and lays it out once at the landing.
+        if change != nil { view.keyboardResizeWillChange(screenContaining: pane) }
+        switch change {
+        case .splitRatio(let split, let ratio): model.setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
+        case .columnWidth(let column, let width): model.setColumnWidth(column, width: width, transaction: .make(), phase: .ended)
+        case .rowHeights(let column, let heights): model.setRowHeights(column, heights: heights, fit: heights.reduce(0) { $0 + $1.height } == 1000)
+        case nil: return false
+        }
+        // The spring starts in the key's own turn (as a split's frame does, `LayoutRootView.syncWithModel`): the very
+        // next display frame moves, never one that ran before the layout's observation turn.
+        view.syncWithModel()
+        return true
     }
 
     /// The column before (`forward == false`) or after the pane's column.

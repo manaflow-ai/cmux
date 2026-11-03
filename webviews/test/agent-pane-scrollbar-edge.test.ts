@@ -38,7 +38,7 @@ await requireBrowserLane("agent-pane-scrollbar-edge.test.ts", async () => {
           const toggle = page.locator("button.acpmux-session-info-toggle");
           const panel = page.locator("aside.acpmux-session-info");
           await toggle.waitFor();
-          if ((await panel.count()) === 0) await toggle.click();
+          if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
           await page.locator('.acpmux-session-info[data-presence="shown"]').waitFor();
           await settled(page);
           const geometry = await page.evaluate(() => {
