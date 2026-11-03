@@ -523,3 +523,113 @@ async fn a_failed_blob_upload_does_not_create_an_artifact() {
     assert_eq!(seen.len(), 2);
     assert!(seen[1].line.starts_with("POST /v1/artifacts/blobs "));
 }
+
+// The legacy ArtifactFile from the platform's pre-reference OpenAPI document.
+fn legacy_artifact_schema() -> Value {
+    json!({"paths": {"/v1/artifacts": {"post": {"requestBody": {"content": {
+        "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCreate"}}
+    }}}}}, "components": {"schemas": {
+        "ArtifactCreate": {"properties": {"files": {"items": {"$ref": "#/components/schemas/ArtifactFile"}}}},
+        "ArtifactFile": {"properties": {"name": {"type": "string"}, "contentBase64": {"type": "string"}},
+            "required": ["name", "contentBase64"]}
+    }}})
+}
+
+#[tokio::test]
+async fn legacy_schema_fallback_keeps_all_3_mib_and_retries_conflict_without_reupload() {
+    let bytes = Bytes::from(vec![b'x'; 3 << 20]);
+    let id = "01J8Z7Q4M6N2K5P8R3T1V9W0X2";
+    let (base, server) = fixture(vec![
+        (200, JSON, json!({"headSha": "1".repeat(40)}).to_string().into_bytes()),
+        (
+            200,
+            JSON,
+            json!({"sha256": "a".repeat(64), "size": bytes.len()}).to_string().into_bytes(),
+        ),
+        (400, JSON, Vec::new()),
+        (200, JSON, legacy_artifact_schema().to_string().into_bytes()),
+        (409, JSON, json!({"currentHeadSha": "2".repeat(40)}).to_string().into_bytes()),
+        (200, JSON, json!({"id": id, "headSha": "3".repeat(40)}).to_string().into_bytes()),
+    ])
+    .await;
+    let files = [File {
+        name: "data.txt".into(),
+        bytes: bytes.clone(),
+        content_type: Some("text/plain".into()),
+    }];
+    let result = client(&base).save("Dataset", "other", &files, &json!({})).await.unwrap();
+    assert_eq!(result.0, id);
+    let seen = server.await.unwrap();
+    assert_eq!(seen.len(), 6);
+    assert!(seen[3].line.starts_with("GET /openapi.json "));
+    let staged: Value = serde_json::from_slice(&seen[2].body).unwrap();
+    assert!(staged["files"][0].get("contentBase64").is_none());
+    for request in &seen[4..] {
+        let body: Value = serde_json::from_slice(&request.body).unwrap();
+        assert!(body["files"][0].get("blobSha256").is_none());
+        assert_eq!(
+            BASE64.decode(body["files"][0]["contentBase64"].as_str().unwrap()).unwrap(),
+            bytes
+        );
+        assert_eq!(body["files"][0]["contentType"], "text/plain");
+    }
+    let retry: Value = serde_json::from_slice(&seen[5].body).unwrap();
+    assert_eq!(retry["expectedHeadSha"], "2".repeat(40));
+}
+
+#[tokio::test]
+async fn legacy_fallback_preserves_oversized_and_unrelated_refusals() {
+    let mut modern = legacy_artifact_schema();
+    modern["components"]["schemas"]["ArtifactFile"]["required"] = json!(["name"]);
+    modern["components"]["schemas"]["ArtifactFile"]["properties"]["blobSha256"] =
+        json!({"type": "string"});
+    for (status, refusal, schema, size) in [
+        (400, Vec::new(), Some(legacy_artifact_schema()), (8 << 20) + 1),
+        (400, Vec::new(), Some(json!({"components": {"schemas": {}}})), 1),
+        (400, Vec::new(), Some(modern), 1),
+        (401, Vec::new(), None, 1),
+        (400, Vec::new(), None, 1),
+        (400, json!({"code": "artifacts.bad_path"}).to_string().into_bytes(), None, 1),
+        (403, json!({"code": "artifacts.unauthorized"}).to_string().into_bytes(), None, 1),
+    ] {
+        let mut answers = vec![
+            (200, JSON, json!({"headSha": null}).to_string().into_bytes()),
+            (200, JSON, json!({"sha256": "a".repeat(64), "size": size}).to_string().into_bytes()),
+            (status, JSON, refusal.clone()),
+        ];
+        if status == 400 && refusal.is_empty() {
+            answers.push(match schema {
+                Some(value) => (200, JSON, value.to_string().into_bytes()),
+                None => (404, JSON, Vec::new()),
+            });
+        }
+        if status == 401 {
+            answers.push((401, JSON, refusal.clone()));
+        }
+        let expected_requests = answers.len();
+        let (base, server) = fixture(answers).await;
+        let files = [File {
+            name: "data.bin".into(),
+            bytes: Bytes::from(vec![0xff; size]),
+            content_type: None,
+        }];
+        let error = client(&base).save("Dataset", "other", &files, &json!({})).await.unwrap_err();
+        assert!(error.to_string().contains(&format!("HTTP {status}")), "{error:#}");
+        assert_eq!(server.await.unwrap().len(), expected_requests, "no inline create on refusal");
+    }
+}
+
+#[test]
+fn legacy_fallback_obeys_only_the_old_api_inline_and_rpc_contract() {
+    let one =
+        |name: String, size| File { name, bytes: Bytes::from(vec![0u8; size]), content_type: None };
+    assert!(
+        legacy_inline_files(&(0..257).map(|i| one(format!("{i}.txt"), 0)).collect::<Vec<_>>())
+            .is_none()
+    );
+    assert!(
+        legacy_inline_files(&(0..4).map(|i| one(format!("{i}.bin"), 5 << 20)).collect::<Vec<_>>())
+            .is_none()
+    );
+    assert!(legacy_inline_files(&[one("too-big.bin".into(), (8 << 20) + 1)]).is_none());
+}

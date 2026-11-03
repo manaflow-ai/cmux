@@ -385,6 +385,33 @@ impl Artifacts {
         Ok(Value::Object(result))
     }
 
+    /// Effect 4 returns an empty 400 for schema failures. Confirm the advertised legacy
+    /// schema before treating one as a missing blob-reference capability.
+    async fn legacy_create_schema(&self) -> bool {
+        let Ok(url) = self.url("/openapi.json", &[]) else { return false };
+        let Ok(spec) = self.json("artifact schema", |http| http.get(url.clone())).await else {
+            return false;
+        };
+        let file = spec.pointer("/components/schemas/ArtifactFile");
+        spec.pointer(
+            "/paths/~1v1~1artifacts/post/requestBody/content/application~1json/schema/$ref",
+        )
+        .and_then(Value::as_str)
+            == Some("#/components/schemas/ArtifactCreate")
+            && spec
+                .pointer("/components/schemas/ArtifactCreate/properties/files/items/$ref")
+                .and_then(Value::as_str)
+                == Some("#/components/schemas/ArtifactFile")
+            && file
+                .and_then(|v| v.get("required"))
+                .and_then(Value::as_array)
+                .is_some_and(|fields| fields.iter().any(|v| v.as_str() == Some("contentBase64")))
+            && file.and_then(|v| v.get("properties")).is_some_and(|v| {
+                v.get("blobSha256").is_none()
+                    && v.pointer("/contentBase64/type").and_then(Value::as_str) == Some("string")
+            })
+    }
+
     /// Stage every file before creating the artifact. The commit contains SHA references,
     /// never aggregate base64 data, and a failed upload leaves no incomplete artifact.
     pub async fn save(
@@ -424,7 +451,9 @@ impl Artifacts {
             body_files.push(value);
         }
         let mut created = None;
-        for _ in 0..2 {
+        let mut legacy = false;
+        let mut conflict_retried = false;
+        loop {
             let body = json!({"title": title, "kind": kind, "files": body_files, "trailers": trailers, "expectedHeadSha": head});
             match self.json("artifact save", |http| http.post(create_url.clone()).json(&body)).await
             {
@@ -432,8 +461,21 @@ impl Artifacts {
                     created = Some(v);
                     break;
                 }
+                Err(e)
+                    if !legacy
+                        && e.is::<EmptyCreateRefusal>()
+                        && self.legacy_create_schema().await =>
+                {
+                    let Some(inline) = legacy_inline_files(files) else { return Err(e) };
+                    body_files = inline;
+                    legacy = true;
+                }
                 Err(e) => match e.downcast_ref::<Conflict>() {
-                    Some(Conflict(current)) => head = current.clone(),
+                    Some(Conflict(current)) if !conflict_retried => {
+                        head = current.clone();
+                        conflict_retried = true;
+                    }
+                    Some(_) => break,
                     None => return Err(e),
                 },
             }
@@ -453,6 +495,47 @@ impl Artifacts {
         Ok((id, head))
     }
 }
+
+/// Compatibility only: the old API accepts 256 files, 8 MiB per inline file and
+/// 24 MiB of base64 per DO RPC. Modern saves never pass through these bounds.
+fn legacy_inline_files(files: &[File]) -> Option<Vec<Value>> {
+    const LEGACY_FILES: usize = 256;
+    const LEGACY_INLINE_BYTES: usize = 8 << 20;
+    const LEGACY_RPC_BYTES: usize = 24 << 20;
+    let encoded = files.iter().try_fold(0usize, |total, file| {
+        file.bytes.len().div_ceil(3).checked_mul(4).and_then(|n| total.checked_add(n))
+    });
+    if files.len() > LEGACY_FILES
+        || files.iter().any(|f| f.bytes.len() > LEGACY_INLINE_BYTES)
+        || encoded.is_none_or(|n| n > LEGACY_RPC_BYTES)
+    {
+        return None;
+    }
+    Some(
+        files
+            .iter()
+            .map(|file| {
+                let mut value = serde_json::Map::from_iter([
+                    ("name".into(), json!(file.name)),
+                    ("contentBase64".into(), json!(BASE64.encode(&file.bytes))),
+                ]);
+                if let Some(ct) = &file.content_type {
+                    value.insert("contentType".into(), json!(ct));
+                }
+                Value::Object(value)
+            })
+            .collect(),
+    )
+}
+
+#[derive(Debug)]
+struct EmptyCreateRefusal;
+impl std::fmt::Display for EmptyCreateRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "artifact save refused: HTTP 400")
+    }
+}
+impl std::error::Error for EmptyCreateRefusal {}
 
 /// The preview retains at most one page and three UTF-8 carry bytes between chunks.
 struct TextPreview {
@@ -532,6 +615,13 @@ async fn read_capped(mut response: reqwest::Response, max: usize) -> Result<Vec<
 async fn refusal(what: &str, response: reqwest::Response) -> anyhow::Error {
     let status = response.status();
     let body: Value = match read_capped(response, 64 << 10).await {
+        Ok(bytes)
+            if status == reqwest::StatusCode::BAD_REQUEST
+                && what == "artifact save"
+                && bytes.is_empty() =>
+        {
+            return anyhow::Error::new(EmptyCreateRefusal);
+        }
         Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or(Value::Null),
         Err(_) => Value::Null,
     };
