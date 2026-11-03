@@ -107,6 +107,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     @ObservationIgnored var pendingFocus = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
     @ObservationIgnored var isGrantingFocus = false
+    /// The app's key window (``CEFKeyWindows``): a grant reads it and may move it.
+    @ObservationIgnored var keyWindows = CEFKeyWindows.appKit
     /// Host mode: the browser the Chromium Host hosts detached (``hostDetachedPage(browser:)``); a
     /// restarted host's browser has a new id and is not detached until the host says so.
     @ObservationIgnored var detachedBrowser: Int32?
