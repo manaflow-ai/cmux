@@ -343,10 +343,24 @@ for (const harnessFixed of [false, true]) {
       ),
     );
     await open();
-    expect(modelRows().map(label)).toEqual(choices.slice(0, 6).map((choice) => choice.name));
-    // A rail's other models are Legacy models in the default symbols layout; a started chat's More
-    // models opens the full picker.
-    expect(menu()!.textContent).toContain(harnessFixed ? "More models" : "Legacy models");
+    const top = choices.slice(0, 6).map((choice) => choice.name);
+    if (!harnessFixed) {
+      // A rail's menu is the columns menu: the top models, then the harness's other models under
+      // the "Legacy models" caption in the same column.
+      const list = [...doc().querySelector('.acpmux-cols [role="listbox"]')!.children];
+      const caption = list.findIndex((item) => item.textContent === "Legacy models");
+      const names = (items: Element[]) =>
+        items
+          .filter((item) => item.getAttribute("role") === "option")
+          .map((item) => item.querySelector(".acpmux-cols-name")?.textContent ?? "");
+      expect(caption, list.map((item) => item.textContent).join(", ")).toBeGreaterThan(0);
+      expect(names(list.slice(0, caption))).toEqual(top);
+      expect(names(list.slice(caption + 1)).sort()).toEqual(["Choice 6", "Choice 7"]);
+      return;
+    }
+    expect(modelRows().map(label)).toEqual(top);
+    // A started chat's More models opens the full picker.
+    expect(menu()!.textContent).toContain("More models");
     expect(modelRows().map(label)).not.toContain("Choice 6");
     expect(modelRows().map(label)).not.toContain("Choice 7");
   });

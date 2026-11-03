@@ -324,8 +324,11 @@ class SidebarItemRowView: NSView {
 
         if layoutAvatar(in: b) { return }
         // Row size beside a title, like a workspace row's type glyph; inside a list well, the well's
-        // glyph size; a rail button's own glyph size.
-        let glyphSide = isRailButton ? SidebarStyle.railGlyphSize : style == .list ? SidebarStyle.wellGlyphSize : SidebarStyle.kindGlyphSize
+        // glyph size; a rail button's own glyph size. A pinned workspace's icon is the size its list row draws
+        // (`SidebarStyle.workspaceFaviconSide`), so it grows with the density as that row's does (Lawrence 2026-11-03:
+        // "make sure size of the pinned summary thing reflect size of ui compactness i chose"); compact is unchanged.
+        let glyphSide = isRailButton ? SidebarStyle.railGlyphSize : style == .list ? SidebarStyle.wellGlyphSize
+            : info.workspace != nil ? SidebarStyle.workspaceFaviconSide : SidebarStyle.kindGlyphSize
         if bare {
             icon.image = nil
             shownGlyph = nil
@@ -424,8 +427,8 @@ class SidebarItemRowView: NSView {
         chip.frame = wellFrame
         chip.cornerRadius = SidebarStyle.railTileCornerRadius
         CATransaction.commit()
-        showGlyph(side: SidebarStyle.railGlyphSize)
-        icon.frame = alignedGlyphFrame(side: SidebarStyle.railGlyphSize, centeredIn: wellFrame)
+        showGlyph(side: SidebarStyle.favoriteGlyphSize)
+        icon.frame = alignedGlyphFrame(side: SidebarStyle.favoriteGlyphSize, centeredIn: wellFrame)
         // The caption takes the tile's full width: a tile is narrow, and the
         // tiles' gap already separates neighboring captions.
         title.frame = NSRect(x: 0, y: wellFrame.maxY + Metrics.space1, width: b.width, height: th)

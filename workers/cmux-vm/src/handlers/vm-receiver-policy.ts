@@ -14,7 +14,14 @@ import { dependencyDown } from "./common.ts";
 import { readMeshMember } from "./mesh-member.ts";
 import { compileMeshPolicy } from "./mesh-policy-inventory.ts";
 
-/** Called under the mesh writer lock, with the same scope proofs as the member read. */
+/**
+ * Takes no writer lock, with the same scope proofs as the member read. Its consistency is its own fence: the
+ * inventory, recorded rules and ACL are read and compiled once before the owner lookups and once after, and any
+ * difference answers 503. Each table's value was then unchanged from its first read to its second, so the
+ * answer matches the committed state at one instant between the two compiles. That state can be ahead of the
+ * provider while an apply is still reconciling; the policy names its ACL version, and it only narrows what a
+ * receiver accepts (it grants nothing at the provider).
+ */
 export const readVmReceiverPolicy = <C, M, V>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, vm: Named<V, VmId>,
   proofs: { readonly ownsMesh: TenantOwnsResource<C, M>; readonly meshScope: KeyHasScope<C, "mesh:read">; readonly vmScope: KeyHasScope<C, "vm:read"> }) =>
   Effect.gen(function* () {

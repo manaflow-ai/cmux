@@ -333,8 +333,14 @@ pub(crate) struct ClientRegistry {
     /// reaper starts that terminal's unattached period).
     pub(super) detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     /// Called after any client connects or leaves (orphan_shutdown.rs): the
-    /// DEV orphan exit and the lost-paths exit each add one.
+    /// DEV orphan exit, the lost-paths exit and the keepers watch each add
+    /// one. Also called once a connection's role-main hello makes it the
+    /// app's frontend.
     pub(super) client_presence_observers: Mutex<Vec<Box<dyn Fn() + Send + Sync>>>,
+    /// A role-main `client-hello` (the app's frontend) came since this owner
+    /// started: from then on nothing but its keepers holds an app session's
+    /// owner (owner_keepers.rs).
+    pub(super) frontend_seen: AtomicBool,
     pub(super) url_opens: url_open::URLRequests,
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
@@ -411,6 +417,7 @@ impl ClientRegistry {
         Self {
             detach_waker: Mutex::new(None),
             client_presence_observers: Mutex::new(Vec::new()),
+            frontend_seen: AtomicBool::new(false),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             clipboard_reads: Default::default(),

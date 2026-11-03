@@ -130,10 +130,23 @@
         "TENANT_VM_QUOTAS": "{}",
         "STACK_API_URL": "https://api.stack-auth.com",
         "UPSTREAM_API_URL": "https://api.freestyle.sh",
-        // Mesh experiment (cx-0op): off. "1" plus listed team ids turns it on for those teams only.
-        "CMUX_VM_MESH_EXPERIMENT": "0",
+        // NEXT Cloud in production: the same Cloud Native image staging runs (cloud-native-5e57723, bake run 41701438675,
+        // smoke 28 checks), approved only for cmux-platform production's service key.
+        "VM_BOOT_IMAGES": "[{\"id\":\"cloud-native-5e57723\",\"revision\":\"ci-41701438675-1\",\"displayName\":\"Cloud Native (cmux-tui 5e577237)\",\"snapshotId\":\"sh-cfe10f461d074570b4ab4d781597e0a8\",\"services\":[\"cloud-platform-production\"]}]",
+        // The production counterpart of staging's guest coderouter.cmux.internal proxy origin.
+        "VM_HTTPS_PROXY_ORIGINS": "[\"https://cmux.com\"]",
+        // A request made with these service keys (CMUX_VM_SERVICE_KEYS ids, never key material) is entitled for the team it
+        // acts for: cmux-platform has already decided that team's plan (the company grant for @cmux.com members), so a
+        // member's personal team needs no entry in MANAFLOW_TEAM_TENANT_IDS. The key's teams, scopes and labels still apply.
+        "CMUX_VM_ENTITLED_SERVICE_IDS": "cloud-platform-production",
+        // Mesh experiment (cx-0op): on for cmux-platform production's own requests only, as staging has it for its
+        // platforms: each team's Cloud mesh is made in that team's personal tenant, which no hand-kept list knows in
+        // advance. No tenant is listed, so every other caller still gets 404.
+        "CMUX_VM_MESH_EXPERIMENT": "1",
         "CMUX_VM_MESH_TENANT_IDS": "",
-        "CMUX_VM_MESH_SERVICE_IDS": ""
+        "CMUX_VM_MESH_SERVICE_IDS": "cloud-platform-production",
+        // Mesh ACL scopes added to that service key, as on staging (only acl:read and acl:write may be granted here).
+        "CMUX_VM_SERVICE_KEY_SCOPE_GRANTS": "{\"cloud-platform-production\":[\"acl:read\",\"acl:write\"]}"
       }
     }
   }
