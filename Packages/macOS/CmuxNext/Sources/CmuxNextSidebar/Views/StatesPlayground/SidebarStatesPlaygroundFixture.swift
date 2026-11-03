@@ -24,6 +24,19 @@ struct SidebarStatesPlaygroundFixture {
     static let open = GroupID("sp-open"), collapsed = GroupID("sp-collapsed"), empty = GroupID("sp-empty")
     static let remoteMachine = MachineID("sp-ssh")
 
+    /// The pinned workspace the pin opens, with the tabs its hover card lists.
+    static var pinnedRow: SidebarWorkspace {
+        var row = SidebarWorkspace(id: pinnedWorkspace, machineID: .local, title: "Pinned workspace", directory: "~/fun/cmux",
+                                   branch: "feat-cmux-next", kind: .terminal)
+        row.lastMessage = "Pushed the fix and the gallery"
+        row.tabs = [
+            SidebarTab(id: TabID("sp-pin-chat"), title: "Claude Code", kind: .agentChat, folder: "~/fun/cmux", state: .success),
+            SidebarTab(id: TabID("sp-pin-terminal"), title: "Terminal", kind: .terminal, folder: "~/fun/cmux"),
+            SidebarTab(id: TabID("sp-pin-docs"), title: "Documentation", kind: .browser),
+        ]
+        return row
+    }
+
     /// The row that draws `state`.
     func ref(for state: SidebarStatesPlaygroundState) -> Ref {
         switch state {
@@ -117,6 +130,7 @@ struct SidebarStatesPlaygroundFixture {
         var pin = SidebarItemInfo(title: "Pinned workspace", symbol: "textformat")
         pin.textOnly = true
         pin.workspace = Self.pinnedWorkspace
+        pin.workspaceRow = Self.pinnedRow
         model.itemInfo = [Self.home: home, Self.pin: pin]
         model.docDrag = SidebarDocDrag(item: { _ in nil }, section: { _ in nil }, begin: { _ in [:] }, drop: { _, _ in }, adoptRef: { _ in nil })
         model.expanded = expanded
