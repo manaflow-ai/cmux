@@ -7,9 +7,11 @@ public import CmuxNextDesign
 ///   file input; nil (tests) shows no file picker.
 /// - `eventSources`: the app's table of processes that post input (`AppServices.personInput.sources`): a pane
 ///   judges whether a key or click is the person's from it, never by a system call per event.
+/// - `siteIcons`: the site favicons before web links (`link.favicons`), so a site is fetched once per app run.
 public struct AgentPaneShared {
     public let openPanel: MadeAheadOpenPanel?
     public let eventSources: EventSourceProcesses
+    let siteIcons = AgentPaneSiteIcons()
 
     /// The defaults (tests): no open panel, and a posting-process table of the pane's own.
     public init(openPanel: MadeAheadOpenPanel? = nil, eventSources: EventSourceProcesses = EventSourceProcesses()) {
@@ -22,6 +24,7 @@ extension AgentPaneView {
     /// A pane over the app's shared objects (``AgentPaneShared``); the other parameters are as in the designated init.
     public convenience init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
                              pageHost: Bool = false, shared: AgentPaneShared) {
+        model.replyLinks.siteIcons = shared.siteIcons
         self.init(model: model, source: source, renderRate: renderRate, pageHost: pageHost, openPanel: shared.openPanel,
                   eventSources: shared.eventSources)
     }

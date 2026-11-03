@@ -79,9 +79,9 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// The pull requests a reply links, so the host has them before a card opens.
     public var registerPullRequests: @MainActor ([URL]) -> Void = { _ in }
     var fetcher: any AgentPaneImageFetching = AgentPaneSafeFetch()
-    /// Site favicons for `link.favicons` (``AgentPaneSiteIcons``): the pane's own until the App
-    /// gives every pane its one store.
-    public var siteIcons = AgentPaneSiteIcons()
+    /// Site favicons for `link.favicons` (``AgentPaneSiteIcons``): the pane's own until its view
+    /// takes the app's one (``AgentPaneShared``).
+    var siteIcons = AgentPaneSiteIcons()
     /// The fetch for web video and audio (``AgentPaneSafeFetch/media``).
     var mediaFetcher: any AgentPaneImageFetching = AgentPaneSafeFetch.media
     let choices = AgentPaneBrowserChoices()

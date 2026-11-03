@@ -27,9 +27,9 @@ import UniformTypeIdentifiers
 /// - `agentPane.images.remote` = `never` fetches nothing (the page keeps its globes).
 ///
 /// Answers, an icon or none, are kept per host, at most ``capacity`` of them; a host is fetched
-/// once however many links or requests name it at the same time. The App makes one for all its panes
-/// (`AppServices.agentSiteIcons`), so a site is fetched once per app run, not once per chat.
-public final class AgentPaneSiteIcons {
+/// once however many links or requests name it at the same time. The app's panes share one
+/// (``AgentPaneShared``), so a site is fetched once per app run, not once per chat.
+final class AgentPaneSiteIcons {
     static let maximumBytes = 64 << 10
     static let timeout: Duration = .seconds(5)
     /// Longest side of the PNG the page gets (a 14 pt mark at up to 4x).
@@ -74,7 +74,7 @@ public final class AgentPaneSiteIcons {
     private var active = 0
     private var waiting: [CheckedContinuation<Void, Never>] = []
 
-    public init() {}
+    init() {}
 
     /// The icon of each of `hosts` that has one, by host. `known` holds icons cmux already has
     /// (by host); `fetch` false asks no site.
