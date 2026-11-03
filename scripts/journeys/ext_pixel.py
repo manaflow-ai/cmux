@@ -54,6 +54,11 @@ Steps (`do`):
                once more; each attempt's reason and each idle wait are in the note (`recorder`).
   px_film also records each film's movie and scan bytes (`bytes`), so a round whose fetch fails still says how big
   its films were.
+  px_window_frame {by: [dx, dy], ms?: 600, mark?}
+               A live resize of the window from its bottom-right corner through ext_window's window_drag: debug.mouse down,
+               drags at 120 events a second and up, which AppKit's own resize tracking reads as a person's drag (the path
+               the R3a journeys take). A CuaDriver drag never reached the corner on cmux22 (2026-11-03). Logged in the
+               film's events (kind window_drag) with the frame before and after.
 """
 import json
 import os
@@ -499,7 +504,20 @@ def film_bytes(j, name):
     return out
 
 
-STEPS = {"px_film": step_px_film, "px_springs": step_px_springs, "px_tunable": step_px_tunable, "px_page": step_px_page,
+def step_px_window_frame(j, step):
+    ms = float(step.get("ms", 600))
+    events = max(2, int(round(ms / 1000.0 * 120)))
+    if step.get("mark"):
+        j.marks[step["mark"]] = D.now()
+    sent = D.now()
+    out = W.step_window_drag(j, {"edge": "bottom-right", "by": list(step["by"]), "events": events, "hz": 120})
+    returned = D.now()
+    V._hid_log(j, "window_drag", {"by": list(step["by"]), "events": events, "path": "debug.mouse (AppKit live resize)"}, sent, returned,
+               {k: out.get(k) for k in ("frame_before", "frame_after", "dragged")})
+    return out
+
+
+STEPS = {"px_window_frame": step_px_window_frame, "px_film": step_px_film, "px_springs": step_px_springs, "px_tunable": step_px_tunable, "px_page": step_px_page,
          "px_agent_css": step_px_agent_css, "px_record_start": step_px_record_start}
 CONDITIONS = {}
 

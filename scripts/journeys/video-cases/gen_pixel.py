@@ -116,6 +116,16 @@ def settings_back():
             "unset": ["appearance.themeEdits", "appearance.surfaces"]}
 
 
+def after_check():
+    """The kit's after check on the fixture: p0 focused by the app (`cmux pane focus`; a click at p0's left edge, the
+    sidebar boundary, did not focus it on cmux22), the fixture colors off (text recognition did not read the echo on the
+    #00FFFF ground), then gen_cases' check: a real HID Ctrl-C ends p0's fixture, p0 echoes a line, read by the app, the
+    daemon and a frame."""
+    check = G.after_check_hid()
+    assert check[0]["do"] == "use_pane", check[0]
+    return [focus("p0"), settings_back()] + check[1:]
+
+
 def start_tui(name, fill):
     mark = f"tui-{name}"
     return [{"do": "type", "text": f"python3 {TUI_PATH} --fill {fill.lstrip('#')} --label {name}", "enter": True, "mark": mark,
@@ -148,10 +158,12 @@ def make_kind(name, kind, fill):
 
 
 class Layout:
-    """The panes of a case: [(name, kind, fill, how)], how = (action, pane focused first) or None for p0."""
+    """The panes of a case: [(name, kind, fill, how)], how = (action, pane focused first) or None for p0. window: the
+    window's fractions of its screen (window_place) instead of the first pane's 90%; widths: a column width preset given
+    to each new column and, at the end, to the first one (columns layouts)."""
 
-    def __init__(self, key, text, panes):
-        self.key, self.text, self.panes = key, text, panes
+    def __init__(self, key, text, panes, window=None, widths=None):
+        self.key, self.text, self.panes, self.window, self.widths = key, text, panes, window, widths
 
     @property
     def fixture(self):
@@ -171,7 +183,12 @@ class Layout:
             action, after = how
             if after:
                 steps.append(focus(after))
-            steps += new_pane(name, action) + make_kind(name, kind, fill)
+            steps += new_pane(name, action)
+            if self.widths and action == "newColumn":
+                steps.append({"do": "try_action", "action": self.widths, "title": f"set-up: {name}'s column takes its share"})
+            steps += make_kind(name, kind, fill)
+        if self.widths:
+            steps += [focus("p0"), {"do": "try_action", "action": self.widths, "title": "set-up: p0's column takes its share"}]
         return steps
 
     def seconds(self):
@@ -186,10 +203,14 @@ T3R = Layout("3r", "p0 T | (p1 P / p2 T)",
              [("p0", "tui", YELLOW, None), ("p1", "page", GREEN, ("splitRight", None)), ("p2", "tui", YELLOW, ("splitDown", None))])
 T3K = Layout("3k", "p0 T | (p1 T / p2 P)",
              [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("splitRight", None)), ("p2", "page", YELLOW, ("splitDown", None))])
-T6 = Layout("6", "(p0 T / p3 T) | (p1 P / p4 A) | (p2 T / p5 P)",
-            [("p0", "tui", YELLOW, None), ("p1", "page", GREEN, ("splitRight", None)), ("p2", "tui", YELLOW, ("splitRight", None)),
-             ("p3", "tui", GREEN, ("splitDown", "p0")), ("p4", "agent", AGENT_FILL, ("splitDown", "p1")),
-             ("p5", "page", GREEN, ("splitDown", "p2"))])
+# 3 strip columns of 2 rows (newColumn, newRow): splits of splits did not fit the 1361 x 792 pt window (cmux22: the third
+# splitDown had no room for two 200 x 64 pt panes and their chrome). The window takes the screen's full width, and each
+# column one third of the viewport (the width preset; layout.minimumPaneWidth 200 pt).
+T6 = Layout("6", "columns (p0 T / p3 T) | (p1 P / p4 A) | (p2 T / p5 P)",
+            [("p0", "tui", YELLOW, None), ("p3", "tui", GREEN, ("newRow", None)),
+             ("p1", "page", GREEN, ("newColumn", None)), ("p4", "agent", AGENT_FILL, ("newRow", None)),
+             ("p2", "tui", YELLOW, ("newColumn", None)), ("p5", "page", GREEN, ("newRow", None))],
+            window=[0.0, 0.05, 1.0, 0.9], widths="column.widthOneThird")
 T3S = Layout("3", "p0 T | p1 T | p2 P (splits)",
              [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("splitRight", None)), ("p2", "page", YELLOW, ("splitRight", None))])
 C2 = Layout("c2", "columns p0 T | p1 P", [("p0", "tui", YELLOW, None), ("p1", "page", GREEN, ("newColumn", None))])
@@ -284,8 +305,12 @@ def close_play(speed):
 
 
 def window_play(speed):
-    return [drag({"window_edge": "bottom-right"}, [-300, -150], 600, "in", "the window corner 300 x 150 pt in, 0.6 s"), rest(0.6),
-            drag({"window_edge": "bottom-right"}, [300, 150], 600, "out", "the window corner back out, 0.6 s"), rest(0.8)]
+    # A CuaDriver drag never reached the window's corner (cmux22, 2026-11-03: no mouse-down in the app's journal): the
+    # corner moves through ext_window's window_drag (debug.mouse into AppKit's live-resize tracking, as R3a does).
+    return [{"do": "px_window_frame", "by": [-300, -150], "ms": 600, "mark": "in", "title": "the window corner 300 x 150 pt in, 0.6 s"},
+            rest(0.6),
+            {"do": "px_window_frame", "by": [300, 150], "ms": 600, "mark": "out", "title": "the window corner back out, 0.6 s"},
+            rest(0.8)]
 
 
 def cases():
@@ -316,12 +341,15 @@ def cases():
                     rebuild=[focus("p0")] + new_pane("p1", "newColumn") + start_tui("p1", GREEN) + [G.settle(1.0)],
                     play_seconds=lambda s: 0.2 + land(s, "split")))
     out.append(Case(f"px-window-resize-{T4.key}", f"the window corner 300 x 150 pt in and back out ({T4.text})", T4, window_play, None,
-                    "window resize", play_seconds=lambda s: 2.6))
+                    "window resize (window_drag)", play_seconds=lambda s: 2.6))
     return out
 
 
 def journey(case, jid, speeds, part_note):
     steps = [fixture_settings()] + G.first_pane(jid, False) + fixture_files()
+    if case.layout.window:
+        place = next(st for st in steps if st["do"] == "window_place")
+        place.update(fraction=list(case.layout.window), title=f"set-up: the window at {case.layout.window} of the screen")
     steps.append({"do": "px_tunable", "key": "browserResize.pageBackdrop", "value": False,
                   "title": "set-up: a Chromium page that lags shows the gap (browserResize.pageBackdrop off, where the store takes it)"})
     if "agent" in case.layout.kinds():
@@ -334,7 +362,7 @@ def journey(case, jid, speeds, part_note):
         steps.append(film)
         seconds += cost
         names.append(film["name"])
-    steps += G.after_check_hid()
+    steps += after_check()
     seconds += EST_AFTER
     budget = int(min(BUDGET_MAX, max(BUDGET_MIN, round(seconds * MARGIN))))
     final = [{"do": "px_springs", "reset": True, "title": "clean-up: springs and Reduce Motion back"},
