@@ -314,6 +314,19 @@ impl Brain {
             matches!(part, Part::Attachment { mime_type, .. } if mime_type.starts_with("image/"))
         });
         let has_files = message.parts.iter().any(super::files::is_file_part);
+        let summary_cmd = summary.clone();
+        if self.try_command(&summary_cmd, &message, &text, None) {
+            if !self.queued_messages_of(None) {
+                self.state.logged_seq = self.handled;
+                self.save();
+                self.set_cursor(self.handled);
+                self.settle_acks();
+            }
+            return;
+        }
+        let Some(summary) = self.summary.as_ref() else {
+            return;
+        };
         if (!text.trim().is_empty() || has_images || has_files)
             && chief_wakes(
                 &self.settings.membership.rule(false),
@@ -323,6 +336,25 @@ impl Brain {
             )
         {
             self.state.stopped_reply = None;
+            // The rights table first (rights_gate.rs): a command, a
+            // suggestion or a cap is answered by the host with no turn.
+            let owner_msg = self.settings.membership.is_owner_message(summary, &message);
+            let summary_now = summary.clone();
+            let lifts_floor = match self.admit(&summary_now, &message, &text, owner_msg, None) {
+                super::rights_gate::Admit::Answered => {
+                    if !self.queued_messages_of(None) {
+                        self.state.logged_seq = self.handled;
+                        self.save();
+                        self.set_cursor(self.handled);
+                        self.settle_acks();
+                    }
+                    return;
+                }
+                super::rights_gate::Admit::Queue { lifts_floor } => lifts_floor,
+            };
+            let Some(summary) = self.summary.as_ref() else {
+                return;
+            };
             let remote = message
                 .origin
                 .as_ref()
@@ -363,10 +395,8 @@ impl Brain {
                     seq: message.seq,
                     id: message.id.clone(),
                     remote,
-                    requires_approval: !self
-                        .settings
-                        .membership
-                        .is_owner_message(summary, &message),
+                    // An approver's word counts as the owner's (rights.rs).
+                    requires_approval: !owner_msg && !lifts_floor,
                 },
             );
             // A waking message of the Chief conversation is a person's
