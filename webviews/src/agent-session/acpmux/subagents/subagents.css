@@ -869,7 +869,7 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray[data-stop="boxed"] :is(.cv-subagent__stop, .acpmux-session-info-stop) > svg {
   box-sizing: content-box;
-  padding: 6px;
+  padding: var(--ds-space-1);
   border-radius: 6px;
   background: color-mix(in srgb, var(--agent-text) 10%, transparent);
 }
