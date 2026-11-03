@@ -22,6 +22,10 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import yaml
+
+from test_ci_fork_runner_routing import evaluate_runs_on, parse_expression
+
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "fast-checks.yml"
 POOL = "cmux-fleet-linux-x64"
 
@@ -42,6 +46,27 @@ def checks_runs_on() -> str:
 
 
 class FastChecksFailoverTests(unittest.TestCase):
+    def test_broker_overflow_also_moves_queued_admission(self) -> None:
+        selector = yaml.safe_load(WORKFLOW.read_text())["jobs"]["admit"]["runs-on"]
+        for requested in (
+            "blacksmith-8vcpu-ubuntu-2404",
+            "blacksmith-16vcpu-ubuntu-2404",
+            "blacksmith-32vcpu-ubuntu-2404",
+            "", POOL, "self-hosted", "macos-26", "ubuntu-latest",
+            "blacksmith-8vcpu-ubuntu-2404-arm",
+            "blacksmith-8vcpu-ubuntu-2404,self-hosted",
+            '["blacksmith-8vcpu-ubuntu-2404","self-hosted"]',
+        ):
+            with self.subTest(requested=requested):
+                actual = (evaluate_runs_on(parse_expression(selector[3:-2]), {"inputs.runner": requested})
+                          if selector.startswith("${{") else selector)
+                expected = requested if requested in {
+                    "blacksmith-8vcpu-ubuntu-2404",
+                    "blacksmith-16vcpu-ubuntu-2404",
+                    "blacksmith-32vcpu-ubuntu-2404",
+                } else "ubuntu-24.04"
+                self.assertEqual(actual, expected)
+
     def run_fast_checks_script(self, command: str, source: str | None = None) -> tuple[subprocess.CompletedProcess[str], dict | None]:
         workflow = WORKFLOW.read_text(encoding="utf-8")
         run_step = workflow.split("      - name: Run fast checks\n", 1)[1]
