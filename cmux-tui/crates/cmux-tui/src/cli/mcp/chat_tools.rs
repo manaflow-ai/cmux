@@ -7,7 +7,7 @@
 //! CLI's (`chief/chat_scope.rs`). The app's `app_chat_send` (Send Message
 //! To…) takes the same path, so no MCP send writes as the owner.
 
-use std::process::{Command, Stdio};
+use cmux_process::{Command, Stdio};
 
 use serde_json::{Map, Value, json};
 
