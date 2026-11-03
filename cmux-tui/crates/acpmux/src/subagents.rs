@@ -255,9 +255,7 @@ impl SubagentTree {
         }
         if let Some(task) = text("task") {
             // A task names one that has no name (a Codex legacy spawn says only its prompt).
-            if !self.names.contains_key(&id) {
-                self.names.insert(id, label(task));
-            }
+            self.names.entry(id).or_insert_with(|| label(task));
             return;
         }
         if let (Some(name), Some(object)) = (self.names.get(&id), event.as_object_mut()) {
