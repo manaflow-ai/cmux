@@ -310,11 +310,12 @@ fn neighbor_item(
 
 /// The item `row` follows among `(section, parent)`: its old-order neighbor
 /// when that is a sibling there, else the nearest earlier row that is. A row
-/// the document keeps elsewhere (Home in its own section, a pinned row, one
-/// not placed yet) is passed over, so a new row right after Home goes first in
-/// the machine section, not after every row. Also whether the row has a
-/// neighbor that is no sibling and no earlier sibling row (a group placed
-/// elsewhere): it then goes at the end, as before.
+/// the document keeps elsewhere (a pinned row, one not placed yet) is passed
+/// over. Reaching Home ends the walk with no anchor: the rows after Home are
+/// the top of the machine section (`top` is right after Home), so a new row
+/// there goes first even when a synced order keeps rows before Home. Also
+/// whether the row has a neighbor that is no sibling and no earlier sibling
+/// row (a group placed elsewhere): it then goes at the end, as before.
 fn sibling_before(
     connection: &Connection,
     doc: &Doc,
@@ -323,6 +324,7 @@ fn sibling_before(
     section: &str,
     parent: Option<&str>,
 ) -> anyhow::Result<(Option<Item>, bool)> {
+    let home = super::home_store::live_home(connection)?.map(|(_, key)| key);
     let mut position = row.position;
     // Bounded: each step moves to an earlier row.
     for _ in 0..4096 {
@@ -337,6 +339,12 @@ fn sibling_before(
             .and_then(|id| doc.item(&id))
             .filter(|item| item.section == section && item.parent.as_deref() == parent)
             .cloned();
+        if let Neighbor::Row(previous) = &neighbor
+            && previous.session == local
+            && home.as_deref() == Some(previous.key.as_str())
+        {
+            return Ok((None, false));
+        }
         match (item, &neighbor) {
             (Some(item), _) => return Ok((Some(item), true)),
             (None, Neighbor::Row(previous)) => position = previous.position,
