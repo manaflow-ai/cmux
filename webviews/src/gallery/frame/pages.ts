@@ -232,6 +232,7 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
           sessionSource: source,
           repoRoot: repo,
           branchBaseRef: source.baseRef,
+          sourceOptions: state.sourceOptions,
           layout: state.layout ?? "split",
           layoutSource: "default",
           appearance: context.appearance,
@@ -260,7 +261,9 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
       "cmux.diff.branchList": () => ({
         type: "branches",
         value: {
-          groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "main", label: "main", current: true }] }],
+          groups: state.branchGroups ?? [
+            { id: "suggested", label: "Suggested", rows: [{ ref: "main", label: "main", current: true }] },
+          ],
         },
       }),
       "cmux.diff.comments": (params: { method: string; params: Record<string, unknown> }) => {
