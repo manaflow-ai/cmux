@@ -185,6 +185,14 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const state = useSessionInfoState();
   const { shown, summary, onShowUsage } = props;
   const imessage = useIMessage(shown);
+  const imessageStatus = imessage?.data.status;
+  const revealedIMessage = useRef(false);
+  useEffect(() => {
+    if (!imessageStatus || imessageStatus === "connected" || revealedIMessage.current) return;
+    // Reveal Connect once; later folds belong to the person, including during permission refreshes.
+    revealedIMessage.current = true;
+    setSessionInfoSection("connectors", true);
+  }, [imessageStatus]);
   useEffect(() => {
     if (imessage?.expanded) setSessionInfoSection("connectors", true);
   }, [imessage?.expanded]);

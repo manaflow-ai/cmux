@@ -1671,6 +1671,13 @@ export function SessionInfo({
   const stored = sessionInfoState.sections;
   const state = sections ?? stored;
   const fold = (id: SessionInfoSectionId) => (next: boolean) => (onSection ?? setSessionInfoSection)(id, next);
+  const imessageStatus = imessage?.data.status;
+  const revealedIMessage = useRef(false);
+  useEffect(() => {
+    if (!imessageStatus || imessageStatus === "connected" || revealedIMessage.current) return;
+    revealedIMessage.current = true;
+    (onSection ?? setSessionInfoSection)("connectors", true);
+  }, [imessageStatus, onSection]);
   useEffect(() => {
     if (imessage?.expanded) (onSection ?? setSessionInfoSection)("connectors", true);
   }, [imessage?.expanded, onSection]);
@@ -1840,18 +1847,18 @@ export function SessionInfo({
       id="connectors"
       title={t("rail.connectors")}
       icon={rowIcon("extension")}
-      open={state.connectors || (!!imessage && imessage.data.status !== "connected")}
+      open={state.connectors}
       onOpenChange={fold("connectors")}
       // As Claude Code desktop's: the servers to reconnect when any failed, else the connected ones.
       meta={value(
         reconnect > 0
           ? t("sessionInfo.connectors.reconnect", { count: reconnect })
-          : imessage && imessage.data.status !== "connected"
+          : mcp.length === 0 && imessage && imessage.data.status !== "connected"
             ? t("imessage.connect")
             : t("rail.connected", {
                 count:
                   mcp.filter((server) => server.status === "connected").length +
-                  (imessage?.data.status === "connected" ? 1 : 0),
+                  (mcp.length === 0 && imessage?.data.status === "connected" ? 1 : 0),
               }),
       )}
     >

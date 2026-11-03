@@ -1,6 +1,6 @@
 // The local Mac connector. Status is safe before opt-in; only an opened connected list reads threads.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { postNative } from "../native";
+import { hasNativeHost, postNative } from "../native";
 import type { Translate } from "../i18n";
 
 export type IMessageStatus = "not_connected" | "needs_full_disk_access" | "needs_automation" | "connected";
@@ -44,7 +44,7 @@ export function imessageError(error: string, t: Translate): string {
 }
 
 export function useIMessage(enabled = true): IMessageView | undefined {
-  const supported = /Mac/.test(globalThis.navigator?.platform ?? "");
+  const supported = /Mac/.test(globalThis.navigator?.platform ?? "") && hasNativeHost();
   const [data, setData] = useState<IMessageData>(IMESSAGE_INITIAL);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -85,8 +85,11 @@ export function useIMessage(enabled = true): IMessageView | undefined {
       opened.current = action !== "disconnect";
       setExpanded(opened.current);
       setBusy(true);
-      await request(action);
-      if (live.current) setBusy(false);
+      try {
+        await request(action);
+      } finally {
+        setBusy(false);
+      }
     },
     [request],
   );

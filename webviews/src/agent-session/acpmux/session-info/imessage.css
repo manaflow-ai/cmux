@@ -18,6 +18,9 @@
   flex-wrap: wrap;
   gap: var(--ds-space-2);
 }
+.acpmux-imessage-actions > .acpmux-session-info-link {
+  padding-inline: 0;
+}
 .acpmux-imessage-heading {
   margin: var(--ds-space-2) 0 var(--ds-space-1);
   color: var(--agent-muted);
