@@ -56,17 +56,8 @@ final class LayoutViewContext {
     /// The window's frame tick applies its input now (`LayoutFrameInput`): a screen's presentation and the overlay
     /// sync wait for the frame's one pass, after its springs step.
     var holdsPresentations = false
-    /// Pins `motion.frameOwner.timing` for this view's drags only (tests), as ``reduceMotionOverride`` pins Reduce
-    /// Motion: the process-wide switch leaks into every test that runs while an async test is suspended.
-    var frameTimingOverride: Bool?
-    /// A divider, column-edge or row-edge drag event waits for the window's frame tick (`motion.frameOwner.timing`).
-    var dragsOnFrameTick: Bool { frameTimingOverride ?? MotionTunables.frameOwnerTiming.value }
-    /// Pins `motion.frameOwner.tabStrip` (S1) for this view only (tests): the process-wide switch leaks across suites.
-    var tabStripOverride: Bool?
-    /// FRAME OWNER S1 (`DesignTunables.frameOwnerTabStrip`): a key hold holds only each pane's content area. Read when each
-    /// hold begins.
-    var followsTabStrip: Bool { tabStripOverride ?? DesignTunables.frameOwnerTabStrip.value }
-    /// Pins `motion.frameOwner.contentPolicy` for this view only (tests), as ``frameTimingOverride`` pins S2's switch.
+    /// Pins `motion.frameOwner.contentPolicy` for this view only (tests), as ``reduceMotionOverride`` pins Reduce Motion:
+    /// the process-wide switch leaks into every test that runs while an async test is suspended.
     var contentPolicyOverride: Bool?
     /// FRAME OWNER S3 (`LayoutTunables.frameOwnerContentPolicy`): a key resize's containers follow their panes and only
     /// producers hold; a closing pane keeps its ground on its close spring. Read when each hold or close begins.

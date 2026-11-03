@@ -89,7 +89,7 @@ final class PaneHostView: NSView, RestingPlacement {
                         holdsUntilAfterLanding = true
                         heldContentSize = content.frame.size
                         heldPin = nil
-                        heldArea = screen.context.followsTabStrip ? (content as? PaneMotionHolding)?.paneMotionHoldArea : nil
+                        heldArea = (content as? PaneMotionHolding)?.paneMotionHoldArea
                         // FRAME OWNER S3, latched here: a flip of the switch applies from the next hold, never inside one.
                         (heldAreaFollows, announcedRest) = (heldArea != nil && screen.context.followsContentPolicy, nil)
                         // The area hears the hold in the key's turn, before the press's rest size goes to the content
@@ -161,9 +161,9 @@ final class PaneHostView: NSView, RestingPlacement {
     /// The edges a key-resize hold rides, chosen while the pane moves and kept until the release: at rest (the landing
     /// frame) the rest offset no longer says which edge moved, and a new pick would jump the content by the press step.
     private var heldPin: (trailing: Bool, bottom: Bool)?
-    /// FRAME OWNER S1 (`motion.frameOwner.tabStrip`, latched per hold): the content takes the pane's rect in every frame
-    /// of a key-resize hold, its tab strip with it, and only this area of it holds, on ``heldPin``. Nil: the whole content
-    /// holds (the switch off, or content whose chrome is part of what it holds).
+    /// FRAME OWNER S1 (latched per hold): the content takes the pane's rect in every frame of a key-resize hold, its tab
+    /// strip with it, and only this area of it holds, on ``heldPin``. Nil: the whole content holds (content with no
+    /// ``PaneMotionHolding`` area, or whose chrome is part of what it holds: a band browser, a chat in the tab row).
     private weak var heldArea: PaneContentAreaView?
     /// FRAME OWNER S3 (`motion.frameOwner.contentPolicy`, latched when the hold begins): the containers in ``heldArea`` (a
     /// terminal's host, a browser's chrome) follow the pane too and only their producers hold, fixed at the pane edges

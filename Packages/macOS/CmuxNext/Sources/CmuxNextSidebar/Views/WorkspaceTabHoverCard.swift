@@ -87,7 +87,12 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
 
     /// One pitch for every tab row (Lawrence msg 19245: "row spacing is uneven"); a group label is its own line.
     private var rowPitch: CGFloat { style.rowHeight + Metrics.space1 }
-    private var groupHeight: CGFloat { ceil(Typography.caption.ascender - Typography.caption.descender) + Metrics.space3 }
+    private var groupHeight: CGFloat {
+        let caption = Self.captionFont
+        return ceil(caption.ascender - caption.descender) + Metrics.space3
+    }
+    /// The kind labels' font: the card's caption at the sidebar's density and text size.
+    private static var captionFont: NSFont { Typography.system(.default, size: WorkspaceHoverCardView.tokens.captionSize, weight: .regular) }
 
     private func height(of items: [Item]) -> CGFloat {
         guard !items.isEmpty else { return 0 }
@@ -147,7 +152,7 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         }
         while groupLabels.count < groups.count {
             let label = ChromeLabel(labelWithString: "")
-            label.font = Typography.caption
+            label.font = Self.captionFont
             document.addSubview(label)
             groupLabels.append(label)
         }
