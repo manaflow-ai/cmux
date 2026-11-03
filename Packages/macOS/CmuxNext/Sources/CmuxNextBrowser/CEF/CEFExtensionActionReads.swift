@@ -24,7 +24,7 @@ final class CEFExtensionActionReads {
     /// A fork tab event: `tab` is the event's tab, `hosts` the panes that own its window.
     func tabEvent(_ kind: CEFForkTabEvent, tab: CEFTab?, hosts: () -> [CEFPaneHost]) {
         switch kind {
-        case .inserted: tab.map(refresh)
+        case .inserted: if let tab { refresh(tab) }
         case .extensionActionsChanged: for host in hosts() { host.tabs.forEach(refresh) }
         default: break
         }
