@@ -1333,6 +1333,7 @@ mod tests {
 
     #[test]
     fn an_agents_or_classed_send_is_queued_unless_it_waits_for_the_reply() {
+        use super::{SendWait, send_queues};
         let w =
             |no_wait, wait, classed, agent| send_queues(SendWait { no_wait, wait, classed, agent });
         assert!(!w(false, false, false, false), "the person's plain send streams the reply");
