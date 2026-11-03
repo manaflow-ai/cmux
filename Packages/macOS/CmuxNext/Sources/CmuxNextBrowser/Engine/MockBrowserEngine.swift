@@ -98,6 +98,8 @@ public final class MockBrowserTab: BrowserTab {
     /// What the last `setContentVisible` said (shown until then).
     @ObservationIgnored public private(set) var isContentHidden = false
 
+    /// The hovered link's text (`BrowserTab.linkStatus`); tests set it.
+    public var linkStatus: String?
     /// Page text used by `find`.
     public var pageText = ""
     /// Canned result for `evaluate`.

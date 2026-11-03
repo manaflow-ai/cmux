@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1278,
+    "entries": 1279,
     "shortcuts": 189
   },
   "sections": [
@@ -6014,6 +6014,12 @@
           "title": "Integrate a Harness with an Agent…",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "agent.share.invite",
+          "title": "Invite People to Chat…",
+          "shortcut": null,
+          "command": "cmux share invite"
         },
         {
           "id": "palette.launchClaudeTeams",
