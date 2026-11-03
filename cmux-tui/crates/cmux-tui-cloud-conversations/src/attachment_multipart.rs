@@ -55,7 +55,9 @@ impl CloudConversations {
                     }
                 }
                 PutBody::Bytes(bytes) => {
-                    PutBody::Bytes(bytes[offset as usize..(offset + len) as usize].to_vec())
+                    let start = usize::try_from(offset).map_err(|_| bad())?;
+                    let end = usize::try_from(offset + len).map_err(|_| bad())?;
+                    PutBody::Bytes(bytes.get(start..end).ok_or_else(bad)?.to_vec())
                 }
             };
             // Ignore arbitrary plan headers: no bearer, cookies or original-file
@@ -97,8 +99,8 @@ impl CloudConversations {
             }
         }
         let mut completion = json!({"conversation": conversation, "slot": slot});
-        if direct {
-            completion["parts"] = json!(receipts);
+        if direct && let Some(fields) = completion.as_object_mut() {
+            fields.insert("parts".into(), json!(receipts));
         }
         let mut verified = 0;
         let deadline = Instant::now() + Duration::from_secs(30);
