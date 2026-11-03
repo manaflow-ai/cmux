@@ -92,17 +92,14 @@ test("a mixed turn keeps the checkpoint's repository changes beside its edit out
     } as Partial<AcpmuxRow>),
     row("ms", "turnSummary", { status: "completed", checkpoint: { from: "cp-1", to: "cp-2" } }),
   ];
+  // The session host's git.checkpoint.diff answer for the pair.
   const diff = async () => ({
-    checkpoint_id: "cp-1..cp-2",
+    root: "/repo",
     complete: true,
-    diff: {
-      root: "/repo",
-      complete: true,
-      files: [
-        { path: "src/main.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-a\n+b\n" },
-        { path: "src/fmt.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-c\n+d\n" },
-      ],
-    },
+    files: [
+      { path: "src/main.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-a\n+b\n" },
+      { path: "src/fmt.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-c\n+d\n" },
+    ],
   });
   const files = await viewChangesFiles(rows, "ma", diff);
   const patch = viewChangesPatch(rows, "ma", undefined, "/repo", files);
