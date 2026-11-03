@@ -57,6 +57,7 @@ mod projection_size;
 use projection_size::{
     MAX_PROJECTION_BYTES, MAX_RESOURCE_API_PROJECTION_BYTES, note_projection_size,
 };
+mod host_identity;
 mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;
@@ -3017,6 +3018,8 @@ impl WorkspaceRegistry {
                 "workspace registry belongs to session {stored_name:?}, not {session_name:?}"
             );
         }
+        // A registry copied from another machine gets its own ids first.
+        host_identity::rehome_registry(&connection)?;
         let registry_id = required_meta(&connection, "registry_id")?;
         validate_identifier("registry id", &registry_id)?;
         let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;
@@ -5504,13 +5507,16 @@ fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
         // handed out (returned only after its fsync), so a new id replaces it.
         Ok(bytes) if root_identity::is_cut_machine_id(&bytes) => {
             root_identity::create_machine_id(&root, &path, true)
+                .and_then(|id| host_identity::machine_id_for_this_host(&root, &path, id))
         }
         Ok(bytes) => {
             platform::restrict_file(&path)?;
             parse_machine_id_file(&path, &bytes)
+                .and_then(|id| host_identity::machine_id_for_this_host(&root, &path, id))
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             root_identity::create_machine_id(&root, &path, false)
+                .and_then(|id| host_identity::machine_id_for_this_host(&root, &path, id))
         }
         Err(error) => {
             Err(error).with_context(|| format!("read machine identity {}", path.display()))
