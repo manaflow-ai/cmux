@@ -1634,7 +1634,11 @@ export function hiddenRowFolds(rows: readonly AcpmuxRow[], drawn: readonly Acpmu
   // run's line, then the member's own line.
   const behind = row.inBackground === undefined ? undefined : backgroundTurnRowId(row.inBackground);
   const backgroundRun = backgroundRunFoldFor(drawn, row.id) ?? (behind && backgroundRunFoldFor(drawn, behind));
-  if (backgroundRun) return behind ? [backgroundRun, behind] : [backgroundRun];
+  if (backgroundRun) {
+    // A message run inside the member's rows (a send and a read it folded) opens too.
+    const inner = messageRunRevealKey(drawn, row);
+    return [backgroundRun, ...(behind ? [behind] : []), ...(inner ? [inner] : [])];
+  }
   const turn = turnFoldFor(rows, index);
   const run = messageRunRevealKey(drawn, row);
   return [...(turn ? [turn] : []), ...(run ? [run] : [])];
@@ -1650,15 +1654,17 @@ export function messageRevealTarget(
   rows: readonly AcpmuxRow[],
   drawn: readonly AcpmuxRow[],
   messageRows: readonly string[],
-): { rowId: string; fold?: string; run?: string } | undefined {
+): { rowId: string; fold?: string; run?: string; also?: string[] } | undefined {
   const places = messageRows.map((id) => rows.findIndex((row) => row.id === id)).filter((at) => at >= 0);
   if (places.length === 0) return undefined;
   const shown = places.find((at) => findRowIndex(drawn, rows[at]!.id) >= 0);
   if (shown !== undefined) return { rowId: rows[shown]!.id };
   const at = places[0]!;
   // The turn's fold first, then the message run inside it (``hiddenRowFolds``).
-  const [fold, run] = hiddenRowFolds(rows, drawn, at);
-  return { rowId: rows[at]!.id, fold, ...(run && { run }) };
+  // Behind a run of background-task notifications there can be more: the member's line and a
+  // message run inside it (`also`).
+  const [fold, run, ...also] = hiddenRowFolds(rows, drawn, at);
+  return { rowId: rows[at]!.id, fold, ...(run && { run }), ...(also.length > 0 && { also }) };
 }
 
 /// The footer of the drawn turn that `rows[from]` is in (the turn's summary row), looking forward

@@ -47,3 +47,9 @@ test("a person's own '.' prompt still draws, typed or relayed", () => {
 test("a one-period message that failed to deliver still draws its recovery", () => {
   expect(isVisiblyEmptyMessage({ ...received("."), failed: true })).toBe(false);
 });
+
+test("an agent's long blank or zero-width words are still bare; long punctuation is read as text", () => {
+  expect(isBareAgentText(" ".repeat(65))).toBe(true);
+  expect(isBareAgentText("​".repeat(70))).toBe(true);
+  expect(isBareAgentText(".".repeat(65))).toBe(false);
+});

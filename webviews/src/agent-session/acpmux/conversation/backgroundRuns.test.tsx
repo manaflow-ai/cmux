@@ -8,7 +8,8 @@ import type { AcpmuxRow } from "../model";
 import { BackgroundTurnLine } from "./BackgroundTurnLine";
 import { backgroundRunRowId, foldBackgroundRuns } from "./backgroundRuns";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
-import { hiddenRowFolds, turnView } from "./turns";
+import { messageRunRowId } from "./messageRuns";
+import { hiddenRowFolds, messageRevealTarget, turnView } from "./turns";
 import { isBareAgentText, isVisiblyEmptyMessage } from "./visibleMessage";
 
 let at = 0;
@@ -133,7 +134,14 @@ test("Find opens the run, then the member line, for a row behind both", () => {
   const rows = [...prompt(), line("a"), row("a-work", "activity", { inBackground: "a", items: [] }), line("b")];
   const drawn = turnView(rows, new Set());
   const run = backgroundRunRowId(backgroundTurnRowId("a"));
-  expect(hiddenRowFolds(rows, drawn, 4)).toEqual([run, backgroundTurnRowId("a")]);
+  // Then a message run that may fold the row inside the member's rows (messageRuns.ts).
+  expect(hiddenRowFolds(rows, drawn, 4)).toEqual([run, backgroundTurnRowId("a"), messageRunRowId("a-work")]);
+  expect(messageRevealTarget(rows, drawn, ["a-work"])).toEqual({
+    rowId: "a-work",
+    fold: run,
+    run: backgroundTurnRowId("a"),
+    also: [messageRunRowId("a-work")],
+  });
   expect(hiddenRowFolds(rows, drawn, 5)).toEqual([run]);
 });
 
