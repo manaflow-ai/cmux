@@ -847,9 +847,7 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
             (Agent::Claude, false) => {
                 LoginError::new(reason::FAILED, "claude did not finish signing in: start again")
             }
-            (Agent::Codex, _) => {
-                LoginError::new(reason::FAILED, "codex did not finish signing in")
-            }
+            (Agent::Codex, _) => LoginError::new(reason::FAILED, "codex did not finish signing in"),
         });
     }
     // macOS: Claude Code keeps its sign-in in the login keychain, which acpmux

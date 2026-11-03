@@ -370,6 +370,8 @@ public final class RemoteLocalhostService {
             "proxy": .object(counters.mapValues { .number(Double($0)) }),
             "recent": .array(proxy.recentEvents.map(JSONValue.string)),
             "plans": .object(plans.mapValues(JSONValue.string)),
+            // Tabs bound to a chat's machine (a Cloud chat's sign-in page): tab id to that machine's name.
+            "bound": .object(boundTabs.mapValues { id in .string(machines.daemon(machine: id).map(machineName(of:)) ?? id) }),
         ])
     }
 
