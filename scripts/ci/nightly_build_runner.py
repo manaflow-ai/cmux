@@ -59,7 +59,7 @@ On the all-nightly reservation (NIGHTLY_ONLY_LABEL, vars.CI_NIGHTLY_ONLY_RUNNER)
 or dispatch skips all of the above: every output is that label, except that `owned` (build-nightly-app's alone) is
 NIGHTLY_ONLY_BUILDER_LABEL (vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER, unset by default) while a runner carrying it is
 online and idle, so the app builds on the warm runner of one of the dedicated Macs (nightly_only_builder_route()).
-With that variable set, an idle runner carrying NIGHTLY_ONLY_XL_BUILDER_LABEL (ultra1's) is asked for first.
+With that variable set, an idle runner carrying NIGHTLY_ONLY_XL_BUILDER_LABEL (the xl Studio's) is asked for first.
 
 `owned` is `dedicated` when that is set. The workflow takes `owned` only while
 `attempt` is the run's own attempt, so a fresh pick, and `blacksmith` otherwise.
@@ -370,7 +370,7 @@ def blacksmith_route(variable: str, snapshot: Mapping[str, Any] | None, now: dt.
 # cmux7s-mac-mini-glaeda-nightly-only-3 took 452 s to check out (14 s warm) and 282 s for Swift packages (1 s warm).
 NIGHTLY_ONLY_LABEL = "glaeda-nightly-only-m4pro"
 NIGHTLY_ONLY_BUILDER_LABEL = "glaeda-nightly-only-m4pro-builder"
-# The xl Mac Studio's own warm builders (ultra1, two runners), asked for ahead of the M4 Pro pair's builders while
+# The xl Mac Studio's own warm builders (two runners), asked for ahead of the M4 Pro pair's builders while
 # one is idle: the same Release compile measured 7.8 min there against 11.0 min p50 on an M4 Pro. The M4 Pro
 # builders, then the plain label, stay the fallback, so the nightly never waits on this one host.
 NIGHTLY_ONLY_XL_BUILDER_LABEL = "glaeda-nightly-only-xl-builder"
