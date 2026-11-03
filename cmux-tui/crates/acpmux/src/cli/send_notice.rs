@@ -4,6 +4,7 @@
 //! records a named sender's message, never the person's) and sends the rendered text
 //! (`prompt_provenance::notice_text`) as the prompt, so the agent and any old page read it.
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use crate::cli::command::SendNotice;
@@ -61,21 +62,23 @@ pub(crate) fn of_args(
     })?;
     let mut raw = json!({"sender": sender, "severity": args.severity, "title": args.title});
     match args.host {
-        Some(host) => raw["host"] = json!(host),
+        Some(host) => {
+            raw.set("host", json!(host));
+        }
         None => {
             let here = crate::host_pressure::host_name();
             let here = here.strip_suffix(".local").unwrap_or(&here).to_owned();
             if checked(json!({"sender": "x", "severity": "info", "title": "x", "host": here}))
                 .is_ok()
             {
-                raw["host"] = json!(here);
+                raw.set("host", json!(here));
             }
         }
     }
     if !args.links.is_empty() {
         let links: Vec<Value> =
             args.links.iter().map(|l| crate::prompt_provenance::notice_link(l)).collect();
-        raw["links"] = json!(links);
+        raw.set("links", json!(links));
     }
     checked(raw).map(Some).map_err(|e| AppError::usage(format!("send --notice: {e}")))
 }

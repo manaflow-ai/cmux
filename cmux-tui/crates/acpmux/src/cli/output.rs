@@ -177,7 +177,7 @@ impl PromptId {
             mux["cliHost"] = json!(host);
         }
         if let Some(notice) = &self.notice {
-            mux["notice"] = notice.clone();
+            mux.set("notice", notice.clone());
         }
         let mut prompt = vec![json!({"type": "text", "text": text})];
         prompt.extend(self.attachments.iter().cloned());
