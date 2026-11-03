@@ -276,6 +276,7 @@ mod inbound;
 mod logged_bodies;
 pub use logged_bodies::leave_out_bodies;
 mod outbound;
+pub mod prompt_cache;
 // A tool result's images as ACP image blocks (`result_images.rs`).
 mod result_images;
 pub(crate) use result_images::result_images;
@@ -342,6 +343,23 @@ const BREAKDOWN_ROWS: usize = 50;
 /// control request. The translator turns this into a `side_question`
 /// `control_request` on Claude's running stream-json process.
 pub const SIDE_QUESTION: &str = "_acpmux/claude/side_question";
+
+/// The internal ACP request for a session recap (`hub/away_recap.rs`): Claude Code's own recap
+/// prompt asked as a `side_question` on the idle process, so it reads the conversation from its
+/// warm prompt cache, adds nothing to the transcript and may use no tool. Claude Code 2.1.310
+/// makes its own recap (`away_summary`) only in its terminal UI, from the terminal's focus;
+/// under `-p` it never does.
+pub const RECAP: &str = "_acpmux/claude/recap";
+
+/// The chat's own session recap switch (`hub/away_recap.rs`): `default` follows the app's
+/// `agents.chats.sessionRecap`, `on` and `off` override it for this chat. acpmux keeps it; Claude
+/// Code is never asked.
+pub const RECAP_OPTION: &str = "session-recap";
+/// What a recap costs, as its choices say (measured on Opus 5.5 with a 57k-token chat).
+const RECAP_COST: &str = "One extra model call per recap, about $0.016 with a warm cache";
+
+/// Claude Code's own recap prompt (2.1.310, its `/recap` and `away_summary`), word for word.
+pub(crate) const RECAP_PROMPT: &str = "The user stepped away and is coming back. Recap in under 40 words, 1-2 plain sentences, no markdown. Lead with the overall goal and current task, then the one next action. Skip root-cause narrative, fix internals, secondary to-dos, and em-dash tangents.";
 
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
@@ -463,6 +481,8 @@ pub struct Translator {
     effort: Mutex<String>,
     /// Claude Code's fast mode (`fastMode`), on or off.
     pub fast: Mutex<bool>,
+    /// This chat's `RECAP_OPTION`: `default`, `on` or `off`.
+    recap: Mutex<&'static str>,
     in_turn: AtomicBool,
     /// Claude Code wrote something for the prompt (an assistant line, a
     /// conversation reset): its result ends the turn, never startup noise.
@@ -530,6 +550,8 @@ pub struct Translator {
     /// The cached context count came from an untagged compaction boundary rather
     /// than a model message. The controller can fence its later result resend.
     context_from_compaction: AtomicBool,
+    /// When the chat's prompt cache expires (`prompt_cache.rs`).
+    cache: prompt_cache::CacheClock,
     /// A compaction just ended: the synthetic user line Claude writes next
     /// is its summary (`compaction_summary`).
     awaiting_summary: AtomicBool,
@@ -626,6 +648,18 @@ enum Setting {
 }
 
 impl Translator {
+    /// Starts this chat on its saved `RECAP_OPTION` choice (`default` for any other value).
+    pub fn set_recap(&self, choice: Option<&str>) {
+        let choice = match choice {
+            Some("on") => "on",
+            Some("off") => "off",
+            _ => "default",
+        };
+        if let Ok(mut recap) = self.recap.try_lock() {
+            *recap = choice;
+        }
+    }
+
     pub fn new(acp_session_id: String, mode: &str, model: &str, effort: &str) -> Arc<Self> {
         Arc::new(Self {
             pending: Mutex::new(HashMap::new()),
@@ -640,6 +674,7 @@ impl Translator {
             model: Mutex::new(model_id(model)),
             effort: Mutex::new(effort_value(effort).to_owned()),
             fast: Mutex::new(false),
+            recap: Mutex::new("default"),
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
             prompt_echo: Mutex::new(None),
@@ -664,6 +699,7 @@ impl Translator {
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
             context_from_compaction: AtomicBool::new(false),
+            cache: Default::default(),
             awaiting_summary: AtomicBool::new(false),
             compacting: AtomicBool::new(false),
             cancelled_compaction: AtomicBool::new(false),
@@ -852,6 +888,13 @@ impl Translator {
              "options": [
                  {"value": "off", "name": "Off", "description": "Default speed, normal usage"},
                  {"value": "on", "name": "On", "description": "Faster output, increased usage"},
+             ]},
+            {"id": RECAP_OPTION, "name": "Session recap", "type": "select", "category": "model_config",
+             "currentValue": *self.recap.lock().await,
+             "options": [
+                 {"value": "default", "name": "Default", "description": format!("As in Settings > Chats. {RECAP_COST}")},
+                 {"value": "on", "name": "On", "description": RECAP_COST},
+                 {"value": "off", "name": "Off", "description": "No recap when you come back"},
              ]},
         ])
     }
