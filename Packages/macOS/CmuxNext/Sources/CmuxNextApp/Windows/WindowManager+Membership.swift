@@ -602,7 +602,6 @@ extension WindowManager {
     }
 }
 
-
 /// `workspace.expect_window` (``ControlWorkspaceWindowExpectation``, #32989): files an announced CLI create's
 /// workspace into the window it names once the daemon reports it.
 extension WindowManager {
