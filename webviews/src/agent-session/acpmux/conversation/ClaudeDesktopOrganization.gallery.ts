@@ -111,7 +111,7 @@ const openRun: Play = async (ctx) => {
 const variant = (look: "shared" | "guide" | "card" | "tree" | "zebra", note: string): AgentPaneVariant => ({
   note,
   snapshot: chat(turn(), { title: "Stop retrying client errors" }),
-  documentAttributes: { "data-tool-steps-look": look },
+  documentAttributes: { "tool-steps-look": look },
   play: openRun,
 });
 
