@@ -165,5 +165,23 @@ def step_app_log(j, step):
     return {"lines": [l[:300] for l in lines[-120:]], "count": len(lines)}
 
 
+def cond_frame_lacks(j, want, cache):
+    """`frame_lacks: TEXT`: TEXT shows in neither of two fresh window frames read one after the other (the same folded
+    match as frame_text). For a line that must NOT be on screen, e.g. the base terminal's marker after a real Ctrl-`
+    replaced its tab, so a misread of that line can never stand in for the new terminal's line. A frame check: it is
+    read after the step's other conditions hold."""
+    frames = []
+    for _ in range(2):
+        j.checks += 1
+        image = j.app.snapshot(j.out / f"check-{j.checks:02d}.png")
+        lines = j.app.read_text(image)
+        shows = D.ocr_contains(lines, want)
+        frames.append({"image": image.name, "text": lines[-12:], "lines": len(lines), "shows": shows})
+        if shows:
+            return False, {"frames": frames}
+    return True, {"frames": frames}
+
+
 STEPS = {"app_log": step_app_log, "real_key": step_real_key, "key_outcome": step_key_outcome, "daemon_pause": step_daemon_pause}
-CONDITIONS = {}
+CONDITIONS = {"frame_lacks": ("frame", cond_frame_lacks)}
+NEGATIVE = ("frame_lacks",)
