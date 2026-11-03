@@ -150,40 +150,35 @@ struct AgentPaneAttachDroppedTests {
 
     /// Same native operations before and after the matching change. Values are reported, never a
     /// timing gate; every measurement checks the exact reordered paths and per-file attribution.
-    @Test(arguments: [1024, 16384])
-    func reorderedNameMatchingBenchmark(count: Int) throws {
+    @Test(arguments: [1024, 16384], ["takeItems", "source", "sources"])
+    func reorderedNameMatchingBenchmark(count: Int, operation: String) throws {
         let urls = (0..<count).map { URL(fileURLWithPath: "/tmp/matching/attachment-\($0).bin") }
         let expected = Array(urls.reversed())
         let names = expected.map(\.lastPathComponent)
         let record = AgentPaneDroppedPaths(now: { 1000 }, wall: { 1000 })
-        func report(_ operation: String, _ start: ContinuousClock.Instant) {
-            let elapsed = start.duration(to: .now).components
-            let milliseconds = Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
-            print("ATTACHMENT-MATCH operation=\(operation) entries=\(count) ms=\(String(format: "%.3f", milliseconds))")
-        }
-
         record.stash(urls, kind: .drop)
-        var start = ContinuousClock.now
-        let paths = record.takeItems(.drop, names: names)
-        report("takeItems", start)
-        #expect(try #require(paths).map(\.url) == expected)
-
         record.stashSource(urls, items: count, claimed: nil, kind: .drop)
-        start = .now
-        let source = record.source(.drop, names: names, gestureAt: 1000)
-        report("source", start)
-        #expect(try #require(source).urls == expected)
-
         var read: [URL] = []
         read.reserveCapacity(count)
-        start = .now
-        let sources = AgentPaneModel.sources(for: names, urls: urls, claimed: nil) { url in
-            read.append(url)
-            return .screenshot
+        var paths: [URL]?
+        var sources: [AttachmentSource?] = []
+        let start = ContinuousClock.now
+        switch operation {
+        case "takeItems": paths = record.takeItems(.drop, names: names)?.map(\.url)
+        case "source": paths = record.source(.drop, names: names, gestureAt: 1000)?.urls
+        default:
+            sources = AgentPaneModel.sources(for: names, urls: urls, claimed: nil) { url in
+                read.append(url)
+                return .screenshot
+            }
         }
-        report("sources", start)
-        #expect(read == expected)
-        #expect(sources.count == count && sources.allSatisfy { $0 == .screenshot })
+        let elapsed = start.duration(to: .now).components
+        let milliseconds = Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
+        print("ATTACHMENT-MATCH operation=\(operation) entries=\(count) ms=\(String(format: "%.3f", milliseconds))")
+        if operation == "sources" {
+            #expect(read == expected)
+            #expect(sources.count == count && sources.allSatisfy { $0 == .screenshot })
+        } else { #expect(try #require(paths) == expected) }
     }
 
     /// A drop of a folder and a file answers each one's path, and whether it is a folder.
