@@ -106,9 +106,6 @@ pub(super) fn deliver(
 
 fn decode(question: &Question, value: Option<&Value>) -> anyhow::Result<Decision> {
     let value = value.ok_or_else(|| refuse("question.person_decision_required"))?;
-    if value.to_string().len() > 128 * 1024 {
-        return Err(refuse("question.invalid_decision"));
-    }
     let decision: Decision =
         serde_json::from_value(value.clone()).map_err(|_| refuse("question.invalid_decision"))?;
     if question.state != QuestionState::Pending

@@ -211,3 +211,12 @@ fn reservation_refuses_replacement_but_does_not_lock_other_messages() {
     store.release_question_answer(op.target_message_id().unwrap());
     assert!(!store.apply_op(&conversation, "answer", LOCAL_USER, &op).unwrap().replayed);
 }
+
+#[test]
+fn original_request_context_has_no_extra_envelope_size_cap() {
+    let q = question();
+    let mut d = decision(&q);
+    d["request"]["context"] = json!("x".repeat(128 * 1024 + 1));
+    d["digest"] = json!(digest(&d["request"]));
+    assert!(decode(&q, Some(&d)).is_ok());
+}
