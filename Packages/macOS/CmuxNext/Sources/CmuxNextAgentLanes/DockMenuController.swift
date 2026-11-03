@@ -13,8 +13,8 @@ public protocol DockMenuHost: AnyObject {
     func dockMenuHarnesses() async -> [AcpmuxHarnessRow]
     /// The machines a new chat can start on (this Mac, acpmux peers, Cloud machines).
     func dockMenuMachines() async -> [AgentChatDestinations.Destination]
-    /// Whether any window is open.
-    var dockMenuHasWindow: Bool { get }
+    /// Whether any window is open, and whether the active one shows a pane a row can open in.
+    var dockMenuWindow: DockMenuWindow { get }
     /// Brings the last closed window back, else opens a new one (a Dock click's reopen).
     func dockMenuReopenWindow()
     /// Runs New Agent Chat with `arguments` (`harness`, `host`), as Cmd-I and the palette do.
@@ -45,6 +45,11 @@ public final class DockMenuController: NSObject {
     public private(set) var choices = DockMenuChoices.empty
     private var watch: Task<Void, Never>?
     private var choicesRead: Task<Void, Never>?
+    /// A row picked while no window was open: it runs once the window that opened for it mounts
+    /// its first pane (`windowDidShowContent`, called by the App's pane mount), with the harness or
+    /// machine it named. A later pick replaces it.
+    public private(set) var waiting: DockMenuAction?
+    public var isWaiting: Bool { waiting != nil }
 
     public init(lanes: AgentLaneStore = .shared, marks: AgentPriorityMarks = .shared, host: any DockMenuHost,
                 throttle: Duration = .seconds(1)) {
@@ -103,21 +108,63 @@ public final class DockMenuController: NSObject {
     }
 
     @objc private func pick(_ item: NSMenuItem) {
-        guard let action = (item.representedObject as? DockMenuBuilder.Box)?.action, let host else { return }
+        guard let action = (item.representedObject as? DockMenuBuilder.Box)?.action else { return }
         NSApp.activate()
+        run(action)
+    }
+
+    /// Runs `action` now when a window is open. With none, it opens one and the action waits
+    /// for that window's first pane (`windowDidShowContent`), so New Chat in ▸ keeps its harness
+    /// or machine and Continue, Unread and Recent open their chat instead of failing.
+    func run(_ action: DockMenuAction) {
+        guard let host else { return }
+        guard host.dockMenuWindow != .closed else {
+            // A plain New Chat needs nothing more: a new window comes with its New Tab page.
+            guard action != .newChat(harness: nil, machine: nil) else {
+                waiting = nil
+                return host.dockMenuReopenWindow()
+            }
+            // Set before the reopen: a closed window brought back mounts its panes inside it.
+            waiting = action
+            host.dockMenuReopenWindow()
+            // A chat a tab already shows opens with no pane (a window brought back on a top page
+            // mounts none); else the pick waits for the first pane.
+            if case .open(let chat) = action, (try? host.dockMenuOpenChat(chat)) != nil { waiting = nil }
+            windowDidShowContent() // its pane may already show
+            return
+        }
+        waiting = nil // a pick made while a window is open supersedes one still waiting
+        perform(action, host)
+    }
+
+    /// A window mounted its first pane: a row picked while no window was open runs in it now.
+    public func windowDidShowContent() {
+        guard let action = waiting, let host, host.dockMenuWindow == .pane else { return }
+        waiting = nil
+        perform(action, host)
+    }
+
+    private func perform(_ action: DockMenuAction, _ host: any DockMenuHost) {
         switch action {
         case .newChat(let harness, let machine):
-            // A window that had to open comes with its New Tab page, which is a new chat already.
-            guard host.dockMenuHasWindow else { return host.dockMenuReopenWindow() }
             var arguments: [String: ActionValue] = [:]
             if let harness { arguments["harness"] = .string(harness) }
             if let machine { arguments["host"] = .string(machine) }
             host.dockMenuNewChat(arguments)
         case .open(let chat):
-            if !host.dockMenuHasWindow { host.dockMenuReopenWindow() }
             do { try host.dockMenuOpenChat(chat) } catch { host.dockMenuRefuse(String(describing: error)) }
         }
     }
+}
+
+/// The app's windows as the Dock menu's rows need them (`DockMenuHost.dockMenuWindow`).
+public nonisolated enum DockMenuWindow: Equatable, Sendable {
+    /// No window is open.
+    case closed
+    /// A window is open; the active one shows no pane yet.
+    case noPane
+    /// The active window shows a pane.
+    case pane
 }
 
 /// What a Dock menu row does.
