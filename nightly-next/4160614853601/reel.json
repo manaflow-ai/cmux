@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "build": "4160614853601",
+  "notes": "notes/4160614853601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 33339,
+      "title": "base red: acpmux send --notice sets its JSON fields with JsonSet, no index (panic ratchet indexing_slicing, after #32974)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33413,
+      "title": "dogfood conf: a cap<sha10> capture build's --release is the bench configuration",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33276,
+      "title": "test(cmux-next): the XCTest-phase test also starts xctest without -XCTest",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33390,
+      "title": "Agent chat: opened runs and thoughts drop icons and guide lines, as Claude Code draws them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33302,
+      "title": "cmux NEXT composer: mid-turn placeholder says Type / for commands; Send's tooltip names ↵ steer · ⌘↵ queue",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33091,
+      "title": "base red: the machine update reads its daemon's binary as the socket's peer, not by a pid",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33247,
+      "title": "Downloads folder follow-ups: Show Downloads folder follows CMUX_NEXT_DOWNLOADS_DIR; kits refuse a build that saves elsewhere; kits clean up",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33364,
+      "title": "Running tray: the open list is newest first, the folded bar names the newest one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33252,
+      "title": "Agent chat: a subagent paged out of view keeps its name in \"Subagent finished\" and \"Sent to\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33207,
+      "title": "fix(acpmux): erase persisted peer tails on sign-out",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33408,
+      "title": "Agent chat: an approved permission ask reads on its tool row; Bypass permissions' own approvals draw nothing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32900,
+      "title": "cmux NEXT: a link opened to the right shows in its split in the click's frame, never in the source pane first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33073,
+      "title": "Apps: Session Info app sections, host side (manifest, panels.list, cmux.apps.panels page ops)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33144,
+      "title": "test(webviews): glass-one-edge passes the Session Info hairline Leo ordered (#32969)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33346,
+      "title": "Agent chat: the window's lit top rim runs unbroken over the header tools in the tab row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33199,
+      "title": "cmux-next browser: CEF helpers end with the app, so a signal quit no longer shows \"uBlock Origin has crashed\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33216,
+      "title": "chief: a person's message ends the wait for a turn adopted after a restart",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33236,
+      "title": "test(chat-load): measure process-cold local tail stages",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
