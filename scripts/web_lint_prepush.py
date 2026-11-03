@@ -862,7 +862,10 @@ def trusted_pieces(repo: Path, package: ScriptPackage, files: list[str], risky: 
     the ones left out: the push changes their script, or the copy has none). Only when every executed file the push
     changes (RISKY) is under scripts/cmux-next/, the one folder the copy holds; their INPUTS are the copy's, and
     only pieces whose script is in that folder qualify."""
-    if trusted is None or not trusted.is_dir() or not all(path.startswith(TRUSTED_FOLDER) for path in risky):
+    # Every reason a change under scripts/cmux-next/, and none a symlink: a link there could walk a reviewed check
+    # that reads that folder outside the tree.
+    if (trusted is None or not trusted.is_dir() or not all(path.startswith(TRUSTED_FOLDER) for path in risky)
+            or any(path.endswith(" (a symlink)") for path in risky)):
         return [], []
     run, skipped = [], []
     for piece in input_pieces(repo, package, files, trusted_reader(trusted, read)):
