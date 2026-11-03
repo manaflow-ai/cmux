@@ -31,9 +31,9 @@ store is inactive (Release with bench hooks; `debug.tunables activate` turns it 
 and Reduce Motion films run and every other speed is one "not run: tunable store inactive" px_film result.
 
 Each recording is one px_film step: the speed, ext_pixel px_record_start (ext_video's 120 Hz recorder, require_hz 120,
-with a scan row through every tab strip and rows and columns at 0.3 and 0.7 of every pane, so every pane border is
-crossed), the input as a person gives it (real HID drags, keys and the app's actions), video_stop, and the rebuild of a
-closed pane. The judge (judge_pixel.py) reads the scan lines, the trace and the note px_record_start writes (which pane
+a 60 Mbps movie, a scan row through every tab strip and rows and columns at 0.3 and 0.7 of every pane, so every pane
+border is crossed), the input as a person gives it (real HID drags, keys and the app's actions), video_stop, and the
+rebuild of a closed pane. The judge (judge_pixel.py) reads the scan lines, the trace and the note px_record_start writes (which pane
 is which fixture, the speed, the declared spring, the page backdrop). Each journey ends with the kit's after check:
 p0's TUI ends on a real HID Ctrl-C and p0 echoes a line (app, daemon and frame). `finally` puts the springs, Reduce
 Motion, the page backdrop tunable, the agent theme.css and the settings back.
@@ -75,6 +75,8 @@ SPEEDS = (("s025", 0.25), ("s05", 0.5), ("s1", 1.0), ("s2", 2.0), ("s4", 4.0), (
 RESPONSE = {"move": 0.15, "split": 0.23, "scroll": 0.2}
 DAMPING = {"move": 1.0, "split": 0.95, "scroll": 0.9}
 STRIP = "#000000"
+# The movie's HEVC bit rate (the recorder's default is 300): flat fixture colors, and the judge reads the exact scan.
+MOVIE_MBPS = 60
 SPEEDS_S1R = (("s1", 1.0), ("reduce", None))
 # Seconds, from the first rounds (cmux22, 2026-11-03: a pane's set-up took 1-3 s); MARGIN on top.
 EST_BASE, EST_PANE, EST_FOCUS, EST_FILM, EST_REBUILD, EST_AFTER = 12, {"tui": 4, "page": 12, "agent": 5}, 1, 9, 7, 8
@@ -229,8 +231,8 @@ class Case:
         expected = self.play_seconds(speed)
         # The recorder stops by itself after `seconds`: room for the lead (1 s), the steps' own overhead and the tail.
         seconds = round(1.5 * expected + 6.0, 1)
-        start = {"do": "px_record_start", "name": name, "seconds": seconds, "require_hz": 120, "fixture": self.layout.fixture,
-                 "spring": self.spring, "input": self.input,
+        start = {"do": "px_record_start", "name": name, "seconds": seconds, "require_hz": 120, "mbps": MOVIE_MBPS,
+                 "fixture": self.layout.fixture, "spring": self.spring, "input": self.input,
                  "title": f"start the 120 Hz movie, the trace and scan lines across every pane border and tab strip ({name})"}
         if self.spring:
             start["spring_default"] = {"response": RESPONSE[self.spring], "damping": DAMPING[self.spring]}

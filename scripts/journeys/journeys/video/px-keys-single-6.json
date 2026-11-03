@@ -297,6 +297,7 @@
      "name": "px-keys-single-6-s025",
      "seconds": 14.1,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",
@@ -429,6 +430,7 @@
      "name": "px-keys-single-6-s05",
      "seconds": 11.4,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",
@@ -561,6 +563,7 @@
      "name": "px-keys-single-6-s1",
      "seconds": 10.0,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",
@@ -693,6 +696,7 @@
      "name": "px-keys-single-6-s2",
      "seconds": 9.4,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",
@@ -825,6 +829,7 @@
      "name": "px-keys-single-6-s4",
      "seconds": 9.1,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",
@@ -957,6 +962,7 @@
      "name": "px-keys-single-6-reduce",
      "seconds": 9.6,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",

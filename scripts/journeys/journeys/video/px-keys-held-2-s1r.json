@@ -172,6 +172,7 @@
      "name": "px-keys-held-2-s1r-s1",
      "seconds": 11.6,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",
@@ -249,6 +250,7 @@
      "name": "px-keys-held-2-s1r-reduce",
      "seconds": 11.4,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",

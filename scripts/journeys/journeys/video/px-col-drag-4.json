@@ -228,6 +228,7 @@
      "name": "px-col-drag-4-s025",
      "seconds": 11.7,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",
@@ -311,6 +312,7 @@
      "name": "px-col-drag-4-s05",
      "seconds": 10.4,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",
@@ -394,6 +396,7 @@
      "name": "px-col-drag-4-s1",
      "seconds": 9.7,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",
@@ -477,6 +480,7 @@
      "name": "px-col-drag-4-s2",
      "seconds": 9.3,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",
@@ -560,6 +564,7 @@
      "name": "px-col-drag-4-s4",
      "seconds": 9.2,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",
@@ -643,6 +648,7 @@
      "name": "px-col-drag-4-reduce",
      "seconds": 9.4,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",

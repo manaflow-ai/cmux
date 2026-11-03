@@ -176,6 +176,7 @@
      "name": "px-new-column-c2-s025",
      "seconds": 13.4,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",
@@ -254,6 +255,7 @@
      "name": "px-new-column-c2-s05",
      "seconds": 11.4,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",
@@ -332,6 +334,7 @@
      "name": "px-new-column-c2-s1",
      "seconds": 10.3,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",
@@ -410,6 +413,7 @@
      "name": "px-new-column-c2-s2",
      "seconds": 9.8,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",
@@ -488,6 +492,7 @@
      "name": "px-new-column-c2-s4",
      "seconds": 9.6,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",
@@ -566,6 +571,7 @@
      "name": "px-new-column-c2-reduce",
      "seconds": 9.8,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",

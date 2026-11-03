@@ -202,6 +202,7 @@
      "name": "px-keys-single-3k-s1r-s1",
      "seconds": 10.0,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",
@@ -322,6 +323,7 @@
      "name": "px-keys-single-3k-s1r-reduce",
      "seconds": 9.6,
      "require_hz": 120,
+     "mbps": 60,
      "fixture": {
       "p0": {
        "kind": "tui",

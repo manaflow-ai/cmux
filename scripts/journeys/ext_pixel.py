@@ -47,6 +47,13 @@ Steps (`do`):
                response after the scale and its damping as the app applies it: structural tokens never under 1; from
                spring_default when the store cannot be read); the page backdrop as the app has it; the tunable store;
                each pane's strip, pill, cell and border at the start; the window frame; the lines and the strip rows.
+               The recorder first (cmux22 2026-11-03: a second film's ScreenCaptureKit start gave no callback within
+               ext_video's 8 s): waits until the app's recorder is idle (record_read: nothing capturing, the last
+               recording written; after a failed start the app has dropped it), starts with the app's own bound
+               (START_TIMEOUT: its two ScreenCaptureKit calls of at most 10 s each) and tries a start that did not take
+               once more; each attempt's reason and each idle wait are in the note (`recorder`).
+  px_film also records each film's movie and scan bytes (`bytes`), so a round whose fetch fails still says how big
+  its films were.
 """
 import json
 import os
@@ -69,6 +76,13 @@ SCAN_BUDGET = 230 << 20  # the recorder keeps at most 256 MB of scan lines (Moti
 FILM_HZ = 120
 BACKDROP_KEY = "browserResize.pageBackdrop"
 RESULT_CHARS = 2400  # a px_film sub-step's result kept in result.json, at most
+# MotionScreenRecord bounds each ScreenCaptureKit call (the content list, the start) at 10 s (callLimit) and then reports
+# its own error: wait for both, and a margin.
+START_TIMEOUT = 22.0
+START_ATTEMPTS = 2
+IDLE_TIMEOUT = 35.0  # the last recording's stop (at most 10 s) and its files
+IDLE_AFTER_ERROR_S = 0.5  # after a failed start the app has dropped it; its files close within milliseconds
+RECORDER_RETRY = ("ScreenCaptureKit did not start", "still being written")
 
 
 def install(driver):
@@ -346,6 +360,45 @@ def _backdrop(j):
         return None
 
 
+def recorder_idle(j, timeout=IDLE_TIMEOUT):
+    """Waits until the app's recorder is idle, on its own state (debug.motion record_read): no recording capturing or
+    starting, and the last one written (`written`; none at all reads {capturing: false}). A read that raises carries
+    the app's last start error: that recording was dropped, so the recorder is idle once its files close. Returns
+    {waited_s, state}; raises NotRun when it is not idle within TIMEOUT."""
+    t0 = D.now()
+    state = {}
+    while True:
+        try:
+            state = j.app.rpc("debug.motion", {"action": "record_read"}) or {}
+        except D.StepError as error:
+            time.sleep(IDLE_AFTER_ERROR_S)
+            return {"waited_s": round(D.now() - t0, 3), "state": {"error": str(error)[:300]}}
+        if not state.get("capturing") and state.get("written", True):
+            return {"waited_s": round(D.now() - t0, 3), "state": {k: state.get(k) for k in ("capturing", "written", "movie_status", "callbacks")}}
+        if D.now() - t0 > timeout:
+            raise D.NotRun(f"the app's recorder is not idle after {timeout:.0f} s: {json.dumps(state)[:300]}")
+        time.sleep(0.05)  # orchestration poll of the app's own state
+
+
+def start_film(j, step):
+    """ext_video's video_start once the recorder is idle, with the app's own start bound; a start that did not take is
+    tried once more. Returns (video_start's reply, {idle: [...], attempts: [reasons]})."""
+    recorder = {"idle": [], "attempts": []}
+    for attempt in range(START_ATTEMPTS):
+        recorder["idle"].append(recorder_idle(j))
+        try:
+            return V.step_video_start(j, dict(step, start_timeout=float(step.get("start_timeout", START_TIMEOUT)))), recorder
+        except (D.NotRun, D.StepError) as error:
+            retry = any(text in str(error) for text in RECORDER_RETRY)
+            if not retry or attempt == START_ATTEMPTS - 1:
+                if recorder["attempts"]:
+                    raise type(error)(f"{error} (after {len(recorder['attempts'])} earlier start(s): "
+                                      f"{' | '.join(recorder['attempts'])[:400]})")
+                raise
+            recorder["attempts"].append(str(error)[:300])
+    raise D.NotRun("unreachable")
+
+
 def step_px_record_start(j, step):
     st = _state(j)
     chrome = j.app.rpc("debug.pane_chrome") or {}
@@ -369,7 +422,7 @@ def step_px_record_start(j, step):
                                                         tuple(step.get("lines_per_pane") or (0.3, 0.7)),
                                                         strips=[p["strip"] for p in strip_panes])
     strip_rows = {strip_panes[i]["pane"]: y for i, y in strip_index.items()}
-    started = V.step_video_start(j, dict(step, rows=rows, columns=cols))
+    started, recorder = start_film(j, dict(step, rows=rows, columns=cols))
     token = step.get("spring")
     spring = None
     if token and not st["reduce"]:
@@ -395,6 +448,7 @@ def step_px_record_start(j, step):
             "page_backdrop": backdrop, "tunables": st["tunables"], "pages": getattr(j, "px_pages", {}),
             "frame": [width, height], "window_frame": win_frame, "screen_frame": screen_frame,
             "lines": {"rows": rows, "columns": cols, "strip_rows": strip_rows, "dropped": dropped, "scan_bytes_planned": used},
+            "recorder": recorder,
             "panes": {keys[name]: {"kind": "page" if info.get("kind") == "agent" else info.get("kind"), "agent": info.get("kind") == "agent",
                                    "fill": info.get("fill"), "label": name} for name, info in fixture.items()},
             "chrome": [{k: p.get(k) for k in ("pane", "cell", "border", "first_cell", "strip", "pill", "strip_hidden")}
@@ -402,7 +456,7 @@ def step_px_record_start(j, step):
     if getattr(j, "video", None) is not None:
         j.video["notes"]["pixel"] = note
     return dict(started, rows=rows, columns=cols, strip_rows=strip_rows, dropped_lines=dropped,
-                fixture={keys[n]: n for n in fixture}, spring=spring, page_backdrop=backdrop)
+                fixture={keys[n]: n for n in fixture}, spring=spring, page_backdrop=backdrop, recorder=recorder)
 
 
 def _short(value):
@@ -431,9 +485,18 @@ def step_px_film(j, step):
             raise D.StepError(f"px_film {name}: {sub['do']} ({sub.get('title', '')[:60]}): {error}")
         done.append({"do": sub["do"], "title": sub.get("title", ""), "seconds": round(D.now() - t, 3), "result": _short(out)})
     line = {"film": name, "status": "recorded", "speed": None if reduce else st["speed"], "reduce": reduce,
-            "springs_source": st["springs_source"], "speed_facts": facts, "steps": done}
-    st["films"].append({k: line[k] for k in ("film", "status", "speed", "reduce", "springs_source")})
+            "springs_source": st["springs_source"], "speed_facts": facts, "bytes": film_bytes(j, name), "steps": done}
+    st["films"].append({k: line[k] for k in ("film", "status", "speed", "reduce", "springs_source", "bytes")})
     return line
+
+
+def film_bytes(j, name):
+    """The movie's and the scan's size on the mini (None when missing): the round's fetch has to move them."""
+    out = {}
+    for key, suffix in (("movie", ".mov"), ("scan", ".mov.scan")):
+        path = os.path.join(str(j.out), "video", name + suffix)
+        out[key] = os.path.getsize(path) if os.path.isfile(path) else None
+    return out
 
 
 STEPS = {"px_film": step_px_film, "px_springs": step_px_springs, "px_tunable": step_px_tunable, "px_page": step_px_page,
