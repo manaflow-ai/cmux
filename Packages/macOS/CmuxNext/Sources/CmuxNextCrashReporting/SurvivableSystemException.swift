@@ -19,7 +19,16 @@ nonisolated struct SurvivableSystemException: Equatable, Sendable {
     }
 
     /// The known framework bugs cmux survives.
-    static let rules: [Rule] = []
+    static let rules: [Rule] = [
+        // #33743: a drag in the Quick Look panel's preview runs its pan gesture's action with a
+        // mouse-drag as NSApp.currentEvent; QuickLookUI asks that event for its touches, and AppKit
+        // throws, since only gesture events have touches. AppKit's catch is in
+        // _NSGestureRecognizerSendOneAction, two system frames up: the drag does not start, as in
+        // Finder and every app that does not crash on exceptions.
+        Rule(id: "quicklook-panel-drag-touches", name: "NSInternalInconsistencyException",
+             reasonPrefix: "Invalid message sent to event", thrower: "-[NSEvent touchesMatchingPhase:inView:]",
+             caller: "-[QLPanelPreviewView startDragFromGesture:"),
+    ]
 
     var name: String
     var reason: String
