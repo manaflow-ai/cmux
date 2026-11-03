@@ -14,6 +14,7 @@
 //! sha256 matches, so a write is still atomic and has no size cap.
 
 use std::io::{Seek as _, Write as _};
+use std::os::unix::fs::PermissionsExt as _;
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -399,6 +400,7 @@ async fn read(client: &reqwest::Client, grant: &Grant, path: &str) -> Result<Ans
     };
     // Anonymous (0600, unlinked) storage is removed on every exit, including cancellation.
     let mut file = tempfile::tempfile().map_err(storage_error)?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600)).map_err(storage_error)?;
     'tries: for _ in 0..READ_TRIES {
         file.set_len(0).map_err(storage_error)?;
         file.rewind().map_err(storage_error)?;
