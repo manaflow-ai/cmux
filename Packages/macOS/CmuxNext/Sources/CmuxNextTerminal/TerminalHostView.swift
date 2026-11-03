@@ -21,10 +21,7 @@ public final class TerminalHostView: NSView {
     /// The label over the last screen while the link is down (click-through), built the first time
     /// a label shows: a new terminal's "connected" or quick "Restoring…" builds and shows nothing.
     private lazy var statusLabel = TerminalStatusLabel(clock: statusClock, install: { [weak self] banner in
-        guard let self else { return }
-        // Where it stood when the host built it first: above the surface, the scroller and the
-        // accessory, below the find bar, the buttons and the top overlay.
-        addSubview(banner, positioned: .above, relativeTo: bottomAccessory ?? scroller ?? current)
+        self?.addChrome(banner, .statusLabel)
     }, didReveal: { [weak self] in self?.needsLayout = true })
     private let statusClock: any Clock<Duration>
     /// The scroller: thin, shown only while scrolling (SCROLLBARS-THIN). Overlay and hidden at rest,
@@ -82,7 +79,7 @@ public final class TerminalHostView: NSView {
             oldValue?.removeFromSuperview()
             if let bottomAccessory {
                 bottomAccessory.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
-                addSubview(bottomAccessory, positioned: .above, relativeTo: scroller ?? current)
+                addChrome(bottomAccessory, .accessory)
             }
             needsLayout = true
         }
@@ -96,7 +93,7 @@ public final class TerminalHostView: NSView {
             oldValue?.removeFromSuperview()
             if let topOverlay {
                 topOverlay.translatesAutoresizingMaskIntoConstraints = true
-                addSubview(topOverlay, positioned: .above, relativeTo: overlayFloor)
+                addChrome(topOverlay, .overlay)
             }
             needsLayout = true
         }
@@ -168,7 +165,7 @@ public final class TerminalHostView: NSView {
         guard !subviews.contains(where: { $0 is TerminalFindBarView }) else { return }
         let bar = TerminalFindBarView(find: find)
         bar.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
-        addSubview(bar, positioned: .above, relativeTo: overlayFloor)
+        addChrome(bar, .overlay)
         needsLayout = true
     }
 
@@ -179,8 +176,35 @@ public final class TerminalHostView: NSView {
     /// Whether a transient status waits out its reveal delay before its label shows (tests).
     var statusLabelWaits: Bool { statusLabel.isWaiting }
 
-    /// The view the overlays stack above: the status label once built, else the accessory or the scroller.
-    private var overlayFloor: NSView? { statusLabel.banner ?? bottomAccessory ?? scroller ?? current }
+    /// The layers of what the host shows over its surface, back to front. The surface and a held
+    /// frame over it (``TerminalFrameHold``, directly above the surface) are below all of them.
+    private enum ChromeLayer: Int, Comparable {
+        case scroller, accessory, statusLabel, overlay
+        static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+    }
+
+    /// The layer of `view`, nil for the surface, a held frame and anything else that is not chrome.
+    private func chromeLayer(of view: NSView) -> ChromeLayer? {
+        if view === scroller { return .scroller }
+        if view === bottomAccessory { return .accessory }
+        if view === statusLabel.banner { return .statusLabel }
+        if view === topOverlay || view === restartButton || view === retryButton || view === sizedForChip
+            || view is TerminalFindBarView { return .overlay }
+        return nil
+    }
+
+    /// Adds `view` at `layer`: directly below the lowest chrome of its layer or above (a newer
+    /// overlay goes under the older ones, as each went directly above the label before), else on
+    /// top. Chrome built on first use (the label, the scroller, the buttons) so never goes under a
+    /// held frame, which sits directly above the surface.
+    private func addChrome(_ view: NSView, _ layer: ChromeLayer) {
+        let above = subviews.first { $0 !== view && (chromeLayer(of: $0).map { $0 >= layer } ?? false) }
+        if let above {
+            addSubview(view, positioned: .below, relativeTo: above)
+        } else {
+            addSubview(view)
+        }
+    }
 
     func showStatus(_ status: TerminalConnectionStatus) {
         shownStatus = status
@@ -190,8 +214,9 @@ public final class TerminalHostView: NSView {
             let button = TerminalRetryButton()
             // The same re-attach a click in the disconnected terminal starts.
             button.onRetry = { [weak self] in self?.current?.session?.surfaceClicked() }
-            addOverlay(button)
+            statusLabel.prepareView()
             retryButton = button
+            addChrome(button, .overlay)
         }
         if let retryButton {
             let hidden = retryButton.isHidden
@@ -211,8 +236,9 @@ public final class TerminalHostView: NSView {
         var built = false
         if restartButton == nil, offered, restartAction != nil {
             let button = TerminalRestartButton()
-            addOverlay(button)
+            statusLabel.prepareView()
             restartButton = button
+            addChrome(button, .overlay)
             built = true
         }
         guard let restartButton else { return false }
@@ -229,11 +255,6 @@ public final class TerminalHostView: NSView {
         return restartButton.shownTitle
     }
 
-    /// Above the status banner, as the find bar is.
-    private func addOverlay(_ view: NSView) {
-        addSubview(view, positioned: .above, relativeTo: overlayFloor)
-    }
-
     /// The "Sized for" chip's text, nil while hidden (diagnostics and tests).
     var sizedForText: String? {
         sizedForChip?.shown.map { TerminalSizedForChip.text(for: $0) }
@@ -244,8 +265,8 @@ public final class TerminalHostView: NSView {
         if sizedForChip == nil {
             let chip = TerminalSizedForChip()
             chip.onTakeOver = { [weak self] setLatest in self?.current?.session?.takeOverSize(setLatest: setLatest) }
-            addOverlay(chip)
             sizedForChip = chip
+            addChrome(chip, .overlay)
         }
         sizedForChip?.show(sizedFor)
         needsLayout = true
@@ -323,14 +344,12 @@ public final class TerminalHostView: NSView {
         scroller.onStyleChange = { [weak self] in self?.needsLayout = true }
         scroller.onScrollToRow = { [weak self] row in _ = self?.current?.performBindingAction("scroll_to_row:\(row)") }
         scroller.onWheel = { [weak self] event in self?.current?.scrollWheel(with: event) }
-        // Directly above the surface: below the accessory, the status label and the overlays.
-        if let current {
-            addSubview(scroller, positioned: .above, relativeTo: current)
-        } else {
-            addSubview(scroller, positioned: .below, relativeTo: nil)
-        }
-        scroller.frame = scroller.strip(in: terminalBounds)
         self.scroller = scroller
+        // Above the surface and a held frame, below the accessory, the status label and the overlays.
+        addChrome(scroller, .scroller)
+        scroller.frame = scroller.strip(in: terminalBounds)
+        // Its clip view takes the new frame now: the first update lays out the knob and flashes it this turn.
+        scroller.tile()
         needsLayout = true
         return scroller
     }

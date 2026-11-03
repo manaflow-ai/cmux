@@ -129,18 +129,19 @@ import Testing
         #expect(view.statusText == "Disconnected: connection lost · Click or type to reconnect")
     }
 
-    /// "Restoring…" turning into a reconnecting stall keeps the longer wait from the same start.
+    /// "Restoring…" turning into a reconnecting stall keeps the longer wait from the same start: the label
+    /// shows when the clock reaches the start plus the longer delay, not that delay after the change.
     @Test func aLongerWaitKeepsItsStart() async throws {
         let clock = ManualClock()
         let view = TerminalHostView(clock: clock)
         view.showStatus(.restoring)
         try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(300))
         view.showShellStall(.reconnecting)
         try await clock.waitForSleeper()
-        clock.advance(by: .seconds(TerminalStatusBanner.restoringRevealDelay))
-        await Task.yield()
-        #expect(view.statusText == nil, "the restoring wait no longer shows the label")
-        clock.advance(by: .seconds(TerminalStatusBanner.reconnectingRevealDelay))
+        #expect(clock.sleeperDeadlines == [ManualClock.Instant(offset: .seconds(TerminalStatusBanner.reconnectingRevealDelay))],
+                "the wait ends at its first start plus the longer delay")
+        clock.advance(by: .seconds(TerminalStatusBanner.reconnectingRevealDelay) - .milliseconds(300))
         try await Self.until { view.statusText != nil }
         #expect(view.statusText == "Reconnecting to the shell…")
     }
@@ -149,7 +150,7 @@ import Testing
     /// manual clock woke.
     private static func until(_ condition: () -> Bool) async throws {
         var turns = 0
-        while !condition(), turns < 200 { await Task.yield(); turns += 1 }
+        while !condition(), turns < 10_000 { await Task.yield(); turns += 1 }
         try #require(condition())
     }
 

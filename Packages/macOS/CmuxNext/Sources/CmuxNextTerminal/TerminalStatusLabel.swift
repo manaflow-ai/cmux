@@ -12,24 +12,27 @@ import AppKit
 /// (12 new terminals, STATUS 8158) for labels that never appeared.
 @MainActor
 final class TerminalStatusLabel {
-    /// The label view, nil until a label first shows.
+    /// The label view, nil until a label first shows (or a button above it needs its place).
     private(set) var banner: TerminalStatusBanner?
-    /// A label that waits out its reveal delay: when the wait started, how long it is, and its task.
-    private var waiting: (start: CFTimeInterval, delay: CFTimeInterval, task: Task<Void, Never>)?
+    /// A label that waits out its reveal delay: when the wait started and how long it is (on
+    /// ``clock``, from the label's start), its task, and the task's number (a woken task of an
+    /// earlier wait shows nothing).
+    private var waiting: (start: Duration, delay: Duration, task: Task<Void, Never>, generation: Int)?
+    private var generation = 0
     /// The words the label shows when the wait ends (the latest status's).
     private var waitingText: String?
-    private let clock: any Clock<Duration>
-    /// Adds a newly built label to the host (above the scroller, below the other overlays).
+    private let clock: RevealClock
+    /// Adds a newly built label to the host.
     private let install: (TerminalStatusBanner) -> Void
     /// Called when the label appeared after its wait (the host lays it out).
     private let didReveal: () -> Void
 
     /// - Parameters:
     ///   - clock: The clock of the reveal delays; tests pass a manual clock.
-    ///   - install: Adds the label view to the host the first time a label shows.
+    ///   - install: Adds the label view to the host the first time it is built.
     ///   - didReveal: Called when a waiting label appears.
     init(clock: any Clock<Duration>, install: @escaping (TerminalStatusBanner) -> Void, didReveal: @escaping () -> Void) {
-        self.clock = clock
+        self.clock = RevealClock(clock)
         self.install = install
         self.didReveal = didReveal
     }
@@ -66,37 +69,53 @@ final class TerminalStatusLabel {
             showNow(text, fadeIn: false)
             return true
         }
-        wait(delay, text: text)
+        wait(.seconds(delay), text: text)
+        // A label view built for a button above it takes the words now, still hidden, so its place does not move.
+        banner?.setText(text)
         return false
     }
 
-    private func wait(_ delay: CFTimeInterval, text: String) {
+    /// Builds the hidden label view now: Restart and Retry sit above where it shows, so their
+    /// place does not move when a label still waiting appears.
+    func prepareView() {
+        guard banner == nil else { return }
+        let made = TerminalStatusBanner()
+        install(made)
+        banner = made
+        if let waitingText { made.setText(waitingText) }
+    }
+
+    private func wait(_ delay: Duration, text: String) {
         waitingText = text
-        let now = CACurrentMediaTime()
+        let now = clock.elapsed()
         if let pending = waiting, now < pending.start + pending.delay {
             // Still waiting: keep that wait unless this status waits longer from the same start.
             guard delay > pending.delay else { return }
             pending.task.cancel()
-            waiting = (pending.start, delay, revealTask(after: pending.start + delay - now))
+            waiting = revealing(start: pending.start, delay: delay)
             return
         }
         waiting?.task.cancel()
-        waiting = (now, delay, revealTask(after: delay))
+        waiting = revealing(start: now, delay: delay)
     }
 
-    private func revealTask(after seconds: CFTimeInterval) -> Task<Void, Never> {
+    private func revealing(start: Duration, delay: Duration) -> (start: Duration, delay: Duration, task: Task<Void, Never>, generation: Int) {
+        generation &+= 1
+        let generation = generation
         let clock = clock
         // A bounded, cancellable delay that is the intended behavior (a transient status's quiet
         // time); the next status cancels it. Its clock is injected.
-        return Task { [weak self] in
+        let task = Task { [weak self] in
             // wakeup-allow: one-shot injected reveal deadline; the next status cancels it.
-            do { try await clock.sleep(for: .seconds(max(0, seconds))) } catch { return }
-            self?.waitEnded()
+            do { try await clock.wake(start + delay) } catch { return }
+            guard !Task.isCancelled else { return }
+            self?.waitEnded(generation)
         }
+        return (start, delay, task, generation)
     }
 
-    private func waitEnded() {
-        guard waiting != nil, let text = waitingText else { return }
+    private func waitEnded(_ ended: Int) {
+        guard let pending = waiting, pending.generation == ended, let text = waitingText else { return }
         waiting = nil
         waitingText = nil
         showNow(text, fadeIn: true)
@@ -110,10 +129,23 @@ final class TerminalStatusLabel {
     }
 
     private func showNow(_ text: String, fadeIn: Bool) {
-        if let banner { return banner.show(text, fadeIn: fadeIn) }
-        let made = TerminalStatusBanner()
-        install(made)
-        banner = made
-        made.show(text, fadeIn: fadeIn)
+        prepareView()
+        banner?.show(text, fadeIn: fadeIn)
+    }
+}
+
+/// The label's injected clock as offsets from the label's start, so a wait's start and its end are
+/// read on the same clock (a manual clock in tests).
+private struct RevealClock: Sendable {
+    /// The time since the label started.
+    let elapsed: @Sendable () -> Duration
+    /// Returns when the clock reaches `offset` after the label's start; throws when cancelled.
+    let wake: @Sendable (Duration) async throws -> Void
+
+    init<C: Clock<Duration>>(_ clock: C) {
+        let start = clock.now
+        elapsed = { start.duration(to: clock.now) }
+        // wakeup-allow: one-shot injected reveal deadline; the label's next status cancels it.
+        wake = { offset in try await clock.sleep(until: start.advanced(by: offset), tolerance: nil) }
     }
 }

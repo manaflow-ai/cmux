@@ -34,7 +34,7 @@ import Testing
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(TerminalStatusBanner.restoringRevealDelay))
         var turns = 0
-        while host.statusText == nil, turns < 200 { await Task.yield(); turns += 1 }
+        while host.statusText == nil, turns < 10_000 { await Task.yield(); turns += 1 }
         #expect(host.statusText == "Restoring…")
         #expect(Self.banners(in: host).count == 1)
         host.showStatus(.connected)

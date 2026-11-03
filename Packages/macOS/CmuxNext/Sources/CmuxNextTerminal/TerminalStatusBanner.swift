@@ -56,11 +56,16 @@ final class TerminalStatusBanner: NSView {
     /// Shows `text` (the label's words, ``text(for:hostLoss:cause:stall:strings:)``). `fadeIn`: it
     /// appears with the overlays' fade (a label that waited out its reveal delay); else at once.
     func show(_ text: String, fadeIn: Bool) {
-        label.stringValue = text
-        setAccessibilityLabel(text)
+        setText(text)
         guard isHidden else { return }
         isHidden = false
         if fadeIn, let layer { Motion.overlays.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0)) }
+    }
+
+    /// Sets the words while hidden (a label still waiting, whose place the buttons above it use).
+    func setText(_ text: String) {
+        label.stringValue = text
+        setAccessibilityLabel(text)
     }
 
     func hide() {
