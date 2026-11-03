@@ -3,7 +3,9 @@
 use super::*;
 use crate::hub::{Hub, media_handles::Handles, media_read};
 use crate::rpc::method;
+use base64::Engine as _;
 use serde_json::json;
+use sha2::Digest as _;
 
 struct Upload(String);
 impl Drop for Upload {
