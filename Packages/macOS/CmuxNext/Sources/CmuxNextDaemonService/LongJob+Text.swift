@@ -3,7 +3,7 @@ public import Foundation
 
 /// What a job reads as on screen. Known kinds have text in the app's language
 /// (Resources/LongJobs.xcstrings); any other kind shows the daemon's own (English) `title`.
-extension LongJob {
+nonisolated extension LongJob {
     /// The job's title in the app's language, else the daemon's `title`.
     public var displayTitle: String {
         switch kind {

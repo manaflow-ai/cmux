@@ -128,7 +128,7 @@ public final class DaemonService {
     /// How the first connection is going (window connecting state, control
     /// errors). Becomes `.unavailable` after `startupDeadline` or on an
     /// incompatible daemon; retrying continues in the background.
-    public private(set) var startup: DaemonStartupState = .connecting
+    public internal(set) var startup: DaemonStartupState = .connecting
     @ObservationIgnored var startupDeadline: Duration = DaemonStartup.shared.defaultDeadline
     @ObservationIgnored var startupClock: any Clock<Duration> = ContinuousClock()
     /// Times the wait for a reopened workspace to reach the mirror

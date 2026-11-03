@@ -12,7 +12,7 @@ extension DaemonService {
     public var notConnectedReason: String? {
         // The owner is alive and restoring: name its job, never a failure.
         if startup.isRestoring, connection == nil { return RefusalStrings.restoring(startup.restoringJobs) }
-        switch store.connectionState {
+        return switch store.connectionState {
         case .connected: nil
         case .connecting: lastStartupError.map { RefusalStrings.describe($0) } ?? RefusalStrings.daemonConnecting
         case .disconnected(let why), .failed(let why): lastStartupError.map { RefusalStrings.describe($0) } ?? why
