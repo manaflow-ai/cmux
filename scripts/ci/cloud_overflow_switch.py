@@ -9,7 +9,7 @@ lands on. On 2026-09-29 Blacksmith stopped starting jobs org-wide from about
 variables at the owned pools and GitHub-hosted Linux by hand.
 
 ci-cloud-overflow-probe.yml runs this every 10 minutes. Its `probe` jobs ask
-for each Blacksmith Linux size in PROBE_LABELS (32 and 16 vCPU), one job per
+for each Blacksmith Linux size in PROBE_LABELS (4 and 16 vCPU), one job per
 label, and only print a line. This script, in the `watch` job on Blacksmith
 macOS, waits for them:
 
@@ -88,21 +88,22 @@ RECORD_VARIABLE = "CI_CLOUD_OVERFLOW_SAVED"
 OVERRIDES_VARIABLE = "CI_CLOUD_FAILOVER"
 PAID_OVERFLOW_VARIABLE = "CI_PAID_MACOS_OVERFLOW"
 CLOUD_PREFIX = pr_runner_pool.EPHEMERAL_PREFIX  # "blacksmith-"
-# What the probe asks for: the Blacksmith Linux sizes compiles run on, every
-# one of them (the workflow's probe matrix restates this). Overflow goes off
+# What the probe asks for: every member of the linux pool in .github/runners.json
+# (tests/test_ci_runner_pools.py; the workflow's probe matrix restates this). Overflow goes off
 # only when none of them starts its probe; one that starts means Blacksmith
 # serves. A single probed label is a pin: on 2026-10-28 the 4 vCPU label
 # alone queued past 5 minutes at 21:59Z, 22:13Z, 22:53Z and 23:30Z while the
 # other sizes started jobs, and each time the whole fleet failed over.
-PROBE_LABELS = ("blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")
+PROBE_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")
 # Where Linux overflow goes while the probed label stalls: another Blacksmith
 # Linux size, never GitHub-hosted Ubuntu. CI_TRUSTED_RUNNER's readers accept
 # only ubuntu-24.04 and the 2 and 4 vCPU labels (docs/ci-runners.md), so it
 # takes 2 vCPU.
 LINUX_FAILOVER = "blacksmith-16vcpu-ubuntu-2404"
 TRUSTED_FAILOVER = "blacksmith-2vcpu-ubuntu-2404"
-# When the probed label is that failover itself, the next size over.
-ALTERNATE_FAILOVERS = {LINUX_FAILOVER: "blacksmith-32vcpu-ubuntu-2404",
+# When the probed label is that failover itself, the other size: a probed one, so
+# toward_started() can pick it, and one the bounded LINUX_RUNNER selectors accept.
+ALTERNATE_FAILOVERS = {LINUX_FAILOVER: "blacksmith-4vcpu-ubuntu-2404",
                        TRUSTED_FAILOVER: "blacksmith-4vcpu-ubuntu-2404"}
 # The only Blacksmith labels CI_TRUSTED_RUNNER's readers accept.
 TRUSTED_BLACKSMITH_LABELS = frozenset({"blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"})
@@ -304,8 +305,9 @@ def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None],
 
     With `started` (the labels whose probes started in this run), a Linux
     variable goes back only onto a label whose probe started: an older
-    record's before (blacksmith-4vcpu-ubuntu-2404 from when that one label was
-    the probe, or unset, whose readers fall back to an unprobed literal) may
+    record's before (a size no longer probed, such as blacksmith-32vcpu-ubuntu-2404
+    before the linux pool went smallest first, or unset, whose readers fall back
+    to an unprobed literal) may
     still be stalled, and once the record is deleted nothing would see it.
     Such a variable stays where it is. A GitHub-hosted label is never put back.
     """

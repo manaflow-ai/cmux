@@ -1282,12 +1282,40 @@ check_no_github_hosted_runners() {
   # and inputs feed runs-on too).
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
   local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
-  local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
+  local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"(,"blacksmith-8vcpu-ubuntu-2404")?[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
   # "<workflow>:<line content>" -> why it stays GitHub-hosted. Exact lines only.
   # This is the whole allowlist: every other Linux job takes a Blacksmith label
   # sized to the job (Leo, 2026-10-27: "just put it on blacksmith / 16vcpu
   # blacksmiths do exist"), with LINUX_RUNNER or the overflow switch behind it.
+  # Leo's 2026-11-01 exception permits hosted Ubuntu for declared light jobs.
+  # Main carries only this bootstrap; keep its declaration and job scope exact,
+  # so copying the same line onto a build or release job cannot exempt it.
+  python3 - "$ROOT_DIR" <<'PY_LIGHT'
+import json, pathlib, sys, yaml
+root = pathlib.Path(sys.argv[1])
+declared = json.loads((root / ".github/runners.json").read_text()).get("hosted_light_jobs", {})
+source = (root / ".github/workflows/fast-checks.yml").read_text()
+workflow = yaml.safe_load(source)
+jobs = workflow.get("jobs", {})
+admit = jobs.get("admit", {})
+line = "    runs-on: ubuntu-24.04 # github-hosted-required: light read-only runner admission"
+valid = (
+    set(declared) == {"fast-checks.yml:admit"}
+    and declared["fast-checks.yml:admit"].get("runner") == "ubuntu-24.04"
+    and bool(declared["fast-checks.yml:admit"].get("why"))
+    and admit.get("runs-on") == "ubuntu-24.04"
+    and admit.get("environment") is None
+    and admit.get("permissions") == {"contents": "read"}
+    and workflow.get("permissions") == {"contents": "read"}
+    and [name for name, job in jobs.items() if job.get("runs-on") == "ubuntu-24.04"] == ["admit"]
+    and source.splitlines().count(line) == 1
+)
+if not valid:
+    print("FAIL: hosted light fast-check admission must be the declared read-only admit job without a release environment")
+    raise SystemExit(1)
+PY_LIGHT
   local -a exceptions=(
+    "fast-checks.yml:    runs-on: ubuntu-24.04 # github-hosted-required: light read-only runner admission"
     # npm trusted publishing and --provenance accept only GitHub-hosted runners.
     "sdk-bootstrap-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
     "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
@@ -1324,6 +1352,7 @@ check_no_github_hosted_runners() {
   for probe in "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || 'blacksmith-4vcpu-windows-2025' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                '- blacksmith-6vcpu-macos-15' 'runs-on: blacksmith-4vcpu-ubuntu-2404-arm' '- warp-macos-15-arm64-6x'; do
     if printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/$trusted_list//g" | grep -Eq "$hosted"; then
       echo "FAIL: GitHub-hosted runner guard self-test flagged an allowed runner: $probe"
@@ -1595,6 +1624,63 @@ check_no_self_hosted_fleet_runners() {
   # Capability is accepted only as the complete NEXT trusted selector.
   local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
   local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
+  # The main metadata bootstrap has no preceding picker. Accept its complete
+  # main-only selector in this job alone, without exempting other fleet labels
+  # or allowing secrets onto the shared nightly pool. RC and forks keep their
+  # existing cloud routes; untrusted workflow triggers cannot use this exception.
+  local nightly_bootstrap_line
+  nightly_bootstrap_line="$(python3 - "$ROOT_DIR/.github/workflows/nightly.yml" <<'PYTHON'
+import json
+import re
+import sys
+from pathlib import Path
+
+import yaml
+
+path = Path(sys.argv[1])
+if not path.exists():
+    sys.exit(0)
+text = path.read_text()
+# An alias can give decide another job's source position. Do not grant a
+# line exemption through aliases or merges.
+if any(isinstance(token, yaml.AliasToken) for token in yaml.scan(text)):
+    sys.exit(0)
+document = yaml.load(text, Loader=yaml.BaseLoader) or {}
+events = document.get("on", {})
+if isinstance(events, str):
+    events = [events]
+if not events or not set(events) <= {"push", "schedule", "workflow_dispatch"}:
+    sys.exit(0)
+job = (document.get("jobs") or {}).get("decide") or {}
+selector = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+            "github.ref == 'refs/heads/main' && "
+            "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
+            "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || "
+            "github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && "
+            "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
+            "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || "
+            "'blacksmith-2vcpu-ubuntu-2404' }}")
+if job.get("runs-on") != selector or "environment" in job:
+    sys.exit(0)
+if re.search(r"\bsecrets\b|create-github-app-token|\bprivate-key\b",
+             json.dumps([document.get("env"), job]), re.IGNORECASE):
+    sys.exit(0)
+# Source positions bind the exemption to this job's runs-on, not another
+# job that happens to spell the same selector. Duplicate keys fail closed.
+def mapping(node):
+    if not isinstance(node, yaml.MappingNode):
+        raise ValueError("expected a YAML mapping")
+    values = {key.value: value for key, value in node.value}
+    if len(values) != len(node.value):
+        raise ValueError("duplicate YAML keys")
+    return values
+
+root = mapping(yaml.compose(text, Loader=yaml.BaseLoader))
+node = mapping(mapping(root["jobs"])["decide"])["runs-on"]
+if node.start_mark.line == node.end_mark.line:
+    print(f"{path}:{node.start_mark.line + 1}:")
+PYTHON
+)" || return 1
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
@@ -1603,6 +1689,7 @@ check_no_self_hosted_fleet_runners() {
   # before matching the value so the checkout path (which contains "cmux") can
   # never match the bare `cmux` label.
   while IFS= read -r line; do
+    [[ -n "$nightly_bootstrap_line" && "$line" == "$nightly_bootstrap_line"* ]] && continue
     content="${line#*:*:}"
     if [[ "$(basename "${line%%:*}")" == *nightly*.yml || "$(basename "${line%%:*}")" == *notarization*.yml ]]; then
       content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
