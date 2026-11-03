@@ -111,7 +111,7 @@ pub fn inherits_another_builds_home(custom: &str, own_home: Option<&Path>, root:
         return false;
     }
     let path = normalize(Path::new(custom));
-    let chief_homes = root.parent().map(|parent| parent.join(".cmux/chief"));
+    let chief_homes = root.parent().map(crate::build_identity::chief_homes_root);
     path != own
         && (path == root
             || path.starts_with(root.join("builds"))

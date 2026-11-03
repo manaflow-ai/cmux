@@ -98,8 +98,9 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         let path = URL(fileURLWithPath: custom, isDirectory: true).standardizedFileURL.path
         if path == ownPath { return false }
         let builds = rootPath + "/builds"
-        let chiefHomes = root.deletingLastPathComponent().standardizedFileURL.path + "/.cmux/chief/"
-        return path == rootPath || path == builds || path.hasPrefix(builds + "/") || path.hasPrefix(chiefHomes)
+        let chiefHomes = BuildIdentity.chiefHomesRoot(userHome: root.deletingLastPathComponent()).standardizedFileURL.path
+        return path == rootPath || path == builds || path.hasPrefix(builds + "/")
+            || path == chiefHomes || path.hasPrefix(chiefHomes + "/")
     }
 
     /// `~/.acpmux` of `userHome`: NIGHTLY's home, and the root of every build home.

@@ -242,6 +242,30 @@
    }
   },
   {
+   "name": "a tagged DEV build ignores the folder of every Chief home itself",
+   "bundle_id": "com.cmuxterm.app.debug.feature-x",
+   "bundled_tag": "Feature X",
+   "bundled": null,
+   "env": {
+    "ACPMUX_HOME": "/Users/me/.cmux/chief",
+    "PATH": ""
+   },
+   "user_home": "/Users/me",
+   "uid": 501,
+   "executables": [
+    "/Users/me/.cargo/bin/acpmux"
+   ],
+   "expect": {
+    "executable": "/Users/me/.cargo/bin/acpmux",
+    "home": "/Users/me/.acpmux/builds/com.cmuxterm.app.debug.feature-x",
+    "socket": "/Users/me/.acpmux/builds/com.cmuxterm.app.debug.feature-x/acpmux.sock",
+    "args": [
+     "--listen",
+     "127.0.0.1:0"
+    ]
+   }
+  },
+  {
    "name": "a tagged DEV build ignores NIGHTLY's home spelled with a trailing slash",
    "bundle_id": "com.cmuxterm.app.debug.feature-x",
    "bundled_tag": "Feature X",
