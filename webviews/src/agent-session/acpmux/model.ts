@@ -973,6 +973,13 @@ export type AcpmuxSnapshot = {
   chatRead?: true;
   sessionId?: string;
   isWorking: boolean;
+  /**
+   * The agent's guess at the person's next prompt (acpmux's `prompt_suggestion` update, Claude
+   * Code's prompt suggestions), for the composer's ghost text: set only between turns, while no
+   * newer prompt or turn start came after it, and never during a replay. `seq` is its record's, so
+   * the composer can tell one suggestion from the next. An older acpmux never sends one.
+   */
+  promptSuggestion?: { text: string; seq: number };
   /// How many of the shown chat's turns this client saw end: it only grows, so an end is seen even
   /// when React draws a turn's start and end as one render (App.tsx `pane.tabState`).
   turnsEnded?: number;

@@ -286,17 +286,20 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
   // last section but the body's own padding, and its body does not scroll. Folding a section shrinks
   // the card with it, so no fixed or minimum height holds it open either.
   /// The card's height, the room under its last block of sections (SessionInfo.tsx RAIL_LAYOUT; not
-  /// the `data-section` blocks inside them) and the body's bottom padding.
+  /// the `data-section` blocks inside them), the body's bottom padding and the card's own hairline edge
+  /// (sessionInfo.css, #32969: a border in every place, so the card's box ends that far below its body).
   const fit = (panel: Locator) =>
     panel.evaluate((node) => {
       const box = node.getBoundingClientRect();
       const body = node.querySelector(".acpmux-session-info__body")!;
       const sections = [...body.querySelectorAll(":scope > .acpmux-session-info-sections > .acpmux-session-info-slot")];
       const last = sections[sections.length - 1]!.getBoundingClientRect();
+      const foot =
+        parseFloat(getComputedStyle(body).paddingBottom) + parseFloat(getComputedStyle(node).borderBottomWidth);
       return {
         top: box.top,
         card: box.height,
-        endsAtContent: Math.abs(box.bottom - last.bottom - parseFloat(getComputedStyle(body).paddingBottom)) < 0.5,
+        endsAtContent: Math.abs(box.bottom - last.bottom - foot) < 0.5,
         scrolls: body.scrollHeight > body.clientHeight + 1,
       };
     });
