@@ -64,7 +64,8 @@ impl Tracker {
     /// a renewal (`renew`) while any session is at work.
     pub(super) fn line(&mut self, turns: u64, renew: bool) -> Option<Value> {
         let changed = self.sent != Some(turns);
-        if !changed && !(renew && turns > 0) {
+        let renewal = renew && turns > 0;
+        if !(changed || renewal) {
             return None;
         }
         self.sent = Some(turns);
