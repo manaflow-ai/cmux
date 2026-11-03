@@ -6,6 +6,7 @@ struct Fake {
     starts: RefCell<BTreeMap<String, String>>,
     effects: Cell<usize>,
     fenced: Cell<bool>,
+    allowed: RefCell<Value>,
 }
 
 impl Backend for Fake {
@@ -25,7 +26,7 @@ impl Backend for Fake {
             ));
         }
         if method == METHOD {
-            return Ok(json!({"running":true,"allowedTools":null}));
+            return Ok(json!({"running":true,"allowedTools":self.allowed.borrow().clone()}));
         }
         assert_eq!(method, ACTIVITY_METHOD);
         if params["action"] == "start" {
@@ -168,7 +169,7 @@ fn native_workflow_host_fences_before_raw_call_and_catalog_blocks_primitives() {
     );
     assert!(journal.last_id().is_none());
     server.backend.fenced.set(false);
-    server.allowed = Some(BTreeSet::from(["agent_dispatch".into()]));
+    *server.backend.allowed.borrow_mut() = json!(["agent_dispatch"]);
     let result = handle(
         &mut server,
         &proof(),
