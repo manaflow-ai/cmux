@@ -39,6 +39,7 @@ mod nightly;
 mod open;
 mod open_link;
 mod page;
+mod renderers;
 mod right;
 mod run;
 mod settings;
@@ -157,6 +158,10 @@ pub(super) enum AppCommand {
         params: Value,
         out: Option<String>,
     },
+    /// `app renderers`: `renderers.list`, joined into one row per renderer pid (app/renderers.rs).
+    Renderers {
+        params: Value,
+    },
     /// `settings list|schema|validate` (app/settings.rs).
     Settings(settings::Command),
     /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
@@ -264,6 +269,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("ping")) => call("system.ping", json!({})),
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
+        ("app", Some("renderers")) => renderers::parse(rest)?,
         ("window", Some("list")) => AppCommand::Call {
             method: "snapshot.get",
             params: json!({}),
@@ -773,6 +779,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         }
         AppCommand::DebugCall { method, params } => {
             return Ran::Done(call::run(global, stream, &method, params));
+        }
+        AppCommand::Renderers { params } => {
+            return Ran::Done(renderers::run(global, stream, params));
         }
         AppCommand::Settings(command) => return Ran::Done(command.run_on(global, stream)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),

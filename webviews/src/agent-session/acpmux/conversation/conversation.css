@@ -2553,8 +2553,8 @@ pre.cv-math-source {
 }
 /* A finished thought folded (ThoughtRow.tsx; Debug toggle agentPane.debug.foldLongThoughts): "Thought
    for 12s", or with agentPane.debug.thoughtHeader "preview", "Thought" and its first line, then a
-   trailing chevron. Opened, the text sits under one left rule at the label's indent plus the
-   row's gap (AI Elements' Trace nesting); the reader's toggle animates its height (ThoughtRow.tsx). */
+   trailing chevron. Opened, the text sits flush under the label (above); the reader's toggle
+   animates its height (ThoughtRow.tsx). */
 .cv-thought__preview {
   color: var(--cv-text-muted);
 }
@@ -2562,13 +2562,19 @@ pre.cv-math-source {
   display: block;
 }
 /* A flex item already, so no display here: the live viewport's column (above) keeps its own. */
+/* A thought's text sits flush under its label, with no guide line or indent, as Claude Code
+   desktop draws "Thought process" (Leo, 2026-11-03, above); `data-tool-steps-look="guide"` keeps
+   the replaced guide and indent for the gallery's comparison. */
 .cv-thought__body,
 .cv-thought.is-full .cv-thought__text {
   margin: 0;
-  padding-left: var(--grid-icon-box);
-  box-shadow: inset 1px 0 var(--cv-rule);
+  padding-left: 0;
   line-height: 20px;
   overflow: hidden;
+}
+:root[data-tool-steps-look="guide"] :is(.cv-thought__body, .cv-thought.is-full .cv-thought__text) {
+  padding-left: var(--grid-icon-box);
+  box-shadow: inset 1px 0 var(--cv-rule);
 }
 /* A heading in a thought's text (Codex's `**Heading**`, ThoughtRow.tsx thoughtParts): its own muted
    title, without the marks, a paragraph's gap over the text it heads. */
@@ -3042,13 +3048,23 @@ button.cv-video-frames__frame:focus-visible {
   /* Where a step's under-line (a thought's text, a cause) starts. */
   --cv-step-text: var(--cv-tool-text-inset);
 }
-/* A quiet guide between the icon and text columns marks the opened run without indenting it.
-   Keep it inside the transcript row: paint containment clips any outside guide. The comparison
-   gallery's card/tree/zebra looks keep their own rules. */
-:root:not([data-tool-steps-look="card"]):not([data-tool-steps-look="tree"]):not([data-tool-steps-look="zebra"]) .cv-tool-group.is-flat.cv-steps {
+/* An opened run's steps draw as Claude Code desktop lists them (Leo, 2026-11-03: "i feel like
+   comparing claude code's to ours, we're not faithfully following how they're doing stuff"): no
+   icon on a step, its words still on the header's text column, and no guide line. The comparison
+   gallery's card/tree/zebra looks keep their own rules; `guide` is the replaced look (cmux#32363):
+   the steps' glyphs and a quiet guide between the icon and text columns, kept inside the
+   transcript row because paint containment clips any outside guide. */
+:root:not([data-tool-steps-look="card"]):not([data-tool-steps-look="tree"]):not([data-tool-steps-look="zebra"]):not([data-tool-steps-look="guide"])
+  .cv-steps
+  > .cv-step
+  > .cv-tool
+  > .cv-tool__icon {
+  visibility: hidden;
+}
+:root[data-tool-steps-look="guide"] .cv-tool-group.is-flat.cv-steps {
   position: relative;
 }
-:root:not([data-tool-steps-look="card"]):not([data-tool-steps-look="tree"]):not([data-tool-steps-look="zebra"]) .cv-tool-group.is-flat.cv-steps::before {
+:root[data-tool-steps-look="guide"] .cv-tool-group.is-flat.cv-steps::before {
   content: "";
   position: absolute;
   inset-block: 0;
@@ -3346,6 +3362,12 @@ button.cv-video-frames__frame:focus-visible {
 }
 .cv-command__ok {
   color: var(--agent-diff-add);
+}
+/* "Approved" on a call whose permission ask the person approved (ApprovedMark.tsx): dim, at rest,
+   before the status and time, so the approval reads on its row and never as a line of its own. */
+.cv-command__approved {
+  white-space: nowrap;
+  color: var(--cv-text-dim);
 }
 /* A finished call's check and run time show only while the row is pointed at or focused, as in
    the Codex app: at rest a run reads as its words. A failure keeps its red mark ("exit 1",
