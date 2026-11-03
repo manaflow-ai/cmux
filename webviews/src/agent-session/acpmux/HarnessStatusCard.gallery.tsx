@@ -47,7 +47,7 @@ const CLAUDE_USAGE_LIMITS = {
 // What acpmux's session detail sets for these launches: top-level fields, no agentInfo labels.
 const LAUNCHES = {
   sr2: {
-    machine: "cosmic-gray",
+    machine: "studio-mac",
     authSource: "SR2 token (sr2 claude)",
     route: "SR2 (sr2 claude)",
     settingsSources: ["~/.claude/settings.json", "~/src/atlas-web/.claude/settings.json", "autocompact at 400K"],

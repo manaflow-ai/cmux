@@ -457,7 +457,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 keywords: ["home", "chief", "agent", "messages", "playground", "variants", "header", "fold", "debug"],
                 category: .window, symbol: "square.stack.3d.up", surfaces: [.palette, .menu],
                 arguments: [
-                    ActionArgument(name: "style", title: t("argument.home.playgroundStyle", "Header Style"), kind: .int(0...15), isRequired: false),
+                    ActionArgument(name: "style", title: t("argument.home.playgroundStyle", "Header Style"), kind: .int(0...29), isRequired: false),
                     ActionArgument(name: "expanded", title: t("argument.home.playgroundExpanded", "Expanded"), kind: .bool, isRequired: false),
                     ActionArgument(name: "team", title: t("argument.home.playgroundTeam", "Team Chat"), kind: .bool, isRequired: false),
                 ],
