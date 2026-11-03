@@ -23,7 +23,7 @@ struct HiddenTerminalWakeupsTests {
     struct Work: CustomStringConvertible {
         var reads: UInt64, passes: UInt64, blocks: UInt64
         static func of(_ entry: TerminalEntry) -> Work? {
-            guard let reads = entry.io.driver.machine.liveLink?.transportReads, let lane = entry.session.surfaceView.lane else { return nil }
+            guard let reads = entry.io.driver.machine.liveLink?.link.transportReads, let lane = entry.session.surfaceView.lane else { return nil }
             return Work(reads: reads, passes: entry.session.frameChanges.generation, blocks: lane.blocks)
         }
         static func - (a: Work, b: Work) -> Work { Work(reads: a.reads &- b.reads, passes: a.passes &- b.passes, blocks: a.blocks &- b.blocks) }
