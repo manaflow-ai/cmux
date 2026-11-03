@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserTabs
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextRemoteLocalhostService
 import CmuxNextTabs
@@ -32,9 +33,12 @@ struct PaneBrowserTabOpener {
     /// False when the tab is refused (no tab, no daemon request). A local file goes where
     /// `LocalFileHandoff` shows it (a tab's first load is not guarded): Markdown opens the markdown
     /// page unless the caller waits for the tab, and media Chromium cannot play opens in WebKit.
+    /// `split` (LinkOpener's split right or below): the tab opens straight in a new split of this
+    /// pane (``PaneBrowserTabSplit``) and `finished` runs with its surface, or nil when it was
+    /// refused or closed first; `then` is not called. Only when ``opensInSplit`` holds.
     func open(url: URL?, engine requested: String?, inherited: String?, adopting child: (any BrowserTab)?, // perf-hot: 10ms new-tab (the key's turn of every new browser tab)
               background: Bool, profile: String?, notice: String?, opener: SurfaceID?,
-              placementOwner: Bool = false, then: (@MainActor (SurfaceID) -> Void)?) -> Bool {
+              placementOwner: Bool = false, split: BrowserTabSplitRequest? = nil, then: (@MainActor (SurfaceID) -> Void)?) -> Bool {
         let services = controller.services
         var target = url
         // chrome://history and chrome://bookmarks open cmux's pages; chrome://settings opens Settings
@@ -44,7 +48,7 @@ struct PaneBrowserTabOpener {
             guard let routed = ChromiumPageRouter.routed(typed, services: services, focus: !background, in: controller) else { return false }
             target = routed
         }
-        if child == nil, then == nil, let url = target, services.viewers.openMarkdownHandoff(url, in: controller, focus: !background) {
+        if child == nil, then == nil, split == nil, let url = target, services.viewers.openMarkdownHandoff(url, in: controller, focus: !background) {
             return true
         }
         // `browser.enabled` off: a web page goes to the default browser, a file to its app, a blank tab is refused.
@@ -109,6 +113,11 @@ struct PaneBrowserTabOpener {
                                         placementOwner: placementOwner) {
                 openStandIn(choice, address: url?.absoluteString ?? newTabAddress, focusesAddressBar: url == nil,
                             profile: profile, notice: notice, then: then)
+                return true
+            }
+            if let split, child == nil {
+                openInSplit(split, choice: choice, address: url?.absoluteString ?? newTabAddress, focusesAddressBar: url == nil,
+                            profile: profile, notice: notice)
                 return true
             }
             let linkOpener = services.linkOpener
@@ -177,6 +186,45 @@ struct PaneBrowserTabOpener {
         holder.select(StripTabID(local.id))
         if url == nil { holder.workspace?.focus.send(.focusTarget(.addressBar, source: .intent)) }
         return true
+    }
+}
+
+// MARK: Split
+
+extension PaneBrowserTabOpener {
+    /// Whether a person's foreground browser tab of this pane can open straight in a new split of it
+    /// (``BrowserTabSplitCommand``), so LinkOpener never makes it here and moves it: the pane's daemon
+    /// makes its browser tabs and serves the split, and the pane is not Home's pinned dock.
+    var opensInSplit: Bool {
+        let daemon = controller.daemon
+        let route = BrowserTabRoute(isLocal: daemon.isLocal, connected: daemon.connection != nil,
+                                    servesTabs: controller.services.cache.browserTabs.isAvailable(in: controller.pane))
+        return route == .daemon && BrowserTabSplitCommand.isServed(by: daemon) && !controller.isOpenPinnedDockPane && ActionRunScope.viewChangeAllowed()
+    }
+
+    /// The split and the tab's stand-in show now, with the chain's even sizing (as PaneHandlers.split),
+    /// and one `new-frontend-browser-tab {pane, split}` makes the tab in the daemon's new pane, which
+    /// takes the focus once it is there (Leo 2026-11-03).
+    private func openInSplit(_ split: BrowserTabSplitRequest, choice: BrowserEngineChoice, address: String, focusesAddressBar: Bool, // perf-hot: 10ms new-tab (the split shows in the click's turn)
+                             profile: String?, notice: String?) {
+        let controller = controller, browserTabs = controller.services.cache.browserTabs, model = controller.pane
+        let intent = controller.workspace?.beginFocusIntent(), layout = controller.workspace?.layoutModel
+        let sizing = layout.map { $0.showSplitSizing($0.splitSizingChanges(splitting: controller.layoutPaneID, axis: split.direction == .right ? .horizontal : .vertical)) }
+        let send = BenchSpans.measure("split.intend") { BrowserTabSplitCommand(pane: model.handle, direction: split.direction, url: address).intendNow(on: controller.daemon) }
+        BenchSpans.measure("split.layout") { controller.workspace?.applyCurrent() } // the split draws in the click's frame
+        controller.services.registry.track(Task {
+            do {
+                let made = try await send { try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice, split: $0) }
+                if let sizing { if made == nil { layout?.cancelSplitSizing(sizing) } else { layout?.commitSplitSizing(sizing) } }
+                if let made { controller.workspace?.expectFocus(on: made, target: focusesAddressBar ? .addressBar : .content, generation: intent) }
+                split.finished(made)
+                return nil
+            } catch {
+                if let sizing { layout?.cancelSplitSizing(sizing) }
+                split.finished(nil)
+                return "new-frontend-browser-tab: \(error)"
+            }
+        })
     }
 }
 

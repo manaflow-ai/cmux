@@ -40,6 +40,14 @@ package struct LinkOpenPlacement<Pane: Equatable> {
         /// In the main pane layout, from an agent chat alone on its screen: the tab opens
         /// unselected in this pane, then the chat docks left and the tab's pane stays on its right.
         case dockChat(Pane)
+
+        /// The existing pane this opens in, or below (a lower split): nil for a new split, column or dock move.
+        package var existingPane: Pane? {
+            switch self {
+            case .pane(let id), .splitBelow(of: let id): id
+            default: nil
+            }
+        }
     }
 
     package var setting: LinkPlacement

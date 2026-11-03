@@ -18,7 +18,7 @@ struct SplitBrowserFailureTests {
     func aFailedOpenGivesTheCallerTheFailure(action: String) async throws {
         try await PinnedPageTests.withApp { services, _ in
             let browserTabs = services.cache.browserTabs
-            browserTabs.create = { _, _, _, _, _, _, _ in throw Refused() }
+            browserTabs.create = { _, _, _, _, _, _, _, _ in throw Refused() }
             let model = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first)
             let panes = services.daemon.store.workspaces.first?.screens.first?.panes.count ?? 0
             let invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: model.id), origin: .cli)
