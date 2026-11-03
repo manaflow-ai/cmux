@@ -1089,3 +1089,50 @@ impl Drop for Mux {
 
 #[cfg(test)]
 mod tests;
+
+/// DIAG (not for merge, HOT PATH AUDIT state): phase times of one change, printed when the probe turns them on.
+pub(crate) static HPA_PHASES_ON: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) struct HpaPhases {
+    on: bool,
+    start: std::time::Instant,
+    last: std::cell::Cell<std::time::Instant>,
+    parts: std::cell::RefCell<Vec<(&'static str, f64)>>,
+}
+
+impl HpaPhases {
+    pub(crate) fn start() -> Self {
+        let now = std::time::Instant::now();
+        Self {
+            on: HPA_PHASES_ON.load(std::sync::atomic::Ordering::Relaxed),
+            start: now,
+            last: std::cell::Cell::new(now),
+            parts: std::cell::RefCell::new(Vec::new()),
+        }
+    }
+    pub(crate) fn mark(&self, name: &'static str) {
+        if !self.on {
+            return;
+        }
+        let now = std::time::Instant::now();
+        self.parts.borrow_mut().push((name, (now - self.last.get()).as_secs_f64() * 1000.0));
+        self.last.set(now);
+    }
+    pub(crate) fn done(&self, what: &str) {
+        if !self.on {
+            return;
+        }
+        let parts = self
+            .parts
+            .borrow()
+            .iter()
+            .map(|(n, ms)| format!("{n}={ms:.2}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        println!(
+            "HPADIAG phases {what} total={:.2} {parts}",
+            self.start.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+}

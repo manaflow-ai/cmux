@@ -168,8 +168,11 @@ impl Mux {
         if let Some(name_fingerprint) = name_authority.fingerprint() {
             fingerprint.set("name_authority", name_fingerprint);
         }
+        let hpa = crate::mux::HpaPhases::start();
         let notifications = self.tree_decorations();
+        hpa.mark("decorations");
         let mut registry = self.workspace_registry.lock().unwrap();
+        hpa.mark("registry-lock");
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
         }
@@ -180,7 +183,9 @@ impl Mux {
             let workspace_id = state.workspaces[index].id;
             let key = state.workspaces[index].key.clone();
             let changed = state.workspaces[index].name != name;
+            hpa.mark("state-lock");
             let mut desired = self.registry_projection(&state);
+            hpa.mark("projection");
             name_authority.apply_workspace(
                 &mut desired[index],
                 name.clone(),
@@ -207,6 +212,7 @@ impl Mux {
                 }),
                 true,
             )?;
+            hpa.mark("prepare-commit");
             // The commit rides the journal writer batch. State is released
             // before the receipt wait (the registry stays held, so no other
             // topology writer interleaves) and taken again to apply the
@@ -238,8 +244,10 @@ impl Mux {
                     Some(settle),
                 )?
                 .into_workspace()?;
+            hpa.mark("journal-commit");
             let commit = receipt.commit;
             let mut state = self.lock_state_pinned(&registry).unwrap();
+            hpa.mark("state-relock");
             // The commit is durable: its revisions hold even if the workspace
             // left state meanwhile (no path can do that while the registry
             // is held; this keeps state and the registry agreeing anyway).
@@ -265,6 +273,7 @@ impl Mux {
                 workspace_id,
             )
             .expect("renamed workspace is present in tree snapshot");
+            hpa.mark("apply-entity");
             (
                 TreeDelta {
                     kind: TreeDeltaKind::WorkspaceRenamed,
@@ -281,8 +290,11 @@ impl Mux {
             )
         };
         self.emit_committed_workspace_delta(&registry, renamed, false);
+        hpa.mark("emit");
         drop(registry);
         self.publish_resource_event();
+        hpa.mark("publish");
+        hpa.done("rename");
         Ok(result)
     }
 

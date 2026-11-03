@@ -155,12 +155,15 @@ impl Mux {
         expected_revision: Option<u64>,
         prepare: impl FnOnce(&mut State, &WorkspaceRegistry) -> anyhow::Result<ResourceMutationPlan>,
     ) -> anyhow::Result<ResourcePatchCommit> {
+        let hpa = crate::mux::HpaPhases::start();
         let mut registry = self.workspace_registry.lock().unwrap();
+        hpa.mark("registry-lock");
         if let Some(replay) = registry.replay_resource_patch(mutation, operation, fingerprint)? {
             return Ok(replay);
         }
 
         let mut state = self.lock_state_pinned(&registry).unwrap();
+        hpa.mark("state-lock");
         // Prepare and stage run before the durable commit, so subscribers
         // see a tab's new session path only once that commit succeeds.
         let (prepared, session_paths) = crate::event_bus::defer_session_paths(|| {
@@ -170,6 +173,7 @@ impl Mux {
             anyhow::Ok((plan, before, tabs))
         });
         let (mut plan, before, tabs) = prepared?;
+        hpa.mark("prepare-stage");
         let committed = persist_public_topology_result(operation, &mut plan.result, &plan.deltas)
             .and_then(|()| {
                 #[cfg(test)]
@@ -189,6 +193,7 @@ impl Mux {
                     plan.state_write.take(),
                 )
             });
+        hpa.mark("sql-commit");
         let (commit, workspace_revision) = match committed {
             Ok(committed) => committed,
             Err(error) => {
@@ -221,11 +226,13 @@ impl Mux {
                 workspace_revision,
             )
         });
+        hpa.mark("apply-deltas");
         drop(state);
         if let Some(delta) = workspace_delta {
             self.emit_committed_workspace_delta(&registry, delta, false);
         }
         drop(registry);
+        hpa.mark("emit");
         if !commit.replayed {
             self.publish_resource_event();
             // A commit can create the resource row that a shell's first
@@ -233,6 +240,8 @@ impl Mux {
             self.publish_pending_terminal_directories();
         }
         self.emit_resource_tab_deltas(tab_deltas);
+        hpa.mark("publish");
+        hpa.done(operation);
         Ok(commit)
     }
 

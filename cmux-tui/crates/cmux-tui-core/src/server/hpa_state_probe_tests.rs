@@ -128,6 +128,14 @@ fn hpa_state_probe_daemon_side_of_one_change() {
             drop(copy);
         }
         println!("HPADIAG state-clone W={size} ms {}", quantiles(cloned));
+        let mut decorations = Vec::new();
+        for _ in 0..30 {
+            let start = Instant::now();
+            let made = mux.tree_decorations();
+            decorations.push(start.elapsed().as_secs_f64() * 1000.0);
+            drop(made);
+        }
+        println!("HPADIAG tree-decorations W={size} ms {}", quantiles(decorations));
 
         // One change of each kind: handler time, then what one delta subscriber gets.
         let ids = mux.with_state(|state| {
@@ -155,6 +163,7 @@ fn hpa_state_probe_daemon_side_of_one_change() {
             ("new-tab", json!({"cmd": "new-tab", "pane": pane})),
             ("split", json!({"cmd": "split", "pane": pane, "dir": "down"})),
         ];
+        crate::mux::HPA_PHASES_ON.store(size == 400, std::sync::atomic::Ordering::Relaxed);
         for (name, request) in changes {
             let mut times = Vec::new();
             let mut last = Vec::new();
