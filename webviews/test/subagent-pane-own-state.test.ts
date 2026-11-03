@@ -152,6 +152,9 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     }));
   /// Every prompt the stand-in daemon was sent, as its text.
   const prompts: string[] = [];
+  /// Resolves with the first prompt sent after it was made that holds `text`.
+  let awaited: { text: string; resolve(sent: string): void } | undefined;
+  const promptWith = (text: string) => new Promise<string>((resolve) => (awaited = { text, resolve }));
   beforeAll(async () => {
     daemon = Bun.serve({
       port: 0,
@@ -162,7 +165,11 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
       websocket: {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: unknown };
-          if (/prompt/i.test(message.method)) prompts.push(JSON.stringify(message.params ?? null));
+          if (/prompt/i.test(message.method)) {
+            const sent = JSON.stringify(message.params ?? null);
+            prompts.push(sent);
+            if (awaited && sent.includes(awaited.text)) awaited.resolve(sent);
+          }
           if (message.id !== undefined)
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
         },
@@ -227,15 +234,13 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     );
     await page.locator(".acpmux-subagent-composer").waitFor({ timeout: 10_000 });
     prompts.length = 0;
+    const arrived = promptWith("Also check the retry tests");
     await page.locator('.acpmux-subagent-composer [aria-label="Message Reviewer"]').click();
     await page.keyboard.type("Also check the retry tests");
     await page.keyboard.press("Enter");
     await page.waitForFunction(() => !document.querySelector(".acpmux-subagent-composer .ProseMirror")?.textContent);
-    const deadline = Date.now() + 10_000;
-    while (!prompts.some((sent) => sent.includes("Also check the retry tests")) && Date.now() < deadline)
-      await page.waitForTimeout(50);
-    const sent = prompts.find((entry) => entry.includes("Also check the retry tests"));
-    expect(sent).toBeDefined();
+    // The test's own timeout ends a wait for a prompt that never comes.
+    const sent = await arrived;
     expect(sent).toContain(CHAT);
     expect(sent).toContain("SendMessage");
     expect(sent).toContain("a39e817af38ddf5e7");
