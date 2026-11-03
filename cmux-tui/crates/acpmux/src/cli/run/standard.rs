@@ -667,6 +667,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             attach,
             tag,
             dry_run,
+            notice,
         } => {
             if let Some(delivery) = status {
                 let client = before_deadline(deadline, &delivery, connect(true)).await?;
@@ -678,12 +679,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .await;
             }
             let mut prompt_id = PromptId::new(prompt_id);
+            // A tool's notice names its sender (`cli/send_notice.rs`), so it is a named sender's
+            // message on any daemon, one that knows no notice too.
+            let notice = crate::cli::send_notice::of_args(notice, from.as_deref(), |k| {
+                std::env::var(k).ok()
+            })?;
+            let from = from.or_else(|| notice.as_ref().map(|n| n.sender().to_owned()));
             prompt_id.from_agent = from.or_else(crate::cli::sender::of_this_process);
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
             let classed = class.is_some();
             prompt_id.class = class;
+            prompt_id.notice = notice.as_ref().map(|n| n.0.clone());
             (prompt_id.pr, prompt_id.thread) = (inbox.pr, inbox.thread);
             // An agent's send and a message (--no-wait) steer; the person's waiting send queues.
             let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
@@ -698,6 +706,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 // No SESSION with --tag: clap read the prompt's first word as one.
                 let words: Vec<String> = session.into_iter().chain(prompt).collect();
                 let text = arg_or_stdin(&words)?;
+                let text = crate::cli::send_notice::text(notice.as_ref(), &text);
                 let steer = send_steers(false, no_steer, true, agent);
                 return super::fanout::send_to_tag(
                     &tag, &text, &prompt_id, steer, dry_run, json_out,
@@ -706,6 +715,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             let session = session.ok_or_else(|| anyhow!("a session is required"))?;
             let text = arg_or_stdin(&prompt)?;
+            let text = crate::cli::send_notice::text(notice.as_ref(), &text);
             // A team address (`@member/agent`, `@team/role`); a bare `@` is the caller's own
             // session (`orchestrate::expand_session_key`), never the team path.
             if session.strip_prefix('@').is_some_and(|rest| !rest.is_empty()) {
