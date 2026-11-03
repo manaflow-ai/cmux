@@ -486,12 +486,8 @@ pub(super) enum Request {
     /// `cmux.docs(query)`.
     Docs { query: String },
     /// Launch or reattach without waiting; the workflow runner journals it first.
-    // Production field consumers arrive with the daemon runner in PR #33785.
-    #[cfg_attr(not(test), allow(dead_code))]
     ActivityStart { kind: String, prompt: String, options: Map<String, Value> },
     /// Wait for one of the named activities; the journal records completion order.
-    // Production field consumers arrive with the daemon runner in PR #33785.
-    #[cfg_attr(not(test), allow(dead_code))]
     ActivityWait { ids: Vec<String> },
 }
 
@@ -625,8 +621,6 @@ fn exec_mode(
 }
 
 /// The daemon-owned runner uses this entry point with pinned inputs and source.
-// The daemon runner in PR #33785 is the production caller of this staged API.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn workflow_exec(
     script: &str,
     inputs: Value,
