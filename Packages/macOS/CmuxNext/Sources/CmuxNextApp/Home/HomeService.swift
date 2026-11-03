@@ -33,8 +33,8 @@ final class HomeService {
     /// While a Chief turn waits for the compactor (ChiefSettleWatch).
     var settleNotice: String?
     @ObservationIgnored var settleWatch: ChiefSettleWatch?
-    /// While the person's last message to this Mac's Chief has had no reply for two minutes
-    /// (ChiefReplyWatchdog).
+    /// While the person's last message to this Mac's Chief has waited two minutes with the
+    /// Chief's brain not running (ChiefReplyWatchdog).
     var replyNotice: String?
     @ObservationIgnored private var replyWatch: Task<Void, Never>?
     @ObservationIgnored private let replyTimer = DemandTimer(owner: "HomeService.replyWatchdog")
@@ -457,8 +457,8 @@ final class HomeService {
 
 extension HomeService {
     /// Follows the local Chief conversation's head: when the person's last message has had no
-    /// reply for `ChiefReplyWatchdog.limit`, the notice row says so, and it counts the minutes
-    /// until a reply lands. One timer at a time, armed for the next change; no polling.
+    /// reply for `ChiefReplyWatchdog.limit` and the Chief's brain is not running, the notice row
+    /// says so until a reply lands. One timer at a time, armed for the next change; no polling.
     fileprivate func watchReplies() {
         // task-owner: lives as long as the service; event-driven (Observation)
         replyWatch = Task { [weak self] in
@@ -472,7 +472,7 @@ extension HomeService {
     private func armReplyTimer(_ head: CmuxNextDaemon.ConversationSummary?) {
         replyTimer.cancel()
         let now = Date()
-        let notice = head.flatMap { ChiefReplyWatchdog.notice($0, now: now) }
+        let notice = head.flatMap { ChiefReplyWatchdog.notice($0, now: now, brainRunning: brain.isRunning) }
         if replyNotice != notice { replyNotice = notice }
         guard let head, let next = ChiefReplyWatchdog.nextCheck(head, now: now) else { return }
         // One deadline: when the notice appears or its minute count changes; the next head resets it.
