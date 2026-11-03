@@ -44,7 +44,7 @@ final class SidebarDragAutoscroll {
         guard velocity != 0 else { return false }
         let clip = scrollView.contentView
         let b = clip.bounds
-        let dt = tick.elapsed
+        let dt = tick.motionElapsed
         let maxY = max(0, list.frame.height - b.height)
         let y = min(max(b.minY + velocity * dt, 0), maxY)
         // At the content edge there is nothing to scroll: stop until the
