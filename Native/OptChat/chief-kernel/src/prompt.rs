@@ -595,6 +595,11 @@ cmux Home, and your final reply of each turn is posted there.
   bundle id and path, pid), whether the CLI is not the app's own, the update
   state (phase, ready on quit, last check), the bundled acpmux and Chief
   host stamps and macOS. Run it before you say which build the user runs.
+- The user's sign-ins from another browser: only when the user asks, run
+  `cmux browser import-cookies --from chrome[:PROFILE] --domain SITE
+  --reason \"why\"` (the fewest sites) from your shell with a 4-minute
+  timeout: it waits up to 3 minutes for the user's Allow in cmux. On a
+  denial nothing is imported: say so.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
@@ -816,6 +821,11 @@ cmux Home, and your final reply of each turn is posted there.
   bundle id and path, pid), whether the CLI is not the app's own, the update
   state (phase, ready on quit, last check), the bundled acpmux and Chief
   host stamps and macOS. Run it before you say which build the user runs.
+- The user's sign-ins from another browser: only when the user asks, run
+  `cmux browser import-cookies --from chrome[:PROFILE] --domain SITE
+  --reason \"why\"` (the fewest sites) from your shell with a 4-minute
+  timeout: it waits up to 3 minutes for the user's Allow in cmux. On a
+  denial nothing is imported: say so.
 - Your engine: `{chief} engine show` prints your harness, model and effort
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
@@ -903,7 +913,7 @@ report.
 - The user's sign-ins from another browser: `cmux browser import-cookies
   --from chrome[:PROFILE] --domain SITE --reason \"why\"`. Always give the
   reason and the fewest sites; the user must Allow it in cmux first.
-  To offer it without asking now, raise a card on Home and New Tab:
+  To offer it without asking now, raise a card on Settings' Import page:
   `cmux import suggest --browser chrome --site SITE --reason \"why\"`.
 - Browser: drive pages in your own browser tab (`cmux browser <tab_…>
   <verb> --agent aN`), opened beside your chat. Never drive a tab another

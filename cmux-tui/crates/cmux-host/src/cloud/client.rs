@@ -538,6 +538,13 @@ impl<H: Http> CloudClient<H> {
         )
     }
 
+    /// The person's connected GitHub account (`GET /v1/me/github` as this
+    /// machine), checked so the reply never holds a token.
+    pub fn github_status(&mut self, now_wall_ms: u64) -> Value {
+        let answer = self.github_repos_get(super::github_status::STATUS_PATH, now_wall_ms);
+        super::github_status::reply_for(&answer)
+    }
+
     /// A GitHub token for this machine (`POST /v1/integrations/github/token`
     /// as its `vm` install, the machine's team).
     pub fn github_token(&mut self, ask: &super::github::TokenAsk, now_wall_ms: u64) -> Answer {

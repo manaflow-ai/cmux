@@ -6,13 +6,15 @@ import { childObject } from "./brain-spawn.ts"
 import { githubOf } from "../chief-brain-cc/github.ts"
 import { chiefMainConversation } from "../domains/user-chief.ts"
 import { PEER_NAME, PEER_TEXT_MAX } from "./brain-turn.ts"
+import type { MemoryExport } from "../chief-durable/durable-do.ts"
 import { type AppendBody, type AppendResult, type ImportBody, type ImportFail, type ImportStatus, MAX_IMPORT_BODY, type UndoBody, type UndoResult, parseAppendBody, parseImportBody } from "./memory-import.ts"
 
 /**
  * HTTP routes of the Chief brain (outside the op catalog, like the keyed acpmux start):
  *
  *   GET  /v1/chiefs/<agent>/brain           the owner: settings and state
- *   PUT  /v1/chiefs/<agent>/brain           the owner: {enabled?, model?, effort?, compactor_model?, role?, personality?, instructions?, chiefs?}
+ *   PUT  /v1/chiefs/<agent>/brain           the owner: {enabled?, model?, effort?, compactor_model?, role?, personality?, instructions?, chiefs?, teleport?}
+ *        teleport: {to, id, at} | null, a move request the person's Mac acts on (brain-teleport.ts); GET returns it as config.teleport
  *        model: fake | claude-opus-5-5 | claude-sonnet-5-5 | claude-haiku-5-5 | openrouter:<vendor>/<model> | @cf/<vendor>/<model>
  *        effort: off | minimal | low | medium | high | xhigh | max (default low); model-gateway/routes.ts says who may use which
  *   POST /v1/chiefs/<agent>/peer            the owner: {from, text, key}: a message from one of the owner's Chiefs on
@@ -20,6 +22,8 @@ import { type AppendBody, type AppendResult, type ImportBody, type ImportFail, t
  *   GET  /v1/chiefs/<agent>/github          the owner: the Chief's GitHub login (who, kind, scopes, expiry; never the token)
  *   POST /v1/chiefs/<agent>/github          the owner: {action: login | pat | mac | app | logout | status, ...} (chief-brain-cc/github.ts)
  *   GET  /v1/chiefs/<agent>/memory?conversation=<id>   the owner: the memory copy's state {count, nodes, state}
+ *   GET  /v1/chiefs/<agent>/memory?conversation=<id>&export=1&after=<i>&limit=<n>   the owner: one page of the memory's
+ *        messages after index `after` (-1: the first page, which also carries the summary nodes), for a move out of the cloud
  *   PUT  /v1/chiefs/<agent>/memory?conversation=<id>   the owner: one batch of a Mac Chief's memory copy (memory-import.ts)
  *   GET  /v1/chiefs/<agent>/runs?conversation=<id>&before=<ms>&limit=<n>   a member: the chief's runs there, newest first
  *   GET  /v1/chiefs/<agent>/runs/<run>?conversation=<id>&after_seq=<n>   a member: {run, steps, has_more}
@@ -36,7 +40,7 @@ export const CHIEF_BRAIN_PATH = /^\/v1\/chiefs\/(agent_[0-9A-HJKMNP-TV-Z]{26})\/
 const NO_STORE = { "cache-control": "no-store" }
 const fail = (f: Fail) => Response.json({ ok: false, error: { code: f.code, message: f.message, ...f.extra } }, { status: f.status, headers: NO_STORE })
 const ok = (value: unknown) => Response.json({ ok: true, value }, { headers: NO_STORE })
-const PATCH_KEYS = new Set(["enabled", "model", "effort", "compactor_model", "role", "personality", "instructions", "chiefs"])
+const PATCH_KEYS = new Set(["enabled", "model", "effort", "compactor_model", "role", "personality", "instructions", "chiefs", "teleport"])
 
 export const handleChiefBrain = async (request: Request, env: Env, agent: string, path: string, run: string | undefined): Promise<Response> => {
   if (env.CHIEF_BRAIN_ENABLED !== "1") return fail({ status: 404, code: "not_found", message: "Chief brains are off on this deployment" })
@@ -93,6 +97,7 @@ export const handleChiefBrain = async (request: Request, env: Env, agent: string
 type MemoryBrain = {
   status(): Promise<{ config: { enabled: boolean; brain_impl?: string } }>
   memoryImportStatus(): Promise<ImportStatus>
+  memoryExport(after: number, limit: number): Promise<MemoryExport>
   memoryImport(body: ImportBody | AppendBody | UndoBody, brainOn: boolean): Promise<ImportStatus | ImportFail | (AppendResult & { ok: true }) | (UndoResult & { ok: true })>
 }
 
@@ -114,7 +119,15 @@ const handleMemoryImport = async (request: Request, env: Env, agent: string, set
   const conv = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation)) as unknown as { readOp(e: string, p: unknown, op: string, params: unknown): Promise<{ ok: boolean }> }
   if (!(await conv.readOp(conversation, p, "conversation.history", { limit: 1 })).ok) return fail({ status: 404, code: "not_found", message: "no such conversation" })
   const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation))) as unknown as MemoryBrain
-  if (request.method === "GET") return ok(await brain.memoryImportStatus())
+  if (request.method === "GET") {
+    const params = new URL(request.url).searchParams
+    if (params.get("export") !== "1") return ok(await brain.memoryImportStatus())
+    // A move out of the cloud (chief-migration-DESIGN.md 4b): the owner reads its own memory back, page by page.
+    const after = Number(params.get("after") ?? "-1")
+    const limit = Number(params.get("limit") ?? "500")
+    if (!Number.isInteger(after) || after < -1 || !Number.isInteger(limit) || limit < 1) return fail({ status: 400, code: "validation.invalid", message: "after is -1 or a message index, limit a positive integer" })
+    return ok(await brain.memoryExport(after, Math.min(limit, 1000)))
+  }
   const text = await capped(request, MAX_IMPORT_BODY)
   if (text === null) return fail({ status: 413, code: "validation.too_large", message: `one batch is at most ${MAX_IMPORT_BODY} bytes` })
   let raw: unknown = null

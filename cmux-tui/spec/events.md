@@ -909,6 +909,42 @@ screens also emit `tree-changed` first. It carries no workspace revision.
 object{event:"screen-changed",workspace:Id,screen:Id,index:usize,entity:Screen,transaction?:string}
 ```
 
+### selection-changed
+
+| Field | Value |
+| --- | --- |
+| event | `selection-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; the client echoes `tree-selection-deltas-v1` in `set-client-info` |
+
+Sent to a delta subscriber that reads it, in place of `tree-changed`, when a
+selection change rides with a lifecycle delta (a created workspace takes the
+focus, a created tab becomes its pane's active tab). It is the whole selection
+of that one workspace, read when the event is written. A screen or pane the
+client does not hold yet comes with its own later delta and is skipped. A
+selection change that names no workspace is still `tree-changed`.
+
+```text
+object{event:"selection-changed",workspace:Id,active:bool,active_workspace:Id|null,screens:[object{id:Id,active:bool,active_pane:Id,panes:[object{id:Id,active_tab:usize,focused_at:u64}]}]}
+```
+
+### workspace-presentation-changed
+
+| Field | Value |
+| --- | --- |
+| event | `workspace-presentation-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; the client echoes `tree-selection-deltas-v1` in `set-client-info` |
+
+Sent to the same subscriber, in place of `tree-changed`, after a
+`workspace.update` of a workspace's title, color or icon (no workspace
+revision). `entity` is the workspace as `list-workspaces` has it when the
+event is written.
+
+```text
+object{event:"workspace-presentation-changed",workspace:Id,entity:Workspace}
+```
+
 ### tab-changed
 
 | Field | Value |

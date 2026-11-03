@@ -94,6 +94,11 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
         }
     }
 
+    /// Peer copies belong to this Mac's daemon; reading one never waits for Chief routing.
+    public func peerSnapshot(sessionId: String) async -> Data? {
+        await local.peerSnapshot(sessionId: sessionId)
+    }
+
     public func prewarm() async throws {
         try await local.prewarm()
     }

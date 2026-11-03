@@ -49,6 +49,8 @@ pub enum Ask {
     Github(Result<TokenAsk, String>),
     Preview(Result<super::preview::PreviewAsk, String>),
     GithubRepos(Result<super::github_repos::ReposAsk, String>),
+    /// Which GitHub account is connected (`github_status.rs`): no token.
+    GithubStatus(Result<(), String>),
     Handoff(Result<HandoffReport, String>),
 }
 
@@ -186,6 +188,7 @@ fn run<H: Http>(
                             (Some(client), Ok(ask)) => client.preview(&ask, now()),
                         },
                         Ask::GithubRepos(ask) => answer_repos(client.as_deref_mut(), ask, now()),
+                        Ask::GithubStatus(ask) => answer_status(client.as_deref_mut(), ask, now()),
                         Ask::Handoff(report) => {
                             answer_report(client.as_deref_mut(), report, now(), log)
                         }
@@ -241,6 +244,21 @@ pub fn answer_repos<H: Http>(
         return github::refusal("vm.unbound", "Reconnect this machine to cmux Cloud, then retry.");
     };
     client.github_repos(&ask, now_wall_ms)
+}
+
+/// The connected GitHub account, read off the agent poll loop like the repos.
+pub fn answer_status<H: Http>(
+    client: Option<&mut CloudClient<H>>,
+    ask: Result<(), String>,
+    now_wall_ms: u64,
+) -> Value {
+    if let Err(why) = ask {
+        return github::refusal("request.invalid", &why);
+    }
+    let Some(client) = client else {
+        return github::refusal("vm.unbound", "Reconnect this machine to cmux Cloud, then retry.");
+    };
+    client.github_status(now_wall_ms)
 }
 
 /// The reply for one hand-off report: a refusal before a bind or for a

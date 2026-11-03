@@ -372,6 +372,33 @@ fn link_ensure_refuses_a_socket_folder_open_to_other_users() {
     assert!(!app.registration().exists());
 }
 
+/// Writable by every user (757), not only the group (775): still refused, never tightened.
+#[test]
+fn link_ensure_refuses_a_socket_folder_others_can_write() {
+    use std::os::unix::fs::PermissionsExt;
+    let base = Scratch::new("permw");
+    let app = base.app("a");
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let folder = base.root.join("run").join(format!("cmux-tui-{uid}"));
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o757)).unwrap();
+    let dir = app.state_dir();
+    let out = app.cmux(&[
+        "link",
+        "ensure",
+        "--state-dir",
+        dir.to_str().unwrap(),
+        "--install",
+        "inst_app_a",
+        "--port",
+        "0",
+    ]);
+    assert!(!out.status.success(), "the link bound in an open folder");
+    assert!(!app.registration().exists());
+    assert_eq!(std::fs::metadata(&folder).unwrap().permissions().mode() & 0o777, 0o757);
+}
+
 /// A folder of this user that others could read but not write (another process made it 755)
 /// is tightened to 0700 and used, not refused.
 #[test]
