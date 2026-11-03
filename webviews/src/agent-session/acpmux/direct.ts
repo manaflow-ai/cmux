@@ -99,7 +99,7 @@ import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
-import { inboxText, type InboxMessage } from "./conversation/inboxNotice";
+import { inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage, startCancelled } from "./transportErrors";
@@ -635,6 +635,7 @@ function queuedEntry(
   inlineParts?: PromptContentPart[],
   retry?: SubagentRetryNotice,
   hold: Hold = {},
+  inbox?: InboxNotice,
 ): QueuedPrompt {
   return {
     id,
@@ -643,9 +644,10 @@ function queuedEntry(
     ...(sending ? { sending } : {}),
     ...(images?.length ? { images: [...images] } : {}),
     ...(message ? { message } : {}),
+    ...(inbox && !message ? { inbox } : {}),
     ...(author ? { author } : {}),
     ...(inlineParts?.length ? { inlineParts } : {}),
-    ...(retry && !message && !author ? { retry } : {}),
+    ...(retry && !message && !inbox && !author ? { retry } : {}),
     ...(hold.awaitingOwner ? { awaitingOwner: true } : {}),
     ...(hold.revision !== undefined ? { revision: hold.revision } : {}),
     ...(hold.awaitingOwner && hold.updating ? { updating: true } : {}),
@@ -731,6 +733,14 @@ export function queuedMessage(msg: any, context?: IncomingContext): IncomingMess
   const named = [`[${name}]`, `From ${name}:`].find((prefix) => lead.toLowerCase().startsWith(prefix.toLowerCase()));
   const harness = typeof msg?.fromHarness === "string" && msg.fromHarness.trim() ? msg.fromHarness.trim() : undefined;
   return { name, ...(harness ? { harness } : {}), text: (named ? lead.slice(named.length) : text).trim(), raw: text };
+}
+
+/// A `queued` record that is acpmux's inbox notice (provenance `inbox_notice`), as its threads.
+/// Undefined for any other prompt. acpmux's queue list names no provenance, so a notice the pane
+/// has only that list of shows as a queue row until its record is read.
+export function queuedInbox(msg: any, context?: IncomingContext): InboxNotice | undefined {
+  const incoming = incomingPrompt(String(msg?.text ?? ""), msg, context);
+  return incoming?.kind === "inbox" ? incoming.notice : undefined;
 }
 
 /// The images a `queued` or `queue_updated` record names (`images`, in its prompt's order), each
@@ -879,6 +889,9 @@ export function mergeQueue(
     // prompt is the person's own. Without this, a queued agent_message was rendered as a plain
     // user prompt until it left the queue, so its received card (and reply actions) disappeared.
     const message = listed === null ? undefined : (kept ?? listedMessage);
+    // acpmux's inbox notice: the threads its `queued` record named, while the text is the same. An
+    // edit makes it the person's (hub/queue.rs drops the provenance), so it keeps none.
+    const inbox = message || edited?.has(id) || !whole ? undefined : had.inbox;
     // A list that names the field says whose it is, null the owner's (acpmux lists it for every
     // prompt once it serves authors); an older acpmux lists none, and the records read decide.
     const hold = listedHold(entry, had);
@@ -905,7 +918,7 @@ export function mergeQueue(
       // `subagent_retry` provenance, which an edit drops), else, from an acpmux that lists none,
       // the one its `queued` record gave while the text is the same (the preview that text or cut
       // from it). An edit, seen or missed, drops it; a null listing removes it.
-      message || author || edited?.has(id)
+      message || inbox || author || edited?.has(id)
         ? undefined
         : "subagentRetry" in (entry ?? {})
           ? withRecovered(listedRetry(entry.subagentRetry), had?.retry)
@@ -914,6 +927,7 @@ export function mergeQueue(
             : undefined,
       // A guest's prompt that waits for the owner (acpmux lists `awaitingOwner`; an older one, none).
       hold,
+      inbox,
     );
     // Whether a person's Stop holds it, as acpmux lists it (`heldByStop`); listed unheld, it was
     // let go. A list without the field (an older acpmux) keeps what the records said.
@@ -945,6 +959,7 @@ function sameQueuedEntry(a: QueuedPrompt, b: QueuedPrompt): boolean {
     a.heldByStop === b.heldByStop &&
     JSON.stringify(a.images) === JSON.stringify(b.images) &&
     JSON.stringify(a.message) === JSON.stringify(b.message) &&
+    JSON.stringify(a.inbox) === JSON.stringify(b.inbox) &&
     JSON.stringify(a.author) === JSON.stringify(b.author) &&
     JSON.stringify(a.inlineParts) === JSON.stringify(b.inlineParts) &&
     JSON.stringify(a.retry) === JSON.stringify(b.retry) &&
@@ -1536,6 +1551,19 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     return (!before || this.order.get(before.id) !== order) && (!after || this.order.get(after.id) !== order);
   }
 
+  /// Moves `id` after every row the event being reduced made, and before the next event's: a steer
+  /// its stopped turn never read goes below that turn's end (`deferLateSteers`).
+  placeAfterCurrent(id: string): void {
+    if (!this.has(id) || this.current === undefined) return;
+    this.order.set(id, this.current + 0.25);
+    this.local.delete(id);
+    this.pullRequestActivityVersion = Symbol();
+    this.pullRequestCommandVersion = Symbol();
+    this.transcriptSummaryVersion = {};
+    this.ordered = undefined;
+    this.snapshot = undefined;
+  }
+
   /// The place `id` sorts at: its event's sequence number, or just after the events seen before it.
   orderOf(id: string): number {
     return this.order.get(id) ?? Infinity;
@@ -1845,6 +1873,12 @@ export class AcpmuxDirectClient {
   /// Each steer's row by its promptId. A steer that reaches the agent as its turn ends runs as the
   /// next prompt with the same promptId, recorded again: that prompt's row replaces the steer's.
   private steerRows = new Map<string, string>();
+  /// The running turn acpmux logged as stopping (its `stopping` record, hub/cancel.rs), until it ends.
+  private stoppingTurn?: { turnId?: string };
+  /// Steers logged after their turn's `stopping` record. The agent never reads one: if the turn ends
+  /// stopped, each goes below the stop (`deferLateSteers`), where it belongs in time, and acpmux sends
+  /// it again as the next prompt with the same promptId, whose row replaces it (`steerRows`).
+  private lateSteers: string[] = [];
   /// The promptIds drawn as prompts. An older page folds in after the rows below it, so the steer
   /// a held prompt re-ran comes after that prompt: it draws nothing. Kept across that fold.
   private promptsShown = new Set<string>();
@@ -2833,6 +2867,8 @@ export class AcpmuxDirectClient {
     this.compactionFenceSeq = undefined;
     this.continuations.clear();
     this.steerRows.clear();
+    this.stoppingTurn = undefined;
+    this.lateSteers = [];
     this.promptsShown.clear();
     this.retryAttachments.clear();
     this.supersededMessageIds.clear();
@@ -4901,7 +4937,7 @@ export class AcpmuxDirectClient {
     }
     this.queue = this.queue.map((entry) => {
       const msg = queued.get(entry.id);
-      if (entry.message || !msg || String(msg.text ?? "") !== entry.prompt) return entry;
+      if (entry.message || entry.inbox || !msg || String(msg.text ?? "") !== entry.prompt) return entry;
       const message = queuedMessage(msg, this.incomingContext());
       return message
         ? keepStopHold(
@@ -4977,6 +5013,8 @@ export class AcpmuxDirectClient {
     this.endedTurns.clear();
     this.supersededTurns.clear();
     this.steerRows.clear();
+    this.stoppingTurn = undefined;
+    this.lateSteers = [];
     this.promptsShown.clear();
     this.firstSeq = undefined;
     // Found again as the held events are reduced (`reduceEvent`).
@@ -5118,6 +5156,7 @@ export class AcpmuxDirectClient {
                   entry.inlineParts,
                   entry.retry,
                   entry,
+                  entry.inbox,
                 ),
                 // Sent now, it is no longer held (hub/queue.rs `put_next`).
                 entry.id === next ? undefined : entry,
@@ -5147,6 +5186,7 @@ export class AcpmuxDirectClient {
       // A task's result waiting behind the turn draws its received line now (offer/SuggestedTasks.tsx).
       if (this.queuedResult(msg, event.at)) return;
       if (id) {
+        this.dropDeferredSteer(id, String(msg.text ?? ""));
         this.queueAuthors.set(id, promptAuthor(msg) ?? null);
         // acpmux names the images it kept; a record that names none (an older acpmux) keeps those
         // this pane sent.
@@ -5176,6 +5216,8 @@ export class AcpmuxDirectClient {
               msg,
               this.queue.find((entry) => entry.id === id),
             ),
+            // acpmux's inbox notice: other agents' messages, drawn with them (queuedMessages.ts).
+            queuedInbox(msg, this.incomingContext()),
           ),
         ];
       }
@@ -6032,6 +6074,14 @@ export class AcpmuxDirectClient {
         // A new list, never one changed in place: the snapshot names its rows by the list's identity.
         if (steer === "waiting") this.waitingSteers = [...this.waitingSteers, { rowId: durableRowId, promptId }];
         if (steer === "waiting" && promptId) this.steerRows.set(promptId, durableRowId);
+        if (
+          steer === "waiting" &&
+          this.stoppingTurn &&
+          (typeof msg.turnId !== "string" ||
+            this.stoppingTurn.turnId === undefined ||
+            msg.turnId === this.stoppingTurn.turnId)
+        )
+          this.lateSteers = [...this.lateSteers, durableRowId];
         const inlineParts = recordedPromptParts(msg, knownParts) ?? knownParts;
         const optimisticRow = optimisticRowId ? this.rows.get(optimisticRowId) : undefined;
         this.rows.set(durableRowId, {
@@ -6076,6 +6126,9 @@ export class AcpmuxDirectClient {
         // A prompt opens its turn; a steer goes into the turn already open.
         if (promptId && msg.steer !== true) this.turnPrompt = promptRoot(promptId);
         this.turnOpen = true;
+      } else if (event.kind === "stopping") {
+        // acpmux took the person's Stop for the running turn (hub/cancel.rs `mark_stopping`).
+        if (this.turnOpen) this.stoppingTurn = { turnId: typeof msg.turnId === "string" ? msg.turnId : undefined };
       } else if (event.kind === "turn_silent" || event.kind === "turn_heard") {
         // acpmux's diagnostics of a quiet model (hub/silent_turn.rs): the turn still reads Thinking.
       } else if (event.kind === "turn_started") {
@@ -6086,6 +6139,10 @@ export class AcpmuxDirectClient {
         const agentStarted = !this.turnOpen && startedTurnId === undefined;
         this.stoppingOpens(event);
         this.stopSeesTurnOpen(event, startedTurnId, agentStarted);
+        if (this.stoppingTurn && startedTurnId !== undefined && startedTurnId !== this.stoppingTurn.turnId) {
+          this.stoppingTurn = undefined;
+          this.lateSteers = [];
+        }
         // A turn that does not name its prompt is no known one's: never the turn before's.
         this.turnPrompt = typeof msg.promptId === "string" && msg.promptId ? promptRoot(msg.promptId) : undefined;
         this.turnOpen = true;
@@ -6185,18 +6242,12 @@ export class AcpmuxDirectClient {
             error: msg.errorText ?? (status === "failed" && typeof msg.error === "string" ? msg.error : undefined),
             ...(typeof msg.errorCode === "string" && msg.errorCode ? { errorCode: msg.errorCode } : {}),
             ...(checkpoint ? { checkpoint } : {}),
+            // acpmux ended a turn whose agent did not answer Stop (`hub/cancel.rs`). The turn reads
+            // as any stop does; only the footer's tooltip says cmux ended it (Leo, 2026-11-03:
+            // "idk if it should be showing things like that").
+            ...(msg.cancelForced === true ? { stopForced: true as const } : {}),
           });
-        // acpmux ended a turn whose agent did not answer Stop (`hub/cancel.rs`). After the summary, so its fold never hides it.
-        if (event.kind === "turn_result" && msg.cancelForced === true) {
-          const noticeId = `notice-stop-${turnId ?? event.seq}`;
-          this.rows.set(noticeId, {
-            id: noticeId,
-            version: 1,
-            at: event.at,
-            kind: "notice",
-            text: translate("stop.forced"),
-          });
-        }
+        if (event.kind === "turn_result") this.deferLateSteers(turnId, status);
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
         this.streamingActivity = undefined;
@@ -6557,6 +6608,43 @@ export class AcpmuxDirectClient {
       if (row && row.kind === "user" && !row.incoming && !row.inboxThread && row.steerPromptId) return row.id;
     }
     return undefined;
+  }
+
+  /// A stopped turn's end: each steer logged after its `stopping` record goes below the stop line, as a
+  /// plain message, since the agent never read it. Any other end lets them stand as they landed.
+  private deferLateSteers(turnId: string | undefined, status: string): void {
+    const stopping = this.stoppingTurn;
+    if (!stopping) return;
+    if (turnId !== undefined && stopping.turnId !== undefined && turnId !== stopping.turnId) return;
+    const late = this.lateSteers;
+    this.stoppingTurn = undefined;
+    this.lateSteers = [];
+    if (status !== "cancelled" && status !== "interrupted") return;
+    for (const rowId of late) {
+      const row = this.rows.get(rowId);
+      if (row?.kind !== "user") continue;
+      // Queued again already: its queued card draws it at the end of the chat.
+      if (row.promptId !== undefined && this.queue.some((entry) => entry.id === row.promptId)) {
+        this.rows.delete(rowId);
+        continue;
+      }
+      const { steer: _steer, steerPromptId: _steerPromptId, ...rest } = row;
+      this.rows.set(rowId, { ...rest, version: row.version + 1, afterStop: true });
+      this.rows.placeAfterCurrent(rowId);
+    }
+  }
+
+  /// A prompt acpmux queued again: a steer drawn below a stop gives way to its queued card.
+  private dropDeferredSteer(promptId: string, text: string): void {
+    for (const row of this.rows.values())
+      if (
+        row.kind === "user" &&
+        row.afterStop === true &&
+        // Its promptId when it has one; its text only when it has none, so two messages with the same
+        // words but different prompts never both go.
+        (row.promptId !== undefined ? row.promptId === promptId : (row.resend ?? row.text) === text)
+      )
+        this.rows.delete(row.id);
   }
 
   /// The waiting steers (or the one `promptId` names) were read: their rows say so.
@@ -7445,6 +7533,7 @@ export class AcpmuxDirectClient {
               queued.inlineParts,
               queued.retry,
               queued,
+              queued.inbox,
             )
           : queued,
       );
