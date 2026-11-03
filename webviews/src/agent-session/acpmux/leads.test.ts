@@ -53,3 +53,14 @@ test("a lane names its leader on its own machine: the same bare id on another pe
 test("a chat tagged as reporting to itself leads nothing", () => {
   expect(names([row("self", reportsTo("self"))])).toEqual([]);
 });
+
+test("thousands of reports to one leader stay complete and ordered", () => {
+  const lanes = Array.from({ length: 3_000 }, (_, index) =>
+    row(`lane-${index}`, reportsTo("owner")),
+  );
+  const found = leaders([row("owner"), ...lanes]);
+  expect(found).toHaveLength(1);
+  expect(found[0]!.reports).toHaveLength(3_000);
+  expect(found[0]!.reports[0]!.sessionId).toBe("lane-0");
+  expect(found[0]!.reports[2_999]!.sessionId).toBe("lane-2999");
+});
