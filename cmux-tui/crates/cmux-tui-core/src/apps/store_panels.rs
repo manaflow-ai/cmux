@@ -122,11 +122,11 @@ fn image_type(path: &str) -> Option<&'static str> {
 }
 
 impl Supervisor {
-    /// The Session Info sections (`cmux.sessionInfoSection/1`) of installed,
+    /// The Session Info sections (`cmux.session.info.section/1`) of installed,
     /// enabled and visible apps. A v2 app implements an interface once, so
     /// the section id is the interface name (as the native `AppImplementation.id`).
     pub(super) fn session_info_panels(&self) -> Value {
-        const INTERFACE: &str = "cmux.sessionInfoSection/1";
+        const INTERFACE: &str = "cmux.session.info.section/1";
         let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let panels: Vec<SessionInfoPanel> = inner
             .mirror

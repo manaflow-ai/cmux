@@ -242,7 +242,7 @@ fn write_app(root: &Path, dir: &str, id: &str, scopes: Value) {
     let mut manifest = json!({
         "manifestVersion": 2, "id": id, "name": "Demo", "version": "1.0.0", "description": "d",
         "engines": { "cmux": "^2.0" }, "runtime": { "main": "dist/main.js" }, "catalog": "catalog.json",
-        "implements": { "cmux.section/1": { "export": "render", "title": "Demo" }, "cmux.sessionInfoSection/1": { "export": "renderSession", "title": "Session", "symbol": "info.circle", "options": { "maxRows": 8 } }, "cmux.status/1": { "export": "renderFail" }, "cmux.palette.scope/1": { "export": "renderLive" } },
+        "implements": { "cmux.section/1": { "export": "render", "title": "Demo" }, "cmux.session.info.section/1": { "export": "renderSession", "title": "Session", "symbol": "info.circle", "options": { "maxRows": 8 } }, "cmux.status/1": { "export": "renderFail" }, "cmux.palette.scope/1": { "export": "renderLive" } },
         "scopes": scopes, "files": ["dist/", "catalog.json"]
     });
     if !id.starts_with("local/") {
@@ -447,7 +447,7 @@ fn session_info_panels_lists_only_visible_installed_apps() {
     assert_eq!(
         listed["panels"][0],
         json!({
-            "app": "cmux/demo", "section": "cmux.sessionInfoSection/1", "title": "Session",
+            "app": "cmux/demo", "section": "cmux.session.info.section/1", "title": "Session",
             "symbol": "info.circle", "maxRows": 8
         })
     );

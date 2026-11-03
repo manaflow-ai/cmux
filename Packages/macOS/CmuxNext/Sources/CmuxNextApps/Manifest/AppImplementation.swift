@@ -5,7 +5,7 @@
 /// reads one model for both.
 public nonisolated struct AppImplementation: Sendable, Hashable, Identifiable {
     public static let section = "cmux.section/1"
-    public static let sessionInfoSection = "cmux.sessionInfoSection/1"
+    public static let sessionInfoSection = "cmux.session.info.section/1"
     public static let status = "cmux.status/1"
     public static let pane = "cmux.pane/1"
     public static let paletteScope = "cmux.palette.scope/1"

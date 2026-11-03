@@ -38,7 +38,7 @@ import Testing
         let mountID = try #require(mounted["mount_id"]?.stringValue)
         await client.tail?.value
         let sent = try #require(transport.mounts.first)
-        #expect(sent.interface == "cmux.sessionInfoSection/1")
+        #expect(sent.interface == "cmux.session.info.section/1")
         #expect(sent.context["session_id"]?.stringValue == "s1")
         #expect(sent.context["cwd"]?.stringValue == "/tmp/repo")
         #expect(sent.context["surface"]?.stringValue == "sessionInfoSection")

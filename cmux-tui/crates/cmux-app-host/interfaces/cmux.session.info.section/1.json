@@ -1,5 +1,5 @@
 {
-  "name": "cmux.sessionInfoSection/1",
+  "name": "cmux.session.info.section/1",
   "version": 1,
   "docs": "A Session Info section rendered in the agent's session panel.",
   "props": {
