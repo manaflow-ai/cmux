@@ -96,7 +96,7 @@ impl SecretStore for OsStore {
         }
         let account = account(name);
         let macos = Self::os() == "macos";
-        let mut cmd = if macos {
+        let cmd = if macos {
             let mut c = Command::new("/usr/bin/security");
             // -g: the password on stderr (`0x` hex for non-ASCII), never in argv.
             c.args(["find-generic-password", "-s", SERVICE, "-a", &account, "-g"]);
@@ -108,21 +108,15 @@ impl SecretStore for OsStore {
             c.stdout(Stdio::piped()).stderr(Stdio::null());
             c
         };
-        cmd.stdin(Stdio::null());
-        let mut child = cmd.spawn().map_err(|_| UNAVAILABLE)?;
-        let status = match child.wait_timeout(TIMEOUT) {
-            Ok(Some(status)) => status,
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err("vault.secret_store_timeout");
-            }
-        };
-        let out = child.wait_with_output().map_err(|_| "vault.secret_store_read_failed")?;
-        let raw = Zeroizing::new(if macos { out.stderr } else { out.stdout });
+        let (status, raw) = capture(cmd, macos)?;
         if !status.success() {
-            // `security` exits 44 for a missing item; `secret-tool` exits 1 with no output.
-            return Ok(None);
+            // `security` exits 44 for a missing item (any other exit, a locked
+            // keychain say, is an error to retry); `secret-tool` exits 1 with no output.
+            return if macos && status.code() != Some(44) {
+                Err("vault.secret_store_read_failed")
+            } else {
+                Ok(None)
+            };
         }
         let text = Zeroizing::new(String::from_utf8_lossy(&raw).into_owned());
         let encoded = if macos {
@@ -138,8 +132,9 @@ impl SecretStore for OsStore {
 
     fn delete(&self, name: &str) -> Result<(), &'static str> {
         if !self.available() {
-            // Nothing could have been stored here.
-            return Ok(());
+            // Not proof that the item is gone (a Linux shell without the
+            // desktop session's bus): the caller keeps its cleanup record.
+            return Err(UNAVAILABLE);
         }
         let account = account(name);
         let mut cmd = if Self::os() == "macos" {
@@ -167,6 +162,44 @@ impl SecretStore for OsStore {
     }
 }
 
+/// Run `cmd` with stdin closed and read its stderr (`from_stderr`) or stdout
+/// while waiting, bounded by the store timeout: a large item fills the pipe
+/// before the command exits, so reading only after the exit would stall it.
+pub fn capture(
+    mut cmd: Command,
+    from_stderr: bool,
+) -> Result<(std::process::ExitStatus, Zeroizing<Vec<u8>>), &'static str> {
+    cmd.stdin(Stdio::null());
+    let mut child = cmd.spawn().map_err(|_| UNAVAILABLE)?;
+    let pipe: Option<Box<dyn std::io::Read + Send>> = if from_stderr {
+        child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>)
+    } else {
+        child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>)
+    };
+    let reader = std::thread::spawn(move || drain(pipe));
+    let status = match child.wait_timeout(TIMEOUT) {
+        Ok(Some(status)) => status,
+        _ => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = reader.join();
+            return Err("vault.secret_store_timeout");
+        }
+    };
+    let raw = reader.join().map_err(|_| "vault.secret_store_read_failed")?;
+    Ok((status, raw))
+}
+
+/// All of a child's pipe, into a zeroed buffer (at most 1 MiB).
+pub fn drain(pipe: Option<impl std::io::Read>) -> Zeroizing<Vec<u8>> {
+    use std::io::Read as _;
+    let mut out = Zeroizing::new(Vec::new());
+    if let Some(pipe) = pipe {
+        let _ = pipe.take(1 << 20).read_to_end(&mut out);
+    }
+    out
+}
+
 fn decode(encoded: &str) -> Option<Zeroizing<String>> {
     let bytes = Zeroizing::new(base64::engine::general_purpose::STANDARD.decode(encoded).ok()?);
     let text = std::str::from_utf8(&bytes).ok()?;
@@ -179,6 +212,12 @@ fn decode(encoded: &str) -> Option<Zeroizing<String>> {
 pub struct MemoryStore {
     pub items: std::sync::Mutex<std::collections::BTreeMap<String, Zeroizing<String>>>,
     pub unavailable: bool,
+    /// Deletes fail (a locked keychain).
+    pub fail_delete: std::sync::atomic::AtomicBool,
+    /// Reads fail.
+    pub fail_get: std::sync::atomic::AtomicBool,
+    /// Writes of this name fail.
+    pub fail_put: Option<String>,
 }
 
 #[cfg(test)]
@@ -190,13 +229,25 @@ impl SecretStore for MemoryStore {
         if self.unavailable {
             return Err(UNAVAILABLE);
         }
+        if self.fail_put.as_deref() == Some(name) {
+            return Err("vault.secret_store_write_failed");
+        }
         self.items.lock().unwrap().insert(name.to_owned(), Zeroizing::new(value.to_owned()));
         Ok(())
     }
     fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, &'static str> {
+        if self.fail_get.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err("vault.secret_store_read_failed");
+        }
         Ok(self.items.lock().unwrap().get(name).cloned())
     }
     fn delete(&self, name: &str) -> Result<(), &'static str> {
+        if self.unavailable {
+            return Err(UNAVAILABLE);
+        }
+        if self.fail_delete.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err("vault.secret_store_delete_failed");
+        }
         self.items.lock().unwrap().remove(name);
         Ok(())
     }

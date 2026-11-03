@@ -35,13 +35,18 @@ pub struct Failure {
     pub code: String,
     /// The local entries a revoked credential removed (names only).
     pub deleted: Vec<String>,
+    /// A pull that applied only part of its changes (`vault.partial`): what it did.
+    pub outcome: Option<Outcome>,
 }
 
 impl Failure {
     fn code(code: impl Into<String>) -> Failure {
-        Failure { code: code.into(), deleted: Vec::new() }
+        Failure { code: code.into(), deleted: Vec::new(), outcome: None }
     }
 }
+
+/// The code of a pull whose store writes or deletes did not all succeed.
+pub const PARTIAL: &str = "vault.partial";
 
 pub fn state_path(home: &Path) -> PathBuf {
     home.join(STATE_FILE)
@@ -147,19 +152,28 @@ pub fn apply(
             Step::Keep { .. } => {}
             Step::Store { name, revision, value } => match store.put(&name, &value) {
                 Ok(()) => {
+                    state.pending_delete.remove(&name);
                     let fingerprint = state.fingerprint(&name, &value);
                     state.env.insert(name.clone(), plan::EnvRecord { revision, fingerprint });
                     stored.push(name);
                 }
                 Err(code) => failed.push((name, code)),
             },
-            Step::Delete { name } => match store.delete(&name) {
-                Ok(()) => {
-                    state.env.remove(&name);
-                    deleted.push(name);
+            // Either way the entry is no longer given to agents; a failed
+            // delete keeps a cleanup record until the store confirms it.
+            Step::Delete { name } => {
+                state.env.remove(&name);
+                match store.delete(&name) {
+                    Ok(()) => {
+                        state.pending_delete.remove(&name);
+                        deleted.push(name);
+                    }
+                    Err(code) => {
+                        state.pending_delete.insert(name.clone());
+                        failed.push((name, code));
+                    }
                 }
-                Err(code) => failed.push((name, code)),
-            },
+            }
         }
     }
     (stored, deleted, failed)
@@ -200,7 +214,7 @@ pub fn settle(
             state.last_result = Some("vault.revoked".to_owned());
             state.hub = hub.to_owned();
             let _ = write_state(home, &state);
-            return Err(Failure { code: "vault.revoked".to_owned(), deleted });
+            return Err(Failure { code: "vault.revoked".to_owned(), deleted, outcome: None });
         }
         Answer::Off => (Vec::new(), "off", 0),
         Answer::Retry(code) | Answer::Refused(code) => {
@@ -210,11 +224,14 @@ pub fn settle(
         }
     };
     let (stored, deleted, failed) = apply(&mut state, steps, store);
+    // A pull that could not store or delete everything fails, keeping what it did.
+    let result = if !failed.is_empty() && result == "ok" { "partial" } else { result };
     state.hub = hub.to_owned();
     state.pulled_at = Some(now_ms);
-    state.last_result = Some(result.to_owned());
+    state.last_result =
+        Some(if failed.is_empty() { result.to_owned() } else { PARTIAL.to_owned() });
     write_state(home, &state).map_err(Failure::code)?;
-    Ok(Outcome {
+    let outcome = Outcome {
         state: result,
         hub: hub.to_owned(),
         env: state.env.keys().cloned().collect(),
@@ -222,15 +239,34 @@ pub fn settle(
         deleted,
         failed,
         refused,
-    })
+    };
+    if outcome.failed.is_empty() {
+        Ok(outcome)
+    } else {
+        Err(Failure { code: PARTIAL.to_owned(), deleted: Vec::new(), outcome: Some(outcome) })
+    }
 }
 
-/// One full pull with the joined credential of `home`.
+/// Whether the credential an answer was asked with is still this machine's
+/// live one (`now`: the stored credential and whether it is revoked).
+pub fn still_current(used: &str, now: Option<(&str, bool)>) -> bool {
+    now.is_some_and(|(credential, revoked)| credential == used && !revoked)
+}
+
+/// One full pull with the joined credential of `home`. The lock is held from
+/// reading the credential to saving the state, so a slower answer can never
+/// undo a newer one (a revocation), and an answer for a credential replaced in
+/// the meantime is dropped.
 pub async fn pull(
     home: PathBuf,
     store: Arc<dyn SecretStore>,
     wait_for_lock: bool,
 ) -> Result<Outcome, Failure> {
+    let lock_home = home.clone();
+    let held = tokio::task::spawn_blocking(move || lock(&lock_home, wait_for_lock))
+        .await
+        .map_err(|_| Failure::code("vault.internal"))?
+        .map_err(Failure::code)?;
     let record = crate::cli::cloud_join::machine_credential()
         .map_err(|_| Failure::code("vault.credential_unreadable"))?
         .ok_or_else(|| Failure::code("vault.not_joined"))?;
@@ -245,8 +281,18 @@ pub async fn pull(
         }
         answer
     };
+    // A `machine join --replace` while the request ran: this answer was for the old one.
+    let current = crate::cli::cloud_join::machine_credential().ok().flatten();
+    if !matches!(answer, Answer::Revoked)
+        && !still_current(
+            &record.credential,
+            current.as_ref().map(|c| (c.credential.as_str(), c.revoked)),
+        )
+    {
+        return Err(Failure::code("vault.credential_changed"));
+    }
     tokio::task::spawn_blocking(move || {
-        let _lock = lock(&home, wait_for_lock).map_err(Failure::code)?;
+        let _held = held;
         settle(&home, &hub, answer, store.as_ref(), crate::store::now_ms())
     })
     .await
@@ -260,17 +306,7 @@ pub fn forget(home: &Path, store: &dyn SecretStore) -> Result<Outcome, Failure> 
     let hub = state.hub.clone();
     let steps = plan::wipe(&state);
     let (_, deleted, failed) = apply(&mut state, steps, store);
-    if failed.is_empty() {
-        match std::fs::remove_file(state_path(home)) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return Err(Failure { code: "vault.state_write_failed".into(), deleted }),
-        }
-    } else {
-        // Keep the records of entries still in the store, so a retry finds them.
-        write_state(home, &state).map_err(Failure::code)?;
-    }
-    Ok(Outcome {
+    let mut outcome = Outcome {
         state: "forgotten",
         hub,
         env: state.env.keys().cloned().collect(),
@@ -278,5 +314,21 @@ pub fn forget(home: &Path, store: &dyn SecretStore) -> Result<Outcome, Failure> 
         deleted,
         failed,
         refused: 0,
-    })
+    };
+    if outcome.failed.is_empty() {
+        match std::fs::remove_file(state_path(home)) {
+            Ok(()) => Ok(outcome),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(outcome),
+            Err(_) => Err(Failure {
+                code: "vault.state_write_failed".into(),
+                deleted: outcome.deleted,
+                outcome: None,
+            }),
+        }
+    } else {
+        // Keep the cleanup records of items still in the store, so a retry finds them.
+        write_state(home, &state).map_err(Failure::code)?;
+        outcome.state = "partial";
+        Err(Failure { code: PARTIAL.to_owned(), deleted: Vec::new(), outcome: Some(outcome) })
+    }
 }

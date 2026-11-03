@@ -39,8 +39,13 @@ pub struct State {
     /// Random per machine, so a fingerprint is never a plain hash of a value.
     #[serde(default)]
     pub salt: String,
+    /// Entries this machine may give agents.
     #[serde(default)]
     pub env: BTreeMap<String, EnvRecord>,
+    /// Entries revoked or removed whose secret store item could not be
+    /// deleted yet: never given to an agent, deleted again on every pull.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub pending_delete: std::collections::BTreeSet<String>,
 }
 
 impl State {
@@ -133,11 +138,26 @@ pub fn plan(state: &State, env: Vec<EnvItem>) -> Vec<Step> {
             steps.push(Step::Delete { name: name.clone() });
         }
     }
+    // A delete that failed earlier is tried again, unless the entry is
+    // active again (its Store above replaces the item).
+    for name in &state.pending_delete {
+        let stored_again =
+            steps.iter().any(|s| matches!(s, Step::Store { name: n, .. } if n == name));
+        let deleting = steps.iter().any(|s| matches!(s, Step::Delete { name: n } if n == name));
+        if !stored_again && !deleting {
+            steps.push(Step::Delete { name: name.clone() });
+        }
+    }
     steps
 }
 
 /// The steps when the machine may no longer hold the vault (not granted, or
 /// its credential revoked, or `vault forget`): every stored entry goes.
 pub fn wipe(state: &State) -> Vec<Step> {
-    state.env.keys().map(|name| Step::Delete { name: name.clone() }).collect()
+    state
+        .env
+        .keys()
+        .chain(state.pending_delete.iter().filter(|n| !state.env.contains_key(*n)))
+        .map(|name| Step::Delete { name: name.clone() })
+        .collect()
 }

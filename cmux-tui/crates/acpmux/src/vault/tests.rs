@@ -336,3 +336,154 @@ async fn a_fake_hub_answers_200_403_and_401() {
     let (hub, _) = fake_hub(401, body(json!({"code": "machine.revoked"}))).await;
     assert!(matches!(pull::fetch(&hub, credential).await, Answer::Revoked));
 }
+
+#[test]
+#[cfg(unix)]
+fn a_failed_delete_stops_delivery_at_once_and_is_retried() {
+    use std::sync::atomic::Ordering;
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", answer, &store, 1).unwrap();
+
+    // Not granted any more, and the keychain refuses the delete.
+    store.fail_delete.store(true, Ordering::SeqCst);
+    let error =
+        pull::settle(home.path(), "https://hub.test", Answer::NotGranted, &store, 2).unwrap_err();
+    assert_eq!(error.code, pull::PARTIAL);
+    let outcome = error.outcome.unwrap();
+    assert_eq!(outcome.state, "not_granted");
+    assert_eq!(outcome.failed, [("API_TOKEN".to_owned(), "vault.secret_store_delete_failed")]);
+    let state = pull::read_state(home.path());
+    assert!(state.env.is_empty(), "a revoked entry is never given to agents again");
+    assert!(state.pending_delete.contains("API_TOKEN"));
+    let (vars, _) = super::load_values(&state, &store);
+    assert!(vars.is_empty());
+    assert!(store.get("API_TOKEN").unwrap().is_some(), "still in the store");
+
+    // The next pull deletes it, even with an empty answer.
+    store.fail_delete.store(false, Ordering::SeqCst);
+    let answer = Answer::Granted { env: Vec::new(), refused: 0 };
+    let outcome = pull::settle(home.path(), "https://hub.test", answer, &store, 3).unwrap();
+    assert_eq!(outcome.deleted, ["API_TOKEN"]);
+    assert!(pull::read_state(home.path()).pending_delete.is_empty());
+    assert!(store.get("API_TOKEN").unwrap().is_none());
+}
+
+#[test]
+#[cfg(unix)]
+fn a_revoked_credential_with_a_failed_delete_keeps_only_a_cleanup_record() {
+    use std::sync::atomic::Ordering;
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", answer, &store, 1).unwrap();
+    store.fail_delete.store(true, Ordering::SeqCst);
+    let error =
+        pull::settle(home.path(), "https://hub.test", Answer::Revoked, &store, 2).unwrap_err();
+    assert_eq!(error.code, "vault.revoked");
+    let state = pull::read_state(home.path());
+    assert!(state.env.is_empty());
+    assert!(state.pending_delete.contains("API_TOKEN"));
+    assert_no_value(&std::fs::read_to_string(pull::state_path(home.path())).unwrap());
+}
+
+#[test]
+fn an_answer_for_a_replaced_or_revoked_credential_is_dropped() {
+    assert!(pull::still_current("cmm_a", Some(("cmm_a", false))));
+    assert!(!pull::still_current("cmm_a", Some(("cmm_b", false))), "replaced while asking");
+    assert!(!pull::still_current("cmm_a", Some(("cmm_a", true))), "revoked while asking");
+    assert!(!pull::still_current("cmm_a", None), "unjoined while asking");
+}
+
+#[test]
+#[cfg(unix)]
+fn pulls_are_serialized_by_one_lock() {
+    let home = tempfile::tempdir().unwrap();
+    let held = pull::lock(home.path(), false).unwrap();
+    assert_eq!(pull::lock(home.path(), false).err(), Some("vault.busy"));
+    drop(held);
+    assert!(pull::lock(home.path(), false).is_ok());
+}
+
+#[test]
+#[cfg(unix)]
+fn forget_without_a_store_fails_and_keeps_its_cleanup_records() {
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", answer, &store, 1).unwrap();
+    // A shell without the desktop session's bus: the item cannot be reached.
+    let away = MemoryStore { unavailable: true, ..MemoryStore::default() };
+    assert_eq!(away.delete("API_TOKEN"), Err(UNAVAILABLE));
+    let error = pull::forget(home.path(), &away).unwrap_err();
+    assert_eq!(error.code, pull::PARTIAL);
+    assert_eq!(error.outcome.unwrap().state, "partial");
+    let state = pull::read_state(home.path());
+    assert!(state.env.is_empty());
+    assert!(state.pending_delete.contains("API_TOKEN"), "the record stays until deleted");
+    // Back in the session: forget finishes.
+    let outcome = pull::forget(home.path(), &store).unwrap();
+    assert_eq!(outcome.deleted, ["API_TOKEN"]);
+    assert!(!pull::state_path(home.path()).exists());
+}
+
+#[test]
+#[cfg(unix)]
+fn a_failed_write_fails_the_pull_and_keeps_the_rest() {
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore { fail_put: Some("BROKEN".into()), ..MemoryStore::default() };
+    let answer = Answer::Granted {
+        env: vec![active("GOOD", 1, SECRET_A), active("BROKEN", 1, SECRET_B)],
+        refused: 0,
+    };
+    let error = pull::settle(home.path(), "https://hub.test", answer, &store, 1).unwrap_err();
+    assert_eq!(error.code, pull::PARTIAL);
+    let outcome = error.outcome.unwrap();
+    assert_eq!(outcome.state, "partial");
+    assert_eq!(outcome.stored, ["GOOD"]);
+    assert_eq!(outcome.env, ["GOOD"]);
+    assert_eq!(outcome.failed, [("BROKEN".to_owned(), "vault.secret_store_write_failed")]);
+    let json = crate::cli::host_vault::outcome_json(&outcome);
+    assert_eq!(json["state"], "partial");
+    assert_eq!(json["failed"][0]["name"], "BROKEN");
+    assert_no_value(&json.to_string());
+    assert_eq!(pull::read_state(home.path()).last_result.as_deref(), Some(pull::PARTIAL));
+}
+
+#[test]
+#[cfg(unix)]
+fn an_incomplete_load_is_read_again_without_a_state_change() {
+    use std::sync::atomic::Ordering;
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", answer, &store, 1).unwrap();
+    let path = pull::state_path(home.path());
+    let start = std::time::Instant::now();
+    store.fail_get.store(true, Ordering::SeqCst); // a locked keychain
+    super::refresh_at(&path, &store, start);
+    assert!(super::loaded_names().is_empty());
+    store.fail_get.store(false, Ordering::SeqCst); // unlocked
+    super::refresh_at(&path, &store, start + std::time::Duration::from_secs(1));
+    assert!(super::loaded_names().is_empty(), "no store read per spawn");
+    super::refresh_at(&path, &store, start + super::RETRY_INCOMPLETE);
+    assert_eq!(super::loaded_names(), ["API_TOKEN"]);
+
+    // Revoked: dropped from memory on the next spawn's check.
+    pull::settle(home.path(), "https://hub.test", Answer::NotGranted, &store, 2).unwrap();
+    super::refresh_at(&path, &store, start + super::RETRY_INCOMPLETE);
+    assert!(super::loaded_names().is_empty());
+}
+
+#[test]
+#[cfg(unix)]
+fn the_store_command_output_is_read_while_it_runs() {
+    // Far more than a pipe holds: reading only after the exit would stall it.
+    let mut cmd = std::process::Command::new("sh");
+    cmd.args(["-c", "yes abcdefgh | head -c 400000"]);
+    cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
+    let (status, out) = super::store::capture(cmd, false).unwrap();
+    assert!(status.success());
+    assert_eq!(out.len(), 400_000);
+}

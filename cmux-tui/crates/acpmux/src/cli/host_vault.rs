@@ -28,6 +28,11 @@ fn failure(failure: Failure) -> anyhow::Error {
         "vault.busy" => "another vault pull is running",
         _ => "vault pull failed",
     };
+    let message = if failure.code == pull::PARTIAL {
+        "some vault entries could not be stored or removed; see `failed`"
+    } else {
+        message
+    };
     let mut error = AppError::new(Code::Runtime, &failure.code, message);
     if !failure.deleted.is_empty() {
         error.data = Some(json!({"deleted": failure.deleted}));
@@ -90,20 +95,35 @@ fn print_outcome(outcome: &Outcome, json_out: bool) {
 /// `machine vault pull`.
 pub async fn pull_cmd(json_out: bool) -> Result<()> {
     let store: Arc<dyn SecretStore> = Arc::new(OsStore);
-    let outcome = pull::pull(crate::config::home(), store, true).await.map_err(failure)?;
-    print_outcome(&outcome, json_out);
-    Ok(())
+    let outcome = pull::pull(crate::config::home(), store, true).await;
+    finish(outcome, json_out)
 }
 
 /// `machine vault forget`.
 pub async fn forget_cmd(json_out: bool) -> Result<()> {
     let home = crate::config::home();
-    let outcome = tokio::task::spawn_blocking(move || pull::forget(&home, &OsStore))
-        .await
-        .map_err(|_| failure(Failure { code: "vault.internal".into(), deleted: Vec::new() }))?
-        .map_err(failure)?;
-    print_outcome(&outcome, json_out);
-    Ok(())
+    let outcome =
+        tokio::task::spawn_blocking(move || pull::forget(&home, &OsStore)).await.map_err(|_| {
+            failure(Failure { code: "vault.internal".into(), deleted: Vec::new(), outcome: None })
+        })?;
+    finish(outcome, json_out)
+}
+
+/// Print what a pull or forget did. A partial one prints its outcome (with
+/// `failed`) on stdout and still exits 1 with the error envelope.
+fn finish(result: Result<Outcome, Failure>, json_out: bool) -> Result<()> {
+    match result {
+        Ok(outcome) => {
+            print_outcome(&outcome, json_out);
+            Ok(())
+        }
+        Err(f) => {
+            if let Some(outcome) = &f.outcome {
+                print_outcome(outcome, json_out);
+            }
+            Err(failure(f))
+        }
+    }
 }
 
 /// Whether a harness is signed in on this machine: a presence check of its own

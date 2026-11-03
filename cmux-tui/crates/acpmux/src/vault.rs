@@ -62,7 +62,13 @@ struct Loaded {
     seen: Option<Option<Stamp>>,
     signature: String,
     vars: Vec<(String, Zeroizing<String>)>,
+    /// Some entries could not be read (a locked Keychain): when, so they are
+    /// read again after [`RETRY_INCOMPLETE`] without a state change.
+    incomplete_at: Option<std::time::Instant>,
 }
+
+/// How long an incomplete load waits before it reads the store again.
+pub const RETRY_INCOMPLETE: Duration = Duration::from_secs(30);
 
 #[derive(Clone, PartialEq, Eq)]
 struct Stamp {
@@ -72,8 +78,12 @@ struct Stamp {
     ino: u64,
 }
 
-static LOADED: RwLock<Loaded> =
-    RwLock::new(Loaded { seen: None, signature: String::new(), vars: Vec::new() });
+static LOADED: RwLock<Loaded> = RwLock::new(Loaded {
+    seen: None,
+    signature: String::new(),
+    vars: Vec::new(),
+    incomplete_at: None,
+});
 static RELOAD: Mutex<()> = Mutex::new(());
 
 fn stamp_of(path: &std::path::Path) -> Option<Stamp> {
@@ -107,25 +117,40 @@ pub fn load_values(
     (vars, skipped)
 }
 
+/// Whether the loaded values still stand for the state file seen now.
+fn current(loaded: &Loaded, now: &Option<Stamp>, at: std::time::Instant) -> bool {
+    loaded.seen.as_ref() == Some(now)
+        && loaded.incomplete_at.is_none_or(|t| at.duration_since(t) < RETRY_INCOMPLETE)
+}
+
 /// Reload the in-memory values when the state file changed since the last
-/// read (a pull here or by `machine vault pull`).
+/// read (a pull here or by `machine vault pull`), or when the last load could
+/// not read every entry and [`RETRY_INCOMPLETE`] has passed. An entry the
+/// state no longer lists (revoked, removed, or waiting for its store delete)
+/// is dropped from memory on the reload that sees it gone.
 fn refresh(store: &dyn SecretStore) {
-    let home = crate::config::home();
-    let now = stamp_of(&pull::state_path(&home));
-    let seen = || LOADED.read().unwrap_or_else(|e| e.into_inner()).seen.clone();
-    if seen().as_ref() == Some(&now) {
+    refresh_at(&pull::state_path(&crate::config::home()), store, std::time::Instant::now());
+}
+
+fn refresh_at(path: &std::path::Path, store: &dyn SecretStore, at: std::time::Instant) {
+    let now = stamp_of(path);
+    if current(&LOADED.read().unwrap_or_else(|e| e.into_inner()), &now, at) {
         return;
     }
     let _one = RELOAD.lock().unwrap_or_else(|e| e.into_inner());
-    let before = seen();
-    if before.as_ref() == Some(&now) {
-        return;
-    }
+    let (seen_before, complete_before) = {
+        let loaded = LOADED.read().unwrap_or_else(|e| e.into_inner());
+        if current(&loaded, &now, at) {
+            return;
+        }
+        (loaded.seen.is_some(), loaded.incomplete_at.is_none())
+    };
+    let home = path.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
     let state = pull::read_state(&home);
     let signature = state.signature();
     {
         let mut loaded = LOADED.write().unwrap_or_else(|e| e.into_inner());
-        if before.is_some() && loaded.signature == signature {
+        if seen_before && complete_before && loaded.signature == signature {
             loaded.seen = Some(now);
             return;
         }
@@ -138,6 +163,13 @@ fn refresh(store: &dyn SecretStore) {
     loaded.seen = Some(now);
     loaded.signature = signature;
     loaded.vars = vars;
+    loaded.incomplete_at = (!skipped.is_empty()).then_some(at);
+}
+
+/// The values held in memory now (tests).
+#[cfg(test)]
+fn loaded_names() -> Vec<String> {
+    LOADED.read().unwrap_or_else(|e| e.into_inner()).vars.iter().map(|(k, _)| k.clone()).collect()
 }
 
 /// The vault env every local agent of this daemon gets (`login_env`). Empty
