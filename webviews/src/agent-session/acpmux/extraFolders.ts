@@ -90,3 +90,13 @@ export type ExtraFolderControl = {
   onChange(next: ExtraFolderDraft | undefined): void;
   onBrowse?(): Promise<string | undefined> | string | undefined | void;
 };
+
+/// The draft as the pane's client sees it: folders of the pane's own machine (`paneMachine`, the
+/// composer's name for a pane that runs on a Cloud or peer machine) are `local` to it, since a
+/// start there names no peer.
+export function ownMachineFolders(
+  draft: ExtraFolderDraft | undefined,
+  paneMachine: string,
+): ExtraFolderDraft | undefined {
+  return draft && draft.machine === paneMachine ? { ...draft, machine: "local" } : draft;
+}

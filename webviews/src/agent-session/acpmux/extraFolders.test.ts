@@ -7,6 +7,7 @@ import {
   draftFolders,
   extraFolderName,
   extraFoldersParam,
+  ownMachineFolders,
   removeExtraFolder,
   summaryExtraFolders,
 } from "./extraFolders";
@@ -70,4 +71,11 @@ test("summaryExtraFolders reads acpmux's list and keeps its identity", () => {
 test("extraFolderName is the last path component", () => {
   expect(extraFolderName("/Users/you/notes/")).toBe("notes");
   expect(extraFolderName("/data set")).toBe("data set");
+});
+
+test("ownMachineFolders: a Cloud pane's own folders are local to its client", () => {
+  const draft = { machine: "zesty-box", folders: ["/home/you/data"] };
+  expect(ownMachineFolders(draft, "zesty-box")).toEqual({ machine: "local", folders: ["/home/you/data"] });
+  expect(ownMachineFolders(draft, "local")).toBe(draft);
+  expect(ownMachineFolders(undefined, "zesty-box")).toBeUndefined();
 });
