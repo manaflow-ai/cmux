@@ -11,7 +11,13 @@ const NON_TRANSCRIPT_UPDATES: &[&str] = &[
     "config_option_update",
     // A compaction's summary is context a handoff carries, not a chat row.
     "compaction_summary",
+    // A suggested next prompt is composer state, not a chat row (`claude_stdio/prompt_suggestions.rs`).
+    "prompt_suggestion",
 ];
+
+/// Updates a `transcript` stream hears live but a page leaves out (`matches_live`): a
+/// suggested next prompt is valid only until the next turn (`claude_stdio/prompt_suggestions.rs`).
+const LIVE_TRANSCRIPT_UPDATES: &[&str] = &["prompt_suggestion"];
 
 /// Mux records a chat client renders. `turn_end` and `turn_error` are left
 /// out because every turn also records `turn_result`.
@@ -142,6 +148,16 @@ impl EventFilter {
             "mux" => dir == b"mux",
             exact => kind == exact.as_bytes(),
         })
+    }
+
+    /// `matches` for a record as it happens, sent to a client's event stream: a `transcript`
+    /// subscription also hears a live suggested next prompt (`LIVE_TRANSCRIPT_UPDATES`), which
+    /// a page never holds, so a local, remote or peer chat's composer gets it with no extra kind.
+    pub fn matches_live(&self, rec: &EventRecord) -> bool {
+        self.matches(rec)
+            || (is_agent_update(rec)
+                && LIVE_TRANSCRIPT_UPDATES.contains(&rec.kind.as_str())
+                && self.kinds.as_ref().is_some_and(|k| k.iter().any(|k| k == "transcript")))
     }
 
     pub fn matches(&self, rec: &EventRecord) -> bool {
@@ -617,5 +633,29 @@ mod transcript_kind_tests {
         assert!(is_transcript(&mux("policy_unenforced")));
         let transcript = EventFilter::parse(Some(&json!(["transcript"]))).unwrap();
         assert!(!transcript.surely_skips(b"mux", b"policy_unenforced"));
+    }
+
+    /// A suggested next prompt reaches a `transcript` stream live, but no page holds it: pages
+    /// read with `matches` and `surely_skips`, the live stream with `matches_live`.
+    #[test]
+    fn a_prompt_suggestion_is_heard_live_but_never_paged() {
+        let rec = EventRecord {
+            seq: 1,
+            at: 0,
+            dir: "in".into(),
+            kind: "prompt_suggestion".into(),
+            msg: json!({"method": method::SESSION_UPDATE, "params": {"sessionId": "s", "update": {"sessionUpdate": "prompt_suggestion", "suggestion": "go on"}}}),
+            host_seq: None,
+        };
+        let transcript = EventFilter::parse(Some(&json!(["transcript"]))).unwrap();
+        assert!(!transcript.matches(&rec), "a page must leave it out");
+        assert!(transcript.surely_skips(b"in", b"prompt_suggestion"));
+        assert!(transcript.matches_live(&rec), "the live stream must send it");
+        let usage = EventFilter::parse(Some(&json!(["usage_update"]))).unwrap();
+        assert!(!usage.matches_live(&rec), "only a transcript stream hears it");
+        // A raw harness line of that name is not an agent update.
+        let mut raw = rec.clone();
+        raw.msg = json!({});
+        assert!(!transcript.matches_live(&raw));
     }
 }

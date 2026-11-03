@@ -455,8 +455,8 @@ final class CloudService {
     }
 
     /// The quit coordinator awaits this before AppKit may terminate the
-    /// process, while Cloud transports can still erase delivered access.
-    func prepareForTermination() async { await codexBroker.shutdown() }
+    /// process. Delivered Codex access stays on each Cloud machine (#33482).
+    func prepareForTermination() async { await codexBroker.detachForQuit() }
 
     /// Serves the `credential` family on the local daemon: answers its
     /// calls on the connection that sent them, and registers again after

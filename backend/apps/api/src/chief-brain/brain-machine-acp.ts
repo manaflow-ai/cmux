@@ -109,7 +109,8 @@ const summarize = (raw: RecordValue): AgentEvent | null => {
     case "turn_started": return { kind: "turn_start" }
     case "permission_request": case "permission_reissued": return { kind: "permission", permission_id: optional(msg.permissionId), title: optional(object(object(msg.request).toolCall).title) }
     // turn_end precedes the persisted outcome. Only turn_result can finish a build.
-    case "turn_error": return { kind: "error", message: "The machine agent failed.", ...(typeof msg.code === "number" ? { code: msg.code } : {}) }
+    // turn_error lacks promptId. Its following turn_result binds the persisted refusal.
+    case "turn_error": return null
     default: return null
   }
 }
@@ -144,7 +145,12 @@ export const machineAgentEvents = async (rpc: MachineRpc, encoded: string, after
           : { kind: "turn_end", stop_reason: optional(outcome.stopReason) }
       } catch (error) {
         if (typeof codeOf(error) !== "number") throw error
-        event = { kind: "error", message: "The machine agent failed.", code: codeOf(error) as number }
+        const msg = object(raw.msg)
+        const kind = msg.errorKind
+        // Only the original prompt's settled failed outcome can request sign-in. A code
+        // mismatch, cancellation, transport error or prose mentioning login is not evidence.
+        const auth = msg.status === "failed" && msg.code === codeOf(error) && (kind === "auth.signed_out" || kind === "auth.expired") ? kind : undefined
+        event = { kind: "error", message: "The machine agent failed.", code: codeOf(error) as number, ...(auth ? { error_kind: auth } : {}) }
       }
     }
     if (event) events.push({ seq: raw.seq as number, session: encoded, at: raw.at as number, event })

@@ -46,6 +46,9 @@ The chats come from a seeding daemon (idle_cost_load.PeerDaemon) on chat_open_ag
 template of each shape, written by acpmux itself, copied into the app's store under fresh ids, so
 every cold open is a chat no page of this app has read. --sessions more short chats fill the
 store's list, as a long-used daemon's does.
+The templates are cached on the worker (chat_open_seed_cache.py: keyed by the seed inputs, the
+template generator's sources and acpmux's store schema), so the arms of an A/B seed a 10,000-turn
+chat once; every run still copies them into a fresh store under fresh ids. --no-seed-cache seeds again.
 
 Every number is from this app's own clock; the per-open record keeps each trace's marks, the
 surfaces it showed (`frames`: a flash is a return to an empty surface after content), the page's
@@ -80,6 +83,7 @@ import idle_cost_load as icl  # noqa: E402
 from bench_power import wipe_state  # noqa: E402  (the tagged app's saved state under the real ~/Library)
 import chat_open_frames as cof  # noqa: E402
 from chat_open_summary import cell, summarize  # noqa: E402
+import chat_open_seed_cache as seed_cache  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
 parser.add_argument("--app", required=True)
@@ -105,6 +109,8 @@ parser.add_argument("--backdrop", choices=["opaque", "frosted", "glass", "glass-
                     help="the window material (appearance.backgroundBlur at 85%% opacity; opaque leaves the default): "
                          "a page over a translucent window is clear, which a saved picture must keep")
 parser.add_argument("--tag", default="chatopen", help="the tag the app was built with (its state folder)")
+parser.add_argument("--no-seed-cache", action="store_true",
+                    help="seed every template on the daemon again, neither reading nor writing the worker's seed cache")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts = parser.parse_args()
@@ -206,32 +212,74 @@ def copy_chat(home, template, title):
     return session
 
 
+def seed_templates(root):
+    """The template chats, from the worker's seed cache (chat_open_seed_cache.py) when it has them,
+    else written by acpmux on a seeding daemon and cached. Each entry is keyed by its own inputs and
+    the sources that shape it, so the arms of an A/B (different app builds, the same templates)
+    seed once. The templates, how long getting them took and each entry's cache result."""
+    started = time.monotonic()
+    specs = {"small": {"turns": opts.small_turns}, "subagent": {"subagents": SUBAGENTS}}
+    if "big" in CASES:
+        specs["big"] = {"turns": opts.turns}
+    if "bloated" in CASES:
+        specs["bloated"] = {"bloat": opts.bloat}
+    specs["store"] = {}  # the answered and closed chats seed_store copies, made last as before
+    cache_root = None if opts.no_seed_cache else seed_cache.default_root()
+    got, keys, result = {}, {}, {}
+    if cache_root:
+        digest = seed_cache.source_digest(icl.bundled_acpmux(APP))
+        for name, inputs in specs.items():
+            keys[name] = seed_cache.entry_key(name, inputs, digest)
+            got[name] = seed_cache.get(cache_root, keys[name])
+            result[name] = "hit" if got[name] else "miss"
+    else:
+        result = {name: "off" for name in specs}
+    missing = [name for name in specs if not got.get(name)]
+    if missing:
+        peer = icl.PeerDaemon(APP, root, AGENT)
+        peer.start()
+        try:
+            def chat(first, more):
+                session = peer.new_chat(first)
+                if not session:
+                    raise SystemExit("chat-open: the seeding daemon made no chat")
+                for text in more:
+                    sent = peer.acpmux("send", session, text, timeout=120)
+                    if sent.returncode != 0:
+                        raise SystemExit(f"chat-open: send {text!r}: {(sent.stdout + sent.stderr).strip()[-2000:]}")
+                return icl.read_chat(peer.home, session)
+
+            makers = {
+                "small": lambda: {"small": chat("turn: 0", [f"turn: {i}" for i in range(1, opts.small_turns)])},
+                "subagent": lambda: {"subagent": chat("turn: 0", ["turn: 1", f"subagents: {SUBAGENTS}"])},
+                "big": lambda: {"big": chat("turn: 0", [f"turn: {i}" for i in range(1, opts.turns)])},
+                "bloated": lambda: {"bloated": chat("turn: 0", [f"bloat: {opts.bloat}", "turn: 1"])},
+                "store": lambda: dict(zip(("answered", "closed"), peer.templates())),
+            }
+            for name in missing:
+                made_at = time.monotonic()
+                got[name] = makers[name]()
+                if cache_root:
+                    seed_cache.put(cache_root, keys[name], specs[name], got[name], time.monotonic() - made_at)
+        finally:
+            peer.stop()
+    if cache_root:
+        seed_cache.prune(cache_root, keep=tuple(keys.values()))
+    templates = {}
+    for entry in got.values():
+        templates.update(entry)
+    return templates, time.monotonic() - started, result
+
+
 def seed(root):
-    """Templates written by acpmux on the seeding daemon, then the app's store: --sessions short
-    chats for the list and fresh copies of each shape for every cold open."""
-    peer = icl.PeerDaemon(APP, root, AGENT)
-    peer.start()
-    try:
-        started = time.monotonic()
-
-        def chat(first, more):
-            session = peer.new_chat(first)
-            if not session:
-                raise SystemExit("chat-open: the seeding daemon made no chat")
-            for text in more:
-                sent = peer.acpmux("send", session, text, timeout=120)
-                if sent.returncode != 0:
-                    raise SystemExit(f"chat-open: send {text!r}: {(sent.stdout + sent.stderr).strip()[-2000:]}")
-            return icl.read_chat(peer.home, session)
-
-        small = chat("turn: 0", [f"turn: {i}" for i in range(1, opts.small_turns)])
-        sub = chat("turn: 0", ["turn: 1", f"subagents: {SUBAGENTS}"])
-        big = chat("turn: 0", [f"turn: {i}" for i in range(1, opts.turns)]) if "big" in CASES else None
-        bloated = chat("turn: 0", [f"bloat: {opts.bloat}", "turn: 1"]) if "bloated" in CASES else None
-        answered, closed = peer.templates()
-        seeded_s = time.monotonic() - started
-    finally:
-        peer.stop()
+    """Templates written by acpmux on the seeding daemon (or the worker's seed cache), then the
+    app's store: --sessions short chats for the list and fresh copies of each shape for every cold
+    open, under fresh ids in a fresh store every run."""
+    templates, seeded_s, cache_result = seed_templates(root)
+    small, sub = templates["small"], templates["subagent"]
+    big, bloated = templates.get("big"), templates.get("bloated")
+    answered, closed = templates["answered"], templates["closed"]
+    stored_at = time.monotonic()
     home = os.path.join(root, "acpmux")
     filler = icl.seed_store(home, opts.sessions, 0.6, answered, closed)
     per = {}
@@ -247,7 +295,8 @@ def seed(root):
         }
     sizes = {name: sum(len(v) for v in t["events"].values()) for name, t in
              (("small", small), ("subagent", sub), ("big", big), ("bloated", bloated)) if t}
-    return home, per, {"seed_s": round(seeded_s, 1), "filler": filler, "template_bytes": sizes,
+    return home, per, {"seed_s": round(seeded_s, 1), "store_s": round(time.monotonic() - stored_at, 1),
+                       "seed_cache": cache_result, "filler": filler, "template_bytes": sizes,
                        "turns": opts.turns, "small_turns": opts.small_turns, "subagents": SUBAGENTS}
 
 
