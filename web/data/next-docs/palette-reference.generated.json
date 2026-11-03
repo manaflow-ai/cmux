@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1281,
+    "entries": 1286,
     "shortcuts": 189
   },
   "sections": [
@@ -44,6 +44,12 @@
           "title": "Chat Colors…",
           "shortcut": null,
           "command": "cmux chat colors"
+        },
+        {
+          "id": "home.chiefTeleportPlayground",
+          "title": "Chief Teleport Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "home.zoomReset",
@@ -5290,8 +5296,20 @@
           "command": null
         },
         {
+          "id": "sidebar.revealAndFocusWorkspace",
+          "title": "Reveal and Focus Workspace in Sidebar",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "fileExplorerReveal",
           "title": "Reveal in Finder",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "sidebar.revealWorkspace",
+          "title": "Reveal Workspace in Sidebar",
           "shortcut": null,
           "command": null
         },
@@ -6190,6 +6208,12 @@
           "command": null
         },
         {
+          "id": "chief.moveRollback",
+          "title": "Roll Back Chief Move",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentPane.runInBackground",
           "title": "Run in Background",
           "shortcut": null,
@@ -6464,6 +6488,12 @@
           "title": "Connect GitHub",
           "shortcut": null,
           "command": "cmux accounts github-connect"
+        },
+        {
+          "id": "accounts.slackConnect",
+          "title": "Connect Slack",
+          "shortcut": null,
+          "command": "cmux accounts slack-connect"
         },
         {
           "id": "cloudCopyMachineID",
