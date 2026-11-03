@@ -1175,6 +1175,16 @@ class NewRowResult:
 
 
 @dataclass(frozen=True)
+class NewScreenResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/NewScreenResult'
+    surface: Id
+    pane: Union[Id, None, MissingType] = field(default=MISSING)
+    screen: Union[Id, None, MissingType] = field(default=MISSING)
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class NoteSizeActivityResult:
     __cmux_schema_path__: ClassVar[str] = 'types/NoteSizeActivityResult'
     changed: bool
@@ -1206,6 +1216,7 @@ class PaneNeighborResult:
 class PaneSurfaceResult:
     __cmux_schema_path__: ClassVar[str] = 'types/PaneSurfaceResult'
     surface: Id
+    pane: Union[Id, None, MissingType] = field(default=MISSING)
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     pane_id: Union[str, None, MissingType] = field(default=MISSING)
     replayed: Union[bool, None, MissingType] = field(default=MISSING)
@@ -6212,6 +6223,7 @@ __all__ = [
     'MintTerminalRendererResult',
     'MoveTerminalResult',
     'NewRowResult',
+    'NewScreenResult',
     'NoteSizeActivityResult',
     'NotificationMarker',
     'NotifyResult',

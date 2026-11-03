@@ -30,7 +30,7 @@ struct WorkspaceBlueprintBuilder: Sendable {
         try await build(firstScreen, pane: firstPane.handle, initial: initial)
         for screen in blueprint.screens.dropFirst() {
             let created = try await connection.newScreen(in: workspace.handle)
-            try await build(screen, pane: try await pane(holding: created.surface), initial: created.surface)
+            try await build(screen, pane: try await pane(of: created), initial: created.surface)
         }
         try await applyRatios(blueprint)
     }
@@ -41,7 +41,7 @@ struct WorkspaceBlueprintBuilder: Sendable {
         var previous = pane
         for column in screen.columns.dropFirst() {
             let created = try await connection.newColumn(rightOf: previous, width: column.width, options: options(for: column.root))
-            let next = try await self.pane(holding: created.surface)
+            let next = try await self.pane(of: created)
             try await fill(column.root, pane: next, initial: created.surface)
             previous = next
         }
@@ -52,7 +52,7 @@ struct WorkspaceBlueprintBuilder: Sendable {
         switch node {
         case .split(let direction, _, let a, let b):
             let created = try await connection.split(pane, direction: direction, options: options(for: b))
-            let other = try await self.pane(holding: created.surface)
+            let other = try await self.pane(of: created)
             try await fill(a, pane: pane, initial: initial)
             try await fill(b, pane: other, initial: created.surface)
         case .pane(let tabs):
@@ -95,9 +95,11 @@ struct WorkspaceBlueprintBuilder: Sendable {
 
     static let replayKey = "CMUX_RESTORE_SCROLLBACK_FILE"
 
-    private func pane(holding surface: SurfaceID) async throws -> PaneID {
-        guard let pane = try await daemon.shape(of: key, after: connection)?.pane(holding: surface) else {
-            throw DaemonError.malformedResponse("pane for surface \(surface) not found")
+    /// The pane a creation just made: named in the daemon's reply, else read from the store.
+    private func pane(of created: SurfaceCreated) async throws -> PaneID {
+        if let pane = created.pane { return pane }
+        guard let pane = try await daemon.shape(of: key, after: connection)?.pane(holding: created.surface) else {
+            throw DaemonError.malformedResponse("pane for surface \(created.surface) not found")
         }
         return pane
     }

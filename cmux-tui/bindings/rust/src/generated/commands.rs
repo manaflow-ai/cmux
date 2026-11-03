@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976.
+// cmux-tui mux protocol 12, IR 47637ebe3c71d9707dfc8b69874b829737f43a3d66914b589b00946abe0a2892.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2677,9 +2677,6 @@ pub struct NewScreenRequest {
 }
 
 #[rustfmt::skip]
-pub type NewScreenResult = T::SurfaceResult;
-
-#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct NewTabRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -5117,7 +5114,7 @@ impl CmuxClient {
         self.execute(&NEW_ROW_METADATA, &request)
     }
 
-    pub fn new_screen(&mut self, request: NewScreenRequest) -> Result<NewScreenResult> {
+    pub fn new_screen(&mut self, request: NewScreenRequest) -> Result<T::NewScreenResult> {
         if !request.env.is_missing() {
             self.require_protocol_field("new-screen", 12)?;
             self.require_capability_field("new-screen", "screen-terminal-env-v1")?;

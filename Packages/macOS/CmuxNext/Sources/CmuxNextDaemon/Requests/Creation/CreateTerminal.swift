@@ -1,19 +1,24 @@
 import Foundation
 
-/// `{surface}` plus the terminal identity newer servers add.
+/// `{surface}` plus the terminal identity newer servers add, and the pane that holds the new surface
+/// (`pane`: cmux-tui names it for `split`, `new-pane`, `new-pane-right` and `new-screen`), so a caller works on
+/// the new pane without reading the whole tree (`list-workspaces`, about 3.7 KB per workspace).
 public struct SurfaceCreated: Decodable, Sendable, Equatable {
     public var surface: SurfaceID
     public var terminalID: TerminalID?
     public var terminalIncarnation: TerminalIncarnation?
+    /// The pane that holds `surface`; nil from a daemon that does not name it.
+    public var pane: PaneID?
 
-    init(surface: SurfaceID, terminalID: TerminalID? = nil, terminalIncarnation: TerminalIncarnation? = nil) {
+    init(surface: SurfaceID, terminalID: TerminalID? = nil, terminalIncarnation: TerminalIncarnation? = nil, pane: PaneID? = nil) {
         self.surface = surface
         self.terminalID = terminalID
         self.terminalIncarnation = terminalIncarnation
+        self.pane = pane
     }
 
     enum CodingKeys: String, CodingKey {
-        case surface
+        case surface, pane
         case terminalID = "terminal_id"
         case terminalIncarnation = "terminal_incarnation"
     }

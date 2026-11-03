@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976. */
+/* cmux-tui mux protocol 12, IR 47637ebe3c71d9707dfc8b69874b829737f43a3d66914b589b00946abe0a2892. */
 
 
 import type * as T from "./types.js";
@@ -1851,7 +1851,6 @@ export interface NewScreenRequest extends CmuxRequestBase {
   "terminal_id"?: (string) | null;
   "workspace"?: (T.Id) | null;
 }
-export type NewScreenResult = T.SurfaceResult;
 
 /** Protocol v5; authority: control. */
 export interface NewTabRequest extends CmuxRequestBase {
@@ -4597,7 +4596,7 @@ export interface CmuxCommandDefinitionMap {
   };
   "new-screen": {
     request: NewScreenRequest;
-    result: NewScreenResult;
+    result: T.NewScreenResult;
     authority: "control";
     since: 5;
     capability: null;

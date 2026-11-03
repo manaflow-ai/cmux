@@ -1382,8 +1382,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "8cdc3109c481a01a38626d1eeac7f3e5f4d3b840112c4b6d138b017fb84bf01d",
-      "size": 68574
+      "sha256": "c585391f28999ef8afe76b272a371e07dd677d0732fc47be1c48c6db34edbb52",
+      "size": 68578
     },
     {
       "path": "GetBlobRequest.java",
@@ -1956,6 +1956,11 @@
       "size": 9779
     },
     {
+      "path": "NewScreenResult.java",
+      "sha256": "198f539673380fc1092234fbee1c41790c86d111a7448f9235009c78dae02cd0",
+      "size": 4751
+    },
+    {
       "path": "NewTabRequest.java",
       "sha256": "03bdb258ea26c01249bda64ac6a0ac83cd1c32569fc66ada23185f36545e67e9",
       "size": 6426
@@ -2072,8 +2077,8 @@
     },
     {
       "path": "PaneSurfaceResult.java",
-      "sha256": "c17128e24d3192d3e4d974835e83be6682c5b4128ddfb1a12ec8aaa920aafdac",
-      "size": 5474
+      "sha256": "03b4520ad088d1382445fed3a2ace67e8828941105dd43b9aaf1774b36d4995b",
+      "size": 6063
     },
     {
       "path": "ParkTabsRequest.java",
@@ -2137,7 +2142,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "874090b54a4019a4ce570fdaab09210332943329af67db5cbae4be666e7c50b1",
+      "sha256": "8f39d00a3339a5a252b73710d1213fb77a1086ec1a455a296a65787c3ce35034",
       "size": 7767
     },
     {
@@ -3487,7 +3492,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976",
+  "ir_sha256": "47637ebe3c71d9707dfc8b69874b829737f43a3d66914b589b00946abe0a2892",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

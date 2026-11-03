@@ -1,0 +1,115 @@
+// Generated from cmux-tui/spec/sdk-schema.json. DO NOT EDIT.
+package com.cmux.raw;
+
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+
+public final class NewScreenResult implements WireValue {
+    private final Field<UInt64> pane;
+    private final Field<UInt64> screen;
+    private final UInt64 surface;
+    private final Field<String> terminalId;
+    private final Field<String> terminalIncarnation;
+
+    private NewScreenResult(Builder builder) {
+        this.pane = builder.pane;
+        this.screen = builder.screen;
+        if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
+        this.surface = Wire.nonNull(builder.surface, "surface");
+        this.terminalId = builder.terminalId;
+        this.terminalIncarnation = builder.terminalIncarnation;
+    }
+
+    public static Builder builder() { return new Builder(); }
+
+    public Field<UInt64> pane() { return pane; }
+    public Field<UInt64> screen() { return screen; }
+    public UInt64 surface() { return surface; }
+    public Field<String> terminalId() { return terminalId; }
+    public Field<String> terminalIncarnation() { return terminalIncarnation; }
+
+    public static NewScreenResult fromWire(Object value) {
+        Map<String, Object> object = Wire.object(value, "NewScreenResult");
+        Builder builder = builder();
+        Object rawPane = Wire.optional(object, "pane");
+        if (!Wire.isMissing(rawPane)) {
+            builder.pane(rawPane == null ? null : Wire.uint64(rawPane, "NewScreenResult.pane"));
+        }
+        Object rawScreen = Wire.optional(object, "screen");
+        if (!Wire.isMissing(rawScreen)) {
+            builder.screen(rawScreen == null ? null : Wire.uint64(rawScreen, "NewScreenResult.screen"));
+        }
+        Object rawSurface = Wire.required(object, "surface");
+        builder.surface(Wire.uint64(rawSurface, "NewScreenResult.surface"));
+        Object rawTerminalId = Wire.optional(object, "terminal_id");
+        if (!Wire.isMissing(rawTerminalId)) {
+            builder.terminalId(rawTerminalId == null ? null : Wire.string(rawTerminalId, "NewScreenResult.terminal_id"));
+        }
+        Object rawTerminalIncarnation = Wire.optional(object, "terminal_incarnation");
+        if (!Wire.isMissing(rawTerminalIncarnation)) {
+            builder.terminalIncarnation(rawTerminalIncarnation == null ? null : Wire.string(rawTerminalIncarnation, "NewScreenResult.terminal_incarnation"));
+        }
+        return builder.build();
+    }
+
+    @Override
+    public Map<String, Object> toWire() {
+        LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "pane", pane);
+        Wire.put(object, "screen", screen);
+        Wire.put(object, "surface", surface);
+        Wire.put(object, "terminal_id", terminalId);
+        Wire.put(object, "terminal_incarnation", terminalIncarnation);
+        return Collections.unmodifiableMap(object);
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (!(other instanceof NewScreenResult that)) return false;
+        return Objects.equals(pane, that.pane) && Objects.equals(screen, that.screen) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation);
+    }
+
+    @Override
+    public int hashCode() { return Objects.hash(pane, screen, surface, terminalId, terminalIncarnation); }
+
+    @Override
+    public String toString() { return "NewScreenResult" + toWire(); }
+
+    public static final class Builder {
+        private Field<UInt64> pane = Field.omitted();
+        private Field<UInt64> screen = Field.omitted();
+        private UInt64 surface;
+        private boolean surfaceSet;
+        private Field<String> terminalId = Field.omitted();
+        private Field<String> terminalIncarnation = Field.omitted();
+
+        public Builder pane(UInt64 value) {
+            this.pane = Field.ofNullable(value);
+            return this;
+        }
+        public Builder screen(UInt64 value) {
+            this.screen = Field.ofNullable(value);
+            return this;
+        }
+        public Builder surface(UInt64 value) {
+            this.surface = value;
+            this.surfaceSet = true;
+            return this;
+        }
+        public Builder terminalId(String value) {
+            this.terminalId = Field.ofNullable(value);
+            return this;
+        }
+        public Builder terminalIncarnation(String value) {
+            this.terminalIncarnation = Field.ofNullable(value);
+            return this;
+        }
+        public NewScreenResult build() { return new NewScreenResult(this); }
+    }
+}

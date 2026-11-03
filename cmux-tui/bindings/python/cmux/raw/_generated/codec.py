@@ -100,6 +100,7 @@ MODEL_BY_PATH = {
     'types/MintTerminalRendererResult': models.MintTerminalRendererResult,
     'types/MoveTerminalResult': models.MoveTerminalResult,
     'types/NewRowResult': models.NewRowResult,
+    'types/NewScreenResult': models.NewScreenResult,
     'types/NoteSizeActivityResult': models.NoteSizeActivityResult,
     'types/NotificationMarker': models.NotificationMarker,
     'types/NotifyResult': models.NotifyResult,

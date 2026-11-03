@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976";
+pub const ir_sha256 = "47637ebe3c71d9707dfc8b69874b829737f43a3d66914b589b00946abe0a2892";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1395,6 +1395,14 @@ pub const NewRowResult = struct {
     };
 };
 
+pub const NewScreenResult = struct {
+    pane: wire.Field(Id) = .absent,
+    screen: wire.Field(Id) = .absent,
+    surface: Id,
+    terminal_id: wire.Field([]const u8) = .absent,
+    terminal_incarnation: wire.Field([]const u8) = .absent,
+};
+
 pub const NoteSizeActivityResult = struct {
     changed: bool,
     participant: []const u8,
@@ -1531,6 +1539,7 @@ pub const PaneNeighborResult = struct {
 pub const PaneRef = wire.Value;
 
 pub const PaneSurfaceResult = struct {
+    pane: wire.Field(Id) = .absent,
     pane_id: wire.Field([]const u8) = .absent,
     replayed: wire.Field(bool) = .absent,
     surface: Id,
@@ -7509,8 +7518,6 @@ pub const NewScreenRequest = struct {
     terminal_id: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
 };
-
-pub const NewScreenResult = SurfaceResult;
 
 pub fn newScreen(client: anytype, request: NewScreenRequest) !wire.Decoded(NewScreenResult) {
     return client.callTyped(

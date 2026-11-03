@@ -2981,6 +2981,10 @@ mod browser_profile_tests;
 mod creation_burst_tests;
 
 #[cfg(test)]
+#[path = "server/pane_in_reply_tests.rs"]
+mod pane_in_reply_tests;
+
+#[cfg(test)]
 mod tests;
 
 #[cfg(unix)]

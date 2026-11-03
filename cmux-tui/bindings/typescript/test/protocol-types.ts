@@ -164,3 +164,14 @@ void shortId;
 
 declare const command: CmuxCommand;
 void command;
+
+// The hand-written client's pane creations return the generated result types: the new pane (`pane`) is typed.
+declare const paneClient: CmuxClient;
+const splitPane: Promise<Id | null | undefined> = paneClient.split(surface, "right").then((made) => made.pane);
+const newPanePane: Promise<Id | null | undefined> = paneClient.newPane(surface).then((made) => made.pane);
+const newScreenPane: Promise<Id | null | undefined> = paneClient.newScreen().then((made) => made.pane);
+const splitMatchesSchema: Promise<CmuxResponseDataFor<"split">> = paneClient.split(surface, "down");
+void splitPane;
+void newPanePane;
+void newScreenPane;
+void splitMatchesSchema;

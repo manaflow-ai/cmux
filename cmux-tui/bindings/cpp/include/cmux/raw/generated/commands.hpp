@@ -215,7 +215,7 @@ public:
     [[nodiscard]] Result<PaneSurfaceResult> new_pane_right(const NewPaneRightRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> new_remote_terminal_tab(const NewRemoteTerminalTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<NewRowResult> new_row(const NewRowRequest& request, RequestOptions options = {});
-    [[nodiscard]] Result<SurfaceResult> new_screen(const NewScreenRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<NewScreenResult> new_screen(const NewScreenRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_tab(const NewTabRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_workspace(const NewWorkspaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<NoteSizeActivityResult> note_size_activity(const NoteSizeActivityRequest& request, RequestOptions options = {});

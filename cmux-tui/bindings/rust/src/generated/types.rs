@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976.
+// cmux-tui mux protocol 12, IR 47637ebe3c71d9707dfc8b69874b829737f43a3d66914b589b00946abe0a2892.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1235,6 +1235,20 @@ pub struct NewRowResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewScreenResult {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub screen: Optional<Id>,
+    pub surface: Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_incarnation: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NoteSizeActivityResult {
     pub changed: bool,
     pub participant: String,
@@ -1319,6 +1333,8 @@ pub struct PaneNeighborResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaneSurfaceResult {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]

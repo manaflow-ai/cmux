@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976. */
+/* cmux-tui mux protocol 12, IR 47637ebe3c71d9707dfc8b69874b829737f43a3d66914b589b00946abe0a2892. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -742,6 +742,14 @@ export type NewRowResult = {
   "transaction"?: string;
 };
 
+export type NewScreenResult = {
+  "pane"?: (Id) | null;
+  "screen"?: (Id) | null;
+  "surface": Id;
+  "terminal_id"?: (string) | null;
+  "terminal_incarnation"?: (string) | null;
+};
+
 export type NoteSizeActivityResult = {
   "changed": boolean;
   "participant": string;
@@ -776,6 +784,7 @@ export type PaneNeighborResult = {
 export type PaneRef = JsonValue;
 
 export type PaneSurfaceResult = {
+  "pane"?: (Id) | null;
   "pane_id"?: (string) | null;
   "replayed"?: (boolean) | null;
   "surface": Id;
