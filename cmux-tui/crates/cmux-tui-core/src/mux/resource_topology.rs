@@ -116,7 +116,7 @@ use creation_group::{StagedCreation, StagedCreationOutcome, creation_shares_grou
 mod unpublished_creation;
 pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget, CloseReason, RoomClose};
 use layout_projection::{remove_pane_from_layout, sync_layout_column_projection};
-pub(crate) use pane_browser::PANE_BROWSER_URL_FIELD;
+pub(crate) use pane_browser::{PANE_BROWSER_URL_FIELD, TabSplit};
 
 /// `pane.split`'s `focus` field: whether the new pane takes the focus. The
 /// resource router sends `false` when a caller omits it, so a programmatic

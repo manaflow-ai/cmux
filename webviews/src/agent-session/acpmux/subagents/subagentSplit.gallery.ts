@@ -87,7 +87,9 @@ async function child(ctx: PlayContext) {
 }
 
 export default agentPaneEntry({
-  id: SPLIT_ENTRY,
+  // A literal, as every entry's id: test/support/galleryFrame.ts finds an entry's file by its
+  // `id: "<id>"` line, and an id read from a constant matched no file (gallery-control-surfaces).
+  id: "agent-pane.subagent-split",
   title: "Subagent opened in the right split",
   area: "Agent pane",
   height: 640,
