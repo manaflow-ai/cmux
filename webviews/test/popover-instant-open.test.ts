@@ -185,8 +185,7 @@ const entranceCalls = (source: string) => source.match(/\bdata-enter\b["']?\s*[=
 const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/App.tsx": {
     count: 4,
-    what:
-      "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack, holds the rows under the opened line and cuts what rises at it (#32943)",
+    what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack, holds the rows under the opened line and cuts what rises at it (#32943)",
   },
   "src/agent-session/acpmux/chatSwitch.ts": {
     count: 1,
