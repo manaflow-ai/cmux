@@ -14,15 +14,17 @@ import Testing
 ///
 /// (a) A chat offered the row before it reported its tools (it learns its width from the offer) got the area hold: the
 /// strip followed the pane and the page was held below it. When it reported its tools during the spring, the pane went on
-/// offering it the row while it kept the page below the strip, so the page drew its tools in its own top row, under the
-/// strip, until the landing, and then jumped up under the strip.
+/// deciding the row from the latch and offering it every pass while the page stayed held below the strip.
 /// (b) A tab switch during the spring to a chat parked in the pane: the decision kept from the terminal (no row) went to
 /// the chat. Its frame was set to the held area under the strip, it was offered no row (its page left its one-row
 /// header), and at the landing it got the row again: the page changed its header mode twice and laid out twice.
 ///
-/// The rule: a page that may draw its tools in the tab row holds whole with its strip (the S1 exception, S5/S6), decided
-/// for the page shown at the hold's start; while only the content area holds, no page hears a tab-row change, and a page
-/// shown during the hold keeps its row and its frame until the landing, which decides the row for it once.
+/// The rule: a page whose tools are in the tab row holds whole with its strip (the S1 exception, S5/S6), decided for the
+/// page shown at the hold's start; while only the content area holds, nothing decides the row again and no page hears a
+/// tab-row change; a page shown during the hold keeps its row and its frame; the landing decides the row once.
+/// Not covered here: a page that learns its tools in the spring shows them in its own top row under the strip until the
+/// landing, as it does at rest until its report arrives. Holding it whole needs to know a report is coming, which only
+/// the page can say (its header answers each offer); that is the chat page's change, not the pane's.
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct PaneTabRowPerPageHoldTests {
@@ -120,30 +122,35 @@ struct PaneTabRowPerPageHoldTests {
         return "\(label): the page draws its \(row) pt row with its top at \(top), not on the strip's top \(stripTop) (shown up to \(shownTop))"
     }
 
-    /// (a) A chat offered the row before it reported its tools; Ctrl-Shift-L on its pane; it reports its tools during the
-    /// spring. In no frame does it draw its row anywhere but in the strip's row, and at the landing its tools are in it.
-    @Test func aChatThatReportsItsToolsDuringAKeyResizeDrawsItsRowOnlyInTheStrip() throws {
+    /// (a) A chat offered the row before it reported its tools; Ctrl-Shift-L on its pane. Its tools are not in the row at
+    /// the hold's start, so only the content area holds and the strip follows the pane. It reports its tools two frames
+    /// into the spring: nothing decides the row again until the landing (the page hears no row change while the area
+    /// holds), and the landing gives it the row once, with the content area under the strip in the same pass.
+    @Test func aChatThatReportsItsToolsDuringAKeyResizeGetsTheRowOnceAtTheLanding() throws {
         let page = RowPage()
         let rig = Rig(p1: page)
         defer { rig.window.closeAfterTest() }
         let pane = try #require(rig.provider.views["p1"])
         try #require(page.offered.last.map { $0 > 0 } == true, "the chat was not offered the row to learn its tools: \(page.offered)")
         try #require(page.drawnRow == 0 && pane.contentHost.frame.minY > 0, "the chat shares the row before it reported its tools")
+        page.offered.removeAll()
 
         #expect(PaneResize.press("p1", .right, model: rig.model, view: rig.root))
-        var off: [String] = [], frames = 0
+        var frames = 0, areaLetGo: [Int] = []
         while frames < 240, rig.root.advanceFrame(1.0 / 120) {
             frames += 1
             if frames == 2 { page.report(60) }
             rig.root.layoutSubtreeIfNeeded()
-            if let stray = Self.rowOffStrip(page, in: pane, "frame \(frames)") { off.append(stray) }
+            if !pane.contentHost.isHolding { areaLetGo.append(frames) }
         }
         try #require(frames > 3, "the press did not spring (\(frames) frames)")
+        #expect(areaLetGo.isEmpty, "only the content area must hold, through the whole spring; it was not held in frames \(areaLetGo.prefix(4))")
+        #expect(page.offered.isEmpty, "the chat heard \(page.offered.count) tab-row changes while its area held: \(page.offered.prefix(4))")
         rig.root.layoutSubtreeIfNeeded()
         rig.release()
-        if let stray = Self.rowOffStrip(page, in: pane, "after the landing") { off.append(stray) }
-        #expect(off.isEmpty, "\(off.count) frames drew the chat's tools off the tab row: \(off.prefix(4))")
-        #expect(page.drawnRow > 0, "the chat's tools are not in the row after the landing: offered \(page.offered.suffix(3))")
+        #expect(page.offered.count == 1 && page.drawnRow > 0 && pane.contentHost.frame == pane.bounds,
+                "the landing did not give the chat the row once: offered \(page.offered), area \(pane.contentHost.frame) in \(pane.bounds)")
+        #expect(Self.rowOffStrip(page, in: pane, "after the landing") == nil, "\(Self.rowOffStrip(page, in: pane, "after the landing") ?? "")")
     }
 
     /// (b) A terminal shows; a chat whose tools share the row is parked in the pane; Ctrl-Shift-L; two frames into the
