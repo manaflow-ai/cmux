@@ -669,6 +669,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 hub.adopt_agent_hosts().await;
                 hub.settle_unadopted().await;
             }
+            hub.recover_workflows().await;
             {
                 let hub = hub.clone();
                 tokio::spawn(async move {

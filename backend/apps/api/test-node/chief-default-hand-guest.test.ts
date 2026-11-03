@@ -53,4 +53,31 @@ describe("default Chief hand guest config", () => {
       expect(existsSync(join(home, "pair-called"))).toBe(false)
     } finally { rmSync(home, { recursive: true, force: true }) }
   })
+
+  it.skipIf(process.platform !== "linux")("releases the service lock when the Hand exits while its daemon survives", async () => {
+    const home = mkdtempSync(join(tmpdir(), "chief-hand-lock-"))
+    let daemon: number | undefined
+    try {
+      const script = await (await handInstallScript({} as Env, "https://api.test")).text()
+      const fallback = script.split("\n").find((line) => line.includes("nohup flock "))!
+      const binary = join(home, "test-hand")
+      writeFileSync(binary, '#!/bin/sh\nsleep 30 &\nprintf "%s" "$!" > "$HOME_DIR/daemon.pid"\n')
+      chmodSync(binary, 0o755)
+      const started = spawnSync("sh", ["-c", `${fallback}\nwait`], {
+        encoding: "utf8", timeout: 5000,
+        env: { ...process.env, HOME_DIR: home, BIN: binary, LOG: join(home, "hand.log") },
+      })
+      expect(started.status, started.stderr).toBe(0)
+      daemon = Number(readFileSync(join(home, "daemon.pid"), "utf8"))
+      expect(Number.isSafeInteger(daemon) && daemon > 0).toBe(true)
+      process.kill(daemon, 0)
+      const replacement = spawnSync("flock", ["-n", join(home, "run.lock"), "true"], { encoding: "utf8", timeout: 5000 })
+      expect(replacement.status, replacement.stderr).toBe(0)
+    } finally {
+      if (daemon !== undefined && Number.isSafeInteger(daemon) && daemon > 0) {
+        try { process.kill(daemon, "SIGTERM") } catch { /* The test daemon may already have exited. */ }
+      }
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
 })

@@ -35,6 +35,8 @@ extension CEFTab {
                 documentDidPaint()
             }
         case .loadStart(_, let url, let fromPost):
+            // A new document: the link the pointer was over is gone (Chrome clears its bubble too).
+            if linkStatus != nil { linkStatus = nil }
             if navigation == nil || !state.isLoading {
                 let id = makeNavigationID()
                 navigation = id
@@ -120,6 +122,9 @@ extension CEFTab {
         case .beforeUnloadDismissed: beforeUnloadDismissed()
         case .devToolsMessage(_, let json):
             agentRelay.deliver(json)
+        case .statusMessage(_, let text):
+            let status = text.isEmpty ? nil : text
+            if linkStatus != status { linkStatus = status }
         default:
             break
         }

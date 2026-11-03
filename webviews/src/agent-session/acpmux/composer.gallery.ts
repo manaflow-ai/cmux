@@ -1692,8 +1692,8 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        // It waits in the one collapsed group of waiting messages (PendingMessagesCard.tsx).
-        await ctx.click({ selector: ".cv-pending__toggle" });
+        // It waits as its own line; with others it waits in their one collapsed group (PendingMessagesCard.tsx).
+        if (ctx.document.querySelector(".cv-pending__toggle")) await ctx.click({ selector: ".cv-pending__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector('[data-queued-message="q1"] .cv-disclosure__toggle'));
         await ctx.click({ selector: '[data-queued-message="q1"] .cv-disclosure__toggle' });
         await ctx.waitFor(() =>

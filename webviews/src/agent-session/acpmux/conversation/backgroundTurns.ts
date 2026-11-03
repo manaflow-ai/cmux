@@ -95,6 +95,14 @@ export function drawsBackgroundLine(row: AcpmuxRow): boolean {
   }
 }
 
+/// Whether a background turn that does not fold still draws its line, over its rows: a failure
+/// that ended with something to say keeps its named line, so a long reply never hides what failed
+/// (cmux#33319). Its rows draw as they came under it; the line opens nothing.
+export function headsBackground(row: AcpmuxRow): boolean {
+  if (row.kind !== BACKGROUND_TURN || !row.background || foldsBackground(row)) return false;
+  return backgroundWeight(row.background) === "failure";
+}
+
 /// Update the owner set while a caller is already walking the transcript. Keeping this mutation
 /// beside that walk avoids a second O(rows) pass on every streamed snapshot.
 export function collectFoldedBackgroundId(closed: Set<string>, row: AcpmuxRow, expanded: Folds): void {
@@ -123,7 +131,9 @@ export function foldBackgroundTurns(rows: AcpmuxRow[], expanded: Folds): AcpmuxR
     // A line that draws nothing still draws while open (Find opened it), so it can close again.
     if (row.kind === BACKGROUND_TURN)
       return (
-        drawsBackgroundLine(row) || (expanded.has(row.id) && foldsBackground(row) && row.background?.hasRows === true)
+        drawsBackgroundLine(row) ||
+        headsBackground(row) ||
+        (expanded.has(row.id) && foldsBackground(row) && row.background?.hasRows === true)
       );
     return !(row.inBackground !== undefined && folding.has(row.inBackground));
   });

@@ -159,6 +159,8 @@ export type AcpmuxHostConfig = {
   draft?: string;
   /** A new chat's first prompt, sent once the client connects (onboarding's first task). */
   prompt?: string;
+  /** Attachments of the seeded prompt, with file references on this chat's machine. */
+  promptAttachments?: ComposerAttachment[];
   /** The model a new chat starts on before its first prompt. */
   model?: string;
   /** Explicit startup harness; omitted uses the existing daemon default. */
@@ -1184,6 +1186,8 @@ export function mergeToolItem(
       ...(before?.background ? { background: before.background } : {}),
       // An approval stays on its call as the call's result comes in.
       ...(before?.approved ? { approved: true as const } : {}),
+      // What a background task's end left on it (`attachReaction`) stays as later updates come in.
+      ...(before?.reaction ? { reaction: before.reaction } : {}),
       locations,
       ...(input ? { inputPath: input } : {}),
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
@@ -5428,7 +5432,9 @@ export class AcpmuxDirectClient {
   private react(origin: string, reaction: AcpmuxBackgroundReaction): boolean {
     // The call's row as the pane knows it now, else where its reaction went (a prompt forgets
     // its calls' rows, `toolRows`, but not the rows themselves).
-    const id = this.toolRows.get(origin) ?? this.reactions.get(origin)?.row;
+    // A call a newer prompt forgot (`toolRows` holds only its own prompt's) is found among the
+    // rows once, when its task first ends: once per background turn, never per token.
+    const id = this.toolRows.get(origin) ?? this.reactions.get(origin)?.row ?? this.callRow(origin);
     const row = id === undefined ? undefined : this.rows.get(id);
     const index = row?.items?.findIndex((item) => item.tool?.id === origin) ?? -1;
     if (row && index >= 0) {
@@ -5442,6 +5448,14 @@ export class AcpmuxDirectClient {
     if (reaction.fresh) this.freshReactions.add(origin);
     else this.freshReactions.delete(origin);
     return true;
+  }
+
+  /// The newest activity row that holds call `origin`.
+  private callRow(origin: string): string | undefined {
+    let found: string | undefined;
+    for (const row of this.rows.values())
+      if (row.kind === "activity" && row.items?.some((item) => item.tool?.id === origin)) found = row.id;
+    return found;
   }
 
   /// The person's prompt: the results they had not seen are seen.
@@ -8714,6 +8728,12 @@ export class AcpmuxDirectClient {
 
   /// Chats read ahead, by when their read went out.
   private readAheadAt = new Map<string, number>();
+  /// Chats read ahead, by the row's `transcriptSeq` when their read went out: acpmux moves it only
+  /// for a transcript record, so a chat whose row moved only for bookkeeping (an agent start's
+  /// `agent_start_waiting` every 10 s, usage, git, process counts all move `updatedAt`) is not read
+  /// again. Any other value is a change, a lower one too (a peer's chat restored to an older log).
+  /// Absent for a row without one (a peer on an older acpmux): `updatedAt` decides instead.
+  private readAheadSeq = new Map<string, number>();
   /// Reads out now, by chat, so a switch to one can wait on it briefly.
   private readingAhead = new Map<string, Promise<void>>();
   /// Chats waiting for a read, the next one first.
@@ -8744,7 +8764,15 @@ export class AcpmuxDirectClient {
       if (readAt === undefined) return !keptTail(sessionId);
       if (now - readAt < READ_AHEAD_REFRESH_MS) return false;
       const listed = this.sessions.find((session) => session.sessionId === sessionId);
-      return Number(listed?.updatedAt ?? 0) > readAt || !keptTail(sessionId);
+      // A chat whose turn runs is read again once its turn ends, not on each change in the list
+      // while it streams: with dozens of busy chats that re-read 12 pages every few seconds. Its
+      // kept tail is behind meanwhile; the attach a switch sends lays the turn over it. A hover
+      // (`first`) still reads it.
+      if (!first && listed?.status === "running" && keptTail(sessionId)) return false;
+      const seq = transcriptSeq(listed);
+      const seen = this.readAheadSeq.get(sessionId);
+      const ranOn = seq !== undefined && seen !== undefined ? seq !== seen : Number(listed?.updatedAt ?? 0) > readAt;
+      return ranOn || !keptTail(sessionId);
     });
     const rest = this.readAheadQueue.filter((sessionId) => !wanted.includes(sessionId));
     this.readAheadQueue = first ? [...wanted, ...rest] : [...rest, ...wanted];
@@ -8775,6 +8803,7 @@ export class AcpmuxDirectClient {
     // The session and machine its row names when asked: a page read while the row changed is of
     // the session before, so it is not kept under the new one's row.
     const asked = this.sessions.find((session) => session.sessionId === sessionId);
+    const askedSeq = transcriptSeq(asked);
     const result = await this.typed("_acpmux/events", {
       sessionId,
       beforeSeq: Number.MAX_SAFE_INTEGER,
@@ -8798,6 +8827,10 @@ export class AcpmuxDirectClient {
       configSeq: 0,
       usageFromSeq: result?.hasMore === true ? oldest : 0,
     });
+    // Only a kept read counts as read at `askedSeq`: a failed, empty or dropped one is asked again
+    // on the next change in the list, as before.
+    if (askedSeq === undefined) this.readAheadSeq.delete(sessionId);
+    else this.readAheadSeq.set(sessionId, askedSeq);
     // A rested hover asked for it: the tab its click opens is another page, which reads the host.
     if (this.shareOnRead.delete(sessionId)) shareReadAhead(sessionId);
   }
@@ -10176,6 +10209,13 @@ function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
 /// (hub/auto_resume.rs `SUFFIX`).
 export function promptRoot(promptId: string): string {
   return promptId.replace(/~resume-\d+$/, "");
+}
+
+/// A row's `transcriptSeq` (acpmux `SessionSummary::transcript_seq`), or undefined from an acpmux
+/// that does not send it.
+function transcriptSeq(session: Session | undefined): number | undefined {
+  const seq = session?.transcriptSeq;
+  return typeof seq === "number" && Number.isFinite(seq) ? seq : undefined;
 }
 
 function pageShown(): boolean {
