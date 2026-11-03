@@ -18,6 +18,19 @@ pub const NOT_GRANTED: &str = "vault.not_granted";
 pub const MAX_VALUE_BYTES: usize = 131_072;
 /// Most entries one answer may carry.
 pub const MAX_ENTRIES: usize = 512;
+/// Linux's limit on one `NAME=value` string in a new process's environment,
+/// its terminator included (`MAX_ARG_STRLEN`, 32 pages): a longer one fails
+/// every spawn with E2BIG.
+pub const MAX_ENV_STRING_BYTES: usize = 131_072;
+/// Most bytes the vault's `NAME=value` strings may take together: they share
+/// the exec argument space (`ARG_MAX`, 1 MiB on macOS) with the agent's own
+/// environment and argv. Entries past it (by name) are refused.
+pub const MAX_VAULT_ENV_BYTES: usize = 262_144;
+
+/// The bytes `NAME=value` takes in a new process's environment.
+pub fn env_string_bytes(name: &str, value: &str) -> usize {
+    name.len() + 1 + value.len() + 1
+}
 
 /// One env entry of the answer. `value` is `None` for a revoked entry.
 pub struct EnvItem {
@@ -87,7 +100,23 @@ pub fn parse(status: u16, body: &[u8]) -> Answer {
             }
         }
     }
-    Answer::Granted { env: by_name.into_values().collect(), refused }
+    // What a spawn can carry: each string under the per-string limit, and
+    // all of them within the vault's share of the exec space. A refused
+    // entry is not delivered, so a stored older value of it is removed.
+    let mut total = 0usize;
+    let mut env = Vec::with_capacity(by_name.len());
+    for entry in by_name.into_values() {
+        if let Some(value) = &entry.value {
+            let bytes = env_string_bytes(&entry.name, value);
+            if bytes > MAX_ENV_STRING_BYTES || total + bytes > MAX_VAULT_ENV_BYTES {
+                refused += 1;
+                continue;
+            }
+            total += bytes;
+        }
+        env.push(entry);
+    }
+    Answer::Granted { env, refused }
 }
 
 fn env_item(item: &Value) -> Option<EnvItem> {

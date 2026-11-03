@@ -51,9 +51,9 @@ def test_next_signs_without_a_provisioning_profile():
     for restricted in ("com.apple.application-identifier", "keychain-access-groups",
                        "com.apple.developer.web-browser.public-key-credential"):
         assert restricted not in keys, f"{entitlements} requests {restricted}, which needs a profile"
-    assert "core.setOutput('profile_channel', notaryProbe ? 'RELEASE' : track === 'nightly-next' ? '' :" in WORKFLOW
+    assert "core.setOutput('profile_channel', nightlyProbe ? 'NIGHTLY' : notaryProbe ? 'RELEASE' : track === 'nightly-next' ? '' :" in WORKFLOW
     assert "if: needs.decide.outputs.profile_channel != ''" in WORKFLOW
-    assert "core.setOutput('sign_channel', notaryProbe ? 'stable' : track === 'nightly-next' ? 'next' : channel);" in WORKFLOW
+    assert "core.setOutput('sign_channel', nightlyProbe ? 'nightly' : notaryProbe ? 'stable' : track === 'nightly-next' ? 'next' : channel);" in WORKFLOW
 
 
 def test_next_signs_in_through_its_own_scheme():

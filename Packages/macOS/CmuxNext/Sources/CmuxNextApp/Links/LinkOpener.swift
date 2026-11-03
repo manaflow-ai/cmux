@@ -242,18 +242,7 @@ final class LinkOpener {
             pane.focusContent()
             return true
         }
-        // A split right or below shows in the click's frame with its tab, never in the source first (Leo 2026-11-03).
-        let split: SplitMake = { [weak self, weak from] (pane: PaneController, direction: SplitDirection, finished: @escaping @MainActor (SurfaceID?) -> Void) -> Bool? in
-            // As every split (#23032 review): a chat dock or a pane with no room keeps the move, which refuses or opens a column (Home's dock alone needs no room).
-            let opener = PaneBrowserTabOpener(controller: pane), room = pane.services.splitRoom(for: pane.pane, edge: direction == .right ? .right : .bottom)
-            guard direction == .right && opener.opensBesideDockInSplit || opener.opensInSplit && { if case .split = room { true } else { false } }() else { return nil }
-            let request = BrowserTabSplitRequest(direction: direction, finished: { [weak self, weak from] (surface: SurfaceID?) in
-                if let surface, let from, let content = from.workspace { self?.returnFocus(of: surface, to: from.layoutPaneID, in: content) }
-                finished(surface)
-            })
-            return pane.newBrowserTab(url: url, split: request)
-        }
-        return open(from: from, background: background, kind: .browser, split: background ? nil : split) { [weak self, weak from] pane, placed in
+        return open(from: from, background: background, kind: .browser, split: background ? nil : browserSplit(url, returningTo: from)) { [weak self, weak from] pane, placed in
             let here = pane === from && placed == nil
             // A pane-local tab keeps Chrome's opener relationship. When placement moves the new
             // tab into another pane, the source pane must not claim it as a child; the placement
@@ -268,6 +257,17 @@ final class LinkOpener {
                 }
             }
             return pane.newBrowserTab(url: url, background: background || placed != nil, opener: opener, placementOwner: placed != nil, then: then)
+        }
+    }
+
+    /// A web page at `url` (nil: the New Tab page) made straight in a new split, never in the source first (Leo 2026-11-03); its close gives the focus back to `from`. Nil, so the open makes and moves (which refuses or opens a column), from a chat dock or a pane with no room (#23032 review); Home's dock alone needs no room.
+    func browserSplit(_ url: URL?, profile: String? = nil, returningTo from: PaneController? = nil) -> SplitMake {
+        { [weak self, weak from] (pane: PaneController, direction: SplitDirection, finished: @escaping @MainActor (SurfaceID?) -> Void) -> Bool? in
+            let opener = PaneBrowserTabOpener(controller: pane), room = pane.services.splitRoom(for: pane.pane, edge: direction == .right ? .right : .bottom)
+            guard direction == .right && opener.opensBesideDockInSplit || opener.opensInSplit && { if case .split = room { true } else { false } }() else { return nil }
+            return pane.newBrowserTab(url: url, profile: profile, split: BrowserTabSplitRequest(direction: direction) { [weak self, weak from] surface in
+                if let surface, let from, let content = from.workspace { self?.returnFocus(of: surface, to: from.layoutPaneID, in: content) }; finished(surface)
+            })
         }
     }
 
@@ -494,19 +494,14 @@ extension LinkOpener {
         var widths: [String: CGFloat] = [:], kinds: [String: Set<RightColumnPlacement.Kind>] = [:]
         for pane in panes {
             widths[pane.rawValue] = content.panes[pane].flatMap(width(of:))
-            kinds[pane.rawValue] = content.panes[pane].map { pane in Set([.terminal, .browser].filter { holds(pane, $0) }) }
+            kinds[pane.rawValue] = content.panes[pane].map { pane in Set([.terminal, .browser, .document].filter { holds(pane, $0) }) }
         }
         return .init(sourceWidth: width(of: source), panes: panes.map(\.rawValue), widths: widths, kinds: kinds)
     }
 
-    /// Whether `pane` holds a tab of `kind`: a local or remote terminal, or a browser tab.
+    /// Whether `pane` holds a tab of `kind` (``RightColumnPlacement/Kind/isHeld(by:document:)``).
     static func holds(_ pane: PaneController, _ kind: RightColumnPlacement.Kind) -> Bool {
-        pane.pane.tabs.contains { tab in
-            switch (kind, tab.kind) {
-            case (.terminal, .pty), (.terminal, .remoteTerminal), (.browser, .browser): true
-            default: false
-            }
-        }
+        pane.pane.tabs.contains { kind.isHeld(by: $0, document: $0.page == InternalPageID.diff.rawValue) }
     }
 
     /// `pane`'s width once its layout lands (``LayoutRootView/restingContentWidth(of:)``), what every open on the
