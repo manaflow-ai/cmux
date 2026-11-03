@@ -250,3 +250,25 @@ fn workflow_runner_command() -> Result<tokio::process::Command> {
     }
     anyhow::bail!("native workflows require the cmux executable beside acpmux")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cancelling_a_stale_activity_never_fences_another_prompt() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let session = hub
+            .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() })
+            .await
+            .unwrap();
+        let before = session.cancels.load(Ordering::SeqCst);
+        // The activity ended before pause arrived; it must not change even the
+        // session-wide cancellation generation that a later prompt will observe.
+        hub.cancel_prompt(&session, "already-ended-workflow-prompt").await.unwrap();
+        assert_eq!(session.cancels.load(Ordering::SeqCst), before);
+    }
+}
