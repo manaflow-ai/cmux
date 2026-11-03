@@ -688,8 +688,8 @@ jobs:
           BUILD: ${{ needs.plan.outputs.build }}
         run: |
           set -euo pipefail
-          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json" \
-            || echo '[]' > "$RUNNER_TEMP/pulled.json"
+          # Fail closed: with the feed check gone, an unreadable pulled.json must never read as "nothing pulled".
+          curl -fsS --retry 5 --retry-all-errors -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json"
           python3 -I scripts/ci/stable_next.py soak --build "$BUILD" --pulled "$RUNNER_TEMP/pulled.json" \
             --verdicts "$NEXT_FEED_BASE/verdicts"
       - name: No new unhandled Sentry issue first seen in this release
@@ -752,6 +752,13 @@ jobs:
             [ "$tested" = "$actual" ] || { echo "smoked $tested, publishing $actual: refused" >&2; exit 1; }
           done
           [ "$actual" = "$DMG_SHA256" ] || { echo "the DMG is not the one the sign job made" >&2; exit 1; }
+      # Again right before the feed write: a rollback may have pulled the build while the gates ran.
+      - name: The build is still not pulled and has no fail verdict
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 5 --retry-all-errors -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json"
+          python3 -I scripts/ci/stable_next.py soak --build "$BUILD" --pulled "$RUNNER_TEMP/pulled.json" \
+            --verdicts "$NEXT_FEED_BASE/verdicts"
       - name: Dry run - compose the feed the publish would write
         if: env.PUBLISH != 'true'
         run: |
