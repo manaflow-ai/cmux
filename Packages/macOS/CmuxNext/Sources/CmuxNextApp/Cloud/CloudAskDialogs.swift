@@ -44,15 +44,8 @@ final class CloudAskDialogs: AgentDialogAppAsks {
         let picked = dialog.selection(selection, start: CloudStartSessionStrings.start, notNow: CloudMoveAskStrings.notNow)
         let answer = CloudStartCore().askAnswer(origin: params["origin"]?.stringValue, agentSession: params.cloudAskCallerSession,
                                                 delegated: delegated(), selection: picked)
-        guard let choice = answer.choice else {
-            throw ControlError.invalidParams(CloudStartSessionStrings.unknownChoice(id), data: ["request_id": .string(id)])
-        }
-        guard answer.allowed else {
-            throw ControlError(code: "person_required", message: CloudStartSessionStrings.personRequired(id), data: ["request_id": .string(id)])
-        }
-        guard asks.answer(dialog: id, start: choice == .start) else {
-            throw ControlError(code: "not_found", message: CloudStartSessionStrings.dialogGone(id), data: ["request_id": .string(id)])
-        }
-        return dialog.answered(choice: choice.rawValue, start: choice == .start)
+        return try dialog.reply(choice: answer.choice?.rawValue, allowed: answer.allowed, take: { asks.answer(dialog: id, start: $0) },
+                                unknown: CloudStartSessionStrings.unknownChoice(id), personRequired: CloudStartSessionStrings.personRequired(id),
+                                gone: CloudStartSessionStrings.dialogGone(id))
     }
 }
