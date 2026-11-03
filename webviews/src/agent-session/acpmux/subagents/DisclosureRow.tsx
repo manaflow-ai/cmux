@@ -19,6 +19,7 @@ import { useTranscriptDisclosure } from "../conversation/transcriptDisclosure";
 import { useT } from "../i18n";
 import { useAnchoredCollapse } from "../conversation/useAnchoredCollapse";
 import "./DisclosureRow.css";
+import { openSessionAttributes } from "../conversation/menuParts";
 
 export type DisclosureRowProps = {
   /// Stable row identity; the transcript provider scopes it to the parent session. Unused when the
@@ -36,6 +37,8 @@ export type DisclosureRowProps = {
   openTitle?: string;
   /// Opens the row's chat: the line's click does this, and the chevron alone opens the panel.
   onOpen?: () => void;
+  /// The chat `onOpen` opens, for the right-click's Go to Chat (menuParts.ts `openSessionAttributes`).
+  openSession?: string;
   children?: ReactNode;
   defaultOpen?: boolean;
   /// The state, when the caller holds it.
@@ -71,6 +74,7 @@ export function DisclosureRow({
   openLabel,
   openTitle,
   onOpen,
+  openSession,
   children,
   defaultOpen = false,
   open,
@@ -123,7 +127,13 @@ export function DisclosureRow({
         {leading}
         {onOpen ? (
           <>
-            <button type="button" className="cv-disclosure__open" title={openTitle ?? openLabel} onClick={onOpen}>
+            <button
+              type="button"
+              className="cv-disclosure__open"
+              title={openTitle ?? openLabel}
+              {...(openSession ? openSessionAttributes(openSession) : {})}
+              onClick={onOpen}
+            >
               {content}
             </button>
             <button

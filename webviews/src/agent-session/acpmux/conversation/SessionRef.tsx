@@ -25,6 +25,7 @@ import {
   type AgentRef,
   type SessionRefTarget,
 } from "./sessionRefs";
+import { openSessionAttributes } from "./menuParts";
 
 const noStore = () => () => {};
 const NO_PROPS: Partial<ReturnType<typeof agentLinkProps>> = {};
@@ -81,6 +82,7 @@ export function SessionRefCode({
         title={title}
         aria-label={title}
         data-session-ref=""
+        {...openSessionAttributes(target.sessionId)}
         onClick={() => open(target.sessionId)}
       >
         <code className="cv-code">

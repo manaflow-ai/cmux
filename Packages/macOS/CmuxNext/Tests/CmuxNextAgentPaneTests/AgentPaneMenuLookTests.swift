@@ -107,6 +107,31 @@ struct AgentPaneMenuLookTests {
         #expect(webKit.count == 1)
     }
 
+    /// A right-click on a chat the transcript opens: Open on Right runs the click's open, and Go to
+    /// Chat is there only when a tab already shows the chat (ask-e9c4803262).
+    @Test func aChatPartOffersOpenOnRightAndGoToChat() throws {
+        var opened: [String] = []
+        var jumped = 0
+        func menu(tabShown: Bool) -> NSMenu {
+            let menu = Self.webKitMenu(MenuLookWebKitTarget())
+            AgentPaneContextMenu.rebuild(menu, target: AgentPaneMessageTarget(text: "", part: AgentPaneMenuPart(session: "child")), devTools: false,
+                                         scope: ThemeScope.app.fullStrength,
+                                         actions: .init(copy: { _ in }, fork: { _ in }, openSession: { session, _ in opened.append(session) },
+                                                        goToSession: { _, _ in tabShown ? { jumped += 1 } : nil }))
+            return menu
+        }
+        #expect(!menu(tabShown: false).items.contains { $0.title == AgentPaneMenuStrings.goToChat })
+        let shown = menu(tabShown: true)
+        let goTo = try #require(shown.items.first { $0.title == AgentPaneMenuStrings.goToChat })
+        try Self.click(goTo)
+        Self.drainRunLoop { jumped > 0 }
+        #expect(jumped == 1)
+        let right = try #require(menu(tabShown: true).items.first { $0.title == AgentPaneMenuStrings.openOnRight })
+        try Self.click(right)
+        Self.drainRunLoop { !opened.isEmpty }
+        #expect(opened == ["child"])
+    }
+
     // MARK: Helpers
 
     private static func rows(of menu: NSMenu) -> [NSMenuItem] {

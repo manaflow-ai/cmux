@@ -12,6 +12,7 @@ import { AlertCircle, Check, Clock, Spinner } from "./icons";
 import type { StartedTask } from "./taskLineKind";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
 import "./TaskLine.css";
+import { openSessionAttributes } from "./menuParts";
 
 export function TaskLines({ tasks }: { tasks: readonly StartedTask[] }) {
   return (
@@ -54,7 +55,11 @@ function TaskLine({ task }: { task: StartedTask }) {
       }
       className="cv-task-line"
       ariaLabel={title}
-      attributes={{ "data-task-line": state, "data-session-id": task.sessionId }}
+      attributes={{
+        "data-task-line": state,
+        "data-session-id": task.sessionId,
+        ...(open ? openSessionAttributes(task.sessionId) : {}),
+      }}
       onClick={open ? () => open(task.sessionId) : undefined}
     />
   );
