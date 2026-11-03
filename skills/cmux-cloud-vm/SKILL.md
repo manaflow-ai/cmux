@@ -36,7 +36,7 @@ and listing actions their facts. They need the app, sign-in and its private tunn
 ```sh
 cmux cloud list-machines --json                           # machines (machine_id, target, status, owner)
 cmux machine new                                          # prints its target and next steps (--json: machine_id, or pending)
-cmux cloud new-workspace                                  # a new cloud workspace
+cmux cloud new-workspace --json                           # a new cloud workspace on a new small machine of its own (machine_id, target; or pending)
 cmux cloud new-terminal-on-machine --target machine:vm-…  # a new workspace with a terminal there
 cmux cloud ssh --target machine:vm-…                      # a terminal tab in its first workspace
 cmux cloud machine-status --target machine:vm-…
