@@ -80,7 +80,7 @@ CALLS = {
     "judge_keys": "judge_keys.judge(base)",
     "judge_scan": "judge_scan.py base.mov.scan --trace base.trace.json --scale scale --json OUT (exit code and OUT)",
 }
-JUDGE_SCAN_TIMEOUT_S = 900
+JUDGE_SCAN_TIMEOUT_S = 300  # as FILM_SECONDS (below): in a run the film's budget ends first; this ends a direct call
 FLOAT_DECIMALS = 6
 FICLONE = 0x40049409  # Linux ioctl: share the source's blocks (a reflink copy)
 
@@ -458,8 +458,11 @@ def cmd_snapshot(opts):
 # descriptors, no memory, no space, an I/O error), or a result that cannot be pinned (a value normalize does not know).
 # A judge that raises any other exception gives that error as its result: it is the judge's, and a fix of it shows.
 TRANSIENT_ERRNOS = {errno.EMFILE, errno.ENFILE, errno.ENOMEM, errno.EAGAIN, errno.ENOSPC, errno.EIO, errno.EINTR}
-FILM_SECONDS = 900          # the default budget of one film, all its judges (the slowest film of the first bless: see
-                            # the run line "slowest film"; keep this well above it)
+# The default budget of one film, all its judges together. Measured 2026-11-03 on cmux-orchestrator-1 (360 cores),
+# --jobs 32: the slowest of the 834 gallery films took 50.8 s, judge_scan included. 300 s is about 6 times that, so
+# only a hang or a real slow-down of a judge reaches it. Every run and bless prints its slowest film: when that comes
+# near this budget, measure again and raise it (with --film-seconds for one run).
+FILM_SECONDS = 300
 SCRATCH = ".scratch"
 
 
@@ -1115,7 +1118,7 @@ def cmd_run(opts):
     runner_note = "" if blessed_runner in (None, runner_blob()) else \
         f"; the runner changed since the bless ({str(blessed_runner)[:12]} -> {runner_blob()[:12]}): a difference may be the runner's"
     print(f"judge goldens: {len(films)} films, judges in {Path(opts.judges).resolve()}: reproduced {same} of {total}; "
-          f"truth: {t_passed} of {t_total}; {unit_line}; slowest film {slowest[0]:.1f} s{runner_note}")
+          f"truth: {t_passed} of {t_total}; {unit_line}; slowest film {slowest[0]:.1f} s ({slowest[1]}){runner_note}")
     if opts.json:
         write_json(opts.json, {"reproduced": same, "results": total, "films": report, "differences": sorted(diffs),
                                "truth": {"passed": t_passed, "total": t_total, "failures": t_failures,
