@@ -32,6 +32,12 @@ final class RowBadgeView: NSView {
     /// then "and every icon is still fucking small". The cell, its center and the row's spacing
     /// stay fixed; dots keep their own tokens (the blue unread dot is `SidebarStyle.unreadDotSize`).
     static let markSide: CGFloat = 14
+    /// A working or loading spinner draws smaller than the other marks: the row's status glyph size
+    /// (`SidebarStyle.statusGlyphSize`, 10 pt compact, 12 comfortable), the box the shared indicator takes
+    /// on rows without badges, so it never outweighs the 8 pt unread dot or the row's leading icon. Its
+    /// cell stays the same, so nothing moves as work starts or ends. Leo 2026-11-03: "i think the spinners
+    /// are maybe a bit too big".
+    static var spinnerSide: CGFloat { SidebarStyle.statusGlyphSize }
     static let ringWidth: CGFloat = 1.5
     /// The unscaled dot artwork (non-unread statuses keep this size).
     static let dotSide: CGFloat = 6
@@ -44,6 +50,9 @@ final class RowBadgeView: NSView {
         let drawn = glyph.indicator.plan.glyph
         return drawn == .mark(.vector(.dot)) || drawn == .dot
     }
+
+    /// A working or loading item: the spinner (`spinnerSide`).
+    static func isSpinner(_ state: StatusIndicatorState) -> Bool { state.isWorking || state.isLoading }
 
     private func unreadFrame(_ frame: CGRect, for glyph: StatusIndicatorView) -> CGRect {
         guard glyph.state == .success, glyph.indicator.plan.glyph == .mark(.vector(.dot)) else { return frame }
@@ -112,7 +121,7 @@ final class RowBadgeView: NSView {
             let shown = index < states.count
             // A spinner is bare on the row's own background (Leo: "the spinner should NOT have a
             // background"); its cell keeps its size, so nothing moves when the work ends.
-            let bare = shown && (states[index].isWorking || states[index].isLoading)
+            let bare = shown && Self.isSpinner(states[index])
             rings[index].isHidden = !shown || look == .plain || bare
             chips[index].isHidden = !shown || look != .stack || bare
             glyph.configure(shown ? states[index] : .idle)
@@ -135,7 +144,8 @@ final class RowBadgeView: NSView {
         for index in glyphs.indices {
             // Whole points: the cell, so the glyph inside it, sits on the pixel grid.
             let cell = CGRect(x: CGFloat(index) * step, y: ((bounds.height - cellSide) / 2).rounded(), width: cellSide, height: cellSide)
-            let side = Self.isDot(glyphs[index]) ? Self.glyphSide : Self.markSide
+            let side = Self.isDot(glyphs[index]) ? Self.glyphSide
+                : Self.isSpinner(glyphs[index].state) ? Self.spinnerSide : Self.markSide
             let center = CGPoint(x: cell.midX, y: cell.midY)
             let glyph = CGRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side)
             // Earlier items stack in front: each cell covers the one after it.

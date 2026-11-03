@@ -728,7 +728,7 @@ final class CloudService {
     /// `proceed` runs once the server answered, before anything else about the new machine (its
     /// idle pause, joining this Mac's list, connecting): its throw (the account that asked is no
     /// longer signed in) leaves it out.
-    func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: String? = nil,
+    func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, capCard: Bool = true, askedBy: String? = nil,
                        request: CloudMachineRequest = CloudMachineRequest(),
                        onAppServerSent: (@MainActor @Sendable (String) async throws -> Void)? = nil,
                        proceed: () throws -> Void = {}) async throws -> CloudMachineSession {
@@ -766,7 +766,7 @@ final class CloudService {
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
         let idlePause = request.persistent ? 0 : nil
-        var machine = try await CloudMachineCap.creating(person: startedByPerson, cap: { [weak self] error in
+        var machine = try await CloudMachineCap.creating(person: startedByPerson && capCard, cap: { [weak self] error in
             guard case CloudMachineCreateFlow.Failure.upgradeRequired(let reason) = error else { return CloudMachineCap.refusal(error) }
             return self.map { CloudMachineCap.plan(freePlan: reason == .freePlan, pauseFrees: reason == .pool, machines: $0.machines.cloud.map(\.machine), user: $0.auth.user?.id) }
         }, choose: { [weak self] in await self?.chooseAtCap?($0) },
@@ -889,12 +889,12 @@ final class CloudService {
         startSessionAsks.endAll()
         for hook in willSignOut { hook() }
         await codexBroker.signOut()
-        AgentPaneTailCache.shared.clear() // the panes' chat tails: memory only, forgotten whole
         // No ensure starts from here until the session's final endLink (the
         // signed-out branch above, after auth.signOut).
         link.beginEnding()
         dropAllMachines()
         await link.endLink(final: false)
+        do { try await AcpmuxEnvironment.clearPeerTails(build: LaunchIdentity.current().build, work: work) } catch { logger.error("clear peer tails on sign-out: \(String(describing: error), privacy: .public)") }
         desktopRdTokens.removeAll()
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.

@@ -203,8 +203,10 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
  * stuff smaller"). Each is a one-line row: a folded run, "Subagent finished", the live "Thinking"
  * line, the waiting group's "1 message from 1 session", another agent's received line and "Sent to"
  * sit flush on the 22 pitch (rule 3), 16 from the prose around them (rule 4). Measured over gallery
- * variants `working-bottom` and `reply-received` by test/transcript-spacing-kinds.test.ts. */
-export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & { variant: "working-bottom" | "reply-received" })[] = [
+ * variants `working-bottom`, `reply-received`, `notes-live` and `status-prompt` by test/transcript-spacing-kinds.test.ts. */
+export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
+  variant: "working-bottom" | "reply-received" | "notes-live" | "status-prompt";
+})[] = [
   {
     id: "work-to-subagent",
     variant: "working-bottom",
@@ -252,6 +254,32 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & { variant: "working-
     value: 22,
     tolerance: 0.5,
     source: "the live line is a one-line row (rule 3, step-to-live)",
+  },
+  {
+    id: "note-to-live",
+    variant: "notes-live",
+    between:
+      'the last "Background task finished" note, after "Received 6 messages", and the live "Thinking" line under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source:
+      'the live line is a one-line row (rule 3, step-to-live); Leo, 2026-11-03: "this feels like too awkward of a gap :("',
+  },
+  {
+    id: "status-to-prompt",
+    variant: "status-prompt",
+    between: "a turn's last status row (\"Subagent finished\") and the next prompt bubble's top edge",
+    value: 43,
+    tolerance: 1,
+    source: 'step-to-prompt: 11 + 32 (rule 5); Leo, 2026-11-03: "why is the spacing like this it\'s weird"',
+  },
+  {
+    id: "prompt-to-sent",
+    variant: "status-prompt",
+    between: "a prompt bubble's bottom edge and the centre of its turn's first status row (\"Sent to …\")",
+    value: 43,
+    tolerance: 1,
+    source: "prompt-to-step: 32 + 11 (rule 5)",
   },
 ];
 

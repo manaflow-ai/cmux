@@ -97,6 +97,7 @@ import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBud
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
+import { noticeRowText } from "./conversation/agentNotice";
 import { inboxText, type InboxMessage } from "./conversation/inboxNotice";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
@@ -1159,6 +1160,8 @@ export function mergeToolItem(
       endedAt: before?.endedAt ?? (ended ? at : undefined),
       // A shell that went to the background stays there as its call's result comes in.
       ...(before?.background ? { background: before.background } : {}),
+      // An approval stays on its call as the call's result comes in.
+      ...(before?.approved ? { approved: true as const } : {}),
       locations,
       ...(input ? { inputPath: input } : {}),
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
@@ -1755,7 +1758,7 @@ export class AcpmuxDirectClient {
   /// receipt (`permissionRecord`, permissions/record.ts).
   private askedPermissions = new Map<string, AcpmuxPermission>();
   private commands: SlashCommand[] = [];
-  private usage: { used: number; size: number; setup?: number } | undefined;
+  private usage: { used: number; size: number; setup?: number; cacheExpiresAt?: number } | undefined;
   /// The running turn's output tokens: its model calls' generated usage added up from
   /// `turn_started`, the running line's count (conversation/WorkingFor.tsx). Unset outside a
   /// turn, and for a turn whose start this client did not see (it missed calls before it attached).
@@ -5361,6 +5364,10 @@ export class AcpmuxDirectClient {
     // the stream again then would split the reply that streams on.
     if (this.rows.has(rowId)) return;
     const decision = permissionDecision(asked, msg.outcome);
+    // An approval reads on the call it approved ("Approved" at the row's edge), never as a loose
+    // line holding the raw command (Leo, 2026-11-02). A call this page has not drawn keeps the line.
+    if ((decision.kind === "allowed" || decision.kind === "allowedAlways") && this.markApproved(asked.toolCallId))
+      return;
     this.closeSegment();
     this.rows.set(rowId, {
       id: rowId,
@@ -5388,6 +5395,12 @@ export class AcpmuxDirectClient {
     const rowId = `permission-${permission.permissionId}`;
     // Drawn already (a resync replays the live records after its rebuild drew them).
     if (this.rows.has(rowId)) return;
+    // Asked of nobody: in Bypass permissions or Full access, an approval the mode gave on its own
+    // draws nothing; the call's own row already says what ran (Leo, 2026-11-02, on "Approved: cd
+    // /tmp; for i in 1 2 3; do gh issue create … (Bypass permissions)": "but what's going on with
+    // these?"). Only a card the person saw, settled by switching to that mode, is noted, on its call.
+    if (!this.askedPermissions.has(permission.permissionId)) return;
+    if (this.markApproved(permission.toolCallId)) return;
     this.closeSegment();
     const mode = harnessModeName(this.summary?.family, this.summary?.harness, msg.fullAccess);
     this.rows.set(rowId, {
@@ -5402,6 +5415,21 @@ export class AcpmuxDirectClient {
         mode,
       }),
     });
+  }
+
+  /// Marks tool call `callId` approved on the row that draws it ("Approved" at its edge); false
+  /// when this page draws no such call, and the caller keeps its receipt line.
+  private markApproved(callId: string | undefined): boolean {
+    const id = callId === undefined ? undefined : this.toolRows.get(callId);
+    const row = id ? this.rows.get(id) : undefined;
+    const index = row?.items?.findIndex((item) => item.tool?.id === callId) ?? -1;
+    if (!row?.items || index < 0) return false;
+    const item = row.items[index]!;
+    if (item.tool!.approved) return true;
+    const items = [...row.items];
+    items[index] = { ...item, tool: { ...item.tool!, approved: true } };
+    this.rows.set(row.id, { ...row, version: row.version + 1, items }, true);
+    return true;
   }
 
   /// The text and tool fold before a record close, as a tool call's would: the work after an answer
@@ -5536,7 +5564,15 @@ export class AcpmuxDirectClient {
         // next one arrives: the meter reads the model's own until then (compactingUsage).
         if (this.usage && this.usage.size !== size && this.summary?.contextBreakdown)
           this.summary = { ...this.summary, contextBreakdown: undefined };
-        this.usage = setup === undefined ? { used, size } : { used, size, setup };
+        // When the chat's prompt cache lapses (unix ms), as acpmux computed it from the last
+        // model request and the harness's TTL; a report without one has no warm cache to show.
+        const cacheExpiresAt = Number(update._meta?.acpmux?.cacheExpiresAt);
+        this.usage = {
+          used,
+          size,
+          ...(setup === undefined ? {} : { setup }),
+          ...(Number.isFinite(cacheExpiresAt) && cacheExpiresAt > 0 ? { cacheExpiresAt } : {}),
+        };
       }
       return;
     }
@@ -5777,7 +5813,15 @@ export class AcpmuxDirectClient {
             : incomingPrompt(raw, msg, this.incomingContext());
         const shown =
           incoming?.kind === "message"
-            ? { text: incoming.message.text, incoming, resend: raw }
+            ? {
+                // A tool's notice keeps its title in the row's text, so Find, Copy and export read it
+                // and a notice of a title alone is no empty row.
+                text: incoming.message.notice
+                  ? noticeRowText(incoming.message.notice, incoming.message.text)
+                  : incoming.message.text,
+                incoming,
+                resend: raw,
+              }
             : incoming?.kind === "notice"
               ? { text: incoming.text, incoming }
               : incoming?.kind === "inbox"
@@ -6131,6 +6175,12 @@ export class AcpmuxDirectClient {
       // Keep unscoped boundaries from claiming completion; the turn's terminal result settles
       // any running row with the existing inferred outcome.
       if (this.compactionFenceSeq !== undefined && compaction.state !== "running") return;
+      // A finished compaction replaced the context: its prompt cache is gone until the next call
+      // writes one (acpmux sends that call's expiry), so the card stops counting down.
+      if (compaction.state === "completed" && this.usage?.cacheExpiresAt !== undefined) {
+        const { cacheExpiresAt: _gone, ...rest } = this.usage;
+        this.usage = rest;
+      }
       // A note between messages: the text and tool fold before it close.
       this.endAssistantSegment();
       this.streamingActivity = undefined;
