@@ -243,7 +243,9 @@ impl Hub {
         .await
         .map_err(internal)??;
         let (dir, record) = self.bg_record(session, id)?;
-        let view = workflow_bg_output(&dir, &record)?;
+        let view = tokio::task::spawn_blocking(move || workflow_bg_output(&dir, &record))
+            .await
+            .map_err(internal)??;
         if view.get("state").and_then(Value::as_str) != Some("exited")
             || view.get("exitCode").and_then(Value::as_i64) != Some(0)
         {
