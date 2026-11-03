@@ -1464,6 +1464,33 @@
   border-radius: var(--ui-row-radius);
   padding-inline: 8px;
 }
+/* The machine control's live dot (ComposerContext stripLayout): filled while a chat can start on
+   the machine, a ring when not, as the machine list's own status. It stays when a narrow strip drops
+   the machine's name. */
+.acpmux-location-button .acpmux-env-live {
+  flex: none;
+  position: relative;
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.acpmux-location-button .acpmux-env-live[data-connected="true"] { background: var(--agent-success, var(--acpmux-add, currentColor)); }
+.acpmux-location-button .acpmux-env-live[data-connected="false"] { border: 1px solid var(--agent-muted); }
+/* The cloud toggle (stripLayout cloud-toggle) stands at the strip's end, before the branch. */
+.acpmux-composer-context > .acpmux-location-picker[data-kind="computer"] { flex: none; margin-left: auto; }
+.acpmux-composer-context > .acpmux-location-picker[data-kind="computer"] + .acpmux-location-picker:last-child { margin-left: var(--acpmux-location-gap, 4px); }
+/* Its menu's question, as ChatGPT's "Where should this chat run?": one quiet line over the rows. */
+.acpmux-env-popover .acpmux-env-heading {
+  padding: 4px calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding)) 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: 16px;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.acpmux-env-popover .acpmux-env-icon[data-kind="add"],
+.acpmux-env-popover .acpmux-env-icon[data-kind="another"] { color: var(--agent-muted); }
 /* The plain Computer menu (ComposerContext LocationPicker) heads its machines' sections. */
 .acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-section]) { position: relative; margin-top: 20px; }
 .acpmux-location-menu .acpmux-menu-item:has(> .acpmux-location-name[data-first-section]) { margin-top: 18px; }

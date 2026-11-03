@@ -332,6 +332,88 @@ const openMachineList: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover.acpmux-env-machines [role="option"]'));
 };
 
+// The strip's layouts (ComposerContext `stripLayout`), Leo 2026-11-03 on Codex desktop's strip:
+// "chatgpt codex has nicer ways to deal with stuff". Each arm draws the same machines: two of the
+// person's SSH machines (connected), a Cloud machine that is not, and Cloud work mode.
+const stripMachines = {
+  ...baseProps,
+  environments: true,
+  localName: "studio-mac",
+  sessions: sessions.filter((session) => session.hostKind !== "cloud"),
+  peers: ["studio-mini", "gpu-box", "Cloud machine"],
+  peerKinds: { "studio-mini": "ssh", "gpu-box": "ssh", "Cloud machine": "cloud" } as Record<string, "ssh" | "cloud">,
+  peerConnected: { "studio-mini": true, "gpu-box": true, "Cloud machine": false },
+  runMode: { mode: "persistent" as const, onMode: () => undefined },
+};
+const onMachine = (peer: string) => ({
+  summary: { sessionId: "", harness: "claude", host: peer, peer },
+});
+const waitRows =
+  (rows: string): Play =>
+  async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector(`.acpmux-env-popover.acpmux-env-rows-${rows} [role="option"]`));
+  };
+const openWhere: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Environment/ });
+  await waitRows("where")(ctx);
+};
+const openMachineChip: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Machine/ });
+  await waitRows("machines")(ctx);
+};
+const openMachineControl: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Environment/ });
+  await waitRows("machines")(ctx);
+};
+const openRunToggle: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Where should this chat run/ });
+  await waitRows("run")(ctx);
+};
+/// Where > Another machine: the first ready machine is the pick and the machine control opens.
+const pickAnother: Play = async (ctx) => {
+  await openWhere(ctx);
+  await ctx.click({ selector: '.acpmux-env-popover [data-action="another"]' });
+  await waitRows("machines")(ctx);
+};
+type StripArm = "where-machine" | "where-machine-always" | "cloud-toggle" | "combined";
+const STRIP_NOTES: Record<StripArm, string> = {
+  "where-machine":
+    "Arm 1 of 4, shipped (Codex desktop's strip): Project | Where | Machine, three single-purpose chips. The machine chip shows only while the pick is another machine.",
+  "where-machine-always": "Arm 2 of 4: the same three chips, the machine chip always shown (this Mac's own name and its live dot).",
+  "cloud-toggle":
+    'Arm 3 of 4 (ChatGPT Work): Project | Machine, and a cloud toggle at the strip\'s end whose menu asks "Where should this chat run?".',
+  combined: "Arm 4 of 4, the baseline before this: one control, This Mac and Cloud, the machines behind its right-click Machines….",
+};
+function stripVariants(arm: StripArm) {
+  const props = { ...stripMachines, stripLayout: arm };
+  const note = (what: string) => `${STRIP_NOTES[arm]} ${what}`;
+  const whereOpen = arm === "cloud-toggle" ? openRunToggle : openWhere;
+  const machineOpen =
+    arm === "where-machine" ? pickAnother : arm === "where-machine-always" ? openMachineChip : arm === "cloud-toggle" ? openMachineControl : openMachineList;
+  return {
+    [`strip-${arm}`]: { note: note("Closed, on This Mac with no project: nothing is required to start."), props },
+    [`strip-${arm}-where`]: { note: note("Where it runs, open."), props, play: whereOpen },
+    [`strip-${arm}-machines`]: {
+      height: 320,
+      note: note(
+        arm === "where-machine"
+          ? "Another machine picked: the first ready machine is the pick and the machine chip opens on the person's machines, ready first, SSH and Cloud alike (the icon is how each connects), Add Machine… last."
+          : "Which machine, open.",
+      ),
+      props,
+      play: machineOpen,
+    },
+    [`strip-${arm}-cloud`]: {
+      note: note("Cloud picked: Cloud gives the workspace its own new machine; its project is picked in the same Project chip."),
+      props: { ...props, runMode: { mode: "cloud" as const, onMode: () => undefined } },
+    },
+    [`strip-${arm}-machine-picked`]: {
+      note: note("A machine picked (gpu-box): the chips name it, with its live dot where a machine chip shows."),
+      props: { ...props, ...onMachine("gpu-box") },
+    },
+  };
+}
+
 // Composer warning specimens use the same health shape emitted by the cached `_acpmux/status`
 // snapshot. Keep a quiet specimen beside the warning states so a capture shows the unchanged
 // menu when the host is within budget.
@@ -665,7 +747,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker": {
-      note: 'Where a chat runs, as Codex\'s "Where should this chat run?" (Leo, 2026-10-31: "we ideally also can just hide the machines too and it\'s just a cloud button"): This Mac and Cloud, one line each, with no machine list and no machine-name subtitle, though gpu-box and a Cloud machine are connected. Cloud gives the new workspace its own new machine. The machines, New Cloud Machine…, Open Cloud…, SSH…, Add Machine… and Connect Phone… are the control\'s right-click menu.',
+      note: 'Where a chat runs (the shipped strip, Codex desktop\'s): This Mac, Cloud and Another machine, one line each, with no machine list and no machine-name subtitle, though gpu-box and a Cloud machine are connected. Cloud gives the new workspace its own new machine; Another machine shows the machine chip. New Cloud Machine…, Open Cloud…, SSH…, Add Machine… and Connect Phone… are the control\'s right-click menu.',
       props: {
         ...baseProps,
         environments: true,
@@ -690,7 +772,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openMachineList,
     },
     "environment-picker-alone": {
-      note: "Leo's case: two rows, This Mac and Cloud, as Codex's menu. A person with other machines sees the same two.",
+      note: "Leo's case: This Mac, Cloud and Another machine, as Codex's strip. A person with other machines sees the same three; with none, Another machine is Add Machine….",
       props: {
         ...baseProps,
         environments: true,
@@ -751,6 +833,10 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
+    ...stripVariants("where-machine"),
+    ...stripVariants("where-machine-always"),
+    ...stripVariants("cloud-toggle"),
+    ...stripVariants("combined"),
     "environment-picker-cloud-chat": {
       // The whole list, down to the Cloud section, past the entry's 180px stage.
       height: 420,
