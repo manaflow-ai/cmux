@@ -55,7 +55,7 @@ enum OnboardingHandlers {
             window: { services.windows.active?.window ?? NSApp.mainWindow ?? NSApp.windows.first(where: \.isVisible) },
             reveal: { tab in _ = registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user)) },
             track: { registry.track($0) },
-            destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }, isPersonEvent: services.personInput.isPerson))
+            destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }, isPersonEvent: services.personInput.isPerson, dispatchingEvent: { [inputDispatch = services.inputDispatch] in inputDispatch.event }))
         registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
         // Brings the Import Cookies banner back (Don't Show Again undone) and shows it; it imports nothing.
         registry.bindEffect("browser.showCookieImportBanner", effect: { _ in services.onboarding.browserImportOffer.showNow(); return .done })

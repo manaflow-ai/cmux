@@ -40,9 +40,10 @@ public final class CookieImportService {
         do { query = try CookieSourceQuery(from) } catch { throw CookieImportRefusal(message: CookieImportStrings.missingSource) }
         let filter = CookieDomainFilter(invocation["domain"]?.stringValue ?? "")
         let reason = invocation["reason"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        // A person's run only when the input that started it is the person's own (a click or key that
-        // another process posts into the palette or an Import card is not, nor an Accessibility press).
-        let byPerson = Self.startedByPerson(NSApp.currentEvent, now: ProcessInfo.processInfo.systemUptime, isPerson: host.isPersonEvent)
+        // A person's run only inside the dispatch of the person's own input that started it: not a click or
+        // key another process posts into the palette or an Import card, and not an Accessibility press,
+        // which runs outside any input dispatch.
+        let byPerson = Self.startedByPerson(host.dispatchingEvent(), now: ProcessInfo.processInfo.systemUptime, isPerson: host.isPersonEvent)
         let asks = Self.needsConsent(invocation, byPerson: byPerson)
         if asks, Self.needsReason(invocation), reason.isEmpty { throw CookieImportRefusal(message: CookieImportStrings.reasonRequired) }
         if asks, asking != nil { throw CookieImportRefusal(message: CookieImportStrings.busy) }
@@ -54,20 +55,21 @@ public final class CookieImportService {
         })
     }
 
-    /// Every run but a person's in this app asks first (an agent, a script, another client). A run with
-    /// the user origin asks too when `byPerson` is false: the event that started it is not the person's
-    /// own input from the HID system (a computer-use tool's click or key in the palette or on a card).
+    /// Every run but a person's own in this app asks first (an agent, a script, another client, a cmux app
+    /// during the person's gesture in it: ``ActionInvocation/isPersonsOwnRun``). The person's own run asks
+    /// too when `byPerson` is false: it did not start in the dispatch of the person's own input from the HID
+    /// system (a computer-use tool's click, key or Accessibility press in the palette or on a card).
     nonisolated static func needsConsent(_ invocation: ActionInvocation, byPerson: Bool) -> Bool {
-        invocation.origin != .user || !byPerson
+        !invocation.isPersonsOwnRun || !byPerson
     }
 
     /// The longest a person's click or key may precede the run it started.
     static let personInputAge: TimeInterval = 1
 
-    /// SECURITY: whether `event`, the event in dispatch as a run starts, is the person's own click or key
-    /// that started it: a key or mouse-button event, the person's (`isPerson`: the strict HID check), at most
-    /// ``personInputAge`` before `now` (system uptime). An Accessibility press makes no event, so the event
-    /// then is an older one: a mouse move, or a click or key from before, which do not count. None does not.
+    /// SECURITY: whether `event`, the input event being dispatched as a run starts (nil outside a dispatch:
+    /// an Accessibility press, a socket run, a timer), is the person's own click or key that started it: a
+    /// key or mouse-button event, the person's (`isPerson`: the strict HID check), at most ``personInputAge``
+    /// before `now` (system uptime). A mouse move, an old event or none does not count.
     static func startedByPerson(_ event: NSEvent?, now: TimeInterval, isPerson: @MainActor (NSEvent) -> Bool) -> Bool {
         guard let event, [.keyDown, .leftMouseDown, .leftMouseUp, .rightMouseUp, .otherMouseUp].contains(event.type) else { return false }
         return event.timestamp <= now && now - event.timestamp <= personInputAge && isPerson(event)
