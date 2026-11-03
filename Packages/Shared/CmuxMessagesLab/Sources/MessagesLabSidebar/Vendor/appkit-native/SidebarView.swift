@@ -128,6 +128,10 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private var lastVisible: Range<Int> = 0..<0
     private var lastTop: CGFloat = 0
     let noResults = NSTextField(labelWithString: "")
+    /// cmux: under the empty list while a filter is on and nothing is typed: the filter goes off.
+    let showAll = NSButton(title: "", target: nil, action: nil)
+    /// cmux: Show All's click, after the filter went off (the host's toggle and chip follow it).
+    var onShowAll: (() -> Void)?
 
     /// Counters for the bench and the self-test.
     struct Stats {
@@ -238,6 +242,14 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         noResults.alignment = .center
         noResults.isHidden = true
         root.addSubview(noResults)
+        showAll.title = SidebarStrings.showAll
+        showAll.bezelStyle = .push
+        showAll.controlSize = .small
+        showAll.target = self
+        showAll.action = #selector(showAllClicked)
+        showAll.isHidden = true
+        showAll.setAccessibilityIdentifier("cmux.home.sidebar.showAll")
+        root.addSubview(showAll)
     }
 
     private var clipObservers: [NSObjectProtocol] = []
@@ -562,6 +574,11 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
 
     // MARK: Filter (v1.2)
 
+    @objc private func showAllClicked() {
+        filter = .all
+        onShowAll?()
+    }
+
     private func filterChanged() {
         updateFilterButton()
         if query.isEmpty { reloadData() } else { runSearch(query) }
@@ -697,7 +714,12 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         rowOfItem = list.rowOf
         extraStart = list.extraStart
         extraTitle = list.extraTitle
-        noResults.isHidden = !(list.searching && list.rows.isEmpty)
+        // A filter with nothing typed: say what is filtered, and offer every chat again (the user, 2026-11-03,
+        // msg 20156: "somehow i got search to be stuck in this state"). Before, an empty filtered list showed nothing.
+        let filtered = query.isEmpty && filter != .all
+        noResults.isHidden = !((list.searching || filtered) && list.rows.isEmpty && list.pinned.isEmpty)
+        noResults.stringValue = filtered && filter == .unread ? SidebarStrings.noUnread : SidebarStrings.noResults
+        showAll.isHidden = noResults.isHidden || !filtered
         layoutSectionHeader()
         for (_, l) in rowLayers { recycle(l) }
         rowLayers.removeAll()
@@ -806,6 +828,9 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         let sf = CGRect(x: 0, y: listTop, width: bounds.width, height: max(0, bounds.height - listTop))
         if scrollView.frame != sf { scrollView.frame = sf }
         noResults.frame = CGRect(x: 0, y: listTop + 40, width: bounds.width, height: 24)
+        let showAllSize = showAll.fittingSize
+        showAll.frame = CGRect(x: ((bounds.width - showAllSize.width) / 2).rounded(), y: noResults.frame.maxY + 8,
+                               width: showAllSize.width, height: showAllSize.height)
         let w = scrollView.contentSize.width
         if w > 0, w != metrics.width {
             let t0 = beginWork()
