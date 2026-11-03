@@ -34,7 +34,8 @@ const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => void listeners.delete(listener);
 };
-export const useSelectionReplyLook = () => useSyncExternalStore(subscribe, () => look);
+const current = () => look;
+export const useSelectionReplyLook = () => useSyncExternalStore(subscribe, current, current);
 
 /// `text` as a Markdown quote with a blank line after it, as the right-click menu's Quote in Reply
 /// makes it (AgentPaneContextMenu.swift `quote`).
