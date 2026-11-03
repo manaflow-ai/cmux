@@ -238,24 +238,10 @@ extension PageWebView {
     /// input; WebKit receives native AppKit mouse events in its own view, including
     /// in a non-key capture window. No router gesture is granted directly.
     public func debugPress(x: Double, y: Double, native: Bool = false) async -> Bool {
-        if native, let content = chromiumSession?.page.contentView {
-            guard x.isFinite, y.isFinite, let window = content.window,
-                  !content.isHiddenOrHasHiddenAncestor, let frame = content.superview else { return false }
+        if native, let page = chromiumSession?.page {
+            guard x.isFinite, y.isFinite else { return false }
             let zoom = max(pageZoom, 0.01)
-            let local = NSPoint(x: x * zoom, y: content.isFlipped ? y * zoom : content.bounds.height - y * zoom)
-            guard content.bounds.contains(local) else { return false }
-            let point = content.convert(local, to: nil)
-            let now = ProcessInfo.processInfo.systemUptime
-            guard let target = frame.hitTest(frame.convert(point, from: nil)),
-                  let down = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: now,
-                                                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1),
-                  let up = NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: now + 0.001,
-                                              windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0) else { return false }
-            // The CEF view's ordinary input tracker observes native delivery.
-            // DevTools input alone does not authorize a person-only page call.
-            target.mouseDown(with: down)
-            target.mouseUp(with: up)
-            return true
+            return page.debugPress(at: NSPoint(x: x * zoom, y: y * zoom))
         }
         guard x.isFinite, y.isFinite else { return false }
         guard let page = chromiumSession?.page else {
@@ -325,7 +311,8 @@ extension PageWebView {
         """
         return await withTaskCancellationHandler {
             guard !Task.isCancelled,
-                  let text = await callPageFunction(script, arguments: ["id": id, "selector": selector, "timeout": timeout]) as? String,
+                  let text = await callPageFunction(script, arguments: ["id": id, "selector": selector, "timeout": timeout],
+                                                    timeout: .milliseconds(timeout + 1_000)) as? String,
                   let result = try? JSONValue.parse(Data(text.utf8)) else {
                 return ["matched": false, "error": "page wait cancelled or unavailable"]
             }

@@ -157,9 +157,10 @@ final class OnboardingService {
         let key = "home.firstRun.historyImportShown"
         guard !defaults.bool(forKey: key) else { return }
         if isFirstRun {
-            // Launch routing is already a presentation request. An action can refuse before
-            // reaching its handler; only an actual page presentation consumes the offer.
-            guard services.pages.show(.importHistory, in: services.windows.active, focus: true) != nil else { return }
+            // The first workspace can replace its Home pane while launch settles. Show on
+            // top so the offer never belongs to that temporary pane; consume it only
+            // after presentation succeeds.
+            guard TopPages.show(.page(.importHistory), services: services) != nil else { return }
         }
         defaults.set(true, forKey: key)
     }
