@@ -382,10 +382,6 @@ impl Mux {
         }))
     }
 
-    /// Pins the `latest` policy on the workspace that shows `surface`, for
-    /// tests about latest-activity semantics (`latest` is also the default; the pin keeps
-    /// such a test independent of the default).
-    #[cfg(test)]
     /// Runs `hold` while this thread holds the client sizing lock (tests: a person's key must not wait for it).
     #[cfg(test)]
     pub(crate) fn hold_client_sizing_for_test(&self, hold: &dyn Fn()) {
@@ -393,6 +389,10 @@ impl Mux {
         hold();
     }
 
+    /// Pins the `latest` policy on the workspace that shows `surface`, for
+    /// tests about latest-activity semantics (`latest` is also the default; the pin keeps
+    /// such a test independent of the default).
+    #[cfg(test)]
     pub(crate) fn pin_latest_size_policy_for_test(&self, surface: SurfaceId) {
         let workspace = self.surface_workspace(surface).expect("surface has a workspace");
         self.set_workspace_size_policy(
