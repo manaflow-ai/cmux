@@ -193,7 +193,8 @@
   cursor: default;
 }
 .acpmux-cols-tab:hover { background: var(--acpmux-menu-hover); }
-.acpmux-cols-tab[data-hl] { background: color-mix(in srgb, var(--agent-text) 12%, transparent); color: var(--agent-text); }
+.acpmux-cols-tab[data-hl] { color: var(--agent-text); }
+.acpmux-cols-rail.ui-slide-host > .ui-slide-item[aria-selected="true"] { background: transparent; }
 .acpmux-cols-tab[data-off] { opacity: 0.45; }
 .acpmux-cols-tab[aria-disabled="true"] { opacity: 0.35; }
 .acpmux-cols-rail[data-col-focus] .acpmux-cols-tab[data-hl] {
