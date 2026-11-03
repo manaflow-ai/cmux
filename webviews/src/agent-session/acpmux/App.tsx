@@ -12845,7 +12845,7 @@ function AcpmuxPane() {
   });
   const transcriptContent = (
     <TranscriptChief.Provider value={chatChief}>
-      // Quick Chat's panel has no room beside it: its fences have no Open preview.
+      {/* Quick Chat's panel has no room beside it: its fences have no Open preview. */}
       <ArtifactContext.Provider value={quick ? undefined : openArtifact}>
         <RenderPages.Provider value={pages}>
           <ImageViewerContext.Provider value={openImage}>
