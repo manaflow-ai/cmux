@@ -40852,7 +40852,16 @@ export default {
                     defaultValue: "Task completed"
                 )
             let antigravityHasActiveBackgroundWork = hasActiveAntigravityBackgroundWork()
-            var hasActiveBackgroundWork = antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork
+            let copilotHasActiveBackgroundWork = def.name == "copilot"
+                && !relayOrigin
+                && pid.flatMap { pid in
+                    pid_t(exactly: pid).map {
+                        AgentHookBackgroundShellDetector.capture()?.hasLiveShellChild(agentProcessID: $0) == true
+                    }
+                } == true
+            var hasActiveBackgroundWork = antigravityHasActiveBackgroundWork
+                || codexHasActiveBackgroundWork
+                || copilotHasActiveBackgroundWork
             let stopTerminationReason = input.rawObject.flatMap {
                 firstString(in: $0, keys: ["terminationReason", "reason", "type", "kind"])
             }
@@ -40866,7 +40875,7 @@ export default {
                 : (sameTurnNeedsInput ? .needsInput : .idle)
             var lifecycleAfterStop: AgentHibernationLifecycleState = {
                 if hasActiveBackgroundWork && stopNotificationStatus == .idle {
-                    return .running
+                    return copilotHasActiveBackgroundWork ? .backgroundWorkPending : .running
                 }
                 return stopNotificationStatus == .idle ? .idle : .needsInput
             }()
@@ -40977,9 +40986,11 @@ export default {
             // the store, journal, and visible badge cannot disagree.
             if def.name == "codex" {
                 codexHasActiveBackgroundWork = (codexStopDecision?.activeChildCount ?? 0) > 0
-                hasActiveBackgroundWork = antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork
+                hasActiveBackgroundWork = antigravityHasActiveBackgroundWork
+                    || codexHasActiveBackgroundWork
+                    || copilotHasActiveBackgroundWork
                 lifecycleAfterStop = hasActiveBackgroundWork && stopNotificationStatus == .idle
-                    ? .running
+                    ? (copilotHasActiveBackgroundWork ? .backgroundWorkPending : .running)
                     : (stopNotificationStatus == .idle ? .idle : .needsInput)
                 staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                     hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
@@ -41239,6 +41250,12 @@ export default {
                             client: client
                         )
                     }
+                } else if copilotHasActiveBackgroundWork {
+                    let waitingStatus = localizedClaudeNotificationSubtitle("Waiting")
+                    _ = try? sendV1Command(
+                        "set_status \(def.statusKey) \(waitingStatus) --icon=hourglass --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId)) --work=waiting",
+                        client: client
+                    )
                 } else if hasActiveBackgroundWork {
                     let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                     if def.name == "cursor" {

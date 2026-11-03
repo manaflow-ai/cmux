@@ -94,6 +94,12 @@ struct CLIClaudeHookTimeoutRegressionTests {
         #expect(!commands.contains {
             $0.hasPrefix("set_status copilot Idle ")
         }, Comment(rawValue: commands.joined(separator: "\n")))
+        #expect(commands.contains {
+            $0.hasPrefix("agent_journal_append ") && $0.contains(#""pending_work":true"#)
+        }, Comment(rawValue: commands.joined(separator: "\n")))
+        #expect(!commands.contains {
+            $0.hasPrefix("notify_target_async ")
+        }, Comment(rawValue: commands.joined(separator: "\n")))
     }
 
     @Test("Queued lifecycle routes trust an admitted surface snapshot")
