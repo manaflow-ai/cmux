@@ -55,6 +55,18 @@ impl Hub {
         command: &str,
         cwd: Option<PathBuf>,
     ) -> Result<Value, RpcError> {
+        self.bg_start_with_id(session, command, cwd, None).await
+    }
+
+    /// Workflow-only stable identity. The durable claim is written before spawning, so an
+    /// uncertain launch is never executed a second time after a daemon crash.
+    pub(crate) async fn bg_start_with_id(
+        &self,
+        session: &Arc<Session>,
+        command: &str,
+        cwd: Option<PathBuf>,
+        fixed_id: Option<&str>,
+    ) -> Result<Value, RpcError> {
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
         }
@@ -78,6 +90,17 @@ impl Hub {
             return Err(RpcError::invalid_params(format!("{} is not a folder", cwd.display())));
         }
         let dir = self.bg_dir(session);
+        if let Some(id) = fixed_id {
+            if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                return Err(RpcError::invalid_params("invalid stable task id"));
+            }
+            if let Some(record) = bg_run::read_record(&dir, id) {
+                if record.command != command || record.cwd != cwd.to_string_lossy() {
+                    return Err(RpcError::invalid_params("stable task identity changed"));
+                }
+                return Ok(bg_view(&dir, &record, LIST_TAIL));
+            }
+        }
         // A runner whose lock cannot be probed counts: the cap never lets an unknown one by.
         let running = self.bg_records(&dir).iter().filter(|r| !bg_gone(&dir, &r.id)).count();
         if running >= MAX_RUNNING {
@@ -89,7 +112,26 @@ impl Hub {
         std::fs::create_dir_all(&dir).map_err(internal)?;
         let generation = bg_generation(&dir, true).map_err(internal)?;
         let uuid = uuid::Uuid::now_v7().simple().to_string();
-        let id = format!("bg-{}", uuid.get(20..).unwrap_or(&uuid));
+        let id = fixed_id
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("bg-{}", uuid.get(20..).unwrap_or(&uuid)));
+        if fixed_id.is_some() {
+            use std::io::Write as _;
+            let claim = dir.join(format!("{id}.claim"));
+            match std::fs::OpenOptions::new().write(true).create_new(true).open(claim) {
+                Ok(mut file) => {
+                    file.write_all(command.as_bytes()).map_err(internal)?;
+                    file.sync_all().map_err(internal)?;
+                    std::fs::File::open(&dir).and_then(|f| f.sync_all()).map_err(internal)?;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    return Err(RpcError::internal(
+                        "workflow task launch is uncertain; refusing to execute it twice",
+                    ));
+                }
+                Err(error) => return Err(internal(error)),
+            }
+        }
         let set = self.bg_runner.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let (runner, segment) = match set {
             Some(set) => set,
@@ -172,6 +214,54 @@ impl Hub {
         let tasks: Vec<Value> =
             self.bg_records(&dir).iter().map(|r| bg_view(&dir, r, LIST_TAIL)).collect();
         json!({"tasks": tasks})
+    }
+
+    /// Wait on the runner's liveness lock, including a runner adopted after daemon restart.
+    /// No sampling timer; dropping the workflow's agent does not terminate this owned task.
+    pub(crate) async fn workflow_bg_wait(
+        &self,
+        session: &Session,
+        id: &str,
+    ) -> Result<Value, RpcError> {
+        let (dir, _) = self.bg_record(session, id)?;
+        let path = bg_run::lock_path(&dir, id);
+        tokio::task::spawn_blocking(move || -> Result<(), RpcError> {
+            use std::os::fd::AsRawFd;
+            let file = std::fs::File::open(path).map_err(internal)?;
+            // SAFETY: the descriptor is owned by this wait and closes when the wait returns.
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) } != 0 {
+                return Err(internal(std::io::Error::last_os_error()));
+            }
+            Ok(())
+        })
+        .await
+        .map_err(internal)??;
+        let mut output = String::new();
+        let mut cursor = 0;
+        let mut view;
+        loop {
+            view = self.bg_output(session, id, Some(cursor), None)?;
+            if view.get("skippedBytes").and_then(Value::as_u64).unwrap_or(0) != 0 {
+                return Err(RpcError::internal("workflow machine output was lost from its spool"));
+            }
+            output.push_str(view.get("text").and_then(Value::as_str).unwrap_or(""));
+            let next = view.get("nextByte").and_then(Value::as_u64).unwrap_or(cursor);
+            if next <= cursor
+                || next >= view.get("totalBytes").and_then(Value::as_u64).unwrap_or(next)
+            {
+                break;
+            }
+            cursor = next;
+        }
+        view.set("text", json!(output));
+        if view.get("state").and_then(Value::as_str) != Some("exited")
+            || view.get("exitCode").and_then(Value::as_i64) != Some(0)
+        {
+            return Err(
+                RpcError::internal("workflow machine command did not succeed").with_data(view)
+            );
+        }
+        Ok(view)
     }
 
     fn bg_record(&self, session: &Session, id: &str) -> Result<(PathBuf, Record), RpcError> {
