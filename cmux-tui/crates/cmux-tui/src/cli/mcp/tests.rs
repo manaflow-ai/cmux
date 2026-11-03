@@ -2212,26 +2212,44 @@ fn open_splits_and_opens_in_one_call() {
     assert!(result.to_string().contains("needs the cmux app"), "{result}");
 }
 
-/// Chief's instructions say that what it opens for a workspace's work goes to that
-/// workspace, so Chief's own workspace does not fill with tabs (Lawrence 2026-11-02); another
-/// chat's instructions do not.
+/// Chief opens what a workspace's work needs in that workspace: the tools that open things
+/// (`open`, and `cmux_exec` in code mode) say so in a Chief turn, and only there. The rule is
+/// not in the instructions, which a client may cut past 2048 characters.
 #[test]
-fn chief_instructions_open_in_the_workspace_of_the_task() {
+fn chief_tools_open_in_the_workspace_of_the_task() {
+    let list = json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"});
+    let described = |mut server: Server<Fake>, name: &str| {
+        let answer = server.handle(&list).expect("an answer");
+        let tools = answer["result"]["tools"].as_array().cloned().unwrap_or_default();
+        let tool = tools.iter().find(|tool| tool["name"] == name).cloned();
+        tool.unwrap_or_else(|| panic!("no {name} in {answer}"))["description"].to_string()
+    };
+    let chief = || Fake { home_chat: true, ..Fake::with_actions() };
+    for text in [
+        described(code_mode_server(chief()), "cmux_exec"),
+        described(Server::new(chief(), None), "open"),
+    ] {
+        assert!(
+            text.contains("You are Chief") && text.contains("opens in that workspace"),
+            "{text}"
+        );
+    }
+    for text in [
+        described(code_mode_server(Fake::with_actions()), "cmux_exec"),
+        described(Server::new(Fake::with_actions(), None), "open"),
+    ] {
+        assert!(!text.contains("You are Chief"), "{text}");
+    }
     let initialize = json!({"jsonrpc": "2.0", "id": "i", "method": "initialize"});
-    let mut chief = Server::new(Fake { home_chat: true, ..Fake::default() }, None);
-    let answer = chief.handle(&initialize).expect("an answer");
+    let answer = code_mode_server(chief()).handle(&initialize).expect("an answer");
     let text = answer["result"]["instructions"].as_str().unwrap_or_default();
-    assert!(text.contains("You are Chief") && text.contains("opens in that workspace"), "{text}");
-    let mut chat = Server::new(Fake::default(), None);
-    let answer = chat.handle(&initialize).expect("an answer");
-    let text = answer["result"]["instructions"].as_str().unwrap_or_default();
-    assert!(!text.contains("You are Chief"), "{text}");
+    assert!(text.chars().count() <= 2048, "{} chars", text.chars().count());
 }
 
 /// An app viewer an agent opens with no target goes beside its chat (a split right, made
 /// by `open`), not into the pane the person looks at, which with many workspaces is often
-/// another workspace (tests/tool-evals workspace cases). Outside a chat the app keeps its own
-/// placement: no target is sent.
+/// another workspace (tests/tool-evals workspace cases). A caller the app does not place in a
+/// pane keeps the app's own placement: no target is sent.
 #[test]
 fn an_untargeted_viewer_from_a_chat_opens_beside_it() {
     let pane = "pane_00000000000000000000000000000007";
@@ -2258,14 +2276,44 @@ fn an_untargeted_viewer_from_a_chat_opens_beside_it() {
     assert_eq!(run["params"]["target"], pane, "{run}");
     drop(sent);
 
-    let outside = Fake { actions, resource_result: Some(created), ..Fake::default() };
-    let mut server = Server::new(outside, None);
-    let result = server.call(&open).expect("a tool result");
-    assert_ne!(result["isError"], true, "{result}");
-    let sent = server.backend.sent.borrow();
-    let run = sent.iter().find(|s| s["method"] == "action.run");
-    let run = run.unwrap_or_else(|| panic!("{sent:?}"));
-    assert!(run["params"].get("target").is_none(), "{run}");
+    // A caller the app does not place in a pane (none, unknown to it, or a workspace with
+    // no pane) keeps the app's own placement: `current` would be the daemon's active pane.
+    let unplaced = [
+        None,
+        Some(json!({"found": false, "workspace": "ws_a", "pane": "pane_chat"})),
+        Some(json!({"workspace": "ws_a"})),
+    ];
+    for caller in unplaced {
+        let fake = Fake {
+            actions: actions.clone(),
+            resource_result: Some(created.clone()),
+            caller: caller.clone(),
+            ..Fake::default()
+        };
+        let mut server = Server::new(fake, None);
+        let result = server.call(&open).expect("a tool result");
+        assert_ne!(result["isError"], true, "{caller:?}: {result}");
+        let sent = server.backend.sent.borrow();
+        let run = sent.iter().find(|s| s["method"] == "action.run");
+        let run = run.unwrap_or_else(|| panic!("{sent:?}"));
+        assert!(run["params"].get("target").is_none(), "{caller:?}: {run}");
+    }
+}
+
+/// A diff viewer opened beside the chat with no path diffs the chat's folder: with no path
+/// the app would diff the folder of the pane it opens in, a new split or a page.
+#[test]
+fn an_untargeted_diff_names_the_chat_folder() {
+    let diff =
+        super::open_tool::untargeted("browser open-diff-viewer", &Map::new()).expect("placed");
+    assert_eq!(diff["path"], ".", "{diff:?}");
+    let empty = json!({"path": ""});
+    assert!(super::open_tool::untargeted("file open", empty.as_object().unwrap()).is_none());
+    let number = json!({"path": 3});
+    assert!(
+        super::open_tool::untargeted("browser open-diff-viewer", number.as_object().unwrap())
+            .is_none()
+    );
 }
 
 /// A history read answers the scrollback as lines of plain text, unstyled, where the
