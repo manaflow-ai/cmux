@@ -39,7 +39,21 @@ import Testing
         }
         // 1/32 of 16 GB is 512 MiB; a 3456 x 1890 BGRA frame is about 26 MB: about 20 of them, plus the warm 8 at most.
         #expect(frames.count <= 8 + 21, "a 16 GB Mac kept \(frames.count) full-window frames")
-        #expect(frames.count >= 8, "fewer frames than the warm set: \(frames.count)")
+        #expect(frames.storedBytes <= TerminalLastFrames.byteBudget(physicalBytes: Self.physical),
+                "\(frames.storedBytes >> 20) MiB kept past the \(TerminalLastFrames.byteBudget(physicalBytes: Self.physical) >> 20) MiB bound")
         #expect(frames["t200"] != nil, "the newest frame was dropped")
+    }
+
+    /// Frames larger than the whole budget: the warm set's count still keeps its frames (the floor wins).
+    @Test func theWarmSetsFramesStayWhenTheyAloneFillTheBudget() throws {
+        var frames = TerminalLastFrames()
+        for k in 1...20 {
+            let surface = try #require(IOSurface(properties: [
+                .width: 3456, .height: 1890, .bytesPerElement: 4, .pixelFormat: 0x4247_5241,
+            ]))
+            frames.keep(TerminalLastFrame(surface: surface, showsOutput: true), for: "t\(k)", warm: 8, physicalBytes: 64 << 20)
+        }
+        #expect(frames.count == 8, "a 2 MiB budget kept \(frames.count) frames (want the warm set's 8)")
+        #expect((13...20).allSatisfy { frames["t\($0)"] != nil }, "the 8 newest frames are not the ones kept")
     }
 }

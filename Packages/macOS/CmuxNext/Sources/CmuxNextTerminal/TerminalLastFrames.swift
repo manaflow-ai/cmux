@@ -1,7 +1,7 @@
 import Foundation
 /// Evicted terminals' last frames (`TerminalLastFrame`), oldest dropped first past the bound: their own bytes within
 /// 1/32 of physical memory (``byteBudget(physicalBytes:)``; Chrome sets its memory limits from physical memory too),
-/// at most ``maxFrames``, and never fewer than the warm set's count. Each frame is one drawable at its pane's size
+/// at most ``maxFrames``, and never fewer than the warm set's count (that floor wins over the budget). Each frame is one drawable at its pane's size
 /// (a pane of a 3 x 4 grid on a 2x display: about 2 MB; a full window: about 26 MB), volatile while it waits, so
 /// memory pressure takes its pages first (no policy of ours under pressure). A closed tab's frame goes with the tab
 /// (`TabContentCache.release`).
