@@ -20,11 +20,10 @@ import Foundation
 /// opens the chat anyway, and its turn card still offers recovery (#26148).
 extension CloudStartChat {
     /// Gives the start's machine the person's Claude or Codex login when this build passes it. Returns
-    /// whether a login was installed; never throws. `cmux cloud start-session` passes it the same way.
-    func passHarnessLogin(harness: String?, machine: CloudMachineSession) async -> Bool {
+    /// whether a login was installed; never throws. `cmux cloud start-session` passes it the same way, with no Codex prompt.
+    func passHarnessLogin(harness: String?, machine: CloudMachineSession, codexPrompt: Bool = true) async -> Bool {
         let cloud = services.cloud, userID = cloud.auth.user?.id
-        let teamID = cloud.auth.teamID, machineID = machine.machineID
-        let api = cloud.machineAPI.pinningTeam(teamID)
+        let teamID = cloud.auth.teamID, machineID = machine.machineID, api = cloud.machineAPI.pinningTeam(teamID)
         var decision = CloudHarnessLoginDecision(dogfood: DevTools.isEnabled, setting: CloudCredentialTransfer.passHarnessLoginSetting(.standard),
                                                  harness: harness, signedIn: userID != nil)
         let gate = Self.loginCopyGate(services)
@@ -52,8 +51,10 @@ extension CloudStartChat {
             }
             guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return false }
             if provider == .codex { // The Mac's broker: short-lived access, a device-code sign-in only when it holds none; it checks the account itself.
+                // A machine it already serves keeps that access untouched: a failed repeat would revoke it.
+                if await cloud.codexBroker.delivers(machineID: machineID, scope: .init(userID: userID, teamID: teamID)) { decision.outcome = "already delivered"; return false }
                 try await cloud.codexBroker.run(machineID: machineID, scope: .init(userID: userID, teamID: teamID), confirmed: true) { [weak services] prompt in
-                    guard let window = services?.windows.active?.window else { return false }
+                    guard codexPrompt, let window = services?.windows.active?.window else { return false }
                     return await CloudPresenter.presentCodexDeviceCode(prompt, in: .window(window))
                 }
             } else {
