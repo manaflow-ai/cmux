@@ -10,13 +10,16 @@ Efficiency, so a frame number from a capture round is only comparable with the s
 
 proc_pidinfo(PROC_PIDTHREADCOUNTS) gives one thread's CPU time and cycles per tier (XNU recount), for a process of
 the same user, with no root and no sampling interrupt. The sampler here reads the main thread (the lowest thread id
-of the app's pid) about every millisecond.
+of the app's pid) every INTERVAL_MS (10 ms). At 1 ms it cost the turns it measures: in round hc-cost-1 (cmux23, 8 + 8
+split runs) the turns that started on Efficiency took p50 35.0 / p95 37.4 ms with it and p50 32.0 / p95 33.5 ms without,
+and 4 of 8 turns started on Super with it against 1 of 8 without; it used about 5 % of a core. The Efficiency phase
+of a turn is 25-30 ms, so 10 ms still names the start tier (STATUS 7767).
 
 ext_video uses start() / stop() / turn_tiers() for every recording (video_start .. video_stop): each film gets
 <name>.tiers.json and, in <name>.meta.json, "tiers": the start tier of each HID action and key-down.
 
 Steps (`do`), for rounds that record no video:
-  tiers_start {name, seconds?: 120, interval_ms?: 1}  starts the sampler (it ends at tiers_stop or after `seconds`)
+  tiers_start {name, seconds?: 120, interval_ms?: 10}  starts the sampler (it ends at tiers_stop or after `seconds`)
                 and returns once its first reading is in.
   tiers_stop  {name}  stops it and writes <journey out>/diag-<name>.json (run.py fetches diag-*.json); the reply
                 has the start tier of each journey mark set after tiers_start.
@@ -49,7 +52,8 @@ def host_seconds(driver_t):
     return driver_t + HOST_OFFSET
 
 
-START_TIMEOUT = 40.0  # s for the sampler's first reading (its 1 + levels sysctl calls and its ps have 5 s each)
+START_TIMEOUT = 40.0
+INTERVAL_MS = 10.0  # the sampler's period (1 ms changed the turns it measured: see the module note)  # s for the sampler's first reading (its 1 + levels sysctl calls and its ps have 5 s each)
 
 SAMPLER = r'''
 import ctypes, json, os, subprocess, sys, time
@@ -114,7 +118,7 @@ def reap(keep_owner=None):
 atexit.register(lambda: reap())
 
 
-def start(pid, path, seconds=120.0, interval_ms=1.0, sampler=None, timeout=None, owner=None):
+def start(pid, path, seconds=120.0, interval_ms=INTERVAL_MS, sampler=None, timeout=None, owner=None):
     """Starts the sampler on PID's main thread; returns its handle once the first reading is in (OSError if not, also
     after START_TIMEOUT s). OWNER: the journey that starts it (other journeys' samplers are ended first; with no owner,
     every live sampler is). SAMPLER replaces the sampler's code (tests)."""
@@ -210,7 +214,7 @@ def step_tiers_start(j, step):
     if not name.isalpha() or not name.islower():
         raise D.StepError(f"tiers_start: name {name!r} must be lowercase letters (diag-<name>.json)")
     try:
-        handle = start(j.app.pid, j.out / f"diag-{name}.json", step.get("seconds", 120), step.get("interval_ms", 1), owner=j)
+        handle = start(j.app.pid, j.out / f"diag-{name}.json", step.get("seconds", 120), step.get("interval_ms", INTERVAL_MS), owner=j)
     except OSError as error:
         raise D.StepError(str(error))
     handle["t"] = D.now()

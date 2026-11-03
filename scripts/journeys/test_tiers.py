@@ -6,6 +6,8 @@
 On the M6 minis a main thread that wakes from idle starts on the Efficiency cores and moves to Super after about
 25-30 ms of run; a turn that starts on E costs about 2x. These cases use synthetic sampler rows (the format the
 sampler writes: [uptime_ns, cpu_ms per tier..., cycles per tier...], cumulative):
+- the sampler's default period is 10 ms (1 ms changed the turns it measured, round hc-cost-1), and 10 ms rows still
+  name the start tier;
 - turn_tiers names the start tier, the wall ms to the first Super interval and the E CPU ms before it; a turn that
   starts on Super has 0 ms to Super; a time the sampler does not cover says so;
 - start/stop protocol (stand-in samplers): the stop file ends the sampler; no first reading in time is an OSError and
@@ -72,6 +74,19 @@ class TurnTiersTest(unittest.TestCase):
         data = rows("." * 5 + "S" * 13 + "." * 100)
         [turn] = ext_tiers.turn_tiers(data, [(T0 + 5_000_000) / 1e9])
         self.assertEqual((turn["start_tier"], turn["ms_to_super"], turn["e_cpu_ms_before_super"]), ("Super", 0.0, 0.0))
+
+    def test_the_default_period_is_10_ms_and_still_names_the_start_tier(self):
+        # hc-cost-1: a 1 ms sampler changed the turns it measured (about +3 ms on Efficiency-start turns).
+        import inspect
+        self.assertEqual(ext_tiers.INTERVAL_MS, 10.0)
+        self.assertEqual(inspect.signature(ext_tiers.start).parameters["interval_ms"].default, 10.0)
+        # 10 ms rows: 28 ms on Efficiency then Super (3 E intervals: 10, 10, 8 ms + 2 ms S)
+        plan = "." * 100 + "E" * 28 + "S" * 12 + "." * 100
+        data = rows(plan)
+        data["rows"] = data["rows"][::10]
+        [turn] = ext_tiers.turn_tiers(data, [(T0 + 100_000_000) / 1e9])
+        self.assertEqual(turn["start_tier"], "Efficiency")
+        self.assertEqual(turn["ms_to_super"], 20.0)
 
     def test_idle_and_uncovered(self):
         data = rows("." * 200)

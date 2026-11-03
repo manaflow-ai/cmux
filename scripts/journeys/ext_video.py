@@ -22,7 +22,7 @@ Every file of one recording goes to <journey out>/video/<name>.*:
   <name>.meta.json        the record_start reply (frame size, scale, rows, columns), the counts at the end, the
                           window frame and screen (debug.layers), the app pid, the clock note, and "tiers": the
                           start tier of each key-down and HID action (ext_tiers.turn_tiers; tiers_report.py)
-  <name>.tiers.json       ext_tiers' sampler: the main thread's CPU ms and cycles per core tier, about every 1 ms
+  <name>.tiers.json       ext_tiers' sampler: the main thread's CPU ms and cycles per core tier, every 10 ms
 
 Steps (`do`):
   video_start  {name, rows?, columns?, codec?: hevc|prores, mbps?, seconds?: 30, require_hz?: 120}
