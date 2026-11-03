@@ -36,7 +36,7 @@ public nonisolated struct LinkHintTarget: Hashable, Sendable, Decodable {
 /// letters narrow the labels until one is typed in full; a letter no label
 /// continues with is ignored; Backspace undoes a letter. Keys typed before
 /// the labels arrive are kept and checked when they do; when a text field of
-/// the page has the keyboard instead, they are its keys (``LinkHintHeldKeys``).
+/// the page has the keyboard instead, they are its keys (``LinkHintPendingKeys``).
 public nonisolated struct LinkHintSession: Equatable, Sendable {
     public enum Mode: Equatable, Sendable {
         /// Click the element in the page.
@@ -106,36 +106,6 @@ public nonisolated struct LinkHintSession: Equatable, Sendable {
     }
 }
 
-/// The keys a link-hint session took before the page answered (``LinkHintSession/show(_:editing:)``), in order. Once
-/// it answered they are the text field's when one has the keyboard (``LinkHintSession/Outcome/passThrough``): each
-/// goes to the page once, in the order typed; otherwise they were hint keys and none goes to the page.
-public nonisolated struct LinkHintHeldKeys<Key> {
-    public private(set) var keys: [Key] = []
-    /// When the session started (the event clock, seconds since boot).
-    private let startedAt: TimeInterval
-
-    public init(startedAt: TimeInterval) { self.startedAt = startedAt }
-
-    /// Where a key goes: the page on its normal path, or this session.
-    public enum Route: Equatable, Sendable { case page, session }
-
-    /// Where a key typed at `typedAt` (its event's own timestamp, not when it is dispatched) goes. One typed before the
-    /// session started is no hint key and is never held: it goes on to the page on its normal path, once. That covers a
-    /// key still queued when the session started (it reaches the page now, before the keys typed after it) and a key
-    /// Chromium sent back after the page had it (the same event; it stays in Chromium's redispatch, as with no session).
-    /// A key without a time (a synthetic event, 0) is the session's.
-    public func route(typedAt: TimeInterval) -> Route { typedAt > 0 && typedAt < startedAt ? .page : .session }
-
-    /// `key` is the session's (``route(typedAt:)``): held until the page answers.
-    public mutating func hold(_ key: Key) { keys.append(key) }
-
-    /// The held keys the page gets now, after `outcome`: all of them, once, for ``LinkHintSession/Outcome/passThrough``.
-    public mutating func release(after outcome: LinkHintSession.Outcome) -> [Key] {
-        defer { keys = [] }
-        return outcome == .passThrough ? keys : []
-    }
-}
-
 /// What a link-hint session does with the keys typed after the `f` that started it, until its page answers (review of
 /// #32537: every key reaches the page once and in order, or is a hint key; none is lost, and no key-up goes before its
 /// key-down). Every key typed while the page answers is held, letters or not.
@@ -151,22 +121,68 @@ public nonisolated struct LinkHintPendingKeys<Key> {
         public var noLinks: Bool
     }
 
+    private enum Entry {
+        case down(Key, Kind, code: UInt16)
+        case up(Key, code: UInt16)
+        var key: Key { switch self { case .down(let key, _, _), .up(let key, _): key } }
+    }
+
+    private var entries: [Entry] = []
+    /// Key codes whose key-down is held without its key-up.
+    private var downs: Set<UInt16> = []
+
     public init() {}
 
-    public var isEmpty: Bool { true }
+    public var isEmpty: Bool { entries.isEmpty }
 
     /// Holds a key-down typed while the page answers.
-    public mutating func hold(_ key: Key, kind: Kind, code: UInt16) {}
+    public mutating func hold(_ key: Key, kind: Kind, code: UInt16) {
+        entries.append(.down(key, kind, code: code))
+        downs.insert(code)
+    }
 
-    /// Holds a key-up whose key-down is held (red stub: never).
-    public mutating func holdUp(_ key: Key, code: UInt16) -> Bool { false }
+    /// Holds a key-up whose key-down is held, so the page never gets an up before its down. False: not this session's.
+    public mutating func holdUp(_ key: Key, code: UInt16) -> Bool {
+        guard downs.remove(code) != nil else { return false }
+        entries.append(.up(key, code: code))
+        return true
+    }
 
-    /// The page did not answer (red stub: nothing).
-    public mutating func releaseAll() -> [Key] { [] }
+    /// The session ended before its page answered (a click, the keyboard left the page, the page call failed or took
+    /// past its bound): nothing decided the keys, so every one goes to the page, in order.
+    public mutating func releaseAll() -> [Key] {
+        defer { (entries, downs) = ([], []) }
+        return entries.map(\.key)
+    }
 
-    /// The page answered (red stub: nothing for the page).
+    /// The page answered. `editing` (a text field has the keyboard): every held key is the page's, in order. Otherwise
+    /// they run through `session` as typed once its labels show: hint letters and Backspace narrow and pick; a pick,
+    /// Escape or a key that is no hint key ends it, and that key (not Escape) and every key after it are the page's.
+    /// With nothing to label, the hint letters before such a key are the session's.
     public mutating func resolve(_ session: inout LinkHintSession, targets: [LinkHintTarget], editing: Bool) -> Resolution {
-        Resolution(page: [], outcome: .cancel, noLinks: false)
+        guard !editing else { return Resolution(page: releaseAll(), outcome: .passThrough, noLinks: false) }
+        defer { (entries, downs) = ([], []) }
+        var outcome = session.show(targets)
+        let noLinks = outcome == .cancel
+        var ended = false, page: [Key] = [], pageDowns: Set<UInt16> = []
+        for entry in entries {
+            guard case .down(let key, let kind, let code) = entry else {
+                if case .up(let key, let code) = entry, pageDowns.remove(code) != nil { page.append(key) }
+                continue
+            }
+            switch (ended, kind) {
+            case (true, _), (false, .other):
+                if !ended { (outcome, ended) = (.cancel, true) }
+                page.append(key)
+                pageDowns.insert(code)
+            case (false, .escape): (outcome, ended) = (.cancel, true)
+            case (false, _) where noLinks: continue // a hint letter or Backspace, with nothing to label
+            case (false, .letter(let letter)): outcome = session.type(letter)
+            case (false, .backspace): outcome = session.type(nil)
+            }
+            if case .pick = outcome { ended = true }
+        }
+        return Resolution(page: page, outcome: outcome, noLinks: noLinks)
     }
 }
 
@@ -183,11 +199,19 @@ public nonisolated struct LinkHintSeenKeys<Key: AnyObject> {
 
     public init() {}
 
-    /// Notes `key`: whether it was noted before (red stub: never).
-    public mutating func note(_ key: Key, _ signature: Signature) -> Bool { false }
+    /// The last key-downs (Chromium sends one back soon after it, a few keys later at most).
+    private var recent: [(key: Key, signature: Signature)] = []
+
+    /// Notes `key`: whether the app dispatched it before (the same event, or a copy with its time, code and characters).
+    public mutating func note(_ key: Key, _ signature: Signature) -> Bool {
+        if recent.contains(where: { $0.key === key || (signature.time != 0 && $0.signature == signature) }) { return true }
+        recent.append((key, signature))
+        if recent.count > 32 { recent.removeFirst() }
+        return false
+    }
 }
 
-/// The keys link hints sent back to the page (``LinkHintHeldKeys``): each goes on to the page untouched once, never
+/// The keys link hints sent back to the page (``LinkHintPendingKeys``): each goes on to the page untouched once, never
 /// held or taken by a session again (a key sent again and taken again looped without end, v5 of #32537).
 public nonisolated struct LinkHintReplays<Key: AnyObject> {
     /// Held, so a key's identity is never another key's (a freed event's address reused).

@@ -45,15 +45,23 @@ public nonisolated extension LinkHintSession {
     /// ``collectScript``'s targets for a link-hint session, with the page's own answer to whether a text field has the
     /// keyboard: `{"editing": Bool, "targets": [...]}`. The browser's editable-focus flag can be stale after an
     /// address-bar load (#32573): then a letter typed into a field started link hints. Window hints keep the plain
-    /// list (``collectScript``).
+    /// list (``collectScript``). A focused same-origin frame is looked into; a focused cross-origin frame (an embedded
+    /// video, a payment form) counts as editing, as its focus cannot be read: hints start again once it loses focus.
     public static let sessionCollectScript = """
     (() => {
-      let active = document.activeElement;
-      while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+      let doc = document, active = document.activeElement, frame = false;
+      for (;;) {
+        while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+        if (active?.tagName !== 'IFRAME' && active?.tagName !== 'FRAME') break;
+        let inner = null;
+        try { inner = active.contentDocument; } catch (e) {}
+        if (!inner) { frame = true; break; }
+        doc = inner;
+        active = inner.activeElement;
+      }
       const tag = active?.tagName || '';
-      const editing = document.designMode === 'on' || !!active?.isContentEditable || tag === 'TEXTAREA' || tag === 'SELECT' ||
-        tag === 'IFRAME' || tag === 'FRAME' || (tag === 'INPUT' &&
-          !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(active.type));
+      const editing = frame || doc.designMode === 'on' || !!active?.isContentEditable || tag === 'TEXTAREA' || tag === 'SELECT' ||
+        (tag === 'INPUT' && !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(active.type));
       return JSON.stringify({ editing, targets: editing ? [] : JSON.parse(\(collectScript)) });
     })()
     """
