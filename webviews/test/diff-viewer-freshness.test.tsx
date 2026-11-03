@@ -185,11 +185,11 @@ test("freshness backs off while unfocused, checks on return, and stops waking wh
   let nextId = 0;
   let wakeups = 0;
   const timers = new Map<number, { callback: () => void; delay: number; due: number }>();
-  const interval = spyOn(globalThis, "setInterval").mockImplementation((callback, delay) => {
+  const interval = spyOn(globalThis, "setInterval").mockImplementation(((callback: () => void, delay = 0) => {
     const id = ++nextId;
-    timers.set(id, { callback: callback as () => void, delay: delay!, due: clock + delay! });
-    return id as unknown as ReturnType<typeof setInterval>;
-  });
+    timers.set(id, { callback, delay, due: clock + delay });
+    return id;
+  }) as unknown as typeof setInterval);
   const clear = spyOn(globalThis, "clearInterval").mockImplementation((id) => {
     timers.delete(id as unknown as number);
   });
