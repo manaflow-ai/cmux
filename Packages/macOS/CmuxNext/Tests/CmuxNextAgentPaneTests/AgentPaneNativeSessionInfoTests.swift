@@ -329,6 +329,42 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(context.exception == nil)
     }
 
+    /// A click anywhere in the panel gives it the keyboard, so Esc closes it wherever the page's focus
+    /// was (the composer, say), as a click in the page's panel focused it; no ring is drawn for it.
+    @Test func aClickInThePanelTakesTheKeyboardSoEscClosesIt() throws {
+        let store = AgentPaneSessionInfoStore()
+        var sent: [String] = []
+        store.send = { sent.append($0) }
+        let panel = AgentPaneSessionInfoPanel(store: store)
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
+        let host = try #require(window.contentView)
+        let page = NSTextView(frame: CGRect(x: 0, y: 0, width: 80, height: 600))
+        host.addSubview(page)
+        panel.frame = CGRect(x: 80, y: 0, width: 320, height: 600)
+        host.addSubview(panel)
+        store.update(try Self.model(Self.info()))
+        panel.layoutSubtreeIfNeeded()
+        #expect(window.makeFirstResponder(page))
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        let line = try #require(all(panel).compactMap { $0 as? SessionInfoLineView }.first)
+        let point = NSPoint(x: line.bounds.midX, y: line.bounds.midY)
+        let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+                                                   windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                                   clickCount: 1, pressure: 1))
+        line.mouseDown(with: down)
+        #expect(window.firstResponder === panel)
+        #expect(panel.focusRingMaskBounds == .zero)
+        // A second click keeps it (no churn), and a click on empty glass reaches the panel too.
+        line.mouseDown(with: down)
+        #expect(window.firstResponder === panel)
+        #expect(window.makeFirstResponder(page))
+        panel.mouseDown(with: down)
+        #expect(window.firstResponder === panel)
+        // Esc from there: the panel's own close goes to the page.
+        #expect(window.firstResponder?.tryToPerform(#selector(NSResponder.cancelOperation(_:)), with: nil) == true)
+        #expect(sent.last == "close")
+    }
+
     /// The panel is AppKit (no SwiftUI host): its lines follow the model, and a line's or a button's
     /// click sends that action; a folded section shows its title row alone.
     @Test func panelIsAppKitAndItsLinesRunTheirActions() throws {
