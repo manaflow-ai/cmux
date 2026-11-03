@@ -1,7 +1,9 @@
 //! Pure structured-reply and recovery policies for native code-mode workflows.
 //!
-//! The daemon persists policy state with the activity journal before performing a
-//! returned action. This module owns no transport, timers, credentials or engine.
+//! The daemon persists policy state and any returned action together in the
+//! activity journal before performing it, then reconciles an unacknowledged
+//! action using the activity/incarnation identity. This module owns no transport,
+//! timers, credentials or engine.
 
 mod recovery;
 mod schema;
