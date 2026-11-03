@@ -62,3 +62,32 @@ failure's origin is unknown or the guard run ended without step results.
 If your push is rejected because the branch moved, run `git pull --no-rebase`
 and push again. Never force-push over a merge-main commit. The local command
 is the only supported branch catch-up path.
+
+## When git is older than 2.46
+
+The resolver needs git 2.46 or newer (`attr.tree` keeps the merged tree's
+`.gitattributes` out of the merge), and the command stops with "git 2.46 or
+newer is required for attr.tree". On a host whose system git is older (the
+Linux agent VMs have 2.43) and that you cannot upgrade, a plain merge meets
+the rule's intent:
+
+```bash
+git fetch origin feat-cmux-next        # or main
+git merge --no-edit origin/feat-cmux-next
+```
+
+- Only on your own branch, or a branch whose head you trust: the merge
+  drivers and hooks of the trees being merged run, which the resolver turns
+  off for an untrusted fork head.
+- A merge commit only: no rebase, no squash, no force push.
+- A conflict in a generated file (`settings-schema.json`,
+  `settings-schema.sources.sha256`, `docs/mdm/*`, the embedded config
+  schema, `project.pbxproj`, `.xcstrings`) is never merged by hand: take
+  either side and regenerate it, or let the base autofix do it.
+- Resolve any other conflict, then run the area's checks
+  (`python3 scripts/cmux-next/prepush-gate.py` for feat-cmux-next) before you
+  push.
+- next-autoland carries a review receipt across a cmux-bot base merge only,
+  not across your own. Ask for a new receipt at the merge head that confirms
+  the pull request's own files did not change, then remove `ready-to-land`
+  and add it again.
