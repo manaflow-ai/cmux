@@ -75,6 +75,7 @@ fn number_and_text_preserve_original_identifiers_without_authorizing() {
         permission: Some("permission-1".into()),
         item_id: "color".into(),
         selection: QuestionSelection { option_ids: vec!["color-option-1".into()], other: None },
+        completes_question: true,
     };
     for text in ["2", " Blue ", "blue", "BLUE"] {
         assert_eq!(resolve(&prompt, text), Ok(expected.clone()));
@@ -105,6 +106,7 @@ fn all_rendered_numbers_round_trip_for_multiple_items_and_harnesses() {
             let choice = resolve(&prompt, &(index + 1).to_string()).unwrap();
             assert_eq!(choice.item_id, item.id);
             assert_eq!(choice.selection.option_ids.as_slice(), std::slice::from_ref(&option.id));
+            assert!(!choice.completes_question);
         }
     }
 }
@@ -302,4 +304,140 @@ fn a_free_text_question_is_not_reinterpreted_as_numbered_choices() {
     assert_eq!(prompt.render(), "Which color?");
     assert_eq!(resolve(&prompt, "1"), Err(ReplyError::NoMatch));
     assert_eq!(resolve(&prompt, "a new color"), Err(ReplyError::NoMatch));
+}
+
+#[test]
+fn flexible_numbers_and_unique_prefixes_keep_original_choices() {
+    let prompt = prompt(question());
+    for text in ["1.", "#1", "01", "#01.", "r", "RE"] {
+        assert_eq!(resolve(&prompt, text), resolve(&prompt, "1"), "{text}");
+    }
+    for text in ["000", "#", "1..", "#3"] {
+        assert_eq!(resolve(&prompt, text), Err(ReplyError::NoMatch), "{text}");
+    }
+    let mut q = question();
+    q.items[0].options[1].label = "Reddish".into();
+    let prompt = QuestionReplyPrompt::new(identity(), "thread-1".into(), q).unwrap();
+    assert_eq!(resolve(&prompt, "re"), Err(ReplyError::Ambiguous));
+    assert_eq!(resolve(&prompt, "Red").unwrap().selection.option_ids, ["color-option-0"]);
+}
+
+#[test]
+fn unicode_case_folding_handles_expansions_and_detects_collisions() {
+    let mut q = question();
+    q.items[0].options[0].label = "Straße".into();
+    q.items[0].options[1].label = "ΟΣ".into();
+    let prompt = prompt(q.clone());
+    assert_eq!(resolve(&prompt, "STRASSE"), resolve(&prompt, "1"));
+    assert_eq!(resolve(&prompt, "ος"), resolve(&prompt, "2"));
+    assert_eq!(resolve(&prompt, "STRASS"), resolve(&prompt, "1"));
+    q.items[0].options[1].label = "STRASSE".into();
+    assert_eq!(
+        resolve(&QuestionReplyPrompt::new(identity(), "thread-1".into(), q).unwrap(), "straße"),
+        Err(ReplyError::Ambiguous)
+    );
+}
+
+#[test]
+fn yes_no_need_explicit_permission_aliases_not_labels_or_prefixes() {
+    let mut q = question();
+    q.items[0].options[0].label = "Yes today".into();
+    q.items[0].options[1].label = "No tomorrow".into();
+    let prompt = prompt(q);
+    assert_eq!(resolve(&prompt, "yes"), Err(ReplyError::NoMatch));
+    assert_eq!(resolve(&prompt, "no"), Err(ReplyError::NoMatch));
+    let prompt = prompt.with_permission_aliases(1, 2).unwrap();
+    assert_eq!(resolve(&prompt, "YES"), resolve(&prompt, "1"));
+    assert_eq!(resolve(&prompt, "no"), resolve(&prompt, "2"));
+    assert_eq!(prompt.question().state, QuestionState::Pending);
+    let mut q = question();
+    q.items[0].multi_select = true;
+    assert_eq!(
+        QuestionReplyPrompt::new(identity(), "thread-1".into(), q)
+            .unwrap()
+            .with_permission_aliases(1, 2)
+            .unwrap_err(),
+        ReplyError::InvalidBinding
+    );
+}
+
+#[test]
+fn oversized_input_is_rejected_before_matching_and_boundary_is_accepted() {
+    let prompt = prompt(question());
+    let text = format!("1{}", " ".repeat(MAX_REPLY_BYTES - 1));
+    assert_eq!(resolve(&prompt, &text), resolve(&prompt, "1"));
+    assert_eq!(resolve(&prompt, &(text + " ")), Err(ReplyError::InputTooLong));
+}
+
+#[test]
+fn markdown_options_match_the_plain_label_the_person_sees() {
+    let mut q = question();
+    q.items[0].options[0].label = "**Red**".into();
+    let prompt = prompt(q);
+    assert!(prompt.render().contains("1. Red"));
+    assert_eq!(resolve(&prompt, "Red"), resolve(&prompt, "1"));
+}
+
+fn observed() -> ObservedReply<'static> {
+    ObservedReply {
+        thread: "thread-1",
+        reply: QuestionReply::Text("1"),
+        now_ms: 150,
+        window: ReplyWindow { offered_at_ms: 100, expires_at_ms: 200 },
+        envelope: ReplyEnvelope {
+            is_from_me: false,
+            confirmed_self_thread: false,
+            emitted_by_chief: false,
+            sent_at_ms: Some(140),
+            associated_message_type: None,
+        },
+    }
+}
+
+#[test]
+fn connector_observations_reject_echoes_but_accept_confirmed_self_thread() {
+    let prompt = prompt(question());
+    let check = |event| prompt.resolve_observed(&identity(), Some(prompt.question()), event);
+    assert_eq!(check(observed()), resolve(&prompt, "1"));
+    let mut event = observed();
+    event.envelope.is_from_me = true;
+    assert_eq!(check(event), Err(ReplyError::Echo));
+    event.envelope.confirmed_self_thread = true;
+    assert_eq!(check(event), resolve(&prompt, "1"));
+    event.envelope.emitted_by_chief = true;
+    assert_eq!(check(event), Err(ReplyError::Echo));
+}
+
+#[test]
+fn connector_observations_reject_missing_old_future_and_expired_times() {
+    let prompt = prompt(question());
+    let check = |event| prompt.resolve_observed(&identity(), Some(prompt.question()), event);
+    for sent in [None, Some(99), Some(151)] {
+        let mut event = observed();
+        event.envelope.sent_at_ms = sent;
+        assert_eq!(check(event), Err(ReplyError::Stale));
+    }
+    let mut event = observed();
+    event.now_ms = 200;
+    assert_eq!(check(event), Err(ReplyError::Stale));
+    event = observed();
+    event.window.expires_at_ms = event.window.offered_at_ms;
+    assert_eq!(check(event), Err(ReplyError::Stale));
+}
+
+#[test]
+fn connector_tapback_removals_and_summary_text_never_become_choices() {
+    let prompt = prompt(question()).with_tapback("sent-message".into(), Tapback::Like, 1).unwrap();
+    let check = |event| prompt.resolve_observed(&identity(), Some(prompt.question()), event);
+    let mut event = observed();
+    event.reply = QuestionReply::Tapback { message_id: "sent-message", reaction: Tapback::Like };
+    event.envelope.associated_message_type = Some(2001);
+    assert_eq!(check(event), resolve(&prompt, "1"));
+    for removal in [3000, 3001, 3005, 4000] {
+        event.envelope.associated_message_type = Some(removal);
+        assert_eq!(check(event), Err(ReplyError::RemovedTapback));
+    }
+    event = observed();
+    event.envelope.associated_message_type = Some(2001);
+    assert_eq!(check(event), Err(ReplyError::UnboundTapback));
 }
