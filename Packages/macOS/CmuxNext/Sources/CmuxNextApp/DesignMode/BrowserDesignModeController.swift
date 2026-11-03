@@ -9,7 +9,7 @@ import ImageIO
 import UniformTypeIdentifiers
 
 /// Design mode in browser panes (plans/cmux-next/design-mode-DESIGN.md): turns it on and off for a
-/// tab (`toggleBrowserDesignMode`: the toolbar button, the palette, Ctrl-Opt-Cmd-D and the CLI all
+/// tab (`toggleBrowserDesignMode`: the toolbar button, the palette, Ctrl-Opt-Cmd-E and the CLI all
 /// run this one path), and sends each new highlight as a card to the Chief's Home composer shown in
 /// the browser's window, else to the agent chat of the browser's workspace whose pane was focused last.
 @MainActor
