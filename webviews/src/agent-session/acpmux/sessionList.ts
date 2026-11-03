@@ -259,6 +259,7 @@ export type SessionMark = "input" | "running" | "error" | "unread" | undefined;
 /** Cuts acpmux's session summary down to the fields the pane uses. */
 export function sessionEntry(session: Record<string, any> & { sessionId: string }): AcpmuxSessionEntry {
   const pending = Number(session.pendingPermissions ?? 0);
+  const turn = chiefTurn(session.tags);
   return {
     sessionId: session.sessionId,
     displayTitle: sessionTitle(session),
@@ -293,8 +294,11 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     spawnedBy: text(session.spawnedBy),
     startedBy: text(session.startedBy),
     reportsTo: tagValue(session.tags, REPORTS_TO_TAG),
-    ...(chiefParent(session.tags) && { chiefChild: true as const, chiefHome: tagValue(session.tags, CHIEF_PARENT_TAG) }),
-    ...(chiefTurn(session.tags) && { chiefTurn: chiefTurn(session.tags) }),
+    ...(chiefParent(session.tags) && {
+      chiefChild: true as const,
+      chiefHome: tagValue(session.tags, CHIEF_PARENT_TAG),
+    }),
+    ...(turn && { chiefTurn: turn }),
     shortName: text(session.shortName),
     lane: LANES.includes(session.lane?.state) ? session.lane.state : undefined,
     queued: Number(session.queued) > 0 ? Number(session.queued) : undefined,

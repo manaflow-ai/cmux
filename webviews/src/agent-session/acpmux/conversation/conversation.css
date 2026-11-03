@@ -421,7 +421,7 @@
 .cv-user__from-avatar {
   flex: none;
   width: 14px;
-  height: 14px;
+  aspect-ratio: 1;
 }
 .cv-user__from-avatar.cv-chief-text-avatar {
   width: 14px;
