@@ -71,8 +71,11 @@ import Testing
         SystemShortcut(key: "shift+cmd+4", hotKeyID: 30, name: "Save picture of selected area as a file"),
         SystemShortcut(key: "ctrl+shift+cmd+4", hotKeyID: 31, name: "Copy picture of selected area to the clipboard"),
         SystemShortcut(key: "shift+cmd+5", hotKeyID: 184, name: "Screenshot and recording options"),
-        // macOS 26: Touch Bar picture (181, 182); macOS 27: Ask Siri about selected area (261).
-        SystemShortcut(key: "shift+cmd+6", hotKeyID: 261, name: "Ask Siri about selected area / Touch Bar picture"),
+        // The Touch Bar picture keys (ids 181 save, 182 copy) moved in macOS 27 (DefaultShortcutsTable.xml, read on
+        // macOS 26.5 and 27.0, 2026-11-03): macOS 26 has them on Shift-Cmd-6 / Ctrl-Shift-Cmd-6; macOS 27 gives
+        // Shift-Cmd-6 to Ask Siri about selected area (261) and moves them to Shift-Cmd-7 / Ctrl-Shift-Cmd-7. One row
+        // per key: Shift-Cmd-6 keeps the macOS 27 id, its name says both.
+        SystemShortcut(key: "shift+cmd+6", hotKeyID: 261, name: "Ask Siri about selected area (27) / Touch Bar picture (26, 181)"),
         SystemShortcut(key: "ctrl+shift+cmd+6", hotKeyID: 182, name: "Copy picture of the Touch Bar (macOS 26)"),
         SystemShortcut(key: "shift+cmd+7", hotKeyID: 181, name: "Save picture of the Touch Bar (macOS 27)"),
         SystemShortcut(key: "ctrl+shift+cmd+7", hotKeyID: 182, name: "Copy picture of the Touch Bar (macOS 27)"),

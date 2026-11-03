@@ -67,6 +67,48 @@ struct ChatTailCacheTests {
         }
     }
 
+    @Test func legacyBridgeWriteUsesItsPageGeneration() async {
+        Self.resetCache()
+        defer { Self.resetCache() }
+        let old = AgentPaneTailCache.shared.generation
+        AgentPaneTailCache.shared.clear()
+        AgentPaneTailCache.shared.resume()
+        let params: [String: Any] = ["sessionId": "s-1", "tail": Self.tail(3)]
+        _ = await AgentPaneTailCache.reply(to: "chat.tail", params: params, host: nil, pageGeneration: old)
+        #expect(AgentPaneTailCache.shared.tail(for: "s-1") == nil)
+        _ = await AgentPaneTailCache.reply(to: "chat.tail", params: params, host: nil,
+                                          pageGeneration: AgentPaneTailCache.shared.generation)
+        #expect(AgentPaneTailCache.shared.tail(for: "s-1") != nil)
+    }
+
+    @Test func oldProviderCannotRepostAfterSignInButCanStillRead() async throws {
+        Self.resetCache()
+        defer { Self.resetCache() }
+        let old = AgentPageProvider { _ in nil }
+        let params: JSONValue = .object(["sessionId": .string("s-1"), "tail": JSONValue(foundation: Self.tail(3))!])
+        AgentPaneTailCache.shared.clear()
+        AgentPaneTailCache.shared.resume()
+        _ = try await old.call(AgentPageOps.namespace + "chat.tail", params: params, context: Self.context)
+        #expect(AgentPaneTailCache.shared.tail(for: "s-1") == nil)
+        let newer = AgentPageProvider { _ in nil }
+        _ = try await newer.call(AgentPageOps.namespace + "chat.tail", params: params, context: Self.context)
+        #expect(AgentPaneTailCache.shared.tail(for: "s-1") != nil)
+        // A stale page's forget/hover write must not erase or replace the new lifecycle's tail.
+        _ = try await old.call(AgentPageOps.namespace + "chat.tail",
+                              params: .object(["sessionId": .string("s-1")]), context: Self.context)
+        _ = try await old.call(AgentPageOps.namespace + "chat.tail",
+                              params: .object(["sessionId": .string("s-1"), "ifNewer": .bool(true),
+                                               "tail": JSONValue(foundation: Self.tail(5))!]), context: Self.context)
+        let read = try await old.call(AgentPageOps.namespace + "chat.tail.get",
+                                      params: .object(["sessionId": .string("s-1")]), context: Self.context)
+        #expect(Self.seqs(read.foundationObject) == [1, 2, 3])
+        let snapshot = Self.tail(2)
+        old.tailHost = SnapshotHost(try JSONSerialization.data(withJSONObject: snapshot))
+        let fresh = try await old.call(AgentPageOps.namespace + "chat.tail.get",
+                                       params: .object(["sessionId": .string("s-2")]), context: Self.context)
+        #expect(Self.seqs(fresh.foundationObject) == [1, 2])
+    }
+
     @Test func bothHostsForwardColdMissesBeforeHandshakeAndPreferMemory() async throws {
         Self.resetCache()
         defer { Self.resetCache() }
@@ -313,6 +355,8 @@ struct ChatTailCacheTests {
         // The routing AND how it decides: a `hasPrefix("chat.tail")` here would still mention the
         // type and still open the chat, while taking a later `chat.tail.forget` as a write and
         // erasing the tail. `handles(method:)` is the one that names its ops.
+        #expect(body.contains("pageGeneration: generation"))
+        #expect(source.contains("private let tailGeneration = AgentPaneTailCache.shared.generation"))
         #expect(body.contains("AgentPaneTailCache.handles(method:"),
                 """
                 AgentPaneBridge.userContentController no longer routes chat.tail to \
