@@ -68,6 +68,26 @@ class LoadedTests(unittest.TestCase):
         self.assertAlmostEqual(result["roles"]["total"]["idle_wakeups_per_s"], 6.0)
         self.assertAlmostEqual(result["roles"]["total"]["wakeups_per_s"], 15.0)  # idle 2 + interrupt 3, three processes
 
+    def test_footprint_read_as_zero_is_unread_not_zero(self):
+        # A display run read 0 MB for 24 of 46 live renderers and summed them as 0 (7.3 GB, not ~13).
+        clock = FakeClock()
+        saved = (bp.time, bp.bm.owned, bp.usage_v6, bp.main_thread_ns)
+        try:
+            bp.time = clock
+            bp.bm.owned = lambda pid, bundle: {1: ("app", "app"), 2: ("cef-renderer", "r"), 3: ("cef-renderer", "r")}
+            bp.usage_v6 = lambda pid: (0, int(1e8 * clock.now), 0, 0, 0 if pid == 3 else 100 * 1048576)
+            bp.main_thread_ns = lambda pid: None
+            result = bp.measure_processes(1, "/x.app", "idle-chats", 5, {2: "cef-renderer: agent", 3: "cef-renderer: agent"}, set())
+        finally:
+            bp.time, bp.bm.owned, bp.usage_v6, bp.main_thread_ns = saved
+        unread = next(r for r in result["processes"] if r["pid"] == 3)
+        self.assertIsNone(unread["footprint_mb"])
+        agent = result["roles"]["cef-renderer: agent"]
+        self.assertEqual((agent["footprint_mb"], agent["footprint_unread"]), (100.0, 1))
+        self.assertEqual(result["roles"]["total"]["footprint_unread"], 1)
+        rows, _ = bp.process_rows({**result, "label": "idle-chats"}, 5.0)
+        self.assertTrue(any(row.startswith("| cef-renderer: agent | 3 |") and "|  |  |" in row for row in rows))
+
     def test_perf_rows(self):
         before = {"roles": {"total": {"cpu_pct": 70.0, "footprint_mb": 2000.0, "main_thread_pct": None}}}
         after = {"roles": {"total": {"cpu_pct": 35.0, "footprint_mb": 2100.0, "main_thread_pct": None}}}

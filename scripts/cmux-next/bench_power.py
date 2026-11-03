@@ -391,7 +391,10 @@ def measure_processes(app_pid: int, bundle: str, label: str, seconds: float, rol
         span = t1 - t0
         steps = [100 * (b[1][1] - a[1][1]) / 1e9 / (b[0] - a[0]) for a, b in zip(samples, samples[1:]) if b[0] > a[0]]
         role = "app" if kind == "app" else roles.get(pid, kind)
-        rows.append({"pid": pid, "kind": kind, "role": role, "footprint_mb": round(u1[4] / MB, 1),
+        # The largest footprint the window read. A live process never has none: a 0 is a read that
+        # failed (24 of 46 renderers in one display run), so it counts as unread, not as 0 MB.
+        footprint = max(sample[1][4] for sample in samples)
+        rows.append({"pid": pid, "kind": kind, "role": role, "footprint_mb": round(footprint / MB, 1) if footprint else None,
                      "cpu_pct": round(100 * (u1[1] - u0[1]) / 1e9 / span, 3), "cpu_p95_pct": round(percentile(steps, 0.95), 3),
                      "idle_wakeups_per_s": round((u1[2] - u0[2]) / span, 2),
                      "interrupt_wakeups_per_s": round((u1[3] - u0[3]) / span, 2),
@@ -413,7 +416,8 @@ def measure_processes(app_pid: int, bundle: str, label: str, seconds: float, rol
         lists = steps_by_role.get(role) or [[]]
         summed = [sum(values) for values in zip(*lists)]  # the role's CPU per 1 s step
         main = [row["main_thread_pct"] for row in members if row["main_thread_pct"] is not None]
-        totals[role] = {"count": len(members), "footprint_mb": round(sum(r["footprint_mb"] for r in members), 1),
+        totals[role] = {"count": len(members), "footprint_mb": round(sum(r["footprint_mb"] or 0 for r in members), 1),
+                        "footprint_unread": sum(1 for r in members if r["footprint_mb"] is None),
                         "cpu_pct": round(sum(r["cpu_pct"] for r in members), 3), "cpu_p95_pct": round(percentile(summed, 0.95), 3),
                         "idle_wakeups_per_s": round(sum(r["idle_wakeups_per_s"] for r in members), 2),
                         "interrupt_wakeups_per_s": round(sum(r["interrupt_wakeups_per_s"] for r in members), 2),
@@ -421,6 +425,7 @@ def measure_processes(app_pid: int, bundle: str, label: str, seconds: float, rol
                         "main_thread_pct": round(sum(main), 3) if main else None}
     for role, entry in totals.items():
         print(f"PERF-IDLE-COST {label} role={role!r} n={entry['count']} footprint_mb={entry['footprint_mb']} "
+              f"footprint_unread={entry['footprint_unread']} "
               f"cpu_pct={entry['cpu_pct']} cpu_p95_pct={entry['cpu_p95_pct']} idle_wakeups_per_s={entry['idle_wakeups_per_s']} "
               f"interrupt_wakeups_per_s={entry['interrupt_wakeups_per_s']} wakeups_per_s={entry['wakeups_per_s']} main_thread_pct={entry['main_thread_pct']}", flush=True)
     return {"label": label, "seconds": round(seconds, 1), "roles": totals, "processes": rows}
@@ -557,9 +562,12 @@ def run_loaded(args):
         if label == "idle-chats":
             # After the window, so it costs the measurement nothing: what the shown chat's page asks
             # for while nobody touches it, by call site (idleProbe.ts), for the idle loop's source.
-            probe = rpc(sock, "debug.agent_pane", {"action": "idle_probe", "ms": 10000}, timeout=45)
-            result["idle_probe"] = probe
-            print(f"PERF-IDLE-PROBE {json.dumps(probe)[:20000]}", flush=True)
+            # Three windows of 3.5 s: a Chromium page's script call ends at 5 s (Runtime.evaluate).
+            result["idle_probe"] = []
+            for _ in range(3):
+                probe = rpc(sock, "debug.agent_pane", {"action": "idle_probe", "ms": 3500}, timeout=20)
+                result["idle_probe"].append(probe)
+                print(f"PERF-IDLE-PROBE {json.dumps(probe)[:20000]}", flush=True)
         result["renderer_roles"] = "debug.cef_pages" if pages is not None else "none (a build without debug.* methods)"
         sha = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True).stdout.strip()
         model = subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip()
