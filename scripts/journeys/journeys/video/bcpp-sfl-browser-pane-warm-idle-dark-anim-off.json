@@ -568,6 +568,29 @@
    "name": "bcpp-sfl-browser-pane-warm-idle-dark-anim-off",
    "tail": 0.6,
    "title": "stop the recording (sf-newtab-default-openbrowser-warm-idle-dark-anim-off); its files go to the result"
+  },
+  {
+   "do": "type",
+   "text": "echo sf-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "since": "done",
+   "timeout": 15,
+   "title": "after the presses the app still answers: the line shows in the app, the daemon and the frame",
+   "all": [
+    {
+     "app_text_contains": "sf-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "sf-done-${nonce}"
+    }
+   ]
   }
  ]
 }
