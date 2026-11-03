@@ -374,13 +374,19 @@ fn machine_adds_switches_leave_json_to_the_global_output_mode() {
         vec!["machine", "add", "--wait", "--json"],
         vec!["machine", "vault", "ls", "--cloud-token-stdin", "--json"],
     ] {
-        let (global, rest) = crate::cli::parse_globals(&words(&args)).ok().expect("parses");
+        let (global, rest) = match crate::cli::parse_globals(&words(&args)) {
+            Ok(parsed) => parsed,
+            Err((error, _)) => panic!("{args:?}: {}", error.0),
+        };
         assert_eq!(global.output, OutputMode::Json, "{args:?}");
         assert!(!rest.contains(&"--json".to_owned()), "{args:?}: {rest:?}");
         assert!(parsed(&rest.iter().map(String::as_str).collect::<Vec<_>>()).is_some_and(|r| r.is_ok()), "{rest:?}");
     }
     // Elsewhere `--bootstrap` keeps its value (`cloud new-machine --bootstrap NAME`).
     let (_, rest) =
-        crate::cli::parse_globals(&words(&["cloud", "new-machine", "--bootstrap", "--json"])).ok().unwrap();
+        match crate::cli::parse_globals(&words(&["cloud", "new-machine", "--bootstrap", "--json"])) {
+            Ok(parsed) => parsed,
+            Err((error, _)) => panic!("{}", error.0),
+        };
     assert_eq!(rest, words(&["cloud", "new-machine", "--bootstrap", "--json"]));
 }
