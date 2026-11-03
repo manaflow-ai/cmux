@@ -10,7 +10,9 @@ import CmuxNextDesign
 /// (Leo 2026-10-30: "I don't like the non-glassness"). A web page's CSS glass
 /// sees nothing of the sidebar behind its view, so the page alone could paint
 /// only a flat fill. Under Reduce Transparency the surface is the opaque
-/// elevated fill, as every card's.
+/// elevated fill, as every card's. Its veil takes the theme's glass tint
+/// (``CardSurfaceView/takesThemeTint``): over a themed sidebar the neutral
+/// gray read as an unthemed card (Leo 2026-11-02).
 ///
 /// The x is native, over the page's top right, shown while the pointer is on
 /// the card (Lawrence 2026-10-23: "i cant X this out anymore even when hovering
@@ -72,6 +74,8 @@ final class SidebarUpdatedCardHost: NSView {
         super.init(frame: frame)
         isHidden = true
         setAccessibilityElement(false)
+        // The theme's surface, not the neutral gray (Leo 2026-11-02: "why is the update thing unthemed").
+        surface.takesThemeTint = true
         addSubview(surface)
         closeButton.showsLabelToolTip = false
         closeButton.takesKeyFocus = true

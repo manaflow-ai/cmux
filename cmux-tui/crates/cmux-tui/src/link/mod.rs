@@ -618,11 +618,10 @@ async fn serve(
 /// Bind the local socket at mode 0600 in a 0700 directory, replacing a
 /// stale socket but never a live one.
 fn bind_local(path: &Path) -> anyhow::Result<tokio::net::UnixListener> {
-    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    use std::os::unix::fs::PermissionsExt;
     if let Some(parent) = path.parent() {
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
         // Never bind in a folder another user or a symlink put there.
-        state::check_socket_dir(parent)?;
+        state::ensure_socket_dir(parent)?;
     }
     if path.exists() {
         if std::os::unix::net::UnixStream::connect(path).is_ok() {

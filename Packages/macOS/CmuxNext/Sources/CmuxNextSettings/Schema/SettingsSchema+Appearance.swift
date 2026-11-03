@@ -46,6 +46,28 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["theme", "custom", "edit", "color", "colour", "palette", "background", "foreground", "cursor", "selection"]
             ),
             SettingDescriptor(
+                ThemeFavoritesSetting().configPath, section: .appearance, group: appTheme,
+                title: SettingsText.keyed("settings.appearance.favoriteThemes", "Starred Themes"),
+                help: SettingsText.keyed("settings.appearance.favoriteThemes.help",
+                                        "Themes starred in a theme picker. The picker lists them first."),
+                kind: .stringList, default: .array([]),
+                keywords: ["theme", "star", "starred", "favorite", "favourite", "pin"]
+            ).hiddenFromPalette("a theme picker's stars edit it: a list of theme names"),
+            SettingDescriptor(
+                ThemeFavoritesSetting().rotationPath, section: .appearance, group: appTheme,
+                title: SettingsText.keyed("settings.appearance.rotateFavoriteThemes", "Rotate Starred Themes"),
+                help: SettingsText.keyed("settings.appearance.rotateFavoriteThemes.help",
+                                        "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on."),
+                summary: SettingsText.keyed("settings.appearance.rotateFavoriteThemes.summary", "Change to the next starred theme"),
+                kind: .choice([
+                    SettingChoice(ThemeFavoritesSetting.Rotation.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(ThemeFavoritesSetting.Rotation.launch.rawValue, SettingsText.keyed("settings.choice.eachLaunch", "Each Launch")),
+                    SettingChoice(ThemeFavoritesSetting.Rotation.daily.rawValue, SettingsText.keyed("settings.choice.everyDay", "Every Day")),
+                ]),
+                default: .string(ThemeFavoritesSetting.Rotation.off.rawValue),
+                keywords: ["theme", "rotate", "rotation", "shuffle", "starred", "favorite", "daily", "launch"]
+            ),
+            SettingDescriptor(
                 AccentSetting().configPath, section: .appearance, group: appTheme,
                 title: SettingsText.keyed("settings.appearance.accent", "Accent"),
                 help: SettingsText.keyed("settings.appearance.accent.help",

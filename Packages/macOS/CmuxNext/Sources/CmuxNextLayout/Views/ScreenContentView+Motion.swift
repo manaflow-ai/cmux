@@ -60,6 +60,9 @@ extension ScreenContentView {
         }
         if !moving { scrollRidesFrames = false }
         applyPresentation()
+        // The key resize's spring landed (the hosts laid their content out at rest in this pass): the next motion
+        // resizes content live again unless another key press holds it.
+        if !moving { holdsContentForKeyResize = false }
         // The motion landed: the hosts a close retired are torn down in this frame, not in its first.
         if !moving { context.releaseRetired(of: screenID) }
         return moving
@@ -96,11 +99,11 @@ extension ScreenContentView {
     /// pass and commit of the moved panes) per frame. The frame's first event still shows in its
     /// own turn, so a pan of about one event per frame shows each event as soon as before.
     func presentPan() {
-        panTicksLeft = Self.panTickTail
-        if panPresentedInFrame {
-            panPresentationPending = true
+        frameInput.panTicksLeft = Self.panTickTail
+        if frameInput.panPresentedInFrame {
+            frameInput.panPresentationPending = true
         } else {
-            panPresentedInFrame = true
+            frameInput.panPresentedInFrame = true
             applyPresentation()
         }
         // The tick that opens the next frame (and shows a waiting event).
@@ -111,13 +114,13 @@ extension ScreenContentView {
     /// that waited in the last frame show now. Returns true while a pan in progress keeps the frame
     /// ticks (``panTickTail`` frames after its last event).
     func displayFrameBegan() -> Bool {
-        panPresentedInFrame = false
-        if panPresentationPending { applyPresentation() }
-        guard panTicksLeft > 0, isUserScrolling else {
-            panTicksLeft = 0
+        frameInput.panPresentedInFrame = false
+        if frameInput.panPresentationPending { applyPresentation() }
+        guard frameInput.panTicksLeft > 0, isUserScrolling else {
+            frameInput.panTicksLeft = 0
             return false
         }
-        panTicksLeft -= 1
+        frameInput.panTicksLeft -= 1
         return true
     }
 
@@ -141,8 +144,13 @@ extension ScreenContentView {
     /// nothing asks for no overlay sync and no hover refresh (`PaneMotionBench`, perf-lead issue 3).
     /// `force` (or a structural change's `forcesPresentation`): everything is re-placed and the overlay syncs.
     func applyPresentation(force: Bool = false) { // perf-hot: 4ms motion-frame
-        // Every presentation shows the latest pan: no pan event waits after it.
-        panPresentationPending = false
+        // The frame tick's input: the pass waits for the frame's one presentation (`LayoutFrameInput`).
+        if context.holdsPresentations {
+            (frameInput.presentationWaiting, forcesPresentation) = (true, forcesPresentation || force)
+            return
+        }
+        // Every presentation shows the latest pan and the frame's input: nothing waits after it.
+        (frameInput.panPresentationPending, frameInput.presentationWaiting) = (false, false)
         presentationPasses += 1
         let force = force || forcesPresentation
         forcesPresentation = false

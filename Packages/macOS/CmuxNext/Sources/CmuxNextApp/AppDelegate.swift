@@ -330,7 +330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 bundleID: bundleID
             )
         )
-        settings.start(announcingDiagnostics: true)
+        settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [firstFrame] in await firstFrame.opened() })
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.mobile.follow(settings, launch: services.environment.launch, configureAdmission: services.iphone.followPhoneAccess)
@@ -551,8 +551,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings?.stop()
         services?.mobile.stop()
         services?.iphone.stop()
+        services?.dockMenu.stop()
         services?.daemon.shutdownConnection()
     }
+
+    /// The Dock icon's menu, from rows the controller already holds: it never waits on acpmux or disk.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? { services?.dockMenu.menu() }
 
     /// The app stays running with no windows (standard macOS behavior): a window closes when its
     /// last workspace closes, and the daemon keeps every terminal regardless.

@@ -80,6 +80,11 @@ struct PlacementStaleRowsGalleryTests {
             if mode == 'fail':
                 print(json.dumps({'id': request['id'], 'ok': False, 'error': 'placement refused'}), flush=True)
                 continue
+            if mode == 'gone' and request['workspace_key'] == 'k2':
+                # k2 closed before its placement ran: the daemon's answer to workspace.place for an id it has no more.
+                print(json.dumps({'id': request['id'], 'ok': False, 'error': {'code': 'selector.not_found', 'message': 'no workspace matches "ws_k2"',
+                                  'details': {'scope': 'workspace', 'selector': 'ws_k2'}}}), flush=True)
+                continue
             key, index = request['workspace_key'], request['index']
             order.remove(key)
             order.insert(min(index, len(order)), key)

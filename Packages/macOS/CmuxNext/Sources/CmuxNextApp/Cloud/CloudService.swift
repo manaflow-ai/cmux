@@ -37,6 +37,8 @@ final class CloudService {
     @ObservationIgnored let paths: CloudPaths
     /// One app-lifetime owner of confirmed, per-account Codex delivery.
     let codexBroker: CloudCodexBrokerAdapter
+    /// The Release login copy's remote off switch (CloudService+LoginCopy.swift).
+    @ObservationIgnored let harnessLoginCopySwitch = CloudHarnessLoginCopySwitch()
     @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
     /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
@@ -70,7 +72,7 @@ final class CloudService {
     @ObservationIgnored let hands: HandsService
     @ObservationIgnored private let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
-    var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits) }
+    var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits, makesRoom: configuration.linkSource == .appServer) }
     /// The plan's machine sizes a person's create offers, from the last machine list: its limits'
     /// sizes and the rates the server gave listed machines of the same size. Read from the list
     /// itself, so a machine this Mac could not connect to still gives its size a rate.
@@ -113,6 +115,9 @@ final class CloudService {
     /// The person's confirmation of a create (set by AppServices: a sheet in the active window, or the
     /// sidebar card for an agent's or a script's request while that sidebar shows); none answers false.
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
+    /// At the plan's cap: the card's pick for a person's create (nil: Not now), and the notice naming the machine paused to make room.
+    @ObservationIgnored var chooseAtCap: (@MainActor (CloudMachineCap) async -> CloudMachineCap.Choice?)?
+    @ObservationIgnored var madeRoom: (@MainActor (String) -> Void)?
     @ObservationIgnored let approvalHolds = CloudApprovalHolds()  // the holds the person's feed shows answered
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
@@ -163,7 +168,7 @@ final class CloudService {
         self.machines = machines
         self.mainWork = mainWork
         self.work = work
-        configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
+        configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild) // a capture build's bench hooks: CloudConfiguration.benchHooksCompiled
         auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture)
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
         deviceID = CloudDeviceID(paths: paths, work: work)
@@ -336,8 +341,8 @@ final class CloudService {
             // must fence the old Native mesh and link before reconnecting.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
                 if accountScope != nil {
-                    // Sign-out revoked the WireGuard peer and parked the hub.
-                    await self.hub?.resume()
+                    AgentPaneTailCache.shared.resume()
+                    await self.hub?.resume() // sign-out revoked the WireGuard peer and parked the hub
                     // Another account's machines, connections and share installs end first (its next share binds this one).
                     let switched = await self.link.sessionBegan(user: self.auth.user?.id, team: self.auth.teamID)
                     if switched { self.dropAllMachines() }
@@ -440,8 +445,8 @@ final class CloudService {
     }
 
     /// The quit coordinator awaits this before AppKit may terminate the
-    /// process, while Cloud transports can still erase delivered access.
-    func prepareForTermination() async { await codexBroker.shutdown() }
+    /// process. Delivered Codex access stays on each Cloud machine (#33482).
+    func prepareForTermination() async { await codexBroker.detachForQuit() }
 
     /// Serves the `credential` family on the local daemon: answers its
     /// calls on the connection that sent them, and registers again after
@@ -718,14 +723,14 @@ final class CloudService {
     /// Creates a machine and connects to it. Returns its session.
     /// `creation` moves to its `creating` stage when the request is sent.
     /// `startedByPerson`: the person's own gesture in this app; any other
-    /// create goes out at once on a paid plan (a Free or full plan gets the upgrade card; the opt-in `cloud.askBeforeAgentCreate` asks first) (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
+    /// create goes out at once on a paid plan (a person's create at the cap gets the cap card, ``CloudMachineCap``; the opt-in `cloud.askBeforeAgentCreate` asks first) (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
     /// `request`: `cloud new-machine`'s size and idle pause, sent with the create (the legacy
     /// `/api/vm` create only; the app server's create refuses them for now). A server that did
     /// not store the idle pause gets it through `PUT /api/vm/{id}/idle-pause` right after.
     /// `proceed` runs once the server answered, before anything else about the new machine (its
     /// idle pause, joining this Mac's list, connecting): its throw (the account that asked is no
     /// longer signed in) leaves it out.
-    func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: String? = nil,
+    func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, capCard: Bool = true, askedBy: String? = nil,
                        request: CloudMachineRequest = CloudMachineRequest(),
                        onAppServerSent: (@MainActor @Sendable (String) async throws -> Void)? = nil,
                        proceed: () throws -> Void = {}) async throws -> CloudMachineSession {
@@ -763,11 +768,18 @@ final class CloudService {
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
         let idlePause = request.persistent ? 0 : nil
-        var machine = configuration.linkSource == .appServer
+        var machine = try await CloudMachineCap.creating(person: startedByPerson && capCard, cap: { [weak self] error in
+            guard case CloudMachineCreateFlow.Failure.upgradeRequired(let reason) = error else { return CloudMachineCap.refusal(error) }
+            return self.map { CloudMachineCap.plan(freePlan: reason == .freePlan, pauseFrees: reason == .pool, machines: $0.machines.cloud.map(\.machine), user: $0.auth.user?.id) }
+        }, choose: { [weak self] in await self?.chooseAtCap?($0) },
+                                                         pause: { [weak self] in try await self?.pauseMachine($0) }) { again in
+            var request = request // after a Pause, a new key: the first one's stored answer is the refusal
+            if again { request.idempotencyKey = UUID().uuidString }
+            return configuration.linkSource == .appServer
             ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent, persistSent: onAppServerSent)
             : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"),
-                                                      // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
-                                                      gate: { [weak self, weak creation] in creation?.request.wasSent == true ? .allowed : self?.createGate ?? .allowed },
+                                                      // A request already sent once (its Retry), or the create after a Pause, goes to the server past the local plan gate.
+                                                      gate: { [weak self, weak creation] in again || creation?.request.wasSent == true ? .allowed : self?.createGate ?? .allowed },
                                                       confirm: { [weak self] in await self?.confirmCreate?($0) ?? false },
                                                       create: { [api, weak creation] in
                                                           // The first send's team, for every later call about this machine; a
@@ -777,6 +789,7 @@ final class CloudService {
                                                           creation?.markRequestSent(team: team)
                                                           return try await api.pinningTeam(team).createWithKey(name: name, request: request, idlePause: idlePause, onSent: onSent)
                                                       })
+        }
         logger.info("created machine \(machine.id, privacy: .public)")
         try proceed()
         // The machine exists either way: a failed write leaves its idle pause as the server says,
@@ -828,7 +841,7 @@ final class CloudService {
     func pauseMachine(_ machineID: String) async throws {
         try await changes.run(.pausing, machineID: machineID, of: { machines.session(machineID) },
                               onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
-            try await api.pauseMachine(machineID)
+            try await configuration.linkSource == .appServer ? CloudMachinePower.run("cloud.machine.pause", machine: machineID, ops: appOps) : api.pauseMachine(machineID)
         }
         changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("paused machine \(machineID, privacy: .public)")
     }
@@ -836,7 +849,7 @@ final class CloudService {
     func resumeMachine(_ machineID: String) async throws {
         try await changes.run(.starting, machineID: machineID, of: { machines.session(machineID) },
                               onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
-            try await api.resumeMachine(machineID)
+            try await configuration.linkSource == .appServer ? CloudMachinePower.run("cloud.machine.start", machine: machineID, ops: appOps) : api.resumeMachine(machineID)
         }
         changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("resumed machine \(machineID, privacy: .public)")
     }
@@ -869,7 +882,7 @@ final class CloudService {
 
     /// Runs when a sign-out starts, while the account's tokens still work
     /// (the device hub signs this Mac out of its sessions at once).
-    var willSignOut: [@MainActor () -> Void] = []
+    var willSignOut: [@MainActor () -> Void] = [{ AgentPaneTailCache.shared.clear() }]
 
     func signOut() async {
         signedOutCreation.cancel()
@@ -878,12 +891,12 @@ final class CloudService {
         startSessionAsks.endAll()
         for hook in willSignOut { hook() }
         await codexBroker.signOut()
-        AgentPaneTailCache.shared.clear() // the panes' chat tails: memory only, forgotten whole
         // No ensure starts from here until the session's final endLink (the
         // signed-out branch above, after auth.signOut).
         link.beginEnding()
         dropAllMachines()
         await link.endLink(final: false)
+        do { try await AcpmuxEnvironment.clearPeerTails(build: LaunchIdentity.current().build, work: work) } catch { logger.error("clear peer tails on sign-out: \(String(describing: error), privacy: .public)") }
         desktopRdTokens.removeAll()
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.

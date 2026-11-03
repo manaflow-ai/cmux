@@ -7,7 +7,8 @@
 //! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_harness_login`,
 //! one call that reads the harness and both probes' output; `cloud_start_*`:
 //! the refusal, the account checks and the folder a start may copy;
-//! `cloud_folder_too_broad`, `cloud_vm_kind`, `cloud_login_fingerprint`; and
+//! `cloud_folder_too_broad`, `cloud_vm_kind`, `cloud_login_fingerprint`;
+//! `cloud_ask_answer`, `cloud_ask_first`: who may answer an agent's Cloud ask; and
 //! `cloud_harness_login_provider`, `cloud_guest_kind`, `cloud_guest_kind_probe`,
 //! kept for an app pinned before `cloud_harness_login` read them itself),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
@@ -16,7 +17,9 @@
 //! `focus_input_step`, `focus_debug_window`), the window focus machine
 //! (`cmux_focus_*`, [`focus`]: a handle per window, typed events and
 //! replies, no JSON), the close successor rules (`cmux_close_focus_*`,
-//! [`close_focus`]: typed, one call per close),
+//! [`close_focus`]: typed, one call per close), agent cursor visibility for
+//! the app (`cmux_agent_cursor_visibility`, [`agent_cursor`]: typed, no JSON,
+//! per input event and per motion frame),
 //! the sidebar document mirror (`cmux_sidebar_mirror_*`, [`sidebar_mirror`]),
 //! the sidebar row face (`cmux_sidebar_face_*`, [`sidebar_face`]: typed
 //! requests and replies, no JSON), and the column scroll reducer
@@ -27,8 +30,10 @@ use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_layout};
 use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+pub mod agent_cursor;
 pub mod close_focus;
 pub mod focus;
+mod imessage;
 pub mod scroll;
 pub mod sidebar_face;
 pub mod sidebar_mirror;
@@ -108,6 +113,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
     let operation = unsafe { std::ffi::CStr::from_ptr(operation) }.to_bytes();
     let result = catch_unwind(AssertUnwindSafe(|| {
         let response = match operation {
+            b"imessage" => imessage::respond(request)?,
             b"base_y" => {
                 #[derive(serde::Deserialize)]
                 struct BaseY {
@@ -189,6 +195,37 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 );
                 serde_json::to_vec(&serde_json::json!({ "refusal": refusal }))
                     .map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_ask_answer" => {
+                use cmux_cloud_start_core::ask;
+                #[derive(serde::Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                struct Request {
+                    #[serde(default)]
+                    origin: Option<String>,
+                    #[serde(default)]
+                    agent_session: Option<String>,
+                    delegated: bool,
+                    selection: String,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let caller =
+                    ask::caller(request.origin.as_deref(), request.agent_session.as_deref());
+                let choice = ask::choice(&request.selection);
+                let verdict = choice.map(|choice| ask::answer(caller, request.delegated, choice));
+                serde_json::to_vec(&serde_json::json!({
+                    "caller": caller, "choice": choice, "verdict": verdict,
+                }))
+                .map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_ask_first" => {
+                #[derive(serde::Deserialize)]
+                struct Request {
+                    delegated: bool,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let asks = cmux_cloud_start_core::ask::agent_asks_first(request.delegated);
+                serde_json::to_vec(&serde_json::json!({ "asks": asks })).map_err(|_| ERR_INVALID)?
             }
             b"cloud_start_account_text" => {
                 #[derive(serde::Deserialize)]

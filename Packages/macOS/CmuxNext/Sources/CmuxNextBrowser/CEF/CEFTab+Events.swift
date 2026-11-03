@@ -39,6 +39,8 @@ extension CEFTab {
                 documentDidPaint()
             }
         case .loadStart(_, let url, let fromPost):
+            // A new document: the link the pointer was over is gone (Chrome clears its bubble too).
+            if linkStatus != nil { linkStatus = nil }
             if navigation == nil || !state.isLoading {
                 let id = makeNavigationID()
                 navigation = id
@@ -75,9 +77,8 @@ extension CEFTab {
             restored.documentLoaded()
             // Mixed content shows up while the page loads subresources.
             syncSecurityFromChromium()
-            // Extensions finish loading after the first window exists and
-            // badges are per page; refresh cheaply on each document load.
-            refreshExtensionActions()
+            // Extensions load after the first window and badges are per page: read on each load, at once only on screen.
+            runtime.extensionActionReads.refresh(self)
         case .loadError(_, let code, let text, let url, let chromiumInterstitial):
             clearTitleBeforeCommit()
             let error = Self.loadError(code: code, text: text, url: url, chromiumInterstitial: chromiumInterstitial)
@@ -138,6 +139,9 @@ extension CEFTab {
         case .beforeUnloadDismissed: beforeUnloadDismissed()
         case .devToolsMessage(_, let json):
             agentRelay.deliver(json)
+        case .statusMessage(_, let text):
+            let status = text.isEmpty ? nil : text
+            if linkStatus != status { linkStatus = status }
         default:
             break
         }
@@ -271,17 +275,18 @@ extension CEFTab {
 
     func refreshExtensionActions() {
         guard let browserID, let shim = runtime.shim, runtime.forkAPIVersion >= 1 else { return }
-        let json = shim.takeString(shim.extActions(browserID, CEFExtensionAction.iconPixels)) ?? "[]"
-        let actions = CEFExtensionAction.decodeList(json)
+        let actions = CEFExtensionAction.decodeList(shim.takeString(shim.extActions(browserID, CEFExtensionAction.iconPixels)) ?? "[]")
         if actions != extensionActions { extensionActions = actions }
     }
+
+    /// An extension command names this tab (the CLI, the palette): its store refreshes, and actions that changed while it was hidden are read now.
+    public func readExtensionsForCommand() { extensionStore.refresh(); runtime.extensionActionReads.readIfStale(self) }
 
     public var extensionStore: BrowserExtensionStore { runtime.extensionStores.readyStore(for: profileID) }
 
     public func runExtensionAction(_ id: String, anchor: CGRect) {
         guard let browserID else {
-            // The click came before the page's browser exists (right after
-            // launch): run it from `attach(browser:)`.
+            // A click before the page's browser exists (right after launch) runs from `attach(browser:)`.
             pendingExtensionAction = (id, anchor)
             return
         }

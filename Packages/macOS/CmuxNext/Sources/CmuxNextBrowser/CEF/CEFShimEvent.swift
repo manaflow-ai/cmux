@@ -105,6 +105,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// A `cmux_shim_tab_evaluate` answer (EVALUATE_RESULT, fork API 29): `status` 1 value, 0
     /// exception, -1 no result (renderer ended, navigated away), -2 refused world name.
     case evaluateResult(token: Int32, status: Int, value: String)
+    /// The text Chromium shows for the hovered link (STATUS_MESSAGE); empty when the pointer left it.
+    case statusMessage(browser: Int32, text: String)
     case unknown(kind: Int32)
 
     /// A load event of a tab's main frame (``CEFTab/handle(_:)``).
@@ -177,6 +179,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
                                acceptTypes: s1.split(separator: "\n").map(String.init), defaultPath: s2)
         case 49: self = .pageMessage(browser: browser, mainFrame: a == 1, channel: s1, payload: s2)
         case 50: self = .evaluateResult(token: request, status: Int(a), value: s1)
+        case 51: self = .statusMessage(browser: browser, text: s1)
         default: self = .unknown(kind: kind)
         }
     }
