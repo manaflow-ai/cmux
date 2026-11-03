@@ -96,6 +96,8 @@ class WebLintPrePushTests(unittest.TestCase):
         self.repo.mkdir()
         self.git("init", "--quiet", "--initial-branch=feat-cmux-next")
         self.git("remote", "add", "origin", str(self.origin))
+        # The fixture's origin is a local bare repository, not manaflow-ai/cmux: name it reviewed, as a mirror would be.
+        self.git("config", "--add", "cmux.reviewedRemote", "origin")
         self.copy_sources()
         self.write("webviews/package.json", WEBVIEWS_PACKAGE)
         self.write("webviews/check-lanes.sh", CHECK_LANES)
@@ -500,6 +502,47 @@ class WebLintPrePushTests(unittest.TestCase):
                 self.assertFalse(marker.exists(), "a later push ran the check code the first push changed")
                 self.assertIn("not linted here", result.stderr)
                 self.assertIn("scripts/cmux-next/check_x.py", result.stderr)
+
+    def test_a_push_to_a_fork_never_trusts_the_forks_own_branches(self):
+        # A fork's feat-cmux-next and HEAD are whatever its owner pushed, so they never decide what is reviewed: the
+        # change to check code on the fork is still measured from the reviewed origin.
+        self.seed_reviewed_check()
+        marker = self.root / "pushed-code-ran"
+        fork = self.root / "fork.git"
+        subprocess.run(["git", "init", "--quiet", "--bare", "--initial-branch=feat-cmux-next", str(fork)],
+                       env=self.env, check=True, capture_output=True)
+        self.git("remote", "add", "fork", str(fork))
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.write("scripts/cmux-next/check_x.py", f"open({str(marker)!r}, 'w').close()\n")
+        self.commit("change the check")
+        seeded = subprocess.run(["git", "-C", str(self.repo), "push", "--no-verify", "fork", "topic",
+                                 "topic:feat-cmux-next"], env=self.env, text=True, capture_output=True)
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        self.git("fetch", "--quiet", "fork")
+        self.git("remote", "set-head", "fork", "feat-cmux-next")
+
+        for number, env in enumerate(({}, LIGHT_HOST)):
+            with self.subTest(env=env):
+                self.write("webviews/src/app.ts", f"export const app = {40 + number};\n")
+                self.commit("a fixup")
+                result = subprocess.run(["git", "-C", str(self.repo), "push", "fork", "topic"],
+                                        env={**self.env, **env}, text=True, capture_output=True)
+
+                self.assertFalse(marker.exists(), "the hook trusted the fork's own feat-cmux-next")
+                self.assertIn("not linted here", result.stderr)
+                self.assertIn("scripts/cmux-next/check_x.py", result.stderr)
+
+    def test_a_clone_with_no_reviewed_remote_lints_no_check_code(self):
+        # Nothing tells what is reviewed, so every package's check code counts as the push's: fail closed.
+        self.seed_reviewed_check()
+        self.git("config", "--unset-all", "cmux.reviewedRemote")
+        self.write("webviews/src/app.ts", "export const app = 50;\n")
+        self.commit("a source change")
+
+        result = self.push()
+
+        self.assertIn("webviews: not linted here", result.stderr)
+        self.assertNotIn("reviewed check", result.stderr, "the check ran")
 
     def test_a_symlink_in_executed_code_is_never_followed(self):
         # A symlink already on the base points executed code at a source file, which a push may change.
@@ -1335,6 +1378,17 @@ class CheckPiecesTests(unittest.TestCase):
 
 class TrustBoundaryTests(unittest.TestCase):
     """The pieces of the trust boundary on their own: which changes reach check code, and which paths escape."""
+
+    def test_only_manaflow_ai_cmux_is_a_reviewed_remote_by_its_url(self):
+        lint = load_lint(SOURCE)
+        for url in ("https://github.com/manaflow-ai/cmux", "https://github.com/manaflow-ai/cmux.git",
+                    "git@github.com:manaflow-ai/cmux.git", "ssh://git@github.com/manaflow-ai/cmux"):
+            with self.subTest(url=url):
+                self.assertTrue(lint.REVIEWED_URL.search(url))
+        for url in ("https://github.com/alice/cmux.git", "https://github.com/manaflow-ai/cmux-fork",
+                    "https://github.com/manaflow-ai/cmux.git.evil", "/tmp/origin.git"):
+            with self.subTest(url=url):
+                self.assertFalse(lint.REVIEWED_URL.search(url))
 
     def test_a_change_to_a_parent_folder_of_check_code_is_a_change_to_it(self):
         lint = load_lint(SOURCE)
