@@ -8741,13 +8741,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }),
     [autoOpenSubagents],
   );
+  // Escape closes a subagent's view to the chat's, as its pill's × does (subagents/subagentEscape.ts).
+  useEscapeClosesSubagent(!quick && !!subagentView, () => setSubagentView(undefined));
   // A pane opened on a subagent shows the chat's other subagents in place, and its "Subagent of" pill goes
   // back to the chat: its tab's name follows what it shows (review of #28497 at 995299ff). Not before
   // the subagent it was opened on has shown, or the name the app gave the tab would flash away; and not
   // while this page has no rows for the subagent yet (they load after the pane opens), which would name
   // it "Subagent of" over the name the chat's page gave it.
-  // Escape closes a subagent's view to the chat's, as its pill's × does (subagents/subagentEscape.ts).
-  useEscapeClosesSubagent(!quick && !!subagentView, () => setSubagentView(undefined));
   const shownSubagentKnown = !!subagentView && freshAgents.some((agent) => agent.id === subagentView);
   const shownSubagentTitle =
     ownSubagentPane && subagentView && shownSubagentKnown ? subagentTitle(subagentView) : undefined;
