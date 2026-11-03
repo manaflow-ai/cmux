@@ -207,12 +207,8 @@ export function publicationErrorResponse(error: unknown, language?: string | nul
   if (error instanceof PublicationNotFoundError) {
     return publicationErrorJson({
       error: "vm_publication_not_found",
-      message: error.resource === "vm"
-        ? "That Cloud VM was not found in your account or is not publishable."
-        : "That Cloud VM publication was not found in your account.",
-      action: error.resource === "vm"
-        ? "Run `cmux cloud list`, then publish a running machine by its id."
-        : "Run `cmux cloud domains list` and retry with a listed publication id.",
+      message: notFoundCopy(error.resource).message,
+      action: notFoundCopy(error.resource).action,
       reason: error.resource,
     }, 404);
   }
@@ -367,6 +363,11 @@ function inputErrorCopy(error: PublicationInputError, language?: string | null):
       };
     case "reserved_port":
       return publicationApiCopy("reserved_port", language);
+    case "invalid_api_key_name":
+      return {
+        message: "An API key name must be one line of at most 64 characters.",
+        action: "Pass a short name such as ci or staging-client, or omit it.",
+      };
     case "team_required":
       return {
         message: "Team access requires a team id.",
@@ -381,6 +382,29 @@ function inputErrorCopy(error: PublicationInputError, language?: string | null):
       return {
         message: "accessMode must be personal, team, or public, and only team access accepts teamId.",
         action: "Choose personal, team, or public; include teamId only with team.",
+      };
+  }
+}
+
+function notFoundCopy(resource: PublicationNotFoundError["resource"]): {
+  readonly message: string;
+  readonly action: string;
+} {
+  switch (resource) {
+    case "vm":
+      return {
+        message: "That Cloud VM was not found in your account or is not publishable.",
+        action: "Run `cmux cloud list`, then publish a running machine by its id.",
+      };
+    case "api_key":
+      return {
+        message: "That API key was not found on this publication.",
+        action: "List the publication's API keys and retry with a listed key id.",
+      };
+    default:
+      return {
+        message: "That Cloud VM publication was not found in your account.",
+        action: "Run `cmux cloud domains list` and retry with a listed publication id.",
       };
   }
 }
@@ -450,6 +474,24 @@ function conflictCopy(reason: PublicationConflictError["reason"], language?: str
       return {
         message: "That publication is not ready for this change.",
         action: "Run `cmux cloud domains verify <id>` until it is active, then retry.",
+        status: 409,
+      };
+    case "publication_public":
+      return {
+        message: "That publication is public, so an API key would not restrict it.",
+        action: "Change its access to personal or team first, then create the API key.",
+        status: 409,
+      };
+    case "publication_access_mismatch":
+      return {
+        message: "That port is already published with different access.",
+        action: "Omit accessMode to keep its access and mint a key, or change the publication's access first.",
+        status: 409,
+      };
+    case "api_key_limit":
+      return {
+        message: "That publication already has the most API keys it can hold.",
+        action: "Revoke an API key you no longer use, then retry.",
         status: 409,
       };
     case "invalid_access_policy":

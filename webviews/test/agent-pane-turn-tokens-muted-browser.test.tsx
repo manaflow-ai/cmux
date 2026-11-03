@@ -1,6 +1,7 @@
 // The running turn's token count reads quieter than its words (agent-pane-turn-tokens-muted.test.tsx),
-// resolved in Chromium from the real stylesheets under a host theme: "Working for 35s" and
-// "Thinking" in the theme's secondary text, "· 679.9K tokens" in its tertiary, in tabular numerals.
+// resolved in Chromium from the real stylesheets under a host theme: "Thinking" in the theme's
+// secondary text, "Working for 35s" in the background activity tone (#27074: 58% of the foreground),
+// "· 679.9K tokens" in its tertiary, in tabular numerals.
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -44,12 +45,23 @@ await requireBrowserLane("agent-pane-turn-tokens-muted-browser.test.tsx", async 
             const style = (selector: string) => getComputedStyle(document.querySelector(selector)!);
             return {
               words: style(".cv-thinking, .cv-worked__label").color,
+              // `--cv-activity-text` as this page resolves it.
+              activity: (() => {
+                const probe = document.createElement("span");
+                probe.style.color = "var(--cv-activity-text)";
+                document.querySelector(".cv-thinking, .cv-worked")!.append(probe);
+                const color = getComputedStyle(probe).color;
+                probe.remove();
+                return color;
+              })(),
               tokens: style(".cv-worked__tokens").color,
               sep: style(".cv-worked__sep").color,
               numerals: style(".cv-worked__tokens").fontVariantNumeric,
             };
           });
-          expect(looks.words).toBe("rgb(160, 160, 170)");
+          // The live line keeps the muted token; the line over the turn takes the activity tone.
+          expect(looks.words).toBe(name.includes("WorkingFor.tsx") ? looks.activity : "rgb(160, 160, 170)");
+          expect(looks.words).not.toBe(looks.tokens);
           expect(looks.tokens).toBe("rgb(110, 110, 120)");
           expect(looks.sep).toBe(looks.tokens);
           expect(looks.numerals).toContain("tabular-nums");

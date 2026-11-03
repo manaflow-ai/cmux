@@ -5,14 +5,15 @@
 // opening to its Shell block. A command that went on in the background shows how it stands there
 // instead (BackgroundMark.tsx), and its time once it ends.
 import { useFindReveal } from "./chatFind";
-import { useId, useMemo, useState } from "react";
+import { memo, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { commandFolder } from "./commandFolder";
 import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
-import { Check, ChevronRight, Spinner, TerminalSquare } from "./icons";
+import { RowShimmer } from "./ShimmerText";
+import { Check, ChevronRight, TerminalSquare } from "./icons";
 import { isRunning, toolDuration } from "./toolGroups";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
@@ -21,10 +22,13 @@ import { rowFailed, toolFailure } from "./toolFailure";
 import { leadingVerb, ToolLabel } from "./ToolVerb";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 
-export function CommandRow({ item }: { item: AcpmuxActivity }) {
+// direct.ts replaces only the changed item. Keep every expanded sibling out of that stream's
+// render/output work; the row's own disclosure, Find and language subscriptions still update it.
+export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
   const tool = item.tool!;
-  const [open, setOpen] = useTranscriptDisclosure(`command:${tool.id}`);
+  // The Verbose transcript view opens the command to its output.
+  const [open, setOpen] = useTranscriptDisclosure(`command:${tool.id}`, false, true);
   // Find in Chat counts matches in the whole output, so a command it reveals shows all of it.
   const [reveal, setReveal] = useState(0);
   useFindReveal(
@@ -61,11 +65,25 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
       {short}
     </code>
   );
+  const words = tool.description ? (
+    // What the command does in a few words (Claude Code's Bash description); the raw line
+    // waits in its Shell block, opened.
+    // Find counts the command, not this, so it is not highlighted.
+    <span data-find-skip>{tool.description}</span>
+  ) : (
+    // "Ran" in the run's verb column (ToolVerb.tsx), the command after it.
+    <ToolLabel verb={after ? undefined : leadingVerb(before)} subject={line} skip>
+      {before && <span data-find-skip>{before}</span>}
+      {line}
+      {after && <span data-find-skip>{after}</span>}
+    </ToolLabel>
+  );
   return (
     <>
       <button
         type="button"
         className={`cv-tool cv-command is-toggle${running ? " is-live" : " is-strong"}`}
+        data-tool-id={tool.id}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
         ref={(node) => {
@@ -78,25 +96,13 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           <TerminalSquare />
         </span>
         <span className="cv-command__text">
-          {tool.description ? (
-            // What the command does in a few words (Claude Code's Bash description); the raw line
-            // waits in its Shell block, opened.
-            // Find counts the command, not this, so it is not highlighted.
-            <span data-find-skip>{tool.description}</span>
-          ) : (
-            // "Ran" in the run's verb column (ToolVerb.tsx), the command after it.
-            <ToolLabel verb={after ? undefined : leadingVerb(before)} subject={line} skip>
-              {before && <span data-find-skip>{before}</span>}
-              {line}
-              {after && <span data-find-skip>{after}</span>}
-            </ToolLabel>
-          )}
+          {words}
+          {/* While it runs, a light band crosses these words (ShimmerText.tsx RowShimmer). */}
+          {running && <RowShimmer>{words}</RowShimmer>}
           {!tool.background && <InlineFailureCause failure={failure} />}
         </span>
         <span className="cv-command__meta">
-          {foreground ? (
-            <Spinner size={12} />
-          ) : tool.background ? (
+          {foreground ? null : tool.background ? (
             <BackgroundMark background={tool.background} />
           ) : failure ? (
             <span className="cv-command__failed" data-find-skip>
@@ -129,4 +135,4 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
       )}
     </>
   );
-}
+});

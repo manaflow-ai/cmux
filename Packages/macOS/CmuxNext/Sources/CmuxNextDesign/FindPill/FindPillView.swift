@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextDesignTokens
 
 /// The one Cmd-F find pill: a Liquid Glass capsule (frosted before macOS 26, solid under Reduce
@@ -80,6 +81,7 @@ public final class FindPillView: NSView {
     public let surface: OverlaySurfaceView
     /// Themes its caret, selection and placeholder in the pill's scope, focused or not.
     let field = ThemedTextField()
+    private var typographyObservation: Task<Void, Never>?
     private let countLabel = ChromeLabel(labelWithString: "")
     private let icon = NSImageView()
     /// The previous and next chevrons, disabled while nothing matches.
@@ -189,10 +191,25 @@ public final class FindPillView: NSView {
             countLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: FindPillMetrics.countMinWidth),
         ])
         showCount("", noMatches: false, canStep: false)
+        // task-owner: the pill owns this one typography subscription and cancels it on deinit.
+        typographyObservation = Task { [weak self] in
+            for await _ in ObservationStream({ Typography.userScale }) {
+                self?.applyTypography()
+            }
+        }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    nonisolated deinit { typographyObservation?.cancel() }
+
+    private func applyTypography() {
+        field.font = Typography.system(.default, size: TypeScale.body)
+        countLabel.font = Typography.system(.monospacedDigit, size: TypeScale.detail, weight: .regular)
+        if let editor = field.currentEditor() { editor.font = field.font }
+        needsLayout = true
+    }
 
     // MARK: State
 

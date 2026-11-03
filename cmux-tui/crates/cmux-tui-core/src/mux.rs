@@ -1,7 +1,9 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod agent_hook_children;
 mod agent_hook_errors;
+mod agent_hook_projection;
 mod terminal_size_clamp;
 pub(crate) use terminal_size_clamp::clamp_terminal_size;
 mod terminal_exit_snapshot;
@@ -61,6 +63,8 @@ use kitty_budget_state::KITTY_OBJECT_OWNERS_PER_SURFACE;
 use kitty_budget_state::KittyImageBudgetEntry;
 pub(crate) use kitty_budget_state::KittyImageBudgetReservation;
 use kitty_budget_state::KittyImageBudgetState;
+pub(crate) use kitty_budget_state::KittyImageSurfaceExpectation;
+pub(crate) use kitty_budget_state::KittyImageWaveExpectation;
 use kitty_budget_state::PendingKittyImageBudgetOperation;
 pub(crate) use kitty_budget_state::RENDER_ATTACHMENT_LIMIT;
 pub(crate) use kitty_budget_state::RenderAttachmentPermit;
@@ -209,7 +213,10 @@ mod kitty_budget;
 mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
+mod output_cleanup;
 mod pinned_columns;
+mod pty_reclaim;
+mod viewport_scroll;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
@@ -263,12 +270,15 @@ mod resource_tab_deltas;
 #[cfg(test)]
 mod resource_tab_deltas_tests;
 mod resource_topology;
+pub(crate) use resource_topology::with_group_join_notice;
 mod resource_workspace;
 mod rows;
 mod screen_changed;
 pub(crate) mod screen_groups;
 mod signaled_mutex;
 pub(crate) use signaled_mutex::SignaledMutex;
+#[cfg(test)]
+pub(crate) use signaled_mutex::state_locks_taken_on_this_thread;
 mod command_history;
 pub(crate) mod keybindings;
 mod new_terminal_cwd;
@@ -291,6 +301,7 @@ pub(crate) mod creating_input;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
+mod startup_adoption_gate;
 mod startup_record;
 mod terminal_adoption;
 pub(crate) mod terminal_archive;
@@ -301,6 +312,7 @@ mod terminal_defaults;
 mod terminal_directory;
 mod terminal_lifecycle_commit;
 use terminal_lifecycle_commit::{commit_terminal_lifecycle, commit_terminals_adopting};
+mod incognito_terminals;
 mod terminal_exit;
 mod terminal_exit_wait;
 mod terminal_host_link;
@@ -332,6 +344,7 @@ use agent_hook_errors::{
 pub use agent_chat_columns::AGENT_CHAT_COLUMN_CODE;
 pub(crate) use agent_chat_columns::{
     agent_chat_columns, ensure_agent_chat_columns_unsplit, ensure_pane_column_not_agent_chat,
+    is_agent_chat_top, release_agent_chat_role,
 };
 pub use column_move::{ColumnMoveDirection, ColumnMoveError};
 pub use dock_columns::PINNED_COLUMN_CODE;
@@ -356,7 +369,7 @@ use resource_content::ensure_screen_split_public_ids;
 pub(crate) use resource_topology::AgentCLIJobBusy;
 pub(crate) use resource_topology::{
     BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD,
-    PANE_SPLIT_FOCUS_FIELD, RoomClose, WORKSPACE_CREATE_FOCUS_FIELD,
+    PANE_SPLIT_FOCUS_FIELD, RoomClose, TabSplit, WORKSPACE_CREATE_FOCUS_FIELD,
 };
 pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;
@@ -380,7 +393,7 @@ use std::fmt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, RwLock, Weak};
 use std::time::{Duration, Instant};
 use topology_result::persist_public_topology_result;
 
@@ -489,6 +502,9 @@ type ScreenCreatedHook = Box<dyn FnOnce(SurfaceId) + Send>;
 pub struct Mux {
     /// The journal writer's only lock; declared first to drop first (see `RegistryConnection`).
     pub(crate) registry_connection: Arc<crate::workspace_registry::RegistryConnection>,
+    /// The control socket actually bound at startup, including an explicit
+    /// --socket path. Internal clients must not reconstruct it from session.
+    pub(crate) bound_socket_path: OnceLock<std::path::PathBuf>,
     /// Serializes durable commits and their projection; lock order: registry, connection, state.
     pub(crate) workspace_registry: SignaledMutex<WorkspaceRegistry>,
     pub(crate) session_public_id: SessionPublicId,
@@ -497,6 +513,9 @@ pub struct Mux {
     launch_identity: crate::launch_credential::LaunchIdentity,
     /// Control-socket admission counters, shared with the accept loop.
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
+    /// The registry's id and generation, fixed when it opened: read without
+    /// its lock, which durable commits hold.
+    registry_identity: (String, String),
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,
@@ -578,7 +597,14 @@ pub struct Mux {
     #[cfg(test)]
     resource_projection_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
+    resource_close_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in a state mutation after its apply step (inside its open
+    /// registry transaction) and in a terminal progress publish after its
+    /// session read: a test stands in for a slow write there.
+    #[cfg(test)]
+    state_commit_after_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     layout_undo_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -617,11 +643,17 @@ pub struct Mux {
     /// Each terminal agent's last prompt and reply, memory only (`agent_prompts.rs`).
     agent_prompts: Mutex<agent_prompts::AgentTexts>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
+    /// Orders durable hook catch-up and live projection as one operation.
+    agent_hook_projection: Mutex<()>,
     /// Live, never-persisted presence per terminal (`agent_presence.rs`).
     agent_presence: Mutex<HashMap<TerminalPublicId, agent_presence::PresenceSlot>>,
+    /// Child agents each terminal agent runs past its turn, memory only (`agent_hook_children.rs`).
+    agent_hook_children: Mutex<HashMap<TerminalPublicId, agent_hook_children::HookChildren>>,
     agent_roster: Mutex<AgentRosterHost>,
-    agent_roster_fold: Mutex<()>,
+    agent_roster_fold: Mutex<agent_roster_fold::AgentRosterFold>,
     agent_message_pump: agent_message_pump::AgentMessagePump,
+    #[cfg(unix)]
+    agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
@@ -658,9 +690,18 @@ pub struct Mux {
     journal_ingress: crate::journal_ingress::JournalIngressSender,
     /// Terminal output, outside the journal (output_store.rs).
     pub(crate) output_store: crate::output_store::OutputStore,
+    /// Keys of the incognito (ephemeral) workspaces this run created
+    /// (incognito_terminals.rs): a terminal created with its workspace
+    /// spawns before the workspace's row is published.
+    incognito_workspace_keys: Mutex<HashSet<String>>,
     /// Periodic checkpoint, segment sealing and incremental vacuum worker
     /// (mux/journal_maintenance.rs); `None` for an in-memory session.
     journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,
+    /// The one-time stored-output cleanup worker (mux/output_cleanup.rs).
+    output_cleanup: output_cleanup::OutputCleanupState,
+    /// The maintenance worker's stop and journal-change wake; every
+    /// published journal event marks it.
+    journal_maintenance_control: Arc<journal_maintenance::JournalMaintenanceControl>,
     journal_hook_dispatcher_started: AtomicBool,
     journal_hook_runtime: Arc<crate::journal_hooks::JournalHookRuntime>,
     /// Wake-only signal for durable journal subscribers. Consumers always
@@ -691,15 +732,32 @@ pub struct Mux {
     terminal_exit_state_queries: AtomicU64,
     /// Keeps a close from removing a just-created surface before legacy
     /// callers have resolved the committed public result back to its runtime.
-    resource_creation_handoff: Mutex<()>,
+    /// Creations share it (read) and closes take it alone (write): it orders
+    /// a close against creations, never one creation against another, so a
+    /// burst of splits does not wait here for each other (SPLIT BURST).
+    resource_creation_handoff: RwLock<()>,
     /// Serializes the check-and-create sequence used when an attached local
     /// frontend bootstraps an otherwise empty session.
     initial_bootstrap: Mutex<()>,
+    /// The creation fence: held from a creation's prepare through its
+    /// projection commit, so a close never sees half a creation. The
+    /// creations that wait for it at the same time share one hold
+    /// ([`resource_topology::CreationGroups`]).
     resource_creation_execution: Mutex<()>,
+    creation_groups: resource_topology::CreationGroups,
+    /// Test seams of a burst of creations (`CreationBurstSeams`).
+    #[cfg(test)]
+    creation_burst_seams: resource_topology::CreationBurstSeams,
     #[cfg(unix)]
     agent_cli_job_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
+    /// Turns of a start's first adoption attempts (mux/startup_adoption_gate.rs).
+    startup_adoption_gate: Arc<startup_adoption_gate::StartupAdoptionGate>,
+    /// Turns of first respawn attempts (mux/terminal_respawn.rs): after a
+    /// kill of everything the visible workspace's terminals go first, and at
+    /// most `available_parallelism` replay their seeds at once.
+    respawn_gate: Arc<startup_adoption_gate::StartupAdoptionGate>,
     /// Notified when an id leaves `terminal_adoptions` (its adoption ended).
     terminal_adoption_ended: Condvar,
     /// Terminals a request waits on (`wait_for_terminal_adoption`): their
@@ -751,6 +809,8 @@ pub struct Mux {
     idle_close: Mutex<idle_close::IdleCloseTracker>,
     /// Wakes the idle-close reaper when a policy changes.
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
+    /// A launch failed for lack of PTYs: the next reclaim pass runs at once (`pty_reclaim.rs`).
+    pty_reclaim_forced: AtomicBool,
     /// Hosts of closed terminals that were asked to exit.
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
     /// Reap grace period for unplaced terminals, in milliseconds.
@@ -805,6 +865,7 @@ impl Mux {
     /// Resolve one public resource path from a single live-state snapshot.
     /// Direct content IDs use the reverse resource indexes and never trigger
     /// a registry snapshot or process query.
+    #[track_caller]
     pub fn resolve_resource_path(
         &self,
         target: crate::ResourceTarget,
@@ -866,11 +927,13 @@ impl Mux {
         ))
     }
 
+    #[track_caller]
     pub fn surface(&self, id: SurfaceId) -> Option<Arc<Surface>> {
         let state = self.state.lock().unwrap();
         state.surfaces.get(&id).or_else(|| state.terminal_runtime_by_id(id)).cloned()
     }
 
+    #[track_caller]
     pub(crate) fn terminal_resource_surface(
         &self,
         terminal_id: &TerminalPublicId,
@@ -902,8 +965,20 @@ impl Mux {
     ///
     /// The state lock is held for the duration of `f`; do not call back
     /// into `Mux` methods that take it (`surface()`, `close_pane()`, ...).
+    #[track_caller]
     pub fn with_state<R>(&self, f: impl FnOnce(&State) -> R) -> R {
         f(&self.state.lock().unwrap())
+    }
+
+    /// Run `f` with the session state if its lock is free now; `None`
+    /// instead of waiting while another thread holds it. A poisoned lock is
+    /// still read: its caller (the accept loop) must not stop on it.
+    pub(crate) fn try_with_state<R>(&self, f: impl FnOnce(&State) -> R) -> Option<R> {
+        match self.state.try_lock() {
+            Ok(state) => Some(f(&state)),
+            Err(std::sync::TryLockError::Poisoned(poison)) => Some(f(&poison.into_inner())),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        }
     }
 
     pub fn surface_count(&self) -> usize {
@@ -919,23 +994,7 @@ impl Mux {
         self.with_state(Self::active_surface_in_state)
     }
 
-    /// Scroll one backend-owned view without mutating the terminal runtime
-    /// shared by the terminal's other placements.
-    pub fn scroll_surface_viewport(&self, surface: &Surface, delta: isize) -> anyhow::Result<()> {
-        let before = surface.view_scrollbar();
-        let after = surface.view_scroll_delta(delta)?;
-        if after != before
-            && let Some(scrollbar) = after
-        {
-            self.emit(MuxEvent::ScrollChanged {
-                surface: surface.id,
-                offset: scrollbar.offset,
-                at_bottom: !scrollbar.scrolled_back(),
-            });
-        }
-        Ok(())
-    }
-
+    #[track_caller]
     fn workspace_key_for_pane(&self, pane: PaneId) -> Option<String> {
         let state = self.state.lock().unwrap();
         let (workspace, _) = state.screen_of(pane)?;
@@ -1016,6 +1075,7 @@ impl Drop for Mux {
         {
             maintenance.stop();
         }
+        self.stop_output_cleanup();
         self.journal_plugin.shutdown();
         self.finalize_terminal_journal("mux drop", false);
         self.journal_kernel.shutdown();

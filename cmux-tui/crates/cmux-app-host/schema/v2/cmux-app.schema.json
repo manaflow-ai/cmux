@@ -379,6 +379,22 @@
     "server": {
       "$ref": "#/$defs/server"
     },
+    "deploy": {
+      "$ref": "#/$defs/deploy"
+    },
+    "billing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model"
+      ],
+      "description": "Billing facts (docs/app-store-platonic-ideal.md 11). Free apps only (Lawrence, 2026-10-30): no paid apps, no payouts.",
+      "properties": {
+        "model": {
+          "const": "free"
+        }
+      }
+    },
     "requires": {
       "type": "object",
       "additionalProperties": false,
@@ -696,7 +712,7 @@
     "implementation": {
       "type": "object",
       "additionalProperties": false,
-      "description": "One interface implementation: exactly one of export (scene, QuickJS), web (a page under runtime.web.root), native (a view built into cmux, first-party only) or server (the app's top-level server block implements the interface's methods over the provider channel).",
+      "description": "One interface implementation: exactly one of export (scene, QuickJS), remote (the deployed instance, docs/app-store-platonic-ideal.md 7), web (a page under runtime.web.root), native (a view built into cmux, first-party only) or server (the app's top-level server block implements the interface's methods over the provider channel).",
       "properties": {
         "export": {
           "$ref": "#/$defs/exportName"
@@ -738,6 +754,10 @@
         "options": {
           "type": "object",
           "description": "Interface-specific options, validated against the interface schema."
+        },
+        "remote": {
+          "const": "instance",
+          "description": "A remote pane (remote.web): the app's deployed instance (top-level deploy), opened by its URL. Needs deploy."
         }
       },
       "oneOf": [
@@ -759,6 +779,11 @@
         {
           "required": [
             "server"
+          ]
+        },
+        {
+          "required": [
+            "remote"
           ]
         }
       ]
@@ -1241,6 +1266,90 @@
           }
         }
       ]
+    },
+    "deploy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "server",
+        "targets"
+      ],
+      "description": "Where the app's server runs (docs/app-store-platonic-ideal.md 8, 8a): install = deploy + pin. The supervisor runs the container on the chosen target with the same runner for every target.",
+      "properties": {
+        "server": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "image",
+            "port",
+            "health"
+          ],
+          "properties": {
+            "kind": {
+              "const": "container"
+            },
+            "image": {
+              "type": "string",
+              "maxLength": 255,
+              "pattern": "^[a-z0-9][a-z0-9._/-]{0,200}(:[A-Za-z0-9._-]{1,128})?(@sha256:[a-f0-9]{64})?$",
+              "description": "An OCI image reference (a public registry or the enterprise's own); no shell characters."
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
+              "description": "The HTTP port the container listens on."
+            },
+            "health": {
+              "type": "string",
+              "maxLength": 256,
+              "pattern": "^/[A-Za-z0-9._~/-]{0,255}$",
+              "description": "The path that answers 2xx when the server is ready."
+            }
+          }
+        },
+        "tenancy": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "user",
+              "team",
+              "machine"
+            ]
+          },
+          "description": "Offered tenancies; the first is the default."
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "cloud-vm",
+              "self-hosted",
+              "team-vm",
+              "local"
+            ]
+          },
+          "description": "Allowed targets. self-hosted is a machine the customer runs (needs no cmux Cloud); local is first-party only."
+        },
+        "size": {
+          "enum": [
+            "small",
+            "medium",
+            "large"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "maxLength": 256,
+          "pattern": "^/[A-Za-z0-9._/-]{0,255}$",
+          "description": "A persistent path inside the container."
+        }
+      }
     }
   }
 }

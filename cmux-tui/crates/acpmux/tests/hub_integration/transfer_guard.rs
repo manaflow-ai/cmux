@@ -74,6 +74,8 @@ fn config(policy: &str, extra: Value) -> Config {
 /// A daemon on `cfg`, its log in memory or under `store`, and a client that is the person.
 async fn daemon(mut cfg: Config, store: Option<&Path>) -> (Arc<Hub>, TestClient) {
     cfg.store.mode = if store.is_some() { StoreMode::Local } else { StoreMode::Memory };
+    // The queue path before the inbox (`hub/inbox.rs`), which these tests cover.
+    cfg.agent_inbox = Some(false);
     let dir = store.unwrap_or(Path::new("/nonexistent"));
     let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, dir).unwrap());
     let client = connect(&hub).await;
@@ -431,6 +433,20 @@ async fn a_guarded_chat_takes_its_family_from_here_and_a_web_one_must_ask() {
     let rid = receive(&mut dst, guard("web", &[root.path()]), &m, &[]).await.unwrap();
     let s = finish(&mut dst, &rid, json!({})).await.unwrap();
     assert_eq!(s["family"], "fake", "{s}");
+    // A Claude chat's speed and effort options never decide what runs without asking: a chat
+    // in an asking mode that has them comes back (Bring Back Local refused every Claude chat
+    // as `transfer.mode` for its Ultracode and Fast mode options).
+    let options = json!([
+        {"id": "model", "currentValue": "default"},
+        {"id": "mode", "currentValue": "normal"},
+        {"id": "effort", "currentValue": "high"},
+        {"id": "ultracode", "currentValue": "on"},
+        {"id": "fast-mode", "currentValue": "on"},
+    ]);
+    let m = meta(root.path(), json!({"modes": modes("normal"), "configOptions": options}));
+    let rid = receive(&mut dst, guard("web", &[root.path()]), &m, &[]).await.unwrap();
+    let s = finish(&mut dst, &rid, json!({})).await;
+    assert!(s.is_ok(), "a chat's speed and effort options were refused: {s:?}");
 
     // Under the Web a chat with no recorded mode is refused when its family has asking modes
     // (dispatch would let it through on its policy alone), and taken when its family has none.
@@ -801,6 +817,11 @@ async fn a_guarded_move_never_replaces_a_moved_away_copy_outside_the_roots() {
     let back = move_chat(&mut b, &mut a, &id, g(), json!({})).await.unwrap();
     assert_eq!(back["sessionId"], id.as_str(), "{back}");
     assert_ne!(back["status"], "closed", "{back}");
+    let returned = a.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(
+        returned["transferBlocked"], false,
+        "returning import clears revocation: {returned}"
+    );
 }
 
 /// A moved-in chat cannot say an agent here sent its prompts: a guarded move drops the
@@ -845,4 +866,24 @@ async fn a_guarded_move_drops_the_bundles_prompt_provenance() {
         assert!(!recs.is_empty(), "no {kind} record came over");
         assert!(!recs.iter().any(carried), "a moved {kind} record kept its provenance: {recs:?}");
     }
+}
+
+#[tokio::test]
+async fn a_guarded_move_keeps_only_the_folders_under_its_roots() {
+    // A crafted bundle names folders beside the chat's own: only those under the move's roots
+    // reach its harness (`hub/additional_dirs.rs`), never one outside (a home's `.ssh`, `/`).
+    let root = Scratch::home("dirs");
+    let inside = root.path().join("notes");
+    std::fs::create_dir_all(&inside).unwrap();
+    let outside = Scratch::temp("dirs-outside");
+    let (hub, mut dst) = daemon(config("ask", json!({})), None).await;
+    let m = meta(
+        root.path(),
+        json!({"additionalDirectories": [inside, outside.path(), "/", root.path(), "relative"]}),
+    );
+    let id = m["id"].as_str().unwrap().to_owned();
+    let rid = receive(&mut dst, guard("peer", &[root.path()]), &m, &[]).await.unwrap();
+    finish(&mut dst, &rid, json!({})).await.unwrap();
+    let meta = hub.resolve(&id).unwrap().meta();
+    assert_eq!(meta.additional_directories, [std::fs::canonicalize(&inside).unwrap()]);
 }

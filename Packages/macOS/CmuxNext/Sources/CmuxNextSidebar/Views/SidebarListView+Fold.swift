@@ -31,8 +31,8 @@ extension SidebarListViewComponents {
     }
 
     /// Shows `layout` (the displayed one with group `id` spliced): the views of rows still listed move to their
-    /// frames, the rows the fold hid slide up under the header, the rows it showed come out from under it, and rows
-    /// the move brought into view get views. Only realized views and the rows in the viewport are visited.
+    /// frames, the rows the fold hid stay put and fade as the group's slot closes over them, the rows it showed fade in
+    /// at their places as it opens (`clipFold`), and rows the move brought into view get views. Only realized views and the rows in the viewport are visited.
     private func applyFold(from old: SidebarLayout, group id: GroupID) {
         let previousHoverSuppression = suppressHoverEffects
         suppressHoverEffects = true
@@ -54,6 +54,10 @@ extension SidebarListViewComponents {
         var targets: [(SidebarRowView, NSRect)] = []
         var appearing: [(SidebarRowView, NSRect)] = []
         var leavingRows: [(SidebarRowView, NSRect)] = []
+        // The slot the fold closes or opens under the group's header: its members, nested groups' rows included.
+        let slot = foldSlot(old: old, new: layout, group: id)
+        let collapses = layout.totalHeight < old.totalHeight
+        let closing = collapses ? slot : nil, opening = collapses ? nil : slot
         // The realized rows: kept ones move, ones the fold hid leave (first, so a new row can take a parked view).
         for (key, view) in Array(rowViews) {
             if let row = layout.row(for: key) {
@@ -74,8 +78,12 @@ extension SidebarListViewComponents {
             }
             view.isSelected = false
             view.clipsToBounds = true
-            // A folded row slides up under its header.
-            leavingRows.append((view, SidebarRowTransition.removeFrame(was, current: view.frame, runTop: nil, from: old, to: layout)))
+            // A folded member stays where it is and fades as the group's slot closes over it (`clipFold`); a row
+            // outside the group's block slides up under its header as before.
+            let folds = closing?.contains(view.frame.origin) == true
+            // An open still running on this row ends without unclipping it: the close owns the row now.
+            if folds { view.opens += 1 }
+            leavingRows.append((view, folds ? view.frame : SidebarRowTransition.removeFrame(was, current: view.frame, runTop: nil, from: old, to: layout)))
         }
         // The rows in view without a view: an opened member comes out from under its header, a row the move
         // brought into view starts where it was.
@@ -93,7 +101,9 @@ extension SidebarListViewComponents {
             let opens = animate && was == nil
             Motion.withoutAnimation {
                 if opens {
-                    view.frame = SidebarRowTransition.insertFrame(row, target: target, runTop: nil, from: old, to: layout)
+                    // An opened member shows at its own place as the group's slot opens down over it (`clipFold`).
+                    let member = opening?.contains(target.origin) == true
+                    view.frame = member ? target : SidebarRowTransition.insertFrame(row, target: target, runTop: nil, from: old, to: layout)
                     view.alphaValue = 0
                     view.clipsToBounds = true
                     view.opens += 1
@@ -102,7 +112,7 @@ extension SidebarListViewComponents {
                     view.alphaValue = 1
                 }
             }
-            if opens { openingRows[row.key] = now }
+            if opens { openingRows[row.key] = SidebarRowOpening(until: now + Motion.sidebar.spring(.move).settlingTime()) }
             addSubview(view, positioned: .above, relativeTo: decorations)
             rowViews[row.key] = view
             if opens { appearing.append((view, target)) } else { targets.append((view, target)) }
@@ -110,9 +120,23 @@ extension SidebarListViewComponents {
         let (lines, start) = foldLines(old: old, new: layout, group: id)
         let lineMotion = groupLineViews.update(lines, from: animate ? start : [], in: self, above: decorations, animated: animate)
         RowMotion(targets: targets, appearing: appearing, leaving: leavingRows, lines: lineMotion).run(in: self, from: old, to: layout, animated: animate)
+        if animate, let slot {
+            // The members' slot closes (or opens) on the rows' spring, its bottom edge with the rows below it.
+            let members = (collapses ? leavingRows : appearing).map(\.0).filter { slot.contains($0.frame.origin) }
+            clipFold(members, under: slot.minY, from: collapses ? slot.height : 0, to: collapses ? 0 : slot.height)
+        }
         inlineRename.follow()
         groupEditor.follow(groups)
         if let shown = groupEditor.shownGroup { (rowViews[.group(shown)] as? GroupHeaderRowView)?.isEditing = true }
+    }
+
+    /// The rect under group `id`'s header (list coordinates) its fold takes out or puts in: from the header's bottom edge,
+    /// the height the layout lost or gained. Nil when the header is not listed or nothing changed height.
+    private func foldSlot(old: SidebarLayout, new: SidebarLayout, group id: GroupID) -> NSRect? {
+        guard let header = new.row(for: .group(id)) else { return nil }
+        let height = abs(new.totalHeight - old.totalHeight)
+        guard height > 0 else { return nil }
+        return NSRect(x: bounds.minX, y: frame(for: header).maxY, width: bounds.width, height: height)
     }
 
     /// The group lines after group `id`'s fold: its own line from its rows (and where its rows are now, the

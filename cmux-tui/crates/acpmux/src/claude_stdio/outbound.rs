@@ -16,7 +16,7 @@ impl Translator {
                         let mut lines = vec![json!({
                             "type": "control_request",
                             "request_id": format!("init-{}", id),
-                            "request": {"subtype": "initialize", "hooks": {}, "supportedDialogKinds": ["ask_user_question", "exit_plan_mode", "permission"]}
+                            "request": initialize_request()
                         })];
                         // Ultracode and fast mode survive a respawn on the live channel
                         // (no CLI flag); the answer ("boot-*") needs no reply.
@@ -60,6 +60,11 @@ impl Translator {
                                 id.clone(),
                                 RpcError::invalid_params(super::STEER_NO_TURN),
                             ));
+                        }
+                        // The hub's prompt for the turn Claude Code runs on steers it read after
+                        // its turn ended: nothing to write (`carry.rs`).
+                        if p.pointer("/_meta/carried").and_then(Value::as_bool) == Some(true) {
+                            return self.adopt_carried(id).await;
                         }
                         let blocks =
                             p.get("prompt").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -110,6 +115,8 @@ impl Translator {
                         // Claude Code echoes the line with this uuid when it reads it.
                         let uuid = uuid::Uuid::now_v7().to_string();
                         let line = json!({"type": "user", "uuid": uuid, "message": {"role": "user", "content": content}});
+                        // A new prompt of the hub's: no carried turn waits for one any more.
+                        self.clear_carry().await;
                         self.in_turn.store(true, Ordering::SeqCst);
                         // A new prompt starts a fresh logical turn. A cancelled compaction may
                         // never emit its boundary/result, so clear its live compaction state here
@@ -118,6 +125,7 @@ impl Translator {
                         self.turn_output.store(false, Ordering::SeqCst);
                         *self.prompt_echo.lock().await = Some(uuid);
                         self.cancelled.store(false, Ordering::SeqCst);
+                        self.step_stopped.store(false, Ordering::SeqCst);
                         let mut pending = self.pending.lock().await;
                         *self.abandoned.lock().await = pending
                             .iter()
@@ -143,6 +151,7 @@ impl Translator {
                         let val = p.get("value").and_then(Value::as_str).unwrap_or("").to_owned();
                         match cid {
                             "model" => {
+                                let val = super::model_id(&val);
                                 self.pending.lock().await.insert(
                                     id.to_string(),
                                     Pending::Control(Setting::Model, val.clone()),
@@ -234,11 +243,8 @@ impl Translator {
                         }
                     }
                     method::SESSION_SET_MODEL => {
-                        let val = p
-                            .get("modelId")
-                            .and_then(Value::as_str)
-                            .unwrap_or("default")
-                            .to_owned();
+                        let val = p.get("modelId").and_then(Value::as_str).unwrap_or("default");
+                        let val = super::model_id(val);
                         self.pending
                             .lock()
                             .await
@@ -337,7 +343,7 @@ impl Translator {
                         self.pending.lock().await.insert(id.to_string(), Pending::SideQuestion);
                         let mut request = json!({"subtype": "side_question", "question": question});
                         if !history.is_null() {
-                            request["history"] = history;
+                            request.set("history", history);
                         }
                         Outbound::Lines(vec![json!({
                             "type": "control_request",
@@ -468,9 +474,11 @@ impl Translator {
     }
 
     /// The interrupt that stops Claude Code's current step for a steer sent now: unlike a Stop
-    /// it leaves `cancelled` unset, so the steer Claude Code reads after the step runs on in the
-    /// same turn. Its ack answers `answer` (`MUX_STEP_NOW`), when one waits for it.
+    /// it leaves `cancelled` unset, and the stopped step's result ends the turn and carries the
+    /// steer, which runs as a turn of its own (`carry.rs`). Its ack answers `answer`
+    /// (`MUX_STEP_NOW`), when one waits for it.
     pub(super) fn step_interrupt(&self, answer: Option<&Id>) -> Value {
+        self.step_stopped.store(true, Ordering::SeqCst);
         let request_id = match answer {
             Some(id) => format!("now-{id}"),
             None => format!("int-{}", self.next_control.fetch_add(1, Ordering::SeqCst)),
@@ -496,4 +504,22 @@ fn resource_text(b: &Value) -> String {
         Some(text) => format!("<resource uri=\"{uri}\"{path}>\n{text}\n</resource>"),
         None => format!("<resource uri=\"{uri}\"{path} />"),
     }
+}
+
+/// Claude Code's `initialize` control request.
+///
+/// `perTaskStopAffordance` says this client stops background tasks one by one (a background
+/// process's kill, `_acpmux/process/kill`, and a subagent's stop, `_acpmux/subagent_stop`, both
+/// Claude Code's `stop_task`). Without it Claude Code's headless `interrupt` (what Stop sends)
+/// also kills every running background shell and background subagent, and marks each subagent
+/// stopped by the user so it is never resumed. With it the interrupt stops only the turn, as Esc
+/// does in the CLI, and background work runs on and reports when it ends (Leo, 2026-10-31:
+/// "WELL THAT STOP BUTTON STOPPED LITERALLY EVERYTHING").
+pub(super) fn initialize_request() -> Value {
+    json!({
+        "subtype": "initialize",
+        "hooks": {},
+        "supportedDialogKinds": ["ask_user_question", "exit_plan_mode", "permission"],
+        "perTaskStopAffordance": true,
+    })
 }

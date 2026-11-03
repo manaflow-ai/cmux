@@ -117,9 +117,11 @@ nonisolated public struct FeedWhatsNewSource: WhatsNewSource {
             entries = (notes.summary ?? []).enumerated().compactMap { index, line in
                 let title = line.title.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !title.isEmpty else { return nil }
-                let text = WhatsNewText(stringLiteral: title)
+                let titleText = WhatsNewText(stringLiteral: title)
+                let description = line.description?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let summaryText = WhatsNewText(stringLiteral: description?.isEmpty == false ? description ?? title : title)
                 return WhatsNewDocument.Entry(id: "summary-\(index)", category: category(for: line.group),
-                                              title: text, summary: text)
+                                              title: titleText, summary: summaryText)
             }
         }
         guard let headline = entries.first?.title else { return nil }

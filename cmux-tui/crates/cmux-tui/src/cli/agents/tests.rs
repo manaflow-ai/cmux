@@ -273,3 +273,66 @@ fn dialog_answers_preserve_multiple_selections_and_reject_mixed_modes() {
     .unwrap();
     assert_eq!(params["selections"], json!(["one", "two"]));
 }
+
+#[test]
+fn snapshot_shows_agent_chat_tabs_the_daemon_lists_as_browsers() {
+    // The daemon projects an agent chat tab as a `browser` at about:blank for a connection
+    // without `agent-session-tabs-v1`; the app knows it is a chat and of which session.
+    let value = compose_snapshot(
+        Ok(json!({
+            "workspaces": [{"id":"ws_a"}],
+            "tabs": [
+                {"id":"tab_chat","content_kind":"browser","content_id":"browser_chat","pane_id":"pane_a"},
+                {"id":"tab_web","content_kind":"browser","content_id":"browser_web","pane_id":"pane_a"}
+            ],
+            "browsers": [
+                {"id":"browser_chat","tab_id":"tab_chat","url":"about:blank"},
+                {"id":"browser_web","tab_id":"tab_web","url":"https://example.com"}
+            ]
+        })),
+        Ok(json!({
+            "topology": {
+                "windows": [{
+                    "workspaces": [{
+                        "id":"ws_a",
+                        "screens": [{"panes": [{"tabs": [
+                            {"id":"tab_chat","kind":"conversation","agent_session":"01a1-chat","url":"about:blank"},
+                            {"id":"tab_web","kind":"browser","agent_session":null,"url":"https://example.com"}
+                        ]}]}]
+                    }]
+                }]
+            }
+        })),
+    );
+    let tabs = value["tabs"].as_array().unwrap();
+    let chat = tabs.iter().find(|tab| tab["id"] == "tab_chat").unwrap();
+    assert_eq!(chat["content_kind"], "conversation");
+    assert_eq!(chat["agent_session"], "01a1-chat");
+    let web = tabs.iter().find(|tab| tab["id"] == "tab_web").unwrap();
+    assert_eq!(web["content_kind"], "browser");
+    assert!(web.get("agent_session").is_none());
+    let browsers = value["browsers"].as_array().unwrap();
+    assert_eq!(browsers.len(), 1, "{browsers:?}");
+    assert_eq!(browsers[0]["id"], "browser_web");
+}
+
+#[test]
+fn dialog_answers_name_who_answers() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |key: &str| {
+            pairs.iter().find(|(name, _)| *name == key).map(|(_, value)| (*value).to_owned())
+        }
+    };
+    let params = json!({"request_id": "r", "selections": ["start"]});
+    // The person's terminal: cli, no caller.
+    let person = with_answerer(params.clone(), "agents", env(&[("CMUX_TUI_TERMINAL_ID", "t1")]));
+    assert_eq!(person, json!({"request_id": "r", "selections": ["start"], "origin": "cli"}));
+    // An agent's shell names its session.
+    let agent = with_answerer(params.clone(), "agents", env(&[("CMUX_AGENT_SESSION", "s1")]));
+    assert_eq!(agent["origin"], "cli");
+    assert_eq!(agent["caller"], json!({"agent_session": "s1"}));
+    // A Chief turn names the Home chat; the MCP tool is mcp.
+    let chief = with_answerer(params, "mcp", env(&[("CMUX_CALLER_HOME_CHAT", "1")]));
+    assert_eq!(chief["origin"], "mcp");
+    assert_eq!(chief["caller"], json!({"home_chat": true}));
+}

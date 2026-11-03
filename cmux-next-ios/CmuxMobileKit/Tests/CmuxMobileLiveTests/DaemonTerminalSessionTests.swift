@@ -140,6 +140,40 @@ final class FakeTerminalDaemon: @unchecked Sendable {
 }
 
 @MainActor @Suite struct DaemonTerminalSessionTests {
+    @Test(arguments: [false, true])
+    func failedAttachKeepsRecoveryVisibleAndRetryCallsTheLoader(wasAttached: Bool) async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        defer { session.stop() }
+        session.reattachBackoff = []
+        var screenState = session.connectionState
+        if !wasAttached { daemon.failNextAttaches = 1 }
+        session.start { screenState = screenState.applying($0) }
+        if wasAttached {
+            try await waitUntil { session.isAttached }
+            await channels.last?.close(code: "eof", reason: "remote closed")
+            try await waitUntil { !session.isAttached }
+            daemon.failNextAttaches = 1
+            session.reconnect()
+        }
+        try await waitUntil { if case .failed = screenState { true } else { false } }
+        #expect(!screenState.isAttached)
+        #expect(!screenState.showsProgress)
+        #expect(screenState.label != nil)
+        #expect(session.connectionState == screenState)
+        let attempts = daemon.recorded.filter { $0["cmd"] as? String == "attach-surface" }.count
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        #expect(screenState.isAttached)
+        #expect(daemon.recorded.filter { $0["cmd"] as? String == "attach-surface" }.count == attempts + 1)
+    }
+
     @Test func attachesReplaysAndForwardsInput() async throws {
         let daemon = FakeTerminalDaemon()
         let link = MockMacLink { service, line in daemon.respond(service, line) }

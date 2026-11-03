@@ -58,6 +58,7 @@
 //! `agent.pairCap` / `agent.pairWindow` set the cap.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
 #[path = "agent_pair_progress.rs"]
@@ -242,7 +243,7 @@ impl Held {
             "control": self.control.as_str(), "trustGate": self.trust_gate, "order": self.order,
         });
         if let Some(class) = self.class {
-            record["class"] = json!(class);
+            record.set("class", json!(class));
         }
         record
     }
@@ -276,6 +277,8 @@ enum Trip {
     Repeating(u32),
     /// More than the cap within its window.
     Capped(u32),
+    /// The person took the receiver over and the sender manages it (`agent_hold.rs`).
+    TakenOver,
 }
 
 impl Trip {
@@ -284,12 +287,14 @@ impl Trip {
             Trip::Alternating(_) => "alternating",
             Trip::Repeating(_) => "repeating",
             Trip::Capped(_) => "cap",
+            Trip::TakenOver => "taken_over",
         }
     }
 
     fn count(self) -> u32 {
         match self {
             Trip::Alternating(n) | Trip::Repeating(n) | Trip::Capped(n) => n,
+            Trip::TakenOver => 0,
         }
     }
 }
@@ -474,9 +479,6 @@ impl Hub {
         opts: &mut PromptOptions,
     ) -> Result<(), RpcError> {
         let guard = self.agent_pair_guard();
-        if !guard.enabled {
-            return Ok(());
-        }
         let Some(sender) = self.agent_message_sender(opts.provenance.as_ref()) else {
             return Ok(());
         };
@@ -489,6 +491,12 @@ impl Hub {
         {
             return Ok(());
         }
+        // The person took the chat over: its manager's messages wait for Hand back, guard on or
+        // off (`agent_hold.rs`).
+        let taken_over = Self::held_for_person(&sender, session);
+        if !guard.enabled && !taken_over {
+            return Ok(());
+        }
         // A steer-only message the receiver cannot take now is refused unrecorded by
         // `run_prompt` (`steer.unavailable`): it is no exchange, and never pauses. Into a paused
         // pair it is held all the same, so a turn starting meanwhile cannot let it steer in.
@@ -496,7 +504,7 @@ impl Hub {
         let paused = |hub: &Self| {
             hub.pairs_state().pairs.get(&pair_key(&from, &to)).is_some_and(|p| p.paused.is_some())
         };
-        if steer && opts.steer_only && !can_steer && !paused(self) {
+        if steer && opts.steer_only && !can_steer && !paused(self) && !taken_over {
             return Ok(());
         }
         let prompt_id =
@@ -571,7 +579,9 @@ impl Hub {
                     pair.recent.pop_front();
                 }
                 let in_window = u32::try_from(pair.recent.len()).unwrap_or(u32::MAX) + 1;
-                let trip = if alternating >= guard.alternations {
+                let trip = if taken_over {
+                    Some(Trip::TakenOver)
+                } else if alternating >= guard.alternations {
                     Some(Trip::Alternating(alternating))
                 } else if repeats >= guard.repeats {
                     Some(Trip::Repeating(repeats))
@@ -644,6 +654,10 @@ impl Hub {
                 ),
                 RESUMES,
             ),
+            Hold::Tripped(Trip::TakenOver) => (
+                format!("the user took over session {to}"),
+                "The user hands it back; held messages are then delivered in order.",
+            ),
             Hold::Paused => ("the pair is paused".to_owned(), RESUMES),
             Hold::Draining => (
                 "the user resumed the pair and its held messages are being delivered".to_owned(),
@@ -680,6 +694,11 @@ impl Hub {
         steer: bool,
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
+        // A prompt that waits for the owner queues: never steered in, never stopping the turn.
+        // Any other prompt keeps its own interrupt and steer-now, which need no `steer`.
+        let held = crate::author::awaits_owner(opts.provenance.as_ref());
+        let steer = steer && !held;
+        (opts.interrupt, opts.steer_now) = (opts.interrupt && !held, opts.steer_now && !held);
         self.agent_pair_check(session, &blocks, client, steer, &mut opts)?;
         self.run_prompt(session, blocks, client, steer, opts).await
     }
@@ -700,7 +719,10 @@ impl Hub {
                 return;
             };
             tokio::spawn(async move {
+                // Checked again here: a chat that became a review box since stops for no
+                // other agent's message (`inbox.rs`).
                 if to.turn().is_some_and(|t| t.turn_id == turn_id)
+                    && !super::inbox::review_box(&to)
                     && let Err(e) = hub.cancel(&to).await
                 {
                     tracing::warn!(session = %to.id, "interrupt: {}", e.message);
@@ -842,29 +864,40 @@ impl Hub {
             .with_data(json!({"reason": RESUME_REFUSED}))
     }
 
-    /// Resumes and resets the pairs; how many were paused, and how many messages they held.
-    fn agent_pair_resume_inner(
+    /// Resumes and resets the pairs; how many were paused, and how many messages they held. A
+    /// person's prompt (`by` = `person`) leaves paused the pairs a taken-over chat holds
+    /// (`agent_hold.rs`): only Hand back or an explicit resume delivers those.
+    pub(super) fn agent_pair_resume_inner(
         self: &Arc<Self>,
         session: &str,
         peer: Option<&str>,
         by: &str,
     ) -> (usize, usize) {
+        let mine = |(a, b): &PairKey| {
+            let other = if a == session {
+                b
+            } else if b == session {
+                a
+            } else {
+                return false;
+            };
+            peer.is_none_or(|p| p == other)
+        };
+        let kept: HashSet<PairKey> = if by == "person" {
+            let keys: Vec<PairKey> =
+                self.pairs_state().pairs.keys().filter(|k| mine(k)).cloned().collect();
+            keys.into_iter().filter(|(a, b)| self.pair_taken_over(a, b)).collect()
+        } else {
+            HashSet::new()
+        };
         let mut resumed: Vec<(PairKey, usize)> = Vec::new();
         {
             let mut state = self.pairs_state();
-            let mine = |(a, b): &PairKey| {
-                let other = if a == session {
-                    b
-                } else if b == session {
-                    a
-                } else {
-                    return false;
-                };
-                peer.is_none_or(|p| p == other)
-            };
             // A pair not paused starts over; a paused one drains, then starts over.
             state.pairs.retain(|key, pair| !mine(key) || pair.paused.is_some());
-            for (key, pair) in state.pairs.iter_mut().filter(|(key, _)| mine(key)) {
+            for (key, pair) in
+                state.pairs.iter_mut().filter(|(key, _)| mine(key) && !kept.contains(*key))
+            {
                 if let Some(paused) = pair.paused.as_mut()
                     && !paused.draining
                 {
@@ -933,7 +966,11 @@ impl Hub {
             let accepted = tx.clone();
             let took = Arc::new(std::sync::atomic::AtomicBool::new(false));
             let took_it = took.clone();
-            let opts = PromptOptions {
+            // A held prompt's durable provenance carries the original outbox
+            // delivery id. Releasing it must reuse that id so the receiver's
+            // and sender's message projections remain one delivery after a
+            // pause, restart, and retry.
+            let mut opts = PromptOptions {
                 prompt_id: Some(h.prompt_id.clone()),
                 on_accepted: Some(Box::new(move |_| {
                     took_it.store(true, Ordering::SeqCst);
@@ -951,6 +988,9 @@ impl Hub {
                 class: h.class,
                 ..PromptOptions::default()
             };
+            // Held provenance is durable state, so restore the original delivery id and (for a
+            // peer-origin message) its sender identity before retrying the prompt.
+            super::message_events::restore_message_options(&mut opts, Some(&h.provenance));
             let hub = self.clone();
             let (blocks, client, steer) = (h.blocks.clone(), h.client.clone(), false);
             let target = session.clone();
@@ -1027,6 +1067,12 @@ impl Hub {
                 }
             }
         }
+    }
+
+    /// Whether either session of a pair holds the other's messages for the person.
+    fn pair_taken_over(&self, a: &str, b: &str) -> bool {
+        let (Ok(a), Ok(b)) = (self.resolve(a), self.resolve(b)) else { return false };
+        Self::held_for_person(&a, &b) || Self::held_for_person(&b, &a)
     }
 
     /// Takes a released (or dropped) message off its pair's held queue.

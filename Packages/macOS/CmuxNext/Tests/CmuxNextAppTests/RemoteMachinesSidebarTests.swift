@@ -121,8 +121,8 @@ struct RemoteMachinesSidebarTests {
     /// band holds Home and what the person put there; the agent chats of another machine (here a Cloud VM's eleven
     /// idle Chief subagents, titled with their prompt) never draw in it.
     @Test func remoteChatsNeverDrawInTheTopBand() {
-        // The app's own remote model holds the chats, as the running app's does.
-        let remote = RemoteMachinesSidebar.shared
+        // A remote model holds the chats, as one would in the running app.
+        let remote = RemoteMachinesSidebar(lanes: AgentLaneStore())
         let prompt = "You are a subagent of Chief, an AI agent that works for one user"
         remote.machines = RemoteMachinesSidebar.machines(
             lanes: (0..<11).map { Self.lane("optchat-sub-2e448bc2-a6\($0)", peer: "chief-subagents-2", since: TimeInterval($0), title: prompt) }

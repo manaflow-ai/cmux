@@ -165,18 +165,40 @@ public final class ComputerUseHelperDaemon {
     }
 
     /// Which helper runs. The default (driver legacy) is today's path only:
-    /// the helper v2 never starts.
-    nonisolated static func route(_ settings: ComputerUseSettings, disabledByPolicy: Bool) -> (legacy: Bool, upstream: Bool) {
+    /// the helper v2 never starts. "upstream" in a build without the helper
+    /// v2 runs the legacy helper (`effectiveDriver`).
+    nonisolated static func route(_ settings: ComputerUseSettings, disabledByPolicy: Bool,
+                                  upstreamInBuild: Bool = true) -> (legacy: Bool, upstream: Bool) {
         let on = settings.enabled && !disabledByPolicy
-        return (on && settings.driver == .legacy, on && settings.driver == .upstream)
+        let driver = effectiveDriver(settings.driver, upstreamInBuild: upstreamInBuild)
+        return (on && driver == .legacy, on && driver == .upstream)
+    }
+
+    /// The driver that runs for the chosen one. "upstream" in a build
+    /// without the helper v2 (NIGHTLY and release builds today) is the
+    /// legacy helper: nothing could ever start, so Computer Use stayed down
+    /// and setup said "starting" forever (2026-10-29). The stored setting is
+    /// never rewritten; a build that carries the helper v2 runs it again.
+    nonisolated static func effectiveDriver(_ chosen: ComputerUseDriver, upstreamInBuild: Bool) -> ComputerUseDriver {
+        chosen == .upstream && !upstreamInBuild ? .legacy : chosen
+    }
+
+    /// `effectiveDriver` for this build's helper v2.
+    public func effectiveDriver(_ chosen: ComputerUseDriver) -> ComputerUseDriver {
+        Self.effectiveDriver(chosen, upstreamInBuild: upstream.isInBuild)
     }
 
     /// Applies one settings value: stops the helper that is off first, then
     /// starts the one that is on.
     func apply(_ settings: ComputerUseSettings, disabledByPolicy: Bool) async {
         guard !quitting, !Task.isCancelled else { return }
-        let route = Self.route(settings, disabledByPolicy: disabledByPolicy)
-        publish(!disabledByPolicy && settings.driver == .legacy)
+        let upstreamInBuild = upstream.isInBuild
+        let driver = Self.effectiveDriver(settings.driver, upstreamInBuild: upstreamInBuild)
+        if driver != settings.driver, settings.enabled, !disabledByPolicy {
+            helperLogger.notice("computerUse.driver is upstream, but this build has no helper v2; using the legacy helper")
+        }
+        let route = Self.route(settings, disabledByPolicy: disabledByPolicy, upstreamInBuild: upstreamInBuild)
+        publish(!disabledByPolicy && driver == .legacy)
         if route.legacy {
             await upstream.apply(enabled: false)
             guard !quitting, !Task.isCancelled else { return }

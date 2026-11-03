@@ -13,6 +13,7 @@
 //! beside the config (`<config>.bg-denied`, one hash a line, the newest [`PENDING`], under a
 //! lock so parallel calls never lose one), one file per chat, removed with the config.
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 pub const HOOK_ARG: &str = "__bg-hook";
@@ -43,7 +44,7 @@ pub fn route(config: &Value) -> Option<Route> {
     let folded = upstreams
         .as_array()?
         .iter()
-        .any(|s| s["name"].as_str() == Some(crate::acpmux_mcp::SERVER_NAME));
+        .any(|s| s.get("name").and_then(Value::as_str) == Some(crate::acpmux_mcp::SERVER_NAME));
     if !folded {
         return None;
     }
@@ -51,7 +52,10 @@ pub fn route(config: &Value) -> Option<Route> {
     if let Some(allowed) = env(crate::agent_tools::MCP_TOOLS_ENV) {
         return allowed.split(',').any(|t| t.trim() == FOLDED_TOOL).then_some(Route::Listed);
     }
-    let all = cmux["args"].as_array().is_some_and(|a| a.iter().any(|a| a == "--all-tools"));
+    let all = cmux
+        .get("args")
+        .and_then(Value::as_array)
+        .is_some_and(|a| a.iter().any(|a| a == "--all-tools"));
     Some(if all { Route::Listed } else { Route::CodeMode })
 }
 
@@ -67,7 +71,7 @@ pub fn denied_path(config: &std::path::Path) -> std::path::PathBuf {
 
 /// The hook's answer to one PreToolUse `input`, or None to let the call run.
 pub fn decide(input: &Value, route: Option<Route>) -> Option<Value> {
-    if input["tool_name"].as_str() != Some("Bash")
+    if input.get("tool_name").and_then(Value::as_str) != Some("Bash")
         || input.pointer("/tool_input/run_in_background") != Some(&json!(true))
     {
         return None;
@@ -75,8 +79,8 @@ pub fn decide(input: &Value, route: Option<Route>) -> Option<Value> {
     let command = input.pointer("/tool_input/command")?.as_str()?;
     let route = route?;
     let mut args = json!({"command": command});
-    if let Some(cwd) = input["cwd"].as_str().filter(|c| !c.is_empty()) {
-        args["cwd"] = json!(cwd);
+    if let Some(cwd) = input.get("cwd").and_then(Value::as_str).filter(|c| !c.is_empty()) {
+        args.set("cwd", json!(cwd));
     }
     let call = match route {
         Route::Direct => format!("mcp__acpmux__bg_start {args}"),
@@ -111,7 +115,7 @@ pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     let Some(answer) = decide(&input, route) else { return Ok(()) };
     // The same call turned away just before runs as asked (the replacement may be unusable).
     // Keyed by what the call runs, not its per-call ids.
-    let what = json!([input["cwd"], input["tool_input"]]);
+    let what = json!([input.get("cwd"), input.get("tool_input")]);
     let key = crate::sha256::sha256_hex(what.to_string().as_bytes());
     // Unrecorded, a repeat could not get through: then the call runs.
     if first_time(&denied_path(&config), &key).unwrap_or(false) {
@@ -153,7 +157,7 @@ fn first_time(path: &std::path::Path, key: &str) -> std::io::Result<bool> {
             true
         }
     };
-    let keep = &keys[keys.len().saturating_sub(PENDING)..];
+    let keep = keys.get(keys.len().saturating_sub(PENDING)..).unwrap_or_default();
     file.set_len(0)?;
     file.rewind()?;
     file.write_all(keep.iter().map(|k| format!("{k}\n")).collect::<String>().as_bytes())?;
