@@ -92,7 +92,7 @@ await requireBrowserLane("chat-header-glass.test.ts", async () => {
         expect(over.box).toEqual(rest.box);
         expect(over.first).toEqual(rest.first);
         // Two or more tabs: the transcript stays below the row, so the row never takes the glass.
-        expect((await state(false, true)).opacity).toBe(0);
+        expect((await state(false, true)).content).toBe("none");
 
         // Pixels: the row's foot between two tools, over black rows. The capsule lifts it toward the white surface.
         const foot = async (extra = "") => {
