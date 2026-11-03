@@ -934,10 +934,18 @@ const sharedRows = [
   assistant("fetchWithRetry has three callers: client.ts, upload.ts and the webhook relay.", 7),
 ];
 /// A Claude Code chat with its /context breakdown, Context open and the long sections folded so the
-/// card shows whole.
+/// card shows whole. It compacts at 400k (its acpmux cap and /context agree), so Context reads the
+/// window /context names: the smaller of the two (usageStats.ts `compactingUsage`, #32665), never
+/// the 200k cap of this file's other chat.
+const breakdownUsage: SessionUsageStats = { ...ownUsage, autocompactCap: 400_000 };
 const breakdownProps: Props = {
   ...full,
-  summary: { ...summary, usage: { used: 171_400, size: 400_000 }, contextBreakdown: CONTEXT_BREAKDOWN },
+  summary: {
+    ...summary,
+    usage: { used: 171_400, size: 400_000 },
+    usageStats: breakdownUsage,
+    contextBreakdown: CONTEXT_BREAKDOWN,
+  },
   sections: { ...DEFAULT_SECTIONS, environment: false, context: true, changes: false, subagents: false, tasks: false },
 };
 /// A gallery-only palette for the breakdown's used categories, largest first.
@@ -1321,7 +1329,12 @@ export default componentEntry<Props>({
       note: "Shipped (Leo, 2026-11-02: \"whatever a user set their compact window to it should be that instead of always showing the defautl (e.g. we should be seieng 400k)\"): a 1M model whose chat compacts at 400K reads 43% with 171.4K / 400K, the window Claude Code's /context names, not the model's 1M.",
       props: {
         ...breakdownProps,
-        summary: { ...summary, contextBreakdown: CONTEXT_BREAKDOWN, usage: { used: 171_400, size: 1_000_000 } },
+        summary: {
+          ...summary,
+          usageStats: breakdownUsage,
+          contextBreakdown: CONTEXT_BREAKDOWN,
+          usage: { used: 171_400, size: 1_000_000 },
+        },
       },
       play: async (ctx) => {
         await ctx.waitFor(() => /171\.4K\s*\/\s*400K/.test(text(ctx)));
