@@ -27,47 +27,23 @@ final class CloudAskDialogs: AgentDialogAppAsks {
         })
     }
 
-    func owns(_ id: String) -> Bool { id.hasPrefix("cloud-start-") }
+    func owns(_ id: String) -> Bool { id.hasPrefix(CloudAskDialog.prefix) }
 
     func items() -> [JSONValue] {
         let delegated = delegated()
         return (asks()?.waiting ?? []).map { Self.item($0, delegated: delegated) }
     }
 
-    /// One waiting ask as a question dialog, with the commands that answer it.
     static func item(_ ask: CloudStartSessionAsks.Waiting, delegated: Bool) -> JSONValue {
-        let options: [JSONValue] = [
-            .object(["id": "start", "label": .string(CloudStartSessionStrings.start)]),
-            .object(["id": "notNow", "label": .string(CloudMoveAskStrings.notNow)]),
-        ]
-        let session: JSONValue = ask.caller.map(JSONValue.string) ?? .null
-        return .object([
-            "id": .string(ask.dialog), "request_id": .string(ask.dialog), "status": "pending", "source": "cmux",
-            "kind": "question", "harness": "cmux", "ask": "cloudStartSession",
-            "session_id": session, "agent_session": session, "session_name": .null, "tab_id": .string(ask.tab),
-            "title": .string(ask.text), "machine": .string(ask.asked.machine), "agent": .string(ask.asked.agent),
-            "command": .string(ask.asked.command),
-            "questions": .array([.object([
-                "id": "cloudStartSession", "header": .null, "prompt": .string(ask.text),
-                "multi_select": false, "allows_other": false, "options": .array(options),
-            ])]),
-            // Start is the person's unless they delegated it (an agent's answer is then taken too).
-            "start_by": .string(delegated ? "person_or_agent" : "person"),
-            "answer_commands": .object([
-                "start": .string("cmux agents dialog answer \(ask.dialog) --selection start"),
-                "not_now": .string("cmux agents dialog answer \(ask.dialog) --selection notNow"),
-            ]),
-        ])
+        CloudAskDialog.item(dialog: ask.dialog, tab: ask.tab, text: ask.text, caller: ask.caller, machine: ask.asked.machine, agent: ask.asked.agent,
+                            command: ask.asked.command, start: CloudStartSessionStrings.start, notNow: CloudMoveAskStrings.notNow, delegated: delegated)
     }
 
     func reply(_ id: String, selection: String, params: [String: JSONValue]) throws -> JSONValue {
         guard let asks = asks(), asks.waiting.contains(where: { $0.dialog == id }) else {
             throw ControlError(code: "not_found", message: CloudStartSessionStrings.dialogGone(id), data: ["request_id": .string(id)])
         }
-        let caller = params["caller"]?.objectValue
-        // A Chief turn names the Home chat, not its session: it is an agent all the same.
-        let session = caller?["agent_session"]?.stringValue ?? (caller?["home_chat"]?.boolValue == true ? "home-chat" : nil)
-        let answer = CloudStartCore().askAnswer(origin: params["origin"]?.stringValue, agentSession: session,
+        let answer = CloudStartCore().askAnswer(origin: params["origin"]?.stringValue, agentSession: CloudAskDialog.callerSession(params),
                                                 delegated: delegated(), selection: selection)
         guard let choice = answer.choice else {
             throw ControlError.invalidParams(CloudStartSessionStrings.unknownChoice(id), data: ["request_id": .string(id)])
@@ -78,7 +54,6 @@ final class CloudAskDialogs: AgentDialogAppAsks {
         guard asks.answer(dialog: id, start: choice == .start) else {
             throw ControlError(code: "not_found", message: CloudStartSessionStrings.dialogGone(id), data: ["request_id": .string(id)])
         }
-        return .object(["request_id": .string(id), "status": .string(choice == .start ? "answered" : "denied"),
-                        "choice": .string(choice.rawValue)])
+        return CloudAskDialog.answered(id, choice: choice.rawValue, start: choice == .start)
     }
 }

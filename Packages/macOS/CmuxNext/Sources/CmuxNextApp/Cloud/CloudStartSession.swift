@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
 import Foundation
@@ -158,15 +159,9 @@ struct CloudStartSession {
         return fields
     }
 
-    /// An agent's run once its card asks: pending, waiting for the person, with the dialog that
-    /// answers it (`cmux agents dialog answer`).
     static func askPending(_ request: Request, machine: String, dialog: String) -> [String: ActionResultValue] {
-        var fields: [String: ActionResultValue] = ["pending": .bool(true), "agent": .string(request.agent), "waiting_for": .string("person"),
-                                                   "dialog_id": .string(dialog), "answer_command": .string("cmux agents dialog answer \(dialog) --selection start"),
-                                                   "text": .string(CloudStartSessionStrings.askPending(request.asked(machine: machine), dialog: dialog))]
-        if let id = request.machineID { fields["machine_id"] = .string(id) }
-        if let name = request.name { fields["machine_name"] = .string(name) }
-        return fields
+        CloudAskDialog.pending(agent: request.agent, dialog: dialog, text: CloudStartSessionStrings.askPending(request.asked(machine: machine), dialog: dialog),
+                               machineID: request.machineID, machineName: request.name)
     }
 
     /// The chat tab of agent session `session` on any machine: a chat on this Mac, or one on a
