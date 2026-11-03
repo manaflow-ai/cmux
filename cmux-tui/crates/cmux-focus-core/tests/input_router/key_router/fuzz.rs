@@ -87,6 +87,9 @@ struct Awaiting {
     key: ExpectationKey,
     window: usize,
     tab: String,
+    /// A restart of a shown terminal: when it fails, its tab stays (the
+    /// app keeps the dead tab and its banner).
+    restart: bool,
 }
 
 /// What the generator believes the app shows, to make events that make sense.
@@ -371,7 +374,9 @@ impl World {
         }
         if !creation.replied {
             let tab = creation.tab.id.clone();
-            self.awaiting.push(Awaiting { key: creation.key, window: creation.window, tab });
+            let awaiting =
+                Awaiting { key: creation.key, window: creation.window, tab, restart: false };
+            self.awaiting.push(awaiting);
         }
         if creation.new_pane || window.panes.is_empty() {
             let at =
@@ -621,6 +626,9 @@ impl World {
             return;
         }
         self.queue.push_back(InputEvent::CreationFailed { key: awaiting.key });
+        if awaiting.restart {
+            return;
+        }
         let Some(w) = self.windows.get_mut(awaiting.window) else { return };
         let mut removed = false;
         for pane in &mut w.panes {
@@ -665,7 +673,7 @@ impl World {
                 generation,
             };
             self.queue.push_back(InputEvent::Focus { window: id.clone(), event: expect });
-            self.awaiting.push(Awaiting { key, window, tab: tab.id.clone() });
+            self.awaiting.push(Awaiting { key, window, tab: tab.id.clone(), restart: false });
         }
         let focused = self.focused_pane(window, model);
         let fresh = self.fresh("x");
@@ -731,7 +739,7 @@ impl World {
         let creation =
             InputEvent::Creation { key: key.clone(), sink: sink_of(&tab), kind: tab.kind };
         self.queue.push_back(creation);
-        self.awaiting.push(Awaiting { key, window, tab: tab.id });
+        self.awaiting.push(Awaiting { key, window, tab: tab.id, restart: true });
     }
 
     /// A session, a dialog or a page's report (stage S1b's events).

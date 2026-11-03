@@ -251,6 +251,59 @@ fn an_exited_terminal_takes_no_key_after_a_switch_or_a_reopen_until_a_restart() 
     assert!(s.took(&terminal("T1")).is_empty());
 }
 
+/// Third review, major: "Restart Shell Here" on an exited terminal's tab is a
+/// creation of the same terminal. When it fails, the dead tab stays: the end
+/// must stay an exit, so the terminal takes no key after a workspace switch or
+/// a window reopen either, and a later restart can still make it new.
+#[test]
+fn a_failed_restart_of_an_exited_terminal_keeps_it_ended_wherever_it_shows() {
+    let mut s = Session::new();
+    let both = || {
+        topology(
+            "ws",
+            vec![
+                pane("p1", vec![terminal_tab("t1", "T1")]),
+                pane("p2", vec![terminal_tab("t2", "T2")]),
+            ],
+        )
+    };
+    s.open("w1", both(), "p2");
+    s.reaches(Some(terminal("T2")));
+    s.send(InputEvent::Gone { sink: terminal("T2"), reason: GoneReason::Exited });
+    let restart = ExpectationKey::Tab { id: "t2".into() };
+    s.send(InputEvent::Creation {
+        key: restart.clone(),
+        sink: terminal("T2"),
+        kind: Kind::Terminal,
+    });
+    s.send(InputEvent::CreationFailed { key: restart.clone() });
+    let failed_now = s.press(key("w1", A, Some(terminal("T2"))));
+    assert_eq!(
+        s.last(failed_now),
+        Some(&InputEffect::Dropped { id: failed_now, reason: exited() })
+    );
+    // Another workspace, then back.
+    let away = topology("ws-b", vec![pane("q9", vec![terminal_tab("t9", "T9")])]);
+    s.focus("w1", FocusEvent::Topology { topology: away });
+    s.focus("w1", FocusEvent::Topology { topology: both() });
+    let back = s.press(key("w1", B, Some(terminal("T2"))));
+    assert_eq!(s.last(back), Some(&InputEffect::Dropped { id: back, reason: exited() }));
+    // The window closes and opens again.
+    s.send(InputEvent::WindowClosed { window: arc("w1") });
+    s.open("w1", both(), "p2");
+    let reopened = s.press(key("w1", C, Some(terminal("T2"))));
+    assert_eq!(s.last(reopened), Some(&InputEffect::Dropped { id: reopened, reason: exited() }));
+    // A second restart works.
+    s.send(InputEvent::Creation {
+        key: restart.clone(),
+        sink: terminal("T2"),
+        kind: Kind::Terminal,
+    });
+    s.send(InputEvent::Created { key: restart });
+    let restarted = s.press(key("w1", D, Some(terminal("T2"))));
+    assert_eq!(s.took(&terminal("T2")), vec![restarted]);
+}
+
 /// An exited terminal whose tab then closes is gone for good: a reopen of
 /// the tab (a window that shows it again after none did) is a new tab.
 #[test]

@@ -583,3 +583,28 @@ fn the_release_of_an_offered_key_reaches_its_page_after_a_repeat_that_ran() {
         Some(&InputEffect::Deliver { id: up, sink: content("b1"), via: Via::Responder })
     );
 }
+
+/// Third review, minor: a running key session took the bare keys typed under
+/// a blocking dialog, while today the dialog gets them first (as in Chrome,
+/// where a page's alert blocks its hint script). A blocking dialog over the
+/// key's target takes keys with no Command or Control before any session;
+/// the session keeps running and takes its keys again after the answer.
+#[test]
+fn a_blocking_dialog_takes_bare_keys_before_a_running_session() {
+    let mut s = page_window();
+    s.send(hints("b1"));
+    let scope = DialogScope::Tab { window: arc("w1"), tab: arc("b1") };
+    s.send(InputEvent::DialogShown { id: 11, scope });
+    let typed = s.press(key("w1", A, Some(content("b1"))));
+    assert_eq!(s.took(&Sink::Dialog(11)), vec![typed]);
+    assert!(ends(&s).is_empty(), "the session still runs");
+    s.send(InputEvent::DialogDismissed { id: 11 });
+    let hint = s.press(key("w1", D, Some(content("b1"))));
+    assert_eq!(
+        s.last(hint),
+        Some(&InputEffect::SessionKey {
+            id: hint,
+            key: SessionKey::Letter { letter: 'd', shift: false }
+        })
+    );
+}
