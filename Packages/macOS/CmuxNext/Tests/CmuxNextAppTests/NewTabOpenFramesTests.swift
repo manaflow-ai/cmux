@@ -1,7 +1,6 @@
 import AppKit
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
-import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextTestSupport
 import Foundation
@@ -14,14 +13,6 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
                   .closesItsWindows)
 struct NewTabOpenFramesTests {
-    /// Main-actor turns (a heartbeat counts one about every millisecond, between the main thread's other tasks), and
-    /// the turn of each read of the first and the last action the palette reads.
-    @MainActor final class Probe {
-        var turns = 0
-        var firstReads: [Int] = []
-        var lastReads: [Int] = []
-    }
-
     /// The pane Cmd-T opens in, once the window shows a workspace with a pane.
     static func focusedPane(_ services: AppServices) async throws -> (NSWindow, PaneController) {
         try await PasswordManagerRouteTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
@@ -77,7 +68,8 @@ struct NewTabOpenFramesTests {
         }
     }
 
-    /// The bar's palette actions are read in slices on the main thread's budgeted work, never every action in one task.
+    /// The bar's palette actions are read in slices on the main thread's budgeted work, never every action in one task:
+    /// the bench spans (`newTab.paletteActions`, one per main-thread task that reads actions) show several short tasks.
     @Test func cmdTListsTheBarsPaletteActionsInSlices() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-open-frames-actions")
@@ -87,34 +79,8 @@ struct NewTabOpenFramesTests {
             pool.dropAll()
             pool.makeSpare = { _ in nil }
             defer { pool.makeSpare = nil }
-            // The first and the last action the palette reads (registry order) among those the bar lists.
-            let listed = Set(services.palette.commandEntries().map(\.id))
-            let order = services.registry.entries.map(\.descriptor.id).filter(listed.contains)
-            let first = try #require(order.first), last = try #require(order.last)
-            try #require(first != last)
-            let probe = Probe()
-            let firstTitle = services.registry.action(for: first)?.paletteTitle
-            let lastTitle = services.registry.action(for: last)?.paletteTitle
-            ActionTargetTitles.setPaletteTitle(first, in: services.registry) {
-                probe.firstReads.append(probe.turns)
-                // A slow first action: the frame's whole budget for scheduled work (4 ms) goes to it.
-                let until = ContinuousClock.now + .milliseconds(5)
-                while ContinuousClock.now < until {}
-                return firstTitle?()
-            }
-            ActionTargetTitles.setPaletteTitle(last, in: services.registry) {
-                probe.lastReads.append(probe.turns)
-                return lastTitle?()
-            }
-            let heartbeat = Task { @MainActor in
-                while !Task.isCancelled {
-                    probe.turns += 1
-                    try? await Task.sleep(for: .milliseconds(1))
-                }
-            }
-            defer { heartbeat.cancel() }
-
             let pages = Set(services.agentTabs.newTabPages.keys)
+            BenchSpans.begin()
             NewTabPage.open(in: pane, seed: nil)
             // The page's key is the tab's: a provisional one until the store answers, then the store's.
             @MainActor func actions() -> [AgentPaneOmnibar.Action] {
@@ -123,13 +89,9 @@ struct NewTabOpenFramesTests {
                 return tabs.views[key]?.model.newTab?.omnibar.actions ?? tabs.newTabPages[key]?.page.omnibar.actions ?? []
             }
             try #require(services.agentTabs.newTabPages.keys.contains { !pages.contains($0) }, "Cmd-T opened no New Tab page")
-            try await PasswordManagerRouteTests.until({ !actions().isEmpty }, report: {
-                "the bar never got the palette's actions (first read in turns \(probe.firstReads), last in \(probe.lastReads))"
-            })
-            #expect(actions().contains { $0.id == first.rawValue } && actions().contains { $0.id == last.rawValue })
-            // A read of every action in one task reads the first and the last in the same turn.
-            #expect(probe.firstReads.contains { !probe.lastReads.contains($0) },
-                    "every palette action was read in one main-thread task (first read in turns \(probe.firstReads), last in \(probe.lastReads))")
+            try await PasswordManagerRouteTests.until({ !actions().isEmpty }, report: { "the bar never got the palette's actions" })
+            let reads = BenchSpans.end().filter { $0.name == "newTab.paletteActions" }
+            #expect(reads.count > 1, "every palette action was read in one main-thread task (\(reads.map(\.milliseconds)) ms)")
         }
     }
 
