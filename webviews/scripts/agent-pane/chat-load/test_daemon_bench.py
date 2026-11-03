@@ -28,6 +28,10 @@ def page(**fields):
 
 
 class OpenTests(unittest.TestCase):
+    def test_missing_newest_message_fails_the_sample(self):
+        with self.assertRaisesRegex(AssertionError, "newest fixture message"):
+            bench.open_chat(Rpc(page(turnOpener=None)), "chat", "TAIL 9999: ")
+
     def test_open_does_not_wait_for_log_restore(self):
         rpc = Rpc(page(turnOpener=None))
         bench.open_chat(rpc, "chat")

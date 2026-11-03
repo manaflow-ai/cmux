@@ -107,7 +107,7 @@ def measured(pid, fn):
                     "read_mb": round((io_read(pid) - r0) / 1e6, 2), "peak_extra_mb": round((after["VmHWM"] - before) / 1024, 1)}
 
 
-def open_chat(rpc, sid):
+def open_chat(rpc, sid, expected_marker=None):
     """Current direct.ts open contract, with background work timed separately from draw readiness."""
     calls = []
     started = time.perf_counter()
@@ -136,6 +136,8 @@ def open_chat(rpc, sid):
         call("opener", "_acpmux/events", {"sessionId": sid, "beforeSeq": first["seq"], "limit": 16,
                                          "kinds": ["user_message"]})
     draw_ready_ms = round((time.perf_counter() - started) * 1000, 2)
+    if expected_marker is not None and expected_marker not in json.dumps(events):
+        raise AssertionError("first page is missing the newest fixture message")
     kept = (page.get("session") or {}).get("availableCommands")
     if not kept and not any(e["kind"] == "available_commands_update" for e in events) and page.get("lastSeq", 0) > 0:
         call("commands", "_acpmux/events", {"sessionId": sid, "beforeSeq": page["lastSeq"] + 1, "limit": 1,
@@ -216,10 +218,10 @@ def main():
             info = None
             rpc_runs = []
             for i in range(a.repeat):
-                info, m = measured(pid, lambda: open_chat(rpc, sid))
+                info, m = measured(pid, lambda: open_chat(rpc, sid, s.get("lastMarker")))
                 runs.append(m)
                 rpc_runs.append({k: info[k] for k in ("first_page_ms", "draw_ready_ms", "stages")})
-            row = {"turns": s["turns"], "records": s["records"], "log_mb": round(s["bytes"] / 1e6, 1),
+            row = {"turns": s["turns"], "records": s["records"], "log_bytes": s["bytes"], "log_mb": round(s["bytes"] / 1e6, 1),
                    "first_open": runs[0], "open": {k: statistics.median(r[k] for r in runs) for k in runs[0]},
                    "open_calls": info["calls"], "open_bytes": info["bytes"], "open_records": info["records"],
                    "rpc_runs": rpc_runs}
