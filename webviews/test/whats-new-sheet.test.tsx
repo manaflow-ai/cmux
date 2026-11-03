@@ -80,7 +80,7 @@ test("the page opens as the What's New sheet unless a route names another design
   expect(parseDesign("#/?design=nonsense")).toBe("sheet");
 });
 
-test("each change is an icon, a bold one-line title and one muted line, newest day first", async () => {
+test("each day lists its changes under their app area, one line each, newest day first", async () => {
   const { MockChangelogProvider } = await import("../src/pages/changelog/mockProvider");
   const { mountChangelogPage } = await import("../src/pages/changelog/main");
   const root = dom.window.document.createElement("div");
@@ -91,22 +91,27 @@ test("each change is an icon, a bold one-line title and one muted line, newest d
   expect(root.querySelector(".cls h1")?.textContent).toBe("What's New");
   const days = [...root.querySelectorAll(".cls-day time")].map((t) => t.getAttribute("dateTime"));
   expect(days).toEqual(["2026-10-31", "2026-10-26"]);
-  const rows = [...root.querySelectorAll(".cls-row")];
-  for (const row of rows) {
-    expect(row.querySelector(".cls-icon svg")).not.toBeNull();
-    expect(row.querySelectorAll(".cls-row-title").length).toBe(1);
-    expect(row.querySelectorAll(".cls-row-line").length).toBeLessThanOrEqual(1);
-  }
-  const text = (row: Element) => [
-    row.querySelector(".cls-row-title")?.textContent,
-    row.querySelector(".cls-row-line")?.textContent,
-  ];
-  // A curated change's summary is cut to its first sentence.
-  expect(rows.map(text)).toEqual([
-    ["Each machine shows its cost", "In the sidebar, next to its name."],
-    ["Links reuse the browser pane beside your chat", "A link opens in the pane you already have."],
-    // A change with no curated note: its readable title, and the area it is in as its line.
-    ["Rows keep their place while you rename them", "Sidebar"],
+  // Each area: its glyph, its name and its count, then its changes.
+  const areas = [...root.querySelectorAll(".cls-area")].map((area) => [
+    area.querySelector(".cls-area-head .cls-icon svg") !== null,
+    area.querySelector(".cls-area-name")?.textContent,
+    area.querySelector(".cls-area-head .cl-count")?.textContent,
+    [...area.querySelectorAll(".cls-row")].map((row) => [
+      row.querySelector(".cls-row-title")?.textContent,
+      row.querySelector(".cls-row-line")?.textContent,
+    ]),
+  ]);
+  expect(areas).toEqual([
+    // A curated change's summary is cut to its first sentence.
+    [true, "Sidebar", "1", [["Each machine shows its cost", "In the sidebar, next to its name."]]],
+    [
+      true,
+      "Agent Chat",
+      "1",
+      [["Links reuse the browser pane beside your chat", "A link opens in the pane you already have."]],
+    ],
+    // A change with no curated note: its readable title under its area.
+    [true, "Sidebar", "1", [["Rows keep their place while you rename them", undefined]]],
   ]);
   // Less text: no version tags, build numbers, pull request chips or category headings.
   expect(root.querySelector(".cll-version, .cl-build, a.cl-pr, .cl-group h3")).toBeNull();

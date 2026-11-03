@@ -113,7 +113,10 @@ async fn queue_once(
     let id = queued.get("deliveryId").and_then(Value::as_str).unwrap_or_default().to_owned();
     *delivery_id = (!id.is_empty()).then(|| id.clone());
     let status = client
-        .request(method::MUX_SEND_STATUS, json!({"deliveryId": id, "waitMs": QUICK_WAIT_MS}))
+        .request(
+            method::MUX_SEND_STATUS,
+            json!({"deliveryId": id, "waitMs": QUICK_WAIT_MS, "firstAttempt": true}),
+        )
         .await
         .unwrap_or(queued);
     let state = status.get("status").and_then(Value::as_str).unwrap_or("queued");
@@ -234,4 +237,91 @@ pub(super) async fn status(
     }
     println!("{line}");
     Ok(())
+}
+
+/// `acpmux send --status` with no id: every message this daemon was handed to deliver (or only
+/// `caller`'s), newest first, one line each: its state, target, attempts and age, and the last
+/// error of one still waiting.
+pub(crate) async fn list(
+    client: &crate::client::Client,
+    caller: Option<&str>,
+    json_out: bool,
+) -> Result<()> {
+    let mut params = json!({"list": true});
+    if let Some(caller) = caller {
+        params["caller"] = json!(caller);
+    }
+    let v = client.request(method::MUX_SEND_STATUS, params).await?;
+    if json_out {
+        print_json(&v);
+        return Ok(());
+    }
+    for line in list_lines(&v, crate::store::now_ms()) {
+        println!("{line}");
+    }
+    Ok(())
+}
+
+/// What [`list`] prints for a `send_status {list: true}` answer, as of `now` (ms).
+pub(crate) fn list_lines(v: &Value, now: u64) -> Vec<String> {
+    let deliveries = v.get("deliveries").and_then(Value::as_array).cloned().unwrap_or_default();
+    if deliveries.is_empty() {
+        return vec!["no messages queued or sent in the last day".to_owned()];
+    }
+    let pending = v.get("pending").and_then(Value::as_u64).unwrap_or(0);
+    let mut lines = vec![format!("{pending} waiting, {} in all", deliveries.len())];
+    for d in &deliveries {
+        let field = |k: &str| d.get(k).and_then(Value::as_str).unwrap_or_default();
+        let at = d.get("createdAt").and_then(Value::as_u64).unwrap_or(now);
+        let age = now.saturating_sub(at) / 1000;
+        let age = if age < 120 {
+            format!("{age}s")
+        } else if age < 7200 {
+            format!("{}m", age / 60)
+        } else {
+            format!("{}h", age / 3600)
+        };
+        let attempts = d.get("attempts").and_then(Value::as_u64).unwrap_or(0);
+        let mut line = format!(
+            "{:<10}  {}  {} ago  attempt {attempts}  {}",
+            field("status"),
+            field("target"),
+            age,
+            field("deliveryId")
+        );
+        if matches!(field("status"), "queued" | "delivering" | "failed" | "held")
+            && let Some(error) = d.get("error").and_then(Value::as_str)
+        {
+            line.push_str(&format!("  last error: {}", super::super::output::short(error, 120)));
+        }
+        lines.push(line);
+    }
+    lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_lines_show_state_target_age_and_the_waiting_ones_error() {
+        assert_eq!(
+            list_lines(&json!({"deliveries": []}), 0),
+            ["no messages queued or sent in the last day"]
+        );
+        let v = json!({"pending": 1, "deliveries": [
+            {"deliveryId": "d2", "target": "gcp-agent-lane-1/lane", "status": "queued", "attempts": 3,
+             "createdAt": 10_000, "error": "peer_unreachable"},
+            {"deliveryId": "d1", "target": "lane", "status": "delivered", "attempts": 1,
+             "createdAt": 1_000, "error": null},
+        ]});
+        assert_eq!(
+            list_lines(&v, 70_000),
+            [
+                "1 waiting, 2 in all",
+                "queued      gcp-agent-lane-1/lane  60s ago  attempt 3  d2  last error: peer_unreachable",
+                "delivered   lane  69s ago  attempt 1  d1",
+            ]
+        );
+    }
 }

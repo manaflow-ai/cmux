@@ -22,7 +22,8 @@ struct PaletteNavigationEntriesTests {
         let docs = ControlTabInfo(id: "docs", surface: "2", kind: "browser", title: "Docs", url: "https://example.com")
         let left = ControlPaneInfo(id: "pane-l", handle: "10", selectedTabID: "docs", tabs: [shell, docs])
         let right = ControlPaneInfo(id: "pane-r", handle: "11", name: "Agents", tabs: [chat, notes])
-        let lone = ControlPaneInfo(id: "pane-x", handle: "12", tabs: [agent])
+        let top = ControlTabInfo(id: "top", surface: "6", kind: "terminal", title: "top")
+        let lone = ControlPaneInfo(id: "pane-x", handle: "12", tabs: [agent, top])
         topology.workspaces = [
             ControlWorkspaceInfo(id: "ws-api", handle: "1", name: "api",
                                  screens: [ControlScreenInfo(id: "s1", handle: "1", panes: [left, right])]),
@@ -39,7 +40,7 @@ struct PaletteNavigationEntriesTests {
         let used = Date(timeIntervalSince1970: 500)
         let entries = PaletteNavigationEntries.entries(Self.topology(), groups: Self.groups, lastActive: ["shell": used])
         #expect(entries.map(\.itemID) == ["group:grp-1", "pane:pane-l", "tab:shell", "tab:docs", "pane:pane-r", "tab:chat", "tab:notes",
-                                          "tab:claude"])
+                                          "tab:claude", "tab:top"])
         let byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.itemID, $0) })
 
         #expect(byID["group:grp-1"]?.kind == .group(workspaceCount: 1))
@@ -71,7 +72,7 @@ struct PaletteNavigationEntriesTests {
             guard case .tab(let kind) = entry.kind else { return nil }
             return (entry.id, kind)
         })
-        #expect(kinds == ["shell": .terminal, "docs": .browser, "chat": .agentChat, "notes": .markdown, "claude": .terminal])
+        #expect(kinds == ["shell": .terminal, "docs": .browser, "chat": .agentChat, "notes": .markdown, "claude": .terminal, "top": .terminal])
     }
 
     @Test func aLonePaneIsNotListedAndClosingTabsAreLeftOut() {
@@ -79,6 +80,56 @@ struct PaletteNavigationEntriesTests {
         #expect(!entries.contains { $0.itemID == "pane:pane-x" })
         #expect(!entries.contains { $0.itemID == "tab:notes" })
         #expect(entries.first { $0.itemID == "pane:pane-r" }?.keywords == ["Fix CI"])
+    }
+
+    // MARK: One row per thing (Leo 2026-11-03: "some of these are way too duplicated")
+
+    /// Leo's "ultra" search: "mac-studio-ultras" holds two chats, "Set up Mac Studio Ultras for"
+    /// one. Before, each chat was its own row next to its workspace's.
+    private static func ultras() -> ControlTopology {
+        func chat(_ id: String, _ title: String) -> ControlTabInfo {
+            var tab = ControlTabInfo(id: id, surface: id, kind: "conversation", title: title)
+            tab.agentSessionID = "acp-\(id)"
+            return tab
+        }
+        var topology = ControlTopology()
+        let two = ControlPaneInfo(id: "pane-a", handle: "1", tabs: [chat("a1", "mac-studio-ultras"), chat("a2", "mac-studio-ultras")])
+        let one = ControlPaneInfo(id: "pane-b", handle: "2", tabs: [chat("b1", "mac-studio-ultras")])
+        topology.workspaces = [
+            ControlWorkspaceInfo(id: "ws-a", handle: "1", name: "mac-studio-ultras",
+                                 screens: [ControlScreenInfo(id: "s1", handle: "1", panes: [two])]),
+            ControlWorkspaceInfo(id: "ws-b", handle: "2", name: "Set up Mac Studio Ultras for",
+                                 screens: [ControlScreenInfo(id: "s2", handle: "2", panes: [one])]),
+        ]
+        return topology
+    }
+
+    @Test func aWorkspaceWithOneChatIsOneRowAndItsChatFindsIt() {
+        let entries = PaletteNavigationEntries.entries(Self.ultras(), groups: [], lastActive: [:])
+        // The lone chat of "Set up Mac Studio Ultras for" is that workspace's row, not one of its own.
+        #expect(entries.map(\.itemID) == ["tab:a1", "tab:a2"])
+        #expect(entries.allSatisfy { $0.workspaceID == "ws-a" })
+    }
+
+    @Test func aClosingSecondTabFoldsTheOneLeftAndHomeKeepsItsTabs() {
+        // Closing one of the two chats leaves a workspace with one chat: one row.
+        #expect(PaletteNavigationEntries.entries(Self.ultras(), groups: [], lastActive: [:], closing: ["a2"]).isEmpty)
+        var topology = Self.ultras()
+        topology.workspaces[1].kind = "home"
+        #expect(PaletteNavigationEntries.entries(topology, groups: [], lastActive: [:]).map(\.itemID) == ["tab:a1", "tab:a2", "tab:b1"])
+        // A window's own Home (its pane's first tab is Home's page) keeps its lone tab too.
+        var windowHome = Self.ultras()
+        windowHome.workspaces[1].screens[0].panes[0].tabs[0].page = "home-dock"
+        #expect(PaletteNavigationEntries.entries(windowHome, groups: [], lastActive: [:]).map(\.itemID) == ["tab:a1", "tab:a2", "tab:b1"])
+    }
+
+    @Test func theChatsThatRepeatTheirWorkspaceNameCarryItsIDForTheRowsToTellThemApart() {
+        // NavigationPaletteProvider titles them "Agent Chat 1" and "Agent Chat 2" per workspace id
+        // (PaletteNavigationTests.ultraListsEachWorkspaceOnceAndItsChatsByKind).
+        let entries = PaletteNavigationEntries.entries(Self.ultras(), groups: [], lastActive: [:])
+        #expect(entries.map(\.title) == ["mac-studio-ultras", "mac-studio-ultras"])
+        #expect(entries.map(\.workspaceTitle) == ["mac-studio-ultras", "mac-studio-ultras"])
+        #expect(entries.map(\.workspaceID) == ["ws-a", "ws-a"])
     }
 
     // MARK: Group to first workspace

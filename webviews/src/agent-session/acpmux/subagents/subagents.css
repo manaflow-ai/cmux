@@ -668,6 +668,13 @@ button.cv-subagent > :last-child {
      there's a new subagent or command"). */
   font-variant-numeric: tabular-nums;
 }
+/* Folded, the header names what runs (trayFoldHead.experiment.ts); the rest are a count that, like
+   the time, never truncates: the names give way first. */
+.acpmux-running-tray__more {
+  flex: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .acpmux-running-tray__time {
   flex: 1 0 auto;
   text-align: left;

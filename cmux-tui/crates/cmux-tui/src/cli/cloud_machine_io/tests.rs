@@ -142,6 +142,40 @@ fn go(request: &Request, now: u64) -> (Route, Answer) {
     runtime.block_on(perform(&client(), request, move || now))
 }
 
+fn wire_body(route: Route, answer: &mut Answer) -> Value {
+    let mut bytes = Vec::new();
+    write_line(&mut bytes, route, answer).unwrap();
+    let wire: Value = serde_json::from_slice(&bytes).unwrap();
+    wire["body"].clone()
+}
+
+#[test]
+fn an_empty_spooled_read_keeps_the_json_contract_and_output_errors_propagate() {
+    let mut answer = Answer {
+        status: 200,
+        code: None,
+        body: json!({ "path": "/empty", "size": 0 }),
+        file: Some(tempfile::tempfile().unwrap()),
+    };
+    assert_eq!(
+        wire_body(Route::Direct, &mut answer),
+        json!({ "path": "/empty", "size": 0, "dataBase64": "" })
+    );
+    struct Broken;
+    impl std::io::Write for Broken {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::ErrorKind::BrokenPipe.into())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    assert_eq!(
+        write_line(&mut Broken, Route::Direct, &mut answer).unwrap_err().kind(),
+        std::io::ErrorKind::BrokenPipe
+    );
+}
+
 fn count(seen: &Arc<Mutex<Vec<Seen>>>, which: fn(&Seen) -> bool) -> usize {
     seen.lock().unwrap().iter().filter(|s| which(s)).count()
 }
@@ -485,11 +519,12 @@ fn files_round_trip_through_the_program_small_staged_and_ranged() {
         assert_eq!(std::fs::read(&path).unwrap(), data);
         use std::os::unix::fs::PermissionsExt;
         assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o640);
-        let (_, answer) =
+        let (route, mut answer) =
             go(&Request { op: Op::Read, path: Some(path.clone()), ..base.clone() }, T0);
         assert_eq!(answer.status, 200);
-        assert_eq!(answer.body["size"], size);
-        assert_eq!(BASE64.decode(answer.body["dataBase64"].as_str().unwrap()).unwrap(), data);
+        let body = wire_body(route, &mut answer);
+        assert_eq!(body["size"], size);
+        assert_eq!(BASE64.decode(body["dataBase64"].as_str().unwrap()).unwrap(), data);
     }
     let leftovers: Vec<_> = std::fs::read_dir(&root)
         .unwrap()
@@ -677,11 +712,104 @@ fn a_read_never_mixes_two_versions_of_the_file() {
         path: Some(path.display().to_string()),
         ..request(&origin, &dir.path().join("cache"), Op::Read)
     };
-    let (route, answer) = go(&req, T0);
+    let (route, mut answer) = go(&req, T0);
     assert_eq!((route, answer.status), (Route::Direct, 200));
-    let got = BASE64.decode(answer.body["dataBase64"].as_str().unwrap()).unwrap();
+    let got = BASE64.decode(wire_body(route, &mut answer)["dataBase64"].as_str().unwrap()).unwrap();
     assert_eq!(got, new, "read again from the start: all of the new file, none of the old");
     assert!(*reads.lock().unwrap() >= 3);
+}
+
+/// Exercise the entire direct read and stdout encoder without a file-sized test buffer.
+#[test]
+fn a_large_read_spools_to_disk_and_streams_the_existing_wire_format() {
+    use sha2::{Digest, Sha256};
+    use std::io::{Seek, SeekFrom, Write};
+    use std::os::unix::fs::MetadataExt;
+
+    assert!(python_here(), "this route test requires python3");
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("large-\"file.bin");
+    let size = 12 * 1024 * 1024 + 17_usize;
+    let block: Vec<u8> = (0..65536).map(|i| (i % 251) as u8).collect();
+    let mut source = std::fs::File::create(&path).unwrap();
+    let mut expected = Sha256::new();
+    for offset in (0..size).step_by(block.len()) {
+        let bytes = &block[..block.len().min(size - offset)];
+        source.write_all(bytes).unwrap();
+        expected.update(bytes);
+    }
+    drop(source);
+    let cell = Arc::new(Mutex::new(String::new()));
+    let c = Arc::clone(&cell);
+    let (origin, seen) =
+        fake(move |s| if s.is_mint() { minted(&c.lock().unwrap()) } else { run_here(s) });
+    *cell.lock().unwrap() = origin.clone();
+    let request = Request {
+        path: Some(path.display().to_string()),
+        ..request(&origin, &dir.path().join("cache"), Op::Read)
+    };
+    let (route, mut answer) = go(&request, T0);
+    assert_eq!((route, answer.status), (Route::Direct, 200));
+    let stored = answer.file.as_ref().expect("read bytes stay on disk until stdout consumes them");
+    assert_eq!(stored.metadata().unwrap().len(), size as u64);
+    assert_eq!(
+        stored.metadata().unwrap().nlink(),
+        0,
+        "no named temporary file survives cancellation or process exit"
+    );
+    assert_eq!(stored.metadata().unwrap().mode() & 0o777, 0o600);
+    assert!(answer.body.get("dataBase64").is_none(), "metadata carries no file-sized string");
+    assert_eq!(count(&seen, Seen::is_exec_await), 4, "four bounded ranged reads");
+
+    struct BoundedWriter {
+        file: std::fs::File,
+        largest: usize,
+    }
+    impl Write for BoundedWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            assert!(bytes.len() <= 65536, "stdout must never receive a whole-file write");
+            self.largest = self.largest.max(bytes.len());
+            self.file.write(bytes)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.file.flush()
+        }
+    }
+    let mut wire = BoundedWriter { file: tempfile::tempfile().unwrap(), largest: 0 };
+    write_line(&mut wire, route, &mut answer).unwrap();
+    let mut prefix = vec![0; 1024];
+    wire.file.rewind().unwrap();
+    let n = wire.file.read(&mut prefix).unwrap();
+    prefix.truncate(n);
+    let marker = b"\"dataBase64\":\"";
+    let start = prefix.windows(marker.len()).position(|w| w == marker).unwrap() + marker.len();
+    let encoded_size = (size as u64).div_ceil(3) * 4;
+    wire.file.seek(SeekFrom::Start(start as u64)).unwrap();
+    let mut decoder =
+        base64::read::DecoderReader::new((&mut wire.file).take(encoded_size), &BASE64);
+    let mut actual = Sha256::new();
+    let mut buffer = [0_u8; 65536];
+    let mut received = 0;
+    loop {
+        let n = decoder.read(&mut buffer).unwrap();
+        if n == 0 {
+            break;
+        }
+        actual.update(&buffer[..n]);
+        received += n;
+    }
+    assert_eq!(received, size);
+    assert_eq!(actual.finalize(), expected.finalize());
+    // Parse the envelope after skipping the content to verify escaping and legacy field names.
+    wire.file.seek(SeekFrom::Start(start as u64 + encoded_size)).unwrap();
+    let mut envelope = prefix[..start].to_vec();
+    wire.file.read_to_end(&mut envelope).unwrap();
+    let envelope: Value = serde_json::from_slice(&envelope).unwrap();
+    assert_eq!(envelope["route"], "direct");
+    assert_eq!(envelope["body"]["path"], request.path.unwrap());
+    assert_eq!(envelope["body"]["size"], size);
+    assert_eq!(envelope["body"]["dataBase64"], "");
+    eprintln!("payload_bytes={size}, largest_stdout_write={}", wire.largest);
 }
 
 #[test]

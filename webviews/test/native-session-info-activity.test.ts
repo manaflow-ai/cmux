@@ -10,6 +10,7 @@ import {
   SESSION_INFO_WAVE_STEP_MS,
 } from "../src/agent-session/acpmux/session-info/native/wave";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
+import { IDLE_AFTER_MS } from "../src/agent-session/acpmux/subagents/idle";
 
 const t = (key: Parameters<typeof translate>[0], values?: Parameters<typeof translate>[1]) =>
   translate(key, values, "en");
@@ -59,6 +60,46 @@ test("native subagent rows retain progress, kind/task help, retry spinner and th
   expect(run.progress).toContain("2");
   expect(run.progress).toContain("3");
   expect(run.help).toBe("Explore\nInspect the project");
+});
+
+// Leo, 2026-11-02, on "15 running · 27 done" over "Running 0 / 1000 max" and rows "Running" for
+// two hours: "but what's going on with these?"
+test("a subagent quiet past the idle window reads Idle in its line and the head, and the limit line names started chats", () => {
+  const now = 10 * 60_000;
+  const agents: Subagent[] = [
+    { id: "busy", parent: null, name: "Busy", state: "running", startedAt: 0, quietSince: now - 1_000 },
+    { id: "open", parent: null, name: "Long call", state: "running", startedAt: 0 },
+    {
+      id: "quiet",
+      parent: null,
+      name: "Waits on its build",
+      state: "running",
+      startedAt: 0,
+      quietSince: now - IDLE_AFTER_MS,
+    },
+    { id: "done", parent: null, name: "Done", state: "completed", startedAt: 0, endedAt: 1_000 },
+  ];
+  const section = subagentsSection(
+    {
+      open: true,
+      agents,
+      waiting: new Set(),
+      sessions: [],
+      language: "en",
+      now,
+      limits: { maxRunning: 1000, maxRunningSource: "settings" },
+    },
+    new NativeInfoActions(),
+    t,
+  )!;
+  expect(section.meta).toBe("2 running · 1 idle · 1 done");
+  const row = (id: string) => section.rows.find((each) => each.id === `agent:${id}`)!;
+  expect(row("busy").trailing).toEndWith("Running");
+  expect(row("open").trailing).toEndWith("Running");
+  expect(row("quiet").trailing).toEndWith("Idle");
+  expect(row("quiet").wave).toBeUndefined();
+  expect(row("quiet").tone).toBe("muted");
+  expect(section.rows.find((each) => each.id === "limit")!.title).toBe("Started chats: 0 of 1000 at once");
 });
 
 test("native server rows keep the command plain and expose every named port", async () => {
