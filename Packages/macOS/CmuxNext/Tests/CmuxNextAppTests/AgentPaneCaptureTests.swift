@@ -267,12 +267,23 @@ struct AgentPaneCaptureTests {
         #expect(rig.requests.isEmpty)
     }
 
-    /// A chat whose host saves nothing (no stager): the preview still attaches, with no original.
-    @Test func aChatThatSavesNothingGetsThePreviewOnly() async throws {
+    /// A host with no stager still attaches its preview and reports the retained original.
+    @Test func aChatWithoutAStagerKeepsThePreviewAndRecoverableOriginal() async throws {
         let rig = Rig(stages: false)
-        let answer = try #require(Self.value(await rig.capture(Self.png)))
-        #expect(answer["data"] as? String == Self.png.base64EncodedString())
+        let large = try Self.noisePNG(width: 2400, height: 1600)
+        try #require(large.count > 5 * 1024 * 1024)
+        let answer = try #require(Self.value(await rig.capture(large)))
+        let preview = try #require((answer["data"] as? String).flatMap { Data(base64Encoded: $0) })
+        #expect(preview.count <= AgentPaneCapture.previewMaxBytes)
+        #expect(preview != large)
         #expect(answer["original"] == nil)
+        let file = try #require(rig.captureFile)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let unavailable = try #require(answer["originalUnavailable"] as? [String: String])
+        #expect(unavailable["originalPath"] == file.path)
+        #expect(unavailable["userMessage"]?.contains(file.path) == true)
+        #expect(try Data(contentsOf: file) == large)
+        #expect(rig.requests.isEmpty)
         // cmux took it: its chip wears cmux's icon.
         #expect(answer["source"] as? [String: String] == AttachmentSource.cmux.json)
     }
