@@ -39,6 +39,8 @@ actor FakeAuthClient: AuthClient {
     private var nextSelectedTeamReadGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
     private var nextTeamCreateGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
     private var nextTeamDeleteGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
+    private var nextTeamAcceptGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
+    private var nextTeamListGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
     var throwOnCurrentUser: (any Error)?
     var throwOnListTeams: (any Error)?
     var nonce = "nonce-123"
@@ -95,6 +97,18 @@ actor FakeAuthClient: AuthClient {
         defer { nextTeamDeleteGate = nil }
         return nextTeamDeleteGate
     }
+    func holdNextTeamAccept(started: TestPhaseSignal, release: TestContinuationBlocker) {
+        nextTeamAcceptGate = (started, release)
+    }
+    func takeTeamAcceptGate() -> (started: TestPhaseSignal, release: TestContinuationBlocker)? {
+        defer { nextTeamAcceptGate = nil }
+        return nextTeamAcceptGate
+    }
+    /// Holds the next ``listTeams()`` after it has read the teams, so the read
+    /// answers a membership that may have changed meanwhile.
+    func holdNextTeamList(started: TestPhaseSignal, release: TestContinuationBlocker) {
+        nextTeamListGate = (started, release)
+    }
 
     /// Mirrors the live SDK store: a fresh stored access token is returned
     /// as-is; a STALE one (``setStoredAccessTokenStale(_:)``) is refreshed from
@@ -131,7 +145,13 @@ actor FakeAuthClient: AuthClient {
 
     func listTeams() async throws -> [CMUXAuthTeam] {
         if let throwOnListTeams { throw throwOnListTeams }
-        return teams
+        let read = teams
+        if let gate = nextTeamListGate {
+            nextTeamListGate = nil
+            await gate.started.markStarted()
+            await gate.release.wait()
+        }
+        return read
     }
 
     func selectedTeamID() async throws -> String? {

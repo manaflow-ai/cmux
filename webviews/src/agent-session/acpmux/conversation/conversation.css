@@ -4211,6 +4211,17 @@ a.cv-sha:focus-visible {
   margin-inline-start: -2px;
   white-space: nowrap;
 }
+/* A stopped turn's one muted word (TurnRows.tsx `stoppedWord`), in the time's caption size and the
+   footer's resting ink: what ended the turn is its tooltip, never the transcript's text. */
+.cv-turn-actions .cv-turn-stopped {
+  display: inline-flex;
+  align-items: center;
+  height: var(--cv-footer-row);
+  color: var(--cv-footer-ink);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+}
 .cv-iconbtn.cv-turn-continue:disabled {
   opacity: 0.5;
   pointer-events: none;
