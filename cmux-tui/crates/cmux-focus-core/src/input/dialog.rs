@@ -1,12 +1,16 @@
-//! Blocking dialogs (DESIGN.md section 4.4 step 4; #31849, #32291, #32409): a
-//! dialog blocks its window or one tab. A key typed while a dialog blocks the
-//! key's target is the dialog's (Return presses its default button, Escape
-//! cancels it, text goes to its field), unless the key runs a binding (Cmd-W
-//! closes the tab and its dialog). A key typed BEFORE the dialog keeps its
-//! own target: it waits while the dialog blocks that target and goes on after
-//! the answer, or is dropped when the answer closes the target. A blocked
-//! target never takes a key, and a dialog never takes a key typed before it.
+//! Blocking dialogs (DESIGN.md section 4.4 step 3; #31849, #32291, #32409): a
+//! dialog blocks its window or one tab. A key with no Command or Control typed
+//! while a dialog blocks the key's target is the dialog's, before any key
+//! session and any binding (Return presses its default button, Escape cancels
+//! it, text goes to its field): a modal dialog is above every session, as in
+//! Chrome, where a page's alert blocks its hint script. A Command or Control
+//! chord still runs its binding (Cmd-W closes the tab and its dialog). A key
+//! typed BEFORE the dialog keeps its own target: it waits while the dialog
+//! blocks that target and goes on after the answer, or is dropped when the
+//! answer closes the target. A blocked target never takes a key, and a dialog
+//! never takes a key typed before it.
 
+use super::key::{KeyRecord, WindowRole};
 use super::router::InputRouter;
 use super::sink::{FieldKind, Sink};
 use std::sync::Arc;
@@ -23,6 +27,22 @@ pub enum DialogScope {
 }
 
 impl InputRouter {
+    /// The blocking dialog key `key` goes to before any session or binding: a
+    /// key with no Command or Control, typed in a cmux window (no input method
+    /// composing), whose target a dialog blocks.
+    pub(super) fn dialog_first(&self, key: &KeyRecord) -> Option<u64> {
+        if self.dialogs.is_empty()
+            || key.role != WindowRole::Main
+            || key.composing
+            || key.modifiers.is_chord()
+        {
+            return None;
+        }
+        let (window_id, window) = self.windows.get_key_value(&key.window)?;
+        let aim = self.aim_in(window_id, window);
+        self.dialog_for(window_id, aim.sink.as_ref())
+    }
+
     /// The dialog a key typed now in `window` and aimed at `sink` goes to, the
     /// oldest one that blocks it.
     pub(super) fn dialog_for(&self, window: &Arc<str>, sink: Option<&Sink>) -> Option<u64> {

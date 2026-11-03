@@ -110,6 +110,18 @@ impl InputRouter {
         }
     }
 
+    /// A key of another window or panel ends the running session, before any
+    /// other rule reads the key (it then routes as usual).
+    pub(super) fn end_session_of_other_window(&mut self, key: &KeyRecord) {
+        let other = self
+            .session
+            .as_ref()
+            .is_some_and(|session| key.role != WindowRole::Main || key.window != session.window);
+        if other {
+            self.end_session(SessionEnd::OtherWindow);
+        }
+    }
+
     /// Key-down `id` while a session runs: true when the session took it.
     /// False when no session runs, or when the key ended the session (it then
     /// routes as usual).

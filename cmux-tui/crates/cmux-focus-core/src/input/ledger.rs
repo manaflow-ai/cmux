@@ -9,8 +9,9 @@
 //! - I3 order kept: a sink takes its keys in typing order.
 //! - I4 a key a session takes reaches no sink: while a session runs, a
 //!   key-down's disposition is the session's, unless the session ended first
-//!   in the key's call (a key the session does not take ends it and routes on).
-//!   A later delivery of a session's key breaks I2.
+//!   in the key's call (a key the session does not take ends it and routes on)
+//!   or a blocking dialog took the key (a dialog is above every session; the
+//!   session keeps running). A later delivery of a session's key breaks I2.
 //! - I5 at most one key session runs.
 //! - I6 fixed target: a waiting key ends at the sink it waited for.
 //! - I7 no delivery to an ended sink: a tab's sink that ended (a `Gone`
@@ -137,7 +138,7 @@ impl Ledger {
                     let detail = format!("key id {id:?} is not after the last key's");
                     self.fail(Invariant::IdOrder, Some(id), detail);
                 }
-                if session_runs && !matches!(effect, InputEffect::SessionKey { .. }) {
+                if session_runs && past_session(effect) {
                     let detail = format!("a key-down went past the running session: {effect:?}");
                     self.fail(Invariant::SessionTakes, Some(id), detail);
                 }
@@ -264,5 +265,17 @@ impl Ledger {
     /// Every invariant broken so far, in order.
     pub fn violations(&self) -> &[Violation] {
         &self.violations
+    }
+}
+
+/// The key-down's first disposition takes it past a running session (I4): to
+/// a sink other than a blocking dialog, to an action, or to AppKit.
+fn past_session(effect: &InputEffect) -> bool {
+    match effect {
+        InputEffect::Deliver { sink, .. }
+        | InputEffect::Queued { sink, .. }
+        | InputEffect::Offer { sink, .. } => !matches!(sink, Sink::Dialog(_)),
+        InputEffect::Run { .. } | InputEffect::Platform { .. } => true,
+        _ => false,
     }
 }

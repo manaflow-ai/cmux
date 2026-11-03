@@ -12,7 +12,8 @@
 //! - Exited (a terminal whose process ended, its tab stays with its end
 //!   banner): it stays ended wherever its tab shows (another workspace, another
 //!   window, a window closed and opened again) until a creation names it again
-//!   (a restart) or its tab closes (second review, finding 2).
+//!   (a restart) or its tab closes (second review, finding 2). A restart that
+//!   fails leaves the dead tab, so the sink is exited again (third review).
 //! - Closed or failed: it takes keys again only as a new sink of its id: a
 //!   window shows it again after none did (Reopen Closed reuses the tab id),
 //!   or a creation names it again (first review, finding 1). One that no
@@ -38,6 +39,9 @@ pub(super) struct Creation {
     pub(super) tab: Option<Arc<str>>,
     /// Its reply came: it is done (a failure after it changes nothing).
     replied: bool,
+    /// It names again a sink that had exited (a restart): if it fails, the
+    /// dead tab stays, and so does the exit.
+    restarts_exited: bool,
 }
 
 /// A tab's sink that ended.
@@ -51,9 +55,11 @@ pub(super) struct Gone {
 impl InputRouter {
     /// A creation makes `sink`, a tab of `kind`, under `key`.
     pub(super) fn creation(&mut self, key: &ExpectationKey, sink: &Sink, kind: Kind) {
-        if self.facts.gone.remove(sink).is_some() {
+        let was = self.facts.gone.remove(sink);
+        if was.is_some() {
             self.renew(sink);
         }
+        let restarts_exited = was.is_some_and(|gone| gone.reason == GoneReason::Exited);
         let tab = match (key, sink) {
             (ExpectationKey::Tab { id }, _) => Some(Arc::from(id.as_str())),
             (
@@ -62,7 +68,7 @@ impl InputRouter {
             ) => Some(tab.clone()),
             (ExpectationKey::Surface { .. }, _) => None,
         };
-        let creation = Creation { sink: sink.clone(), kind, tab, replied: false };
+        let creation = Creation { sink: sink.clone(), kind, tab, replied: false, restarts_exited };
         self.creations.insert(key.clone(), creation);
     }
 
@@ -76,12 +82,18 @@ impl InputRouter {
     }
 
     /// The creation under `key` failed: its sink ends (one reply a creation:
-    /// a failure after it was done changes nothing).
+    /// a failure after it was done changes nothing). A failed restart of an
+    /// exited sink leaves the dead tab: the sink is exited again.
     pub(super) fn creation_failed(&mut self, key: &ExpectationKey) {
         if self.creations.get(key).is_some_and(|creation| !creation.replied)
             && let Some(creation) = self.creations.remove(key)
         {
-            self.end(&creation.sink, GoneReason::CreationFailed);
+            let reason = if creation.restarts_exited {
+                GoneReason::Exited
+            } else {
+                GoneReason::CreationFailed
+            };
+            self.end(&creation.sink, reason);
         }
     }
 

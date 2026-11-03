@@ -71,6 +71,8 @@ struct Made {
     kind: Kind,
     /// Its reply came: done.
     replied: bool,
+    /// It restarts an exited sink: a failure leaves the dead tab, exited.
+    restart: bool,
 }
 
 /// A key offered to its page, whose answer has not come.
@@ -213,13 +215,14 @@ impl Model {
             }
             InputEvent::Gone { sink, reason } => self.end(sink, *reason),
             InputEvent::Creation { key, sink, kind } => {
-                if self.gone.remove(sink).is_some() {
+                let was = self.gone.remove(sink);
+                if was.is_some() {
                     self.renew(sink);
                 }
+                let restart = was.is_some_and(|(reason, _)| reason == GoneReason::Exited);
                 self.creations.retain(|made| made.key != *key);
-                let made =
-                    Made { key: key.clone(), sink: sink.clone(), kind: *kind, replied: false };
-                self.creations.push(made);
+                let (key, sink, kind) = (key.clone(), sink.clone(), *kind);
+                self.creations.push(Made { key, sink, kind, replied: false, restart });
             }
             InputEvent::Created { key } => {
                 for made in &mut self.creations {
@@ -234,7 +237,9 @@ impl Model {
                 let failed = self.creations.iter().position(|m| m.key == *key && !m.replied);
                 if let Some(index) = failed {
                     let made = self.creations.remove(index);
-                    self.end(&made.sink, GoneReason::CreationFailed);
+                    let reason =
+                        if made.restart { GoneReason::Exited } else { GoneReason::CreationFailed };
+                    self.end(&made.sink, reason);
                 }
             }
             InputEvent::InputSource { composes } => self.composes = *composes,
@@ -679,6 +684,27 @@ impl Model {
     }
 
     fn decide(&mut self, id: u64, key: &KeyRecord) -> Pressed {
+        // A key of another window or panel ends the running session first.
+        if self
+            .session
+            .as_ref()
+            .is_some_and(|(_, w)| key.role != WindowRole::Main || **w != *key.window)
+        {
+            self.end_session(SessionEnd::OtherWindow);
+        }
+        // A blocking dialog over the key's target takes a key with no Command
+        // or Control before a session (which keeps running) or a binding.
+        let known = self.windows.iter().any(|(w, _)| **w == *key.window);
+        if known
+            && key.role == WindowRole::Main
+            && !key.composing
+            && !(key.modifiers.command || key.modifiers.control)
+        {
+            let aimed = self.aimed(&key.window);
+            if let Some(dialog) = self.dialog_for(&key.window, aimed.sink.as_ref()) {
+                return self.press(id, key, Sink::Dialog(dialog));
+            }
+        }
         if let Some((kind, window)) = self.session.clone() {
             if key.role != WindowRole::Main || *window != *key.window {
                 self.end_session(SessionEnd::OtherWindow);
@@ -695,7 +721,6 @@ impl Model {
                 }
             }
         }
-        let known = self.windows.iter().any(|(w, _)| **w == *key.window);
         if key.role != WindowRole::Main || !known {
             self.record(id, None, false, State::Ended(Ending::Platform));
             return Pressed::Platform;
@@ -711,12 +736,6 @@ impl Model {
         }
         let aimed = self.aimed(&key.window);
         let dialog = self.dialog_for(&key.window, aimed.sink.as_ref());
-        // A key with no Command or Control is a blocking dialog's, bound or not.
-        if let Some(dialog) = dialog
-            && !(key.modifiers.command || key.modifiers.control)
-        {
-            return self.press(id, key, Sink::Dialog(dialog));
-        }
         if let Some(binding) = &key.binding
             && let Some(focus) = self.focus(&key.window)
         {

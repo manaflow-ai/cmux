@@ -360,6 +360,12 @@ impl InputRouter {
 
     /// The route of a press, from the state of its own call.
     fn decide(&mut self, id: InputId, key: &KeyRecord) -> Press {
+        self.end_session_of_other_window(key);
+        // A blocking dialog over the key's target takes a key with no Command
+        // or Control before any session or binding (the session keeps running).
+        if let Some(dialog) = self.dialog_first(key) {
+            return self.press_to(id, key, Sink::Dialog(dialog));
+        }
         if self.session_takes(id, key) {
             return Press::Consumed;
         }
@@ -383,15 +389,10 @@ impl InputRouter {
             };
         }
         let aim = self.aim_in(window_id, window);
+        // Only a Command or Control chord gets here with a dialog that blocks its
+        // target (dialog_first took every other key): it runs its binding
+        // (Cmd-W closes the tab and its dialog), else it is the dialog's.
         let dialog = self.dialog_for(window_id, aim.sink.as_ref());
-        // A key typed while a dialog blocks its target is the dialog's, bound
-        // or not, unless it is a Command or Control chord (Cmd-W closes the tab
-        // and its dialog).
-        if let Some(dialog) = dialog
-            && !key.modifiers.is_chord()
-        {
-            return self.press_to(id, key, Sink::Dialog(dialog));
-        }
         if let Some(binding) = &key.binding {
             let focus = &window.focus;
             // The rules read the key's own target: the tab the focus is on its
