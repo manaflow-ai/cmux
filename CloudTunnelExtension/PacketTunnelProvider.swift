@@ -89,7 +89,7 @@ private final class PathWatch: @unchecked Sendable {
     // serial queue; `monitor` and `queue` never change and are thread-safe.
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.cmuxterm.app.tunnel.path", qos: .utility)
-    private var gate = CloudTunnelPathChangeGate<NWPath>()
+    private var gate = CloudTunnelPathChangeGate<Network.NWPath>()
 
     init(engine: TunnelEngine) {
         monitor.pathUpdateHandler = { [weak self] path in
@@ -105,7 +105,7 @@ private final class PathWatch: @unchecked Sendable {
     func cancel() { monitor.cancel() }
 
     /// On `queue` only (the monitor's handler).
-    private func admit(_ path: NWPath) -> Bool { gate.admit(path) }
+    private func admit(_ path: Network.NWPath) -> Bool { gate.admit(path) }
 }
 
 /// Carries an app-message reply handler into a task.
