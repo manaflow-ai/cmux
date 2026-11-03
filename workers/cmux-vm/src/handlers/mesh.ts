@@ -376,6 +376,13 @@ const MESH_WRITER_LEASE_MS = 5 * 60_000;
 /** How long a change waits for the writer before it answers 409. */
 const MESH_WRITER_WAIT_MS = 15_000;
 
+export interface MeshWriterTiming {
+  readonly leaseMs: number;
+  readonly renewEveryMs: number;
+  readonly waitMs: number;
+}
+const MESH_WRITER_TIMING: MeshWriterTiming = { leaseMs: MESH_WRITER_LEASE_MS, renewEveryMs: MESH_WRITER_LEASE_MS, waitMs: MESH_WRITER_WAIT_MS };
+
 /**
  * Runs `effect` as the mesh's only writer of provider rules (DESIGN.md 4.1,
  * M4 decision): a lock in the tenant's Durable Object, held for the whole
@@ -383,7 +390,7 @@ const MESH_WRITER_WAIT_MS = 15_000;
  * join or a revocation) never plan from different ACL versions or create the
  * same rule twice. A change that cannot get the lock in 15 s is a 409.
  */
-export const withMeshWriter = <A, E, R>(tenantId: Principal["tenantId"], meshId: string, effect: Effect.Effect<A, E, R>) =>
+export const withMeshWriter = <A, E, R>(tenantId: Principal["tenantId"], meshId: string, effect: Effect.Effect<A, E, R>, timing: MeshWriterTiming = MESH_WRITER_TIMING) =>
   Effect.gen(function* () {
     const limits = yield* TenantLimits;
     const holder = crypto.randomUUID();
@@ -391,9 +398,9 @@ export const withMeshWriter = <A, E, R>(tenantId: Principal["tenantId"], meshId:
     const started = yield* Clock.currentTimeMillis;
     let delayMs = 20;
     for (;;) {
-      const taken = yield* limits.lock(tenantId, key, holder, MESH_WRITER_LEASE_MS).pipe(Effect.catchAll(dependencyDown("limits.lock")));
+      const taken = yield* limits.lock(tenantId, key, holder, timing.leaseMs).pipe(Effect.catchAll(dependencyDown("limits.lock")));
       if (taken) break;
-      if ((yield* Clock.currentTimeMillis) - started >= MESH_WRITER_WAIT_MS) {
+      if ((yield* Clock.currentTimeMillis) - started >= timing.waitMs) {
         return yield* Effect.fail(new Conflict({ message: "Another change to this mesh is in progress; retry" }));
       }
       yield* Effect.sleep(Duration.millis(delayMs));
