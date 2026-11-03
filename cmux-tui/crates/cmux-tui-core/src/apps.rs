@@ -57,6 +57,10 @@ mod servers;
 #[cfg(unix)]
 mod serves;
 #[cfg(unix)]
+mod sidebar;
+#[cfg(all(test, unix))]
+mod sidebar_integration_tests;
+#[cfg(unix)]
 mod storage;
 #[cfg(unix)]
 mod store;

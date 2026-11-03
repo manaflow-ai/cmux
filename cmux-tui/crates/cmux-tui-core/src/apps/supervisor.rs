@@ -71,6 +71,16 @@ pub trait OpRouter: Send + Sync {
         idempotency_key: Option<String>,
         origin: Origin,
     ) -> Result<Value, Value>;
+    /// Places installed app sections through the sidebar document's transaction.
+    /// Automatic placement preserves every previous placement decision.
+    fn place_sidebar_sections(
+        &self,
+        sections: &[cmux_layout_reducer::sidebar_doc::Section],
+        automatic: bool,
+    ) -> Result<Value, ApiError> {
+        let _ = (sections, automatic);
+        Err(ApiError::new("apps.sidebar.unavailable", "no sidebar document"))
+    }
     /// Starts delivering daemon change events as stream names
     /// (`workspace.changed`, `agent.changed`, …). Called once, on the first
     /// app subscription.
@@ -330,6 +340,7 @@ impl Supervisor {
         if seeded {
             let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);
         }
+        supervisor.reconcile_sidebar();
         supervisor.start_always_servers();
         supervisor.start_local_watch(local_prints);
         supervisor
@@ -509,6 +520,12 @@ impl Supervisor {
         };
         if outs.is_empty() {
             return;
+        }
+        if outs
+            .iter()
+            .any(|out| matches!(out, Out::Broadcast(value) if value["event"] == "apps-changed"))
+        {
+            self.reconcile_sidebar();
         }
         for out in outs {
             match out {

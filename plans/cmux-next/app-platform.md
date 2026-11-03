@@ -233,6 +233,7 @@ Coordinator answers applied: default first-party apps come from a deployment lis
 | cmd | params | result / events |
 | --- | --- | --- |
 | `apps-list` | `{}` | `{apps: [{id, version, tier, installed, enabled, hidden, hidden_access, source: default|user|bundled|local, grants: [scope], sandboxed, hide_only, manifest}]}`; `hide_only` is true for first-party apps (Hide and Show only, never Remove) |
+| `apps-place` | `{contribution: "<app>#<section>", region?: "top"|"middle"|"bottom"}` | places an installed, enabled, visible app's sidebar section (CLI: `cmux apps place <app>#<section> [--region …]`). The default comes from the manifest. An explicit call can restore a removed section; automatic placement never restores or moves one the person changed. |
 | `apps-set` | `{idempotency_key, app, installed?, enabled?, hidden?, sandboxed?, grant?: {scope, granted}}` | updated app; every change (including `hidden`) needs a verified cmux app connection (origin `user`) until P8 adds the verified-app path; agents must not change what the user sees (D55 as amended, request-origin.md); the reducer also refuses every non-user change (`apps.origin`); `installed: false` on a first-party app answers `apps.first_party_hide_only` (hide it instead), and a first-party app removed before that rule comes back hidden at load |
 | `apps-store` | `{op, args, origin?}`: an App Store op of section 15 (`cmux.apps.catalog.list`, `catalog.get`, `installed.list`, `set`, `install`, `uninstall`; the short `apps.<verb>` also works) | the op's result; `set`, `install` and `uninstall` need the verified cmux app connection like `apps-set` and origin `user` for every field; `install`/`uninstall` of a first-party app answer `apps.first_party_hide_only` |
 | `apps-mount` | `{app, interface, mount_id, context}` | starts the host if needed; events `apps-scene {mount_id, ops}` then deltas; `apps-mount-failed {mount_id, reason}` |
@@ -365,3 +366,17 @@ Gaps found by the Cloud lead's third-party SSH sample (manaflow-ai/ssh-terminal)
 - **Namespaced families (coordinator decision from hq-48's IR work).** A third-party app's catalog family is its namespace, so its ops are `<namespace>.<verb>` and their scopes `<namespace>:<verb>` (`octo.ssh_terminal:read`); the validator refuses any other family (`catalog.namespace`, local dev apps included: `local.<name>`). Bare families (`git`, `fs`, `router`, `apps`, `cmux`, ...) are first-party only. Scope patterns accept dotted families, and `scope-classes.json` classes them by verb. Requesting another owner's scope (`git:read` to call cmux git ops) stays allowed; only defining a family is restricted.
 - **One id mapping.** A manifest app id `<publisher>/<name>` maps to exactly one pane-protocol namespace: `<publisher>.<name>` with `-` replaced by `_` (`octo/ssh-terminal` -> `octo.ssh_terminal`, `cmux/*` -> `cmux.*`). There is no other mapping; the registry keeps publisher ids unique, and the router refuses ops outside the namespace.
 - **Supervisor follow-ups (apps-v1, after the window).** Enforce elevated (no install grant; user grant only through the sheet) and `external` (credential admission); start an app's native server when the app is enabled (`server.lifecycle.start`), first user the cmux Cloud app's `cmux-cloud` server; verify the hosting app connection by its peer code signature (shared task, cmux-tui reviewer).
+
+### Sidebar section first placement
+
+Installed, enabled, visible apps place each sidebar section at the end of its manifest's
+`defaultRegion` (`middle` when absent). A section in `~/.config/cmux/customize` appears through
+the existing local reload watch. The sidebar document transaction writes both the section and
+a per-contribution placement receipt, so removing it, dragging it, reinstalling the app or
+restarting the daemon never undoes the person's choice. Existing sections are adopted in place.
+
+Manifest v2 uses the contribution `<app>#cmux.section/1`; manifest v1 uses
+`<app>#<sidebarSections[].id>`, as the scene provider does. Bottom sections use the app-only band
+under the workspace list. Ordinary bottom item sections stay hidden, and the footer keeps its
+own pinned row. Titles come from the scene provider's current localized manifest unless the
+person renames the section.
