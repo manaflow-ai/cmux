@@ -27,9 +27,10 @@ import Observation
 /// Launch Claude/Codex Teams run `AgentTeamsLaunch`. Computer Use
 /// focus/stop are typed-unavailable.
 enum AgentHandlers {
-    /// Inspect Element (#24707): every right-click menu that places it (the tab bar's + among
-    /// them) leaves it out while Debug Settings' UI pointer inspector
-    /// (`AgentPaneTunables.pointerInspector`, on by default) is turned off.
+    /// Inspect Element (#24707): the web-content menus that place it (the agent chat page's)
+    /// leave it out while Debug Settings' UI pointer inspector
+    /// (`AgentPaneTunables.pointerInspector`, on by default) is turned off. Native menus never
+    /// place it (InspectElementScopeTests).
     static func gatePointerInspectorMenuRows(in registry: ActionRegistry) {
         ActionTargetVisibility.hide("agentPane.togglePointerInspector", in: registry) { _ in
             !AgentPaneTunables.pointerInspector.value

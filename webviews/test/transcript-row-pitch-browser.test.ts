@@ -133,7 +133,8 @@ await requireBrowserLane("transcript-row-pitch-browser.test.ts", async () => {
           (shown) => (window as unknown as { __showRawRows(rows: unknown): void }).__showRawRows(shown),
           rows,
         );
-        await page.locator(".cv-pending__line").waitFor();
+        // One waiting message draws as its own received line, with no group head (PendingMessagesCard.tsx).
+        await page.locator(".cv-pending .cv-disclosure__line, .cv-pending__line").first().waitFor();
         await page.evaluate(() => document.fonts.ready);
         // Two frames for the transcript to place rows by their drawn heights.
         await page.evaluate(
@@ -179,11 +180,17 @@ await requireBrowserLane("transcript-row-pitch-browser.test.ts", async () => {
                 return part.height === 0 ? 0 : Math.max(box.top - part.top, part.bottom - box.bottom);
               }),
             );
+            // A message row's first line, on its own 18px line right under the row's line
+            // (messageLineLook.ts `stacked`): the next row sits that much further down.
+            const under = [...(article?.querySelectorAll(".cv-msgline__preview") ?? [])]
+              .map((first) => first.getBoundingClientRect())
+              .find((first) => first.height > 0 && Math.abs(first.top - box.bottom) < 4);
             return {
               row: article?.dataset.rowId ?? "?",
               line: el.className.toString().split(" ")[0],
               top: box.top,
               height: box.height,
+              below: under?.height ?? 0,
               overhang,
               icon: icon?.getBoundingClientRect().left ?? Number.NaN,
               text: textLeft(el, icon),
@@ -207,7 +214,8 @@ await requireBrowserLane("transcript-row-pitch-browser.test.ts", async () => {
           PENDING_MESSAGES_ROW_ID,
         ]);
         const [first] = lines;
-        const pitch = lines[1]!.top - first!.top;
+        // Row line to row line, less a stacked message's first line under the earlier one.
+        const pitch = lines[1]!.top - first!.top - first!.below;
         const off = lines.flatMap((line, index) => {
           const name = `${line.row} (${line.line})`;
           const previous = lines[index - 1];
@@ -216,9 +224,13 @@ await requireBrowserLane("transcript-row-pitch-browser.test.ts", async () => {
               ? [`${name} is ${line.height}px tall, ${first!.row} ${first!.height}px`]
               : []),
             ...(line.overhang > 0.5 ? [`${name} has a part ${line.overhang}px out of its line`] : []),
-            ...(previous && Math.abs(line.top - previous.top - pitch) > 0.5
-              ? [`${name} sits ${line.top - previous.top}px under ${previous.row}, ${pitch}px elsewhere`]
+            ...(previous && Math.abs(line.top - previous.top - previous.below - pitch) > 0.5
+              ? [
+                  `${name} sits ${line.top - previous.top}px under ${previous.row} (its first line ${previous.below}px), ${pitch}px elsewhere`,
+                ]
               : []),
+            // A message's first line is the one 18px line (rowEstimates.test.ts MESSAGE_PREVIEW_LINE_PT).
+            ...(line.below && Math.abs(line.below - 18) > 0.5 ? [`${name} has a ${line.below}px first line`] : []),
             ...(Math.abs(line.icon - first!.icon) > 0.5
               ? [`${name} icon at ${line.icon}, ${first!.icon} elsewhere`]
               : []),

@@ -124,5 +124,40 @@ class DriftAndSummaryTests(unittest.TestCase):
         self.assertEqual(cof.cell(part), "FAILED (1/2 settled)")
 
 
+
+class FleetStripTests(unittest.TestCase):
+    """Frames shaped like a fleet run's (a cold click from a near-empty terminal, 2026-11-03): the whole content area
+    is nearly one color, before (0.9983), blank (0.9994) and final (0.9999) alike, so flatness alone called every
+    frame blank and no click had a first content frame. frame_strip's `blank` (flat and unlike both before and the
+    final frame, at the bench's 0.001 tolerance) tells them apart."""
+
+    def rows(self):
+        out = [frame(-10, 0, 0.0055, 0.9983), frame(0, 0, 0.0055, 0.9983)]
+        out += [frame(ms, 0.0017, 0.0044, 0.9994, blank=True) for ms in range(47, 680, 10)]  # the pane, still blank
+        out += [frame(689, 0.0055, 0, 0.9999), frame(715, 0.0017, 0.0044, 0.9994, blank=True)]  # content, blank again
+        out += [frame(ms, 0.0055, 0, 0.9999) for ms in range(731, 1100, 10)]
+        return out
+
+    def test_a_sparse_chat_page_is_content_and_the_blank_between_counts(self):
+        out = cof.final_frame(self.rows(), settle_frames=10, tolerance=0.001)
+        self.assertEqual(out["first_content_ms"], 689)
+        self.assertEqual(out["final_frame_ms"], 731)
+        self.assertFalse(out["first_is_final"])
+        self.assertEqual(out["between_frames"], 1)
+        self.assertGreater(out["blank_frames"], 60)
+
+    def test_a_kept_page_draws_its_final_frame_first(self):
+        rows = [frame(-1, 0, 0.0055, 0.9983)] + [frame(ms, 0.0055, 0, 0.9999) for ms in range(28, 400, 10)]
+        out = cof.final_frame(rows, settle_frames=10, tolerance=0.001)
+        self.assertEqual((out["first_content_ms"], out["final_frame_ms"], out["first_is_final"]), (28, 28, True))
+
+    def test_rows_that_came_after_the_first_paint_date_the_transcript(self):
+        page = {"first_content_ms": 222, "first_rows": 0, "frames": 92,
+                "appeared": [{"at_ms": 583, "element": "row#6"}, {"at_ms": 520, "element": "row#1"},
+                             {"at_ms": 100, "element": "composer"}]}
+        self.assertEqual(cof.transcript_ms(page, 30, 2500), 550)
+        self.assertIsNone(cof.transcript_ms(dict(page, appeared=[]), 30, 2500))  # a page still loading
+        self.assertIsNone(cof.transcript_ms(page, 2000, 2500))  # rows only after the strip ended
+
 if __name__ == "__main__":
     unittest.main()

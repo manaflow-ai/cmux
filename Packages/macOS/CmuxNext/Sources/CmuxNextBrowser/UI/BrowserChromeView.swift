@@ -102,6 +102,8 @@ public final class BrowserChromeView: NSView {
     /// Prompts have their own loop: a state change (a title, progress) does not re-render the prompt
     /// bar, and a new prompt does not re-run the rest of the chrome.
     private var promptObservation: ObservationLoop?
+    /// Follows the tab's hovered link (`renderLinkStatus`).
+    private var linkStatusObservation: ObservationLoop?
     /// The address a page woken from hibernation slept on, shown until the
     /// woken page reports a real one (`holdAddress(whileWaking:)`).
     var wakingAddress: BrowserTabState?
@@ -350,6 +352,7 @@ public final class BrowserChromeView: NSView {
     private func attach(_ tab: any BrowserTab, replacing old: (any BrowserTab)?) {
         observation?.cancel()
         promptObservation?.cancel()
+        linkStatusObservation?.cancel()
         // Another page in this toolbar: the held address was the old page's.
         if let old, old !== tab { wakingAddress = nil }
         siteZoom.follow(tab)
@@ -380,6 +383,7 @@ public final class BrowserChromeView: NSView {
             self?.renderPrompt()
             self?.updateOcclusion()
         }
+        linkStatusObservation = ObservationLoop { [weak self] in self?.renderLinkStatus() }
     }
 
     /// Permission prompts in the bar; JavaScript dialogs as cmux dialogs on this tab.
@@ -432,6 +436,7 @@ public final class BrowserChromeView: NSView {
         for view in [addressBar as NSView] + pageBars.shown.map(\.bar) { view.layoutSubtreeIfNeeded() }
         addressBar.followLayout()
         updateOcclusion()
+        fitLinkStatus()
         syncPageOverlays()
     }
 
