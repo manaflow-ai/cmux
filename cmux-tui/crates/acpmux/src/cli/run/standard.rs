@@ -1221,12 +1221,10 @@ async fn briefs(client: Arc<Client>, cmd: BriefsCmd, json_out: bool) -> Result<(
     Ok(())
 }
 
-/// Whether `acpmux send` steers: `--steer` always, `--no-steer` never, else an agent's send
-/// (`agent`: `--from`, `ACPMUX_FROM`, or one in an acpmux session) and a message sent with
 /// The longest a queued send waits on a question to the daemon before it queues the message:
 /// whether the target is the sender's parent, whether its machine is paused. Either may go to
-/// a peer that is slow or down; on 2026-11-02 sends from cosmic-gray at load 380 hit `timeout
-/// 100` waiting on peers.
+/// a peer that is slow or down; on 2026-11-02 sends from a Mac at load 380 hit `timeout 100`
+/// waiting on peers.
 const PRE_QUEUE_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
 
 /// How `acpmux send` was asked to wait.
@@ -1250,6 +1248,8 @@ fn send_queues(w: SendWait) -> bool {
     w.no_wait || (!w.wait && (w.classed || w.agent))
 }
 
+/// Whether `acpmux send` steers: `--steer` always, `--no-steer` never, else an agent's send
+/// (`agent`: `--from`, `ACPMUX_FROM`, or one in an acpmux session) and a message sent with
 /// `--no-wait` do, so inter-session messages land in the running turn instead of waiting
 /// minutes for it to end (Leo, 2026-10-25: "I don't know why these things are queued up").
 /// The person's send that waits for its reply queues, as Cmd-Return does. A send that waits

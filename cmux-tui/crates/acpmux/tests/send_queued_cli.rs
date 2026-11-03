@@ -1,7 +1,7 @@
 //! An agent's `acpmux send`, and any with `--class`, is queued in this daemon's outbox and
 //! returns at once, however loaded the machine and however busy the target; `--wait` waits.
 //!
-//! Leo, 2026-11-02: "sends shouldn't time out just bc of load". On cosmic-gray at load ~380 on
+//! Leo, 2026-11-02: "sends shouldn't time out just bc of load". On a Mac at load ~380 on
 //! 15 CPUs, `timeout 100 acpmux send HOST/SESSION --class blocker "…"` failed for all six lanes
 //! it went to: a send that waits streams the reply of the turn it steers into, so a busy target
 //! (or a peer link that flapped under the load) held it past the caller's timeout.

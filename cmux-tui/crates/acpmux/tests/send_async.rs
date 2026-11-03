@@ -1002,7 +1002,7 @@ async fn a_no_wait_send_from_a_session_names_its_proven_sender() {
 }
 
 /// Busy-loops on `n` threads at this process's own (normal) priority until dropped: the load
-/// cosmic-gray had on 2026-11-02 (load 380 on 15 CPUs) when six `acpmux send`s hit `timeout 100`.
+/// a Mac had on 2026-11-02 (load 380 on 15 CPUs) when six `acpmux send`s hit `timeout 100`.
 struct CpuBurn(Arc<std::sync::atomic::AtomicBool>, Vec<std::thread::JoinHandle<()>>);
 
 impl CpuBurn {
