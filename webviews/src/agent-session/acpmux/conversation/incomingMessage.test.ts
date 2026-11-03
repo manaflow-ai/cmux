@@ -748,6 +748,10 @@ test("a card drops a signature naming its sender that a record still has", () =>
   expect(unsigned("From claude-sr2: hi", "claude-sr2")).toBe("hi");
   expect(unsigned("[WIP] MERGED", "agent-message-style")).toBe("[WIP] MERGED");
   expect(unsigned("[lane-b] MERGED", "lane-a")).toBe("[lane-b] MERGED");
+  // A sender's name and a colon, its machine's prefix on the sender or not.
+  expect(unsigned("merge-timeout: please deploy", "lane-vm-01/merge-timeout")).toBe("please deploy");
+  expect(unsigned("merge-timeout: please deploy", "merge-timeout")).toBe("please deploy");
+  expect(unsigned("Note: please deploy", "merge-timeout")).toBe("Note: please deploy");
 });
 
 // acpmux's inbox notice (hub/inbox.rs `render`): its text is for the agent; the pane draws its threads.
