@@ -232,13 +232,21 @@ impl Hub {
         let (dir, _) = self.bg_record(session, id)?;
         let path = bg_run::lock_path(&dir, id);
         tokio::task::spawn_blocking(move || -> Result<(), RpcError> {
-            use std::os::fd::AsRawFd;
-            let file = std::fs::File::open(path).map_err(internal)?;
-            // SAFETY: the descriptor is owned by this wait and closes when the wait returns.
-            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) } != 0 {
-                return Err(internal(std::io::Error::last_os_error()));
+            #[cfg(unix)]
+            {
+                use std::os::fd::AsRawFd;
+                let file = std::fs::File::open(path).map_err(internal)?;
+                // SAFETY: this wait owns the descriptor and closes it when the wait returns.
+                if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) } != 0 {
+                    return Err(internal(std::io::Error::last_os_error()));
+                }
+                Ok(())
             }
-            Ok(())
+            #[cfg(not(unix))]
+            {
+                let _ = path;
+                Err(RpcError::internal("workflow machine tasks require Unix"))
+            }
         })
         .await
         .map_err(internal)??;
