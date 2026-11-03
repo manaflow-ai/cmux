@@ -60,6 +60,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         didSet { if roundedOcclusions != oldValue { applyOcclusion() } }
     }
 
+    /// The hovered link's text (``BrowserTab/linkStatus``), from Chromium's
+    /// status message; Chrome's own status bubble is off.
+    public internal(set) var linkStatus: String?
+
     /// DevTools of this page (docked in `contentView` or in a window).
     public internal(set) var devTools: BrowserDevToolsState
     /// DevTools placement (layout, docked views, window); writes `devTools`.
@@ -542,6 +546,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         host.lifecycleTrace.record(id, "visible(\(visible)) was=\(!isOccluded) shown=\(host.visibleTab === self)")
         guard visible == isOccluded else { return }
         isOccluded = !visible
+        // A hidden page has no pointer over it (Chrome hides the bubble of a background tab).
+        if !visible, linkStatus != nil { linkStatus = nil }
         // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility).
         if host.visibleTab === self { if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() } }
         // A DevTools that cmux closed stays hidden until Chromium reports it closed (`closeInThisTurn`).

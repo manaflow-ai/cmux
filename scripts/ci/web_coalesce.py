@@ -25,7 +25,8 @@ How the waiting works: the coalesce job has its own concurrency group with cance
 job runs (waits) at a time; a newer push's coalesce job replaces a pending one, which never started, so that run
 ends cancelled with no job run (readers skip such runs: base_red_excuse.coalesced). Nothing that started is ever
 cancelled. The last covered push is kept in the Actions cache (one small entry a run, newest restored by prefix);
-with none (evicted, the first run) the push runs at once and routes from its own push base, as before.
+with none (evicted, the first run) the push runs at once and runs every web check (push base EVERYTHING): a
+push replaced before it may have changed web/ outside its own push range (#33892).
 
 Bisect, cheaply: a webview test's verdict changes only with its inputs (webviews_test_history.py inputs: the paths
 the router runs the suite on), so only commits that change those inputs can be a test's first red, and most
@@ -48,6 +49,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 HOLD_MINUTES = 15.0
+EVERYTHING = "all"  # the push base that runs every web check (web_subareas.EVERY_SUBAREA)
 SHA = re.compile(r"[0-9a-f]{40}")
 # A coalesced run covers about 15 minutes of landings (9 commits at p50, 26 at most on 2026-11-02); past this many
 # the range is not bisected (a force push, a long outage): its reds keep the run's range.
@@ -75,22 +77,28 @@ def read_last(path: str | None) -> dict | None:
         return None
     covered = data.get("covered") if isinstance(data.get("covered"), dict) else {}
     covered = {sha: base for sha, base in covered.items() if isinstance(sha, str) and SHA.fullmatch(sha)
-               and isinstance(base, str) and (base == "" or SHA.fullmatch(base))}
+               and isinstance(base, str) and (base in ("", EVERYTHING) or SHA.fullmatch(base))}
     return {"sha": data["sha"], "started": float(data["started"]), "covered": covered}
 
 
 def plan_wait(last: dict | None, sha: str, before: str, now: float, hold_s: float,
-              attempt: int = 1) -> tuple[float, str]:
-    """(seconds to wait, the push base to route from). With no last covered push, no wait and the push's own base.
-    A re-run never waits and routes from the base its first attempt used (the marker's "covered" map), so it checks
-    the same commits again; a re-run the marker no longer remembers routes from its own push base, never from a newer
-    covered commit."""
-    fallback = before if SHA.fullmatch(before or "") and before != "0" * 40 else ""
+              attempt: int = 1, off: bool = False) -> tuple[float, str]:
+    """(seconds to wait, the push base to route from; EVERYTHING runs every web check). A re-run never waits and
+    routes from the base its first attempt used (the marker's "covered" map), so it checks the same commits again.
+    When the range this push covers is unknown, it runs at once and runs every web check (#33892): with no marker
+    (the first run, an eviction, an unreadable one) a push replaced before this one may have changed web/ outside
+    this push's own range, and a re-run the marker no longer remembers covered a range nobody kept. The off switch
+    coalesces nothing, so every push runs on its own push base, as before coalescing."""
+    own = before if SHA.fullmatch(before or "") and before != "0" * 40 else ""
+    if off:
+        return 0.0, own
     covered = (last or {}).get("covered") or {}
     if sha in covered:
         return 0.0, covered[sha]
-    if last is None or last["sha"] == sha or attempt > 1:
-        return 0.0, fallback
+    if last is None or attempt > 1:
+        return 0.0, EVERYTHING
+    if last["sha"] == sha:
+        return 0.0, own  # an older marker's covered push with no "covered" map: its first attempt's own range
     return max(0.0, last["started"] + hold_s - now), last["sha"]
 
 
@@ -99,7 +107,7 @@ def wait(args, sleep=time.sleep, clock=time.time) -> int:
     last = None if args.off else read_last(args.last)
     attempt = int(getattr(args, "attempt", 1) or 1)
     rerun = attempt > 1 or (last is not None and (args.sha in last["covered"] or last["sha"] == args.sha))
-    seconds, base = plan_wait(last, args.sha, args.before or "", clock(), hold_s, attempt)
+    seconds, base = plan_wait(last, args.sha, args.before or "", clock(), hold_s, attempt, off=args.off)
     if seconds > 0:
         print(f"the last web checks started on {last['sha'][:12]}; waiting {seconds:.0f} s, so they run at most once "
               f"every {args.hold_minutes:g} minutes (a newer push's run replaces this wait only while it is pending)")
@@ -115,8 +123,10 @@ def wait(args, sleep=time.sleep, clock=time.time) -> int:
         record = {"sha": args.sha, "started": started, "covered": covered}
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(record) + "\n", encoding="utf-8")
-    print(f"web checks run on {args.sha[:12]}, covering every push since {base[:12] or 'its own push base'}"
-          + (" (a re-run: the range its first attempt checked)" if rerun else ""))
+    covers = ("every web check (the range it covers is unknown)" if base == EVERYTHING
+              else f"covering every push since {base[:12] or 'its own push base'}")
+    print(f"web checks run on {args.sha[:12]}, {covers}"
+          + (" (a re-run: the range its first attempt checked)" if rerun and base != EVERYTHING else ""))
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as stream:

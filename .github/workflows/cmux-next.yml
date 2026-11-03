@@ -71,6 +71,7 @@ on:
       - skills/cmux-acpmux/SKILL.md
       - skills/cmux-browser/**
       - skills/cmux-cua/**
+      - skills/cmux-customization/**
       - skills/cmux/SKILL.md
       - .xcode-version
       - schemas/**
@@ -360,6 +361,7 @@ on:
       - skills/cmux-acpmux/SKILL.md
       - skills/cmux-browser/**
       - skills/cmux-cua/**
+      - skills/cmux-customization/**
       - skills/cmux/SKILL.md
       - .xcode-version
       - schemas/**

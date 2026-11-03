@@ -15,7 +15,9 @@ export function isVisiblyEmptyText(text: string | undefined): boolean {
 /// Whether an agent's words say nothing: empty, blank or a lone period. Claude often answers another
 /// agent's message with "." alone, which drew as a stray dot on its own line under the received line
 /// (Leo, 2026-11-02, on that capture: "these are all so stupid looking"). Only an agent's words:
-/// a person's own "." prompt is what they sent and still draws.
+/// a person's own "." prompt is what they sent and still draws, and so does an agent's "." answering
+/// it (`answersPerson`, turns.ts; Leo, 2026-11-03: "well there are cases (rare) that you would want
+/// to see it...").
 export function isBareAgentText(text: string | undefined): boolean {
   return isVisiblyEmptyText(text) || text!.trim() === ".";
 }
@@ -46,7 +48,8 @@ export function isVisiblyEmptyMessage(row: AcpmuxRow): boolean {
       !row.pasted?.length &&
       !row.retryAttachments?.length
     );
-  if (!(row.kind === "assistant" ? isBareAgentText(row.text) : isVisiblyEmptyText(row.text))) return false;
+  const empty = row.kind === "assistant" && !row.answersPerson ? isBareAgentText : isVisiblyEmptyText;
+  if (!empty(row.text)) return false;
   const inlineVisible = row.inlineParts?.some(
     (part) => part.kind !== "text" || !isVisiblyEmptyText("text" in part ? part.text : undefined),
   );
