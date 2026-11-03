@@ -117,19 +117,51 @@ struct ChatRowView: View {
         case .plan(let entries):
             PlanCard(entries: entries)
         case .permission(let record, let offersChoices):
-            let surface = context.surface
-            PermissionCard(record: record, agentName: store.summary.agentName,
-                           showChoices: offersChoices ? { withAnimation(.cmuxMobileSmooth) { surface.showPermissionChoices() } } : nil)
-        case .question(let question):
-            VStack(alignment: .leading, spacing: 10) {
-                QuestionCard(question: question) { store.answer(question, with: $0) }
-                if question.isPending, question.source.rejectOption != nil {
-                    // A phone's answer can be refused (only the Mac may answer); a decline always goes through.
-                    Button("Decline") { store.decline(question) }
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 4)
+            if store.canAnswerPendingRequests {
+                let surface = context.surface
+                PermissionCard(record: record, agentName: store.summary.agentName,
+                               showChoices: offersChoices ? { withAnimation(.cmuxMobileSmooth) { surface.showPermissionChoices() } } : nil)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    PermissionCard(record: record, agentName: store.summary.agentName, showChoices: nil)
+                    if record.resolution == nil {
+                        Label("Open this Cloud chat on your Mac to allow or deny.", systemImage: "desktopcomputer")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+            }
+        case .question(let question):
+            if store.canAnswerPendingRequests || !question.isPending {
+                VStack(alignment: .leading, spacing: 10) {
+                    QuestionCard(question: question) { store.answer(question, with: $0) }
+                    if store.canAnswerPendingRequests, question.isPending, question.source.rejectOption != nil {
+                        Button("Decline") { store.decline(question) }
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 4)
+                    }
+                }
+            } else {
+                // The Cloud relay carries the question but has no answer RPC. Keep the
+                // real prompt and choices legible without offering a dead-end submit.
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("Answer this Cloud question on your Mac", systemImage: "desktopcomputer")
+                        .font(.subheadline.weight(.semibold))
+                    ForEach(question.items, id: \.id) { item in
+                        VStack(alignment: .leading, spacing: 6) {
+                            if let header = item.header {
+                                Text(header).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            }
+                            Text(item.prompt).font(.headline)
+                            ForEach(item.options, id: \.id) { option in
+                                Text(option.label).font(.subheadline).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .padding(16)
+                .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
             }
         case .subagents(let ids):
             let surface = context.surface
