@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
-import SwiftUI
+import CmuxNextIcons
+import Observation
 
 /// How the pinned Needs you section draws (`feed.needsYouStyle`, Debug Settings > Feed). Rows is
 /// the default; the others are its gallery variants, switched live.
@@ -27,12 +28,15 @@ extension FeedModel {
     public var needsYou: [FeedItem] { listSections.requests }
 }
 
-/// The Feed's open requests as a pinned section (Chief Home's Needs you): each request says what
-/// it is and who asked; a click on it opens its source (``onOpen``); the answers the Feed's own row
-/// offers in one click answer through the Feed's own path (``FeedAnswerControls``). Past ``limit``
-/// requests the rest are counted, and the count opens the Feed (``onShowAll``). It draws nothing
-/// when nothing waits; the host removes it then. It observes the model only while it is drawn, and
-/// owns no timer.
+/// The Feed's open requests as a pinned section (Chief Home's Needs you), in AppKit: each request
+/// says what it is and who asked (``FeedRowContent``, the Feed row's own words); a click on it opens
+/// its source (``onOpen``); the answers the Feed's own row offers in one click are the Feed's
+/// (``FeedAnswerHost``, its `FeedAnswerControls`), so they answer through ``FeedModel/answer(_:_:)``.
+/// Past ``limit`` requests the rest are counted, and the count opens the Feed (``onShowAll``). It
+/// draws nothing when nothing waits; the host removes it then.
+///
+/// It follows the model with one `withObservationTracking` read of what it shows, re-armed after
+/// each change only while it is in a window (stop condition: leaving the window), and owns no timer.
 public final class FeedNeedsYouView: NSView {
     public let model: FeedModel
     /// The look; nil follows ``FeedTunables/needsYouStyle``.
@@ -45,8 +49,21 @@ public final class FeedNeedsYouView: NSView {
     public var onShowAll: () -> Void = {}
     /// The section's height changed (a request came or went, an answer form opened).
     public var onHeightChange: () -> Void = {}
-    private let palette = FeedAppearance()
-    private var hosting: FeedNeedsYouHost?
+
+    private var colors = FeedColors()
+    private let title = FeedRowCell.label(size: TypeScale.caption, weight: TypeScale.emphasis)
+    private let count = FeedRowCell.label(size: TypeScale.caption)
+    private let more = NSButton(title: "", target: nil, action: nil)
+    private let bar = FeedNeedsYouRowView()
+    private var rows: [String: FeedNeedsYouRowView] = [:]
+    private var order: [String] = []
+    private var shownStyle: FeedNeedsYouStyle = .rows
+    private var height: CGFloat = 0
+    private var tracking = false
+
+    static let padding: CGFloat = 6
+    static let headerHeight: CGFloat = 22
+    static let rowHeight: CGFloat = 40
 
     public init(model: FeedModel, style: FeedNeedsYouStyle? = nil, limit: Int = 3) {
         self.model = model
@@ -54,28 +71,35 @@ public final class FeedNeedsYouView: NSView {
         self.limit = max(1, limit)
         super.init(frame: .zero)
         wantsLayer = true
-        setAccessibilityElement(false)
+        layer?.cornerRadius = 12
+        layer?.cornerCurve = .continuous
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
         setAccessibilityIdentifier("cmux.home.needsYou")
-        let root = FeedNeedsYouSection(model: model, style: style, limit: self.limit, appearance: palette,
-                                       open: { [weak self] item in self?.onOpen(item) }, showAll: { [weak self] in self?.onShowAll() })
-        let hosting = FeedNeedsYouHost(rootView: root)
-        hosting.sizingOptions = [.intrinsicContentSize]
-        hosting.onResize = { [weak self] in self?.onHeightChange() }
-        self.hosting = hosting
-        embed(hosting)
+        more.isBordered = false
+        more.target = self
+        more.action = #selector(showAllClicked)
+        more.setAccessibilityIdentifier("cmux.home.needsYou.more")
+        bar.onOpen = { [weak self] id in self?.barClicked(id) }
+        for view in [title, count, more, bar] { addSubview(view) }
+        reload()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    public override var isFlipped: Bool { true }
+
     /// The requests listed, in the Feed's order.
     public var shownIDs: [String] { Self.split(model.needsYou, limit: limit).shown.map(\.id) }
-    /// The requests past ``limit``, counted under the list.
+    /// The requests past ``limit``, counted in the header.
     public var moreCount: Int { Self.split(model.needsYou, limit: limit).more }
     /// Nothing waits: the section draws nothing.
     public var isEmpty: Bool { model.needsYou.isEmpty }
     /// The height its content needs.
-    public var preferredHeight: CGFloat { isEmpty ? 0 : ceil(hosting?.fittingSize.height ?? 0) }
+    public var preferredHeight: CGFloat { height }
+
+    public override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: height) }
 
     /// The requests listed and how many more there are.
     nonisolated static func split(_ requests: [FeedItem], limit: Int) -> (shown: [FeedItem], more: Int) {
@@ -91,14 +115,117 @@ public final class FeedNeedsYouView: NSView {
         }
     }
 
-    nonisolated public override var wantsUpdateLayer: Bool { true }
-
-    public override func updateLayer() { resolveColors() }
+    // MARK: - Following the model
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         resolveColors()
+        if window != nil, !tracking { follow() }
     }
+
+    /// One observation of what the section shows; re-armed after each change while in a window.
+    private func follow() {
+        tracking = true
+        withObservationTracking {
+            reload()
+        } onChange: { [weak self] in
+            // task-owner: one main-actor hop per model change; re-arms only while the view is in a window
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                tracking = false
+                if window != nil { follow() } else { reload() }
+            }
+        }
+    }
+
+    /// Builds the header and the rows from the model (rows keep their views by item id).
+    private func reload() {
+        let requests = model.needsYou
+        let style = style ?? FeedTunables.needsYouStyle.value
+        let (shown, more) = Self.split(requests, limit: limit)
+        _ = model.now
+        let ids = style == .bar ? [] : shown.map(\.id)
+        for (id, row) in rows where !ids.contains(id) || style != shownStyle {
+            row.removeFromSuperview()
+            rows[id] = nil
+        }
+        shownStyle = style
+        order = ids
+        for item in style == .bar ? [] : shown {
+            let row: FeedNeedsYouRowView
+            if let kept = rows[item.id] {
+                row = kept
+            } else {
+                row = FeedNeedsYouRowView()
+                row.onOpen = { [weak self] id in self?.rowClicked(id) }
+                row.onResize = { [weak self] in self?.relayout() }
+                addSubview(row)
+                rows[item.id] = row
+            }
+            row.show(item, model: model, colors: colors, style: style)
+        }
+        title.stringValue = FeedStrings.needsYou
+        count.stringValue = "\(requests.count)"
+        self.more.attributedTitle = NSAttributedString(string: more > 0 ? FeedStrings.needsYouMore(more) : "", attributes: [
+            .font: NSFont.systemFont(ofSize: TypeScale.caption, weight: TypeScale.regular), .foregroundColor: colors.basket.secondary,
+        ])
+        self.more.isHidden = more == 0 || style == .bar
+        title.isHidden = style == .bar || requests.isEmpty
+        count.isHidden = title.isHidden
+        bar.isHidden = style != .bar || requests.isEmpty
+        if style == .bar, let first = requests.first { bar.showBar(first, count: requests.count, colors: colors) }
+        isHidden = requests.isEmpty
+        setAccessibilityLabel("\(FeedStrings.needsYou), \(requests.count)")
+        relayout()
+    }
+
+    /// Measures the content and lays it out; tells the host when the height changed.
+    private func relayout() {
+        let style = shownStyle
+        var next: CGFloat
+        if isEmpty {
+            next = 0
+        } else if style == .bar {
+            next = Self.rowHeight
+        } else {
+            next = Self.padding * 2 + Self.headerHeight
+            for id in order { next += rows[id]?.preferredHeight(width: max(0, bounds.width - 2 * Self.padding)) ?? Self.rowHeight }
+        }
+        needsLayout = true
+        if next != height {
+            height = next
+            invalidateIntrinsicContentSize()
+            onHeightChange()
+        }
+    }
+
+    public override func layout() {
+        super.layout()
+        let inset = Self.padding, width = max(0, bounds.width - 2 * inset)
+        if shownStyle == .bar {
+            bar.frame = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height)
+            return
+        }
+        let titleWidth = ceil(title.intrinsicContentSize.width)
+        let lineY = inset + (Self.headerHeight - TypeScale.captionLineHeight) / 2
+        title.frame = NSRect(x: inset + 8, y: lineY, width: min(titleWidth, width / 2), height: TypeScale.captionLineHeight)
+        count.frame = NSRect(x: title.frame.maxX + 6, y: lineY, width: 40, height: TypeScale.captionLineHeight)
+        let moreWidth = ceil(more.intrinsicContentSize.width) + 8
+        more.frame = NSRect(x: bounds.width - inset - moreWidth, y: inset, width: moreWidth, height: Self.headerHeight)
+        var y = inset + Self.headerHeight
+        for id in order {
+            guard let row = rows[id] else { continue }
+            let h = row.preferredHeight(width: width)
+            row.frame = NSRect(x: inset, y: y, width: width, height: h)
+            y += h
+        }
+    }
+
+    // MARK: - Look
+
+    nonisolated public override var wantsUpdateLayer: Bool { true }
+
+    public override func updateLayer() { resolveColors() }
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -106,153 +233,201 @@ public final class FeedNeedsYouView: NSView {
     }
 
     private func resolveColors() {
-        let colors = performWithTheme { FeedColors.resolved(background: Palette.elevatedBackground) }
-        if palette.colors != colors { palette.colors = colors }
+        let resolved = performWithTheme { FeedColors.resolved(background: Palette.elevatedBackground) }
+        let (fill, border, shadow) = performWithTheme { (Palette.elevatedBackground, Palette.separator, Palette.shadow) }
+        layer?.backgroundColor = fill.cgColor
+        layer?.borderWidth = resolved.borders ? 1 : 0
+        layer?.borderColor = border.cgColor
+        layer?.shadowColor = shadow.cgColor
+        layer?.shadowOpacity = 1
+        layer?.shadowRadius = 8
+        layer?.shadowOffset = CGSize(width: 0, height: -2)
+        title.textColor = resolved.basket.secondary
+        count.textColor = resolved.basket.tertiary
+        guard resolved != colors else { return }
+        colors = resolved
+        reload()
     }
-}
 
-/// Tells the section when its content resized, so the host lays it out again.
-final class FeedNeedsYouHost: NSHostingView<FeedNeedsYouSection> {
-    var onResize: (() -> Void)?
+    // MARK: - Clicks
 
-    override func invalidateIntrinsicContentSize() {
-        super.invalidateIntrinsicContentSize()
-        onResize?()
+    @objc private func showAllClicked() { onShowAll() }
+
+    private func rowClicked(_ id: String) {
+        if let item = model.item(id) { onOpen(item) }
     }
-}
 
-struct FeedNeedsYouSection: View {
-    let model: FeedModel
-    let style: FeedNeedsYouStyle?
-    let limit: Int
-    let appearance: FeedAppearance
-    let open: (FeedItem) -> Void
-    let showAll: () -> Void
-
-    var body: some View {
+    /// The bar opens its only request, or the Feed when there are more.
+    private func barClicked(_ id: String) {
         let requests = model.needsYou
-        let colors = appearance.colors
-        Group {
-            if !requests.isEmpty {
-                switch style ?? FeedTunables.needsYouStyle.value {
-                case .rows: list(requests, colors: colors) { FeedNeedsYouRow(item: $0, model: model, open: open) }
-                // The Feed's own card: its Open, Sign In and answer buttons act; no tap over them.
-                case .cards: list(requests, colors: colors) { FeedRequestCard(item: $0, model: model) }
-                case .bar: FeedNeedsYouBar(requests: requests, model: model, open: open, showAll: showAll)
-                }
-            }
-        }
-        .background(card(colors, empty: requests.isEmpty))
-        .environment(\.feedColors, colors)
-        .tint(colors.primary)
-    }
-
-    /// The title, the listed requests, and the count of the rest.
-    private func list<Row: View>(_ requests: [FeedItem], colors: FeedColors, row: @escaping (FeedItem) -> Row) -> some View {
-        let (shown, more) = FeedNeedsYouView.split(requests, limit: limit)
-        return VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Text(FeedStrings.needsYou).font(.system(size: TypeScale.caption, weight: .semibold)).foregroundStyle(colors.secondary)
-                Text(verbatim: "\(requests.count)").font(.system(size: TypeScale.caption)).monospacedDigit().foregroundStyle(colors.tertiary)
-                Spacer(minLength: 0)
-                if more > 0 {
-                    Button(FeedStrings.needsYouMore(more), action: showAll)
-                        .buttonStyle(FeedButtonStyle(role: .plain, compact: true))
-                        .accessibilityIdentifier("cmux.home.needsYou.more")
-                }
-            }
-            .padding(.horizontal, 8).padding(.top, 2).padding(.bottom, 2)
-            ForEach(shown, id: \.id) { row($0) }
-        }
-        .padding(6)
-    }
-
-    @ViewBuilder
-    private func card(_ colors: FeedColors, empty: Bool) -> some View {
-        if !empty {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(colors.elevated)
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(colors.borders ? colors.separator : .clear, lineWidth: 1))
-                .shadow(color: colors.shadow, radius: 8, y: 2)
-        }
+        if requests.count == 1, let item = requests.first { onOpen(item) } else { onShowAll() }
     }
 }
 
-/// One request: what it is and who asked (a click opens its source), then its one-click answers.
-struct FeedNeedsYouRow: View {
-    let item: FeedItem
-    let model: FeedModel
-    let open: (FeedItem) -> Void
-    @Environment(\.feedColors) private var colors
-    @State private var hovering = false
+/// One request: what it is and who asked (a click there opens its source, and only that part
+/// lights on hover), then its one-click answers; or, in the cards style, the Feed's request card.
+final class FeedNeedsYouRowView: NSView {
+    var onOpen: (String) -> Void = { _ in }
+    var onResize: () -> Void = {}
+    private let opener = FeedNeedsYouOpener()
+    private let glyph = NSImageView()
+    private let headline = FeedRowCell.label(size: TypeScale.body, weight: TypeScale.emphasis)
+    private let meta = FeedRowCell.label(size: TypeScale.caption)
+    private var answers: NSView?
+    private var card: NSView?
+    private var id: String?
+    private var icon: IconName?
 
-    var body: some View {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        glyph.imageScaling = .scaleProportionallyDown
+        for view in [glyph, headline, meta] { opener.addSubview(view) }
+        addSubview(opener)
+        opener.onClick = { [weak self] in if let id = self?.id { self?.onOpen(id) } }
+        opener.setAccessibilityIdentifier("cmux.home.needsYou.row")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var isFlipped: Bool { true }
+
+    func show(_ item: FeedItem, model: FeedModel, colors: FeedColors, style: FeedNeedsYouStyle) {
+        id = item.id
+        if style == .cards {
+            opener.isHidden = true
+            answers?.removeFromSuperview()
+            answers = nil
+            let view = FeedAnswerHost.card(item: item, model: model, colors: colors, reusing: card, onResize: { [weak self] in self?.onResize() })
+            if view !== card { card?.removeFromSuperview(); addSubview(view); card = view }
+            needsLayout = true
+            return
+        }
+        card?.removeFromSuperview()
+        card = nil
+        opener.isHidden = false
         let content = FeedRowContent(item: item, place: model.place?(item))
-        HStack(alignment: .center, spacing: 8) {
-            Button { open(item) } label: {
-                HStack(spacing: 8) {
-                    FeedGlyph(item: item)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(content.headline)
-                            .font(.system(size: TypeScale.body, weight: .semibold))
-                            .foregroundStyle(colors.primary)
-                            .lineLimit(1)
-                        HStack(spacing: 5) {
-                            Text(content.meta.isEmpty ? item.poster.displayLabel : content.meta).lineLimit(1)
-                            Text(verbatim: "·")
-                            Text(FeedRelativeTime.string(item.createdAt, now: model.now)).monospacedDigit()
-                        }
-                        .font(.system(size: TypeScale.caption))
-                        .foregroundStyle(colors.tertiary)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 6).padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(hovering ? colors.hover : .clear))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .onHover { hovering = $0 }
-            .accessibilityLabel(content.accessibilityLabel)
-            .accessibilityIdentifier("cmux.home.needsYou.row")
-            if FeedNeedsYouView.answersInline(item) {
-                FeedAnswerControls(item: item, model: model, density: .inline).fixedSize()
-            }
+        headline.stringValue = content.headline
+        headline.textColor = colors.basket.primary
+        let who = content.meta.isEmpty ? item.poster.displayLabel : content.meta
+        meta.stringValue = "\(who) · \(FeedRelativeTime.string(item.createdAt, now: model.now))"
+        meta.textColor = colors.basket.tertiary
+        if icon != content.icon {
+            icon = content.icon
+            glyph.image = NSImage.icon(content.icon, size: .iconRowSize(forLabelPointSize: TypeScale.body))
+            glyph.image?.isTemplate = true
         }
-        .padding(.trailing, 4)
-        .opacity(model.isPending(item.id) ? 0.55 : 1)
+        glyph.contentTintColor = content.isUrgent ? colors.basket.attention : colors.basket.primary
+        opener.hoverFill = colors.basket.hover
+        opener.setAccessibilityLabel(content.accessibilityLabel)
+        if FeedNeedsYouView.answersInline(item) {
+            let view = FeedAnswerHost.answers(item: item, model: model, colors: colors, reusing: answers,
+                                              onResize: { [weak self] in self?.needsLayout = true })
+            if view !== answers { answers?.removeFromSuperview(); addSubview(view); answers = view }
+        } else {
+            answers?.removeFromSuperview()
+            answers = nil
+        }
+        alphaValue = model.isPending(item.id) ? 0.55 : 1
+        needsLayout = true
+    }
+
+    /// The one-line bar: "Needs you 3 · Allow make build?".
+    func showBar(_ first: FeedItem, count: Int, colors: FeedColors) {
+        id = first.id
+        card?.removeFromSuperview()
+        card = nil
+        answers?.removeFromSuperview()
+        answers = nil
+        let content = FeedRowContent(item: first, place: nil)
+        headline.stringValue = "\(FeedStrings.needsYou) \(count)"
+        headline.textColor = colors.basket.primary
+        meta.stringValue = content.headline
+        meta.textColor = colors.basket.secondary
+        icon = content.icon
+        glyph.image = NSImage.icon(content.icon, size: .iconRowSize(forLabelPointSize: TypeScale.body))
+        glyph.image?.isTemplate = true
+        glyph.contentTintColor = colors.basket.primary
+        opener.hoverFill = colors.basket.hover
+        opener.setAccessibilityLabel("\(FeedStrings.needsYou) \(count): \(content.headline)")
+        opener.setAccessibilityIdentifier("cmux.home.needsYou.bar")
+        needsLayout = true
+    }
+
+    func preferredHeight(width: CGFloat) -> CGFloat {
+        guard let card else { return FeedNeedsYouView.rowHeight }
+        return ceil(card.fittingSize.height)
+    }
+
+    override func layout() {
+        super.layout()
+        if let card {
+            card.frame = bounds
+            return
+        }
+        let answerSize = answers?.fittingSize ?? .zero
+        if let answers {
+            answers.frame = NSRect(x: bounds.width - answerSize.width - 4, y: ((bounds.height - answerSize.height) / 2).rounded(),
+                                   width: answerSize.width, height: answerSize.height)
+        }
+        let openerWidth = max(0, bounds.width - (answers == nil ? 0 : answerSize.width + 12))
+        opener.frame = NSRect(x: 0, y: 2, width: openerWidth, height: bounds.height - 4)
+        let side = CGFloat.iconRowSize(forLabelPointSize: TypeScale.body)
+        let textX: CGFloat = 32, textWidth = max(0, openerWidth - textX - 8)
+        if headline.stringValue.isEmpty == false, meta.stringValue.isEmpty == false {
+            let top = (opener.bounds.height - TypeScale.bodyLineHeight - TypeScale.captionLineHeight) / 2
+            headline.frame = NSRect(x: textX, y: top, width: textWidth, height: TypeScale.bodyLineHeight)
+            meta.frame = NSRect(x: textX, y: top + TypeScale.bodyLineHeight, width: textWidth, height: TypeScale.captionLineHeight)
+        }
+        glyph.frame = NSRect(x: 8, y: (opener.bounds.height - side) / 2, width: side, height: side)
     }
 }
 
-/// Variant `bar`: "Needs you 3 · Allow make build?" on one line; a click opens the only request,
-/// or the Feed when there are more.
-struct FeedNeedsYouBar: View {
-    let requests: [FeedItem]
-    let model: FeedModel
-    let open: (FeedItem) -> Void
-    let showAll: () -> Void
-    @Environment(\.feedColors) private var colors
-    @State private var hovering = false
+/// The open part of a request's row: its hover fill covers only itself, and a click opens.
+final class FeedNeedsYouOpener: NSView {
+    var onClick: () -> Void = {}
+    var hoverFill: NSColor = .clear { didSet { needsDisplay = true } }
+    private var hovering = false { didSet { if hovering != oldValue { needsDisplay = true } } }
 
-    var body: some View {
-        let first = requests[0]
-        Button { requests.count == 1 ? open(first) : showAll() } label: {
-            HStack(spacing: 8) {
-                FeedGlyph(item: first)
-                Text(FeedStrings.needsYou).font(.system(size: TypeScale.body, weight: .semibold)).foregroundStyle(colors.primary)
-                Text(verbatim: "\(requests.count)").font(.system(size: TypeScale.body)).monospacedDigit().foregroundStyle(colors.secondary)
-                Text(verbatim: "·").foregroundStyle(colors.tertiary)
-                Text(FeedRowContent.lines(first).headline).lineLimit(1).foregroundStyle(colors.secondary)
-                Spacer(minLength: 0)
-            }
-            .font(.system(size: TypeScale.body))
-            .padding(.horizontal, 12).padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(hovering ? colors.hover : .clear))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .accessibilityIdentifier("cmux.home.needsYou.bar")
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var isFlipped: Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovering = true }
+    override func mouseExited(with event: NSEvent) { hovering = false }
+
+    /// Its labels take no clicks: the whole part is one target.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        !isHidden && frame.contains(point) ? self : nil
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { onClick() }
+    }
+
+    override func mouseDown(with event: NSEvent) {}
+
+    override func accessibilityPerformPress() -> Bool {
+        onClick()
+        return true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard hovering else { return }
+        hoverFill.setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 7, yRadius: 7).fill()
     }
 }
