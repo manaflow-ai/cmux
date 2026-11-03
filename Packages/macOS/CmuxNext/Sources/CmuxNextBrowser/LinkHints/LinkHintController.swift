@@ -199,8 +199,12 @@ public final class LinkHintController {
         }
     }
 
-    /// Gives `keys` to the page they were typed into, once each, in order; a session never takes them again.
+    /// Gives `keys` to the page they were typed into, once each, in order; a session never takes them again. No keys:
+    /// nothing is marked. A sent key can start link hints again, twice in one send (a chord): the first new session ends
+    /// with no keys inside the send, and its empty send must not unmark the rest of it (LinkHintControllerFuzzTests:
+    /// the key after the second chord was taken by the third session).
     private func deliver(_ keys: [NSEvent]) {
+        guard !keys.isEmpty else { return }
         replays.mark(keys)
         send(keys)
     }
