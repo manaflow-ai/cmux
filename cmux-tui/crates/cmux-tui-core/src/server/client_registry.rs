@@ -483,6 +483,7 @@ impl ClientRegistry {
                 owner_plugin,
                 #[cfg(unix)]
                 machine_catalog: None,
+                control_view: None,
             },
         );
         drop(state);

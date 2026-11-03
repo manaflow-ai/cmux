@@ -613,6 +613,8 @@ fn dispatch_command(
             mutation,
         ),
         Command::ListPersonal => cmd_profiles::list_personal(mux),
+        Command::SetControlView { view } => control_topology::set_view(mux, client, view),
+        Command::ControlTopology => control_topology::topology(mux, client),
         Command::CreateBrowserProfile(params) => browser_profiles::create(mux, params),
         Command::UpdateBrowserProfile(params) => browser_profiles::update(mux, params),
         Command::MoveBrowserProfile(params) => browser_profiles::move_to(mux, params),

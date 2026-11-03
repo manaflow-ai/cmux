@@ -1354,6 +1354,92 @@ Example:
 {"id":2,"ok":true,"data":{"workspace_revision":1,"workspaces":[{"id":4,"key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","name":"1","active":true,"screens":[{"id":3,"name":null,"active":true,"active_pane":2,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"name":null,"active_tab":0,"focused_at":1,"tabs":[{"surface":1,"kind":"pty","browser_source":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
 ```
 
+### control-topology
+
+| Field | Value |
+| --- | --- |
+| name | `control-topology` |
+| status | implemented |
+| since | protocol 12, capability `control-topology-v1` |
+
+Returns the session's workspaces, screens, panes and tabs in the topology
+shape of the Mac app's `snapshot.get` (`topology.workspace_groups`,
+`topology.workspaces`), mapped from the same tree `list-workspaces` returns,
+joined with the asking connection's own view record (`set-control-view`).
+The app adds what only it knows: windows, focus, sessions, its connection
+state and remote sessions' workspaces. It is the daemon's confirmed state:
+a client's pending intents are not in it.
+
+Rules (the app's `ControlTopologyMapper`): a workspace's `id` is its
+`resource_id`, else its `key`, else `handle:<id>`; a screen's and a pane's
+`id` are their `resource_id`, else `screen:<id>` and `pane:<id>`; a tab's is
+its `tab_resource_id`, else `terminal:<terminal_id>`, else
+`surface:<surface>`. `name` is the workspace's non-empty `title`, else its
+`name`. A terminal tab's `title` loses its leading status glyphs; a tab's
+non-empty `name` wins. `kind` is `terminal` for `pty`, and `page` for a page
+conversation tab. `unread` on a workspace counts tabs with an unread
+notification; on a tab it is also true when the tab is marked unread or
+holds an agent's attention mark. `column` is the pane's column left to
+right as a window draws them (left docks, the scrolling strip, right docks;
+`0` for a screen without columns, `null` for a top or bottom band) and
+`dock` its edge. `agent_state` and `agent` are the surface's `list-agents`
+record. `workspace_groups` are the personal groups when the session serves
+them (`profiles-v1`), else the tree's `groups`.
+
+Params: none.
+
+Result:
+
+```text
+{workspace_groups: [{id, name, color, collapsed}], workspaces: [...],
+ tab_count, registry_id, generation}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `forbidden: ...` | A remote device's lane or a page connection |
+
+Example:
+
+```json
+{"id":2,"cmd":"control-topology"}
+{"id":2,"ok":true,"data":{"workspace_groups":[],"workspaces":[{"id":"ws_…","key":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","handle":"4","name":"1","title":null,"color":null,"icon":null,"group":null,"unread":0,"machine":null,"session":null,"screens":[{"id":"screen_…","handle":"3","name":null,"zoomed_pane":null,"panes":[{"id":"pane_…","handle":"2","name":null,"selected_tab":null,"tabs":[{"id":"tab_…","surface":"1","kind":"terminal","title":"zsh"}],"tab_groups":[],"column":0,"dock":null}]}]}],"tab_count":1,"registry_id":"…","generation":"…"}}
+```
+
+### set-control-view
+
+| Field | Value |
+| --- | --- |
+| name | `set-control-view` |
+| status | implemented |
+| since | protocol 12, capability `control-topology-v1` |
+
+Replaces this connection's view record: the app-only facts
+`control-topology` joins for this connection. Only the connection that set
+it reads it, and it ends with the connection (OWNERSHIP-PRINCIPLES.md,
+"Single writer per entity").
+
+Params:
+
+| Param | Value |
+| --- | --- |
+| `view.panes` | By pane id: `{selected_tab?, page_tabs?: [{id, page, title, selected?}], mirrored_tabs?: [tab id]}` |
+| `view.page_titles` | By tab id: the title of a page conversation tab |
+
+Unknown members are refused. At most 1 MiB, 20,000 panes or titles, and
+4096 bytes per string.
+
+Result: `{}`.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `bad request: view...` | A malformed or oversized record |
+| `forbidden: ...` | A remote device's lane or a page connection |
+
 ### get-frontend-projection / put-frontend-projection
 
 | Field | Value |

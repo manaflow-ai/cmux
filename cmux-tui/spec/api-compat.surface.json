@@ -8213,6 +8213,7 @@
       }
     },
     "request:cloud-session-status": {},
+    "request:control-topology": {},
     "request:conversation-agent-token": {
       "/participant": {
         "ty": "string",
@@ -11517,6 +11518,13 @@
         "nullable": true
       }
     },
+    "request:set-control-view": {
+      "/view": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      }
+    },
     "request:set-default-colors": {
       "/bg": {
         "ty": "string",
@@ -13142,6 +13150,12 @@
       }
     },
     "response:cloud-session-status": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:control-topology": {
       "/data": {
         "ty": "json",
         "required": true
@@ -20514,6 +20528,12 @@
     "response:set-client-info": {},
     "response:set-client-sizing": {},
     "response:set-column-dock": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:set-control-view": {
       "/data": {
         "ty": "json",
         "required": true

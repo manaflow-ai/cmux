@@ -48,4 +48,7 @@ pub(in crate::server) struct ClientRecord {
     pub(in crate::server) owner_plugin: bool,
     #[cfg(unix)]
     pub(in crate::server) machine_catalog: Option<super::machine_catalog::Publication>,
+    /// The app-only view facts this connection published (`set-control-view`,
+    /// `control-topology-v1`): written only by this connection, dropped with it.
+    pub(in crate::server) control_view: Option<crate::server::control_topology::ControlView>,
 }

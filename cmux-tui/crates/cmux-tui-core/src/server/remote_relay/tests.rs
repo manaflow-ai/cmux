@@ -307,6 +307,38 @@ fn only_the_section_4_commands_pass_the_gate() {
     }
 }
 
+/// `control-topology` lists every local workspace and tab title, and
+/// `set-control-view` writes a connection's view record: neither is a relay
+/// method (remote-relay-authorization.md, default deny). The frame gate
+/// refuses both, with or without a peer record, and the dispatcher's own
+/// interceptor refuses them too if a frame ever passed the gate.
+#[test]
+fn the_control_topology_commands_are_refused_on_a_remote_connection() {
+    let fixture = fixture();
+    let peerless = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
+    let bound = remote(&fixture, "install_a", OWNER);
+    for frame in [
+        json!({"id": 1, "cmd": "control-topology"}),
+        json!({"id": 1, "cmd": "set-control-view", "view": {}}),
+        json!({"id": 1, "cmd": "set-control-view", "view": {"panes": {}}, "client": fixture.local}),
+    ] {
+        assert!(check_frame(&frame.to_string()).is_err(), "the gate refuses {frame}");
+        for client in [peerless, bound] {
+            assert_code(&send(&fixture.mux, client, frame.clone()), "remote_denied");
+        }
+        let command: Command = serde_json::from_value(frame.clone()).unwrap();
+        let reply = handle_command(&fixture.mux, bound, command, &writer().0);
+        assert!(reply.is_err(), "the interceptor refuses {frame}: {reply:?}");
+    }
+    for name in ["control-topology", "set-control-view"] {
+        assert_eq!(check_frame(&json!({"cmd": name}).to_string()), Err(Denial::Command), "{name}");
+    }
+    // The refused writes left the local connection's record as it was.
+    let state = fixture.mux.control_clients.state.lock().unwrap();
+    assert!(state.clients.get(&fixture.local).is_some_and(|record| record.control_view.is_none()));
+    assert!(state.clients.values().all(|record| record.control_view.is_none()));
+}
+
 #[test]
 fn set_client_info_takes_only_conversation_capabilities_and_ignores_identity() {
     let fixture = fixture();

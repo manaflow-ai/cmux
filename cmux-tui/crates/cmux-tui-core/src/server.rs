@@ -588,6 +588,11 @@ pub const STATE_RESOURCES_CAPABILITY: &str = "state-resources-v1";
 /// `host_lost` with a stable `reason`, `launch_failed`). A tab is `dead` only
 /// when its terminal ended (plans/cmux-next/durable-sessions.md section 7).
 pub const TERMINAL_STATE_CAPABILITY: &str = "terminal-state-v1";
+/// `control-topology`, `set-control-view`: the daemon answers the session's
+/// workspaces, screens, panes and tabs in the app control socket's
+/// `snapshot.get` topology shape, joined with the asking connection's own
+/// app-only view record (server/control_topology.rs).
+pub const CONTROL_TOPOLOGY_CAPABILITY: &str = "control-topology-v1";
 /// `window_record.list|put|delete`: one personal record per app window with
 /// a per-record revision (OWNERSHIP-PRINCIPLES single writer).
 pub const WINDOW_RECORDS_CAPABILITY: &str = "window-records-v1";
@@ -1787,6 +1792,16 @@ enum Command {
     },
     /// Every personal record of the home session (`profiles-v1`).
     ListPersonal,
+    /// Replace this connection's app-only view facts (`control-topology-v1`,
+    /// server/control_topology.rs): windows, focus, the tab each pane shows,
+    /// app-only page tabs. Only this connection writes its record; it is
+    /// dropped when the connection closes.
+    SetControlView {
+        view: Value,
+    },
+    /// The session topology in the app control socket's `snapshot.get`
+    /// shape, joined with this connection's view facts (`control-topology-v1`).
+    ControlTopology,
     /// Browser profile records (`browser-profiles-v1`, server/browser_profiles.rs).
     CreateBrowserProfile(browser_profiles::CreateParams),
     UpdateBrowserProfile(browser_profiles::UpdateParams),
@@ -2678,6 +2693,11 @@ use client_registry::{
 };
 
 mod client_registry_views;
+
+pub(crate) mod control_topology;
+#[cfg(test)]
+#[path = "server/control_topology_tests.rs"]
+mod control_topology_tests;
 
 mod listen;
 pub use listen::{
