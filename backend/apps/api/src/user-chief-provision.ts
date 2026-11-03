@@ -52,6 +52,8 @@ export const deliverSignupChief = async (entity: string, source: string, items: 
       throw provisioningFailure("chief.provision.invalid_item", false)
     }
   }
+  // Deployed environments bind the platform; a local worker without it keeps signup pending.
+  if (!host.platform) throw provisioningFailure("chief.provision.platform_unbound")
   const activate = async (agent: string) => {
     let activated: Awaited<ReturnType<SignupChiefHost["activate"]>>
     try { activated = await host.activate(agent, entity) } catch { throw provisioningFailure("chief.provision.brain_unreachable") }
@@ -75,8 +77,6 @@ export const deliverSignupChief = async (entity: string, source: string, items: 
     // A person archived, deleted or moved their Chief while provisioning was outstanding.
     if (!chief || chief.archived_at !== null || chief.brain_place) { done.push(item.id); continue }
     if (chief.cloud_machine) { await activate(chief.id); done.push(item.id); continue }
-    // A missing service binding is retryable deployment state. The Chief ensure above remains committed.
-    if (!host.platform) throw provisioningFailure("chief.provision.platform_unbound")
     const machine = await ensureChiefMachine(host.platform, entity, () => host.current()!)
     const current = host.current()?.chiefs?.[chief.id]
     if (!current || current.archived_at !== null || current.brain_place) { done.push(item.id); continue }
