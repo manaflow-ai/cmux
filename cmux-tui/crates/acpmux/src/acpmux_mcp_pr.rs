@@ -208,7 +208,7 @@ fn newest_receipt(comments: &[Value]) -> Option<(Receipt, String)> {
 
 /// Failing check names and the pending count of a `statusCheckRollup`.
 fn checks(rollup: &[Value]) -> (Vec<String>, usize, usize) {
-    let (mut failing, mut pending, mut passed) = (Vec::new(), 0, 0);
+    let (mut failing, mut pending, mut passed): (Vec<String>, usize, usize) = (Vec::new(), 0, 0);
     for c in rollup {
         let name = c["name"].as_str().or(c["context"].as_str()).unwrap_or("?").to_owned();
         let up = |k: &str| c[k].as_str().unwrap_or_default().to_ascii_uppercase();
