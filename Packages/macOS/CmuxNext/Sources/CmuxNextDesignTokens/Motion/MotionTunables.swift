@@ -79,12 +79,12 @@ public nonisolated enum MotionTunables {
     /// steps to the time its frame shows (the display link's target, `FrameTick.frameElapsed`), so a late frame lands
     /// on the curve instead of behind it (at most `FrameScheduler.catchUpLimit`), and a divider, column-edge or
     /// row-edge drag lays the layout out once per display frame, in the window's frame tick, at the newest pointer.
-    /// Off (the default): springs step by the time between the vsyncs that began the frames, at most 1/30 s, and each
+    /// On by default (S2 films and typing-load-l6 passed). Off: springs step by the time between the vsyncs that began the frames, at most 1/30 s, and each
     /// drag event writes the model, which the layout syncs in the next turn.
     public static let frameOwnerTiming = Tunable<Bool>.toggle(
         "motion.frameOwner.timing", .springs, "Frame timing (frame owner S2)",
         help: "On: springs step to the time each frame shows and catch up after a late frame; a divider, column-edge or row-edge drag lays the layout out once per display frame, in the frame tick, at the newest pointer. Off: springs step by the time between vsyncs (at most 1/30 s) and every drag event lays the layout out.",
-        default: false, code: "MotionTunables.frameOwnerTiming")
+        default: true, code: "MotionTunables.frameOwnerTiming")
 
     // MARK: Fades and loops
 

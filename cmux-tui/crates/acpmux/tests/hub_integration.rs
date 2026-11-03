@@ -823,6 +823,67 @@ async fn wait_resolves_on_permission_then_on_ready() {
     );
 }
 
+/// `_acpmux/session_search` finds a session's prompts and the agent's replies by their words,
+/// newest first, by name or id; a bad query and an unknown session are errors.
+#[tokio::test]
+async fn session_search_finds_prompts_and_replies_newest_first() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "finder"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    for text in ["the broker quota", "a QUOTA for the broker again"] {
+        c.request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}),
+        )
+        .await
+        .unwrap();
+    }
+    let r = c
+        .request(
+            method::MUX_SESSION_SEARCH,
+            json!({"sessionId": "finder", "query": "quota broker"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["sessionId"], json!(id), "{r}");
+    let hits = r["hits"].as_array().unwrap();
+    let got: Vec<(&str, &str)> = hits
+        .iter()
+        .map(|h| (h["role"].as_str().unwrap(), h["snippet"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("assistant", "echo: a QUOTA for the broker again"),
+            ("user", "a QUOTA for the broker again"),
+            ("assistant", "echo: the broker quota"),
+            ("user", "the broker quota"),
+        ],
+        "{r}"
+    );
+    assert!(hits[0]["seq"].as_u64() > hits[1]["seq"].as_u64(), "{r}");
+    let r = c
+        .request(
+            method::MUX_SESSION_SEARCH,
+            json!({"sessionId": id, "query": "broker", "role": "user", "limit": 1}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["hits"][0]["snippet"], "a QUOTA for the broker again", "{r}");
+    assert_eq!(r["hits"].as_array().unwrap().len(), 1, "{r}");
+    for params in
+        [json!({"sessionId": id, "query": " "}), json!({"sessionId": "nobody", "query": "x"})]
+    {
+        assert!(c.request(method::MUX_SESSION_SEARCH, params).await.is_err());
+    }
+}
+
 #[tokio::test]
 async fn turn_markers_history_and_cursor() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;

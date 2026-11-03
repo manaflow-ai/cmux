@@ -11480,6 +11480,34 @@
       "title_table" : "HomeActions"
     },
     {
+      "cli" : "devOnly",
+      "cli_name" : "action home-chief-teleport-playground",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.chiefTeleportPlayground",
+      "main_menu" : "debug",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Chief Teleport Playground",
+      "title_key" : "action.home.chiefTeleportPlayground",
+      "title_table" : "HomeActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "chat send",
       "context_menu" : "noObject",
@@ -24657,6 +24685,34 @@
       "palette_suggested" : null,
       "title" : "Move Chief To…",
       "title_key" : "action.chief.moveTo",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "familyMember",
+      "cli_name" : "action chief-move-rollback",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "chief.moveRollback",
+      "main_menu" : null,
+      "mcp" : "familyMember",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Roll Back Chief Move",
+      "title_key" : "action.chief.moveRollback",
       "title_table" : "ActionCatalog"
     },
     {

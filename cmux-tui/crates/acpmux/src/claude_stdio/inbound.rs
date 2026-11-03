@@ -993,6 +993,12 @@ impl Translator {
                 update.set(key, json!(value));
             }
         }
+        // Claude Code says a shell's exit code only in its summary
+        // ("Background command \"x\" completed (exit code 0)"); Codex's
+        // updates carry it as `exitCode`, and clients read it there.
+        if let Some(code) = text("summary").and_then(summary_exit_code) {
+            update.set("exitCode", json!(code));
+        }
         Some(shell_update(&shell, update))
     }
 
@@ -1283,6 +1289,18 @@ fn launch_output_file(text: &str) -> Option<String> {
     let (_, rest) = text.split_once(MARK)?;
     let path = rest.lines().next()?.trim();
     (path.starts_with('/') && path.ends_with(".output")).then(|| path.to_owned())
+}
+
+/// The exit code a Claude Code task summary ends with: the number after its
+/// last "exit code " ("… completed (exit code 0)", "… failed with exit code 1").
+/// The last, so a command's description that says those words is not read.
+pub(super) fn summary_exit_code(summary: &str) -> Option<i64> {
+    let (_, rest) = summary.rsplit_once("exit code ")?;
+    let end = rest
+        .char_indices()
+        .find(|&(i, c)| !(c.is_ascii_digit() || (i == 0 && c == '-')))
+        .map_or(rest.len(), |(i, _)| i);
+    rest.get(..end)?.parse().ok()
 }
 
 /// A `background_task_update` for one shell.
