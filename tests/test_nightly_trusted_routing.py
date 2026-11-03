@@ -30,6 +30,9 @@ TAIL_CONTROL_JOBS = (
     'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
     'nightly-identity-legacy-published', 'report-nightly-failure', 'close-nightly-failure-issue',
 )
+# Measured at about one core on 32 vCPU (.github/runners.json linux_sizes): they end in the Linux 4 vCPU pool.
+MEASURED_4_VCPU_JOBS = ('prepare-nightly-variant-primary', 'prepare-nightly-variant', 'await-nightly-tree-marker',
+                        'publish-nightly', 'publish-nightly-next-github', 'publish-nightly-next-github-names')
 
 DEFAULT_POOL_MEMBERS = {
     'linux_2': 'blacksmith-2vcpu-ubuntu-2404',
@@ -316,9 +319,10 @@ class NightlyTrustedRouting(unittest.TestCase):
                        'github.event_name': 'push', 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
                        'vars.CI_PR_POOL_OWNED': '1', **changes}
             return evaluate(parse_expression(source), context)
-        self.assertEqual(prepare(), 'blacksmith-32vcpu-ubuntu-2404')
-        self.assertEqual(prepare(**{'github.run_attempt': 2}), 'blacksmith-32vcpu-ubuntu-2404')
-        self.assertEqual(prepare(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-32vcpu-ubuntu-2404')
+        # About one core (.github/runners.json linux_sizes): the Linux 4 vCPU pool on every attempt.
+        self.assertEqual(prepare(), 'blacksmith-4vcpu-ubuntu-2404')
+        self.assertEqual(prepare(**{'github.run_attempt': 2}), 'blacksmith-4vcpu-ubuntu-2404')
+        self.assertEqual(prepare(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-4vcpu-ubuntu-2404')
         self.assertEqual(prepare(**{'github.repository_owner': 'someone'}), 'ubuntu-24.04')
 
     def test_prepare_fallback_follows_the_primary_then_retries_on_another_size(self):
@@ -405,7 +409,14 @@ class NightlyTrustedRouting(unittest.TestCase):
                     "needs.pick-nightly-sign-runner.outputs.sign_owned_pool": "",
                     "vars.LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
                 }
-                self.assertEqual(evaluate(parse_expression(source), fallback), "blacksmith-16vcpu-ubuntu-2404")
+                # No owned pool: the signing picker's moving Linux label, else the Linux 4 vCPU pool
+                # (publication uses about one core, .github/runners.json linux_sizes).
+                self.assertEqual(evaluate(parse_expression(source), fallback), "blacksmith-4vcpu-ubuntu-2404")
+                picked = {**fallback, "needs.pick-nightly-sign-runner.outputs.linux": "blacksmith-16vcpu-ubuntu-2404"}
+                self.assertEqual(evaluate(parse_expression(source), picked), "blacksmith-16vcpu-ubuntu-2404")
+                rerun = {**fallback, "github.run_attempt": 2,
+                         "needs.pick-nightly-sign-runner.outputs.linux_alternate": "blacksmith-16vcpu-ubuntu-2404"}
+                self.assertEqual(evaluate(parse_expression(source), rerun), "blacksmith-16vcpu-ubuntu-2404")
                 self.assertEqual(evaluate(parse_expression(source), {**fallback, "github.repository_owner": "someone"}),
                                  "ubuntu-24.04")
                 self.assertNotIn("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", runs_on)
@@ -441,7 +452,7 @@ class NightlyTrustedRouting(unittest.TestCase):
             expr = parse_expression(source)
             with self.subTest(job=name):
                 self.assertNotEqual(evaluate(expr, dedicated), "glaeda-nightly-only-m4pro")
-                self.assertEqual(evaluate(expr, dedicated), "blacksmith-16vcpu-ubuntu-2404")
+                self.assertEqual(evaluate(expr, dedicated), "blacksmith-4vcpu-ubuntu-2404")
                 self.assertNotEqual(evaluate(expr, {**dedicated, "github.repository": "someone/cmux",
                                                    "github.repository_owner": "someone"}),
                                     "glaeda-nightly-only-m4pro")
@@ -456,6 +467,8 @@ class NightlyTrustedRouting(unittest.TestCase):
                                             "glaeda-nightly-only-m4pro")
 
     def test_every_linux_nightly_job_takes_a_runner_set_member(self):
+        # Jobs measured at about one core on 32 vCPU (.github/runners.json linux_sizes `size` 4) may also take
+        # the Linux 4 vCPU pool (Leo, 2026-11-03: "the signing/publishing don't require 30 cores").
         # Never LINUX_RUNNER as-is: 16 vCPU when it names 16, else 32, whatever it holds
         # (empty, the overflow switch's hosted value, an old 4 vCPU value, 16 or 32).
         # The signer jobs have their own route (test_signer_jobs_take_hosted_ubuntu_then_blacksmith_4vcpu_never_16_or_32).
@@ -476,9 +489,11 @@ class NightlyTrustedRouting(unittest.TestCase):
                                'needs.decide.outputs.track': 'nightly-next',
                                'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}',
                                'needs.prepare-nightly-variant-primary.result': primary}
+                    allowed = (members | {"ubuntu-24.04"}) if f"nightly.yml#{name}" in light else members
+                    if name in MEASURED_4_VCPU_JOBS:
+                        allowed = allowed | {'blacksmith-4vcpu-ubuntu-2404'}
                     with self.subTest(job=name, runner=runner, primary=primary):
-                        self.assertIn(evaluate(parse_expression(source), context),
-                                      (members | {"ubuntu-24.04"}) if f"nightly.yml#{name}" in light else members)
+                        self.assertIn(evaluate(parse_expression(source), context), allowed)
         self.assertGreater(checked, 20)
 
     def test_dispatch_fast_retries_rc_and_disabled_owned_use_blacksmith_pool(self):
@@ -682,7 +697,7 @@ class LightJobsOnAFreeMini(unittest.TestCase):
                 # Placed only the other job: this one keeps the runner set's Blacksmith member.
                 other = next(name for name in self.LIGHT if name != job)
                 self.assertEqual(self.runs_on(job, **{'needs.build-nightly-app.outputs.light_mini_jobs': f' {other} '}),
-                                 ('blacksmith-16vcpu-ubuntu-2404' if job == 'prepare-nightly-variant' else 'blacksmith-32vcpu-ubuntu-2404'))
+                                 ('blacksmith-16vcpu-ubuntu-2404' if job == 'prepare-nightly-variant' else 'blacksmith-4vcpu-ubuntu-2404'))
 
     def test_no_placement_a_stale_one_or_a_fork_keeps_the_old_route(self):
         for job in self.LIGHT:
@@ -696,12 +711,10 @@ class LightJobsOnAFreeMini(unittest.TestCase):
                     ({'github.repository_owner': 'someone'}, 'ubuntu-24.04')):
                 with self.subTest(job=job, changes=changes):
                     if expected is None:
-                        if changes.get('vars.LINUX_RUNNER') == 'blacksmith-16vcpu-ubuntu-2404':
-                            expected = ('blacksmith-32vcpu-ubuntu-2404' if job == 'prepare-nightly-variant'
-                                        else 'blacksmith-16vcpu-ubuntu-2404')
-                        else:
-                            expected = ('blacksmith-16vcpu-ubuntu-2404' if job == 'prepare-nightly-variant'
-                                        else 'blacksmith-32vcpu-ubuntu-2404')
+                        # The Linux 4 vCPU pool whatever LINUX_RUNNER holds; prepare-nightly-variant with no
+                        # primary result is the retry leg, on 16 vCPU.
+                        expected = ('blacksmith-16vcpu-ubuntu-2404' if job == 'prepare-nightly-variant'
+                                    else 'blacksmith-4vcpu-ubuntu-2404')
                     self.assertEqual(self.runs_on(job, **changes), expected)
 
     def test_light_jobs_hold_no_environment_and_no_secret(self):
@@ -861,9 +874,9 @@ class PrimaryPreparationOnFleetLinux(unittest.TestCase):
         self.assertEqual(self.runs_on(**{'needs.build-nightly-app.outputs.light_linux_runner': ''}), self.MINI)
         self.assertEqual(self.runs_on(**{'needs.build-nightly-app.outputs.light_linux_runner': '',
                                          'needs.build-nightly-app.outputs.light_mini_jobs': ''}),
-                         'blacksmith-32vcpu-ubuntu-2404')
+                         'blacksmith-4vcpu-ubuntu-2404')
         # A re-run keeps attempt 1's outputs; the runner it saw idle may be gone, so it takes Blacksmith.
-        self.assertEqual(self.runs_on(**{'github.run_attempt': 2}), 'blacksmith-32vcpu-ubuntu-2404')
+        self.assertEqual(self.runs_on(**{'github.run_attempt': 2}), 'blacksmith-4vcpu-ubuntu-2404')
         self.assertEqual(self.runs_on(**{'github.repository_owner': 'someone'}), 'ubuntu-24.04')
 
     def test_the_fallback_leg_keeps_its_mini_and_blacksmith_route(self):

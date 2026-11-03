@@ -609,9 +609,11 @@ class Wiring(unittest.TestCase):
         nightly = jobs("nightly.yml")
         step = next(step for step in nightly["build-nightly-app"]["steps"] if step.get("id") == "place-light-start")
         self.assertEqual(step["env"]["NIGHTLY"], "1")
-        expected_pools = {"prepare-nightly-variant-primary": "linux_32",
+        # About one core each (.github/runners.json linux_sizes): the Linux 4 vCPU pool, and 16 vCPU
+        # for prepare-nightly-variant's retry after a failed primary.
+        expected_pools = {"prepare-nightly-variant-primary": "linux_4",
                           "prepare-nightly-variant": "linux_16",
-                          "await-nightly-tree-marker": "linux_32"}
+                          "await-nightly-tree-marker": "linux_4"}
         for name in step["env"]["JOBS"].split():
             with self.subTest(job=name):
                 job = nightly[name]
