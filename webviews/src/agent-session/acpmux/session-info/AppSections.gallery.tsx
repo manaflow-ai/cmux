@@ -1,6 +1,7 @@
 // l10n-allow-file: gallery fixture text, not shipped UI.
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
 import { AppPanelSection, useAppPanelSections, type AppPanelSection as Panel } from "../../../apps/scene/panels";
 import { MockAppPanelsClient } from "../../../apps/scene/panelsMock";
 import { appSceneIcon } from "../../../apps/scene/SceneSymbol";
@@ -72,6 +73,15 @@ function AppSections({ look = "plain" }: Props) {
     </div>
   );
 }
+const appsReady: Play = async (ctx) => {
+  await ctx.waitFor(() => {
+    const slots = ctx.document.querySelectorAll('section[data-section^="app:"]');
+    return (
+      slots.length === 2 && [...slots].every((slot) => slot.querySelectorAll('[data-app-type="Row"]').length === 3)
+    );
+  });
+};
+
 export default componentEntry<Props>({
   id: "agent-pane.session-info-app-sections",
   title: "Session Info app sections",
@@ -89,14 +99,17 @@ export default componentEntry<Props>({
     plain: {
       note: "Chosen: PRs in the last 24h and Session notes use the panel's existing sections, folds and grips without another container or label. Light and dark use the gallery theme switch.",
       props: { look: "plain" },
+      play: appsReady,
     },
     "with-app-tag": {
       note: "Alternative: both apps have a quiet app tag in their headers; useful attribution but repeated metadata in this small panel.",
       props: { look: "tag" },
+      play: appsReady,
     },
     compact: {
       note: "Alternative: both apps cap their body at three row heights with Show all, in a compact outline. Saves space but adds two extra disclosures.",
       props: { look: "compact" },
+      play: appsReady,
     },
   },
 });
