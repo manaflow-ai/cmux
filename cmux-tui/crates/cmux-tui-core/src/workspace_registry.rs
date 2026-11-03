@@ -3624,14 +3624,16 @@ impl WorkspaceRegistry {
         }
         let stored_now = tx
             .query_row(
-                "SELECT projection_revision, octet_length(payload) FROM frontend_projections
+                "SELECT projection_revision, octet_length(payload),
+                        schema_version = ?4 AND payload = ?5
+                 FROM frontend_projections
                  WHERE frontend = ?1 AND scope = ?2 AND subject_key = ?3",
-                params![frontend, scope, subject_key],
-                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                params![frontend, scope, subject_key, i64::from(schema_version), &payload],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, bool>(2)?)),
             )
             .optional()?;
         let current = stored_now
-            .map(|(revision, _)| u64::try_from(revision))
+            .map(|(revision, _, _)| u64::try_from(revision))
             .transpose()
             .context("projection revision is negative")?
             .unwrap_or(0);
@@ -3640,7 +3642,25 @@ impl WorkspaceRegistry {
         {
             anyhow::bail!("projection revision conflict: expected {expected}, current {current}");
         }
-        let previous_bytes = stored_now.and_then(|(_, bytes)| usize::try_from(bytes).ok());
+        // The same body (canonical, so key order does not count) and schema
+        // as stored is no change: no revision, no ledger row, and `replayed`
+        // so the caller emits no change event. The app saves its documents
+        // again on many events with nothing changed, and each save woke every
+        // subscriber and the launch snapshot of an idle owner.
+        if stored_now.is_some_and(|(_, _, same)| same) {
+            return Ok(ProjectionCommit {
+                projection: FrontendProjection {
+                    frontend: frontend.to_string(),
+                    scope: scope.to_string(),
+                    subject_key: subject_key.to_string(),
+                    schema_version,
+                    projection_revision: current,
+                    projection: projection.clone(),
+                },
+                replayed: true,
+            });
+        }
+        let previous_bytes = stored_now.and_then(|(_, bytes, _)| usize::try_from(bytes).ok());
         note_projection_size(frontend, scope, subject_key, previous_bytes, payload.len());
         let projection_revision = current
             .checked_add(1)

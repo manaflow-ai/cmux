@@ -512,12 +512,22 @@ pub(crate) fn personal_revision(connection: &Connection) -> anyhow::Result<u64> 
 }
 
 pub(crate) fn read_sessions(connection: &Connection) -> anyhow::Result<Vec<PersonalSession>> {
+    read_sessions_where(connection, None)
+}
+
+/// Every session, or with `id` only that one (a lookup by key: a
+/// registration of one session no longer reads and parses every session's
+/// capability list, on each of the app's repeated registrations).
+fn read_sessions_where(
+    connection: &Connection,
+    id: Option<&str>,
+) -> anyhow::Result<Vec<PersonalSession>> {
     let mut statement = connection.prepare(
         "SELECT session_id, machine_name, session_name, transport_json, last_seen_ms,
                 capabilities_json, migrated, icon
-         FROM sessions ORDER BY session_id",
+         FROM sessions WHERE ?1 IS NULL OR session_id = ?1 ORDER BY session_id",
     )?;
-    let rows = statement.query_map([], |row| {
+    let rows = statement.query_map([id], |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, Option<String>>(1)?,
@@ -560,7 +570,7 @@ pub(crate) fn read_session(
     connection: &Connection,
     id: &str,
 ) -> anyhow::Result<Option<PersonalSession>> {
-    Ok(read_sessions(connection)?.into_iter().find(|session| session.session_id == id))
+    Ok(read_sessions_where(connection, Some(id))?.into_iter().next())
 }
 
 fn read_follows(connection: &Connection) -> anyhow::Result<HashMap<String, Vec<String>>> {
