@@ -929,9 +929,9 @@ impl Mux {
 
     #[track_caller]
     pub fn surface(&self, id: SurfaceId) -> Option<Arc<Surface>> {
-        if self.control_clients.input_lane.on() {
-            // The routing tables of the last finished change, with no lock (R-DAEMON-STATE stage S1): the same
-            // lookup, never a wait behind a list, a snapshot or a durable mutation that holds the session lock.
+        // The routes of the last finished change, with no lock (R-DAEMON-STATE stage S1); a poisoned state takes the
+        // old read and fails as it does (a guard that recovers the poison may publish half-made tables).
+        if self.control_clients.input_lane.on() && !self.state.is_poisoned() {
             return self.state.routes().surface(id);
         }
         let state = self.state.lock().unwrap();

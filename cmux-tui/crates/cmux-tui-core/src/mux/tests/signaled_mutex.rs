@@ -116,8 +116,7 @@ fn routes_of_a_change_cut_short_by_a_panic_are_never_published() {
     let state = test_mux().with_state(State::clone);
     let mutex = super::super::signaled_mutex::StateMutex::new(state, true);
     let before = arc_swap::Guard::into_inner(mutex.routes());
-    let terminal =
-        crate::resource::TerminalPublicId::parse("term_00000000000000000000000000000077").unwrap();
+    let terminal = TerminalPublicId::parse("term_00000000000000000000000000000077").unwrap();
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut state = mutex.lock().unwrap_or_else(PoisonError::into_inner);
         state.terminal_catalog_by_runtime.insert(9_999_999, terminal);
