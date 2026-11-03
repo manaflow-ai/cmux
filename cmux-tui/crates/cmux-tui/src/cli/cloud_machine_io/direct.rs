@@ -469,17 +469,28 @@ async fn stage_command(
 async fn run_exec(client: &reqwest::Client, grant: &Grant, request: &Request) -> Direct {
     let command = request.command.as_deref().unwrap_or_default();
     let timeout = request.exec_timeout_ms();
+    let mut staged = None;
     let line = if command.len() <= INLINE_COMMAND_MAX_BYTES {
         exec_command(command)
     } else {
         match stage_command(client, grant, command).await {
-            Ok(path) => exec_command(&staged_command(&path)),
+            Ok(path) => {
+                let line = exec_command(&staged_command(&path));
+                staged = Some(path);
+                line
+            }
             Err(Direct::Auth) => return Direct::Auth,
             // Nothing of the command ran: the proxy may take it.
             Err(_) => return Direct::Fallback,
         }
     };
-    match exec(client, grant, &line, None, timeout).await {
+    let ran = exec(client, grant, &line, None, timeout).await;
+    // Refused or never sent: the command never started, so its staged file goes (best effort; a
+    // run that started removed it itself).
+    if let (Some(path), Err(Failure::Auth | Failure::NotSent)) = (&staged, &ran) {
+        let _ = fs(client, grant, "remove", path, &[], None).await;
+    }
+    match ran {
         Ok(answer) => Direct::Done(Answer::ok(
             json!({ "exitCode": answer.exit_code, "stdout": answer.stdout, "stderr": answer.stderr }),
         )),

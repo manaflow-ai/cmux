@@ -277,7 +277,14 @@
 /* Another session's message (model.ts promptSender) keeps the person's tick: at rest every tick
    shares one column, one x and one width, so the rail never reads jagged; its preview card names the
    sender (PreviewCard.tsx). #31681 set these ticks in and shorter; Leo 2026-11-02, on that rail:
-   "WTF ARE THESE" (leo-workspace design/session-rail.md). */
+   "WTF ARE THESE" (leo-workspace design/session-rail.md). With `data-incoming-dim`
+   (incoming.experiment.ts, on by default) their resting tick is a step dimmer than the person's, in
+   the same place and size, so the person's prompts stay the rail's rhythm (Leo, 2026-11-03: "i've
+   always been on the fence about messages from other chats showing up in that prompt jump scroll
+   rail individual elements"). Lit, bookmarked, hovered and focused ticks draw as every other. */
+.acpmux-minimap__rail[data-incoming-dim] .acpmux-minimap__tick[data-incoming][data-tone="rest"]:not([data-bookmarked]) .acpmux-minimap__bar {
+  opacity: var(--acpmux-minimap-incoming, 0.25);
+}
 /* The dot's hit area: the row's right end past the tick (26 px), so the tick keeps its click. It
    remains invisible until the prompt is bookmarked. */
 .acpmux-minimap__dot-hit {
