@@ -61,6 +61,8 @@ struct SidebarAvatarMotion {
 
     /// The host's gate for loops (cmux-next: `Motion.home.animatesLoops`); nil: only Reduce Motion decides.
     var gate: (@MainActor () -> Bool)?
+    /// The list's motion is on (`SidebarController.animates`); off (the default), only the state's still ring shows.
+    var animates = false
     /// How avatars show their state (the host's Debug setting).
     var style = CmuxSidebarAvatarMotionStyle.ring
     /// The list's window is key (the vendored list's key tracking sets it).
@@ -78,7 +80,7 @@ struct SidebarAvatarMotion {
     /// Whether loops may run in `window` now: the host's gate (Reduce Motion included), the window
     /// is key (so the app is active), shown and not minimized.
     @MainActor func mayRun(in window: NSWindow?) -> Bool {
-        guard !CmuxSidebarView.reducesMotion, gate?() ?? true, windowKey else { return false }
+        guard animates, !CmuxSidebarView.reducesMotion, gate?() ?? true, windowKey else { return false }
         if let onScreenPin { return onScreenPin }
         // Not the occlusion state: the window server reports it after the window becomes key (a launch
         // or an un-minimize would leave the avatar still), and a key window is the frontmost one.
