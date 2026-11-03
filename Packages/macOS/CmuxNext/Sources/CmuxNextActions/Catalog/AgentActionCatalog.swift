@@ -581,12 +581,24 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // `cmux chief move --to` and the Chief's MCP `move` tool run the same move (one implementation).
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.familyMember), contextMenuExemption: .noObject)
             ),
+            // Roll Back Chief Move (chief-migration-DESIGN.md 4): this Mac's Chief answers here again and the
+            // target is marked moved back; the Teleport menu (the Home header's location chip, the Chief card)
+            // offers it while the Chief's home is marked moved.
+            ActionDescriptor(
+                id: "chief.moveRollback",
+                title: String(localized: "action.chief.moveRollback", defaultValue: "Roll Back Chief Move", bundle: .module),
+                keywords: ["chief", "move", "teleport", "rollback", "roll back", "undo", "back", "this mac", "cloud"],
+                category: .agents, symbol: "arrow.uturn.backward.circle", surfaces: [.palette],
+                destructive: true,
+                // `cmux chief move rollback` and the Chief's MCP `move {action: rollback}` run the same rollback.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.familyMember), contextMenuExemption: .noObject)
+            ),
             // Import Memories… (chief-memory-import-DESIGN.md): finds what Claude Code, Codex, ChatGPT and claude.ai
             // exports left on this Mac and brings it into a Chief in the background (`optchat-chief memory
             // import-from` is the CLI). `chief` names a Cloud Chief to import into; `source` skips the question.
             ActionDescriptor(
                 id: "chief.importMemories",
-                title: String(localized: "action.chief.importMemories", defaultValue: "Import Memories…", bundle: .module),
+                title: String(localized: "action.chief.importMemories", defaultValue: "Bring Your History", bundle: .module),
                 keywords: ["chief", "memory", "memories", "import", "claude", "claude code", "codex", "chatgpt", "openai", "bring", "migrate", "onboard"],
                 category: .agents, symbol: "square.and.arrow.down", surfaces: [.palette],
                 arguments: [

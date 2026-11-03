@@ -2,8 +2,9 @@
 //! (`agent_tools.rs`), the same on every harness: message another session (a lane, a
 //! coordinator, a chat on a peer) and read the sessions, instead of piping text into `acpmux
 //! send` in a shell, which a chat draws as a command block. Behind the `cmux` server its tools
-//! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info` and the
-//! team mailbox tools (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
+//! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info`, `acpmux_search` (a
+//! session's messages holding some words, `session_search.rs`) and the team mailbox tools
+//! (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
 //! background tasks under the daemon (`bg_start`, `bg_list`, `bg_output`, `bg_stop`,
 //! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent, and reads a pull request's state
 //! in one condensed call (`pr_state`, `acpmux_mcp_pr.rs`). `github_status` names the GitHub
@@ -170,6 +171,20 @@ fn base_tools() -> Value {
                 },
                 "required": ["id"]
             }
+        },
+        {
+            "name": "search",
+            "description": "Find a session's messages (prompts, replies, tool titles) holding every word of a query, newest first, from acpmux's index of its log: use it instead of grepping a transcript. Your own session unless name says another; role assistant finds what you yourself wrote earlier.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The words to find, in any case and order, within one message."},
+                    "name": {"type": "string", "description": "The session's name, id, or host/name (default: this chat)."},
+                    "role": {"type": "string", "enum": ["user", "assistant", "tool"], "description": "Only prompts, replies or tool titles."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": crate::session_search::MAX_LIMIT, "description": "At most this many hits (default 20)."}
+                },
+                "required": ["query"]
+            }
         }
     ]);
     if let Some(list) = all.as_array_mut() {
@@ -259,6 +274,9 @@ pub async fn run() -> Result<()> {
                 }
                 if matches!(name, "inbox_read" | "inbox_reply") {
                     return inbox_tool(&daemon, &session, name, &args).await;
+                }
+                if name == "search" {
+                    return search_tool(&daemon, &session, &args).await;
                 }
                 call(&daemon, &params).await
             }
@@ -373,6 +391,52 @@ fn team_result_text(result: &Value) -> String {
         result.as_str().unwrap_or_default().to_owned()
     } else {
         serde_json::to_string_pretty(result).unwrap_or_else(|_| result.to_string())
+    }
+}
+
+/// `search`: one session's messages holding every word of `query` (`session_search.rs`), this
+/// server's own chat unless `name` names another.
+pub(crate) async fn search_tool(daemon: &Arc<Client>, session: &str, args: &Value) -> Value {
+    let Some(query) = arg(args, "query") else {
+        return error_result("query is required".to_owned());
+    };
+    let id = match arg(args, "name") {
+        Some(name) => match crate::cli::run::resolve_id(daemon, name).await {
+            Ok(id) => id,
+            Err(e) => return refusal(e),
+        },
+        None if session.is_empty() => {
+            return error_result("this server runs in no acpmux chat: name a session".to_owned());
+        }
+        None => session.to_owned(),
+    };
+    let params = json!({
+        "sessionId": id,
+        "query": query,
+        "role": args.get("role"),
+        "limit": args.get("limit"),
+    });
+    match daemon.request(method::MUX_SESSION_SEARCH, params).await {
+        Ok(r) => {
+            let hits = r.get("hits").and_then(Value::as_array).cloned().unwrap_or_default();
+            let text = if hits.is_empty() {
+                "No message holds every word.".to_owned()
+            } else {
+                hits.iter()
+                    .map(|h| {
+                        format!(
+                            "seq {} ({}): {}",
+                            h.get("seq").and_then(Value::as_u64).unwrap_or(0),
+                            h.get("role").and_then(Value::as_str).unwrap_or(""),
+                            h.get("snippet").and_then(Value::as_str).unwrap_or(""),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            ok(text, r)
+        }
+        Err(e) => refusal(e),
     }
 }
 

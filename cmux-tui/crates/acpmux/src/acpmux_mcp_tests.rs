@@ -72,6 +72,7 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "team_send",
             "team_inbox",
             "team_ack",
+            "search",
             "github_status",
             "bg_start",
             "bg_list",
@@ -806,6 +807,16 @@ async fn ls_last_and_info_read_the_sessions() {
     assert!(text(&r).lines().any(|l| l.starts_with("lane-b  [")), "{r}");
     let r = call(&client, &tool("info", json!({"name": "lane-b"}))).await;
     assert_eq!(r["structuredContent"]["sessionId"], json!(lane), "{r}");
+    // `search` reads the named session, or this server's own chat when none is named.
+    let r = search_tool(&client, "", &json!({"query": "HELLO echo", "name": "lane-b"})).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(text(&r).ends_with("(assistant): echo: hello"), "{r}");
+    let r = search_tool(&client, &lane, &json!({"query": "hello", "role": "user"})).await;
+    let hits = r["structuredContent"]["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 1, "{r}");
+    assert_eq!(hits[0]["snippet"], "hello", "{r}");
+    let r = search_tool(&client, "", &json!({"query": "hello"})).await;
+    assert_eq!(r["isError"], true, "no chat and no name: {r}");
 }
 
 /// A fleet-sized list (thousands of closed sessions, each row carrying its last prompt and

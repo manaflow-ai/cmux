@@ -90,6 +90,27 @@ public nonisolated enum DesignTunables {
     public static var all: [TunableDescriptor] {
         MotionTunables.all + MetricTunables.metrics.map(\.descriptor) + ChromeTunables.fixed + [Borders.tunable.descriptor] + FocusIndicatorTunables.all
             + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor, GlassLensMode.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
-            + ChromeTunables.mainPane + [HoverCardEscapeGeometry.escapeSlotTunable.descriptor] + TerminalDragTunables.all
+            + ChromeTunables.mainPane + [HoverCardEscapeGeometry.escapeSlotTunable.descriptor] + TerminalDragTunables.all + frameOwnerTunables
     }
+
+    // @intent FRAME OWNER REFACTOR S1 (Lawrence P0, "the tabbar is not perfectly in sync with the animation"): on, a key
+    // resize holds only each pane's content area and the tab strip lays out from its pane's rect in every frame tick; a
+    // width change starts no strip move of its own. The switch films old and new in one build; it goes once S1's films
+    // pass. Read in PaneHostView (each key-resize hold), TabStripView.layout and the strip's move start.
+    public static let frameOwnerTabStrip = Tunable<Bool>.toggle(
+        "motion.frameOwner.tabStrip", .springs, "Tab strip follows the pane frame",
+        help: "On: in a keyboard resize the tab strip moves with its pane in every frame and only the content below it holds its size; a strip width change starts no tab move. Off: the strip is held with the content and jumps after the landing.",
+        default: true, code: "DesignTunables.frameOwnerTabStrip")
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The film fixture of the FRAME OWNER REFACTOR (DEV and bench builds only): a 1 device-pixel #FFFF00 border on every
+    /// tab, so a 120 Hz film finds each tab's edges in each frame. It changes no frame or layout.
+    public static let frameOwnerTabOutline = Tunable<Bool>.toggle(
+        "motion.frameOwner.tabOutline", .springs, "Outline tabs (pixel film fixture)",
+        help: "A 1 device-pixel yellow border on every tab, for frame-by-frame films. Changes no frame or layout.",
+        default: false, code: "DesignTunables.frameOwnerTabOutline")
+    private static var frameOwnerTunables: [TunableDescriptor] { [frameOwnerTabStrip.descriptor, frameOwnerTabOutline.descriptor] }
+    #else
+    private static var frameOwnerTunables: [TunableDescriptor] { [frameOwnerTabStrip.descriptor] }
+    #endif
 }

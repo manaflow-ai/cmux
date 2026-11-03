@@ -553,7 +553,7 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             "mesh.insertAcl",
             `WITH claimed AS (
                INSERT INTO cmux_vm.mesh_acl_versions (mesh_cmux_id, tenant_id, version, document, sha256, author, created_at)
-               VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7::timestamptz)
+               VALUES ($1, $2, $3, $4::text::jsonb, $5, $6, $7::timestamptz)
                ON CONFLICT DO NOTHING RETURNING 1)
              SELECT count(*)::int AS claimed FROM claimed`,
             [meshId, tenantId, acl.version, JSON.stringify(acl.document), acl.sha256, acl.author, acl.createdAt.toISOString()],
