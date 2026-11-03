@@ -127,6 +127,52 @@ describe("harnesses this machine does not have", () => {
     ]);
   });
 
+  test("the full picker lists uninstalled catalog models as disabled beside Install…", async () => {
+    const { createRoot } = await import("react-dom/client");
+    const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+    const picked: string[] = [];
+    let added = 0;
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <ModelPicker
+          catalog={[gemini, claude, pi]}
+          harness="claude"
+          model="opus"
+          label="Opus 5.5"
+          efforts={[]}
+          recents={[]}
+          onLand={(id) => picked.push(id)}
+          onCombo={(combo) => picked.push(combo.model)}
+          onHarness={(id) => picked.push(id)}
+          onEffort={() => {}}
+          onAddAgent={() => added++}
+        />,
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-picker-button")!.click());
+    await settle();
+    const doc = dom.window.document;
+    const geminiTab = doc.querySelector<HTMLButtonElement>('.acpmux-mp-rail-tab[aria-label="Gemini CLI"]')!;
+    expect(geminiTab).not.toBeNull();
+    await act(async () => geminiTab.click());
+    await settle();
+    const row = [...doc.querySelectorAll<HTMLButtonElement>('.acpmux-mp-models [role="option"]')].find((item) =>
+      item.textContent?.includes("Gemini 3.1 Pro"),
+    )!;
+    expect(row).not.toBeUndefined();
+    expect(row.disabled).toBe(true);
+    expect(row.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => row.click());
+    expect(picked).toEqual([]);
+    const install = [...doc.querySelectorAll<HTMLButtonElement>(".acpmux-mp-models button")].find(
+      (item) => item.textContent?.trim() === "Install…",
+    )!;
+    expect(install).not.toBeUndefined();
+    await act(async () => install.click());
+    expect(added).toBe(1);
+  });
+
   test("the compact menu lists them with their models and an Install… row", async () => {
     const { createRoot } = await import("react-dom/client");
     const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
