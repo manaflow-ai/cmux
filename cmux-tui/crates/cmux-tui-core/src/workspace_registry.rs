@@ -795,7 +795,11 @@ pub struct FrontendProjection {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProjectionCommit {
     pub projection: FrontendProjection,
+    /// No change: a retry of a recorded mutation, or the stored body again.
     pub replayed: bool,
+    /// The commit added a `projection_mutations` ledger row (a new mutation,
+    /// changed or not), which journal maintenance bounds.
+    pub recorded: bool,
 }
 
 /// The sole durable writer for one session. The owning `Mux` serializes all
@@ -3620,18 +3624,20 @@ impl WorkspaceRegistry {
             }
             let mut stored: FrontendProjection = serde_json::from_str(&result_json)?;
             stored.projection = projection.clone();
-            return Ok(ProjectionCommit { projection: stored, replayed: true });
+            return Ok(ProjectionCommit { projection: stored, replayed: true, recorded: false });
         }
         let stored_now = tx
             .query_row(
-                "SELECT projection_revision, octet_length(payload) FROM frontend_projections
+                "SELECT projection_revision, octet_length(payload),
+                        schema_version = ?4 AND payload = ?5
+                 FROM frontend_projections
                  WHERE frontend = ?1 AND scope = ?2 AND subject_key = ?3",
-                params![frontend, scope, subject_key],
-                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                params![frontend, scope, subject_key, i64::from(schema_version), &payload],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, bool>(2)?)),
             )
             .optional()?;
         let current = stored_now
-            .map(|(revision, _)| u64::try_from(revision))
+            .map(|(revision, _, _)| u64::try_from(revision))
             .transpose()
             .context("projection revision is negative")?
             .unwrap_or(0);
@@ -3640,29 +3646,43 @@ impl WorkspaceRegistry {
         {
             anyhow::bail!("projection revision conflict: expected {expected}, current {current}");
         }
-        let previous_bytes = stored_now.and_then(|(_, bytes)| usize::try_from(bytes).ok());
-        note_projection_size(frontend, scope, subject_key, previous_bytes, payload.len());
-        let projection_revision = current
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("projection revision exhausted"))?;
-        tx.execute(
-            "INSERT INTO frontend_projections(
+        // The same body (canonical, so key order does not count) and schema
+        // as stored is no change: the row and its revision stay, and the
+        // commit is `replayed`, so the caller emits no change event. The app
+        // saves its documents again on many events with nothing changed, and
+        // each save woke every subscriber and the launch snapshot of an idle
+        // owner. The ledger still records the mutation, so a retry of it
+        // after another mutation's change replays this answer instead of
+        // writing the old body again.
+        let unchanged = stored_now.is_some_and(|(_, _, same)| same);
+        let projection_revision = if unchanged {
+            current
+        } else {
+            let previous_bytes = stored_now.and_then(|(_, bytes, _)| usize::try_from(bytes).ok());
+            note_projection_size(frontend, scope, subject_key, previous_bytes, payload.len());
+            let projection_revision = current
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("projection revision exhausted"))?;
+            tx.execute(
+                "INSERT INTO frontend_projections(
                frontend, scope, subject_key, schema_version, projection_revision, payload
              ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(frontend, scope, subject_key) DO UPDATE SET
                schema_version=excluded.schema_version,
                projection_revision=excluded.projection_revision,
                payload=excluded.payload",
-            params![
-                frontend,
-                scope,
-                subject_key,
-                i64::from(schema_version),
-                i64::try_from(projection_revision)
-                    .context("projection revision exceeds SQLite range")?,
-                payload
-            ],
-        )?;
+                params![
+                    frontend,
+                    scope,
+                    subject_key,
+                    i64::from(schema_version),
+                    i64::try_from(projection_revision)
+                        .context("projection revision exceeds SQLite range")?,
+                    payload
+                ],
+            )?;
+            projection_revision
+        };
         let stored = FrontendProjection {
             frontend: frontend.to_string(),
             scope: scope.to_string(),
@@ -3686,7 +3706,7 @@ impl WorkspaceRegistry {
             ],
         )?;
         tx.commit()?;
-        Ok(ProjectionCommit { projection: stored, replayed: false })
+        Ok(ProjectionCommit { projection: stored, replayed: unchanged, recorded: true })
     }
 }
 

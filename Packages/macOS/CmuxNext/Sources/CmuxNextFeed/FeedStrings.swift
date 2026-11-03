@@ -43,6 +43,8 @@ nonisolated enum FeedStrings {
     }
 
     static var needsYou: String { t("group.needsYou", "Needs you") }
+    /// The count of open requests a pinned Needs you section does not list; a click opens the Feed.
+    static func needsYouMore(_ count: Int) -> String { t("needsYou.more", "\(count) more") }
     static var today: String { t("group.today", "Today") }
     static var earlier: String { t("group.earlier", "Earlier") }
 

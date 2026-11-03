@@ -27,8 +27,11 @@ export type SessionInfoSectionId =
   | "servers"
   | "subagents"
   | "tasks"
-  | "outputs";
-export type SessionInfoSections = Readonly<Record<SessionInfoSectionId, boolean>>;
+  | "outputs"
+  | `app:${string}#${string}`;
+export type BuiltInSessionInfoSectionId = Exclude<SessionInfoSectionId, `app:${string}#${string}`>;
+export type SessionInfoSections = Readonly<Record<BuiltInSessionInfoSectionId, boolean>> &
+  Partial<Record<SessionInfoSectionId, boolean>>;
 
 /// The width a drag can give it, in px, and the width it opens at the first time.
 export const SESSION_INFO_WIDTH = { min: 260, max: 560, fallback: 320 } as const;
