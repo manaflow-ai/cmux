@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-03: app panels can occupy the existing band below the workspace list. Leo (2026-11-02):
+  "let’s do all these" — "A sidebar panel slot plus ’an agent writes the app, it hot-reloads’. This covers his PR view,
+  makes Session Info extensible, and is mostly built." Only app sections draw there; cx-n0i9 still keeps ordinary
+  item sections hidden and the footer separate. Existing band caps, scrolling and scene mounts apply. A header
+  drag forwards the document move within bottom or between top and bottom. Regression: `SidebarAppBottomBandTests`.
+
 - 2026-11-03: folding a group never changes the rows' width. Leo: "why when i collapse/expand the cosmic-gray group
   do the workspace horizontal widths differ?". The list took the clip's width, which a legacy scroller narrows by 11 pt
   only while the rows overflow (an open long group); `SidebarListView.rowsWidth(in:)` now counts the scroller for its
