@@ -123,7 +123,8 @@ export type AcpmuxFailover = { from: string; to: string };
 
 /// A session recap (acpmux `recap` record, `hub/away_recap.rs`): where the chat stands, shown when
 /// the person comes back after 5+ minutes away. Never a prompt; the daemon decides when.
-export type AcpmuxRecap = { text: string; awayMs?: number };
+/// `key`: the chat and the record's seq, which the dismissal remembers (conversation/recapDismissed.ts).
+export type AcpmuxRecap = { key: string; text: string; awayMs?: number };
 
 /// A turn the agent ran on its own, which nobody prompted (acpmux `background_turn` records): a
 /// background task or subagent finished (`task_notification`), a scheduled wakeup or /loop tick

@@ -13,8 +13,16 @@ const LONG =
 function RecapLooks({ look }: { look: RecapLook }) {
   return (
     <div className="acpmux-shell" style={{ padding: 16, display: "grid", gap: 16 }}>
-      <RecapNote id={`gallery-short-${look}`} recap={{ text: SHORT, awayMs: 6 * 60_000 }} look={look} />
-      <RecapNote id={`gallery-long-${look}`} recap={{ text: LONG, awayMs: 42 * 60_000 }} look={look} />
+      <RecapNote
+        recap={{ key: `gallery-short-${look}`, text: SHORT, awayMs: 6 * 60_000 }}
+        onDismiss={() => {}}
+        look={look}
+      />
+      <RecapNote
+        recap={{ key: `gallery-long-${look}`, text: LONG, awayMs: 42 * 60_000 }}
+        onDismiss={() => {}}
+        look={look}
+      />
     </div>
   );
 }

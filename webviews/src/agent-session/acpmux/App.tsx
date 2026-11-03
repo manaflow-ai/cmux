@@ -1738,9 +1738,11 @@ const FailoverRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+/// The recap's ×: the client drops its row (direct.ts dismissRecap), so no empty slot stays.
+const dismissRecap = (rowId: string) => void window.cmuxAcpmuxActions?.["chat.recap.dismiss"]?.({ rowId });
 const RecapRow = memo(
   function RecapRow({ row }: RowProps) {
-    return row.recap ? <RecapNote id={`${row.id}-${row.at}`} recap={row.recap} /> : null;
+    return row.recap ? <RecapNote recap={row.recap} onDismiss={() => dismissRecap(row.id)} /> : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
@@ -11677,6 +11679,7 @@ function AcpmuxPane() {
               taken.flatMap((failed) => failed.attachments),
             );
           },
+          "chat.recap.dismiss": async ({ rowId }) => client.dismissRecap(String(rowId)),
           "chat.removeFailedPrompt": async ({ rowId, rowIds }) => {
             for (const id of failedRowIds(rowId, rowIds)) client.removeFailedPrompt(id);
           },

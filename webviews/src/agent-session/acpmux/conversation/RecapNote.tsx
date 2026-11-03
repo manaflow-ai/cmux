@@ -3,9 +3,9 @@
 // words (Leo, 2026-11-03: "lkewise with teh cli summarization thing? how do those get turned on?
 // maybe we can expose it in cmux-next too"). Not a user or assistant bubble: a quiet hairline
 // card with a ×, like Claude's own recap card (cmux-design-references
-// claude/web/october-recap-card). The daemon decides when; this only draws it. Dismissed, it stays
-// hidden on this device. `agents.chats.sessionRecap` turns recaps off.
-import { useState } from "react";
+// claude/web/october-recap-card). The daemon decides when; this only draws it. Its × drops the row
+// (direct.ts dismissRecap), and it stays dismissed on this device (recapDismissed.ts).
+// `agents.chats.sessionRecap` turns recaps off.
 import { useT } from "../i18n";
 import type { AcpmuxRecap } from "../model";
 import { Close } from "./icons";
@@ -14,35 +14,16 @@ import { Close } from "./icons";
 /// left. The gallery compares them (RecapNote.gallery.ts).
 export type RecapLook = "card" | "line" | "rule";
 
-const DISMISSED = "cmux.agentPane.recapDismissed";
-const MAX_DISMISSED = 200;
-
-function readDismissed(): string[] {
-  try {
-    const value: unknown = JSON.parse(globalThis.localStorage?.getItem(DISMISSED) ?? "[]");
-    return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function dismiss(id: string) {
-  try {
-    const kept = readDismissed().filter((other) => other !== id);
-    globalThis.localStorage?.setItem(DISMISSED, JSON.stringify([...kept, id].slice(-MAX_DISMISSED)));
-  } catch {
-    // Storage refused: the recap is hidden for this view only.
-  }
-}
-
-export function RecapNote({ id, recap, look = "card" }: { id: string; recap: AcpmuxRecap; look?: RecapLook }) {
+export function RecapNote({
+  recap,
+  onDismiss,
+  look = "card",
+}: {
+  recap: AcpmuxRecap;
+  onDismiss: () => void;
+  look?: RecapLook;
+}) {
   const t = useT();
-  const [hidden, setHidden] = useState(() => readDismissed().includes(id));
-  if (hidden) return null;
-  const close = () => {
-    dismiss(id);
-    setHidden(true);
-  };
   return (
     <div className="cv-recap" data-look={look} role="note">
       <p className="cv-recap__text">
@@ -57,7 +38,7 @@ export function RecapNote({ id, recap, look = "card" }: { id: string; recap: Acp
         className="cv-recap__close"
         aria-label={t("awayRecap.dismiss")}
         title={t("awayRecap.dismiss")}
-        onClick={close}
+        onClick={onDismiss}
       >
         <Close />
       </button>
