@@ -90,20 +90,20 @@ const opening = [
   summary(29.7, { status: "completed", durationMs: 9_000, toolCount: 0 }),
 ];
 
-/// The three pages, each in its own turn.
+/// The three pages, each in its own turn, the FIRE newest.
 function single() {
   return chat(
     [
       ...opening,
-      notice(FIRE, 20),
-      assistant("Looking at the fast tier failure on #32827 first.", 19.8),
-      summary(19.7, { status: "completed", durationMs: 14_000, toolCount: 0 }),
-      notice(LANDED, 12),
-      assistant("Noted; #32790 is in.", 11.9),
-      summary(11.8, { status: "completed", durationMs: 3_000, toolCount: 0 }),
-      notice(WARN, 6),
-      assistant("I'll check the two offline minis.", 5.9),
-      summary(5.8, { status: "completed", durationMs: 4_000, toolCount: 0 }),
+      notice(LANDED, 20),
+      assistant("Noted; #32790 is in.", 19.9),
+      summary(19.8, { status: "completed", durationMs: 3_000, toolCount: 0 }),
+      notice(WARN, 12),
+      assistant("I'll check the two offline minis.", 11.9),
+      summary(11.8, { status: "completed", durationMs: 4_000, toolCount: 0 }),
+      notice(FIRE, 6),
+      assistant("Looking at the fast tier failure on #32827 first.", 5.8),
+      summary(5.7, { status: "completed", durationMs: 14_000, toolCount: 0 }),
     ],
     { title: "coordinator", sessions },
   );
@@ -157,14 +157,14 @@ function legacy() {
   );
 }
 
-const LINE = ".cv-received.cv-notice .cv-disclosure__toggle";
+const LINE = ".cv-received.cv-notice.is-fire .cv-disclosure__toggle";
 const HEAD = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
 
-/// Opens the first notice's line.
+/// Opens the FIRE's line.
 const openFire: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(LINE), { capMs: 10_000 });
   if (ctx.document.querySelector(LINE)?.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: LINE });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-notice .cv-received__text"), { capMs: 10_000 });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-notice.is-fire .cv-received__text"), { capMs: 10_000 });
 };
 
 /// Opens the fold, then its fire.
@@ -179,7 +179,7 @@ const openFold: Play = async (ctx) => {
 
 const variants: Record<string, AgentPaneVariant> = {
   single: {
-    note: "Selected default (look mark): a FIRE, a LANDED and a WARN, each its own line: the severity's mark in the icon column (red disc, quiet ring, amber triangle), the sender and its machine, the title.",
+    note: "Selected default (look mark): a LANDED, a WARN and a FIRE, each its own line: the severity's mark in the icon column (red disc, quiet ring, amber triangle), the sender and its machine, the title.",
     snapshot: single(),
   },
   "single-open": {
@@ -226,7 +226,7 @@ export default agentPaneEntry({
   id: "agent-pane.notice-row",
   title: "Notice row",
   area: "Agent pane",
-  height: 520,
+  height: 720,
   widths: { narrow: 520, normal: 760, wide: 900 },
   covers: [
     "agent-session/acpmux/conversation/agentNotice.ts",
