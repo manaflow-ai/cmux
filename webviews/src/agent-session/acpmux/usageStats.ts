@@ -115,9 +115,9 @@ export function byUsage<T extends { sessionId: string; usageStats?: SessionUsage
  *  /context reads it (Leo 2026-10-20, of a ring that read "213.1K of 1M tokens": "I usually have,
  *  like, 400K on my typical [Claude] sessions"; 2026-11-02, of "/ 1M" on a 400k chat: "whatever a
  *  user set their compact window to it should be that instead of always showing the defautl"). The
- *  window /context itself names (`breakdown.maxTokens`, which already reads the person's
- *  autocompact setting) comes first, then acpmux's autocompact cap; either only when it is under
- *  the model's window. `usage` itself when neither is. */
+ *  smaller of the window /context itself names (`breakdown.maxTokens`, which already reads the
+ *  person's autocompact setting) and acpmux's autocompact cap, each only when it is under the
+ *  model's window. `usage` itself when neither is. */
 export function compactingUsage<U extends { used: number; size: number }>(
   usage: U | undefined,
   stats: SessionUsageStats | undefined,
@@ -126,7 +126,10 @@ export function compactingUsage<U extends { used: number; size: number }>(
   if (!usage) return usage;
   const under = (n: unknown) =>
     typeof n === "number" && Number.isFinite(n) && n > 0 && (usage.size <= 0 || n < usage.size) ? n : undefined;
-  const window =
-    under(breakdown?.maxTokens) ?? under(stats?.autocompact === "capped" ? stats.autocompactCap : undefined);
-  return window === undefined ? usage : { ...usage, size: window };
+  const windows = [
+    under(breakdown?.maxTokens),
+    under(stats?.autocompact === "capped" ? stats.autocompactCap : undefined),
+  ];
+  const known = windows.filter((n): n is number => n !== undefined);
+  return known.length === 0 ? usage : { ...usage, size: Math.min(...known) };
 }

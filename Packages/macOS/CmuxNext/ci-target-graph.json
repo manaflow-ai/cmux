@@ -793,7 +793,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCloudTests",
       "targets": [
-        "CmuxNextCloud"
+        "CmuxNextCloud",
+        "CmuxNextDaemon"
       ],
       "packages": [],
       "reads": []

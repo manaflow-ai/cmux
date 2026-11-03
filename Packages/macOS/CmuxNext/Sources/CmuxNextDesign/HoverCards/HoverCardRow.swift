@@ -11,7 +11,9 @@ public enum HoverCardTone: Hashable, Sendable {
     case attention
     /// Failed, offline, checks failed: the theme's ANSI red.
     case danger
-    /// A merged pull request: the theme's ANSI magenta.
+    /// A merged pull request: the fixed purple the sidebar's pull request card uses, in every
+    /// theme. A theme's ANSI magenta can be pink or red (Leo 2026-11-02: "the merged colour should
+    /// not be red").
     case merged
     /// Running now: the theme's ANSI blue.
     case working
@@ -26,8 +28,7 @@ public enum HoverCardTone: Hashable, Sendable {
         case .attention: Palette.attention
         case .danger: Palette.danger
         case .working: Palette.highlight
-        case .merged:
-            (ThemeContext.active ?? ThemeScope.app.tokens).ansi.dropFirst(5).first?.nsColor ?? .systemPurple
+        case .merged: GroupColor.purple.markColor
         }
     }
 }
