@@ -140,7 +140,7 @@ import { startNewTabTransition } from "./newtab/startTransition";
 import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
-import { animateScroll, stopScroll } from "./threadMinimap/scrollMotion";
+import { animateScroll, MOTION_SCROLL_EVENT, stopScroll } from "./threadMinimap/scrollMotion";
 import { JUMP_CURVE, jumpDuration, jumpGlideStart } from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
@@ -3029,7 +3029,7 @@ export function VirtualTranscript({
       });
     });
   });
-  const queueScroll = (top: number, atLatest: boolean) => {
+  const queueScroll = (top: number, atLatest: boolean, immediate = false) => {
     // Keep the intent ref synchronous so a second scroll event before the next frame sees the
     // reader's latest state; React work itself is coalesced by scrollPacer.
     followingRef.current = atLatest;
@@ -3040,7 +3040,8 @@ export function VirtualTranscript({
     // CI runner, mounted rows a step behind the view).
     scrollRef.current = { top, delta: top - scrollRef.current.top || scrollRef.current.delta };
     scheduleScrollLeadReset();
-    scrollPacer.current!.enqueue({ top, atLatest });
+    if (immediate) scrollPacer.current!.flush({ top, atLatest });
+    else scrollPacer.current!.enqueue({ top, atLatest });
   };
   useEffect(() => {
     transcriptMounted.current = true;
@@ -5063,14 +5064,13 @@ export function VirtualTranscript({
   }, [sends]);
   /// The older-history check (below), which every scroll event runs too.
   const checkOlderNow = useRef<() => void>(() => {});
-  const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
+  const handleScroll = (node: HTMLDivElement, immediate = false) => {
     pacing.scrolled();
     // Before the chat opens its offset moves only as pages land unseen: none of it is the reader's.
     if (!didOpenAtLatest.current) return;
     // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
     // keeps following until the reader scrolls a visible one.
-    if (event.currentTarget.clientHeight === 0) return;
-    const node = event.currentTarget;
+    if (node.clientHeight === 0) return;
     // The room above the loaded rows holds history still to load (conversation/olderReserve.ts):
     // the reader stops at the loaded rows' top, as at the top of the chat, until a page lands into
     // the room. A view inside it showed nothing, and the pages then landed under it unseen.
@@ -5089,7 +5089,7 @@ export function VirtualTranscript({
       scrolledTo.current = { top: next, atLatest: true };
       seenAnchor.current = null;
       followTrace.set(next);
-      queueScroll(next, true);
+      queueScroll(next, true, immediate);
       // The kept place is the latest message again (a reopened chat opens there, not where the
       // reader was before the jump).
       if (onAnchor) {
@@ -5120,7 +5120,7 @@ export function VirtualTranscript({
       const resting = node.scrollTop;
       scrolledTo.current = { top: resting, atLatest: true };
       followTrace.set(resting);
-      queueScroll(resting, true);
+      queueScroll(resting, true, immediate);
       return;
     }
     const was = scrolledTo.current;
@@ -5146,12 +5146,24 @@ export function VirtualTranscript({
       });
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     seenAnchor.current = restingAnchor(layoutScrollTop(node), scrolledTo.current.atLatest, layout, rows);
-    queueScroll(next, scrolledTo.current.atLatest);
+    queueScroll(next, scrolledTo.current.atLatest, immediate);
     if (onAnchor) {
       clearTimeout(anchorTimer.current);
       anchorTimer.current = setTimeout(reportAnchor, SCROLL_ANCHOR_SETTLE_MS);
     }
   };
+  const motionScroll = useRef(handleScroll);
+  motionScroll.current = handleScroll;
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    // The shared motion clock emits only from RAF callbacks, after writing scrollTop. Mount
+    // the visible rows before that frame paints; native scroll arrives a frame too late.
+    const moved = () => motionScroll.current(node, true);
+    node.addEventListener(MOTION_SCROLL_EVENT, moved);
+    return () => node.removeEventListener(MOTION_SCROLL_EVENT, moved);
+  }, []);
+  const onScroll = (event: React.UIEvent<HTMLDivElement>) => handleScroll(event.currentTarget);
   // Jump to latest (the button, ChatGPT and Codex style): a smooth scroll to the latest message, then a
   // landing on it, so a reply that grew meanwhile is followed again.
   const jumpToLatest = (focused: boolean) => {

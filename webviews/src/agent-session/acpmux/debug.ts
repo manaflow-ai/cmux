@@ -1,3 +1,4 @@
+import { announceScroll } from "./threadMinimap/scrollMotion";
 import { userScrollIntent } from "./conversation/userScroll";
 import * as automation from "./automation";
 import type { AcpmuxRow } from "./model";
@@ -231,6 +232,7 @@ export function createAcpmuxDebug(
             timestamps.push(now);
             const progress = Math.min(1, (now - start) / duration);
             scroller.scrollTop = from * (1 - progress);
+            announceScroll(scroller);
             acpmuxPerf.markFrame(
               now,
               isBlank(acpmuxPerf.mounted, scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight),
