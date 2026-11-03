@@ -3,6 +3,7 @@ import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
+import JavaScriptCore
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -212,6 +213,32 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(overChat == CGRect(x: 1000 - 8 - 320, y: 28, width: 320, height: 800 - 28 - 120))
     }
 
+    /// cmuxterm-hq#6137: pushed in a narrow pane, the page narrows the panel below 260px and keeps that
+    /// room beside the chat (SessionInfo.tsx pushedWidth, `.acpmux-session-info-room`). The App draws
+    /// the panel in exactly that room: its left edge is the chat's right edge, so nothing floats over it.
+    @Test func pushedPanelFillsThePagesRoomExactly() throws {
+        for (pane, pushed) in [(370.0, 200.0), (528.0, 200.0), (740.0, 292.0)] {
+            let page = CGRect(x: 0, y: 0, width: pane, height: 900)
+            let frame = AgentPaneView.sessionInfoFrame(page: page, info: try Self.model(Self.info(width: pushed)),
+                                                       width: pushed, zoom: 1, flipped: true)
+            let chatRight = pane - pushed - 8
+            #expect(frame.minX == chatRight)
+            #expect(frame.width == pushed)
+            #expect(frame.maxX == pane - 8)
+        }
+    }
+
+    /// After a drag ends the page's answer is drawn even where it differs from the drag's width (the
+    /// pushed panel's narrow floor), so the native frame never stays wider than the page's room.
+    @Test func pageWidthReplacesTheDragOnceTheDragEnds() throws {
+        let store = AgentPaneSessionInfoStore()
+        store.update(try Self.model(Self.info(width: 200)))
+        store.drag(by: -100, ended: true)
+        #expect(store.width == 300)
+        store.update(try Self.model(Self.info(width: 200)))
+        #expect(store.width == 200)
+    }
+
     @Test func rowAnchorsUsePageCoordinatesAndTheActiveZoom() {
         let bounds = CGRect(x: 0, y: 0, width: 1200, height: 900)
         let topLeft = CGRect(x: 600, y: 120, width: 300, height: 30)
@@ -299,6 +326,33 @@ struct AgentPaneNativeSessionInfoTests {
             break
         }
         view.close()
+    }
+
+    /// On the old host (no page host: a dev-server page, `agent.pageHost` off) the panel's actions reach
+    /// the page as scripts. They must run: `?.action?(…)` was a syntax error, so the panel's own close
+    /// (Esc) never told the page, which kept Session Info open and its header toggle lit after a close.
+    @Test func oldHostActionScriptsRunAndReachThePage() throws {
+        let context = try #require(JSContext())
+        context.evaluateScript("""
+        var sent = []; var hosted = [];
+        var window = { cmuxAcpmuxSessionInfo: { action: function (v) { sent.push(v); }, host: function (v) { hosted.push(v); } } };
+        """)
+        for script in [AgentPaneSessionInfo.actionScript("close"),
+                       AgentPaneSessionInfo.actionScript("environment.menu", rect: CGRect(x: 1, y: 2, width: 3, height: 4)),
+                       AgentPaneSessionInfo.hostScript(true)] {
+            context.exception = nil
+            context.evaluateScript(script)
+            #expect(context.exception == nil, "\(script)")
+        }
+        #expect(context.evaluateScript("sent.length")?.toInt32() == 2)
+        #expect(context.evaluateScript("sent[0]")?.toString() == "close")
+        #expect(context.evaluateScript("sent[1].id + ':' + sent[1].rect.bottom")?.toString() == "environment.menu:6")
+        #expect(context.evaluateScript("hosted[0]")?.toBool() == true)
+        // A page with no Session Info bridge yet ignores them.
+        context.evaluateScript("window = {};")
+        context.exception = nil
+        context.evaluateScript(AgentPaneSessionInfo.actionScript("close"))
+        #expect(context.exception == nil)
     }
 
     /// The panel is AppKit (no SwiftUI host): its lines follow the model, and a line's or a button's
@@ -395,6 +449,33 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(sent == ["fold:context:0"])
     }
 
+    /// No section header ever draws a fill behind it, hovered or not, and a lit row that leaves the
+    /// panel (a refresh re-adds every line) comes back unlit instead of keeping its fill at rest (Leo,
+    /// 2026-11-02: "we still HAVE AN ASININE FUCKIGN BACKGROUND").
+    @Test func headersNeverDrawAFillAndARowsHoverEndsWithTheRow() throws {
+        let ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil })
+        let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
+                                                        windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.borderless], backing: .buffered, defer: true)
+        let host = try #require(window.contentView)
+        for line in [
+            SessionInfoLine(id: "changes", kind: .header, title: "Changes", unfolded: true, reorderable: true, action: "fold:changes:0"),
+            SessionInfoLine(id: "sources", kind: .header, title: "Sources", unfolded: false, action: "fold:sources:1"),
+        ] {
+            let header = SessionInfoLineView(line: line, ink: ink)
+            host.addSubview(header)
+            header.mouseEntered(with: enter)
+            #expect(header.layer?.backgroundColor == nil, "\(line.title)'s header drew a fill")
+        }
+        let row = SessionInfoLineView(line: SessionInfoLine(id: "row:changes:a", kind: .row, title: "a.swift", action: "changes.open:a"), ink: ink)
+        host.addSubview(row)
+        row.mouseEntered(with: enter)
+        #expect(row.layer?.backgroundColor != nil)
+        row.removeFromSuperview()
+        host.addSubview(row)
+        #expect(row.layer?.backgroundColor == nil, "a re-added row kept its hover fill with the pointer gone")
+    }
+
     @Test func liveLabelsKeepUnchangedHeaderViews() throws {
         let store = AgentPaneSessionInfoStore()
         let panel = AgentPaneSessionInfoPanel(store: store)
@@ -437,5 +518,92 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(content.lines.last?.line.toggle == true)
         #expect(content.lines.last?.line.action == "subagents.open:new")
         #expect(content.lines.last?.buttons.first?.button.action == "subagents.stop:a1")
+    }
+
+    /// One structure across the panel (design/grid.md section 3, design/session-info.md's icon
+    /// column): every header's and row's icon in one 16 box, every title on one column whether or not
+    /// it has an icon, every trailing value on one right edge, a fold row's chevron in the icon column,
+    /// and a switch at the row's size. An unstructured panel (a title that starts after its own icon,
+    /// an oversized switch) fails here.
+    @Test func headersAndRowsShareTheIconTitleAndTrailingColumns() throws {
+        var raw = Self.info()
+        raw["sections"] = [
+            ["id": "environment", "group": "where", "title": "Environment", "bare": true, "open": true, "foldable": false,
+             "rows": [
+                 ["id": "machine", "symbol": "desktopcomputer", "title": "cosmic-gray", "trailing": "Local"],
+                 ["id": "project", "symbol": "folder", "title": "Projects"],
+                 ["id": "remote", "symbol": "cursorarrow.rays", "title": "Remote Control", "toggle": true, "action": "remote"],
+             ]],
+            ["id": "context", "group": "where", "title": "Context", "symbol": "gauge.with.dots.needle.33percent",
+             "meta": "32%", "open": true, "foldable": true,
+             "rows": [
+                 ["id": "free", "symbol": "square.fill", "title": "Free space", "trailing": "44.5K · 11.2%"],
+                 ["id": "list:mcp", "symbol": "chevron.right", "title": "MCP tools", "trailing": "4", "action": "context.toggle:mcp"],
+                 ["id": "list:skills", "symbol": "chevron.down", "title": "Skills", "trailing": "50", "action": "context.toggle:skills"],
+             ]],
+            ["id": "changes", "group": "made", "title": "Changes", "meta": "3", "open": true, "foldable": true,
+             "rows": [["id": "pr", "symbol": "arrow.triangle.pull", "title": "fix(cmux-tui): server ensure", "trailing": "+220 -2"]]],
+            ["id": "tasks", "group": "runs", "title": "Tasks", "meta": "7 done", "open": true, "foldable": true,
+             "rows": [
+                 ["id": "t1", "title": "Build", "working": true, "trailing": "2s"],
+                 ["id": "done", "symbol": "chevron.right", "title": "7 done", "action": "tasks.done"],
+             ]],
+        ]
+        let store = AgentPaneSessionInfoStore()
+        let panel = AgentPaneSessionInfoPanel(store: store)
+        panel.frame = CGRect(x: 0, y: 0, width: 320, height: 900)
+        store.update(try Self.model(raw))
+        panel.layoutSubtreeIfNeeded()
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        let content = try #require(all(panel).compactMap { $0 as? AgentPaneSessionInfoContent }.first)
+        let lines = content.lines
+        lines.forEach { $0.layoutSubtreeIfNeeded() }
+        #expect(lines.count == 12)
+        #expect(lines.contains { $0.line.kind == .header } && lines.contains { $0.line.kind == .row })
+
+        let box = SessionInfoMetrics.iconBox
+        let lead = lines[0].frame.minX + SessionInfoMetrics.inset - SessionInfoMetrics.edge
+        let text = lines[0].frame.minX + SessionInfoMetrics.text
+        let right = lines[0].frame.maxX - SessionInfoMetrics.trail
+        #expect(lead == SessionInfoMetrics.inset)
+        #expect(text - lead == box + LayoutGrid.gap)
+        for line in lines {
+            let columns = line.columns
+            let x = line.frame.minX
+            // Every title starts on one column, a header's or a row's, with an icon or without.
+            #expect(abs(x + columns.title.minX - text) < 0.5, "\(line.line.title) title")
+            // Every icon centers in the one box at `lead`, no wider than it.
+            if let icon = columns.icon {
+                #expect(abs(x + icon.midX - (lead + box / 2)) < 0.5, "\(line.line.title) icon")
+                #expect(icon.width <= box && icon.height <= box)
+            }
+            // Every row is a whole step of the 4 grid, a one-line row the grid's 28.
+            #expect(line.frame.height.truncatingRemainder(dividingBy: LayoutGrid.base) == 0)
+            #expect(line.frame.height >= LayoutGrid.row)
+        }
+        // A header with an icon puts it in the rows' column too.
+        let context = try #require(lines.first { $0.line.id == "context" })
+        #expect(context.line.kind == .header && context.columns.icon != nil)
+
+        // Trailing values (a header's meta, a row's value) end on one right edge.
+        let trailing = lines.compactMap { line in line.columns.trailing.map { line.frame.minX + $0.maxX } }
+        #expect(trailing.count >= 7)
+        for edge in trailing { #expect(abs(edge - right) < 0.5) }
+
+        // A fold row's chevron is its icon, at the small glyph size in the icon column.
+        let folds = lines.filter(\.line.discloses)
+        #expect(folds.map(\.line.title) == ["MCP tools", "Skills", "7 done"])
+        for fold in folds {
+            let chevron = try #require(fold.columns.icon)
+            #expect(abs(fold.frame.minX + chevron.midX - (lead + box / 2)) < 0.5)
+            #expect(chevron.width == SessionInfoMetrics.glyph)
+        }
+
+        // The switch is the native small size and fits the row; it ends on the trailing edge.
+        let remote = try #require(lines.first { $0.line.title == "Remote Control" })
+        let toggle = try #require(remote.columns.toggle)
+        #expect(toggle.controlSize == .small || toggle.controlSize == .mini)
+        #expect(toggle.frame.height <= remote.frame.height - 2 * LayoutGrid.pillInset)
+        #expect(abs(remote.frame.minX + toggle.frame.maxX - right) < 0.5)
     }
 }

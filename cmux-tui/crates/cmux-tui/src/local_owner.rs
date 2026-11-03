@@ -133,7 +133,7 @@ mod identify;
 mod recovery_tests;
 use identify::{IdentifyError, identify};
 pub(crate) use install_key::{OWNER_INSTALL_KEY_FD_ARG, install_key_from_launcher};
-pub(crate) use replace::{ReplaceError, replace_if_unresponsive};
+pub(crate) use replace::{ReplaceError, is_wedged, replace_if_unresponsive, replace_if_wedged};
 
 /// Takes an inherited descriptor (`option` names it) from argv and keeps it
 /// out of every process the owner starts (terminal hosts): only this owner

@@ -123,6 +123,17 @@ export function senderAbout(
   return [harness && harnessLabel(harness), model].filter(Boolean).join(" · ") || undefined;
 }
 
+/// A sender's name as its line shows it beside its machine: a peer's chat comes named
+/// `<machine>/<name>` (acpmux hub/peers.rs), and the line names the machine after the name already,
+/// so the name drops that prefix: "merge-timeout · lane-vm-01", never "lane-vm-01/merge-timeout ·
+/// lane-vm-01" (Leo, 2026-11-02, on that line: "wtf these tool call spacing things are still weird").
+export function senderLabel(name: string, host: string | undefined): string {
+  const prefix = host ? `${host}/` : "";
+  return prefix && name.toLowerCase().startsWith(prefix.toLowerCase()) && name.length > prefix.length
+    ? name.slice(prefix.length)
+    : name;
+}
+
 /// The sender's mark and name at a received line's start (and a waiting group's sender head,
 /// PendingMessagesCard.tsx): the name opens the sender's chat when there is one to open.
 export function SenderName({ message, onOpen }: { message: IncomingMessage; onOpen(sessionId: string): void }) {
@@ -130,8 +141,8 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
   // A Chief's message names the Chief and draws its avatar (chiefFace.ts); its turn session is no
   // chat of the list, so no listed chat with its name stands in for it, and it is no chat to open.
   const chief = useChiefFace(message.chief);
-  const name = (message.chief && chief?.name) || message.name;
   const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
+  const name = (message.chief && chief?.name) || senderLabel(message.name, sender.host);
   // Read only (a guest): the sender's chat is not this reader's to open.
   const readOnly = useTranscriptReadOnly();
   const sessionId = message.chief || readOnly ? undefined : sender.sessionId;

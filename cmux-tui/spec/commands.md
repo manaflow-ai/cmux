@@ -1314,6 +1314,15 @@ snapshot includes `registry_id`, the current boot `generation`, the durable
 active flags, active pane ids, active tab indexes, tab titles, tab names,
 surface kinds, browser source, size, and dead flags.
 
+On a queued connection (the local socket and WebSocket) the result also has
+`lines_written_before_read`: how many lines the daemon had written on this
+connection, counting every line in socket order (replies, events and stream
+lines), when it read the tree. The daemon writes events on another thread than
+replies, so an event emitted after the read can reach the client before this
+reply. A client that applies events to a snapshot must apply every event past
+that line; an event on an earlier line is in the tree. Without the field, the
+barrier is every event read before the reply.
+
 Params: none.
 
 Result:

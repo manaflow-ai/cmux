@@ -22,6 +22,8 @@
 //! `Settings::turn_limit`.
 
 mod approvals;
+mod chief_inbox;
+pub use chief_inbox::name as chief_inbox_name;
 mod children;
 mod control;
 mod drafts;
@@ -612,6 +614,11 @@ pub struct Settings {
     /// prefix). The session runs with Claude Code's own cache marks.
     /// `CHIEF_KEEP_TURN_SESSION=0` turns it off.
     pub keep_turn_session: bool,
+    /// This Chief's display name, when it keeps a stable acpmux session on
+    /// the `chief` harness that relays into its conversation
+    /// (chief_inbox.rs): how another Chief on this Mac or a lane reaches it
+    /// with `acpmux_send`. None: no such session (tests, a Cloud Chief).
+    pub chief_inbox: Option<String>,
     /// `$MUX_HOME/optchat/screen` (Share Screen with Chief, `screen_share.rs`):
     /// its inbox becomes a note at each turn start. None: not read.
     pub screen_share: Option<PathBuf>,

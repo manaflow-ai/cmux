@@ -30,7 +30,7 @@ public final class CloudNativeRouteHolder: CloudLinkLaunching {
         guard auth.isSignedIn else { throw NativeDeviceEnrollmentError.signedOut }
         // The selection is a Stack ID; Native APIs take the authenticated Worker's team ID.
         let token = try await identity.installToken()
-        guard let team = MacInstallIdentity.team(ofToken: token) else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        guard let team = MacInstallIdentity.team(ofToken: token) else { throw NativeDeviceEnrollmentError.identity() }
         if route == nil || routeTeam != team {
             try await route?.revoke()
             let auth = auth
@@ -119,7 +119,9 @@ public final class CloudNativeFirstLauncher: CloudLinkLaunching {
             onFallback(error)
             fallbackReason = String(describing: error)
             linkSince = ContinuousClock.now
-            await native.archive(install: install)
+            // Stop, never revoke: the retry reuses this enrollment, since the server keeps one host network
+            // binding per install and refuses to retarget it to a new device ("cannot be retargeted").
+            await native.stop(install: install)
             return try await link.ensure(install: install)
         }
     }
