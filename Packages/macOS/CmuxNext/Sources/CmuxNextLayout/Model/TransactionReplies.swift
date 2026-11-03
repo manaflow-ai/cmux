@@ -5,6 +5,8 @@
 /// values still on their way, and for a frame the screen showed them at their old sizes.
 struct TransactionReplies {
     private var unanswered: [LayoutTransactionID: Int] = [:]
+    /// The transaction whose values are going out now (`EndedValues.send`), and whether the app refused it meanwhile.
+    private(set) var sending: (transaction: LayoutTransactionID, refused: Bool)?
 
     /// One more value of `transaction` goes to the daemon.
     mutating func expect(_ transaction: LayoutTransactionID) { unanswered[transaction, default: 0] += 1 }
@@ -20,7 +22,19 @@ struct TransactionReplies {
     }
 
     /// `transaction` was refused or cancelled: no reply settles it.
-    mutating func forget(_ transaction: LayoutTransactionID) { unanswered[transaction] = nil }
+    mutating func forget(_ transaction: LayoutTransactionID) {
+        unanswered[transaction] = nil
+        if sending?.transaction == transaction { sending?.refused = true }
+    }
+
+    /// `transaction`'s values start going out: a refusal while they do is noted (``forget(_:)``), whatever it removed.
+    mutating func beginSending(_ transaction: LayoutTransactionID) { sending = (transaction, false) }
+
+    /// `transaction`'s values went out (or stopped): whether the app refused it meanwhile.
+    mutating func endSending(_ transaction: LayoutTransactionID) -> Bool {
+        defer { sending = nil }
+        return sending?.transaction == transaction && sending?.refused == true
+    }
 }
 
 /// A divider or column value a gesture set locally (`LayoutModel.splitOverrides`, `widthOverrides`), shown over the

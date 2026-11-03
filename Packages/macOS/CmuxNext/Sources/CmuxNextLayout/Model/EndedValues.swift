@@ -6,7 +6,8 @@
 /// - Shown in one turn, and counted before the first goes out, so the transaction settles at the reply to its last value
 ///   (`TransactionReplies`), whenever the replies come.
 /// - Sent one command per value under one transaction (one undo step). A value the app refuses while they go out ends
-///   the change: nothing after it goes, and every value of the transaction shows the daemon's again.
+///   the change (`LayoutModel.rejectTransaction` notes it): nothing after it goes, and every value of the transaction
+///   shows the daemon's again. A change the app answers and applies in this turn is a sent one.
 /// Two commands are still two daemon commits: a value the daemon refuses after the other was applied leaves that one
 /// applied (atomic multi-value commits wait for layout op batches, resize-modifiers.md).
 @MainActor
@@ -41,11 +42,14 @@ public struct EndedValues {
         }
         let intents = values.compactMap { end($0, in: model) }
         for _ in intents { model.expectReply(transaction) }
+        // A refusal is noted where it happens (`LayoutModel.rejectTransaction`): a handler that answers and applies the
+        // daemon's snapshot in this turn removes the overrides too, because the change succeeded.
+        model.replies.beginSending(transaction)
         for intent in intents {
             model.emit(intent)
-            guard holds(model) else { return false }
+            if model.replies.sending?.refused == true { break }
         }
-        return true
+        return !model.replies.endSending(transaction)
     }
 
     /// The command `value` would send, with the clamped value the model shows once it is set; nil when its target is gone.
@@ -75,11 +79,5 @@ public struct EndedValues {
             model.widthOverrides[column]?.ended = true
             return intent(for: .width(column, shown.value), in: model)
         }
-    }
-
-    /// Whether `model` still shows values of the transaction: a refusal took them all back.
-    private func holds(_ model: LayoutModel) -> Bool {
-        model.splitOverrides.values.contains { $0.transaction == transaction }
-            || model.widthOverrides.values.contains { $0.transaction == transaction }
     }
 }
