@@ -120,6 +120,46 @@ import Testing
         #expect(harness.sent.isEmpty, "a hint letter reached the page: \(harness.sent)")
     }
 
+    /// Review 6597001821 finding 1: once the page said no text field has the keyboard, the held letters are hint keys.
+    /// A click (or the keyboard leaving the page) while the targets are still collected ends the session, and the hint
+    /// letters never reach the page (a page shortcut on the letter would run), as before #32537.
+    @Test func aClickAfterThePageSaidNoFieldNeverSendsHintLettersToThePage() async throws {
+        let harness = try Harness()
+        await harness.start()
+        harness.type(["a", "s"])
+        harness.focus.give(false)
+        await harness.until { harness.targets.isAsked }
+        let click = NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: harness.shell.windowNumber,
+                                       context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        _ = harness.controller.inputWillDispatch(click)
+        #expect(!harness.controller.isActive, "a click did not end the session")
+        #expect(!harness.sent.contains("a") && !harness.sent.contains("s"), "a hint letter reached the page after a click: \(harness.sent)")
+        harness.targets.give(Self.targets(30))
+        await harness.until { false }
+        #expect(!harness.sent.contains("a") && !harness.sent.contains("s"), "a late answer sent a hint letter: \(harness.sent)")
+    }
+
+    /// Review 6597001821 finding 2: after the page said no text field, Escape ends the session at once, and a key that
+    /// is no hint key ends it and reaches the page at once; neither waits for a slow target collect.
+    @Test func escapeOrAnotherKeyAfterNoFieldActsAtOnce() async throws {
+        let escape = try Harness()
+        await escape.start()
+        escape.type(["a"])
+        escape.focus.give(false)
+        await escape.until { escape.targets.isAsked }
+        escape.type(["<esc>"])
+        #expect(!escape.controller.isActive, "Escape waited for the target collect")
+        #expect(!escape.sent.contains("a"), "a hint letter reached the page: \(escape.sent)")
+        let other = try Harness()
+        await other.start()
+        other.type(["a"])
+        other.focus.give(false)
+        await other.until { other.targets.isAsked }
+        other.type([" "])
+        #expect(!other.controller.isActive, "a key that is no hint key waited for the target collect")
+        #expect(other.sent.contains(" (passed)") && !other.sent.contains("a"), "the page got \(other.sent)")
+    }
+
     /// A click before the page answered ends the session: every held key goes to the page first, in order.
     @Test func aClickBeforeTheAnswerGivesEveryHeldKeyToThePageInOrder() async throws {
         let harness = try Harness()
