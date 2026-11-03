@@ -457,6 +457,8 @@ def p0_waivers():
 
 def open_p0_blockers(job, waived=None):
     """[(list line, why)] of the open P0 journeys that block a .pass for JOB: no PASS on JOB in the ledger, or any FAIL.
+    Only rows without "superseded_by" are read: the P0 JOURNEY RUNNER marks a journey's older rows when it appends a
+    new one (a reader-misread fail retried on another mini), so the gate reads the same final state as the runner.
     An unreadable list blocks too (the rule cannot be checked)."""
     try:
         listed = [l.split() for l in OPEN_P0.read_text().splitlines() if l.strip() and not l.lstrip().startswith("#")]
@@ -469,7 +471,9 @@ def open_p0_blockers(job, waived=None):
                 row = json.loads(text)
             except ValueError:
                 continue
-            if isinstance(row, dict) and row.get("build_job") == job:
+            # One rule, the runner's (mark_superseded): a row with "superseded_by" was replaced by a later row of the
+            # same journey, so it is not read. Rows without the mark (run.py's own) all stay.
+            if isinstance(row, dict) and row.get("build_job") == job and not row.get("superseded_by"):
                 rows.append(row)
     except OSError:
         pass
