@@ -7,7 +7,7 @@ import Testing
 /// At every sidebar density and minimal mode, a row's working spinner fits its trailing slot and is never larger
 /// than the row's leading icon or the warning mark, and it stays on the slot's center.
 @MainActor @Suite struct RowBadgeSpinnerDensityTests {
-    static let cases: [(SidebarDensity, SidebarMinimalMode)] = SidebarDensity.allCases.flatMap { density in
+    nonisolated static let cases: [(SidebarDensity, SidebarMinimalMode)] = SidebarDensity.allCases.flatMap { density in
         SidebarMinimalMode.allCases.map { (density, $0) }
     }
 

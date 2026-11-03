@@ -525,6 +525,268 @@
         }
       }
     },
+    "settings.chats.sessionRecap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Recap"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملخص الجلسة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sažetak sesije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionsopsummering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungszusammenfassung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumen de la sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Récapitulatif de session"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riepilogo della sessione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションのまとめ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេចក្ដីសង្ខេបវគ្គ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 요약"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Øktsammendrag"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podsumowanie sesji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumo da sessão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сводка сеанса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สรุปเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum özeti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підсумок сеансу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tóm tắt phiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话回顾"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段回顧"
+          }
+        }
+      }
+    },
+    "settings.chats.sessionRecap.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند عودتك إلى محادثة Claude بعد 5 دقائق أو أكثر، يُعرض سطر يوضح ما وصلت إليه. كل ملخص هو استدعاء إضافي صغير للنموذج يُحتسب ضمن استخدامك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada se vratite u Claude razgovor nakon 5 ili više minuta, prikaži red o tome gdje je stao. Svaki sažetak je jedan mali dodatni poziv modela koji se računa u vašu potrošnju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når du vender tilbage til en Claude-chat efter 5 minutter eller mere, vises en linje om, hvor den står. Hver opsummering er ét lille ekstra modelkald, der tæller med i dit forbrug."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn du nach 5 Minuten oder länger zu einem Claude-Chat zurückkehrst, zeigt eine Zeile den aktuellen Stand. Jede Zusammenfassung ist ein kleiner zusätzlicher Modellaufruf, der auf deine Nutzung angerechnet wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando vuelvas a un chat de Claude tras 5 minutos o más, muestra una línea sobre dónde está. Cada resumen es una pequeña llamada adicional al modelo que cuenta para tu uso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand vous revenez à un chat Claude après 5 minutes ou plus, affiche une ligne sur son état. Chaque récapitulatif est un petit appel supplémentaire au modèle, compté dans votre utilisation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando torni a una chat di Claude dopo 5 minuti o più, mostra una riga sul punto in cui si trova. Ogni riepilogo è una piccola chiamata aggiuntiva al modello che conta nel tuo utilizzo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5分以上離れてからClaudeのチャットに戻ると、現在の状況を1行で表示します。まとめごとにモデルを1回追加で呼び出し、使用量に含まれます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលអ្នកត្រឡប់មកការជជែក Claude វិញក្រោយ 5 នាទី ឬលើសនេះ បង្ហាញមួយបន្ទាត់អំពីស្ថានភាពរបស់វា។ សេចក្ដីសង្ខេបនីមួយៗជាការហៅម៉ូដែលបន្ថែមតូចមួយ ដែលរាប់ក្នុងការប្រើប្រាស់របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5분 이상 지난 뒤 Claude 채팅으로 돌아오면 현재 상황을 한 줄로 보여 줍니다. 요약마다 모델을 한 번 더 호출하며 사용량에 포함됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når du kommer tilbake til en Claude-chat etter 5 minutter eller mer, vises en linje om hvor den står. Hvert sammendrag er ett lite ekstra modellkall som teller med i bruken din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy wrócisz do czatu Claude po 5 minutach lub dłużej, pokaż wiersz o tym, na czym stanął. Każde podsumowanie to jedno małe dodatkowe wywołanie modelu, wliczane do Twojego użycia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao voltar a um chat do Claude após 5 minutos ou mais, mostra uma linha sobre onde ele está. Cada resumo é uma pequena chamada extra ao modelo que conta no seu uso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда вы возвращаетесь в чат Claude через 5 минут или позже, показывать строку о том, на чём он остановился. Каждая сводка — один небольшой дополнительный вызов модели, который учитывается в вашем использовании."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อคุณกลับมาที่แชต Claude หลังผ่านไป 5 นาทีขึ้นไป จะแสดงหนึ่งบรรทัดว่าอยู่ตรงไหนแล้ว สรุปแต่ละครั้งคือการเรียกโมเดลเพิ่มเล็กน้อยหนึ่งครั้งซึ่งนับรวมในการใช้งานของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 dakika veya daha uzun süre sonra bir Claude sohbetine döndüğünüzde, nerede kaldığını gösteren bir satır gösterir. Her özet, kullanımınıza sayılan küçük bir ek model çağrısıdır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли ви повертаєтеся до чату Claude через 5 хвилин або пізніше, показувати рядок про те, на чому він зупинився. Кожен підсумок — один невеликий додатковий виклик моделі, що враховується у вашому використанні."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi bạn quay lại một cuộc trò chuyện Claude sau 5 phút trở lên, hiển thị một dòng về tình trạng hiện tại. Mỗi bản tóm tắt là một lần gọi mô hình nhỏ thêm, được tính vào mức sử dụng của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离开 5 分钟或更久后回到 Claude 聊天时，显示一行说明当前进展。每次回顾是一次额外的小型模型调用，计入你的用量。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離開 5 分鐘或更久後回到 Claude 聊天時，顯示一行說明目前進展。每次回顧是一次額外的小型模型呼叫，計入你的用量。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.harnessPlacement": {
       "extractionState": "manual",
       "localizations": {

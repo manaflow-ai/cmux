@@ -648,7 +648,7 @@ function agentTooltip(t: Translate, agent: Subagent): string | undefined {
 /// What each running item is called, newest first: a subagent by its task, a command by its
 /// description or its short command (processes.ts `commandLabel`), a chat by its title. An item with
 /// no start time sorts after those with one, in its list order.
-/// Only the newest two are named (the header never shows more), so a long list costs a sort of its
+/// At most the newest two are named (the default arm names one), so a long list costs a sort of its
 /// start times, never a label per item.
 function newestNames(t: Translate, items: readonly TrayItem[]): readonly string[] {
   return items
