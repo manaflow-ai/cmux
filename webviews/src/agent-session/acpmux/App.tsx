@@ -3509,7 +3509,8 @@ export function VirtualTranscript({
       const measure = () => {
         if (!node.isConnected || node.dataset.rowId !== id) return;
         const height =
-          cached?.sessionId === cachedSessionId &&
+          cached !== undefined &&
+          cached.sessionId === cachedSessionId &&
           cached.version === version &&
           cached.width === cachedWidth &&
           cached.layoutKey === layoutKey
