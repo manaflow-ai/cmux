@@ -67,6 +67,13 @@ struct SidebarAvatarMotion {
     var windowKey = true
     /// Tests' pin for "the window is on screen" (an offscreen test window never is).
     var onScreenPin: Bool?
+    /// The state each conversation's avatar last showed, by conversation id: a cue plays on a change
+    /// even when the list draws the changed row on another layer. One entry per conversation shown.
+    let lastModes = LastModes()
+
+    final class LastModes {
+        var byConversation: [String: Mode] = [:]
+    }
 
     /// Whether loops may run in `window` now: the host's gate (Reduce Motion included), the window
     /// is key (so the app is active), shown and not minimized.
@@ -96,7 +103,8 @@ struct SidebarAvatarMotion {
         } else {
             SidebarAvatarLooks.fit(row.avatar)
         }
-        if moving, let wanted, let from = before?.mode, from != mode {
+        let from = lastModes.byConversation.updateValue(mode, forKey: seed)
+        if moving, let wanted, let from, from != mode {
             SidebarAvatarLooks.cue(row.avatar, style: wanted.style, from: from, to: mode)
         }
     }
