@@ -524,7 +524,7 @@ const pickFolderRow = async (cwd: string) => {
 };
 
 test("a saved local environment that is only a folder is in the folder menu, not among the machines", async () => {
-  // Leo, 2026-11-03: "imo claude has kinda shit ass ways to deal with remote stuff. chatgpt's is
+  // Leo, 2026-11-03: "imo claude has kinda s***ty ways to deal with remote stuff. chatgpt's is
   // better." Claude listed a saved Local environment that was only a folder as an environment of
   // its own. Here it is that folder: This Mac stays the machine, and the folder menu picks it.
   const calls = await mount();

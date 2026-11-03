@@ -1440,7 +1440,7 @@ test("Leo's menu: the control shows the current choice, its icon this Mac's or t
 });
 
 // Leo, 2026-11-03, comparing Claude Desktop's environment menu with ChatGPT's: "imo claude has kinda
-// shit ass ways to deal with remote stuff. chatgpt's is better." Claude's menu listed one machine
+// s***ty ways to deal with remote stuff. chatgpt's is better." Claude's menu listed one machine
 // twice (two "cmux16" rows) and named rows after folders that never said which machine they were on.
 test("one machine is one row: a chat's old peer on a listed machine's host is told apart by its peer", async () => {
   const { knownMachines } = await import("../src/agent-session/acpmux/environments");

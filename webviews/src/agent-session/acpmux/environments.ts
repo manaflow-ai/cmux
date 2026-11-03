@@ -194,7 +194,7 @@ export type SavedEnvironment = SavedEnvironmentDraft & { id: string; updatedAt: 
 
 /// A saved environment that is only a folder on this computer (no worktree): a place, not a
 /// machine. The picker lists it with the folders, never among the machines (Leo, 2026-11-03, on
-/// Claude Desktop listing such a folder as an environment of its own: "imo claude has kinda shit ass
+/// Claude Desktop listing such a folder as an environment of its own: "imo claude has kinda s***ty
 /// ways to deal with remote stuff. chatgpt's is better.").
 export function savedEnvironmentIsFolder(environment: SavedEnvironmentDraft): boolean {
   return environment.kind === "local" && Boolean(environment.folder) && !environment.worktree;
