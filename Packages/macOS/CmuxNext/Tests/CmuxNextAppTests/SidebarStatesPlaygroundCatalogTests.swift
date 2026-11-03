@@ -86,6 +86,30 @@ import Testing
         #expect(leading[0] != leading[1] && leading[1] != leading[2] && leading[0] != leading[2], "two favicon rows draw the same icon")
     }
 
+    /// The favicon styles sheet (Lawrence msg 19869): one column per `sidebar.faviconStyle`, each drawn with its style.
+    /// On the dark sheet the dark mono favicon reads differently as fetched and with the default adaptive tint, and the
+    /// renderer puts the person's own style back after each column.
+    @Test func everyFaviconStyleIsAColumnDrawnWithItsStyle() throws {
+        #expect(SidebarStatesPlaygroundColumn.faviconStyles.compactMap(\.faviconStyle) == SidebarFaviconStyle.allCases)
+        #expect(Set(SidebarStatesPlaygroundColumn.faviconStyles.map(\.title)).count == SidebarFaviconStyle.allCases.count,
+                "two favicon style columns share a caption")
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        let key = SidebarFaviconStyle.tunable.key
+        let mine = SidebarFaviconStyle.monochrome.tunableValue
+        TunableStore.shared.set(key, mine)
+        defer { TunableStore.shared.set(key, nil) }
+        let renderer = SidebarStatesPlaygroundRenderer(design: .shared, themes: SidebarStatesPlaygroundThemes(colors: [:]))
+        var leading: [SidebarFaviconStyle: [UInt8]] = [:]
+        for column in SidebarStatesPlaygroundColumn.faviconStyles where [.current, .adaptive].contains(column.faviconStyle) {
+            let cells = renderer.cells(column, .dark)
+            #expect(TunableStore.shared.override(key) == mine, "the renderer did not put the person's favicon style back")
+            let cell = try #require(cells[.faviconMono], "\(column.title): no favicon row")
+            leading[try #require(column.faviconStyle)] = try Self.leadingPixels(cell)
+        }
+        #expect(leading[.current] != leading[.adaptive], "the adaptive column draws the dark mono favicon as fetched")
+    }
+
     /// The RGBA bytes of `cell`'s row left of its title (the leading inset guide).
     static func leadingPixels(_ cell: SidebarStatesPlaygroundCell) throws -> [UInt8] {
         let image = try #require(cell.image), guide = try #require(cell.leadingGuideX)
