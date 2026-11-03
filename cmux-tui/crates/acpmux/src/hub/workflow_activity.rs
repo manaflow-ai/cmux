@@ -157,6 +157,7 @@ impl Hub {
                     Some(&task_id),
                     None,
                     false,
+                    false,
                 )
                 .await?;
                 drop(gate);

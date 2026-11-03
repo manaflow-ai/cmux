@@ -17,6 +17,7 @@ public struct AllThemesPlaygroundView: View {
             HStack(spacing: 12) {
                 TextField(AllThemesPlaygroundStrings.search, text: $model.query)
                     .textFieldStyle(.roundedBorder)
+                    .focusEffectDisabled()
                     .frame(maxWidth: 260)
                 Toggle(AllThemesPlaygroundStrings.failuresOnly, isOn: $model.failuresOnly)
                 Spacer()

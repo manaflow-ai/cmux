@@ -167,7 +167,9 @@ class PrePushGateTests(unittest.TestCase):
         self.repo = self.root / "repository"
         self.origin = self.root / "origin.git"
         self.global_config = self.root / "gitconfig"
-        self.global_config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.com\n")
+        # The pushes below go into a local bare origin, whose receive-pack reads only config files (git_fixture_env).
+        self.global_config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.com\n"
+                                      + git_fixture_env.CONFIG_FILE_OPT_OUT)
         self.env = {key: value for key, value in os.environ.items()
                     if not key.startswith("GIT_") and key not in AGENT_VARS}
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.global_config),
