@@ -41,6 +41,12 @@ const LOCAL_NAMES: &[&str] = &[
     "shutdown",
     "moved.json",
     "moved-in.json",
+    // A teleport request, the last move's report and the watcher's lock belong
+    // to the machine they were written on: carried along, a request would send
+    // the Chief straight back.
+    "teleport-request.json",
+    "move.json",
+    "move-watch.lock",
     "workspace-registry.owner-shutdown",
     "inspector.json",
     "engine-resolved.json",
@@ -1534,6 +1540,65 @@ pub fn verify_home(home: &Path) -> Result<HomeCounts, String> {
     })
 }
 
+/// The options a watcher (or a freeze) moves with: this home, the token and
+/// remote binary flags as given; the target comes from each request.
+fn watch_template(
+    home: &Path,
+    values: &BTreeMap<String, String>,
+    remote_bin: String,
+) -> MoveOptions {
+    MoveOptions {
+        home: home.to_path_buf(),
+        target: Target::Local(home.to_path_buf()),
+        without_transcripts: false,
+        stop_host: true,
+        remote_bin,
+        dry_run: false,
+        drain_timeout: Duration::from_secs(1800),
+        session_token_file: values.get("session-token-file").map(|p| expand_home(p)),
+        cloud_name: values
+            .get("name")
+            .cloned()
+            .unwrap_or_else(|| "Chief".into()),
+        cloud_default: false,
+    }
+}
+
+/// Starts `move watch` for `home` in its own session (it outlives this
+/// process; a second one exits at once on the watcher lock).
+pub fn spawn_watcher(home: &Path) {
+    use std::os::unix::process::CommandExt;
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let Ok(log) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(home.join("state").join("move-watch.log"))
+    else {
+        return;
+    };
+    let mut cmd = Command::new(exe);
+    cmd.args(["move", "watch", "--home"])
+        .arg(home)
+        .stdin(Stdio::null())
+        .stdout(
+            log.try_clone()
+                .map(Stdio::from)
+                .unwrap_or_else(|_| Stdio::null()),
+        )
+        .stderr(log);
+    // SAFETY: setsid(2) in the child before exec, async-signal-safe: the
+    // watcher leaves this process's session and outlives it.
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    let _ = cmd.spawn();
+}
+
 /// Rolls a move back: the target (when reachable) is marked moved back, the
 /// source's markers are removed so it answers again.
 pub fn rollback(
@@ -1602,7 +1667,10 @@ optchat-chief move verify [--home DIR]                      what a home holds (J
 optchat-chief move ask --text TEXT [--home DIR] [--session-token-file FILE]  one message to the cloud Chief this home moved to; prints its reply
 optchat-chief move reach [--home DIR]                       probe from here what the moved Chief reached before (SSH hosts, tailnet, fleet, model route)
 optchat-chief move probe --home DIR                         can this host take a Chief there (JSON)
-optchat-chief move retire --home DIR --to WHERE             mark a home moved (its host will not start)";
+optchat-chief move retire --home DIR --to WHERE             mark a home moved (its host will not start)
+optchat-chief move watch [--home DIR] [--every SECS]         while this home's Chief is elsewhere, carry out its teleport requests (--watch on a move starts it)
+optchat-chief move freeze|thaw [--home DIR]                 stop this home's host and hold its start / let it start again (a pull back over SSH)
+A home whose Chief moved to the cloud or over SSH moves on from here: --to local:<this home> brings it back.";
 
 struct Args {
     words: Vec<String>,
@@ -1617,6 +1685,7 @@ const SWITCHES: &[&str] = &[
     "live",
     "json",
     "cloud-default",
+    "watch",
     "detach",
     "after-turn",
 ];
@@ -1736,6 +1805,39 @@ pub fn cli(args: &[String]) -> i32 {
             let file = a.values.get("session-token-file").map(|p| expand_home(p));
             rollback(&home, &remote_bin, file.as_deref())
         }
+        // A pull back over SSH (migrate_return.rs): stop this home's host and hold its start.
+        Some("freeze") => {
+            let options = watch_template(&home, &a.values, remote_bin.clone());
+            drain(
+                &home,
+                &MoveOptions {
+                    stop_host: true,
+                    ..options
+                },
+            )
+        }
+        Some("thaw") => std::fs::remove_file(home.join(SHUTDOWN_FILE))
+            .or_else(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    Ok(())
+                } else {
+                    Err(e)
+                }
+            })
+            .map(|()| format!("{} may start again", home.display()))
+            .map_err(|e| e.to_string()),
+        Some("watch") => {
+            let every = a
+                .values
+                .get("every")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(15);
+            crate::migrate_return::watch(
+                &home,
+                &watch_template(&home, &a.values, remote_bin.clone()),
+                Duration::from_secs(every),
+            )
+        }
         Some(other) => Err(format!("unknown move verb {other}\n{USAGE}")),
         None => match a.values.get("to") {
             None => Err(format!("move needs --to TARGET\n{USAGE}")),
@@ -1775,7 +1877,11 @@ pub fn cli(args: &[String]) -> i32 {
                         eprintln!("optchat-chief move: {e}");
                         return 1;
                     }
-                    let report = move_chief(&options);
+                    let report = crate::migrate_return::teleport(&options);
+                    if report.moved && moved(&home).is_some() && has("watch") {
+                        // The Chief now lives elsewhere: this Mac waits for it to ask to move on.
+                        spawn_watcher(&home);
+                    }
                     let _ = write_private(
                         &home.join("state").join("move.json"),
                         json(&report).as_bytes(),
