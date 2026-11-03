@@ -86,7 +86,9 @@ impl Hub {
     ) {
         self.on_update(session, params, replayed);
         let update = params.and_then(|p| p.get("update"));
-        if let Some(update) = update.filter(|u| !replayed && u["sessionUpdate"] == "usage_update") {
+        let usage =
+            |u: &&Value| u.get("sessionUpdate").and_then(Value::as_str) == Some("usage_update");
+        if let Some(update) = update.filter(|u| !replayed && usage(u)) {
             self.cache_compact_on_usage(session, update);
         }
     }
@@ -134,9 +136,10 @@ impl Hub {
             && session.turn_lock.try_lock().is_ok();
         let remote = session.floor.last_turn_web.load(Ordering::SeqCst)
             || session.floor.cloud_mobile_turn.load(Ordering::SeqCst);
-        let typing = self.presence.snapshot(&session.id)["participants"]
-            .as_array()
-            .is_some_and(|people| people.iter().any(|p| p["typing"] == true));
+        let presence = self.presence.snapshot(&session.id);
+        let typing = presence.get("participants").and_then(Value::as_array).is_some_and(|people| {
+            people.iter().any(|p| p.get("typing").and_then(Value::as_bool) == Some(true))
+        });
         let draft = session
             .read_meta(|m| m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()));
         idle && !remote && !typing && !draft
