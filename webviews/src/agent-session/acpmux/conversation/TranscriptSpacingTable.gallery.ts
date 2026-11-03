@@ -8,8 +8,19 @@
 // commands", an inbox row, the live line "Sending message to …" and the waiting group "2 messages
 // from 2 sessions". transcript-spacing-table.test.ts measures it against transcriptSpacing.ts.
 import { agentPaneEntry } from "../../../gallery/format";
-import { SESSION_ID, activity, assistant, chat, session, summary, tool, user } from "../../../gallery/fixtures/acpmux";
-import type { AcpmuxActivity } from "../model";
+import {
+  SESSION_ID,
+  activity,
+  assistant,
+  chat,
+  row,
+  session,
+  summary,
+  tool,
+  user,
+} from "../../../gallery/fixtures/acpmux";
+import type { AcpmuxActivity, AcpmuxSnapshot } from "../model";
+import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
 import { incomingPrompt } from "./incomingMessage";
 import { inboxText } from "./inboxNotice";
 
@@ -67,6 +78,68 @@ const REPLY = [
   "The three lanes have their briefs: grid-lane takes the row pitch, picker-lane the menu polish and review-box the exact-head review.",
   "I'll land each as its review passes and send you the links together once the nightly has picked them up.",
 ].join("\n\n");
+
+/// Every row kind of Leo's 2026-11-02 23:59Z capture in one Claude Code chat ("these are all so
+/// stupid looking" / "the spacing"): a finished reply and its footer, another session's message
+/// received, a scheduled check the agent ran on its own, "Ran 2 commands" (the table test opens it to
+/// its two commands), a one-line reply and its footer, the next prompt, a finished compaction, a
+/// two-line reply, one command and a compaction still running as the chat's last row. Each pair is
+/// one row of transcriptSpacing.ts TRANSCRIPT_SPACING_KINDS.
+function allKinds(): AcpmuxSnapshot {
+  const fromLane = (text: string, minutes: number, id: string) =>
+    user(text, minutes, {
+      id,
+      incoming: {
+        kind: "message",
+        message: { name: "merge-timeout", sessionId: "s-merge", harness: "claude", text, raw: text },
+      },
+      untyped: true,
+    });
+  const snapshot = chat(
+    [
+      user("Where do the merge timeouts stand?", 14, { id: "kinds-prompt" }),
+      assistant(REPLY, 13.5, { id: "kinds-reply" }),
+      summary(13.4, { id: "kinds-footer", status: "completed", durationMs: 34_000, toolCount: 0 }),
+      fromLane("Deployed; the lander is on 59c1e0a.", 9, "kinds-received"),
+      row(BACKGROUND_TURN, 8.5, {
+        id: backgroundTurnRowId("spacing-scheduled"),
+        background: { id: "spacing-scheduled", trigger: "scheduled", running: false, quiet: true },
+      }),
+      activity([tool("git fetch origin", "execute", "completed", { command: "git fetch origin" })], 8.4, {
+        inBackground: "spacing-scheduled",
+      }),
+      activity(
+        [run("Checked the lander", "systemctl status next-autoland"), run("Read the head", "git log --oneline -1")],
+        8,
+        { id: "kinds-run" },
+      ),
+      assistant("The lander runs 59c1e0a now.", 7.8, { id: "kinds-short" }),
+      summary(7.7, { id: "kinds-short-footer", status: "completed", durationMs: 21_000, toolCount: 2 }),
+      user("Compact the chat, then land the rest.", 5, { id: "kinds-next-prompt" }),
+      row("compaction", 4.9, {
+        id: "kinds-compacted",
+        compaction: { state: "completed", preTokens: 369_000, postTokens: 24_000 },
+      }),
+      assistant(
+        "Picking up where we left off: #2210 and #2214 both have a passing review at their heads, so I will land them one after the other and watch the nightly pick them up before I report back.",
+        4.5,
+        { id: "kinds-long" },
+      ),
+      activity([run("Landed #2210", "gh pr merge 2210 --squash")], 4, { id: "kinds-step" }),
+      row("compaction", 3.5, { id: "kinds-compacting", compaction: { state: "running" } }),
+    ],
+    {
+      title: "polish-coordinator",
+      sessions: [
+        session({ sessionId: SESSION_ID, title: "polish-coordinator", name: "polish-coordinator" }),
+        session({ sessionId: "s-merge", title: "merge-timeout", name: "merge-timeout" }),
+      ],
+    },
+  );
+  // A Claude Code chat, as acpmux names its family: its runs fold per run (turns.ts), so the work
+  // reads "Ran 2 commands" as in Leo's capture, not under "Worked for".
+  return { ...snapshot, summary: { ...snapshot.summary!, family: "claude" } };
+}
 
 /// Two messages from two sessions that wait for the turn to end (PendingMessagesCard.tsx): "2
 /// messages from 2 sessions", as in Leo's capture.
@@ -148,6 +221,11 @@ export default agentPaneEntry({
     "agent-session/acpmux/transcriptSpacing.ts",
   ],
   variants: {
+    "all-kinds": {
+      note: 'Every row kind of Leo\'s 2026-11-02 capture: a reply and its footer, a received message, "Scheduled check", "Ran 2 commands", a reply and footer, the next prompt, a finished compaction, a two-line reply, a command and "Compacting the conversation…".',
+      height: 1100,
+      snapshot: allKinds(),
+    },
     shipped: {
       note: 'A finished reply and its footer; an inbox row; then a running turn: "Sent 3 messages", a reply line, "Ran 2 commands", an inbox row, "Sending message to …" and "2 messages from 2 sessions".',
       snapshot: chat(

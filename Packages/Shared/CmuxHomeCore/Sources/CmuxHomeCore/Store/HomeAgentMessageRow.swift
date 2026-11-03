@@ -44,10 +44,24 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
         case unreadable
     }
 
+    /// Where an agent of a fold stands, from its newest message in the fold.
+    public enum PeerState: Hashable, Sendable {
+        /// The Chief's message to it is the newest: it is working on it.
+        case told
+        /// Its report is the newest.
+        case reported
+        /// It stopped with no report (a status note).
+        case stopped
+    }
+
     /// The fold this row belongs to: a stable id from the Chief and the answer the messages follow.
     public var group: String
     /// What the row shows.
     public var kind: Kind
+    /// For a fold or notes row: each agent's state, in the order of its `peers`; empty for other rows.
+    public var peerStates: [PeerState] = []
+    /// For a fold or notes row: the newest message's words (a one-line preview); nil for other rows.
+    public var latest: String?
 
     /// Creates a row of `group`.
     ///

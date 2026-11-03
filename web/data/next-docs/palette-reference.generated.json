@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1275,
+    "entries": 1276,
     "shortcuts": 189
   },
   "sections": [
@@ -7118,6 +7118,12 @@
           "title": "Increase Interface Size",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "updates.installEarlierBuild",
+          "title": "Install an Earlier Nightly…",
+          "shortcut": null,
+          "command": "cmux settings install-earlier-nightly"
         },
         {
           "id": "app.install",
