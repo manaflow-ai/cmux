@@ -73,7 +73,9 @@ struct FrameOwnerS1HoldPathsTests {
             root.layoutSubtreeIfNeeded()
             root.layoutSubtreeIfNeeded()
             root.driver.isManual = true
-            root.context.afterCommit = { [unowned self] in self.afterCommit.append($0) }
+            // Weak: a test that ends mid-spring closes its window with motion in flight, and the root's settle asks for
+            // after-commit work once this rig is gone.
+            root.context.afterCommit = { [weak self] in self?.afterCommit.append($0) }
         }
 
         static func screen(_ node: SplitNode, zoomed: Bool = false) -> LayoutScreen {
