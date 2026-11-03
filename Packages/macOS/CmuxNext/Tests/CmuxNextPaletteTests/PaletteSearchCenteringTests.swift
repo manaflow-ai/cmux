@@ -69,18 +69,17 @@ struct PaletteSearchCenteringTests {
         bar.layoutSubtreeIfNeeded()
         window.makeFirstResponder(bar.field)
         let editor = try #require(bar.field.currentEditor() as? NSTextView)
-        // The caret where the palette leaves it, at the end: moving it to the start of a typed query
-        // scrolls the editor's clip view. The first letter's x comes from the layout instead.
+        // The caret where the palette leaves it, at the end; the line's start x comes from the layout.
         editor.selectedRange = NSRange(location: query.utf16.count, length: 0)
         bar.layoutSubtreeIfNeeded()
-        let layout = try #require(editor.layoutManager)
-        let container = try #require(editor.textContainer)
-        layout.ensureLayout(for: container)
-        let line = editor.string.isEmpty ? layout.extraLineFragmentRect : layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
-        let caretX = editor.convert(NSPoint(x: line.minX + container.lineFragmentPadding + editor.textContainerOrigin.x, y: 0), to: bar).x
         bar.displayIfNeeded()
         let rep = try #require(bar.bitmapImageRepForCachingDisplay(in: bar.bounds))
         bar.cacheDisplay(in: bar.bounds, to: rep)
+        // Read after the drawing: forcing the editor's layout before it moved the typed line 3 pt.
+        let layout = try #require(editor.layoutManager)
+        let container = try #require(editor.textContainer)
+        let line = editor.string.isEmpty ? layout.extraLineFragmentRect : layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
+        let caretX = editor.convert(NSPoint(x: line.minX + container.lineFragmentPadding + editor.textContainerOrigin.x, y: 0), to: bar).x
         let scale = CGFloat(rep.pixelsWide) / bar.bounds.width
         let icon = bar.subviews.first { $0 is NSImageView && !$0.isHidden }
         let iconFrame = try #require(icon?.frame)
