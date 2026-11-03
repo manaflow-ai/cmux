@@ -2588,6 +2588,7 @@
 		C0DE10651000000000000001 /* LocalTmuxSessionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000011 /* LocalTmuxSessionRegistry.swift */; };
 		46B3714B4885B3FE8D511EF2 /* LocalZellijCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3754097117785696FCE0B6 /* LocalZellijCommandBuilder.swift */; };
 		B3F35A1B08D1DD75015193B5 /* LocalZellijInvocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE9B07608AA39A7201AE18BB /* LocalZellijInvocation.swift */; };
+		2367CED7AD6EA869F8E3D0FE /* LoopAgentIconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27DF474BAE1976E39815C0EC /* LoopAgentIconTests.swift */; };
 		53750022A0B1C2D3E4F50022 /* MacAuthComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */; };
 				A11D00000000000000000001 /* MacDevicesComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11D00000000000000000002 /* MacDevicesComposition.swift */; };
 		A12677000000000000000001 /* MachineCreateCoordinator+Selection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12677000000000000000002 /* MachineCreateCoordinator+Selection.swift */; };
@@ -7277,6 +7278,7 @@
 		C0DE10651000000000000011 /* LocalTmuxSessionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTmuxSessionRegistry.swift; sourceTree = "<group>"; };
 		4E3754097117785696FCE0B6 /* LocalZellijCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalZellijCommandBuilder.swift; sourceTree = "<group>"; };
 		DE9B07608AA39A7201AE18BB /* LocalZellijInvocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalZellijInvocation.swift; sourceTree = "<group>"; };
+		27DF474BAE1976E39815C0EC /* LoopAgentIconTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LoopAgentIconTests.swift"; sourceTree = "<group>"; };
 		53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacAuthComposition.swift; sourceTree = "<group>"; };
 				A11D00000000000000000002 /* MacDevicesComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/MacDevicesComposition.swift"; sourceTree = "<group>"; };
 		A12677000000000000000002 /* MachineCreateCoordinator+Selection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MachineCreateCoordinator+Selection.swift"; sourceTree = "<group>"; };
@@ -14320,6 +14322,7 @@
 				A6FA6CA3BD8C6FB44634D416 /* WorkspaceContentViewVisibilityTests+AgentIndex.swift */,
 				C978CC3C2D3FCCE66696C72C /* CLIKiroGlobalHooksTests.swift */,
 				B88325A2907EB7D69739349B /* ClaudeBackgroundWorkDrainTests.swift */,
+				27DF474BAE1976E39815C0EC /* LoopAgentIconTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -19115,6 +19118,7 @@
 				C11218000000000000000012 /* LocalTmuxSessionBinding.swift in Sources */,
 				C11218000000000000000013 /* LocalTmuxSessionIdentity.swift in Sources */,
 				C11218000000000000000014 /* LocalTmuxSessionListParser.swift in Sources */,
+				2367CED7AD6EA869F8E3D0FE /* LoopAgentIconTests.swift in Sources */,
 				484A89A4B4AA08EF63E0DB51 /* MachineCreateCoordinatorTests.swift in Sources */,
 				E4C9D6A1F2B34E5D8C7A9012 /* MachineCreateOptimisticProjectionTests.swift in Sources */,
 				55DB52C3D79CFBA5F5BB856E /* MachineDeleteCoordinatorTests.swift in Sources */,
