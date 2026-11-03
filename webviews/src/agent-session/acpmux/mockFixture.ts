@@ -44,6 +44,9 @@ export type MockSession = {
   history?: (at: number) => SeedStep[];
   /// Config options this chat offers beyond the harness's usual ones (the Options chip's).
   extraOptions?: Record<string, unknown>[];
+  /// The agent's suggested next prompt after its last turn. acpmux sends it live only (a page
+  /// never holds it, hub/paging.rs NON_TRANSCRIPT_UPDATES), so the mock sends it when the chat opens.
+  suggestion?: string;
 };
 
 type Update = Record<string, unknown>;
@@ -516,7 +519,7 @@ export const mockSessions: MockSession[] = [
   {
     // Claude Code's prompt suggestions (Leo, 2026-11-03: "i know there's suggested prompts that you
     // can right arrow/tab to do stuff with... maybe we can expose it in cmux-next too"): after the
-    // second turn acpmux sends the agent's guess at the next prompt, which the empty composer shows
+    // second turn acpmux sends the agent's guess at the next prompt (live, `suggestion`), which the empty composer shows
     // as ghost text (Tab or Right-arrow takes it). The chat's switch is the Options chip's
     // "Prompt suggestions", as acpmux offers it (claude_stdio/prompt_suggestions.rs).
     sessionId: PROMPT_SUGGESTION_SESSION,
@@ -530,6 +533,7 @@ export const mockSessions: MockSession[] = [
     hostKind: "local",
     reply: "Done: the uploader retries 5xx with backoff.",
     extraOptions: [PROMPT_SUGGESTIONS_OPTION],
+    suggestion: PROMPT_SUGGESTION,
     history: (at) => [
       { ago: at + 120_000, mux: "user_message", msg: { text: "Why do uploads fail on the fleet?" } },
       { ago: at + 120_000, mux: "turn_started" },
@@ -539,7 +543,6 @@ export const mockSessions: MockSession[] = [
       { ago: at + 60_000, mux: "turn_started" },
       { ago: at + 10_000, update: text("Done: the uploader retries 5xx with backoff.") },
       { ago: at, mux: "turn_result", msg: { status: "completed" } },
-      { ago: at, update: { sessionUpdate: "prompt_suggestion", suggestion: PROMPT_SUGGESTION } },
     ],
   },
 ];
@@ -576,7 +579,15 @@ export const mockResolvable: Record<string, { sessionId: string; name: string; h
 
 /// A session as `_acpmux/watch` and `_acpmux/attach` report it.
 export function sessionSummary(session: MockSession, now: number, turnCount: number): Record<string, unknown> {
-  const { ago, reply, permission: _permission, history: _history, extraOptions, ...fields } = session;
+  const {
+    ago,
+    reply,
+    permission: _permission,
+    history: _history,
+    extraOptions,
+    suggestion: _suggestion,
+    ...fields
+  } = session;
   const preview = session.sessionId === WORKED_SESSION ? "Uploads now retry server errors with backoff." : reply;
   return {
     ...fields,

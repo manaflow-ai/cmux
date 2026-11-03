@@ -4,7 +4,9 @@
 // after a turn as `{"sessionUpdate": "prompt_suggestion", "suggestion": text}` (null takes it back,
 // claude_stdio/prompt_suggestions.rs). The pane never draws it as a transcript row; the snapshot
 // carries the newest one for the composer's ghost text only between turns, until the next prompt or
-// turn start, and one that arrives while a turn runs is stale and never shown.
+// turn start, and one that arrives while a turn runs is stale and never shown. acpmux sends it live
+// only (hub/paging.rs NON_TRANSCRIPT_UPDATES keeps it out of pages); the pages below hold it so the
+// reducer's ordering can be checked, and the live test sends it as acpmux does.
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
@@ -32,6 +34,8 @@ const record = (steps: Step[]) =>
   }));
 type Rec = ReturnType<typeof record>[number];
 
+let liveSocket: any;
+let attachParams: any;
 function fakeDaemon(history: Rec[], status: string) {
   let socket: any;
   const session = {
@@ -64,6 +68,7 @@ function fakeDaemon(history: Rec[], status: string) {
       send(raw: string) {
         const message = JSON.parse(raw);
         if (message.id === undefined) return;
+        if (message.method === "_acpmux/attach") attachParams = message.params;
         queueMicrotask(() =>
           socket.onmessage?.({
             data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }),
@@ -72,20 +77,32 @@ function fakeDaemon(history: Rec[], status: string) {
       },
       close() {},
     };
+    liveSocket = socket;
     queueMicrotask(() => socket.onopen?.());
     return socket as WebSocket;
   };
 }
 
+const settle = async () => {
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+};
+let latest: AcpmuxSnapshot | undefined;
 async function snapshotOf(steps: Step[], status = "idle"): Promise<AcpmuxSnapshot> {
-  let latest: AcpmuxSnapshot | undefined;
+  latest = undefined;
   await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
     (snapshot: AcpmuxSnapshot) => (latest = snapshot),
     undefined,
     fakeDaemon(record(steps), status),
   );
-  for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  await settle();
+  return latest!;
+}
+/** acpmux's live record of `step`, after the attach page's `seq`s. */
+async function live(seq: number, [dir, kind, msg]: Step): Promise<AcpmuxSnapshot> {
+  const params = { sessionId: CHAT, seq, at: START + seq * 1000, dir, kind, msg };
+  liveSocket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params }) });
+  await settle();
   return latest!;
 }
 
@@ -171,14 +188,28 @@ test("a blank suggestion is nothing; a chat with none (an older acpmux) has none
   expect(none.promptSuggestion).toBeUndefined();
 });
 
-test("the mock chat with a suggestion (?mock) carries it, and offers the Prompt suggestions option", async () => {
+test("live, as acpmux sends it: shown after the turn, gone when the next prompt goes", async () => {
+  const opened = await snapshotOf([...turn("Rename the helper", "Renamed."), ...turn("Now add a test", "Added.")]);
+  expect(opened.promptSuggestion).toBeUndefined();
+  const suggested = await live(9, ["in", "prompt_suggestion", suggest("commit it")]);
+  expect(suggested.promptSuggestion).toEqual({ text: "commit it", seq: 9 });
+  expect(JSON.stringify(suggested.rows)).not.toContain("commit it");
+  const sent = await live(10, ["mux", "user_message", { text: "commit it", promptId: "p-3" }]);
+  expect(sent.promptSuggestion).toBeUndefined();
+});
+
+// acpmux keeps the update out of "transcript" (hub/paging.rs NON_TRANSCRIPT_UPDATES), and an attach's
+// event stream passes only the kinds it asked for (server/mod.rs), so the pane asks for it by name.
+test("a local attach asks for the suggestion's kind, so its event stream carries it", async () => {
+  await snapshotOf(turn("Rename the helper", "Renamed."));
+  expect(attachParams.eventStream).toBe(true);
+  expect(attachParams.kinds).toContain("prompt_suggestion");
+});
+
+test("the mock chat with a suggestion (?mock) offers the Prompt suggestions option and pages none", async () => {
   const scene = mockSessions.find((session) => session.sessionId === PROMPT_SUGGESTION_SESSION)!;
-  const steps: Step[] = sessionHistory(scene).map((step) =>
-    "update" in step
-      ? ["in", String(step.update.sessionUpdate), update(step.update)]
-      : ["mux", step.mux, step.msg ?? {}],
-  );
-  const snapshot = await snapshotOf(steps);
-  expect(snapshot.promptSuggestion?.text).toBe(PROMPT_SUGGESTION);
+  expect(scene.suggestion).toBe(PROMPT_SUGGESTION);
   expect(scene.extraOptions?.map((option) => option.id)).toEqual(["prompt-suggestions"]);
+  // acpmux sends it live only, so the chat's paged history holds none.
+  expect(JSON.stringify(sessionHistory(scene))).not.toContain("prompt_suggestion");
 });

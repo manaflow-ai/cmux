@@ -4150,6 +4150,10 @@ export class AcpmuxDirectClient {
         // The chat's sub-session records: its running limit's `limits` changes (the eighth kind).
         SUBSESSION_KIND,
         ...(this.localOrigin ? QUEUE_KINDS : []),
+        // The agent's suggested next prompt is not transcript (hub/paging.rs), so the live stream
+        // passes it only when asked for by kind. A local acpmux takes any number of kinds; a
+        // remote one's list is at its eight.
+        ...(this.localOrigin ? [SUGGESTION_KIND] : []),
       ],
       eventStream: true,
       visible,
