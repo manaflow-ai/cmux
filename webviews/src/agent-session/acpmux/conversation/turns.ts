@@ -1188,12 +1188,25 @@ function codexLiveTurn(
     if (call.kind === "execute" && !line.doingDraft) line.doingCommand = true;
     Object.assign(line, sendingTo(call));
     line.doingAt = (call.startedAt ?? named.at) + clockOffset;
-  } else if (last.kind === "assistant") line.quietKey = `${last.id}:${last.version}`;
+  } else if (last.kind === "assistant") {
+    line.quietKey = `${last.id}:${last.version}`;
+    // Past the streaming text's pause the line says the agent writes, never "Thinking".
+    line.liveState = "writing";
+  }
+  // Past the turn's first step its clock reads as the turn's whole time ("4m total"), so a long wait
+  // never reads as that long a think, call or step (Leo, 2026-11-03: "i think the "thinking"
+  // accounting is also off pretty frequently", on "Thinking 1h 24m 7s" for a turn that waited on
+  // its subagents).
+  line.turnTotal = true;
   const answering = last.kind === "assistant";
   const plan = sessionStatus ? [...rows].reverse().find((row) => row.kind === "plan" && row.plan?.length) : undefined;
+  // No call in flight and no answer streaming, while foreground subagents still run: the agent
+  // waits on them ("Waiting on 2 subagents"), whatever its last row was.
+  const agents = named || answering ? 0 : foregroundAgents(drawn);
+  if (agents > 0) Object.assign(line, { liveState: "subagents", liveAgents: agents });
   // With a todo list and no answer streaming, the activity line under the list is the live line
   // (below), which names the plan's step, so no call leaves its run for it.
-  if (!named && !answering && !plan) {
+  if (!named && !answering && !plan && agents === 0) {
     // Between calls the line keeps the latest finished step ("Ran grep …") instead of a separate
     // "Thinking" under it, shimmering and timed from the prompt like any step: the line is the
     // turn's current activity and just keeps going (Leo, 2026-11-01: "this should be replacing
@@ -1205,6 +1218,8 @@ function codexLiveTurn(
       line.doing = lifted.doing;
       line.doingShell = lifted.shell;
       line.doingDone = true;
+      // The step's own time, not the turn's ("Opened 1 agent session 3m 27s · 1h 22m total").
+      if (lifted.ms !== undefined) line.doingForMs = lifted.ms;
     }
   }
   if (!plan) return [...rows, line];
@@ -1234,7 +1249,7 @@ function codexLiveTurn(
 function liftedStep(
   rows: AcpmuxRow[],
   last: AcpmuxRow,
-): { rows: AcpmuxRow[]; doing: string; shell: boolean } | undefined {
+): { rows: AcpmuxRow[]; doing: string; shell: boolean; ms?: number } | undefined {
   if (last.kind !== "activity") return undefined;
   // A run that a short note joined to an earlier one keeps the earlier one's id (mergeShortNotes).
   const at = rows.findIndex((row) => row.id === last.id || row.joined?.includes(last.id));
@@ -1266,7 +1281,19 @@ function liftedStep(
   const next = rows.slice();
   if (kept.length) next[at] = { ...run, items: kept, version: run.version * LIFTED_STATES + 1 };
   else next.splice(at, 1);
-  return { rows: next, doing, shell };
+  const ms =
+    call.startedAt !== undefined && call.endedAt !== undefined ? Math.max(0, call.endedAt - call.startedAt) : undefined;
+  return { rows: next, doing, shell, ms };
+}
+
+/// Foreground subagents still running in a live turn's rows (its subagent groups): the ones the
+/// agent waits on. One running in the background (`background`) outlives the turn, so it is no wait.
+function foregroundAgents(rows: readonly AcpmuxRow[]): number {
+  let count = 0;
+  for (const row of rows)
+    if (isSubagentGroup(row))
+      for (const agent of row.subagents ?? []) if (agent.state === "running" && !agent.background) count += 1;
+  return count;
 }
 /// A run with its last call on the live line differs from the same run whole. (Not a sixth
 /// `RUN_STATES`: the minimap's edit-card versions are pinned to five.)

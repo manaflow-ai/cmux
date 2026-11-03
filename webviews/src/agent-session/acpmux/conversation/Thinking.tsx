@@ -47,9 +47,12 @@ function useQuiet(key: string | undefined, ms = QUIET_MS): boolean {
 /// each step replaces in place: "Thinking 18s" (the turn's time, and its tokens when the harness
 /// reports them), the call in flight ("Running bun test 13s", or what it says it does, "Run the
 /// web tests 13s"), the latest finished step until the next starts (`done`, "Ran grep … 15s"), or
-/// "Writing a command 9s" while the agent still writes the command (`draft`). One clock and one
-/// token count for all of them, the turn's, so the line just keeps going. All shimmer. While text streams (`quietKey` moves) the line keeps
-/// its height but draws nothing.
+/// "Writing a command 9s" while the agent still writes the command (`draft`). With no call it names
+/// what the turn does instead: "Waiting on 2 subagents", "Writing", else "Thinking" (`liveState`).
+/// One clock and one token count for all of them, the turn's, so the line just keeps going; past the
+/// turn's first step (`turnTotal`) that clock reads "· 4m total", after a finished step's own time,
+/// so a long wait never reads as that long a think or call. All shimmer. While text streams
+/// (`quietKey` moves) the line keeps its height but draws nothing.
 export function Thinking({
   starting = false,
   since,
@@ -61,6 +64,10 @@ export function Thinking({
   sendSession,
   draft = false,
   done = false,
+  doneMs,
+  liveState,
+  liveAgents = 0,
+  turnTotal = false,
   untimed = false,
   quietKey,
   below = false,
@@ -80,6 +87,15 @@ export function Thinking({
   draft?: boolean;
   /// `doing` is the latest step, finished ("Ran grep …"): the line holds it until the next one.
   done?: boolean;
+  /// How long that finished step took (turns.ts `liftedStep`): the time beside it with `turnTotal`.
+  doneMs?: number;
+  /// With no call named: the agent waits on `liveAgents` foreground subagents, or writes its reply
+  /// (turns.ts `codexLiveTurn`). Otherwise it reads "Thinking".
+  liveState?: "subagents" | "writing";
+  liveAgents?: number;
+  /// Past the turn's first step the clock reads as the turn's whole time ("· 4m total"), after the
+  /// finished step's own time when it has one, so no wait reads as that long a think or call.
+  turnTotal?: boolean;
   untimed?: boolean;
   quietKey?: string;
   /// The turn's last row (conversation/turns.ts): as tall as the footer that replaces it.
@@ -100,7 +116,11 @@ export function Thinking({
   const sendName = useSubsessionInfo(sendSession)?.name ?? sendTo;
   const label =
     doing === undefined
-      ? t("thinking")
+      ? liveState === "subagents" && liveAgents > 0
+        ? t("turn.live.waitingOnSubagents", { n: liveAgents })
+        : liveState === "writing"
+          ? t("turn.live.writing")
+          : t("thinking")
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
         : doingShell
@@ -110,7 +130,12 @@ export function Thinking({
               ? t("tools.writingCommand")
               : t(done ? "tools.ranUnnamed" : "tools.runningUnnamed")
           : doing;
-  const elapsed = timed ? formatDuration(Math.max(0, time - from)) : undefined;
+  const turnTime = timed ? formatDuration(Math.max(0, time - from)) : undefined;
+  // Past the first step the turn's time is labelled as the whole turn's, after the finished step's
+  // own time when it has one: "Ran grep -n x 2s · 15s total", "Waiting on 2 subagents · 1h 24m total"
+  // (Leo, 2026-11-03: "i think the "thinking" accounting is also off pretty frequently").
+  const total = turnTotal && turnTime !== undefined ? t("turn.live.total", { time: turnTime }) : undefined;
+  const elapsed = total ? (done && doneMs !== undefined ? formatDuration(doneMs) : undefined) : turnTime;
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
   // (App.tsx counts nothing while the tray lists it).
@@ -150,6 +175,14 @@ export function Thinking({
             />
           </output>
           {elapsed && <span className="cv-worked__time">{elapsed}</span>}
+        </span>
+      )}
+      {total && !waiting && (
+        <span className="cv-worked__count cv-worked__total">
+          <span className="cv-worked__sep" aria-hidden="true">
+            ·
+          </span>
+          {total}
         </span>
       )}
       {showTokens && (
