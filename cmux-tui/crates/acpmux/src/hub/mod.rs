@@ -313,6 +313,11 @@ pub struct HubEvent {
     pub session_id: String,
     pub record: Arc<EventRecord>,
     pub remote: Option<RemoteRef>,
+    /// The record's `session/update` line as attached connections that read it raw get it (every
+    /// origin but a peer daemon's), built by the first connection that sends it and shared by the
+    /// rest (`server::deliver`). HOT PATH AUDIT area F, row A4: a streamed token is copied and
+    /// encoded once, not once per attached connection.
+    pub update_line: Arc<std::sync::OnceLock<Option<Arc<str>>>>,
 }
 
 /// One `_acpmux/message` copy in a journal: its message id, plus for a sender's copy the chat
@@ -1989,6 +1994,7 @@ impl Hub {
                 session_id: session.id.clone(),
                 record: Arc::new(record.clone()),
                 remote: None,
+                update_line: Default::default(),
             });
         }
         (record, stored)
