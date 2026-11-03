@@ -65,15 +65,17 @@ export function useIMessage(enabled = true): IMessageView | undefined {
   }, []);
   useEffect(() => {
     if (!enabled || !supported) return;
-    live.current = true;
+    const alive = live;
+    const replies = revision;
+    alive.current = true;
     const refresh = () => {
       void request("status");
     };
     refresh();
     window.addEventListener("cmux-imessage-changed", refresh);
     return () => {
-      live.current = false;
-      revision.current++;
+      alive.current = false;
+      replies.current++;
       window.removeEventListener("cmux-imessage-changed", refresh);
     };
   }, [enabled, supported, request]);
