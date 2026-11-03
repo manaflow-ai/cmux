@@ -118,6 +118,12 @@ pub fn admit_peer(answer: &Value, requested: &str) -> Result<Admitted, String> {
             "peer has no harness named {requested}; name an available profile explicitly"
         ));
     }
+    if cmux_chief::policy::harness::is_route(requested) && profiles[profile]["kind"] != CLAUDE_STDIO
+    {
+        return Err(format!(
+            "peer's {requested} is not acpmux's {CLAUDE_STDIO} adapter"
+        ));
+    }
     refuse_chief_harness(answer, profile)?;
     if let Some(why) = profiles[profile]
         .get("unavailable")
