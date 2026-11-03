@@ -9,11 +9,13 @@ public import Foundation
 /// creations are per account (user and team): another account's ask never joins or takes them,
 /// and a sign-out or team switch ends them (``forgetAll()``).
 ///
-/// Generic over the run's answer (`Fields`) and the machine a creation makes, so it holds no App
+/// Generic over the run's answer (`Answer`, named ``Fields``) and the machine a creation makes, so it holds no App
 /// type: the App names it `CloudStartSessionRuns`.
 @MainActor
-public final class CloudStartRuns<Fields: Sendable, Machine: Sendable> {
+public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
     public typealias Key = CloudStartRunKey
+    /// What a run answers (the App's action result fields).
+    public typealias Fields = Answer
 
     private struct Creation: Hashable {
         var name: String
