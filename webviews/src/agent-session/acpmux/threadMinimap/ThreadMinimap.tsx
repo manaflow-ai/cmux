@@ -1071,7 +1071,8 @@ export function ThreadMinimap({
         // earlier and pending ones and fold runs of other chats' messages: find its turn by row.
         jump={(turn, how) => {
           const id = loadedTurns[turn]?.id;
-          const at = id === undefined ? -1 : turns.findHeld((each) => each.id === id || each.members?.includes(id));
+          const at =
+            id === undefined ? -1 : turns.findHeld((each) => each.id === id || each.members?.includes(id) === true);
           return at < 0 ? undefined : jump(at, how);
         }}
       />
