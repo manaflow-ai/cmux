@@ -69,7 +69,7 @@ const withReply = async (suffix: string, reply: string, check: (b: ChiefBrainDO,
             return response
           }
           const value = Reflect.get(target, property, receiver)
-          return typeof value === "function" ? value.bind(target) : value
+          return typeof value === "function" ? (...args: unknown[]) => Reflect.apply(value, target, args) : value
         }
       })
     }
@@ -85,7 +85,7 @@ const withReply = async (suffix: string, reply: string, check: (b: ChiefBrainDO,
             return (target as unknown as { takeAttachmentQuota: (...a: unknown[]) => Promise<unknown> }).takeAttachmentQuota(...args)
           }
           const value = Reflect.get(target, property, receiver)
-          return typeof value === "function" ? value.bind(target) : value
+          return typeof value === "function" ? (...args: unknown[]) => Reflect.apply(value, target, args) : value
         }
       })
     }
@@ -101,7 +101,7 @@ const withReply = async (suffix: string, reply: string, check: (b: ChiefBrainDO,
         return (target as unknown as { put: (...a: unknown[]) => Promise<unknown> }).put(...args)
       }
       const value = Reflect.get(target, property, receiver)
-      return typeof value === "function" ? value.bind(target) : value
+      return typeof value === "function" ? (...args: unknown[]) => Reflect.apply(value, target, args) : value
     }
   })
   const fake = { ...testEnv, CONVERSATION_DO: conversationNs, USER_DO: userNs, HOME_ATTACHMENTS: bucket } as unknown as Env
