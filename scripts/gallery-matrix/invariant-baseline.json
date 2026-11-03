@@ -3967,11 +3967,6 @@
     "viewer-empty.path-picker#recent-folders": [],
     "viewer-empty.path-picker#rtl": [
       "menu-fit:div[aria-label=\"/Users/demo/Projects/cmux\"]"
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-010\""
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-012\""
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-014\""
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-016\""
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-018\""
     ],
     "viewer-empty.path-picker#virtualized": [
       "menu-fit:div[aria-label=\"/Users/demo/Projects/cmux/surfac"
