@@ -106,27 +106,29 @@ struct PaletteNavigationEntriesTests {
 
     @Test func aWorkspaceWithOneChatIsOneRowAndItsChatFindsIt() {
         let entries = PaletteNavigationEntries.entries(Self.ultras(), groups: [], lastActive: [:])
-        // The lone chat of "Set up Mac Studio Ultras for" is that workspace's row, not one of its own.
-        #expect(entries.map(\.itemID) == ["tab:a1", "tab:a2"])
-        #expect(entries.allSatisfy { $0.workspaceID == "ws-a" })
+        // The lone chat of "Set up Mac Studio Ultras for" is that workspace's row, not one of its own:
+        // it is listed folded, so the palette knows its chat (NavigationPaletteProvider.oneRowPerChat).
+        #expect(entries.map(\.itemID) == ["tab:a1", "tab:a2", "tab:b1"])
+        #expect(entries.map(\.isFolded) == [false, false, true])
+        #expect(entries.map(\.workspaceID) == ["ws-a", "ws-a", "ws-b"])
     }
 
     @Test func aClosingSecondTabFoldsTheOneLeftAndHomeKeepsItsTabs() {
         // Closing one of the two chats leaves a workspace with one chat: one row.
-        #expect(PaletteNavigationEntries.entries(Self.ultras(), groups: [], lastActive: [:], closing: ["a2"]).isEmpty)
+        #expect(PaletteNavigationEntries.entries(Self.ultras(), groups: [], lastActive: [:], closing: ["a2"]).allSatisfy(\.isFolded))
         var topology = Self.ultras()
         topology.workspaces[1].kind = "home"
-        #expect(PaletteNavigationEntries.entries(topology, groups: [], lastActive: [:]).map(\.itemID) == ["tab:a1", "tab:a2", "tab:b1"])
+        #expect(!PaletteNavigationEntries.entries(topology, groups: [], lastActive: [:]).contains(where: \.isFolded))
         // A window's own Home (its pane's first tab is Home's page) keeps its lone tab too.
         var windowHome = Self.ultras()
         windowHome.workspaces[1].screens[0].panes[0].tabs[0].page = "home-dock"
-        #expect(PaletteNavigationEntries.entries(windowHome, groups: [], lastActive: [:]).map(\.itemID) == ["tab:a1", "tab:a2", "tab:b1"])
+        #expect(!PaletteNavigationEntries.entries(windowHome, groups: [], lastActive: [:]).contains(where: \.isFolded))
     }
 
     @Test func theChatsThatRepeatTheirWorkspaceNameCarryItsIDForTheRowsToTellThemApart() {
         // NavigationPaletteProvider titles them "Agent Chat 1" and "Agent Chat 2" per workspace id
         // (PaletteNavigationTests.ultraListsEachWorkspaceOnceAndItsChatsByKind).
-        let entries = PaletteNavigationEntries.entries(Self.ultras(), groups: [], lastActive: [:])
+        let entries = PaletteNavigationEntries.entries(Self.ultras(), groups: [], lastActive: [:]).filter { !$0.isFolded }
         #expect(entries.map(\.title) == ["mac-studio-ultras", "mac-studio-ultras"])
         #expect(entries.map(\.workspaceTitle) == ["mac-studio-ultras", "mac-studio-ultras"])
         #expect(entries.map(\.workspaceID) == ["ws-a", "ws-a"])

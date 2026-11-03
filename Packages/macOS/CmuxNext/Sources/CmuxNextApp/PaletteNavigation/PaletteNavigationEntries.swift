@@ -15,7 +15,7 @@ nonisolated struct PaletteNavigationGroup: Hashable {
 
 /// Go to Workspace's group, pane and tab entries (pure; the tests call it).
 /// Panes are listed only in a workspace with more than one: a lone pane is its workspace, as is a
-/// lone tab (not in a Home, `WorkspaceModel.isAnyHome`). Tabs closing now are left out, as in Search Tabs.
+/// lone tab (not in a Home, `WorkspaceModel.isAnyHome`; listed `isFolded`, so its chat is known). Tabs closing now are left out, as in Search Tabs.
 nonisolated enum PaletteNavigationEntries {
     static func entries(_ topology: ControlTopology, groups: [PaletteNavigationGroup], lastActive: [String: Date],
                         closing: Set<String> = []) -> [PaletteNavigationEntry] {
@@ -40,12 +40,12 @@ nonisolated enum PaletteNavigationEntries {
                         groupTitle: groupTitle, cwd: selected?.cwd, keywords: tabs.map(\.title), isCurrent: pane.id == focus.paneID,
                         lastUsed: tabs.compactMap { lastActive[$0.id] }.max(), machineID: workspace.machine))
                 }
-                for tab in tabs where !folds {
+                for tab in tabs {
                     entries.append(PaletteNavigationEntry(
                         id: tab.id, kind: .tab(kind(of: tab)), title: tab.title, workspaceTitle: workspace.name, workspaceID: workspace.id,
                         groupTitle: groupTitle,
                         cwd: tab.cwd, url: tab.url, agent: tab.agent, sessionID: sessionID(of: tab), isCurrent: tab.id == focus.tabID,
-                        lastUsed: lastActive[tab.id]))
+                        lastUsed: lastActive[tab.id], isFolded: folds))
                 }
             }
         }

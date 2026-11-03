@@ -45,9 +45,35 @@ public final class NavigationPaletteProvider: PaletteProvider {
     @MainActor
     static func items(_ entries: [PaletteNavigationEntry], source: (any PaletteNavigationSource)?) -> [PaletteItem] {
         let recency = recencyRanks(entries)
-        return distinctTitles(entries).map { entry in
+        return distinctTitles(oneRowPerChat(entries)).map { entry in
             let boost = recency[entry.itemID].map { max(0, TabSearchPlan.recencyBoost - TabSearchPlan.recencyStep * $0) } ?? 0
             return item(entry, recencyBoost: boost, source: source)
+        }
+    }
+
+    /// `entries` with one row per agent chat: an acpmux session open in several tabs (a chat, a
+    /// coordinator's view of it, another window's) is one place to go. A folded tab's session is
+    /// its workspace's row, so it drops every tab on it; otherwise the current tab is kept, else
+    /// the most recently used, else the first. Leo's "ultra" search listed one chat three times,
+    /// each in another workspace (2026-11-03: "some of these are way too duplicated").
+    static func oneRowPerChat(_ entries: [PaletteNavigationEntry]) -> [PaletteNavigationEntry] {
+        func chat(_ entry: PaletteNavigationEntry) -> String? {
+            guard case .tab(.agentChat) = entry.kind, let id = entry.sessionID, id.hasPrefix(PaletteNavigationEntry.acpPrefix) else { return nil }
+            return id
+        }
+        var keep: [String: PaletteNavigationEntry] = [:]
+        var folded: Set<String> = []
+        for entry in entries {
+            guard let id = chat(entry) else { continue }
+            if entry.isFolded { folded.insert(id); continue }
+            guard let kept = keep[id] else { keep[id] = entry; continue }
+            let later = (entry.lastUsed ?? .distantPast) > (kept.lastUsed ?? .distantPast)
+            if !kept.isCurrent, entry.isCurrent || later { keep[id] = entry }
+        }
+        return entries.filter { entry in
+            guard !entry.isFolded else { return false }
+            guard let id = chat(entry) else { return true }
+            return !folded.contains(id) && keep[id]?.itemID == entry.itemID
         }
     }
 

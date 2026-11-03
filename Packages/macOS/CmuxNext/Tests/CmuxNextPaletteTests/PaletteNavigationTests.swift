@@ -184,6 +184,48 @@ struct PaletteNavigationTests {
         #expect(await Self.search(palette, "acp-b1").first == "workspace:ws-b")
     }
 
+    /// Leo's screenshot unblurred: one chat ("mac-studio-ultras") is open in three workspaces. It is
+    /// the lone tab of "mac-studio-ultras" and of "Set up Mac Studio Ultras for", and a tab of
+    /// claude-sr2-coord. Five rows were two workspaces and that chat three times. Now: the two
+    /// workspace rows, and no chat row (each folded copy is its workspace's row).
+    @Test func ultraOneChatOpenInThreeWorkspacesListsNoChatRow() async {
+        let workspaces = Workspaces()
+        workspaces.workspaces = [
+            PaletteWorkspace(id: "ws-a", title: "mac-studio-ultras", machineName: "mini", keywords: ["mac-studio-ultras", "acp:s1", "s1"]),
+            PaletteWorkspace(id: "ws-b", title: "Set up Mac Studio Ultras for", machineName: "mini",
+                             keywords: ["mac-studio-ultras", "acp:s1", "s1"]),
+            PaletteWorkspace(id: "ws-c", title: "claude-sr2-coord", groupName: "Coordinators"),
+        ]
+        let navigation = Navigation()
+        func chat(_ id: String, _ workspace: String, _ workspaceID: String, folded: Bool) -> PaletteNavigationEntry {
+            PaletteNavigationEntry(id: id, kind: .tab(.agentChat), title: "mac-studio-ultras", workspaceTitle: workspace,
+                                   workspaceID: workspaceID, sessionID: "acp:s1", isFolded: folded)
+        }
+        navigation.entries = [
+            chat("a1", "mac-studio-ultras", "ws-a", folded: true),
+            chat("b1", "Set up Mac Studio Ultras for", "ws-b", folded: true),
+            chat("c1", "claude-sr2-coord", "ws-c", folded: false),
+            PaletteNavigationEntry(id: "c2", kind: .tab(.terminal), title: "zsh", workspaceTitle: "claude-sr2-coord", workspaceID: "ws-c"),
+        ]
+        let palette = Self.palette(workspaces, navigation)
+        defer { palette.closeForTest() }
+        palette.show(.workspaces)
+        #expect(Set(await Self.search(palette, "ultra")) == ["workspace:ws-a", "workspace:ws-b"])
+    }
+
+    @Test func aChatOpenInSeveralTabsKeepsTheCurrentElseTheLatestTab() {
+        let old = Date(timeIntervalSince1970: 1), new = Date(timeIntervalSince1970: 2)
+        func chat(_ id: String, session: String = "acp:s1", current: Bool = false, used: Date? = nil) -> PaletteNavigationEntry {
+            PaletteNavigationEntry(id: id, kind: .tab(.agentChat), title: "Fix CI", sessionID: session, isCurrent: current, lastUsed: used)
+        }
+        let ids = { (entries: [PaletteNavigationEntry]) in NavigationPaletteProvider.oneRowPerChat(entries).map(\.id) }
+        #expect(ids([chat("a", used: old), chat("b", used: new), chat("c")]) == ["b"])
+        #expect(ids([chat("a", used: new), chat("b", current: true), chat("c", used: old)]) == ["b"])
+        // Other chats, and a terminal's harness session, are not merged.
+        let terminal = PaletteNavigationEntry(id: "t", kind: .tab(.terminal), title: "claude", sessionID: "0d8f6c1e")
+        #expect(ids([chat("a"), chat("b", session: "acp:s2"), terminal, terminal]) == ["a", "b", "t", "t"])
+    }
+
     @Test func aLoneTabsTitleAndSessionFindItsWorkspace() {
         #expect(PaletteWorkspace.loneTabWords(title: "Racking the Studios", session: "acp-b1") == ["Racking the Studios", "acp:acp-b1", "acp-b1"])
         #expect(PaletteWorkspace.loneTabWords(title: "", session: nil).isEmpty)
