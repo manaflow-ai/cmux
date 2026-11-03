@@ -31,6 +31,14 @@ for n in "$runs" "$cold" "$youtube"; do
   [[ "$n" =~ ^[0-9]{1,3}$ ]] || { echo "browser-use-perf.sh: runs, cold and youtube are 0-999" >&2; exit 2; }
 done
 [[ "$tools" =~ ^[a-z-]+(,[a-z-]+)*$ ]] || { echo "browser-use-perf.sh: tools=a,b,c" >&2; exit 2; }
+# The bench drives Chrome through Playwright MCP, Stagehand and browser-use, and downloads Chrome for
+# Testing when the Mac has no Chrome: never on a Mac (Lawrence's rule, 2026-11-02: no Playwright,
+# Puppeteer or downloaded Chromium on his Mac or a fleet Mac). build=only builds the host and runs no
+# browser, so it still runs on a Mac.
+if [[ "$build_only" != true && "$(uname -s)" == Darwin ]]; then
+  echo "browser-use-perf.sh: not on a Mac (Lawrence's rule: no Playwright on Macs); run it in CI or on a cloud VM" >&2
+  exit 1
+fi
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 work="$root/.build/browser-use-perf"
