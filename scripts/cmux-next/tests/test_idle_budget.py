@@ -9,14 +9,18 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "perf-bench"))
 spec = importlib.util.spec_from_file_location("idle_budget", HERE / "idle-budget.py")
 ib = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(ib)
+# These tests exercise pure bookkeeping and fake socket replies, not libproc.
+with patch("ctypes.CDLL") if sys.platform != "darwin" else nullcontext():
+    spec.loader.exec_module(ib)
 
 APP = "/Users/x/DerivedData/cmux-t/Build/Products/Debug/cmux DEV t.app"
 
@@ -26,6 +30,171 @@ def row(kind, threads, wakeups, cpu=0.0):
 
 
 class IdleBudgetTests(unittest.TestCase):
+    def test_newtab_sessions_build_each_page_before_hiding_without_replacing_it(self):
+        class App:
+            def __init__(self):
+                self.count = 0
+                self.hidden = False
+                self.calls = []
+
+            def rpc(self, method, params=None, **kwargs):
+                self.calls.append((method, params))
+                if method == "action.run":
+                    if params["action"] == "newTab.page":
+                        self.count += 1
+                    elif params["action"] == "nextSurface":
+                        self.hidden = True
+                    else:
+                        raise AssertionError(params)
+                    return {}
+                if method == "debug.agent_pane":
+                    return {"document_ready": True, "body_text_length": 100, "engine": "cef"}
+                key = "terminal" if self.hidden else f"tab_newtab{self.count}"
+                return {"windows": [{"panes": [{"pane": "p", "focused": True,
+                         "kind": "terminal" if self.hidden else "agent", "selected_tab": key,
+                         "shown_tab": key, "content_installed": True, "content_in_window": True}]}],
+                        "hibernation": {"chat_pages": [f"tab_newtab{i}" for i in range(1, self.count + 1)]}}
+
+        for count in (1, 5, 20):
+            app = App()
+            opened = ib.build_newtabs(app, count)
+            self.assertEqual(opened["rendered"], count)
+            self.assertEqual(len(set(opened["keys"])), count)
+            self.assertEqual(opened["engines"], ["cef"] * count)
+            self.assertEqual(sum(method == "debug.agent_pane" and params["action"] == "readiness"
+                                 for method, params in app.calls), count)
+            self.assertEqual([params["action"] for method, params in app.calls if method == "action.run"],
+                             ["newTab.page"] * count + ["nextSurface"])
+            self.assertEqual(ib.newtab_evidence(app, opened)["live_count"], count)
+
+    def test_newtab_measurement_rejects_missing_or_lazy_pages(self):
+        class App:
+            def rpc(self, *args, **kwargs):
+                return {}
+        with self.assertRaisesRegex(RuntimeError, "only built 0 of 5"):
+            ib.build_newtabs(App(), 5, limit=0)
+        with self.assertRaisesRegex(RuntimeError, "lacks hibernation.chat_pages"):
+            ib.newtab_evidence(App(), {"keys": ["a"]})
+
+    def test_newtab_setup_preserves_full_panes_and_readiness_error(self):
+        pane = {"pane": "p", "focused": True, "kind": "agent", "selected_tab": "tab_real",
+                "shown_tab": "tab_real", "content_installed": True, "content_in_window": True}
+        readiness = {"error": "page script failed"}
+
+        class App:
+            def rpc(self, method, params=None, **kwargs):
+                if method == "action.run":
+                    return {}
+                if method == "debug.agent_pane":
+                    return readiness
+                return {"windows": [{"panes": [pane]}], "hibernation": {"chat_pages": ["tab_real"]}}
+
+        with patch.object(ib.time, "monotonic", side_effect=[0, 0, 2]), patch.object(ib.time, "sleep"):
+            with self.assertRaises(ib.NewTabSetupError) as failure:
+                ib.build_newtabs(App(), 1, limit=1)
+        self.assertEqual(failure.exception.diagnostics["panes"], [pane])
+        self.assertEqual(failure.exception.diagnostics["readiness"], readiness)
+
+    def test_newtab_setup_never_counts_a_provisional_tab_id(self):
+        class App:
+            def rpc(self, method, params=None, **kwargs):
+                if method == "action.run":
+                    return {}
+                if method == "debug.agent_pane":
+                    raise AssertionError("a provisional tab is not a stable page to measure")
+                return {"windows": [{"panes": [{"pane": "p", "focused": True, "kind": "agent",
+                        "selected_tab": "pending_tab_1", "shown_tab": "pending_tab_1",
+                        "content_installed": True, "content_in_window": True}]}],
+                        "hibernation": {"chat_pages": ["pending_tab_1"]}}
+
+        with patch.object(ib.time, "monotonic", side_effect=[0, 0, 2]), patch.object(ib.time, "sleep"):
+            with self.assertRaisesRegex(ib.NewTabSetupError, "only built 0 of 1"):
+                ib.build_newtabs(App(), 1, limit=1)
+
+    def test_newtab_setup_focuses_the_new_stable_agent_before_readiness(self):
+        class App:
+            def __init__(self):
+                self.created = self.focused = self.hidden = False
+                self.calls = []
+
+            def rpc(self, method, params=None, **kwargs):
+                self.calls.append((method, params))
+                if method == "action.run":
+                    if params["action"] == "newTab.page":
+                        self.created = True
+                    elif params["action"] == "tab.focus":
+                        self.assert_target = params["target"]
+                        self.focused = params["target"] == "tab:tab_new"
+                    elif params["action"] == "nextSurface":
+                        self.hidden = True
+                    return {}
+                if method == "debug.agent_pane":
+                    assert self.focused and params["pane"] == "agent", "readiness needs the target pane's focus"
+                    return {"document_ready": True, "body_text_length": 100, "engine": "cef"}
+                panes = [{"pane": "other", "kind": "page", "focused": not self.focused},
+                         {"pane": "existing", "kind": "agent", "focused": False,
+                          "selected_tab": "tab_existing", "shown_tab": "tab_existing",
+                          "content_installed": True, "content_in_window": True}]
+                if self.created:
+                    key = "terminal" if self.hidden else "tab_new"
+                    panes.append({"pane": "agent", "kind": "terminal" if self.hidden else "agent",
+                                  "focused": self.focused, "selected_tab": key, "shown_tab": key,
+                                  "content_installed": True, "content_in_window": True})
+                return {"windows": [{"panes": panes}],
+                        "hibernation": {"chat_pages": ["tab_existing"] + (["tab_new"] if self.created else [])}}
+
+        app = App()
+        with patch.object(ib.time, "monotonic", side_effect=[0, 0, 0, 2, 2]), patch.object(ib.time, "sleep"):
+            opened = ib.build_newtabs(app, 1, limit=1)
+        self.assertEqual(opened["keys"], ["tab_new"])
+        self.assertEqual(app.assert_target, "tab:tab_new")
+        focus = next(i for i, (method, params) in enumerate(app.calls)
+                     if method == "action.run" and params["action"] == "tab.focus")
+        ready = next(i for i, (method, params) in enumerate(app.calls)
+                     if method == "debug.agent_pane" and params["action"] == "readiness")
+        self.assertLess(focus, ready)
+
+    def test_newtab_setup_requires_observed_focus_even_when_focus_action_succeeds(self):
+        class App:
+            created = False
+
+            def rpc(self, method, params=None, **kwargs):
+                if method == "action.run":
+                    if params["action"] == "newTab.page":
+                        self.created = True
+                    return {}
+                if method == "debug.agent_pane":
+                    raise AssertionError("an unfocused pane cannot pass readiness")
+                panes = [{"pane": "agent", "kind": "agent", "focused": False,
+                          "selected_tab": "tab_new", "shown_tab": "tab_new",
+                          "content_installed": True, "content_in_window": True}] if self.created else []
+                return {"windows": [{"panes": panes}],
+                        "hibernation": {"chat_pages": ["tab_new"] if self.created else []}}
+
+        with patch.object(ib.time, "monotonic", side_effect=[0, 0, 2]), patch.object(ib.time, "sleep"):
+            with self.assertRaisesRegex(ib.NewTabSetupError, "only built 0 of 1"):
+                ib.build_newtabs(App(), 1, limit=1)
+
+    def test_newtab_evidence_intersects_measured_keys_and_rejects_visible_page(self):
+        class App:
+            def rpc(self, *args, **kwargs):
+                return {"windows": [{"panes": [{"shown_tab": "terminal"}]}],
+                        "hibernation": {"chat_pages": ["b", "unrelated"]}}
+        evidence = ib.newtab_evidence(App(), {"keys": ["a", "b"], "rendered": 2})
+        self.assertEqual(evidence["live_count"], 1)
+        self.assertEqual(evidence["live_keys"], ["b"])
+        with patch.object(App, "rpc", return_value={"windows": [{"panes": [{"shown_tab": "a"}]}]}):
+            with self.assertRaisesRegex(RuntimeError, "visible during"):
+                ib.newtab_evidence(App(), {"keys": ["a"]})
+
+    def test_memory_summary_counts_renderers_and_sums_all_footprints(self):
+        result = {"processes": [{"pid": 1, "kind": "app", "footprint_mb": 10.1},
+                                {"pid": 2, "kind": "cef-renderer", "footprint_mb": 20.2},
+                                {"pid": 3, "kind": "webkit-webcontent", "footprint_mb": 30.3},
+                                {"pid": 4, "kind": "cef-gpu", "footprint_mb": 40.4}]}
+        self.assertEqual(ib.memory_summary(result), {"total_footprint_mb": 101.0, "renderer_count": 2,
+                                                   "renderer_pids": [2, 3], "renderer_footprint_mb": 50.5})
+
     def test_kinds(self):
         self.assertEqual(ib.kind(f"{APP}/Contents/MacOS/cmux DEV"), "app")
         self.assertEqual(ib.kind(f"{APP}/Contents/Resources/bin/cmux-tui server --socket s"), "daemon")
