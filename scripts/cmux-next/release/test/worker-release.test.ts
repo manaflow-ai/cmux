@@ -138,6 +138,26 @@ describe("advance", () => {
     expect(r.logs.join()).toContain("newer deployment inputs")
     expect(r.calls).toEqual([])
   })
+  it("X running, B pending, then slow A arrives: B survives and only B deploys", async () => {
+    const workflow = Bun.YAML.parse(readFileSync(new URL("../../../../.github/workflows/backend.yml", import.meta.url), "utf8")) as any
+    for (const environment of ["development", "staging"]) {
+      const policy = workflow.jobs[`deploy-${environment}`].concurrency
+      const pending: Array<string> = []
+      // GitHub's documented concurrency policy: single replaces the pending slot;
+      // max retains the waiting jobs. X already holds the one running slot.
+      for (const arriving of [b, a]) {
+        if (policy.queue !== "max") pending.length = 0
+        pending.push(arriving)
+      }
+      const deployed: Array<string> = []
+      for (const candidate of pending) {
+        const result = await check(candidate, b)
+        expect(result.code).toBe(0)
+        if (result.output === "deploy=true\n") deployed.push(candidate)
+      }
+      expect(deployed).toEqual([b])
+    }
+  })
   it("admits the current protected source, including same-source retries", async () => {
     const r = await check(b, b)
     expect(r.code).toBe(0)
@@ -171,7 +191,7 @@ describe("backend deployment lock wiring", () => {
     expect(workflow.concurrency["cancel-in-progress"]).toBe(false)
     for (const environment of ["development", "staging"]) {
       const job = workflow.jobs[`deploy-${environment}`]
-      expect(job.concurrency).toEqual({ group: `cmux-next-deploy-${environment}`, "cancel-in-progress": false })
+      expect(job.concurrency).toEqual({ group: `cmux-next-deploy-${environment}`, queue: "max", "cancel-in-progress": false })
       const guard = job.steps.findIndex((s: any) => s.id === "source")
       expect(guard).toBeGreaterThan(0)
       expect(job.steps[guard].env).toBeUndefined()

@@ -74,6 +74,7 @@ permissions:
 
 # Independent NEXT pushes must not wait for another run's tests or promotion gates.
 # Environment job groups still serialize each complete deployment/smoke/rollback sequence.
+# Retain pending jobs: a slower older test run must not replace a newer pending deployment.
 concurrency:
   group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action || 'run' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('-{0}', github.sha) || '' }}
   cancel-in-progress: false
@@ -313,6 +314,7 @@ jobs:
     environment: cmux-next-staging
     concurrency:
       group: cmux-next-deploy-staging
+      queue: max
       cancel-in-progress: false
     defaults:
       run:
@@ -449,6 +451,7 @@ jobs:
     environment: cmux-next-development
     concurrency:
       group: cmux-next-deploy-development
+      queue: max
       cancel-in-progress: false
     defaults:
       run:
