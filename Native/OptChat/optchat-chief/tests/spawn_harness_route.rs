@@ -134,7 +134,25 @@ fn spawn_harness_routes_the_subagents_and_the_setting_turns_it_off() {
 #[test]
 fn pinned_harness_controls_machine_login_selection_and_cached_auth_fallback() {
     for cached_signed_out in [false, true] {
-        let mut h = Harness::new(default_script());
+        let dir = tempfile::tempdir().unwrap();
+        let mut settings = settings(dir.path());
+        // Host startup supplies the catalog's families to the brain.
+        settings.families = [
+            ("claude-sr".into(), optchat_chief::acpmux::Family::Claude),
+            ("claude".into(), optchat_chief::acpmux::Family::Claude),
+            ("codex".into(), optchat_chief::acpmux::Family::Codex),
+        ]
+        .into();
+        let mut h = Harness::configured(
+            dir,
+            default_script(),
+            Arc::new(std::sync::Mutex::new(Owner {
+                summary: Some(summary()),
+                ..Owner::default()
+            })),
+            settings,
+            Arc::new(|_| {}),
+        );
         h.agents.hold(true);
         {
             let mut agents = h.agents.inner.lock().unwrap();
