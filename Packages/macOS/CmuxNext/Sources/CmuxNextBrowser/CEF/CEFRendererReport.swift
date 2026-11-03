@@ -26,7 +26,7 @@ public nonisolated struct CEFRendererOwner: Sendable, Encodable, Equatable {
 /// row per pid (cmux-tui `cli/app/renderers.rs`), so a busy `cmux Helper (Renderer)` pid names
 /// its page, tab and agent session.
 public nonisolated struct CEFRendererReport: Sendable, Encodable {
-    public struct Page: Sendable, Encodable {
+    public nonisolated struct Page: Sendable, Encodable {
         public var browser: Int32
         public var url: String
         public var title: String
@@ -35,7 +35,7 @@ public nonisolated struct CEFRendererReport: Sendable, Encodable {
         public var owner: CEFRendererOwner?
     }
 
-    public struct Helper: Sendable, Encodable {
+    public nonisolated struct Helper: Sendable, Encodable {
         public var pid: Int32
         /// The `--renderer-client-id` its pages name; nil for an extension's renderer.
         public var client: Int32?
