@@ -68,6 +68,9 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     /// The Mac whose agent sent the event: answers, replies and opens go to
     /// that Mac's link, never the chosen one's (nil: mock content, old archives).
     public var macID: String?
+    /// The page the event opens instead of a chat: a request of the Mac app's own Feed (a PR
+    /// held for trial, `MacNeedsYouFeed`), answered there, not in a chat or a terminal.
+    public var link: URL?
 
     public init(
         id: String, kind: Kind, workspaceID: String, tabID: String, agentName: String, harness: String,
@@ -297,6 +300,17 @@ public final class FeedStore {
         guard let item = item(id: "ask-\(permissionID)") else { return false }
         if let mac, let owner = item.macID, mac != owner { return false }
         return item.isDone || !item.needsYou
+    }
+
+    /// The Macs whose own Feed requests (`MacNeedsYouFeed`) were read on their live link.
+    @ObservationIgnored public var macRequestsRead: Set<String> = []
+
+    /// Whether the Feed knows the Mac app's Feed request of push `eventID` (`feed-<id>`, from
+    /// cmux-mobile-host `needs_you.rs`) on `mac` closed: that Mac's live list no longer has it,
+    /// or it was marked done. False until that Mac's list was read on its live link.
+    public func isClosedMacRequest(eventID: String, mac: String?) -> Bool {
+        _ = (eventID, mac)  // red: not written yet
+        return false
     }
 
     /// Persisted read flags (`FeedReadMarks`); nil keeps them in memory only (tests).

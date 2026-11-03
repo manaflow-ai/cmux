@@ -533,6 +533,7 @@ fn exposure_allows(state: &crate::control::SessionExposure, event: &NotifyEvent)
     if event.session_id.as_deref().is_some_and(|id| state.blocked.contains(id)) {
         return false;
     }
+    // The Mac app's own Feed requests (`needs_you.rs`) are Mac-wide, like a terminal's.
     if state.configured
         && event.session_id.is_none()
         && event.notification_id.is_none()
@@ -560,6 +561,7 @@ pub async fn run(
     if let Some(socket) = daemon_socket {
         tokio::spawn(crate::notify_terminal::run(socket, Arc::clone(&places), reporter.clone()));
     }
+    tokio::spawn(crate::needs_you::run(reporter.clone()));
     let mut classifier = Classifier::with_places(places);
     let mut backoff = Duration::from_secs(2);
     loop {
@@ -705,6 +707,18 @@ mod tests {
 
         let terminal = NotifyEvent { agent: Some("Terminal".into()), ..NotifyEvent::default() };
         assert!(exposure_allows(&state, &terminal));
+
+        // The Mac app's own Feed request (a held PR) is Mac-wide, as a terminal's is (#33818).
+        let feed = crate::needs_you::push_event(&crate::needs_you::Request {
+            id: "fi_held".into(),
+            title: "Held for your trial".into(),
+            body: String::new(),
+            kind: "review".into(),
+            source: "GitHub".into(),
+            url: None,
+            created_at_ms: 0,
+        });
+        assert!(exposure_allows(&state, &feed));
     }
 
     #[test]
