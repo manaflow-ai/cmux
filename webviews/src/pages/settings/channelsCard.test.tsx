@@ -296,3 +296,31 @@ test("an app that offers no Update button shows the lines only", async () => {
   expect(card(page.container)!.querySelector("[data-channel-update-machine]")).toBeNull();
   page.unmount();
 });
+
+test("Install an Earlier Nightly… opens the page at ?focus=channels[:N], which scrolls to the card", async () => {
+  const scrolled: string[] = [];
+  const view = globalThis.window.HTMLElement.prototype;
+  const original = view.scrollIntoView;
+  view.scrollIntoView = function (this: HTMLElement) {
+    scrolled.push(this.dataset.card ?? this.tagName);
+  };
+  try {
+    const page = await renderPage({ path: "/settings/updates?focus=channels" });
+    await settle();
+    expect(card(page.container)).not.toBeNull();
+    expect(scrolled).toContain("channels");
+    page.unmount();
+    scrolled.length = 0;
+    const again = await renderPage({ path: "/settings/updates?focus=channels:2" });
+    await settle();
+    expect(scrolled).toContain("channels");
+    again.unmount();
+    scrolled.length = 0;
+    const plain = await renderPage({ path: "/settings/updates" });
+    await settle();
+    expect(scrolled).not.toContain("channels");
+    plain.unmount();
+  } finally {
+    view.scrollIntoView = original;
+  }
+});

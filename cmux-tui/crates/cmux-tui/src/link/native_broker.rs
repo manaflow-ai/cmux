@@ -107,7 +107,11 @@ fn read_identity(stream: &mut UnixStream) -> io::Result<Identity> {
         bootstrap.ipv4_cidr,
         bootstrap.tunnel,
     )
-    .map_err(|error| refused(&error.to_string()))?;
+    .map_err(|error| {
+        let message = error.to_string();
+        let step = message.strip_prefix("cloud.native.route_refused: ").unwrap_or(&message);
+        refused(&format!("route {step}"))
+    })?;
     Ok(Identity {
         config: LinkConfig { install: bootstrap.install, port: 0, server_identity: None },
         key,
@@ -124,7 +128,7 @@ fn json_step(error: &serde_json::Error) -> String {
             && field.len() <= 64
             && field.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
         {
-            return format!("json {}{field}", &kind[..kind.len() - 1]);
+            return format!("json {}{field}", kind.trim_end_matches('`'));
         }
     }
     format!("json {:?}", error.classify()).to_lowercase()
@@ -177,6 +181,33 @@ mod tests {
                 "{message}"
             );
         }
+    }
+
+    #[test]
+    fn native_cloud_broker_names_a_route_refusal_once() {
+        let (mut reader, mut parent) = UnixStream::pair().unwrap();
+        let mut value_to_send = bootstrap();
+        value_to_send["tunnel"]["meshAddress"] = serde_json::json!("10.129.0.5");
+        writeln!(parent, "{value_to_send}").unwrap();
+        let Err(error) = read_identity(&mut reader) else { panic!("must refuse") };
+        assert_eq!(
+            error.to_string(),
+            "cloud.native.bootstrap_refused: route meshAddress outside ipv4_cidr"
+        );
+    }
+
+    #[test]
+    fn json_step_names_the_missing_or_unknown_field() {
+        #[derive(Debug, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Probe {
+            #[allow(dead_code)]
+            version: u32,
+        }
+        let missing = serde_json::from_str::<Probe>("{}").unwrap_err();
+        assert_eq!(json_step(&missing), "json missing field version");
+        let unknown = serde_json::from_str::<Probe>(r#"{"version":1,"origin":2}"#).unwrap_err();
+        assert_eq!(json_step(&unknown), "json unknown field origin");
     }
 
     #[test]

@@ -748,6 +748,11 @@ pub struct SessionsParams {
     /// `_acpmux/sessions` only: exclude these statuses before pagination.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exclude_status: Option<Vec<String>>,
+    /// `_acpmux/sessions` only (a watch refuses it): only the sessions with a pending permission
+    /// or question, local and peer, summarized alone and answered without the list's pace.
+    /// Takes no other filter; the reply is never paged (capability `session-list-pending-v1`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_only: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
