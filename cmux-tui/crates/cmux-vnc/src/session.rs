@@ -284,6 +284,8 @@ struct QueueState {
     pastes: usize,
     /// Frame requests do not consume input slots. They may pass between paste key batches.
     refresh: Option<(bool, u16, u16)>,
+    /// Operations queued before the first coalesced refresh request.
+    refresh_ahead: usize,
     closing: bool,
     closed: bool,
 }
@@ -301,13 +303,13 @@ impl InputQueue {
         }
     }
 
-    fn write_refresh(&self, writer: &mut dyn Write) -> io::Result<()> {
+    fn write_refresh(&self, writer: &mut dyn Write, interrupt_paste: bool) -> io::Result<()> {
         let refresh = {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             if state.closed {
                 return Err(io::Error::from(io::ErrorKind::BrokenPipe));
             }
-            state.refresh.take()
+            if interrupt_paste || state.refresh_ahead == 0 { state.refresh.take() } else { None }
         };
         if let Some((incremental, width, height)) = refresh {
             writer.write_all(&message::update_request(
@@ -325,16 +327,19 @@ impl InputQueue {
             if state.closed {
                 return None;
             }
-            if let Some(message) = state.pending.pop_front() {
-                drop(state);
-                self.notify_capacity();
-                return Some(message);
-            }
-            if let Some((incremental, width, height)) = state.refresh.take() {
+            if state.refresh_ahead == 0
+                && let Some((incremental, width, height)) = state.refresh.take()
+            {
                 return Some(PendingInput::Bytes(message::update_request(
                     incremental,
                     &Rect::new(0, 0, width, height),
                 )));
+            }
+            if let Some(message) = state.pending.pop_front() {
+                state.refresh_ahead = state.refresh_ahead.saturating_sub(1);
+                drop(state);
+                self.notify_capacity();
+                return Some(message);
             }
             if state.closing {
                 return None;
@@ -367,12 +372,12 @@ impl Input {
                     PendingInput::Bytes(bytes) => writer.write_all(&bytes),
                     PendingInput::Paste(text) => {
                         crate::paste::write(&mut writer, &text, |writer| {
-                            pending.write_refresh(writer)
+                            pending.write_refresh(writer, true)
                         })
                     }
                 };
                 if written
-                    .and_then(|()| pending.write_refresh(&mut writer))
+                    .and_then(|()| pending.write_refresh(&mut writer, false))
                     .and_then(|()| writer.flush())
                     .is_err()
                 {
@@ -461,6 +466,11 @@ impl Input {
         let mut state = self.inner.queue.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.closed || state.closing {
             return Err(io::Error::from(io::ErrorKind::BrokenPipe).into());
+        }
+        // Coalescing retains the first request's place relative to input. Only
+        // an in-flight paste may service it early, between complete key batches.
+        if state.refresh.is_none() {
+            state.refresh_ahead = state.pending.len();
         }
         // A pending full refresh must not be downgraded to an incremental one.
         let incremental = incremental && state.refresh.is_none_or(|(old, _, _)| old);

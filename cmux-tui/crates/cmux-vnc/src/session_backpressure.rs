@@ -110,3 +110,59 @@ fn saturated_paste_backpressures_source_and_keeps_refresh_and_input_ordered() {
     }
     assert_eq!(*written.lock().unwrap(), expected);
 }
+
+#[test]
+fn refresh_retains_its_place_before_later_input() {
+    // Hold the writer before its first dequeue, reproducing the schedule where
+    // the reader requests another frame and the UI queues a key immediately.
+    let queue = InputQueue::default();
+    let first = message::key_event(1, true);
+    let later = message::key_event(2, true);
+    {
+        let mut state = queue.state.lock().unwrap();
+        state.pending.push_back(PendingInput::Bytes(first.clone()));
+        state.refresh = Some((false, 640, 480));
+        state.refresh_ahead = state.pending.len();
+        state.pending.push_back(PendingInput::Bytes(later.clone()));
+    }
+    for expected in [first, message::update_request(false, &Rect::new(0, 0, 640, 480)), later] {
+        let Some(PendingInput::Bytes(actual)) = queue.next() else {
+            panic!("expected queued bytes");
+        };
+        assert_eq!(actual, expected);
+    }
+}
+
+#[test]
+fn coalesced_refresh_neither_overtakes_earlier_keys_nor_follows_later_keys() {
+    let written = Arc::new(Mutex::new(Vec::new()));
+    let (started_tx, started_rx) = mpsc::sync_channel(1);
+    let (resume_tx, resume_rx) = mpsc::sync_channel(1);
+    let input = Input::spawn(
+        Box::new(PausedWriter {
+            bytes: written.clone(),
+            started: Some(started_tx),
+            resume: resume_rx,
+        }),
+        Closer::new(|| {}),
+    )
+    .unwrap();
+    input.key(1, true).unwrap();
+    started_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    input.key(2, true).unwrap();
+    input.refresh(800, 600).unwrap();
+    input.key(3, true).unwrap();
+    for _ in 0..WRITE_QUEUE * 2 {
+        input.request_frame(true, 640, 480).unwrap();
+    }
+    resume_tx.send(()).unwrap();
+    input.close_after_pending(Duration::from_secs(10));
+    let expected = [
+        message::key_event(1, true),
+        message::key_event(2, true),
+        message::update_request(false, &Rect::new(0, 0, 640, 480)),
+        message::key_event(3, true),
+    ]
+    .concat();
+    assert_eq!(*written.lock().unwrap(), expected);
+}
