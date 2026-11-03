@@ -12,8 +12,8 @@ import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
-import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
-import { leaders } from "../leads";
+import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
+import { leaderCards } from "./leaderCards";
 import { WorktreeFailure } from "../startFolder";
 import { BrowseFailure, browseFailureMessage } from "../BrowseFailure";
 import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "../AddProjectPanel";
@@ -952,19 +952,9 @@ export function NewTabScreen(props: Props) {
     !!props.loadChatsPage &&
     !!props.onOpenChat;
   const activeCards = useMemo(() => cards.filter((card) => card.state !== "idle"), [cards]);
-  // Every leader, once: the live chats other chats report to (leads.ts).
+  // Machine and direct-report attention stay with each leader's one row.
   const leads = useMemo(
-    () =>
-      allChats
-        ? leaders(snapshot.sessions).map(({ entry, reports }) => ({
-            id: entry.sessionId,
-            title: entry.displayTitle ?? entry.name ?? entry.sessionId,
-            ...(entry.harness ? { harness: entry.harness } : {}),
-            state:
-              entry.indicator === "failed" ? ("failed" as const) : (sessionMark(entry, false) ?? ("idle" as const)),
-            label: nt("leads.reports", { count: String(reports.length) }),
-          }))
-        : [],
+    () => (allChats ? leaderCards(snapshot.sessions, nt) : []),
     [allChats, snapshot.sessions, nt],
   );
   // The stage layout's suggested actions start with the chats waiting on the user: one asking for
@@ -1778,6 +1768,7 @@ export function NewTabScreen(props: Props) {
           onOpen={props.onOpenChat}
           active={activeCards.map((card) => ({
             id: card.sessionId,
+            ...(card.peer ? { peer: card.peer } : {}),
             title: card.title,
             ...(card.harness ? { harness: card.harness } : {}),
             state: card.state,
