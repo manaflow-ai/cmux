@@ -1749,8 +1749,8 @@ const RecapRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
-/// A recap in a read-only or replayed transcript: no ×, which would do nothing for a guest and act
-/// on the live chat from a replay.
+/// A recap in a read-only, replayed or read-only subagent transcript: no ×, which would do nothing
+/// for a guest and act on the live chat from the others.
 const ReadOnlyRecapRow = memo(
   function ReadOnlyRecapRow({ row }: RowProps) {
     return row.recap ? <RecapNote recap={row.recap} /> : null;
@@ -8434,8 +8434,9 @@ function AcpmuxPane() {
     if (turn) openDiff(turn.rowId);
   };
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
-  /// A replay's rows act on nothing live: its recaps draw no × (ReadOnlyRecapRow).
-  const replayRegistry = useMemo(() => ({ ...registry, recap: ReadOnlyRecapRow }), [registry]);
+  /// For a transcript that acts on nothing live (a replay, a read-only subagent's): its recaps draw
+  /// no × (ReadOnlyRecapRow).
+  const noDismissRegistry = useMemo(() => ({ ...registry, recap: ReadOnlyRecapRow }), [registry]);
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
   const newTabStartGeneration = useRef(0);
   const [sessionSelection, setSessionSelection] = useState<
@@ -13506,7 +13507,7 @@ function AcpmuxPane() {
                                                             ? trayNode
                                                             : undefined
                                                         }
-                                                        registry={registry}
+                                                        registry={readOnlySubagent ? noDismissRegistry : registry}
                                                         githubRepository={githubRepository}
                                                         fallbackRepository={
                                                           pullRequestRef(headerPullRequest?.url ?? "")?.repo
@@ -14883,7 +14884,7 @@ function AcpmuxPane() {
                   // A replay draws under its chat's view too (conversation/viewFolds.ts), as the live transcript.
                   expanded={folds}
                   showMinimap={minimapVisible}
-                  registry={replayRegistry}
+                  registry={noDismissRegistry}
                   onToggleActivity={toggleActivity}
                 />
               )}
