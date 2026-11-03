@@ -2,7 +2,7 @@
 use super::*;
 use crate::workflow_reply::{
     AttemptKey, RecoveryAction, RecoveryEvent, RecoveryState, ReplyDecision, ReplyPolicy,
-    ReplyState,
+    ReplyState, WaitReason,
 };
 use crate::workflow_runs::{ActivityRecord, Child, RunRecord};
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,10 @@ struct Policy {
     epoch: u64,
     #[serde(default)]
     nudge: Option<Nudge>,
+    #[serde(default)]
+    route_nudge: bool,
+    #[serde(default)]
+    waiting_for: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -152,7 +156,7 @@ impl Hub {
                 result
             }
             Child::Agent { session_id, prompt_id, .. } => {
-                let key = AttemptKey::new(&activity.id);
+                let mut key = AttemptKey::new(&activity.id);
                 let mut state: Policy = if activity.policy.is_null() {
                     Policy::default()
                 } else {
@@ -187,6 +191,12 @@ impl Hub {
                     options.get("stallMs").and_then(Value::as_u64).unwrap_or(300_000).max(1),
                 );
                 'attempt: loop {
+                    if key != recovery.key {
+                        key = recovery.key.clone();
+                        if let Some(validator) = validator.as_mut() {
+                            validator.rebind(key.clone());
+                        }
+                    }
                     let gate = self.workflow_runs.gate(&run.id).lock_owned().await;
                     self.workflow_runs
                         .store()
@@ -227,7 +237,8 @@ impl Hub {
                                         "fallbackHarness"
                                     } else {
                                         "harness"
-                                    }),
+                                    })
+                                    .or_else(|| pick("harness")),
                                     model: pick("model"),
                                     effort: pick("effort"),
                                     route: pick(if restarted { "fallbackRoute" } else { "route" }),
@@ -256,21 +267,28 @@ impl Hub {
                             ));
                         }
                     }
-                    let text = state.correction.as_deref().unwrap_or(prompt).to_owned();
-                    let current_id = format!(
-                        "{prompt_id}-g{}-{}-{}",
-                        state.epoch,
-                        recovery.key.generation,
-                        if corrected { 1 } else { 0 }
-                    );
+                    let requested = state.correction.as_deref().unwrap_or(prompt);
+                    let text = if state.route_nudge {
+                        format!(
+                            "Please continue the task after the route failure. Check what already finished before repeating any effect.\nOriginal task:\n{requested}"
+                        )
+                    } else {
+                        requested.to_owned()
+                    };
+                    let current_id = state.waiting_for.clone().unwrap_or_else(|| {
+                        format!(
+                            "{prompt_id}-g{}-{}-{}",
+                            state.epoch,
+                            recovery.key.generation,
+                            if corrected { 1 } else { 0 }
+                        ) + if state.route_nudge { "-route-nudge" } else { "" }
+                    });
                     // Each exact prompt is also a child handle, including the correction, so
                     // pause fences and cancels whichever prompt is currently admitted.
                     let child_id = format!(
-                        "{}-prompt-{}-{}-{}",
+                        "{}-prompt-{}",
                         activity.id,
-                        state.epoch,
-                        recovery.key.generation,
-                        if corrected { 1 } else { 0 }
+                        crate::workflow_runs::digest(&current_id)
                     );
                     self.workflow_runs
                         .store()
@@ -294,23 +312,51 @@ impl Hub {
                         .map_err(workflow_error)?;
                     let (accepted, mut admission) = tokio::sync::oneshot::channel();
                     let mut events = self.subscribe();
-                    let future = self.prompt_with(
-                        &session,
-                        vec![json!({"type":"text","text":text})],
-                        "workflow",
-                        false,
-                        PromptOptions {
-                            prompt_id: Some(current_id.clone()),
-                            resend: true,
-                            agent: Some(run.owner_session_id.clone()),
-                            on_accepted: Some(Box::new(move |value| {
-                                let _ = accepted.send(value);
-                            })),
-                            ..Default::default()
-                        },
-                    );
+                    let automatic = state.waiting_for.is_some();
+                    let waiting_id = current_id.clone();
+                    let future = async {
+                        if automatic {
+                            // The normal daemon retry owns admission and its account's wait.
+                            // Join its exact prompt outcome without submitting another effect.
+                            let mut changes = self.subscribe();
+                            while !self.knows_prompt(&session, &waiting_id, true) {
+                                self.workflow_runs
+                                    .store()
+                                    .authorize(&run.id, generation, &run.owner_session_id)
+                                    .map_err(workflow_error)?;
+                                match changes.recv().await {
+                                    Ok(_)
+                                    | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                                    Err(error) => return Err(workflow_error(error)),
+                                }
+                            }
+                            self.prompt_outcome(&session, &waiting_id).await
+                        } else {
+                            self.prompt_with(
+                                &session,
+                                vec![json!({"type":"text","text":text})],
+                                "workflow",
+                                false,
+                                PromptOptions {
+                                    prompt_id: Some(current_id.clone()),
+                                    resend: true,
+                                    agent: Some(run.owner_session_id.clone()),
+                                    on_accepted: Some(Box::new(move |value| {
+                                        let _ = accepted.send(value);
+                                    })),
+                                    ..Default::default()
+                                },
+                            )
+                            .await
+                        }
+                    };
                     tokio::pin!(future);
-                    let mut gate = Some(gate);
+                    let mut gate = if automatic {
+                        drop(gate);
+                        None
+                    } else {
+                        Some(gate)
+                    };
                     let mut admitted = false;
                     let mut waiting = false;
                     let mut nudge_reconciled = false;
@@ -318,7 +364,7 @@ impl Hub {
                     tokio::pin!(deadline);
                     let outcome = loop {
                         tokio::select! {
-                            result = &mut future => {drop(gate.take()); break result?;},
+                            result = &mut future => {drop(gate.take()); break result;},
                             _ = &mut admission, if !admitted => {
                                 admitted=true; drop(gate.take());
                                 if let Some(nudge) = &state.nudge {nudge_reconciled=self.workflow_nudge(run,generation,nudge).await?;}
@@ -372,6 +418,88 @@ impl Hub {
                             }
                         }
                     };
+                    let outcome = match outcome {
+                        Ok(outcome) => outcome,
+                        Err(error) => {
+                            self.workflow_complete_child(
+                                run,
+                                generation,
+                                &child_id,
+                                &Err(error.clone()),
+                            )
+                            .await?;
+                            let observation = workflow_error_observation(&error);
+                            let action_gate = self.workflow_runs.gate(&run.id).lock_owned().await;
+                            self.workflow_runs
+                                .store()
+                                .authorize(&run.id, generation, &run.owner_session_id)
+                                .map_err(workflow_error)?;
+                            if recovery.waiting.is_some() {
+                                state.observation += 1;
+                                let current = recovery.key.clone();
+                                recovery.observe(
+                                    &current,
+                                    state.observation,
+                                    RecoveryEvent::Resumed,
+                                );
+                            }
+                            state.observation += 1;
+                            let current = recovery.key.clone();
+                            let action =
+                                recovery.observe(&current, state.observation, observation.clone());
+                            state.recovery = Some(recovery.clone());
+                            match action {
+                                RecoveryAction::Wait(_) => {
+                                    state.waiting_for = Some(workflow_next_retry(&current_id));
+                                }
+                                RecoveryAction::Nudge => {
+                                    state.route_nudge = true;
+                                    state.waiting_for = None;
+                                }
+                                RecoveryAction::Restart { .. } => {
+                                    let alternate = options
+                                        .get("fallbackHarness")
+                                        .and_then(Value::as_str)
+                                        .is_some_and(|h| h != session.meta().harness)
+                                        || options
+                                            .get("fallbackRoute")
+                                            .and_then(Value::as_str)
+                                            .is_some_and(|r| {
+                                                options.get("route").and_then(Value::as_str)
+                                                    != Some(r)
+                                            });
+                                    if !alternate {
+                                        return Err(RpcError::internal("workflow route failed after nudge; no different permitted fallback harness or route configured").with_data(json!({"original":error.message})));
+                                    }
+                                    state.route_nudge = false;
+                                    state.waiting_for = None;
+                                }
+                                _ => return Err(error),
+                            }
+                            self.workflow_runs
+                                .store()
+                                .update_activity_policy(
+                                    &run.id,
+                                    generation,
+                                    &run.owner_session_id,
+                                    &activity.id,
+                                    serde_json::to_value(&state).map_err(workflow_error)?,
+                                )
+                                .map_err(workflow_error)?;
+                            if !matches!(action, RecoveryAction::Wait(_)) {
+                                self.cancel_prompt(&session, &current_id).await?;
+                            }
+                            drop(action_gate);
+                            continue 'attempt;
+                        }
+                    };
+                    if state.waiting_for.is_some() {
+                        state.waiting_for = None;
+                        state.observation += 1;
+                        let current = recovery.key.clone();
+                        recovery.observe(&current, state.observation, RecoveryEvent::Resumed);
+                        state.recovery = Some(recovery.clone());
+                    }
                     if outcome.get("stopReason").and_then(Value::as_str) == Some("cancelled")
                         || outcome.pointer("/_meta/acpmux/status").and_then(Value::as_str)
                             == Some("interrupted")
@@ -669,6 +797,45 @@ fn workflow_error(error: impl std::fmt::Display) -> RpcError {
     RpcError::internal(error.to_string())
 }
 
+fn workflow_error_observation(error: &RpcError) -> RecoveryEvent {
+    let text = format!("{} {}", error.message, error.data.as_ref().unwrap_or(&Value::Null));
+    if super::turn_errors::is_usage_limit_error(&text) {
+        RecoveryEvent::Waiting(WaitReason::UsageLimit { reset_at_ms: None })
+    } else if super::turn_errors::is_capacity_error(&text) {
+        RecoveryEvent::Waiting(WaitReason::Capacity)
+    } else if error
+        .data
+        .as_ref()
+        .and_then(|data| data.get("reason"))
+        .and_then(Value::as_str)
+        .is_some_and(|reason| reason.starts_with("permission.") || reason.starts_with("policy."))
+    {
+        RecoveryEvent::Waiting(WaitReason::Permission)
+    } else if super::turn_errors::is_transport_error(&text)
+        || super::turn_errors::is_gateway_error(&text)
+        || error
+            .data
+            .as_ref()
+            .and_then(|data| data.get("reason"))
+            .and_then(Value::as_str)
+            .is_some_and(|reason| reason.starts_with("route."))
+        || text.to_ascii_lowercase().contains("route unavailable")
+    {
+        RecoveryEvent::RouteError
+    } else {
+        RecoveryEvent::Failed
+    }
+}
+
+fn workflow_next_retry(prompt: &str) -> String {
+    if let Some((root, attempt)) = prompt.rsplit_once("~resume-")
+        && let Ok(attempt) = attempt.parse::<u64>()
+    {
+        return format!("{root}~resume-{}", attempt.saturating_add(1));
+    }
+    format!("{prompt}~resume-1")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -677,7 +844,7 @@ mod tests {
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_workflow_agent.py");
         let mut config: crate::config::Config =
             serde_json::from_value(json!({"defaultHarness":"fake",
-            "harnesses":{"fake":{"argv":["python3",fixture]}}}))
+            "harnesses":{"fake":{"argv":["python3",fixture]},"fake-alternate":{"argv":["python3",fixture,"alternate"]}}}))
             .unwrap();
         config.store.mode = crate::config::StoreMode::Memory;
         let store =
@@ -773,6 +940,89 @@ mod tests {
         );
         assert_eq!(turns(&hub, &child), 2, "replay must not create new turns");
         cleanup(hub, run).await;
+    }
+
+    #[tokio::test]
+    async fn workflow_route_error_nudges_once_then_restarts_and_validates_new_generation() {
+        let (hub, run, child) = activity_chat();
+        let options = json!({"harness":"fake","fallbackHarness":"fake-alternate","schema":{"type":"object","required":["ok"],"properties":{"ok":{"const":true}}}});
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            hub.workflow_execute(&run, run.generation, &child, "route-failure-schema", &options),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(result, json!({"ok":true}));
+        assert_eq!(turns(&hub, &child), 2, "original route gets one continuation only");
+        let Child::Agent { session_id, .. } = &child.child else { unreachable!() };
+        let mut restarted = 0;
+        hub.store
+            .scan_strict(&format!("{session_id}-restart"), 0, &mut |event| {
+                if event.kind == "turn_started" {
+                    restarted += 1;
+                }
+                true
+            })
+            .unwrap();
+        assert_eq!(restarted, 1, "alternate route gets one schema-checked attempt");
+        let saved = hub
+            .workflow_runs
+            .store()
+            .activity(&run.id, run.generation, "owner", &child.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            hub.workflow_execute(&run, run.generation, &saved, "route-failure-schema", &options)
+                .await
+                .unwrap(),
+            result
+        );
+        assert_eq!(turns(&hub, &child), 2, "replay must not repeat original effects");
+        cleanup(hub, run).await;
+    }
+
+    #[tokio::test]
+    async fn workflow_route_error_without_alternate_fails_after_one_nudge() {
+        let (hub, run, child) = activity_chat();
+        let error = tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            hub.workflow_execute(
+                &run,
+                run.generation,
+                &child,
+                "route-failure",
+                &json!({"harness":"fake"}),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert!(error.message.contains("no different permitted fallback"));
+        assert_eq!(turns(&hub, &child), 2);
+        cleanup(hub, run).await;
+    }
+
+    #[test]
+    fn account_and_permission_waits_never_escalate_to_route_fallback() {
+        for (message, data, expected) in [
+            (
+                "route unavailable HTTP 429",
+                json!({"reason":"route.unavailable"}),
+                WaitReason::UsageLimit { reset_at_ms: None },
+            ),
+            (
+                "route unavailable HTTP 503",
+                json!({"reason":"route.unavailable"}),
+                WaitReason::Capacity,
+            ),
+            ("route unavailable", json!({"reason":"permission.denied"}), WaitReason::Permission),
+        ] {
+            assert_eq!(
+                workflow_error_observation(&RpcError::internal(message).with_data(data)),
+                RecoveryEvent::Waiting(expected)
+            );
+        }
     }
 
     #[tokio::test]
