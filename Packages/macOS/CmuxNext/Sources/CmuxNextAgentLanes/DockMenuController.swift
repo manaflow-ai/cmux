@@ -118,16 +118,21 @@ public final class DockMenuController: NSObject {
     /// or machine and Continue, Unread and Recent open their chat instead of failing.
     func run(_ action: DockMenuAction) {
         guard let host else { return }
-        // Before the fix (#33238): the window reopens and the pick is dropped or runs with no pane.
-        if !host.dockMenuHasWindow {
+        guard host.dockMenuHasWindow else {
             host.dockMenuReopenWindow()
-            if case .newChat = action { return }
+            // A plain New Chat needs nothing more: a new window comes with its New Tab page.
+            if action != .newChat(harness: nil, machine: nil) { waiting = action }
+            return
         }
         perform(action, host)
     }
 
-    /// A window mounted its first pane (nothing waits yet).
-    public func windowDidShowContent() {}
+    /// A window mounted its first pane: a row picked while no window was open runs in it now.
+    public func windowDidShowContent() {
+        guard let action = waiting, let host else { return }
+        waiting = nil
+        perform(action, host)
+    }
 
     private func perform(_ action: DockMenuAction, _ host: any DockMenuHost) {
         switch action {
