@@ -185,9 +185,13 @@ export default componentEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-tool-output"));
       },
     },
+    "claude-sign-in": {
+      props: { signIn: "claude" },
+      note: "A Cloud chat whose Claude is not signed in on its machine: one Sign in to Claude button (its click starts the login there and opens Claude's page), with Use an API key as a link beside it.",
+    },
     "claude-code-entry": {
       props: { signIn: "claude" },
-      note: "A Cloud chat whose Claude is not signed in on its machine: Sign in to Claude ran the login there and opened its page; the card asks for the code the page shows.",
+      note: "After the one Sign in to Claude click: the login runs on the machine and Claude's page is open; the card asks for the code the page shows, with Open sign-in page to open it again.",
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__input"));
@@ -195,7 +199,7 @@ export default componentEntry({
     },
     "codex-code": {
       props: { signIn: "codex" },
-      note: "The same for Codex: its device code, large, with Copy, while the card waits for the approval.",
+      note: "The same one click for Codex: its page open and its device code, large and already copied, while the card waits for the approval.",
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__code"));

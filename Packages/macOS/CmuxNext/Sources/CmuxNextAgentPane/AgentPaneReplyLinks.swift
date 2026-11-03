@@ -227,7 +227,11 @@ extension AgentPaneModel {
         case .quickLookVideo(let src):
             return await quickLookVideo(src)
         case .listBrowsers, .inspectPullRequest, .openIn:
-            return replyLinks.respond(toCard: request, consumeGesture: { transport.gestures.consume() }, openInCmux: onOpenPreview)
+            // A Cloud chat's sign-in page opens on the Sign in click that started its login.
+            let signInPage: URL? = if case .openIn(let url, "cmux") = request { url } else { nil }
+            return replyLinks.respond(toCard: request, consumeGesture: {
+                signInPage.map(transport.takeSignInPage) == true || transport.gestures.consume()
+            }, openInCmux: onOpenPreview)
         case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile, .copyComposer:
             return await AgentPaneImageCopies.respond(to: request, in: self)
         case .previewPath(let path): return await previewReplyPath(path)

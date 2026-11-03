@@ -223,6 +223,8 @@ test("a Cloud sign-in failure leads with Sign in to Claude, then Use an API key"
   expect(labels().slice(0, 3)).toEqual(["Sign in to Claude", "Use an API key", "Switch model"]);
   expect(button("Sign in to Claude")!.classList.contains("cv-turn-error__primary")).toBe(true);
   expect(button("Use an API key")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  // One sign-in button (Leo 2026-11-02): Use an API key beside it is a link, not a second button.
+  expect(button("Use an API key")!.classList.contains("cv-turn-error__offer-link")).toBe(true);
   expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(false);
   // Without the Mac-token transfer there is no Set up credentials button.
   expect(button("Set up Claude Code credentials")).toBeUndefined();
@@ -245,7 +247,7 @@ test("in DEV the credential transfer stays beside the sign-in", async () => {
   expect(button("Set up Claude Code credentials")).toBeDefined();
 });
 
-test("Claude: start, open the page, paste the code, finish, then send the failed prompt again", async () => {
+test("Claude: one click starts the login and opens its page; paste the code, finish, send again", async () => {
   const opened: string[] = [];
   const { client, calls, sent } = mockClient({
     start: () => ({
@@ -262,14 +264,14 @@ test("Claude: start, open the page, paste the code, finish, then send the failed
   await flush();
   // Every call names the chat, so the sign-in runs on the chat's machine.
   expect(calls[0]).toEqual(["start", "claude", "chat-1"]);
-  // The Sign in click's gesture went to the start: the page opens on its own click, which leads.
-  expect(opened).toEqual([]);
-  expect(host.textContent).toContain("Approve in your browser, then paste the code it shows.");
-  expect(button("Open sign-in page")!.classList.contains("cv-turn-error__primary")).toBe(true);
-  expect(button("Continue")!.classList.contains("cv-turn-error__primary")).toBe(false);
-  await act(async () => button("Open sign-in page")!.click());
+  // The one Sign in click opened the page too (the host lets its start open it): no second click.
   expect(opened).toEqual(["https://claude.ai/oauth/authorize?code=true"]);
+  expect(host.textContent).toContain("Approve in your browser, then paste the code it shows.");
   expect(button("Continue")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  // Open sign-in page stays, quiet, to open it again.
+  expect(button("Open sign-in page")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  await act(async () => button("Open sign-in page")!.click());
+  expect(opened).toHaveLength(2);
   // Nothing goes again before the code: no gesture taken, nothing sent.
   expect(intents).toEqual([]);
   const input = host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!;
@@ -290,8 +292,15 @@ test("Claude: start, open the page, paste the code, finish, then send the failed
   expect(host.innerHTML).not.toContain("abc#def");
 });
 
-test("Codex: the device code shows with Copy; after approval Send again takes its own click", async () => {
+test("Codex: one click opens the page with its device code copied; after approval Send again takes its own click", async () => {
   let approve!: (value: unknown) => void;
+  const opened: string[] = [];
+  const copied: string[] = [];
+  const clipboard = Object.getOwnPropertyDescriptor(dom.window.navigator, "clipboard");
+  Object.defineProperty(dom.window.navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void copied.push(text) },
+  });
   const { client, calls, sent } = mockClient({
     start: () => ({
       loginId: "login-2",
@@ -301,12 +310,18 @@ test("Codex: the device code shows with Copy; after approval Send again takes it
     }),
     finish: () => new Promise((resolve) => (approve = resolve)),
   });
-  const { signIn, intents } = signInFor(client, { harness: "codex" });
+  const { signIn, intents } = signInFor(client, { harness: "codex", opened });
   await render({ route: { name: "Codex", harness: "codex", hostKind: "cloud" }, cloudSignIn: signIn });
   await act(async () => button("Sign in to Codex")!.click());
   await flush();
+  await flush();
+  if (clipboard) Object.defineProperty(dom.window.navigator, "clipboard", clipboard);
+  else delete (dom.window.navigator as unknown as Record<string, unknown>).clipboard;
+  expect(opened).toEqual(["https://auth.openai.com/codex/device"]);
   expect(host.querySelector('[data-testid="cloud-signin-code"]')!.textContent).toBe("WXYZ-1234");
-  expect(button("Copy code")).toBeDefined();
+  // The code is on the clipboard already, for the page's field.
+  expect(copied).toEqual(["WXYZ-1234"]);
+  expect(button("Copied")).toBeDefined();
   expect(host.textContent).toContain("Enter this code on the page. Waiting for approval…");
   expect(calls).toContainEqual(["finish", "login-2", "chat-1", undefined]);
   await act(async () => approve({ signedIn: true, restarted: true }));
