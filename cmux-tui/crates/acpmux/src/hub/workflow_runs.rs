@@ -211,12 +211,15 @@ impl Hub {
             Ok(()) => Ok(()),
             Err(error) => {
                 self.workflow_runs.retire_runner(&run.id, run.generation);
-                let _ = self.workflow_runs.store().settle(
+                if let Ok(failed) = self.workflow_runs.store().settle(
                     &run.id,
                     run.generation,
                     &run.owner_session_id,
                     Err(json!({"message": error.to_string()})),
-                );
+                ) && let Err(cleanup_error) = self.workflow_cancel_children(&failed).await
+                {
+                    tracing::warn!(run_id = %run.id, %cleanup_error, "cancel unlaunchable workflow children");
+                }
                 Err(error)
             }
         }
@@ -286,10 +289,9 @@ impl Hub {
                         run.generation,
                         &run.owner_session_id,
                         Err(json!({"message": message})),
-                    ) {
-                        if let Err(error) = hub.workflow_cancel_children(&failed).await {
-                            tracing::warn!(run_id = %run.id, %error, "cancel failed workflow children");
-                        }
+                    ) && let Err(error) = hub.workflow_cancel_children(&failed).await
+                    {
+                        tracing::warn!(run_id = %run.id, %error, "cancel failed workflow children");
                     }
                 }
             }
