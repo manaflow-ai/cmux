@@ -258,6 +258,10 @@ mod tests {
             "prompt_id":"p1", "text":"hello", "_host_author":author, "_host_session":SESSION});
         assert_eq!(client.request(prompt)["ok"], true);
         assert_eq!(fake.frame()["params"]["_meta"]["acpmux"]["author"], author);
+        let media = json!({"cmd":"agent-session-prompt", "surface":surface, "prompt_id":"media",
+            "content":[{"type":"resource_link", "uri":"file:///etc/passwd", "name":"passwd"}],
+            "_host_author":author, "_host_session":SESSION});
+        assert_code(&client.request(media), "agent_session.not_trusted");
         let mut other = Client::connect(&mux, "proxy-unbound");
         assert_code(
             &other.request(json!({"cmd":"agent-session-observe", "surface":surface,
