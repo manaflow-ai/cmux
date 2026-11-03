@@ -10690,9 +10690,12 @@ class TerminalController {
         }
         guard (event["type"] as? String) == "saved",
               let savedPath = (event["path"] as? String)?.nilIfEmpty else {
-            let message = (event["type"] as? String) == "cancelled"
-                ? "Download was cancelled"
-                : (event["error"] as? String) ?? "Download failed"
+            let message: String
+            switch event["type"] as? String {
+            case "cancelled": message = "Download was cancelled"
+            case "saved": message = "Download finished without a saved file"
+            default: message = (event["error"] as? String) ?? "Download failed"
+            }
             return .err(code: "download_failed", message: message, data: ["path": path, "download": event])
         }
         do {
@@ -10723,8 +10726,14 @@ class TerminalController {
         let fileManager = FileManager.default
         let directory = destination.deletingLastPathComponent()
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let staging = directory.appendingPathComponent(".\(destination.lastPathComponent).cmux-download-\(UUID().uuidString)")
-        try fileManager.copyItem(at: source, to: staging)
+        // Not named after the destination, which may already be near NAME_MAX.
+        let staging = directory.appendingPathComponent(".cmux-download-\(UUID().uuidString)")
+        do {
+            try fileManager.copyItem(at: source, to: staging)
+        } catch {
+            try? fileManager.removeItem(at: staging)
+            throw error
+        }
         guard Darwin.rename(staging.path, destination.path) == 0 else {
             let code = errno
             try? fileManager.removeItem(at: staging)
@@ -10904,7 +10913,14 @@ class TerminalController {
             finishOnce(event)
         }
 
-        if let queued = v2MainSync({ v2PopBrowserDownloadEvent(surfaceId: surfaceId, finishedOnly: finishedOnly) }) {
+        // The observer and this pop both run on main; once a live event has
+        // won, popping would consume a queued download nobody receives.
+        if let queued = v2MainSync({ () -> [String: Any]? in
+            lock.lock()
+            let alreadyFinished = finished
+            lock.unlock()
+            return alreadyFinished ? nil : v2PopBrowserDownloadEvent(surfaceId: surfaceId, finishedOnly: finishedOnly)
+        }) {
             finishOnce(queued)
         }
         if semaphore.wait(timeout: .now() + timeout) == .timedOut {
