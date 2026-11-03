@@ -516,6 +516,8 @@ pub mod method {
     /// (`hub/start_mode.rs`), for the pane's pending chat. Read only.
     pub const MUX_START_MODE: &str = "_acpmux/start_mode";
     pub const MUX_HISTORY: &str = "_acpmux/history";
+    /// One session's messages holding every word of a query, newest first (`session_search.rs`).
+    pub const MUX_SESSION_SEARCH: &str = "_acpmux/session_search";
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
     pub const MUX_STATS: &str = "_acpmux/stats";
@@ -699,6 +701,9 @@ pub mod method {
     pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
     pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
     pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
+    // The person's vault on this machine (`crate::vault`, `server/vault.rs`).
+    pub const MUX_VAULT_PULL: &str = "_acpmux/vault_pull";
+    pub const MUX_VAULT_FORGET: &str = "_acpmux/vault_forget";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
     /// A persisted session-to-session message, projected separately so chat clients can render

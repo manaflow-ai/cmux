@@ -36,6 +36,7 @@ export const PlanList = memo(function PlanList({
           // oxlint-disable-next-line react/no-array-index-key -- the plan's order is its identity.
           <li key={index} className="cv-plan__item" data-status={entry.status}>
             <span className="cv-plan__mark" aria-hidden="true">
+              {/* icon-scale-allow: the check sits inside the 12 px plan mark */}
               {entry.status === "completed" && <Check size={10} />}
               {/* The step at work turns the one shared spinner (icons.tsx), never a ring of its own. */}
               {entry.status === "in_progress" && !ended && <Spinner size={12} />}

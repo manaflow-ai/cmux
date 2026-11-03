@@ -8,7 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		CE7A00000000000000000015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
+		CT7A00000000000000000003 /* cmux-cloud-tunnel.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = CT7A00000000000000000004 /* cmux-cloud-tunnel.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		CE7A00000000000000000012 /* CmuxNextApp in Frameworks */ = {isa = PBXBuildFile; productRef = CE7A00000000000000000014 /* CmuxNextApp */; };
+		CT7A00000000000000000001 /* CmuxNextCloudTunnel in Frameworks */ = {isa = PBXBuildFile; productRef = CT7A00000000000000000002 /* CmuxNextCloudTunnel */; };
 		CE7A00000000000000000019 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000002 /* InfoPlist.xcstrings */; };
 		CE7A0000000000000000001D /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A11CE0050000000000000001 /* LICENSE */; };
 		CE7A00000000000000000002 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE7A00000000000000000001 /* main.swift */; };
@@ -22,14 +24,33 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		CT7A00000000000000000005 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A5001070 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CT7A00000000000000000010;
+			remoteInfo = "cmux-cloud-tunnel";
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		CT7A00000000000000000006 /* Embed System Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Library/SystemExtensions";
+			dstSubfolderSpec = 16;
+			files = (
+				CT7A00000000000000000003 /* cmux-cloud-tunnel.systemextension in Embed System Extensions */,
+			);
+			name = "Embed System Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		IC000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		CT7A00000000000000000004 /* cmux-cloud-tunnel.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = "cmux-cloud-tunnel.systemextension"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0DEC0DE0000000000000012 /* cmux-cua */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "cmux-cua"; path = "skills/cmux-cua"; sourceTree = SOURCE_ROOT; };
 		CE7A00000000000000000004 /* cmux-next.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "cmux-next.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
@@ -88,6 +109,17 @@
 			);
 			target = CE7A00000000000000000005 /* cmux-next */;
 		};
+		CT7A00000000000000000008 /* Exceptions for "CloudTunnelExtension" folder in "cmux-cloud-tunnel" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				CCmuxWgTun,
+				Info.plist,
+				"cmux-cloud-tunnel.nightly.entitlements",
+				"cmux-cloud-tunnel.rc.entitlements",
+				"cmux-cloud-tunnel.release.entitlements",
+			);
+			target = CT7A00000000000000000010 /* cmux-cloud-tunnel */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -110,6 +142,14 @@
 			path = Resources;
 			sourceTree = "<group>";
 		};
+		CT7A00000000000000000007 /* CloudTunnelExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				CT7A00000000000000000008 /* Exceptions for "CloudTunnelExtension" folder in "cmux-cloud-tunnel" target */,
+			);
+			path = CloudTunnelExtension;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -118,6 +158,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				CE7A00000000000000000012 /* CmuxNextApp in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CT7A00000000000000000009 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CT7A00000000000000000001 /* CmuxNextCloudTunnel in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -132,6 +180,7 @@
 				IC000002 /* AppIcon.icon */,
 				A5001017 /* ghostty.h */,
 				A5001042 /* Products */,
+				CT7A00000000000000000007 /* CloudTunnelExtension */,
 				CE7A00000000000000000021 /* App */,
 			);
 			sourceTree = "<group>";
@@ -140,6 +189,7 @@
 			isa = PBXGroup;
 			children = (
 				CE7A00000000000000000004 /* cmux-next.app */,
+				CT7A00000000000000000004 /* cmux-cloud-tunnel.systemextension */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -167,11 +217,14 @@
 				CE7A00000000000000000042 /* Embed Computer Use helper (dev) */,
 				CE7A00000000000000000018 /* Bundle Ghostty resources */,
 				CE7A00000000000000000031 /* Bundle server helper */,
+				CT7A00000000000000000006 /* Embed System Extensions */,
+				CT7A00000000000000000018 /* Stamp and check Cloud Tunnel */,
 				CE7A00000000000000000043 /* Bundle MediaRemote adapter */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				CT7A00000000000000000015 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				CE7A00000000000000000021 /* App */,
@@ -184,6 +237,30 @@
 			productName = "cmux-next";
 			productReference = CE7A00000000000000000004 /* cmux-next.app */;
 			productType = "com.apple.product-type.application";
+		};
+		CT7A00000000000000000010 /* cmux-cloud-tunnel */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CT7A00000000000000000011 /* Build configuration list for PBXNativeTarget "cmux-cloud-tunnel" */;
+			buildPhases = (
+				CT7A00000000000000000012 /* Build cmux-wg-tun */,
+				CT7A00000000000000000013 /* Sources */,
+				CT7A00000000000000000009 /* Frameworks */,
+				CT7A00000000000000000014 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				CT7A00000000000000000007 /* CloudTunnelExtension */,
+			);
+			name = "cmux-cloud-tunnel";
+			packageProductDependencies = (
+				CT7A00000000000000000002 /* CmuxNextCloudTunnel */,
+			);
+			productName = "cmux-cloud-tunnel";
+			productReference = CT7A00000000000000000004 /* cmux-cloud-tunnel.systemextension */;
+			productType = "com.apple.product-type.system-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -233,6 +310,7 @@
 			projectRoot = "";
 			targets = (
 				CE7A00000000000000000005 /* cmux-next */,
+				CT7A00000000000000000010 /* cmux-cloud-tunnel */,
 			);
 		};
 /* End PBXProject section */
@@ -246,6 +324,13 @@
 				CE7A00000000000000000019 /* InfoPlist.xcstrings in Resources */,
 				CE7A0000000000000000001D /* LICENSE in Resources */,
 				CE7A0000000000000000001E /* THIRD_PARTY_LICENSES.md in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CT7A00000000000000000014 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -825,6 +910,49 @@
 			shellPath = /bin/sh;
 			shellScript = "# The web bundles are build output (cx-vn5): scripts/reload.sh, CI and the nightly run\n# scripts/cmux-next/build-web-bundles.sh before xcodebuild. Refuse an app built without them.\n# Compile-only jobs that ship no app set CMUX_WEB_BUNDLES_OPTIONAL=1.\nstamp=\"${TARGET_TEMP_DIR}/verify-web-bundles.stamp\"\nrm -f \"$stamp\"\non_exit() { status=$?; if [ \"$status\" -eq 0 ]; then mkdir -p \"$(dirname \"$stamp\")\"; printf \"completed\\n\" > \"$stamp\"; fi; exit \"$status\"; }\ntrap on_exit EXIT\nif [ \"${CMUX_WEB_BUNDLES_OPTIONAL:-0}\" = 1 ]; then\n  echo \"note: CMUX_WEB_BUNDLES_OPTIONAL=1 (compile-only build): the web bundles are not verified\"\n  exit 0\nfi\nexec \"${SRCROOT}/scripts/cmux-next/build-web-bundles.sh\" --verify\n";
 		};
+		CT7A00000000000000000012 /* Build cmux-wg-tun */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/build-wg-tun.sh",
+			);
+			name = "Build cmux-wg-tun";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_TEMP_DIR)/wg-tun/libcmux_wg_tun.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/build-wg-tun.sh\" \"${TARGET_TEMP_DIR}/wg-tun\"\n";
+		};
+		CT7A00000000000000000018 /* Stamp and check Cloud Tunnel */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/embed-cloud-tunnel.sh",
+				"$(SRCROOT)/scripts/cmux-next/stamp-cloud-tunnel-identity.sh",
+				"$(SRCROOT)/scripts/cmux-next/check-cloud-tunnel-bundle.sh",
+			);
+			name = "Stamp and check Cloud Tunnel";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/embed-cloud-tunnel.sh\" \"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -836,9 +964,21 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CT7A00000000000000000013 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		CT7A00000000000000000015 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CT7A00000000000000000010 /* cmux-cloud-tunnel */;
+			targetProxy = CT7A00000000000000000005 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
@@ -1014,6 +1154,60 @@
 			};
 			name = Release;
 		};
+		CT7A00000000000000000016 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_STYLE = Automatic;
+				CMUX_TEAM_ID_PREFIX = "7WLXT3NR37.";
+				CURRENT_PROJECT_VERSION = 108;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CloudTunnelExtension/Info.plist;
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(TARGET_TEMP_DIR)/wg-tun",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.debug.tunnel;
+				PRODUCT_MODULE_NAME = cmux_cloud_tunnel;
+				PRODUCT_NAME = "cmux-cloud-tunnel";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/CloudTunnelExtension/CCmuxWgTun";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		CT7A00000000000000000017 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_STYLE = Automatic;
+				CMUX_TEAM_ID_PREFIX = "7WLXT3NR37.";
+				CURRENT_PROJECT_VERSION = 108;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CloudTunnelExtension/Info.plist;
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(TARGET_TEMP_DIR)/wg-tun",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.tunnel;
+				PRODUCT_MODULE_NAME = cmux_cloud_tunnel;
+				PRODUCT_NAME = "cmux-cloud-tunnel";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/CloudTunnelExtension/CCmuxWgTun";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1035,6 +1229,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		CT7A00000000000000000011 /* Build configuration list for PBXNativeTarget "cmux-cloud-tunnel" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CT7A00000000000000000016 /* Debug */,
+				CT7A00000000000000000017 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -1052,6 +1255,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CE7A00000000000000000013 /* XCLocalSwiftPackageReference "Packages/macOS/CmuxNext" */;
 			productName = CmuxNextApp;
+		};
+		CT7A00000000000000000002 /* CmuxNextCloudTunnel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CE7A00000000000000000013 /* XCLocalSwiftPackageReference "Packages/macOS/CmuxNext" */;
+			productName = CmuxNextCloudTunnel;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
