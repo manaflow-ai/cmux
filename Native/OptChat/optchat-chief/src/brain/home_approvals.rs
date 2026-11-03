@@ -1,5 +1,6 @@
 //! Home delivery for hidden local owner subagents only. The conversation
-//! owner's acknowledgement, not an enqueued send, retires the watchdog.
+//! owner's acknowledgement establishes delivery, never visibility. Hidden
+//! requests keep their no-answer deadline even after delivery.
 use super::Brain;
 use crate::state::PendingPermission;
 use cmux_conversation::{
@@ -59,35 +60,14 @@ fn card(session: &str, id: &str, pending: &PendingPermission) -> Question {
 }
 
 impl Brain {
-    /// The existing Preview Features rollout is default-off, never an approval grant.
-    pub(super) fn home_approvals_enabled(&self) -> bool {
-        let doc = match &self.home_approval_settings {
-            Some(doc) => doc.clone(),
-            None => std::env::var_os("HOME").and_then(|home| {
-                crate::agent_memory::settings::document(std::path::Path::new(&home))
-            }),
-        };
-        doc.as_ref()
-            .and_then(|doc| crate::agent_memory::settings::value(doc, "labs.previewFeatures"))
-            == Some(serde_json::Value::Bool(true))
-    }
-
     pub(super) fn home_approvals_available(&self) -> bool {
-        self.home_approvals_enabled()
-            && self.summary.as_ref().is_some_and(|summary| {
-                summary.owner == cmux_conversation::OWNER_LOCAL
-                    && self.state.conversation.as_deref() == Some(summary.id.as_str())
-            })
-    }
-
-    /// Inject the same settings document in deterministic host tests.
-    pub fn set_home_approval_settings(&mut self, doc: Option<serde_json::Value>) {
-        self.home_approval_settings = Some(doc);
-        self.reconcile_home_approvals();
+        self.summary.as_ref().is_some_and(|summary| {
+            summary.owner == cmux_conversation::OWNER_LOCAL
+                && self.state.conversation.as_deref() == Some(summary.id.as_str())
+        })
     }
 
     pub(super) fn reconcile_home_approvals(&mut self) {
-        self.home_approval_check = None;
         // On startup acpmux can connect before the conversation owner. Wait
         // for that owner's summary before retiring an existing local card.
         if self.summary.is_none() {
@@ -123,10 +103,6 @@ impl Brain {
                 .collect();
             for id in waiting {
                 self.rewatch_permission(&id);
-            }
-            if !pending.is_empty() {
-                self.home_approval_check =
-                    Some(std::time::Instant::now() + std::time::Duration::from_secs(30));
             }
             return;
         }
@@ -274,14 +250,10 @@ impl Brain {
                 .as_mut()
                 .unwrap();
             pending.home_message = Some(message.id.clone());
-            let permission = pending.id.clone();
-            self.forget_unanswered(&question.session, &permission);
-            self.home_approval_check =
-                Some(std::time::Instant::now() + std::time::Duration::from_secs(30));
         } else {
             if let Some(id) = live {
-                // A disabled late ACK must never become readiness on a ledger
-                // replay after re-enabling. Retire this exact snapshot forever.
+                // An unavailable late ACK must never become readiness on a ledger
+                // replay after ownership changes. Retire this exact snapshot forever.
                 if let Some(pending) = self
                     .state
                     .sub_mut(&id)

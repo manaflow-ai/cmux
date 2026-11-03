@@ -3,7 +3,6 @@ public import CmuxNextAgentPane
 import CmuxNextCompat
 public import CmuxNextWakeups
 import Foundation
-import os
 
 /// Answers one unchanged permission using the app's person proof and the existing once-only path.
 /// A named Chief may use its own daemon, the default home's, or this app's; every read verifies
@@ -13,23 +12,15 @@ import os
     private let app: AcpmuxEnvironment?
     private let work: BackgroundWork
     private let environment: @Sendable (ChiefHome) -> AcpmuxEnvironment?
-    // concurrency-allow: the socket callback reads this boolean synchronously before claiming a click; no I/O under the lock.
-    private let rollout = OSAllocatedUnfairLock(initialState: false)
-    /// Whether the current app settings offer this approval surface.
-    public var enabled: Bool {
-        get { rollout.withLock { $0 } }
-        set { rollout.withLock { $0 = newValue } }
-    }
     /// Uses the app's files lane and resolver; this type never resolves app services itself.
-    public init(home: ChiefHome, app: AcpmuxEnvironment?, enabled: Bool, work: BackgroundWork,
+    public init(home: ChiefHome, app: AcpmuxEnvironment?, work: BackgroundWork,
                 environment: @escaping @Sendable (ChiefHome) -> AcpmuxEnvironment?) {
         (self.home, self.app, self.work, self.environment) = (home, app, work, environment)
-        self.enabled = enabled
     }
 
-    /// Answers the exact pending request only while the native click and rollout remain valid.
+    /// Answers the exact pending request only while the native click remains valid.
     public func decide(_ request: HomeApprovalRequest, allow: Bool, through gate: @escaping @Sendable (() -> Void) -> Bool) async -> HomeApprovalDecision {
-        guard enabled, let session = Self.localSession(request.session),
+        guard let session = Self.localSession(request.session),
               let expected = AcpmuxApprovalAnswerer.requestDigest(request.requestJSON),
               request.chief == "agent_mux" || request.chief.hasPrefix("agent_") else { return .refused }
         let brain = Self.brainHome(of: request.chief, in: home)
@@ -45,16 +36,10 @@ import os
         for environment in candidates where seen.insert(environment.socketPath).inserted {
             let answerer = AcpmuxApprovalAnswerer(environment: environment, chiefHomeID: id)
             await answerer.prepareForHome()
-            guard enabled else { return .refused }
             guard let pending = await answerer.pendingAsk(session: session, permission: request.permission) else { continue }
             guard pending.approval.digest == expected else { return .expired }
             guard allow ? pending.allowOnce != nil : pending.denyOnce != nil else { return .refused }
-            let rollout = rollout
-            return await answerer.answerOnce(pending.approval, allow: allow, through: { bytes in
-                // Recheck on the socket queue immediately before claiming the click.
-                guard rollout.withLock({ $0 }) else { return false }
-                return gate(bytes)
-            }) ? .answered : .refused
+            return await answerer.answerOnce(pending.approval, allow: allow, through: gate) ? .answered : .refused
         }
         // A missing response can mean an unavailable daemon; keep the card retryable.
         return .refused

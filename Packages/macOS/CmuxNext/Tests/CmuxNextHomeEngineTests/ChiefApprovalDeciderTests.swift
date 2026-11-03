@@ -6,7 +6,7 @@ import Testing
     @Test func anUnavailableDaemonLeavesTheCardRetryable() async {
         let home = ChiefHome(root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), isolated: true)
         await confirmation("Both candidate homes are resolved", expectedCount: 2) { resolved in
-            let decider = ChiefApprovalDecider(home: home, app: nil, enabled: true, work: .init(), environment: { _ in
+            let decider = ChiefApprovalDecider(home: home, app: nil, work: .init(), environment: { _ in
                 resolved()
                 return nil
             })

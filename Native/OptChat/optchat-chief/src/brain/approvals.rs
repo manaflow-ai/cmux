@@ -439,7 +439,7 @@ impl Brain {
                 && self
                     .state
                     .sub(&id)
-                    .is_some_and(|(_, s)| self.approval_shown(s))
+                    .is_some_and(|(_, s)| Self::approval_workspace_shown(s))
             {
                 continue;
             }
@@ -495,7 +495,7 @@ impl Brain {
                     "the request is no longer answerable here; its denial could not be confirmed"
                 };
                 self.tell_person_once(&p.permission_id, &format!(
-                    "{id}'s approval expired because no working approval card was delivered; {outcome}."
+                    "{id}'s approval expired because it was not answered; {outcome}."
                 ));
             }
             if let Some(id) = self.state.sub_by_session(&p.session_id)

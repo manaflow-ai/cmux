@@ -911,14 +911,14 @@ impl Brain {
     }
 
     /// `id` lost its workspace (hidden, or its open failed): a prompt it
-    /// still waits on has no Allow button any more, so it is watched again
+    /// still waits on is watched again even if a Home card was delivered,
     /// and denied once overdue, as for any subagent without a workspace.
     pub(super) fn rewatch_permission(&mut self, id: &str) {
         self.present_home_approval(id);
         let Some((_, sub)) = self.state.sub(id) else {
             return;
         };
-        if self.approval_shown(sub) || sub.policy.as_deref() == Some(crate::approval::ASK) {
+        if Self::approval_workspace_shown(sub) || sub.policy.as_deref() == Some(crate::approval::ASK) {
             return;
         }
         let (Some(session_id), Some(p)) = (sub.session_id.clone(), sub.permission.clone()) else {
@@ -932,7 +932,7 @@ impl Brain {
                 request: p.request,
                 child: Some(id.to_owned()),
             },
-            "the app shows no working approval button for this subagent",
+            "the subagent has no local workspace and its permission remains unanswered",
         );
     }
 
@@ -3240,9 +3240,13 @@ impl Brain {
             .is_some_and(|(_, s)| self.approval_shown(s));
         let text = super::control::permission_note(&id, request, shown);
         self.queue(text, Source::Note);
-        if !shown {
-            // Nobody can allow it: denied once overdue, unless the Chief
-            // denies or steers it first.
+        if !self
+            .state
+            .sub(&id)
+            .is_some_and(|(_, s)| Self::approval_workspace_shown(s))
+        {
+            // Home delivery does not prove the person opened Home. Keep the
+            // deadline unless a local workspace supplies the existing answer path.
             self.watch_unanswered(
                 crate::approval::Pending {
                     session_id: session_id.to_owned(),
@@ -3251,16 +3255,20 @@ impl Brain {
                     request: request.clone(),
                     child: Some(id.clone()),
                 },
-                "the app shows no working approval button for this subagent",
+                "the subagent has no local workspace and its permission remains unanswered",
             );
         }
         true
     }
 
-    /// Whether the person's app shows `sub`'s prompt with an Allow button
-    /// that works: a local subagent with a workspace (its agent tab draws
-    /// the prompt). A cloud subagent's peer refuses an allow from this
-    /// Mac's app, and one with no workspace has no tab.
+    /// Only a local workspace exempts a request from the hidden-agent deadline.
+    /// A delivered Home card is answerable, but Home may never be opened.
+    pub(super) fn approval_workspace_shown(sub: &crate::state::SubRecord) -> bool {
+        sub.peer.is_none() && sub.workspace.is_some()
+    }
+
+    /// Whether there is a local app answer path to name in a refusal notice.
+    /// Delivery of a Home card does not exempt it from the no-answer deadline.
     pub(super) fn approval_shown(&self, sub: &crate::state::SubRecord) -> bool {
         sub.peer.is_none()
             && (sub.workspace.is_some()

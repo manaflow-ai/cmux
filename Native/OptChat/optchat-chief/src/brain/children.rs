@@ -52,14 +52,13 @@ impl Brain {
                     }
                 }
                 if !missing.is_empty() {
-                    // Retiring the last request removes the Home check timer.
                     // Persist the cleared request and deliver its terminal card now.
                     self.save();
                     self.flush_outbox();
                 }
                 self.reconcile_home_approvals();
-                // Restore the watchdog for pending requests whose Home card
-                // had no durable acknowledgement before the host restarted.
+                // Restore the watchdog for every hidden pending request,
+                // including cards delivered before the host restarted.
                 let pending: Vec<String> = self
                     .state
                     .spawns

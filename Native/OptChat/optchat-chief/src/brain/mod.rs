@@ -959,8 +959,6 @@ pub struct Brain {
     /// Permission requests the host left open, denied once overdue
     /// (`approvals::deny_overdue_permissions_at`).
     unanswered: Vec<approvals::Unanswered>,
-    home_approval_settings: Option<Option<serde_json::Value>>,
-    home_approval_check: Option<Instant>,
     /// Subagent prompts whose refused allow the person was told about
     /// (`control answer`): the line is posted once per prompt.
     approval_told: HashSet<String>,
@@ -1119,8 +1117,6 @@ impl Brain {
             tool_stopped: false,
             denial_stopped: None,
             unanswered: Vec::new(),
-            home_approval_settings: None,
-            home_approval_check: None,
             approval_told: HashSet::new(),
             previewer: None,
             cuts: 0,
@@ -1372,7 +1368,6 @@ impl Brain {
                 self.next_timer(),
                 self.next_wake(),
                 self.next_unanswered_due(),
-                self.home_approval_check,
                 self.next_reply_due(),
                 self.next_outcome_due(),
             ]
@@ -1747,9 +1742,6 @@ impl Brain {
 
     pub fn on_timer(&mut self) {
         let now = Instant::now();
-        if self.home_approval_check.is_some_and(|at| at <= now) {
-            self.reconcile_home_approvals();
-        }
         if self.handoff_at.is_some_and(|at| at <= now) && self.fatal.is_none() {
             (self.log)("the turn ran past the handoff deadline; stopping, the next host adopts it");
             self.fatal = Some(format!("{HANDOFF_WHEN_IDLE} (deadline)"));
