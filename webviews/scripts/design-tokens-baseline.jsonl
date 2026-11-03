@@ -546,23 +546,8 @@
 {"file":"pages/changelog/updateSurfaces.css","kind":"spacing","property":"top","values":{"7px":1}}
 {"file":"pages/changelog/updateSurfaces.gallery.tsx","kind":"spacing","property":"padding","values":{"10px":1}}
 {"file":"pages/chief-usage/styles.css","kind":"height","property":"height","values":{"8px":1,"2px":2,"3px":1,"4px":1}}
-{"file":"pages/chief-usage/styles.css","kind":"radius","property":"border-radius","values":{"7px":1,"5px":1,"2px":4}}
-{"file":"pages/chief-usage/styles.css","kind":"spacing","property":"gap","values":{"2px":1,"6px":1,"4px 14px":1,"5px":2,"10px":1}}
-{"file":"pages/chief-usage/styles.css","kind":"spacing","property":"margin","values":{"0 0 6px":1}}
-{"file":"pages/chief-usage/styles.css","kind":"spacing","property":"margin-bottom","values":{"2px":1}}
-{"file":"pages/chief-usage/styles.css","kind":"spacing","property":"margin-top","values":{"2px":1,"6px":1,"3px":2}}
-{"file":"pages/chief-usage/styles.css","kind":"spacing","property":"padding","values":{"20px 16px 32px":1,"2px":1,"3px 10px":1,"2px 8px":1,"10px 12px":1,"6px 8px":1,"5px 8px":2}}
-{"file":"pages/chief-views/styles.css","kind":"font-weight","property":"font-weight","values":{"500":5}}
-{"file":"pages/chief-views/styles.css","kind":"radius","property":"border-radius","values":{"10px":1,"7px":1,"5px":1,"2px":1}}
-{"file":"pages/chief-views/styles.css","kind":"spacing","property":"gap","values":{"2px":3,"6px":8,"5px":1,"1px":2,"3px":1}}
-{"file":"pages/chief-views/styles.css","kind":"spacing","property":"inset-block","values":{"16px -6px":1}}
-{"file":"pages/chief-views/styles.css","kind":"spacing","property":"inset-block-start","values":{"2px":1}}
-{"file":"pages/chief-views/styles.css","kind":"spacing","property":"inset-inline-start","values":{"2px":1,"14px":1}}
-{"file":"pages/chief-views/styles.css","kind":"spacing","property":"margin","values":{"0 4px 6px":1,"0 0 6px":1}}
-{"file":"pages/chief-views/styles.css","kind":"spacing","property":"margin-block-start","values":{"1px":2,"2px":1}}
-{"file":"pages/chief-views/styles.css","kind":"spacing","property":"margin-bottom","values":{"10px":1,"14px":1}}
-{"file":"pages/chief-views/styles.css","kind":"spacing","property":"margin-inline-end","values":{"6px":1}}
-{"file":"pages/chief-views/styles.css","kind":"spacing","property":"padding","values":{"14px 16px 24px":1,"2px":1,"3px 10px":1,"1px 4px":1,"10px 12px":1,"2px 8px":2,"3px 8px":1,"0 6px":3,"6px":2,"8px 6px":1,"8px 10px":1,"5px 6px":1}}
+{"file":"pages/chief-usage/styles.css","kind":"radius","property":"border-radius","values":{"2px":4}}
+{"file":"pages/chief-views/styles.css","kind":"radius","property":"border-radius","values":{"2px":1}}
 {"file":"pages/cloud/environment.css","kind":"radius","property":"border-radius","values":{"10px":1}}
 {"file":"pages/cloud/styles.css","kind":"duration","property":"animation","values":{"cloud-store-packet 2.4s cubic-bezier(0.45, 0, 0.55, 1) infinite":1}}
 {"file":"pages/cloud/styles.css","kind":"font-weight","property":"font-weight","values":{"500":1,"700":2}}
