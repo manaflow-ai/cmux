@@ -26,8 +26,10 @@ const rule = (selector: string) => {
 for (const [name, line] of Object.entries(tokenLines))
   test(`${name}: the count is its own span, which the quieter rule keys on`, () => {
     const html = tokenLineMarkup(line);
+    // The live line says one count as Claude Code's does, "679.9K tokens" (claude-code-tool-rows.test.tsx).
+    const count = name.includes("Thinking.tsx") ? "679.9K tokens" : "679.9K out";
     expect(html).toContain(
-      '<span class="cv-worked__count"><span class="cv-worked__sep" aria-hidden="true">·</span><span class="cv-worked__tokens">679.9K out</span></span>',
+      `<span class="cv-worked__count"><span class="cv-worked__sep" aria-hidden="true">·</span><span class="cv-worked__tokens">${count}</span></span>`,
     );
     // The line's words come before the count's span, outside it.
     expect(html.indexOf("cv-worked__count")).toBeGreaterThan(html.search(/Working for|Thinking/));
