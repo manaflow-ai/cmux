@@ -69,8 +69,8 @@ public final class AgentPaneNewTabActions {
             (deliver, wanted) = (nil, nil)
             return
         }
-        running = listing()
-        step()
+        measure { running = listing() }
+        queue.enqueue { [weak self] in self?.step() }
     }
 
     private func step() {
@@ -82,7 +82,12 @@ public final class AgentPaneNewTabActions {
         let actions = entries.map(AgentPaneOmnibar.Action.init(paletteEntry:))
         encoding &+= 1
         let generation = encoding
-        if let last, last.actions == actions { return hand(last) }
+        if let last, last.actions == actions {
+            return queue.enqueue { [weak self] in
+                guard let self, generation == self.encoding else { return }
+                hand(last)
+            }
+        }
         // Best effort: only a person typing in the bar reads the list, and it takes the last one until this one comes.
         let json = Task.detached(priority: WorkPriority.bestEffort.taskPriority) { Self.encode(actions) }
         // task-owner: one hand-over per list; a newer list or request (generation) drops it.

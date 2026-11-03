@@ -91,7 +91,8 @@ struct NewTabOpenFramesTests {
             try #require(services.agentTabs.newTabPages.keys.contains { !pages.contains($0) }, "Cmd-T opened no New Tab page")
             try await PasswordManagerRouteTests.until({ !actions().isEmpty }, report: { "the bar never got the palette's actions" })
             let reads = BenchSpans.end().filter { $0.name == "newTab.paletteActions" }
-            #expect(reads.count > 1, "every palette action was read in one main-thread task (\(reads.map(\.milliseconds)) ms)")
+            // A listing takes one task to start and one to arrange; the reads between them are the slices.
+            #expect(reads.count >= 4, "every palette action was read in one main-thread task (\(reads.map(\.milliseconds)) ms)")
         }
     }
 
