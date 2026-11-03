@@ -71,7 +71,7 @@ public final class AgentPaneIMessageConnector {
         return AgentPaneReply.success(value.foundationObject)
     }
 
-    /// The existing app Rust JSON channel; SQLite and connection-state I/O stay off-main.
+    /// The existing app Rust JSON channel; SQLite reads stay off-main.
     @concurrent nonisolated private static func call(_ request: JSONValue) async -> JSONValue? {
         CloudStartCore().call("imessage", request, as: JSONValue.self)
     }

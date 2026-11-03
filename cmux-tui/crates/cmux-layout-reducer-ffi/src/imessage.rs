@@ -48,6 +48,18 @@ struct Thread {
     last_activity: Option<i64>,
 }
 
+impl From<cmux_imessage::Thread> for Thread {
+    fn from(thread: cmux_imessage::Thread) -> Self {
+        Self {
+            chat_id: thread.chat_id,
+            title: thread.title,
+            is_group: thread.is_group,
+            participants: thread.participants,
+            last_activity: thread.last_message.and_then(|message| message.date_ms),
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct Reply {
     status: Status,
@@ -122,16 +134,7 @@ fn run(request: &Request) -> Reply {
     match Reader::open(&request.database_path).and_then(|reader| reader.threads(500)) {
         Ok(threads) => {
             // Keep Reader's newest-first order. Message bodies never enter this surface.
-            reply.threads = threads
-                .into_iter()
-                .map(|thread| Thread {
-                    chat_id: thread.chat_id,
-                    title: thread.title,
-                    is_group: thread.is_group,
-                    participants: thread.participants,
-                    last_activity: thread.last_message.and_then(|message| message.date_ms),
-                })
-                .collect();
+            reply.threads = threads.into_iter().map(Thread::from).collect();
         }
         Err(MirrorError::NotPermitted(_)) => {
             reply.status = Status::NeedsFullDiskAccess;
@@ -145,6 +148,33 @@ fn run(request: &Request) -> Reply {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn imessage_connector_never_exposes_message_previews() {
+        let metadata = Thread::from(cmux_imessage::Thread {
+            chat_id: 1,
+            guid: "private-guid".into(),
+            title: "Dinner".into(),
+            display_name: Some("Dinner".into()),
+            is_group: true,
+            service: None,
+            participants: vec!["maya@example.test".into()],
+            last_message: Some(cmux_imessage::ThreadPreview {
+                rowid: 2,
+                text: Some("private message body".into()),
+                is_from_me: false,
+                sender: Some("private sender".into()),
+                date_ms: Some(1234),
+                has_attachments: true,
+            }),
+        });
+        let json = serde_json::to_value(metadata).unwrap();
+        assert_eq!(json["last_activity"], 1234);
+        let text = json.to_string();
+        assert!(!text.contains("private"));
+        assert!(json.get("last_message").is_none());
+        assert!(json.get("text").is_none());
+    }
 
     #[test]
     fn imessage_connection_requires_opt_in_then_disk_then_optional_automation() {
