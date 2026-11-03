@@ -20,6 +20,9 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     /// The page holds or sends prompts waiting for a folder trust answer (webviews trustHeld.ts),
     /// each with its send's gesture ticket, which ends with the page: it is not let go.
     public var holdsPrompts: Bool?
+    /// The page holds edits, attachments or sends that its wake state cannot restore, or has an
+    /// input method or popup open. Only a hidden-page release asks to retain that state.
+    public var holdsPageState: Bool?
 
     public nonisolated struct Attachment: Codable, Sendable, Equatable {
         public var id: String
@@ -49,18 +52,21 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     }
 
     public init(attachments: [Attachment]? = nil, shell: Bool? = nil, shellText: String? = nil,
-                scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil, holdsPrompts: Bool? = nil) {
+                scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil, holdsPrompts: Bool? = nil,
+                holdsPageState: Bool? = nil) {
         self.attachments = attachments
         self.shell = shell
         self.shellText = shellText
         self.scrollAnchor = scrollAnchor
         self.atLatest = atLatest
         self.holdsPrompts = holdsPrompts
+        self.holdsPageState = holdsPageState
     }
 
     /// Nothing to hand back.
     public var isEmpty: Bool {
-        (attachments ?? []).isEmpty && shell != true && scrollAnchor == nil && atLatest != true && holdsPrompts != true
+        (attachments ?? []).isEmpty && shell != true && scrollAnchor == nil && atLatest != true
+            && holdsPrompts != true && holdsPageState != true
     }
 
     /// The page's `pane.wakeState` answer; empty when the page has no such action (an older page)
@@ -123,6 +129,7 @@ extension AgentPaneWakeState {
         // ticket, which ends with the page (webviews trustHeld.ts). Asked again, it goes once its
         // prompts have.
         if wake?.holdsPrompts == true { return "holds prompts for a trust answer" }
+        if wake?.holdsPageState == true { return "holds page state" }
         return nil
     }
 

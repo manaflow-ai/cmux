@@ -20,6 +20,7 @@ import {
   WEB_SWAP_KEPT_SCROLL,
   WEB_SWAP_KEPT_TEXT,
   installWebSwap,
+  pageReleaseHold,
   takeWebSwapFocus,
 } from "../src/pages/shared/webSwap";
 
@@ -440,6 +441,45 @@ test("a focused field that restores itself gives the keyboard back after the rel
   expect(takeWebSwapFocus("composer")).toBe(false);
 });
 
+test("hibernation retains composition, popups and queued edits, including a cleared prompt", () => {
+  expect(pageReleaseHold()).toBeNull();
+  document.dispatchEvent(new window.CompositionEvent("compositionstart", { bubbles: true }));
+  expect(pageReleaseHold()).toBe("ime");
+  document.dispatchEvent(new window.CompositionEvent("compositionend", { bubbles: true }));
+  expect(pageReleaseHold()).toBeNull();
+
+  const popup = fixture('<div role="menu"></div>');
+  expect(pageReleaseHold()).toBe("popup");
+  popup.remove();
+
+  const queuedEdit = fixture('<textarea>queued prompt</textarea>');
+  const field = queuedEdit.querySelector("textarea")!;
+  expect(pageReleaseHold()).toBe("field");
+  // The queue owns the old prompt, but the unsaved removal lives only in its editor.
+  field.value = "";
+  expect(pageReleaseHold()).toBe("field");
+  queuedEdit.remove();
+  expect(pageReleaseHold()).toBeNull();
+});
+
+test("hibernation can release a durable draft at its saved scroll position without requiring a focused caret at the end", () => {
+  const owner = fixture(`<div ${WEB_SWAP_KEPT_TEXT}><textarea>durable draft</textarea></div>`);
+  const field = owner.querySelector("textarea")!;
+  field.focus();
+  field.setSelectionRange(2, 5);
+  Object.defineProperty(owner, "scrollTop", { configurable: true, value: 40 });
+  // A web update keeps the user's selection; hibernation restores the draft and transcript.
+  expect(hold()).toBe("selection");
+  expect(pageReleaseHold()).toBeNull();
+  field.setSelectionRange(2, 2);
+  expect(hold()).toBe("focus");
+  expect(pageReleaseHold()).toBeNull();
+  field.blur();
+  expect(hold()).toBe("scroll");
+  expect(pageReleaseHold()).toBeNull();
+  owner.remove();
+});
+
 test("a page's own hold (a New Tab's chips, a Home message on its way) keeps the update waiting", async () => {
   let setReason: (reason: string | null) => void = () => undefined;
   function Page() {
@@ -452,15 +492,22 @@ test("a page's own hold (a New Tab's chips, a Home message on its way) keeps the
   root = createRoot(host);
   await act(async () => root!.render(<Page />));
   expect(hold()).toBe("newtab.attachments");
+  expect(pageReleaseHold()).toBe("newtab.attachments");
+  await act(async () => setReason("newtab.draft"));
+  expect(pageReleaseHold()).toBe("newtab.draft");
+  await act(async () => setReason("composer.send-untaken"));
+  expect(pageReleaseHold()).toBe("composer.send-untaken");
   await act(async () => setReason("home.sending"));
   expect(hold()).toBe("home.sending");
   await act(async () => setReason(null));
   expect(hold()).toBeNull();
+  expect(pageReleaseHold()).toBeNull();
   await act(async () => setReason("home.send-failed"));
   await act(async () => root!.unmount());
   root = undefined;
   // Gone with its page.
   expect(hold()).toBeNull();
+  expect(pageReleaseHold()).toBeNull();
 });
 
 // Leo 2026-10-29 (ask-57e1c63246): "it seems that new updates overwrite the text portion of the

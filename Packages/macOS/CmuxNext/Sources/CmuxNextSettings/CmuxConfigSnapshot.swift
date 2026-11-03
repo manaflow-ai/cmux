@@ -243,6 +243,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var autoArchive = AutoArchiveSettings()
     /// `workspaces.hibernation.*`: when idle workspaces leave memory (plans/cmux-next/workspace-hibernation-DESIGN.md).
     public var workspaceHibernation = WorkspaceHibernationSettings()
+    public var chatPageHibernation = ChatPageHibernationSettings()
     /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
     /// theme) when unset, empty or invalid.
     public var appTheme: String?
@@ -449,6 +450,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.screenshots = ScreenshotsSettings.parse(root, home: NSHomeDirectory(), diagnostics: &snapshot.diagnostics)
         snapshot.autoArchive = AutoArchiveSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.workspaceHibernation = WorkspaceHibernationSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.chatPageHibernation = ChatPageHibernationSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (tasksLayout, tasksLayoutDiagnostic) = TasksLayoutSetting().parse(root)
         snapshot.tasksLayout = tasksLayout
         if let tasksLayoutDiagnostic { snapshot.diagnostics.append(tasksLayoutDiagnostic) }

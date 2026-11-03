@@ -1,0 +1,87 @@
+{
+  "$comment": "HAND-EDITED local WebKit chat page residency defaults. gen-settings-sources.py generates native settings and cmux-config reads this shared source. The existing hidden-page timer and SurfaceRetention reducer execute these values.",
+  "lists": [
+    {
+      "name": "chatPages",
+      "section": "general",
+      "group": {
+        "key": "settings.group.workspaceHibernation",
+        "text": "Hibernation"
+      },
+      "rows": [
+        {
+          "key": "agents.chatPages.enabled",
+          "name": "enabled",
+          "title": {
+            "key": "settings.chatPages.enabled",
+            "text": "Release Hidden Chat Pages"
+          },
+          "help": {
+            "key": "settings.chatPages.enabled.help",
+            "text": "Free idle local chat pages while keeping their session, draft and scroll position. Explicit browser hibernation settings still apply."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "chats",
+            "memory",
+            "hibernate",
+            "idle"
+          ]
+        },
+        {
+          "key": "agents.chatPages.hiddenMinutes",
+          "name": "hiddenMinutes",
+          "title": {
+            "key": "settings.chatPages.hiddenMinutes",
+            "text": "Release Hidden Chats After"
+          },
+          "help": {
+            "key": "settings.chatPages.hiddenMinutes.help",
+            "text": "Minutes to keep an idle local WebKit chat page after hiding it. Working chats, pinned tabs and pages with pending prompts stay loaded."
+          },
+          "kind": "number",
+          "default": 5,
+          "keywords": [
+            "chats",
+            "memory",
+            "hibernate",
+            "idle"
+          ],
+          "range": {
+            "min": 1,
+            "max": 1440,
+            "step": 1,
+            "unit": "minutes"
+          }
+        },
+        {
+          "key": "agents.chatPages.newTabCapacity",
+          "name": "newTabCapacity",
+          "title": {
+            "key": "settings.chatPages.newTabCapacity",
+            "text": "Keep Hidden New Tab Pages"
+          },
+          "help": {
+            "key": "settings.chatPages.newTabCapacity.help",
+            "text": "Keep this many recently hidden, untouched New Tab pages warm. Pages you edited and the single prewarmed spare stay loaded."
+          },
+          "kind": "number",
+          "default": 2,
+          "keywords": [
+            "chats",
+            "memory",
+            "hibernate",
+            "idle"
+          ],
+          "range": {
+            "min": 0,
+            "max": 16,
+            "step": 1,
+            "unit": "count"
+          }
+        }
+      ]
+    }
+  ]
+}
