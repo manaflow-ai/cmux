@@ -130,6 +130,7 @@ fn the_shipped_skill_installs_once_and_a_user_copy_is_kept() {
             "chief-cloud-machines".to_owned(),
             "cmux-adoption".to_owned(),
             "cmux-setup".to_owned(),
+            "cmux-views".to_owned(),
             "paid-plans".to_owned(),
             "whats-new".to_owned(),
         ]

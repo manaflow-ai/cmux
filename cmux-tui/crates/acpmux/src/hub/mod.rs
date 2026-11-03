@@ -14,6 +14,7 @@ mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;
 mod agent_pairs;
+mod away_recap;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
@@ -653,6 +654,12 @@ pub struct Hub {
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
     /// Work that waits for the chat index to start (`Hub::when_chats_ready`).
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
+    /// The app's `agents.chats.sessionRecap` (`away_recap.rs`), from its last chat settings push.
+    pub(super) session_recap: AtomicBool,
+    /// When each away chat's recap is asked for, in hub clock nanos (`away_recap.rs`).
+    pub(super) recap_due: StdMutex<HashMap<String, u64>>,
+    /// Wakes the recap loop when `recap_due` changes.
+    pub(super) recap_wake: Arc<Notify>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
     /// Held by each `sessions.allowFullAccess` push through its teardown (`apply_full_access_push`).
@@ -902,6 +909,9 @@ impl Hub {
             vm_marker_root: StdMutex::new(PathBuf::from("/")),
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
+            session_recap: AtomicBool::new(away_recap::saved_setting()),
+            recap_due: StdMutex::new(HashMap::new()),
+            recap_wake: Arc::new(Notify::new()),
             start_mode_state,
             full_access_pushes: tokio::sync::Mutex::new(()),
             family_gate: Arc::new(tokio::sync::RwLock::new(())),
@@ -983,6 +993,7 @@ impl Hub {
                 hub.bg_notify_resume();
             }
             hub.watch_titles();
+            hub.watch_recaps();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }
@@ -1246,6 +1257,7 @@ impl Hub {
             admit: StdMutex::new(()),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),
+            away: StdMutex::new(Default::default()),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             prepared: StdMutex::new(std::collections::VecDeque::new()),
