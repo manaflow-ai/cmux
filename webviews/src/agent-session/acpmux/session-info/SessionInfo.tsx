@@ -924,7 +924,9 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
       return;
     }
     if (!shell || !reading || wide) return;
-    const next = chatContentOverflow(shell, paneWidth - room, column);
+    // The chat's drawn width, not the room's target: while the push slides in, the chat is still wider.
+    const drawnChat = shell.querySelector<HTMLElement>(":scope > .acpmux-main")?.getBoundingClientRect().width ?? 0;
+    const next = chatContentOverflow(shell, drawnChat > 0 ? Math.min(paneWidth, drawnChat) : paneWidth - room, column);
     setOverflow((current) => (next > current ? next : current));
   }, [shell, drawn, reading, wide, paneWidth, room, side, width, column, rows.length]);
   const scopedAgent = scope?.agent;
