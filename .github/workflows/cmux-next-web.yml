@@ -47,10 +47,11 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 20
     # One coalesce job waits at a time; a newer push's replaces a pending one (never a started one). One that slept
-    # yields to a newer push when it wakes (#33872), so no push waits two windows. A dispatch (next_batch's web lane)
-    # and the off switch get a group of their own and run at once.
+    # yields to a newer push when it wakes (#33872), so no push waits two windows. A dispatch (next_batch's web lane),
+    # a re-run and the off switch get a group of their own and run at once: a re-run never waits behind or is
+    # replaced by a new push's coalesce job (#34158).
     concurrency:
-      group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.NEXT_WEB_COALESCE) != '0' && 'cmux-next-web-coalesce' || format('cmux-next-web-coalesce-{0}', github.run_id) }}
+      group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.NEXT_WEB_COALESCE) != '0' && github.run_attempt == '1' && 'cmux-next-web-coalesce' || format('cmux-next-web-coalesce-{0}-{1}', github.run_id, github.run_attempt) }}
       cancel-in-progress: false
     outputs:
       base: ${{ steps.wait.outputs.base }}
