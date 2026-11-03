@@ -36,6 +36,7 @@ import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
+import { TASK_LINE, type StartedTask } from "./conversation/taskLineKind";
 import type { SubagentRetryNotice } from "./subagents/retryState";
 import {
   isRunGroup,
@@ -124,6 +125,17 @@ export type AcpmuxBackgroundTurn = {
   /// A row of its own draws something, so its line opens to it. A turn whose events only update
   /// rows that are not its own (a call an earlier turn started, a subagent's work) has none.
   hasRows?: true;
+};
+
+/// What a run of background-task notifications' line counts (conversation/backgroundRuns.ts): quiet
+/// task turns and finished shells, stopped shells, scheduled checks, other quiet background turns,
+/// and the ids of the rows it folds (Find and links open it for one).
+export type AcpmuxBackgroundRun = {
+  finished: number;
+  stopped: number;
+  scheduled: number;
+  other: number;
+  rows: string[];
 };
 
 /// The chat's permission policy (an acpmux policy id narrower than approve-all) that its harness
@@ -313,6 +325,9 @@ export type AcpmuxRow = {
   background?: AcpmuxBackgroundTurn;
   /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
   inBackground?: string;
+  /// A run of background-task notifications folded under one line (conversation/backgroundRuns.ts):
+  /// drawn as a background turn's line, with what it counts and the rows it folds.
+  backgroundRun?: AcpmuxBackgroundRun;
   /// A policy note's policy and why the chat's harness cannot keep it.
   policyUnenforced?: AcpmuxPolicyUnenforced;
   /// An agent pair row's pause (conversation/AgentPairNote.tsx).
@@ -359,6 +374,8 @@ export type AcpmuxRow = {
   untyped?: boolean;
   /// A started sessions row's chats, oldest first (started/StartedSessionCard.tsx).
   started?: StartedSession[];
+  /// A finished turn's task line's sub-sessions, in the order it started them (conversation/TaskLine.tsx).
+  tasks?: StartedTask[];
   toolCount?: number;
   durationMs?: number;
   /// A turn summary's tokens, when its harness reported them on the `turn_result` (Claude Code:
@@ -1135,14 +1152,17 @@ const TOOL_RUN_TOP = 0;
 /// MARK_STEP).
 const isStepRow = (row: AcpmuxRow) =>
   row.kind === "activity" || (row.kind === ACTIVITY_LINE && !row.below) || isLineRow(row);
-/// The running turn's line as its last row (`below`) right under a step row: one more line of the
-/// run, 22 under it and 22 tall (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32
-/// slot, so a step row after it (the waiting messages' head) is 22 under it too (#29965).
+/// The running turn's line as its last row (`below`) right under a step row or a status row ("Subagent
+/// finished", "Scheduled check", a compaction): one more line of the run, 22 under it and 22 tall
+/// (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32 slot, so a step row after it
+/// (the waiting messages' head) is 22 under it too (#29965). Under a status row it took the footer's
+/// slot a block gap away, 55 and 70 from its neighbours (Leo, 2026-11-03: "this is pretty bad
+/// spacing and formatting"; design/transcript-spacing.md rule 3).
 export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
   row.below === true &&
   (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE) &&
   prev !== undefined &&
-  isStepRow(prev);
+  (isStepRow(prev) || isStatusRow(prev));
 const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
@@ -1442,6 +1462,7 @@ const isStatusKind = (row: AcpmuxRow) =>
   row.kind === "agentPair" ||
   row.kind === "sessionStart" ||
   row.kind === BACKGROUND_TURN ||
+  row.kind === TASK_LINE ||
   row.kind === MESSAGE_RUN ||
   (row.kind === "activity" && isToolRun(row));
 /// A tool run with at least one call, not an edited-files card (turnChanges/sessionRows.ts
@@ -1681,6 +1702,8 @@ function fallbackRowHeight(
     return finish(
       8 + 2 + row.started.reduce((sum, child) => sum + (hasStatusLine(child) ? 50 : 34), 0) + (row.started.length - 1),
     );
+  // A finished turn's task lines (conversation/TaskLine.tsx): one tool row each.
+  if (row.kind === TASK_LINE && row.tasks) return finish(row.tasks.length * toolRowHeight());
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
   if (row.kind === "agentPair") return finish(row.agentPair?.resumed ? 37 : 37 + 24);
   // A session start: its facts line (conversation/SessionStartNote.tsx); the full facts open
