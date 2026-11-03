@@ -415,6 +415,7 @@ pub(super) async fn tasks(
         .briefs
         .list(None, 500)
         .into_iter()
+        .filter(|row| workflow_dispatch::visible(conn, row))
         .filter(|row| from.is_none() || row["fromSession"].as_str() == from.as_deref())
         // A peer daemon's connection: the briefs this host ran ([`peer_sees`]).
         .filter(|row| conn.origin != Origin::Peer || peer_sees(hub, row))

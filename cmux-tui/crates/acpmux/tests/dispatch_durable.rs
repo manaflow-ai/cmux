@@ -106,6 +106,8 @@ fn durable_peer_dispatch_replays_the_same_child_and_exact_reply() {
                 let listed = call(&hub, origin, method::MUX_BRIEFS, json!({})).await.unwrap();
                 assert!(listed["briefs"].as_array().unwrap().is_empty(),
                     "legacy brief listing leaked a private durable receipt: {listed}");
+                let tasks = call(&hub, origin, method::MUX_TASKS, json!({"all":true})).await.unwrap();
+                assert!(tasks["tasks"].as_array().unwrap().is_empty(), "legacy task listing leaked durable activity");
                 for operation in [method::MUX_STEER, method::MUX_REPORT] {
                     assert!(call(&hub, origin, operation, json!({"briefId":"workflow-activity", "text":"steal", "summary":"steal"})).await.is_err());
                 }
