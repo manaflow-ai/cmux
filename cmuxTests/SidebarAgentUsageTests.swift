@@ -200,6 +200,53 @@ struct SidebarAgentUsageTests {
         #expect(metadata.agentUsageByStatusKey.isEmpty)
     }
 
+    @Test func turningOffEveryPartStopsSampling() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("usage-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = try Self.claudeTranscript(contextTokens: 200_000, in: directory, name: "a")
+        let workspaceID = UUID()
+        let defaults = Self.makeDefaults(enabled: true)
+        for key in [
+            SidebarWorkspaceDetailDefaults.showAgentModelKey,
+            SidebarWorkspaceDetailDefaults.showAgentContextKey,
+            SidebarWorkspaceDetailDefaults.showAgentCostKey,
+        ] {
+            defaults.set(false, forKey: key)
+        }
+        let metadata = WorkspaceSidebarMetadataModel(limitProvider: UnlimitedSidebarLog())
+        let coordinator = SidebarAgentUsageCoordinator(defaults: defaults, coalesceInterval: .zero) { id in
+            id == workspaceID ? metadata : nil
+        }
+
+        coordinator.noteHookEvent(Self.event(.preToolUse, session: "A", workspace: workspaceID, transcript: path, at: 1))
+        await coordinator.waitUntilIdle()
+        #expect(coordinator.scheduledFlushCount == 0)
+
+        // One part back on resamples without waiting for a hook event.
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showAgentContextKey)
+        coordinator.settingsDidChange()
+        await coordinator.waitUntilIdle()
+        #expect(metadata.agentUsageByStatusKey["claude_code"]?.contextFraction == 0.2)
+    }
+
+    @Test func snapshotRowLeavesOutADisabledPart() {
+        let defaults = Self.makeDefaults(enabled: true)
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showAgentModelKey)
+        let workspace = Workspace()
+        workspace.statusEntries["claude_code"] = Self.statusEntry(key: "claude_code", value: "Running")
+        workspace.sidebarMetadata.updateAgentUsage(Self.usage, forStatusKey: "claude_code")
+
+        let snapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace, settings: SidebarTabItemSettingsSnapshot(defaults: defaults), showsAgentActivity: false
+        ).makeSnapshot()
+        // The percent and currency follow `Locale.current`, so assert the
+        // model is gone and the rest is still appended rather than exact text.
+        let row = snapshot.metadataEntries.first { $0.key == "claude_code" }?.value
+        #expect(row?.hasPrefix("Running" + SidebarAgentUsageFormatter.separator) == true)
+        #expect(row?.contains("Opus 4.8") == false)
+    }
+
     @Test func resumingTheSameTranscriptKeepsUsageAndPaddedWorkspaceIdsResolve() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("usage-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
