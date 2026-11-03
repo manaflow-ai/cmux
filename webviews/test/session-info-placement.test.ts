@@ -123,10 +123,11 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     });
 
     // Leo, 2026-11-01: "why does the session info not push the layout left ever anymore". Where the
-    // right gutter cannot hold it (a 1200px pane, a pane of a split at 560 and 700, a narrow window at
-    // 900) it takes its column under the header: the chat moves left and narrows, and the panel covers
-    // no row and not the composer. On base it floated over the chat's right end.
-    for (const width of [560, 700, 900, 1200]) {
+    // right gutter cannot hold it and the pane still holds a readable chat beside it (a 1200px pane, a
+    // pane of a split at 700, a narrow window at 900) it pushes into the chat under the header, by only
+    // what the gutter lacks (SessionInfo.tsx pushedRoom): the chat narrows, and the panel covers no row
+    // and not the composer. Under 648px it lies over the chat instead (the 370/528px cases below).
+    for (const width of [700, 900, 1200]) {
       test(`${name}: in a ${width}px pane it pushes the chat left and covers no row`, async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 700 });
@@ -160,13 +161,16 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
       });
     }
 
-    // cmuxterm-hq#6137, Leo 2026-11-02: "THE FUCKING SESSION INFO NOT FUCKING PUSH THE LAYOUT LEFT". A new
-    // chat in a 370px agent pane opened with the panel at its 260px narrowest, the chat's "Not sent" line,
-    // Retry and composer under it. In a pane that narrow, or a 528px one, a saved open state leaves the
-    // chat alone; opened, the panel narrows (PUSH_PANEL_MIN) and sits right of the chat, which reflows
-    // beside it: no row and not the composer lies under it or is cut off. A 740px pane opens it unasked.
+    // cmuxterm-hq#6137: a new chat in a 370px agent pane opened with the panel over its "Not sent" line,
+    // Retry and composer. Leo, 2026-11-03: "but you should still be able to have it be an overlay... we
+    // previously had all that behaviour logic going from not affecting layout at all -> gradually pushing
+    // into the chat layout -> overlay". In a pane that narrow, or a 528px one, pushing would take the chat
+    // under 440px: a saved open state leaves the chat alone, and the toggle opens it over the chat, its
+    // foot above the composer's top, so the composer shows whole and the chat keeps the pane's width. A
+    // 740px pane opens it unasked, pushing: it sits right of the chat and covers no row.
     for (const width of [370, 528, 740]) {
-      test(`${name}: in a ${width}px pane it sits right of the chat, whose last row and composer show whole`, async () => {
+      const over = width < 648;
+      test(`${name}: in a ${width}px pane it ${over ? "lies over the chat above the composer" : "sits right of the chat"}, and the composer shows whole`, async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 900 });
         try {
@@ -180,6 +184,10 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           // Session Info's saved state is open (the default): only a pane with room shows it unasked.
           const unasked = (await toggle.getAttribute("aria-pressed")) === "true";
           const { panel } = await openSessionInfo(page);
+          // The card's foot settles on the composer's top (sessionInfo.css data-foot-moves).
+          await page.evaluate(() =>
+            Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
+          );
           const box = await rect(page);
           const main = await page.evaluate(() => {
             const { left, right, top, bottom } = document.querySelector(".acpmux-main")!.getBoundingClientRect();
@@ -197,15 +205,23 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           expect({
             unasked,
             placement: await panel.getAttribute("data-placement"),
+            overChat: (await panel.getAttribute("data-over-chat")) !== null,
+            popover: (await panel.getAttribute("data-popover")) !== null,
+            chatKeepsPane: Math.abs(main.right - main.left - width) < 0.5,
             besideChat: box.left >= main.right - 0.5,
+            aboveComposer: box.bottom <= composer.top + 0.5,
             insidePane: box.right <= width,
-            covers: rows.filter((row) => meets(row, box)),
+            covers: over ? [] : rows.filter((row) => meets(row, box)),
             composerWhole: composer.left >= main.left - 0.5 && composer.right <= main.right + 0.5,
             lastRowWhole: last.left >= main.left - 0.5 && last.right <= main.right + 0.5,
           }).toEqual({
-            unasked: width >= 740,
-            placement: "push",
-            besideChat: true,
+            unasked: !over,
+            placement: over ? "overlay" : "push",
+            overChat: over,
+            popover: false,
+            chatKeepsPane: over,
+            besideChat: !over,
+            aboveComposer: true,
             insidePane: true,
             covers: [],
             composerWhole: true,

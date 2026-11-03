@@ -149,6 +149,9 @@ impl Hub {
             crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all);
         *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers.clone());
         let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});
+        if let Some(dirs) = super::additional_dirs::acp_value(meta) {
+            params.set(super::additional_dirs::FIELD, dirs);
+        }
         if let Some(id) = session_id {
             params.set("sessionId", json!(id));
         }

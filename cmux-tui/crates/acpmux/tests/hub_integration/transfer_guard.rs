@@ -867,3 +867,23 @@ async fn a_guarded_move_drops_the_bundles_prompt_provenance() {
         assert!(!recs.iter().any(carried), "a moved {kind} record kept its provenance: {recs:?}");
     }
 }
+
+#[tokio::test]
+async fn a_guarded_move_keeps_only_the_folders_under_its_roots() {
+    // A crafted bundle names folders beside the chat's own: only those under the move's roots
+    // reach its harness (`hub/additional_dirs.rs`), never one outside (a home's `.ssh`, `/`).
+    let root = Scratch::home("dirs");
+    let inside = root.path().join("notes");
+    std::fs::create_dir_all(&inside).unwrap();
+    let outside = Scratch::temp("dirs-outside");
+    let (hub, mut dst) = daemon(config("ask", json!({})), None).await;
+    let m = meta(
+        root.path(),
+        json!({"additionalDirectories": [inside, outside.path(), "/", root.path(), "relative"]}),
+    );
+    let id = m["id"].as_str().unwrap().to_owned();
+    let rid = receive(&mut dst, guard("peer", &[root.path()]), &m, &[]).await.unwrap();
+    finish(&mut dst, &rid, json!({})).await.unwrap();
+    let meta = hub.resolve(&id).unwrap().meta();
+    assert_eq!(meta.additional_directories, [std::fs::canonicalize(&inside).unwrap()]);
+}

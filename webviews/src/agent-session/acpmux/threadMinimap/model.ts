@@ -662,9 +662,19 @@ function ticksOf(turns: readonly MinimapTurn[], previous: readonly MinimapTick[]
 }
 
 /// The turn the reader is in: the last prompt above a third of the way down the viewport.
+/// A row's layout top by index, undefined past the rows (an estimate's `tops[index]`, or a
+/// placement's index read for just the rows asked: the rail reads a few turns, never every row).
+export type RowTops = (index: number) => number | undefined;
+
+/// RowTops over a placed layout's geometry.
+export const rowTopsOf =
+  (geometry: { count: number; topAt: (index: number) => number }): RowTops =>
+  (index) =>
+    index >= 0 && index < geometry.count ? geometry.topAt(index) : undefined;
+
 export function currentTurn(
   turns: readonly MinimapTurn[],
-  tops: Float64Array,
+  tops: RowTops,
   scrollTop: number,
   viewportHeight: number,
   firstLoaded = 0,
@@ -676,7 +686,7 @@ export function currentTurn(
   low = firstLoaded;
   while (low < high) {
     const middle = (low + high) >>> 1;
-    if ((tops[turns[middle].index] ?? 0) <= anchor) low = middle + 1;
+    if ((tops(turns[middle].index) ?? 0) <= anchor) low = middle + 1;
     else high = middle;
   }
   return Math.max(firstLoaded, low - 1);
@@ -691,7 +701,7 @@ export function currentTurn(
 /// counts once its bubble is on screen: our turns have no block above the bubble to show first.
 export function visibleTurns(
   turns: readonly MinimapTurn[],
-  tops: Float64Array,
+  tops: RowTops,
   totalHeight: number,
   scrollTop: number,
   viewportHeight: number,
@@ -701,14 +711,14 @@ export function visibleTurns(
   const bottom = scrollTop + viewportHeight - THREAD_PADDING_TOP;
   const first = currentTurn(turns, tops, scrollTop + LANDING_OFFSET, 0, firstLoaded);
   let last = first;
-  while (last + 1 < turns.length && (tops[turns[last + 1].index] ?? totalHeight) < bottom) last += 1;
+  while (last + 1 < turns.length && (tops(turns[last + 1].index) ?? totalHeight) < bottom) last += 1;
   return { first, last };
 }
 
 /// The scroll offset that lands a turn's prompt row (its images, else its bubble) LANDING_OFFSET
 /// below the viewport's top.
-export function turnScrollTop(turn: MinimapTurn, tops: Float64Array): number {
-  return Math.max(0, THREAD_PADDING_TOP + (tops[turn.index] ?? 0) - LANDING_OFFSET);
+export function turnScrollTop(turn: MinimapTurn, tops: RowTops): number {
+  return Math.max(0, THREAD_PADDING_TOP + (tops(turn.index) ?? 0) - LANDING_OFFSET);
 }
 
 /// The start of a reply as blocks with bold/code spans; fenced code, heading marks and link targets drop.

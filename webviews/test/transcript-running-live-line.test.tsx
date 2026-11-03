@@ -209,3 +209,14 @@ test("with a todo list the activity line names the command its run gave up", () 
     expect(shaped.some((entry) => entry.id === "r1")).toBe(false);
   }
 });
+
+// Leo, 2026-11-03, on a row that opened to nothing: "these background updates don't really expand out
+// to anything? idk what those are even for". The "Sending message to …" line opens nothing either, so
+// it draws no chevron.
+test("the Sending message line draws no chevron: it has nothing to open", async () => {
+  const { ActivityLine } = await import("../src/agent-session/acpmux/conversation/ActivityLine");
+  const line = { id: "l", version: 1, at: 0, kind: "activityLine", doingSendTo: "tests" } as AcpmuxRow;
+  const html = renderToStaticMarkup(<ActivityLine row={line} now={() => 1000} />);
+  expect(html).toContain("tests");
+  expect(html).not.toContain("cv-tool__chevron");
+});
