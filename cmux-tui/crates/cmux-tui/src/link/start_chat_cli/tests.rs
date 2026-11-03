@@ -480,10 +480,62 @@ fn a_retry_after_a_finished_copy_never_copies_again() {
     assert_eq!(*count.borrow(), 1);
     assert_eq!(retry["copied"], json!(false));
     assert_eq!(retry["chat"], first["chat"]);
+    assert_eq!(retry["folder"], first["folder"]);
+    assert_eq!(first["chat"], format!("{}/sub", first["folder"].as_str().unwrap()));
     // On another machine (the first is gone) it copies again.
     let elsewhere = StartCopy { machine: "vm-b".into(), ..copy }.run(&path, &push);
     assert_eq!(elsewhere["copied"], json!(true));
     assert_eq!(*count.borrow(), 2);
+}
+
+#[test]
+fn a_finished_copy_keeps_its_original_folder_when_retry_arguments_change() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "web/sub");
+    let first = copy.run(&path, &|_: &Path, _: &Path, _: &str| Ok(json!({})));
+    assert_eq!(first["ok"], true, "{first}");
+    // Pinning again must keep the copy's root, just as it keeps its chat and place.
+    assert_eq!(pin(&path, &copy.key, ACCOUNT, &copy.machine, None)["ok"], true);
+    let retry = StartCopy {
+        local: "/Users/me/renamed-project".into(),
+        subpath: "other".into(),
+        work_roots: vec!["/new/work-root".into()],
+        ..copy
+    }
+    .run(&path, &|_: &Path, _: &Path, _: &str| panic!("a finished copy must not push again"));
+    assert_eq!(retry["ok"], true, "{retry}");
+    assert_eq!(retry["copied"], false);
+    assert_eq!(retry["chat"], first["chat"]);
+    assert_eq!(retry["folder"], first["folder"]);
+}
+
+#[test]
+fn a_finished_copy_from_an_older_ledger_recovers_its_original_folder() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "web/sub");
+    let place = format!("{}/01234567", Keys::of(&copy.key).place);
+    let (folder, chat) = copy.remote("/old/work-root", &place);
+    // Older ledgers kept only the place and the chat, with no copied-folder field.
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &path,
+        json!({"sends": [{"key": copy.key, "account": ACCOUNT, "machine_id": copy.machine,
+            "place": place, "copied_chat": chat}]}).to_string(),
+    )
+    .unwrap();
+    let retry = StartCopy {
+        local: "/Users/me/renamed-project".into(),
+        subpath: "other".into(),
+        work_roots: vec!["/new/work-root".into()],
+        ..copy
+    }
+    .run(&path, &|_: &Path, _: &Path, _: &str| panic!("a legacy finished copy must not push again"));
+    assert_eq!(retry["ok"], true, "{retry}");
+    assert_eq!(retry["copied"], false);
+    assert_eq!(retry["chat"], chat);
+    assert_eq!(retry["folder"], folder);
 }
 
 /// A copy cannot report machine boot or harness startup: both are outside its lifetime.
