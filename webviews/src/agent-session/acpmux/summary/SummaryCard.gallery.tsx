@@ -288,6 +288,22 @@ export default componentEntry<Props>({
         const padding = view.getComputedStyle(head);
         if (padding.paddingLeft !== "0px" || padding.paddingRight !== "0px")
           throw new Error("Inline head has a second horizontal inset");
+        const boxes = () =>
+          Array.from(
+            head.querySelectorAll(".acpmux-summary-tab, .acpmux-summary-tab__label, .acpmux-summary-tab__close"),
+          ).flatMap((element) => {
+            const rect = element.getBoundingClientRect();
+            return [rect.x, rect.y, rect.width, rect.height];
+          });
+        const before = boxes();
+        const assertStable = () => {
+          if (boxes().some((value, index) => Math.abs(value - before[index]!) > 0.1))
+            throw new Error("Selecting a summary tab moved or resized a tab or its close control");
+        };
+        await ctx.click({ selector: "button.acpmux-summary-tab" });
+        assertStable();
+        await ctx.click({ selector: ".acpmux-summary-tab__label" });
+        assertStable();
       },
     },
     "nested-sources-menu": {

@@ -92,6 +92,10 @@
 .acpmux-summary-tab[data-selected]{background:var(--acpmux-menu-hover);font-weight:var(--weight-emphasis)}
 .acpmux-summary-tab[data-closable]{flex:0 1 auto;min-width:0;gap:2px;padding-right:2px}
 .acpmux-summary-tab__label{min-width:0;overflow:hidden;padding:0;border:0;background:none;color:inherit;font:inherit;white-space:nowrap;text-overflow:ellipsis}
+/* Reserve the emphasized label width before selection, without measuring or shifting its neighbors. */
+.acpmux-summary-tab__text{display:inline-grid;min-width:0;max-width:100%}
+.acpmux-summary-tab__text>span{grid-area:1/1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.acpmux-summary-tab__measure{visibility:hidden;font-weight:var(--weight-emphasis)}
 .acpmux-summary-tab__close{flex:none;display:grid;place-items:center;width:18px;height:18px;padding:0;border:0;border-radius:4px;background:none;color:var(--agent-muted)}
 .acpmux-summary-tab__close:hover{background:color-mix(in srgb,currentColor 12%,transparent);color:var(--agent-text)}
 .acpmux-summary-tab:focus-visible,.acpmux-summary-tab__label:focus-visible,.acpmux-summary-tab__close:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
