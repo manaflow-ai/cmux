@@ -58,7 +58,11 @@ test("the live line names the MCP call in flight the way Claude Code does", () =
     version: 1,
     at: 1,
     kind: "activity",
-    items: [{ kind: "tool", text: "mcp__repo__repo_grep", tool: grep("in_progress") }],
+    // Two calls to one tool share a closed line, so the live line is what names the running one.
+    items: [
+      { kind: "tool", text: "mcp__repo__repo_grep", tool: grep("completed") },
+      { kind: "tool", text: "mcp__repo__repo_grep", tool: { ...grep("in_progress"), id: "grep-2" } },
+    ],
   };
   const live = turnView([user, activity], new Set(), { working: true }).find((row) => row.kind === WORKING);
   expect(live?.doing).toBe("Using repo: repo grep");
@@ -85,6 +89,7 @@ const liveLine = (props: Parameters<typeof Thinking>[0]) =>
 const shown = (html: string) =>
   html
     .replace(/<span class="cv-shimmer__band"[\s\S]*?<\/span><\/span>/g, "")
+    .replace(/<span class="cv-worked__lead">([^<]*)<\/span>/g, "$1")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
