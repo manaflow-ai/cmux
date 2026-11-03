@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "build": "4161217392901",
+  "notes": "notes/4161217392901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 33518,
+      "title": "Agent chat: an approved MCP call says Approved on its row too",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33066,
+      "title": "Cookie import consent: only the person's own click allows; out of screen capture; Computer Use refuses it",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32875,
+      "title": "cmux NEXT: Changes opens as a tab on the right for Cloud and non-repository chats, never over the chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33357,
+      "title": "chief: an agent's task runs restricted on purpose; the Chief tells the sender, not the user",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33467,
+      "title": "bench idle-chats: no PASS without a measured process; renderer flags survive a long command",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33444,
+      "title": "perf(sidebar): a session record's heartbeat no longer runs every window's rows pass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33271,
+      "title": "fix(next): accept first-contact SSH keys when adding a machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33135,
+      "title": "base red: the fold-stream upward-anchor trace starts off the very bottom (#32644 fix forward)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33461,
+      "title": "Transcript spacing: pin the live line 22 under background task notes, and a prompt 32 from a turn's status rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33360,
+      "title": "Agent pane inbound: each daemon frame is made native UTF-8 once, and a reply is parsed once (idle CPU)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33395,
+      "title": "cmux NEXT Home: a Chief's avatar shows its state like the Codex pet, and never bounces",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33402,
+      "title": "Cloud: Bring Back Local for chats started in Cloud and for idle-paused machines",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33294,
+      "title": "Fix argv approval command rendering",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33308,
+      "title": "acpmux: a message for a down peer's session asks its route to wake a paused machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33074,
+      "title": "fix(attachments): retain large batches and their display metadata",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32970,
+      "title": "Agent pane: a tool's notice is one received line with its severity, sender, machine and title",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33116,
+      "title": "acpmux: session recap when you come back to a Claude chat after 5+ minutes away",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33016,
+      "title": "Apps: place sidebar sections automatically and add apps place",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
