@@ -125,7 +125,7 @@ describe("signup default Chief", () => {
       },
       bind: (machine: typeof binding) => {
         state = decided(userDomain.reduce(state, DEFAULT_CHIEF_BIND, machine, context())).state
-        return { frames: [] }
+        return { frames: [{ t: "result" as const, tx: "bind", idempotency_key: "bind", value: machine, revision: "1", replayed: false }] }
       }
     }
     await expect(deliverSignupChief(USER, `user:${USER}`, items, host)).rejects.toMatchObject({ retryable: true })

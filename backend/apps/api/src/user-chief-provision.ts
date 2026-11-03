@@ -63,8 +63,9 @@ export const deliverSignupChief = async (entity: string, source: string, items: 
     const machine = await ensureChiefMachine(host.platform, entity, () => host.current()!)
     const current = host.current()?.chiefs?.[chief.id]
     if (!current || current.archived_at !== null || current.brain_place) { done.push(item.id); continue }
-    const rejected = host.bind(machine, item.key).frames.find((f) => f.t === "reject")
-    if (rejected?.t === "reject") throw provisioningFailure(rejected.code, rejected.retryable === true)
+    const reply = host.bind(machine, item.key).frames.find((f) => f.t === "reject" || f.t === "result")
+    if (!reply) throw provisioningFailure("chief.provision.bind_unanswered")
+    if (reply.t === "reject") throw provisioningFailure(reply.code, reply.retryable === true)
     done.push(item.id)
   }
   return { done }
