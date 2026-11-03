@@ -72,6 +72,8 @@ extension CloudHandlers {
         runTracked("new Cloud workspace", context) {
             let cloud = context.services.cloud, services = context.services
             let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
+            // Release: read the remote switch now, so the offer below reflects it (DEV and NIGHTLY skip it).
+            if !DevTools.isEnabled { await cloud.readHarnessLoginCopySwitch() }
             let availability = CloudWorkspaceSetupWizard.CredentialAvailability.resolve(
                 teamID: cloud.auth.teamID, supportsFileRoute: AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: cloud.configuration.linkSource, isSignedIn: true, passesLogin: true),
                 passesLogin: CloudStartChat.passesHarnessLoginHere(switch: cloud.harnessLoginCopySwitch))
