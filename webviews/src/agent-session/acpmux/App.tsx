@@ -3438,11 +3438,13 @@ export function VirtualTranscript({
     if (!pendingDrawn.current.size) return;
     const updates = pendingDrawn.current;
     pendingDrawn.current = new Map();
-    for (const id of updates.keys()) changedDrawn.current.add(id);
+    // An equal report can correct a different height still queued at a lower priority.
+    // Compare in the updater, against the state React rebases it onto, not drawnRef.
     setDrawn((current) => {
       let next: Map<string, DrawnHeight> | undefined;
       for (const [id, entry] of updates) {
         if (sameDrawn(current.get(id), entry)) continue;
+        changedDrawn.current.add(id);
         next ??= new Map(current);
         next.set(id, entry);
       }
