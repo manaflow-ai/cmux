@@ -4,6 +4,7 @@
 // highlight shows live in the app at once, a row the pointer rests on after DWELL_MS; Return or a
 // click picks, Escape reverts. The popover floats over the rows, so opening it pushes no row down.
 import { useEffect, useRef, useState } from "react";
+import { Button } from "../../../ui/Button";
 import { Combobox } from "../../../ui/Combobox";
 import { Popover } from "../../../ui/Popover";
 import { Icon } from "../icons";
@@ -109,7 +110,7 @@ export function FontPicker({
   const { rows, recent: recentRows } = fontRows({ names, recent, query });
   return (
     <span className="domain">
-      <button
+      <Button
         ref={setAnchor}
         type="button"
         className="button domain-button"
@@ -126,7 +127,7 @@ export function FontPicker({
       >
         {value ?? defaultLabel}
         <Icon name="chevron" />
-      </button>
+      </Button>
       <Popover
         open={open && !disabled}
         onOpenChange={(next) => (next ? setOpen(true) : close())}

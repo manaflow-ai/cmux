@@ -1,3 +1,4 @@
+import { Button } from "../../../ui/Button";
 // P4: a narrower scope's theme shows inline on the theme setting ("Overridden in this workspace by
 // Dracula · Reset") instead of space/workspace/terminal tabs. The scopes are the host's theme
 // levels of the active window; Reset runs the level's clear action (the palette's path). A space or
@@ -34,14 +35,16 @@ export function ScopeOverrides() {
     <div className="row row-note" key={level} data-override={level}>
       <Icon name="layers" />
       <span className="row-note-text">{label}</span>
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="sm"
         className="link-button"
         disabled={!connected}
         onClick={() => void store.setTheme(level, null)}
       >
         {t("settingsPage.reset")}
-      </button>
+      </Button>
     </div>
   ));
 }

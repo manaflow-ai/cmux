@@ -1,3 +1,5 @@
+import { Input } from "../../../ui/Input";
+import { Button } from "../../../ui/Button";
 import { Tooltip } from "../../../ui/Tooltip";
 import { Icon } from "../icons";
 import { t } from "../strings";
@@ -29,7 +31,8 @@ export function SearchField({
     <div className="search-bar">
       <label className="search">
         <Icon name="search" />
-        <input
+        <Input
+          size="lg"
           ref={focusOnMount}
           className="field search-input"
           type="search"
@@ -55,8 +58,10 @@ export function SearchField({
         />
       </label>
       <Tooltip /* tooltip-allow: an icon and a count; the tooltip names the filter */ label={filterLabel}>
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="lg"
           className="icon-button filter-button"
           data-changed-only=""
           aria-label={filterLabel}
@@ -65,7 +70,7 @@ export function SearchField({
         >
           <Icon name="filter" />
           {changedCount > 0 && <span className="filter-count">{changedCount}</span>}
-        </button>
+        </Button>
       </Tooltip>
     </div>
   );

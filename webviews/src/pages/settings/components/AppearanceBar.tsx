@@ -1,3 +1,4 @@
+import { Button } from "../../../ui/Button";
 // Settings > Appearance's floating Presets, Undo, Redo and Reset (Leo, 10-19 and 10-20): pinned to the
 // bottom right of the content while Appearance shows, so a whole look is one click and a wrong pick
 // is always one click from undone. Presets set the window's Opacity and Material and every surface's
@@ -60,7 +61,7 @@ export function AppearanceBar() {
               ? t("settingsPage.history.confirmRestore")
               : t("settingsPage.history.confirmDefaults")}
           </span>
-          <button
+          <Button
             type="button"
             className="button"
             data-confirm=""
@@ -73,10 +74,10 @@ export function AppearanceBar() {
             }
           >
             {pending === "opened" ? t("settingsPage.history.restore") : t("settingsPage.history.reset")}
-          </button>
-          <button type="button" className="button" data-cancel="" onClick={() => setPending(null)}>
+          </Button>
+          <Button type="button" className="button" data-cancel="" onClick={() => setPending(null)}>
             {t("settingsPage.history.cancel")}
-          </button>
+          </Button>
         </span>
       ) : (
         <>
@@ -107,8 +108,10 @@ export function AppearanceBar() {
             </MenuPopup>
           </Menu>
           <Tooltip /* tooltip-allow: names the step Undo takes back */ label={undoLabel} side="top">
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              icon
               className="icon-button appearance-bar-button"
               data-undo=""
               aria-label={undoLabel}
@@ -116,11 +119,13 @@ export function AppearanceBar() {
               onClick={() => void run(() => store.undoAppearance())}
             >
               <Icon name="undo" />
-            </button>
+            </Button>
           </Tooltip>
           <Tooltip /* tooltip-allow: names the step Redo puts back */ label={redoLabel} side="top">
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              icon
               className="icon-button appearance-bar-button"
               data-redo=""
               aria-label={redoLabel}
@@ -128,7 +133,7 @@ export function AppearanceBar() {
               onClick={() => void run(() => store.redoAppearance())}
             >
               <Icon name="redo" />
-            </button>
+            </Button>
           </Tooltip>
           <Menu>
             <MenuButton

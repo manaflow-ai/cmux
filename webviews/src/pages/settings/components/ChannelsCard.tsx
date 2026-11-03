@@ -1,3 +1,4 @@
+import { Button } from "../../../ui/Button";
 // Settings > Updates' Channels card: every release channel's recent builds from the host's
 // `cmux.settings.channels.state` (the feed's notes index, canary verdicts and pulls), read once
 // when the card shows. Following tracks the Channel row above it at once. Each build says how it fared, whether this Mac runs or kept it, and links
@@ -63,7 +64,7 @@ function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsStat
           {/* First, so the badges keep the card's control edge while it is hidden (it keeps its
               place, transparent) and nothing moves when it shows. */}
           {build.switch && labels.switch && (
-            <button
+            <Button
               type="button"
               className="button channel-switch"
               data-channel-switch-build={build.build}
@@ -72,7 +73,7 @@ function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsStat
               onClick={switchTo}
             >
               {labels.switch}
-            </button>
+            </Button>
           )}
           {build.installed && (
             <span className="badge" data-channel-here="">
@@ -152,7 +153,7 @@ function SwitchRow({ way }: { way: ChannelSwitch }) {
           </div>
           {way.build && way.action && (
             <div className="row-control">
-              <button
+              <Button
                 type="button"
                 className="button"
                 data-channel-go-back={way.build}
@@ -160,7 +161,7 @@ function SwitchRow({ way }: { way: ChannelSwitch }) {
                 onClick={() => way.build && goBack(way.build)}
               >
                 {way.action}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -205,7 +206,7 @@ function MachinesRow({ machines }: { machines: ChannelMachines }) {
               </div>
               {id && machines.updateLabel && (
                 <div className="row-control">
-                  <button
+                  <Button
                     type="button"
                     className="button"
                     data-channel-update-machine={id}
@@ -213,7 +214,7 @@ function MachinesRow({ machines }: { machines: ChannelMachines }) {
                     onClick={() => update(id)}
                   >
                     {machines.updateLabel}
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>
