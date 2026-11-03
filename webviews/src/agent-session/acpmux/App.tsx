@@ -11661,8 +11661,7 @@ function AcpmuxPane() {
             await settleDraftWithin(composerHandle.current, Math.max(0, until - Date.now()));
             // Only untouched New Tabs are capped. Keep their page-owned drafts, attachments,
             // sends, composition and popups; quit and close still hand back their state.
-            if (quitting !== true && newTabNow.current && pageReleaseHold())
-              return { holdsPageState: true };
+            if (quitting !== true && newTabNow.current && pageReleaseHold()) return { holdsPageState: true };
             const anchor = transcriptAnchor.current?.();
             const composer = composerHandle.current?.wakeState();
             const attachments = [...chips, ...(composer?.attachments ?? [])];

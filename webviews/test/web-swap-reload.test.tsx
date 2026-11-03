@@ -452,7 +452,7 @@ test("hibernation retains composition, popups and queued edits, including a clea
   expect(pageReleaseHold()).toBe("popup");
   popup.remove();
 
-  const queuedEdit = fixture('<textarea>queued prompt</textarea>');
+  const queuedEdit = fixture("<textarea>queued prompt</textarea>");
   const field = queuedEdit.querySelector("textarea")!;
   expect(pageReleaseHold()).toBe("field");
   // The queue owns the old prompt, but the unsaved removal lives only in its editor.
@@ -463,7 +463,7 @@ test("hibernation retains composition, popups and queued edits, including a clea
 });
 
 test("hibernation keeps a New Tab's uncheckpointed scroll and text selection", () => {
-  const page = fixture('<div><p>selected page text</p></div>');
+  const page = fixture("<div><p>selected page text</p></div>");
   const scroller = page.firstElementChild as HTMLElement;
   scroller.scrollTop = 40;
   expect(pageReleaseHold()).toBe("scroll");
