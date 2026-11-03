@@ -39,4 +39,6 @@ extension CEFTab: BrowserContentVisibilityReporting {
 public extension BrowserTab {
     /// The page can take keys: Chromium created its browser and a real document loaded (a non-Chromium page always can).
     var pageReady: Bool { (self as? CEFTab).map { $0.browserID != nil && $0.hasDocument } ?? true }
+    /// Chromium created the page (its address bar works; its document may still load).
+    var pageCreated: Bool { (self as? CEFTab).map { $0.browserID != nil } ?? true }
 }

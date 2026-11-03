@@ -57,7 +57,7 @@ extension CEFTab {
             reapplyColorScheme()
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
         case .loadEnd:
-            if PageBackground.isRealPage(committedURL) { documentLoaded = true } // its script ran: a focused field and listeners exist
+            if PageBackground.isRealPage(committedURL) || blankIsDocument { documentLoaded = true } // its script ran: a focused field and listeners exist
             if let navigation { machine.apply(.finished(navigation)) }
             // Read-then-settle, as at the first paint (one read per document), and a fresh read after it.
             documentDidFinishLoad()
