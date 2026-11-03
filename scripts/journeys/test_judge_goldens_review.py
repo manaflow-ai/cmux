@@ -386,5 +386,134 @@ class RulerFrameIdentityTests(unittest.TestCase):
             w.close()
 
 
+
+class ThirdReviewTests(unittest.TestCase):
+    """Review 3 of #33930 at 46438a1154d (FIX, comment 6615568910): an expectation is checked only against the result
+    shape of its own judge; a fact with an unknown key, no why, or a judge that does not judge its film is NO VERDICT;
+    an absence on a judge that saw no frame is NO VERDICT; a missing truth.json is NO VERDICT; a judge file that
+    changes during a run is NO VERDICT; the judge's own exit 97 is a result."""
+
+    def workspace(self, fact, video=None):
+        import test_judge_goldens_truth as truth
+        w = truth.TruthWorkspace(video=video)
+        w.write_truth()
+        self.assertEqual(w.snapshot()[0], 0)
+        code, out = w.bless()
+        self.assertEqual(code, 0, out)
+        doc = json.loads((w.manifest / "truth.json").read_text())
+        doc["facts"].append(fact)
+        (w.manifest / "truth.json").write_text(json.dumps(doc))
+        return w
+
+    def assert_no_verdict(self, fact, needle, video=None):
+        w = self.workspace(fact, video)
+        try:
+            code, out = w.cli("bless", "--judges", str(w.judges), "--reason", "t", "--jobs", "2", "--no-git-check")
+            self.assertEqual(code, 2, out)
+            self.assertIn(needle, out)
+            code, out = w.run()
+            self.assertEqual(code, 2, out)
+            self.assertIn(needle, out)
+        finally:
+            w.close()
+
+    FILM = "px-build-120x2/px-keys"
+
+    def test_a_kind_of_another_judge_is_no_verdict(self):
+        # absent_kind reads judge_trace's defects; on video_judge it checked nothing and always held.
+        for name, expect in (("absent_kind on video_judge", {"judge": "video_judge", "absent_kind": "reverse"}),
+                             ("kind on video_judge", {"judge": "video_judge", "kind": "gap or overlap"}),
+                             ("absent_check on judge_trace", {"judge": "judge_trace", "absent_check": "jump"}),
+                             ("absent_check on judge_keys", {"judge": "judge_keys", "absent_check": "jump"})):
+            with self.subTest(case=name):
+                self.assert_no_verdict({"id": "wrong-kind", "film": self.FILM, "why": "t", "expect": [expect]},
+                                       "wrong-kind")
+
+    def test_a_judge_that_does_not_judge_the_film_is_no_verdict(self):
+        import test_judge_goldens_truth as truth
+        w = truth.TruthWorkspace()
+        try:
+            w.write_truth()
+            base.write_film(w.gallery / "frames-only-120x2", "only", frames=4)
+            for kind in ("trace.json", "events.json", "mov.scan", "meta.json"):
+                (w.gallery / "frames-only-120x2" / f"only.{kind}").unlink()
+            self.assertEqual(w.snapshot()[0], 0)
+            self.assertEqual(w.bless()[0], 0)
+            doc = json.loads((w.manifest / "truth.json").read_text())
+            doc["facts"].append({"id": "not-its-judge", "film": "frames-only-120x2/only", "why": "t",
+                                 "expect": [{"judge": "judge_trace", "absent_kind": "reverse"}]})
+            (w.manifest / "truth.json").write_text(json.dumps(doc))
+            code, out = w.run()
+            self.assertEqual(code, 2, out)
+            self.assertIn("not-its-judge", out)
+        finally:
+            w.close()
+
+    def test_an_unknown_key_of_a_fact_or_no_why_is_no_verdict(self):
+        self.assert_no_verdict({"id": "typo-key", "film": self.FILM, "why": "t",
+                                "expects": [{"judge": "video_judge", "absent_check": "jump"}]}, "typo-key")
+        self.assert_no_verdict({"id": "no-why", "film": self.FILM,
+                                "expect": [{"judge": "video_judge", "absent_check": "jump"}]}, "no-why")
+
+    def test_an_absence_on_a_judge_that_saw_no_frame_is_no_verdict(self):
+        import test_judge_goldens_truth as truth
+        empty = truth.STUB_VIDEO_BAND.replace('"frames": 9', '"frames": 0').replace("__FRAMES__", "[]") \
+            .replace("__EXTRA__", "[]")
+        w = truth.TruthWorkspace(video=empty)
+        try:
+            w.write_truth(expect=[{"judge": "video_judge", "absent_check": "jump"}])
+            self.assertEqual(w.snapshot()[0], 0)
+            code, out = w.cli("bless", "--judges", str(w.judges), "--reason", "t", "--jobs", "2", "--no-git-check")
+            self.assertEqual(code, 2, out)
+            self.assertIn("no frame", out)
+        finally:
+            w.close()
+
+    def test_a_missing_truth_file_is_no_verdict(self):
+        import test_judge_goldens_truth as truth
+        w = truth.TruthWorkspace()
+        try:
+            w.write_truth()
+            self.assertEqual(w.snapshot()[0], 0)
+            self.assertEqual(w.bless()[0], 0)
+            (w.manifest / "truth.json").unlink()
+            code, out = w.run()
+            self.assertEqual(code, 2, out)
+            self.assertIn("truth.json", out)
+        finally:
+            w.close()
+
+    def test_a_judge_file_that_changes_during_the_run_is_no_verdict(self):
+        import test_judge_goldens_truth as truth
+        w = truth.TruthWorkspace()
+        try:
+            w.write_truth()
+            self.assertEqual(w.snapshot()[0], 0)
+            self.assertEqual(w.bless()[0], 0)
+            keys = w.judges / "video-cases" / "judge_keys.py"
+            original = keys.read_text()
+            # The first film's judge_keys rewrites itself: a later film loads the changed file.
+            keys.write_text(original.replace("def judge(base):", "import pathlib\n_ME = pathlib.Path(__file__)\n"
+                                             "def judge(base):\n    _ME.write_text(_ME.read_text().replace("
+                                             "'presses', 'presses2'))", 1))
+            code, out = w.cli("run", "--judges", str(w.judges), "--jobs", "1")
+            self.assertEqual(code, 2, out)
+            self.assertIn("changed during the run", out)
+        finally:
+            w.close()
+
+    def test_judge_scans_own_exit_97_is_a_result(self):
+        import test_judge_goldens_truth as truth
+        w = truth.TruthWorkspace()
+        try:
+            w.write_truth()
+            (w.judges / "video-cases" / "judge_scan.py").write_text("import sys\nprint('done')\nsys.exit(97)\n")
+            self.assertEqual(w.snapshot()[0], 0)
+            code, out = w.bless()
+            self.assertEqual(code, 0, out)
+        finally:
+            w.close()
+
+
 if __name__ == "__main__":
     unittest.main()
