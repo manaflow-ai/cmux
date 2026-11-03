@@ -11,6 +11,16 @@ BASE.events.json, BASE.meta.json; ext_video.py's docstring has the formats). The
   - the movie (lossy HEVC): content only (blank, flash, stretch, reflow);
 and writes one report per recording with findings. Library use: judge(base) -> dict, findings_markdown(reports).
 
+Clocks (VIDEO JUDGE CLOCK, STATUS 7930): frames.json, the scan, the trace and the app's input journal (uptimeNanos)
+are the HOST clock (mach_absolute_time since boot, ~400000 s on the minis). events.json's HID times (t_sent,
+t_returned) are the DRIVER's clock: time.monotonic() of the journey driver, which the minis' python 3.9 counts from
+its own process start (a few s). load_case moves every HID time to the host clock once, before any window is made,
+with this run's own offset (hid_clock_offset): the driver's measured offset when ext_video wrote it into each HID
+entry (`host_offset_s`), else from this run's journal (the offset that puts the most input events inside their HID
+action's [t_sent, t_returned], then the smallest send-to-first-event step), else 0 when the HID times already lie in
+the recording's host span. When nothing places them, the HID times are not used (a note says so). The report's
+`hid_clock` has the offset, its source and bound.
+
 Standard library + numpy + imageio_ffmpeg (for the ffmpeg binary). No opencv.
 """
 from __future__ import annotations
@@ -39,6 +49,8 @@ HID_TAIL_S = 0.300         # and ends this long after t_returned (the app may st
 MODEL_NEAR_S = 0.100       # a scanline change this close to model motion or HID counts as motion
 REF_FRAMES = 5             # at-rest reference frames taken before and after each motion window
 COMMIT_SLACK_S = 0.0005    # clock jitter allowed when picking the model sample a frame shows
+HID_CLOCK_SLACK_S = 0.002   # a journal input event this close outside a HID action's [t_sent, t_returned] is its own
+HID_CLOCK_SEEDS = 5         # HID actions whose journal events seed the offset search
 COLOR_TOL = 3              # max channel difference for "the same color" in exact scanlines
 TRACK_TOL = 6              # max channel difference to the divider's at-rest color while tracking it
 TRACK_MAX_PX = 200         # a divider moves at most this far between two complete frames
@@ -119,6 +131,7 @@ class Case:
     movie: Path | None
     notes: list = field(default_factory=list)
     input_t: list = field(default_factory=list)  # host s of each mouse event the app's journal kept
+    hid_clock: dict = field(default_factory=dict)  # how the HID times came to the host clock (hid_clock_offset)
 
     @property
     def n(self):
@@ -200,6 +213,7 @@ def load_case(base):
     start = meta.get("start") or {}
     scale = float(start.get("scale") or 2.0)
     samples = _parse_samples(trace)
+    hid, clock = _hid_on_host_clock(list(events.get("hid") or []), events.get("journal") or [], complete_t)
     case = Case(base=base, name=base.name, build=base.parent.name, entries=entries, complete_t=complete_t,
                 in_movie=in_movie, t0=float(complete_t[0]) if len(complete_t) else 0.0,
                 period=_refresh_period(trace, entries), scale=scale,
@@ -207,11 +221,102 @@ def load_case(base):
                 height=int(frames_doc.get("height") or start.get("height") or 0),
                 rows=[], columns=[], row_px=np.zeros((len(complete_t), 0, 0, 4), np.uint8),
                 col_px=np.zeros((len(complete_t), 0, 0, 4), np.uint8), has_scan=np.zeros(len(complete_t), bool),
-                scan_info={}, samples=samples, sample_t=[s.t for s in samples], hid=list(events.get("hid") or []),
+                scan_info={}, samples=samples, sample_t=[s.t for s in samples], hid=hid,
                 meta=meta, movie=Path(f"{base}.mov") if Path(f"{base}.mov").is_file() else None,
-                input_t=_input_times(events))
+                input_t=_input_times(events), hid_clock=clock)
+    if clock.get("note"):
+        case.notes.append(clock["note"])
     _attach_scan(case, Path(f"{base}.mov.scan"))
     return case
+
+
+def _journal_input_host_times(journal):
+    """Host seconds of every key and mouse entry of the app's input journal (any phase), sorted."""
+    out = []
+    for e in journal:
+        kind = e.get("kind") or {}
+        if isinstance(kind, dict) and ("key" in kind or "mouse" in kind) and e.get("uptimeNanos"):
+            out.append(float(e["uptimeNanos"]) / 1e9)
+    return np.array(sorted(out), dtype=float)
+
+
+def _hid_times(hid):
+    """[(index, t_sent, t_returned)] of the HID entries with both times."""
+    out = []
+    for i, h in enumerate(hid):
+        try:
+            out.append((i, float(h["t_sent"]), float(h["t_returned"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+def hid_clock_offset(hid, journal, frame_t=()):
+    """This run's offset from the driver's clock to the host clock (host = driver t + offset_s), as a dict:
+    offset_s (None: unknown), source (recorded | journal | host | none), bound_ms, matched [actions, of], note.
+
+      recorded: ext_video wrote the driver's own measured offset (CLOCK_UPTIME_RAW - time.monotonic(), the method
+                of ext_tiers.host_seconds, #32640) into each HID entry as `host_offset_s`: exact.
+      journal:  rounds without it. Each HID action's input reaches the journal between its t_sent and t_returned.
+                Seeds: (journal event - t_sent) of the first HID actions; the seed that puts the most actions, then
+                the most journal events, inside their [t_sent, t_returned] wins. The offset is then the smallest
+                (first event - t_sent) over the matched actions (no action's span starts after its first event);
+                bound_ms is how far the largest (last event - t_returned) lies below it (the offset is in that range).
+      host:     no journal match, and every HID time lies within the recording's host span: already host times.
+    """
+    times = _hid_times(hid)
+    if not times:
+        return {"offset_s": 0.0, "source": "none", "bound_ms": None, "matched": [0, 0], "note": None}
+    recorded = [float(h["host_offset_s"]) for h in hid if isinstance(h.get("host_offset_s"), (int, float))]
+    if recorded:
+        spread = (max(recorded) - min(recorded)) * 1000.0
+        return {"offset_s": float(np.median(recorded)), "source": "recorded", "bound_ms": round(spread, 3),
+                "matched": [len(recorded), len(times)], "note": None}
+    events = _journal_input_host_times(journal)
+    best = None
+    if len(events):
+        sent = np.array([t[1] for t in times])
+        returned = np.array([t[2] for t in times])
+        seeds = np.unique(np.concatenate([events - s for _, s, _ in times[:HID_CLOCK_SEEDS]]))
+        for c in seeds:
+            lo = np.searchsorted(events, sent + c - HID_CLOCK_SLACK_S, side="left")
+            hi = np.searchsorted(events, returned + c + HID_CLOCK_SLACK_S, side="right")
+            inside = hi - lo
+            score = (int((inside > 0).sum()), int(inside.sum()))
+            if best is None or score > best[0]:
+                best = (score, c, lo, hi)
+    if best is not None and best[0][0] > 0:
+        (_, _), c, lo, hi = best
+        firsts = [events[a] - sent[k] for k, (a, b) in enumerate(zip(lo, hi)) if b > a]
+        lasts = [events[b - 1] - returned[k] for k, (a, b) in enumerate(zip(lo, hi)) if b > a]
+        offset = float(min(firsts))
+        floor = float(max(lasts))
+        return {"offset_s": offset, "source": "journal",
+                "bound_ms": round((offset - floor) * 1000.0, 3) if floor <= offset else None,
+                "matched": [len(firsts), len(times)], "note": None}
+    if len(frame_t) and all(frame_t[0] - 1.0 <= t <= frame_t[-1] + 1.0 for _, s, r in times for t in (s, r)):
+        return {"offset_s": 0.0, "source": "host", "bound_ms": None, "matched": [0, len(times)], "note": None}
+    return {"offset_s": None, "source": "none", "bound_ms": None, "matched": [0, len(times)],
+            "note": f"{len(times)} HID action(s) on the driver's clock and nothing places them on the host clock "
+                    "(no host_offset_s, no journal input inside them): HID spans not used"}
+
+
+def _hid_on_host_clock(hid, journal, frame_t):
+    """The HID entries with t_sent / t_returned on the host clock (the driver's times kept as t_sent_driver,
+    t_returned_driver), and the hid_clock_offset dict. HID entries that cannot be placed are dropped."""
+    clock = hid_clock_offset(hid, journal, frame_t)
+    offset = clock["offset_s"]
+    if offset is None:
+        return [], clock
+    out = []
+    for h in hid:
+        h = dict(h)
+        for key in ("t_sent", "t_returned"):
+            if isinstance(h.get(key), (int, float)):
+                h[f"{key}_driver"] = h[key]
+                h[key] = float(h[key]) + offset
+        out.append(h)
+    return out, clock
 
 
 def _input_times(events):
@@ -1361,7 +1466,8 @@ def judge(base, movie=True):
             "motion": [[round(case.rel(w.a), 4), round(case.rel(w.b), 4)] for w in windows],
             "motion_frames": [[w.a, w.b] for w in windows], "intervals_ms": interval_stats(intervals, case.period),
             "dropped": dropped, "model_lag": lag, "tracked_dividers": len(tracks), "reflow": reflow,
-            "findings": findings, "recorder": recorder, "notes": case.notes, "base": str(case.base)}
+            "findings": findings, "recorder": recorder, "notes": case.notes, "base": str(case.base),
+            "hid_clock": {k: v for k, v in case.hid_clock.items() if k != "note"}}
 
 
 def _video_t(t):

@@ -117,6 +117,18 @@ class VideoJudgeClockTests(unittest.TestCase):
         report = vj.judge(base, movie=False)
         self.assertEqual(tvj.find(report, "jump back")[0]["severity"], "defect")
 
+    def test_ext_video_writes_the_drivers_offset_into_each_hid_entry(self):
+        import time
+        import types
+
+        import ext_video
+        j = types.SimpleNamespace(video={"hid": []})
+        ext_video._hid_log(j, "key", {"key": "l"}, time.monotonic(), time.monotonic())
+        entry = j.video["hid"][0]
+        clock = getattr(time, "CLOCK_UPTIME_RAW", time.CLOCK_MONOTONIC)
+        self.assertAlmostEqual(entry["t_sent"] + entry["host_offset_s"], time.clock_gettime(clock), delta=0.05)
+        self.assertEqual(vj.hid_clock_offset(j.video["hid"], [])["source"], "recorded")
+
     def test_hid_that_nothing_places_on_the_host_clock_is_not_used(self):
         base = tvj.build_case(self.tmp, "jumpback-unplaced", "jumpback")
         driver_clock_events(base, False)
