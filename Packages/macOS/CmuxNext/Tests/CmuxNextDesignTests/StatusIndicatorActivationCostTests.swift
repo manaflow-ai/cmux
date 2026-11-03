@@ -16,13 +16,6 @@ import Testing
         let hidden: [StatusIndicatorView]
         let center = NotificationCenter()
         let appearance: StatusIndicatorAppearance
-        /// The end of the main run loop turn (``StatusIndicatorAppearance/resync()`` runs once per turn): each
-        /// activation is its own Cmd-Tab, in its own turn.
-        private let turn = TurnEnd()
-
-        final class TurnEnd {
-            var blocks: [@MainActor () -> Void] = []
-        }
 
         init(shown shownCount: Int, hidden hiddenCount: Int) {
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
@@ -33,9 +26,7 @@ import Testing
             parked = NSView(frame: content.bounds)
             parked.isHidden = true // a parked workspace's sidebar and strips
             content.addSubview(parked)
-            let turn = turn
-            appearance = StatusIndicatorAppearance(appCenter: center, workspaceCenter: NotificationCenter(),
-                                                   endOfTurn: { turn.blocks.append($0) })
+            appearance = StatusIndicatorAppearance(appCenter: center, workspaceCenter: NotificationCenter())
             let parked = parked
             shown = (0..<shownCount).map { _ in Self.indicator(in: content) }
             hidden = (0..<hiddenCount).map { _ in Self.indicator(in: parked) }
@@ -52,9 +43,6 @@ import Testing
         func activate() -> UInt64 {
             let before = StatusIndicatorAppearance.resyncs
             center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
-            let due = turn.blocks
-            turn.blocks = []
-            for block in due { block() }
             return StatusIndicatorAppearance.resyncs - before
         }
     }

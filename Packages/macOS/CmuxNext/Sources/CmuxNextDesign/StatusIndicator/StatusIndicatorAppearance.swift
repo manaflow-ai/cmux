@@ -125,11 +125,7 @@ public final class StatusIndicatorAppearance {
     /// - Parameters:
     ///   - appCenter: Where the app and window notices arrive (tests post to their own).
     ///   - workspaceCenter: Where the wake notices arrive.
-    ///   - endOfTurn: runs a block at the end of this main run loop turn (``resync()``'s once-per-turn mark; tests end
-    ///     the turn themselves).
-    init(appCenter: NotificationCenter = .default, workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
-         endOfTurn: @escaping @MainActor (_ block: @escaping @MainActor () -> Void) -> Void = { MainRunLoopBlock.perform($0) }) {
-        self.endOfTurn = endOfTurn
+    init(appCenter: NotificationCenter = .default, workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter) {
         config = StatusIndicatorConfig.current
         startObserving()
         // Reduce Motion is not observable through Observation.
@@ -162,17 +158,8 @@ public final class StatusIndicatorAppearance {
         }
     }
 
-    /// A resync ran in this main run loop turn: the turn's other moments are the same moment.
-    private var resyncedThisTurn = false
-    private let endOfTurn: @MainActor (_ block: @escaping @MainActor () -> Void) -> Void
-
-    /// Tells every client to check its indicator again (`statusIndicatorResync`), once per main run loop turn: one
-    /// Cmd-Tab posts both `didBecomeActive` and `didBecomeMain`, and each walked every indicator of the session (HOT
-    /// PATH AUDIT frames, cmd-tab). The first moment of a turn runs at once, so nothing waits.
-    public func resync() { // perf-hot: 0.5ms cmd-tab (every app activation; once per turn)
-        guard !resyncedThisTurn else { return }
-        resyncedThisTurn = true
-        endOfTurn { [weak self] in self?.resyncedThisTurn = false }
+    /// Tells every client to check its indicator again (`statusIndicatorResync`).
+    public func resync() {
         for case let client as any StatusIndicatorConfigClient in clients.allObjects {
             client.statusIndicatorResync()
         }
