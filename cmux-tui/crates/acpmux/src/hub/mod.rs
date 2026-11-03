@@ -25,6 +25,7 @@ pub(crate) mod auto_resume;
 mod bg_tasks;
 mod bounded;
 mod btw;
+mod workflow_runs;
 // A turn ends when its agent ends it; the steers it runs on with are the next turn's.
 mod carried_turn;
 pub(crate) mod clone_boot;
@@ -59,6 +60,8 @@ mod prompt_accept_tests;
 mod shutdown_scan_tests;
 #[cfg(test)]
 mod shutdown_tests;
+#[cfg(test)]
+mod transcript_seq_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
 pub(crate) mod fork_before;
@@ -239,6 +242,7 @@ mod turn_git;
 mod turn_usage;
 mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
+mod background_cause;
 pub mod background_turn;
 #[cfg(all(test, unix))]
 mod trigger_quiet_tests;
@@ -496,6 +500,7 @@ pub(super) struct StreamState {
 pub(super) type InlineBtwOwner = (String, std::collections::BTreeMap<String, String>);
 
 pub struct Hub {
+    pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
     pub(super) store: Box<dyn Store>,
@@ -892,6 +897,7 @@ impl Hub {
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
+            workflow_runs: crate::workflow_runs::Service::default(),
             bg_runner: StdMutex::new(None),
             bg_starts: tokio::sync::Mutex::new(()),
             probe_only: StdMutex::new(None),
@@ -1186,6 +1192,8 @@ impl Hub {
             let mut meta = session.meta.lock().unwrap();
             meta.event_count += extra;
             meta.last_seq = last;
+            // Whether the tail held a transcript record is not read here: say it may have.
+            meta.transcript_seq = last;
             // The log ran ahead of the saved session (a hard stop): a newer command list may be
             // in that tail, so a client reads the log for it instead of trusting the saved one.
             meta.available_commands = None;
@@ -1926,6 +1934,9 @@ impl Hub {
             m.last_seq = seq;
             m.event_count += 1;
             m.updated_at = record.at;
+            if paging::is_transcript(&record) {
+                m.transcript_seq = seq;
+            }
             if record.dir == "mux" && record.kind == "turn_result" {
                 m.harness_failures.observe(&record.msg, record.seq, record.at);
             }

@@ -79,7 +79,8 @@ impl Key {
         let msg = format!("{}\0{harness}\0{session}", host.to_ascii_lowercase());
         let mac = cmux_local_auth::frontend_proof::hmac_sha256(&self.0, msg.as_bytes());
         let hex = cmux_local_auth::frontend_proof::hex(&mac);
-        format!("{PREFIX}{}", &hex[..HEX_LEN])
+        // `hex` is 64 ASCII digits, so the prefix always exists; `get` keeps the panic ratchet at zero.
+        format!("{PREFIX}{}", hex.get(..HEX_LEN).unwrap_or(&hex))
     }
 }
 

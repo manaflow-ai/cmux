@@ -46,6 +46,14 @@ test("the target, and rows after it pushed straight down, are exempt; rows befor
   expect(scoreBoxFrames(frames(...rested(3, 50), [[3, row(10)]]), viewport).score).toBeGreaterThan(0);
 });
 
+test("rows before a line opening at the transcript's very bottom may rise straight up, not drop or slide", () => {
+  const before = { before: true };
+  expect(scoreBoxFrames(frames(...rested(1, 100, before), [[1, row(93, before)]]), viewport).score).toBe(0);
+  expect(scoreBoxFrames(frames(...rested(1, 100, before), [[1, row(110, before)]]), viewport).score).toBeGreaterThan(0);
+  const sideways = { ...row(93, before), box: { x: 8, y: 93, width: 800, height: 40 } };
+  expect(scoreBoxFrames(frames(...rested(1, 100, before), [[1, sideways]]), viewport).score).toBeGreaterThan(0);
+});
+
 test("a resize lets each box move once; a second move is a bounce", () => {
   const once = frames(...rested(1, 100), [[1, row(120)]], [[1, row(120)]]);
   expect(scoreBoxFrames(once, viewport, { firstMoveFree: true }).score).toBe(0);

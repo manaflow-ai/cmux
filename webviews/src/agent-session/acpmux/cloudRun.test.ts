@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { inlineToken, promptBlocks, type ComposerAttachment } from "./attachments";
+import type { AcpmuxHostConfig } from "./direct";
 import {
   cloudPageRefusal,
   cloudRunsHere,
@@ -54,14 +56,97 @@ test("Run on This Mac from the cap card is no toasted failure: the page sends th
   expect(cloudRunsHere({ ok: true })).toBe(false);
 });
 
-test("a Cloud chat takes text only for now", () => {
-  expect(cloudPageRefusal(true, 0)).toBeUndefined();
-  expect(cloudPageRefusal(true, 2)).toBe("cloud_attachments");
+test("a Cloud first send carries attachment contents and inline ids for the destination's ordinary send", async () => {
+  const attachments: ComposerAttachment[] = [
+    {
+      id: "image",
+      kind: "image",
+      name: "reference.png",
+      mimeType: "image/png",
+      size: 3,
+      data: "AQID",
+      inline: true,
+      originalPath: "/Users/me/reference.png",
+      originalName: "reference.png",
+      source: { name: "Screenshot", bundleId: "com.apple.screencaptureui" },
+    },
+    {
+      id: "paste",
+      kind: "pasted",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      size: 5,
+      text: "notes",
+      inline: true,
+    },
+    { id: "pdf", kind: "document", name: "plan.pdf", mimeType: "application/pdf", size: 3, data: "BAUG", pageCount: 2 },
+    { id: "audio", kind: "audio", name: "voice.wav", mimeType: "audio/wav", size: 3, data: "BwgJ" },
+    { id: "text", kind: "text", name: "task.txt", mimeType: "text/plain", size: 4, text: "task" },
+  ];
+  const task = `before${inlineToken("image")}middle${inlineToken("paste")}after`;
+  let sent!: { task: string; attachments: ComposerAttachment[] };
+  await startCloudChat(
+    async (_method, params) => {
+      sent = JSON.parse(JSON.stringify(params));
+      return {};
+    },
+    { task, attachments, home: true, harness: "claude" },
+  );
+  expect(sent.task).toBe(task);
+  expect(sent.attachments).toEqual(attachments);
+
+  // The native upload remaps file references before the destination receives its ready seed.
+  const remoteImage = "/home/cmux/chat/attachments/reference.png";
+  const host: AcpmuxHostConfig = {
+    protocolVersion: 2,
+    transport: "acpmux-bridge",
+    prompt: sent.task,
+    promptAttachments: sent.attachments.map((chip) =>
+      chip.id === "image" ? { ...chip, originalPath: remoteImage } : chip,
+    ),
+  };
+  const blocks = promptBlocks(host.prompt ?? "", host.promptAttachments ?? []);
+  expect(blocks.map((block) => block.type)).toEqual([
+    "text",
+    "image",
+    "resource_link",
+    "text",
+    "text",
+    "text",
+    "document",
+    "audio",
+    "text",
+  ]);
+  expect(blocks.slice(0, 6)).toEqual([
+    { type: "text", text: "before" },
+    { type: "image", mimeType: "image/png", data: "AQID", name: "reference.png" },
+    { type: "resource_link", uri: `file://${remoteImage}`, name: "reference.png" },
+    { type: "text", text: "middle" },
+    { type: "text", text: "notes", _meta: { cmux: { pasted: true } } },
+    { type: "text", text: "after" },
+  ]);
+  expect(blocks[6]).toEqual({ type: "document", mimeType: "application/pdf", data: "BAUG", name: "plan.pdf" });
+  expect(blocks[7]).toEqual({ type: "audio", mimeType: "audio/wav", data: "BwgJ" });
+  expect(blocks[8]).toMatchObject({ type: "text", text: expect.stringContaining("task.txt") });
+});
+
+test("an attachment-only Cloud send preserves its empty task and image bytes", async () => {
+  const attachments: ComposerAttachment[] = [
+    { id: "image", kind: "image", name: "image.png", mimeType: "image/png", size: 3, data: "AQID" },
+  ];
+  const calls: Record<string, unknown>[] = [];
+  expect(
+    await startCloudChat(async (_method, params) => (calls.push(params), {}), { task: "", attachments, home: true }),
+  ).toEqual({ ok: true });
+  expect(calls[0]).toMatchObject({ task: "", attachments });
+  expect(promptBlocks("", attachments)).toEqual([
+    { type: "image", mimeType: "image/png", data: "AQID", name: "image.png" },
+  ]);
+  expect(cloudPageRefusal(true)).toBeUndefined();
 });
 
 test("Cloud picked but no longer offered refuses the send, never sending it as a chat here", () => {
-  expect(cloudPageRefusal(false, 0)).toBe("cloud_not_now");
-  expect(cloudPageRefusal(false, 2)).toBe("cloud_not_now");
+  expect(cloudPageRefusal(false)).toBe("cloud_not_now");
 });
 
 test("a second Return while a start waits on the host starts nothing; after the answer one may start again", async () => {
