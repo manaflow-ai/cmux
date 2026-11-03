@@ -33,6 +33,7 @@
 #[cfg(target_os = "linux")]
 mod bootstrap_role;
 pub mod client;
+pub mod clone_mark;
 pub mod github;
 #[cfg(unix)]
 pub mod github_minter;

@@ -56,9 +56,10 @@ public final class CookieImportService {
     }
 
     /// An agent must say why. A person typing the command at a terminal (`cli` origin with no
-    /// agent session) may leave it out; the panel still asks them.
+    /// agent session and no Chief turn) may leave it out; the panel still asks them.
     nonisolated static func needsReason(_ invocation: ActionInvocation) -> Bool {
-        invocation.origin != .user && !(invocation.origin == .cli && invocation.callerAgentSession == nil)
+        invocation.origin != .user
+            && !(invocation.origin == .cli && invocation.callerAgentSession == nil && !invocation.callerHomeChat)
     }
 
     private func importCookies(query: CookieSourceQuery, filter: CookieDomainFilter, reason: String, target: (id: String, name: String),
