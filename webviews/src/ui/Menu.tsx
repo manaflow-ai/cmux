@@ -325,6 +325,8 @@ export interface MenuPopupProps {
    * drop-down (leo-workspace design/menus.md). The trigger says so with `data-field-trigger`.
    */
   matchTrigger?: boolean;
+  /** False for a custom layout with its own scrolling columns. */
+  scroll?: boolean;
   children: ReactNode;
 }
 
@@ -349,6 +351,7 @@ export function MenuPopup({
   boundary,
   escapes = true,
   matchTrigger = false,
+  scroll = true,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
@@ -373,11 +376,10 @@ export function MenuPopup({
   const edges = useScrollEdges();
   const attachPopup = useCallback(
     (node: HTMLElement | null) => {
-      edges(node);
       if (node) popupNode.current = node;
       if (host) setPopup(node);
     },
-    [host, edges],
+    [host],
   );
   // No room above or below in the page: past the window's edge (popupHost.ts). Side menus stay.
   useEscapingPopup(
@@ -412,7 +414,8 @@ export function MenuPopup({
           id={id}
           aria-label={label}
           className={cx(
-            "ui-popup ui-glass ui-menu ui-scroll-edge-fade",
+            "ui-popup ui-glass ui-menu",
+            scroll && "ui-popup-scroll-shell",
             matchTrigger && "ui-menu-match-trigger",
             className,
           )}
@@ -438,7 +441,15 @@ export function MenuPopup({
         >
           <InPopup value>
             <PopupBoundary value={collisionBoundary}>
-              <PopupSurface value={className}>{children}</PopupSurface>
+              <PopupSurface value={className}>
+                {scroll ? (
+                  <div ref={edges} className="ui-popup-scroll ui-scroll-edge-fade">
+                    {children}
+                  </div>
+                ) : (
+                  children
+                )}
+              </PopupSurface>
             </PopupBoundary>
           </InPopup>
         </BaseMenu.Popup>

@@ -1324,6 +1324,7 @@ export function QuickModelMenu({
           {children}
         </MenuButton>
         <MenuPopup
+          scroll={false}
           side={side}
           flip={false}
           align="start"

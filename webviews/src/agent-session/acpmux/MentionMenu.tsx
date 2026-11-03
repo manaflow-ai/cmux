@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
 import { useComposerListBox } from "./backdropLayer";
@@ -120,13 +120,6 @@ export function MentionMenu({
   const box = useComposerListBox();
   const escape = useEscapingList("top", 6, undefined, box);
   const listEdges = useScrollEdges();
-  const attachList = useCallback(
-    (node: HTMLDivElement | null) => {
-      escape?.(node);
-      listEdges(node);
-    },
-    [escape, listEdges],
-  );
   useEffect(() => {
     document.getElementById(`acpmux-mention-${active}`)?.scrollIntoView?.({ block: "nearest" });
   }, [active]);
@@ -142,48 +135,50 @@ export function MentionMenu({
           : undefined;
   return (
     <PickerOptionList
-      ref={attachList}
+      ref={escape}
       aria-label={t("files.search")}
       aria-busy={state?.kind === "searching"}
-      className="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu ui-scroll-edge-fade"
+      className="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu ui-popup-scroll-shell"
       id="acpmux-mention-menu"
     >
-      {state?.kind === "searching" && items.length === 0 && <FileSearchLoading mention />}
-      {items.map((item, index) => (
-        <PickerOption
-          key={item.key}
-          id={`acpmux-mention-${index}`}
-          type="button"
-          // The prompt keeps focus (aria-activedescendant), so no row is a tab stop.
-          active={false}
-          selected={index === active}
-          className={
-            index === active
-              ? "acpmux-slash-row acpmux-mention-row acpmux-slash-active"
-              : "acpmux-slash-row acpmux-mention-row"
-          }
-          data-mention-kind={item.kind}
-          onPointerMove={() => onHover(index)}
-          // A mouse-down here would take focus from the prompt.
-          onMouseDown={(event) => {
-            event.preventDefault();
-            onPick(item);
-          }}
-        >
-          <span className="acpmux-mention-icon" data-mention-icon={item.kind}>
-            <Icon name={item.kind === "session" ? "agent.chat" : item.kind} size={14} />
-          </span>
-          <span className="acpmux-slash-name">{runs(item.name)}</span>
-          {item.kind === "session"
-            ? item.project && <span className="acpmux-slash-description">{item.project}</span>
-            : item.dir.length > 0 && <span className="acpmux-slash-description">{runs(item.dir)}</span>}
-        </PickerOption>
-      ))}
-      {note && (
-        <output className={state?.kind === "searching" ? "acpmux-file-loading-note" : "acpmux-file-note"}>
-          {note}
-        </output>
-      )}
+      <div ref={listEdges} className="ui-popup-scroll ui-scroll-edge-fade">
+        {state?.kind === "searching" && items.length === 0 && <FileSearchLoading mention />}
+        {items.map((item, index) => (
+          <PickerOption
+            key={item.key}
+            id={`acpmux-mention-${index}`}
+            type="button"
+            // The prompt keeps focus (aria-activedescendant), so no row is a tab stop.
+            active={false}
+            selected={index === active}
+            className={
+              index === active
+                ? "acpmux-slash-row acpmux-mention-row acpmux-slash-active"
+                : "acpmux-slash-row acpmux-mention-row"
+            }
+            data-mention-kind={item.kind}
+            onPointerMove={() => onHover(index)}
+            // A mouse-down here would take focus from the prompt.
+            onMouseDown={(event) => {
+              event.preventDefault();
+              onPick(item);
+            }}
+          >
+            <span className="acpmux-mention-icon" data-mention-icon={item.kind}>
+              <Icon name={item.kind === "session" ? "agent.chat" : item.kind} size={14} />
+            </span>
+            <span className="acpmux-slash-name">{runs(item.name)}</span>
+            {item.kind === "session"
+              ? item.project && <span className="acpmux-slash-description">{item.project}</span>
+              : item.dir.length > 0 && <span className="acpmux-slash-description">{runs(item.dir)}</span>}
+          </PickerOption>
+        ))}
+        {note && (
+          <output className={state?.kind === "searching" ? "acpmux-file-loading-note" : "acpmux-file-note"}>
+            {note}
+          </output>
+        )}
+      </div>
     </PickerOptionList>
   );
 }

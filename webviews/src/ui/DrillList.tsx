@@ -11,6 +11,7 @@ import { drillKeyAction } from "./drillKeys";
 import { useUiDirection } from "./UiProvider";
 import { VirtualList } from "./VirtualList";
 import { cx } from "./cx";
+import { useScrollEdges } from "./scrollEdges";
 
 export interface DrillSection<T> {
   id: string;
@@ -86,6 +87,7 @@ function scrollIntoViewRef(element: HTMLElement | null): void {
 }
 
 export function DrillList<T>(props: DrillListProps<T>) {
+  const scrollEdges = useScrollEdges();
   const { sections, getKey, renderItem, itemAttributes, highlight, onHighlight, query } = props;
   const dir = useUiDirection();
   const id = useId();
@@ -171,6 +173,7 @@ export function DrillList<T>(props: DrillListProps<T>) {
   let offset = 0;
   const list = virtual ? (
     <VirtualList
+      fade
       id={listId}
       className={props.listClassName}
       label={props.listLabel}
@@ -182,7 +185,13 @@ export function DrillList<T>(props: DrillListProps<T>) {
     />
   ) : (
     // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an inline listbox with rich rows; no native element fits.
-    <div id={listId} className={props.listClassName} role="listbox" aria-label={props.listLabel}>
+    <div
+      ref={scrollEdges}
+      id={listId}
+      className={cx("ui-scroll-edge-fade", props.listClassName)}
+      role="listbox"
+      aria-label={props.listLabel}
+    >
       {sections.map((section) => {
         const start = offset;
         offset += section.items.length;

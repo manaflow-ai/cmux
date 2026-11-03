@@ -28,10 +28,9 @@ export function SlashMenu({
   const setList = useCallback(
     (node: HTMLDivElement | null) => {
       list.current = node;
-      listEdges(node);
       escape?.(node);
     },
-    [escape, listEdges],
+    [escape],
   );
   useLayoutEffect(() => {
     list.current?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
@@ -52,48 +51,50 @@ export function SlashMenu({
   return (
     <div
       ref={setList}
-      className="ui-popup ui-glass acpmux-slash-menu ui-scroll-edge-fade"
+      className="ui-popup ui-glass acpmux-slash-menu ui-popup-scroll-shell"
       id="acpmux-slash-menu"
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listbox"
       aria-label={t("composer.commands")}
     >
-      {/* Virtual focus: the prompt keeps focus and names the row through aria-activedescendant. */}
-      {matches.map((match, index) => (
-        <div
-          key={`${match.command.source ?? "agent"}:${match.command.name}`}
-          id={`acpmux-slash-${index}`}
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-          role="option"
-          tabIndex={-1}
-          aria-selected={index === active}
-          className={index === active ? "acpmux-slash-row acpmux-slash-active" : "acpmux-slash-row"}
-          onMouseMove={() => {
-            if (index !== active) onHover(index);
-          }}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            onPick(match.command);
-          }}
-        >
-          <span className="acpmux-slash-name">
-            /<Highlighted name={shownName(match.command)} ranges={match.ranges} />
-          </span>
-          {match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
-          {match.command.source && match.command.source !== "agent" && (
-            <span className="acpmux-slash-source">
-              {match.command.source === "skill"
-                ? t("composer.slashSkill")
-                : match.command.source === "prompt"
-                  ? t("composer.slashPrompt")
-                  : "cmux"}
+      <div ref={listEdges} className="ui-popup-scroll ui-scroll-edge-fade">
+        {/* Virtual focus: the prompt keeps focus and names the row through aria-activedescendant. */}
+        {matches.map((match, index) => (
+          <div
+            key={`${match.command.source ?? "agent"}:${match.command.name}`}
+            id={`acpmux-slash-${index}`}
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+            role="option"
+            tabIndex={-1}
+            aria-selected={index === active}
+            className={index === active ? "acpmux-slash-row acpmux-slash-active" : "acpmux-slash-row"}
+            onMouseMove={() => {
+              if (index !== active) onHover(index);
+            }}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              onPick(match.command);
+            }}
+          >
+            <span className="acpmux-slash-name">
+              /<Highlighted name={shownName(match.command)} ranges={match.ranges} />
             </span>
-          )}
-          <span className="acpmux-slash-description">
-            {match.command.descriptionKey ? t(match.command.descriptionKey) : match.command.description}
-          </span>
-        </div>
-      ))}
+            {match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
+            {match.command.source && match.command.source !== "agent" && (
+              <span className="acpmux-slash-source">
+                {match.command.source === "skill"
+                  ? t("composer.slashSkill")
+                  : match.command.source === "prompt"
+                    ? t("composer.slashPrompt")
+                    : "cmux"}
+              </span>
+            )}
+            <span className="acpmux-slash-description">
+              {match.command.descriptionKey ? t(match.command.descriptionKey) : match.command.description}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

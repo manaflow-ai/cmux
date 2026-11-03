@@ -198,7 +198,18 @@ export function naturalHeight(popup: HTMLElement): number {
     if (list.scrollHeight <= list.clientHeight + 1) continue;
     const style = getComputedStyle(list);
     if (!/auto|scroll/.test(style.overflowY)) continue;
-    const cap = parseFloat(style.getPropertyValue("--popup-scroll-cap"));
+    let cap = parseFloat(style.getPropertyValue("--popup-scroll-cap"));
+    // A row viewport inherits the shell's designed cap, which already includes its padding.
+    // Count that padding once when moving scrolling off the glass surface.
+    const shell = list.parentElement;
+    if (
+      Number.isFinite(cap) &&
+      list.classList.contains("ui-popup-scroll") &&
+      shell?.classList.contains("ui-popup-scroll-shell")
+    ) {
+      const outer = getComputedStyle(shell);
+      cap = Math.max(0, cap - (parseFloat(outer.paddingTop) || 0) - (parseFloat(outer.paddingBottom) || 0));
+    }
     const designed = Number.isFinite(cap) ? Math.min(list.scrollHeight, cap) : list.scrollHeight;
     hidden += Math.max(0, designed - list.clientHeight);
   }

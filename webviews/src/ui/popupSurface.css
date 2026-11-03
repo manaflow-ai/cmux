@@ -403,6 +403,23 @@
    side: it may cover its own anchor, so it fits the window less the edge margins. */
 .ui-popup[data-popup-shift] { --available-height: calc(100vh - 16px); }
 
+/* Keep the popup's tint, rim and exterior shadow outside the row mask. A constrained
+   flex child takes the same available content height; the shell keeps its existing padding. */
+.ui-popup.ui-glass.ui-popup-scroll-shell {
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+.ui-popup-scroll {
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
+  overscroll-behavior: contain;
+}
+/* A fitted menu keeps its submenu's pointer bridge outside the viewport. Only actual
+   overflow needs a clipping scrollport; rounding-sized spill stays fully readable. */
+.ui-popup-scroll:is([data-fade-top], [data-fade-bottom]) { overflow: auto; }
+
 /* Shared scroll-edge fade: rows soften only at edges with more content. The tracker
    disconnects its observers and passive scroll listener when the surface unmounts. */
 .ui-scroll-edge-fade:is([data-fade-top], [data-fade-bottom]) {

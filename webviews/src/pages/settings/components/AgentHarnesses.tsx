@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Tabs } from "@base-ui/react/tabs";
 import { StableLabel } from "../../../ui/StableLabel";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../../../agent-session/shared/harnessIcons";
 import { useStore } from "../context";
@@ -415,6 +416,7 @@ function AddPanel({
 }
 
 function RegistryList({ state, run }: { state: AgentsState; run: (gesture: AgentsRun) => Promise<boolean> }) {
+  const scrollEdges = useScrollEdges();
   const [loading, setLoading] = useState(false);
   const asked = useRef(false);
   const load = useCallback(
@@ -448,7 +450,7 @@ function RegistryList({ state, run }: { state: AgentsState; run: (gesture: Agent
       {state.registry && agents.length === 0 && (
         <p className="my-1 text-[13px] text-muted">{t("settingsPage.agents.registryEmpty")}</p>
       )}
-      <div className="max-h-[320px] overflow-y-auto">
+      <div ref={scrollEdges} className="ui-scroll-edge-fade max-h-[320px] overflow-y-auto">
         {agents.map((agent) => (
           <RegistryRow key={agent.id} agent={agent} run={run} />
         ))}

@@ -137,15 +137,20 @@ export function Popover({
           sideOffset={UI_ANCHOR_GAP}
         >
           <BasePopover.Popup
-            ref={fade ? edges : undefined}
             // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
             data-popup-shift={flip === "shift" ? "" : undefined}
-            className={cx(popupClassName, fade && "ui-scroll-edge-fade")}
+            className={cx(popupClassName, fade && "ui-popup-scroll-shell")}
             aria-label={label}
             initialFocus={initialFocus}
             finalFocus={finalFocus}
           >
-            {children}
+            {fade ? (
+              <div ref={edges} className="ui-popup-scroll ui-scroll-edge-fade">
+                {children}
+              </div>
+            ) : (
+              children
+            )}
           </BasePopover.Popup>
         </BasePopover.Positioner>
       </BasePopover.Portal>

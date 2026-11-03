@@ -2579,9 +2579,8 @@ function SlashMenu({
     (node: HTMLDivElement | null) => {
       list.current = node;
       listEdges(node);
-      escape?.(node);
     },
-    [escape, listEdges],
+    [listEdges],
   );
   // The menu may be squeezed below its CSS 296px cap in a short pane.
   useLayoutEffect(() => {
@@ -2627,102 +2626,107 @@ function SlashMenu({
     );
   return (
     <div
-      ref={setList}
-      className="ui-popup ui-glass acpmux-slash-menu ui-scroll-edge-fade"
+      ref={escape}
+      className="ui-popup ui-glass acpmux-slash-menu ui-popup-scroll-shell"
       id="acpmux-slash-menu"
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listbox"
       aria-label={t(COMPOSER_LABELS.commands)}
       data-matched-count={matches.length}
-      onScroll={
-        virtual
-          ? (event) => {
-              const top = event.currentTarget.scrollTop;
-              setScrollTop(top);
-              const next = slashViewport(matches.length, top, viewportPx);
-              const selected = slashActiveAfterScroll(active, matches.length, next);
-              if (selected !== active) onHover(selected);
-            }
-          : undefined
-      }
     >
-      {/* Keep the full-list scrollbar without creating offscreen options. */}
-      {virtual && <div aria-hidden="true" style={{ height: view.topSpace }} />}
-      {/* Virtual focus: the prompt's aria-activedescendant always names a mounted row. */}
-      {matches.slice(start, end).map((match, offset) => {
-        const index = start + offset;
-        // The harness's /fast reads as ChatGPT's Fast row: bolt, name, current mode.
-        const fastRow = isFastCommand(match.command);
-        const fastName = t("picker.tierFast");
-        return (
-          <div
-            key={`${match.command.source ?? "agent"}:${match.command.name}`}
-            id={`acpmux-slash-${index}`}
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-            role="option"
-            tabIndex={-1}
-            aria-selected={index === active}
-            aria-posinset={index + 1}
-            aria-setsize={matches.length}
-            className={
-              (index === active ? "acpmux-slash-row acpmux-slash-active" : "acpmux-slash-row") +
-              (fastRow ? " acpmux-slash-fast" : "")
-            }
-            onMouseMove={() => {
-              if (index !== active) onHover(index);
-            }}
-            onMouseDown={(event) => {
-              if (event.button !== 0) return;
-              event.preventDefault();
-              onPick(match.command);
-            }}
-          >
-            {fastRow && (
-              <span className="acpmux-slash-icon">
-                <BoltIcon size={14} />
-              </span>
-            )}
-            <span className="acpmux-slash-name">
-              {fastRow ? (
-                // The typed letters stay bold where the shown name spells the command (English).
-                fastName.toLowerCase() === match.command.name.toLowerCase() ? (
-                  <Highlighted name={fastName} ranges={match.ranges} />
-                ) : (
-                  fastName
-                )
-              ) : (
-                <>
-                  /<Highlighted name={shownName(match.command)} ranges={match.ranges} />
-                </>
+      <div
+        ref={setList}
+        className="ui-popup-scroll ui-scroll-edge-fade"
+        onScroll={
+          virtual
+            ? (event) => {
+                const top = event.currentTarget.scrollTop;
+                setScrollTop(top);
+                const next = slashViewport(matches.length, top, viewportPx);
+                const selected = slashActiveAfterScroll(active, matches.length, next);
+                if (selected !== active) onHover(selected);
+              }
+            : undefined
+        }
+      >
+        {/* Keep the full-list scrollbar without creating offscreen options. */}
+        {virtual && <div aria-hidden="true" style={{ height: view.topSpace }} />}
+        {/* Virtual focus: the prompt's aria-activedescendant always names a mounted row. */}
+        {matches.slice(start, end).map((match, offset) => {
+          const index = start + offset;
+          // The harness's /fast reads as ChatGPT's Fast row: bolt, name, current mode.
+          const fastRow = isFastCommand(match.command);
+          const fastName = t("picker.tierFast");
+          return (
+            <div
+              key={`${match.command.source ?? "agent"}:${match.command.name}`}
+              id={`acpmux-slash-${index}`}
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+              role="option"
+              tabIndex={-1}
+              aria-selected={index === active}
+              aria-posinset={index + 1}
+              aria-setsize={matches.length}
+              className={
+                (index === active ? "acpmux-slash-row acpmux-slash-active" : "acpmux-slash-row") +
+                (fastRow ? " acpmux-slash-fast" : "")
+              }
+              onMouseMove={() => {
+                if (index !== active) onHover(index);
+              }}
+              onMouseDown={(event) => {
+                if (event.button !== 0) return;
+                event.preventDefault();
+                onPick(match.command);
+              }}
+            >
+              {fastRow && (
+                <span className="acpmux-slash-icon">
+                  <BoltIcon size={14} />
+                </span>
               )}
-            </span>
-            {!fastRow && match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
-            {match.command.source && match.command.source !== "agent" && (
-              <span className="acpmux-slash-source">
-                {match.command.source === "skill"
-                  ? t("composer.slashSkill")
-                  : match.command.source === "prompt"
-                    ? t("composer.slashPrompt")
-                    : "cmux"}
-              </span>
-            )}
-            <span className="acpmux-slash-description">
-              {fastRow
-                ? t(
-                    fast === "on"
-                      ? "composer.slashFastOff"
-                      : fast === "off"
-                        ? "composer.slashFastOn"
-                        : "composer.slashFastToggle",
+              <span className="acpmux-slash-name">
+                {fastRow ? (
+                  // The typed letters stay bold where the shown name spells the command (English).
+                  fastName.toLowerCase() === match.command.name.toLowerCase() ? (
+                    <Highlighted name={fastName} ranges={match.ranges} />
+                  ) : (
+                    fastName
                   )
-                : match.command.descriptionKey
-                  ? t(match.command.descriptionKey)
-                  : match.command.description}
-            </span>
-          </div>
-        );
-      })}
-      {virtual && <div aria-hidden="true" style={{ height: view.bottomSpace }} />}
+                ) : (
+                  <>
+                    /<Highlighted name={shownName(match.command)} ranges={match.ranges} />
+                  </>
+                )}
+              </span>
+              {!fastRow && match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
+              {match.command.source && match.command.source !== "agent" && (
+                <span className="acpmux-slash-source">
+                  {match.command.source === "skill"
+                    ? t("composer.slashSkill")
+                    : match.command.source === "prompt"
+                      ? t("composer.slashPrompt")
+                      : "cmux"}
+                </span>
+              )}
+              <span className="acpmux-slash-description">
+                {fastRow
+                  ? t(
+                      fast === "on"
+                        ? "composer.slashFastOff"
+                        : fast === "off"
+                          ? "composer.slashFastOn"
+                          : "composer.slashFastToggle",
+                    )
+                  : match.command.descriptionKey
+                    ? t(match.command.descriptionKey)
+                    : match.command.description}
+              </span>
+            </div>
+          );
+        })}
+        {virtual && <div aria-hidden="true" style={{ height: view.bottomSpace }} />}
+      </div>
     </div>
   );
 }
