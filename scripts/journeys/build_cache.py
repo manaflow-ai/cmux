@@ -112,11 +112,13 @@ def fetch_direct(url, zip_path, want):
         done = subprocess.run(["curl", "-fsS", "--connect-timeout", "20", "--max-time", "1200",
                                "--speed-limit", str(SLOW_BYTES_PER_SECOND), "--speed-time", str(SLOW_SECONDS),
                                "-H", "User-Agent: cmux-ci", "-o", zip_path, "-K", "-"], input=config.encode())
-        if done.returncode == 0 and sha256_of(zip_path) == want:
-            return attempt
-        say(f"store read {attempt}: " + ("the file's sha256 does not match" if done.returncode == 0
-                                         else f"curl exit {done.returncode} (28: slower than "
-                                              f"{SLOW_BYTES_PER_SECOND / 1e6:.0f} MB/s for {SLOW_SECONDS}s)"))
+        if done.returncode == 0:
+            if sha256_of(zip_path) == want:
+                return attempt
+            say(f"store read {attempt}: the file's sha256 does not match")
+            return 0  # the same object again will not match: take cmux-ci at once
+        say(f"store read {attempt}: curl exit {done.returncode} (28: slower than "
+            f"{SLOW_BYTES_PER_SECOND / 1e6:.0f} MB/s for {SLOW_SECONDS}s)")
     return 0
 
 
@@ -137,8 +139,13 @@ def unpack(zip_path, into):
 
 
 def trim(builds, keep):
+    def mtime(name):
+        try:
+            return os.path.getmtime(os.path.join(builds, name))
+        except OSError:  # removed meanwhile by another fill's trim
+            return 0.0
     names = [n for n in os.listdir(builds) if ".tmp." not in n]
-    names.sort(key=lambda n: os.path.getmtime(os.path.join(builds, n)), reverse=True)
+    names.sort(key=mtime, reverse=True)
     for old in names[keep:]:
         shutil.rmtree(os.path.join(builds, old), ignore_errors=True)
 

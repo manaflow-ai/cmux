@@ -458,11 +458,12 @@ def signed_url(digest, timeout=20):
             base = ""
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(digest or "")):
         return ""
+    import http.client
     import urllib.request
     try:
         with urllib.request.urlopen(f"{(base or CONTROLLER).rstrip('/')}/v1/artifacts/{digest}/url", timeout=timeout) as res:
             url = json.load(res).get("url") or ""
-    except (OSError, ValueError, AttributeError):
+    except (OSError, ValueError, AttributeError, http.client.HTTPException):
         return ""
     return url if re.fullmatch(r"https://[^\s\"']+", url) else ""
 
@@ -503,8 +504,13 @@ def prestage(build, hosts):
             done[host] = f"skipped: {line[len(host) + 1:][:160] or 'no capture-host status'}"
             log(f"prestage {build['id']} on {host}: {done[host]}")
             continue
-        fill = remote(host, f"mkdir -p $HOME/.cache/cmux-journeys; {fill_command(build)}", input=fill_input(build),
-                      timeout=1800, check=False)
+        try:
+            fill = remote(host, f"mkdir -p $HOME/.cache/cmux-journeys; {fill_command(build)}", input=fill_input(build),
+                          timeout=1800, check=False)
+        except subprocess.TimeoutExpired:
+            done[host] = "failed: the fill took more than 1800 s"
+            log(f"prestage {build['id']} on {host}: {done[host]}")
+            continue
         app = fill.stdout.decode(errors="replace").strip()
         why = fill.stderr.decode(errors="replace").strip().splitlines()
         done[host] = "staged" if fill.returncode == 0 and app.endswith(".app") else f"failed: {(why or ['?'])[-1][:200]}"
@@ -861,11 +867,14 @@ def main(argv=None):
         status = wait_build(opts.build, opts.build_wait_minutes * 60)
         if status.get("state") != "done":
             log(f"prestage: build {opts.build} is {status.get('state')}")
-            return 75
+            return 1 if status.get("state") in ("failed", "cancelled") else 75
         build = {"id": status.get("id", opts.build), "commit": status.get("ref") or status.get("commit"),
                  "artifact": status.get("artifact")}
         excluded = set(os.environ.get("JOURNEYS_EXCLUDE_HOSTS", "cmux16").split())
-        done = prestage(build, [h for h in opts.hosts.split() if h not in excluded])
+        hosts = [h for h in opts.hosts.split() if h not in excluded]
+        if not hosts:
+            ap.error(f"--prestage: every host in --hosts is excluded ({' '.join(sorted(excluded))})")
+        done = prestage(build, hosts)
         print(json.dumps(done))
         states = {v.split(":")[0] for v in done.values()}
         return 1 if "failed" in states else 75 if "skipped" in states else 0

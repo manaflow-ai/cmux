@@ -164,6 +164,7 @@ class Fill(unittest.TestCase):
         done = self.fill("1" * 64, self.url)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("sha256 does not match", done.stderr)
+        self.assertEqual(done.stderr.count("store read"), 1)  # no second read of an object that does not match
         self.assertEqual(len(self.downloads()), 1)
 
     def test_a_crawling_older_download_does_not_hold_the_fill(self):
