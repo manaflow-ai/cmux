@@ -670,6 +670,7 @@ import {
   SubagentStopContext,
   running,
 } from "./subagents/SubagentGroup";
+import { useEscapeClosesSubagent } from "./subagents/subagentEscape";
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
@@ -8775,6 +8776,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // the subagent it was opened on has shown, or the name the app gave the tab would flash away; and not
   // while this page has no rows for the subagent yet (they load after the pane opens), which would name
   // it "Subagent of" over the name the chat's page gave it.
+  // Escape closes a subagent's view to the chat's, as its pill's × does (subagents/subagentEscape.ts).
+  useEscapeClosesSubagent(!quick && !!subagentView, () => setSubagentView(undefined));
   const shownSubagentKnown = !!subagentView && freshAgents.some((agent) => agent.id === subagentView);
   const shownSubagentTitle =
     ownSubagentPane && subagentView && shownSubagentKnown ? subagentTitle(subagentView) : undefined;

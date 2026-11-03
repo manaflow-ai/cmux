@@ -202,7 +202,8 @@ button.cv-subagent > :last-child {
   opacity: 0.5;
 }
 /* The child view's first line (model.ts: 44px): a 28px "Subagent of" chip centred on a rule,
-   8px above and below. A click goes back to the parent's view. */
+   8px above and below. Its text goes back to the parent's view; its × closes the subagent's view
+   (the summary card's Subagents tab close: 18px, 12px glyph, its hover on the × alone). */
 .cv-subagent-of {
   box-sizing: border-box;
   height: 44px;
@@ -218,17 +219,27 @@ button.cv-subagent > :last-child {
   height: 1px;
   background: var(--cv-card-ring);
 }
-.cv-subagent-of__pill {
-  all: unset;
+.cv-subagent-of__frame {
   box-sizing: border-box;
   height: 28px;
   max-width: 70%;
-  padding: 0 10px;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--cv-card-ring);
+}
+.cv-subagent-of__pill {
+  all: unset;
+  box-sizing: border-box;
+  height: 100%;
+  min-width: 0;
+  flex: 0 1 auto;
+  padding: 0 4px 0 10px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   border-radius: 6px;
-  box-shadow: 0 0 0 1px var(--cv-card-ring);
   font-family: var(--cv-font);
   font-size: var(--text-detail);
   color: var(--cv-text-muted);
@@ -242,6 +253,28 @@ button.cv-subagent > :last-child {
 .cv-subagent-of__pill:focus-visible {
   outline: 2px solid var(--agent-accent);
   outline-offset: 2px;
+}
+.cv-subagent-of__close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin: 0 5px 0 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--agent-muted);
+  transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.cv-subagent-of__close:hover {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  color: var(--agent-text);
+}
+.cv-subagent-of__close:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
 }
 .cv-subagent-of__label {
   flex: none;
