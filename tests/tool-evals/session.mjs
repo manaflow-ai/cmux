@@ -39,7 +39,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * them at 511, and the person's own cmux holds most). Clients, the MCP server and the
  * agent stay on this machine.
  */
-export async function openSession({ cli, name, dir, allTools, setup = [], noApp = false, remote = null }) {
+export async function openSession({ cli, name, dir, allTools, setup = [], noApp = false, remote = null, chief = false }) {
   mkdirSync(dir, { recursive: true });
   const work = mkdtempSync(join(tmpdir(), "cmux-tool-eval-"));
   const env = {};
@@ -107,8 +107,10 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
    * build (a Linux build of any commit, no Mac build needed).
    */
   const mcpCommand = (serveArgs) => {
-    if (!remote) return { command: cli, args: ["mcp", "serve", ...serveArgs] };
-    const remoteEnv = [
+    // Chief's chat marks itself with CMUX_CALLER_HOME_CHAT=1, as the app sets for it.
+    const chiefEnv = chief ? ["CMUX_CALLER_HOME_CHAT=1"] : [];
+    if (!remote) return chief ? { command: "env", args: [...chiefEnv, cli, "mcp", "serve", ...serveArgs] } : { command: cli, args: ["mcp", "serve", ...serveArgs] };
+    const remoteEnv = [...chiefEnv,
       `CMUX_TUI_SOCKET=${socket}`, `CMUX_TUI_TERMINAL_ID=${agentEnvRef.CMUX_TUI_TERMINAL_ID}`,
       `CMUX_SOCKET_PATH=${env.CMUX_SOCKET_PATH}`, `CMUX_NEXT_CONFIG_FILE=${env.CMUX_NEXT_CONFIG_FILE}`,
     ];
@@ -220,12 +222,15 @@ async function runSetup(cmux, setup, origin, work) {
     if (step.op === "workspace") {
       const r = await cmux(["workspace", "create", "--name", step.name, "--cwd", work]);
       if (step.alias) aliases[step.alias] = r.workspace_id;
+    } else if (step.op === "focus") {
+      // The person looks at another workspace (`workspace`, an alias) while the chat works.
+      await cmux(["workspace", aliases[step.workspace] ?? step.workspace, "focus"]);
     } else if (step.op === "dock") {
       // Pins the column of `pane` (an alias) to `edge` (default right): a sticky column.
-      const pane = aliases[step.pane] ?? step.pane;
+      const pane = aliases[step.pane] ?? (step.pane === "origin" ? origin.pane_id : step.pane);
       const layout = await cmux(["screen", origin.screen_id, "layout", "export"]);
       const column = columnsOf(layout).find((c) => c.pane_ids.includes(pane))?.column_id;
-      if (column) await cmux(["screen", origin.screen_id, "column", column, "update", "--dock", "true", "--edge", step.edge ?? "right"]);
+      if (column) await cmux(["screen", origin.screen_id, "column", column, "update", "--dock", "true", "--edge", step.edge ?? "right", ...(step.width ? ["--width", String(step.width)] : [])]);
     } else if (step.op === "split-right") {
       const r = await cmux(["pane", origin.pane_id, "split", "--right", "--viewport-width", "0.5"]);
       if (step.alias) aliases[step.alias] = r.pane_id;
@@ -314,6 +319,12 @@ async function standInApp(path, cmux, origin, log) {
     const items = panes?.items ?? panes ?? [];
     return (items.find((p) => p.focused) ?? items[0])?.id ?? null;
   };
+  // The pane the person looks at: the focused workspace's focused pane.
+  const focusedPane = async () => {
+    const workspaces = await cmux(["workspace", "list"]);
+    const ws = (workspaces.items ?? workspaces).find((w) => w.focused);
+    return ws ? workspacePane(ws.id) : null;
+  };
   const besidePane = async () => {
     const layout = await cmux(["screen", origin.screen_id, "layout", "export"]);
     const columns = columnsOf(layout);
@@ -340,10 +351,21 @@ async function standInApp(path, cmux, origin, log) {
       if (kind !== "page" && args.path != null && !String(args.path).startsWith("/")) {
         throw { code: "invalid_argument", message: `path must be absolute: ${args.path}` };
       }
+      // The app refuses an argument its schema lacks (ControlRouter.validatedRequest): `cmux file
+      // open --pane X` sends `args.pane`, which the app answers with an error, not an open in X.
+      const spec = (APP["action.list"]?.actions ?? []).find((a) => a.id === params.action || a.cli_name === params.action);
+      const extra = spec ? Object.keys(args).filter((name) => !spec.arguments.some((a) => a.name === name)) : [];
+      if (extra.length) {
+        throw { code: "invalid_params", message: `${spec.id} has no argument '${extra[0]}'`, data: { valid: spec.arguments.map((a) => a.name) } };
+      }
       if (kind === "page" && params.target != null && !/(^|:)tab_/.test(String(params.target))) {
         throw { code: "invalid_argument", message: `No tab matches ${params.target}` };
       }
-      const pane = (await paneOf(params.target)) ?? origin.pane_id;
+      // No target: the app opens in the pane the person looks at (its focus), wherever that is;
+      // only an app chat's browser and diff viewer go beside it (ControlRouter.placeBesideCaller),
+      // and this chat is a terminal. Before, the stand-in used the chat's own pane and hid a leak
+      // into the focused workspace (Lawrence 2026-11-02).
+      const pane = (await paneOf(params.target)) ?? (await focusedPane()) ?? origin.pane_id;
       return open(kind, what, pane, { method, action: params.action, args, target: params.target ?? null, focus: params.focus === true || args.focus === true });
     }
     if (method === "browser.open_split") {

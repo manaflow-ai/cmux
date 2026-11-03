@@ -32,7 +32,7 @@ pub(super) fn descriptor() -> Value {
     json!({
         "name": NAME,
         "title": "Open a file, diff or page",
-        "description": "Open a file, a diff or a web page in a cmux viewer tab, where the person asked, in one call. kind: file (path), diff (path: a file or folder; none for the working tree's changes) or page (url). where: right (the column right of this chat, made when there is none), left, below, above (a new pane on that side of this chat's pane, or of pane), here (this chat's own pane), sticky (a column docked to edge, default right; an existing docked column takes it), pane (a tab in pane), workspace (a tab in that workspace, which stays in the background). The person's view stays unless focus is true.",
+        "description": "Open a file, a diff or a web page in a cmux viewer tab, where the person asked, in one call. kind: file (path), diff (path: a file or folder; none for the working tree's changes) or page (url). where: right (the column right of this chat, made when there is none), left, below, above (a new pane on that side of this chat's pane, or of pane), here (this chat's own pane), sticky (a column docked to edge, default right; an existing docked column takes it), pane (a tab in pane), workspace (a tab in that workspace, which stays in the background). The answer names the pane. Two to compare, both in view: the second with where: below and pane: the first answer's pane (one above the other in that column). The person's view stays unless focus is true.",
         "inputSchema": {
             "type": "object",
             "additionalProperties": false,
@@ -52,6 +52,46 @@ pub(super) fn descriptor() -> Value {
         },
         "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false},
     })
+}
+
+/// The `open` arguments for an app action that opens a viewer (`file open`, the diff viewer,
+/// `tab new-browser`) called with no target: placed right of the chat, as `open` places it.
+/// With no target the app opens it in the pane the person looks at, which with many
+/// workspaces is often another workspace (Lawrence 2026-11-02: splits and browser tabs leaked
+/// into other workspaces). `None` keeps the call as it is: a target, an argument `open` does
+/// not take, or a viewer with nothing to show.
+pub(super) fn untargeted(
+    cli_name: &str,
+    arguments: &Map<String, Value>,
+) -> Option<Map<String, Value>> {
+    let (kind, needs) = match cli_name {
+        "file open" => ("file", Some("path")),
+        "browser open-diff-viewer" => ("diff", None),
+        "tab new-browser" => ("page", Some("url")),
+        _ => return None,
+    };
+    let plain = |key: &String| matches!(key.as_str(), "path" | "url" | "focus" | "idempotency_key");
+    let given = |key: &str| arguments.get(key).is_none() || text(arguments, key).is_some();
+    // `open` takes a key `validate_idempotency_key` accepts; a longer one an action takes
+    // (up to 200 characters) keeps the action's own path.
+    let key_fits = text(arguments, "idempotency_key")
+        .is_none_or(|key| cmux_tui_core::resource::validate_idempotency_key(key).is_ok());
+    if !arguments.keys().all(plain)
+        || !key_fits
+        || !given("path")
+        || !given("url")
+        || needs.is_some_and(|key| text(arguments, key).is_none())
+    {
+        return None;
+    }
+    let mut open = arguments.clone();
+    open.insert("kind".into(), json!(kind));
+    // With no path the app diffs the target pane's folder; beside the chat that pane is a new
+    // split or a page, so the diff names the chat's own folder.
+    if kind == "diff" && !open.contains_key("path") {
+        open.insert("path".into(), json!("."));
+    }
+    Some(open)
 }
 
 fn invalid(message: impl Into<String>) -> Value {
@@ -143,6 +183,7 @@ impl<B: Backend> Server<B> {
             Ok(target) => target,
             Err(answer) => return self.failed_open(None, answer, &open_id),
         };
+        let pane = target.clone();
         // A page opens as a tab beside a tab (`tab new-browser` takes a tab target, not a
         // pane): the pane's shown tab.
         let target = match (kind, target) {
@@ -171,6 +212,12 @@ impl<B: Backend> Server<B> {
             && let Some(object) = receipt.as_object_mut()
         {
             object.insert("open_idempotency_key".into(), json!(open_id));
+            // The answer names the pane, so a second open can go beside it (`where: "below",
+            // pane`) with no layout read: "open a.txt and b.txt to compare" took Opus a split,
+            // a tab move and a close by hand (tests/tool-evals open-r16f).
+            if let Some(pane) = pane {
+                object.insert("pane".into(), json!(pane));
+            }
             return super::success(receipt, true);
         }
         answer

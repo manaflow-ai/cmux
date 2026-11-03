@@ -185,6 +185,32 @@ export const LOCAL_CHECKS = {
     const id = ctx.aliases?.[pane] ?? pane;
     return { ok: ctx.after.focus.pane_id === id, detail: `focus ${ctx.after.focus.pane_id}`, category: "not_done" };
   },
+  /**
+   * Every tab, pane and app viewer the turn made is in `workspace` (a name, or "origin": the
+   * chat's own), so nothing leaks into the workspace the person looks at or any other one
+   * (Lawrence 2026-11-02: with many workspaces, splits and browser tabs leaked elsewhere).
+   */
+  stayed_in_workspace(ctx, { workspace = "origin" } = {}) {
+    const want = workspace === "origin" ? ctx.origin.workspace_id : ctx.after.workspaces.find((w) => lower(w.name) === lower(workspace))?.id;
+    const name = (id) => ctx.after.workspaces.find((w) => w.id === id)?.name ?? id;
+    const paneWs = (id) => ctx.after.panes.find((p) => p.id === id)?.workspace_id;
+    const beforeTabs = new Set(ctx.before.tabs.map((t) => t.id));
+    const beforePanes = new Set(ctx.before.panes.map((p) => p.id));
+    const made = [
+      ...ctx.after.tabs.filter((t) => !beforeTabs.has(t.id)).map((t) => ({ what: `tab ${t.label}`, ws: paneWs(t.pane_id) })),
+      ...ctx.after.panes.filter((p) => !beforePanes.has(p.id)).map((p) => ({ what: "pane", ws: p.workspace_id })),
+      ...(ctx.appOpens ?? []).map((o) => ({ what: `${o.kind} ${o.what}`, ws: paneWs(o.pane) })),
+    ];
+    const leaked = made.filter((m) => m.ws !== want);
+    const detail = leaked.length ? `leaked: ${leaked.map((m) => `${m.what} -> ${name(m.ws)}`).join("; ").slice(0, 240)}` : `${made.length} new, all in ${name(want)}`;
+    return { ok: !!want && made.length > 0 && leaked.length === 0, detail, category: made.length ? "wrong_place" : "not_done" };
+  },
+  /** The turn made at most `max` new panes (splits): several things it opened stack as tabs. */
+  new_panes(ctx, { max = 1 } = {}) {
+    const before = new Set(ctx.before.panes.map((p) => p.id));
+    const made = ctx.after.panes.filter((p) => !before.has(p.id));
+    return { ok: made.length <= max, detail: `${made.length} new panes`, category: "wrong_place" };
+  },
   workspace_first(ctx, { name }) {
     const sorted = [...ctx.after.workspaces].sort((a, b) => (a.sidebar_index ?? a.index ?? 0) - (b.sidebar_index ?? b.index ?? 0));
     return { ok: lower(sorted[0]?.name) === lower(name), detail: sorted.map((w) => w.name).join(", "), category: "not_done" };

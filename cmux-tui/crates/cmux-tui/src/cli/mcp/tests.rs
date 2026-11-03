@@ -55,6 +55,8 @@ struct Fake {
     /// What `Backend::caller_terminal` answers (none by default, whatever
     /// terminal the test runs in).
     caller_terminal: Option<String>,
+    /// What `Backend::home_chat` answers: a Chief turn.
+    home_chat: bool,
     /// What `Backend::focus` answers.
     focus: Option<Value>,
     /// The app's `computer_use.status` through `Backend::app_caller`; no
@@ -437,6 +439,10 @@ impl Backend for Fake {
 
     fn caller_terminal(&self) -> Option<String> {
         self.caller_terminal.clone()
+    }
+
+    fn home_chat(&self) -> bool {
+        self.home_chat
     }
 
     fn acpmux(
@@ -2067,6 +2073,8 @@ fn open_splits_and_opens_in_one_call() {
                        "arguments": {"kind": "file", "path": "./docs/notes.md", "where": "below"}}))
         .expect("a tool result");
     assert_ne!(result["isError"], true, "{result}");
+    // The answer names the pane, for a second open beside it.
+    assert_eq!(result["structuredContent"]["pane"], pane, "{result}");
     let sent = server.backend.sent.borrow();
     let split = sent.iter().find(|s| s["request"]["operation"] == "pane.split");
     let split = split.unwrap_or_else(|| panic!("{sent:?}"));
@@ -2202,6 +2210,111 @@ fn open_splits_and_opens_in_one_call() {
         .expect("a tool result");
     assert_eq!(result["isError"], true, "{result}");
     assert!(result.to_string().contains("needs the cmux app"), "{result}");
+}
+
+/// Chief opens what a workspace's work needs in that workspace: the tools that open things
+/// (`open`, and `cmux_exec` in code mode) say so in a Chief turn, and only there. The rule is
+/// not in the instructions, which a client may cut past 2048 characters.
+#[test]
+fn chief_tools_open_in_the_workspace_of_the_task() {
+    let list = json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"});
+    let described = |mut server: Server<Fake>, name: &str| {
+        let answer = server.handle(&list).expect("an answer");
+        let tools = answer["result"]["tools"].as_array().cloned().unwrap_or_default();
+        let tool = tools.iter().find(|tool| tool["name"] == name).cloned();
+        tool.unwrap_or_else(|| panic!("no {name} in {answer}"))["description"].to_string()
+    };
+    let chief = || Fake { home_chat: true, ..Fake::with_actions() };
+    for text in [
+        described(code_mode_server(chief()), "cmux_exec"),
+        described(Server::new(chief(), None), "open"),
+    ] {
+        assert!(
+            text.starts_with("\"You are Chief") && text.contains("opens in that workspace"),
+            "{text}"
+        );
+    }
+    for text in [
+        described(code_mode_server(Fake::with_actions()), "cmux_exec"),
+        described(Server::new(Fake::with_actions(), None), "open"),
+    ] {
+        assert!(!text.contains("You are Chief"), "{text}");
+    }
+    let initialize = json!({"jsonrpc": "2.0", "id": "i", "method": "initialize"});
+    let answer = code_mode_server(chief()).handle(&initialize).expect("an answer");
+    let text = answer["result"]["instructions"].as_str().unwrap_or_default();
+    assert!(text.chars().count() <= 2048, "{} chars", text.chars().count());
+}
+
+/// An app viewer an agent opens with no target goes beside its chat (a split right, made
+/// by `open`), not into the pane the person looks at, which with many workspaces is often
+/// another workspace (tests/tool-evals workspace cases). A caller the app does not place in a
+/// pane keeps the app's own placement: no target is sent.
+#[test]
+fn an_untargeted_viewer_from_a_chat_opens_beside_it() {
+    let pane = "pane_00000000000000000000000000000007";
+    let mut actions = fixture_actions();
+    actions["actions"].as_array_mut().unwrap().push(json!({
+        "id": "file.open", "title": "Open File", "cli_name": "file open", "cli": true,
+        "targets": ["pane"], "arguments": [{"name": "path", "kind": "string", "required": false}],
+        crate::app_identity::ACTION_SURFACE_PLAN: {"cli": "offered", "mcp": "offered"},
+    }));
+    let created = json!({"pane_id": pane, "id": pane});
+    let open = json!({"name": "app_file_open", "arguments": {"path": "/work/notes.md"}});
+    let chat = Fake {
+        actions: actions.clone(),
+        resource_result: Some(created.clone()),
+        caller: Some(json!({"workspace": "ws_a", "pane": "pane_chat"})),
+        ..Fake::default()
+    };
+    let mut server = Server::new(chat, None);
+    let result = server.call(&open).expect("a tool result");
+    assert_ne!(result["isError"], true, "{result}");
+    let sent = server.backend.sent.borrow();
+    let run = sent.iter().find(|s| s["method"] == "action.run");
+    let run = run.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(run["params"]["target"], pane, "{run}");
+    drop(sent);
+
+    // A caller the app does not place in a pane (none, unknown to it, or a workspace with
+    // no pane) keeps the app's own placement: `current` would be the daemon's active pane.
+    let unplaced = [
+        None,
+        Some(json!({"found": false, "workspace": "ws_a", "pane": "pane_chat"})),
+        Some(json!({"workspace": "ws_a"})),
+    ];
+    for caller in unplaced {
+        let fake = Fake {
+            actions: actions.clone(),
+            resource_result: Some(created.clone()),
+            caller: caller.clone(),
+            ..Fake::default()
+        };
+        let mut server = Server::new(fake, None);
+        let result = server.call(&open).expect("a tool result");
+        assert_ne!(result["isError"], true, "{caller:?}: {result}");
+        let sent = server.backend.sent.borrow();
+        let run = sent.iter().find(|s| s["method"] == "action.run");
+        let run = run.unwrap_or_else(|| panic!("{sent:?}"));
+        assert!(run["params"].get("target").is_none(), "{caller:?}: {run}");
+    }
+}
+
+/// A diff viewer opened beside the chat with no path diffs the chat's folder: with no path
+/// the app would diff the folder of the pane it opens in, a new split or a page.
+#[test]
+fn an_untargeted_diff_names_the_chat_folder() {
+    let diff = open_tool::untargeted("browser open-diff-viewer", &Map::new()).expect("placed");
+    assert_eq!(diff["path"], ".", "{diff:?}");
+    let empty = json!({"path": ""});
+    assert!(open_tool::untargeted("file open", empty.as_object().unwrap()).is_none());
+    let number = json!({"path": 3});
+    assert!(
+        open_tool::untargeted("browser open-diff-viewer", number.as_object().unwrap()).is_none()
+    );
+    // A key longer than `open` takes (an action takes up to 200 characters) keeps the action.
+    let long = json!({"path": "/work/a.txt", "idempotency_key": "k".repeat(150)});
+    assert!(open_tool::untargeted("file open", long.as_object().unwrap()).is_none());
 }
 
 /// A history read answers the scrollback as lines of plain text, unstyled, where the

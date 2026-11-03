@@ -56,8 +56,9 @@ const PREFIX = "mcp__cmux__";
 function loadCases() {
   const files = arg("cases", null)?.split(",") ?? readdirSync(join(HERE, "cases")).filter((f) => f.endsWith(".ndjson")).map((f) => join(HERE, "cases", f));
   const all = files.flatMap((f) => readFileSync(f, "utf8").split("\n").filter((l) => l.trim() && !l.startsWith("//")).map((l) => JSON.parse(l)));
-  // The headless agent-evals tasks run here too, graded on state alone.
-  for (const t of TASKS.filter((t) => t.tier === "headless")) {
+  // The headless agent-evals tasks run here too, graded on state alone; a --cases run (a
+  // targeted panel) has only its own cases.
+  for (const t of arg("cases", null) ? [] : TASKS.filter((t) => t.tier === "headless")) {
     all.push({ id: `ae-${t.id}`, area: "agent-evals", kind: "guard", source: "tests/agent-evals/tasks.mjs", prompt: t.prompt, setup: t.setup, expect: { state: t.checks } });
   }
   const ids = arg("case", null)?.split(",");
@@ -258,7 +259,9 @@ const tomlString = (value) => JSON.stringify(String(value));
 async function runCliAgent(sample, testCase, surface) {
   const { dir, session } = sample;
   const mcpLog = join(dir, "mcp.jsonl");
-  const mcp = {
+  // The cli surface measures the `cmux` command alone: no MCP server (Claude found cmux_exec
+  // through ToolSearch when it was attached, so a cli run measured MCP).
+  const mcp = surface === "cli" ? null : {
     command: process.execPath,
     args: (() => {
       const server = session.mcpCommand(surface === "all" ? ["--all-tools"] : []);
@@ -285,7 +288,8 @@ async function runCliAgent(sample, testCase, surface) {
       ? await runClaudeSdk({ ...common, home: join(dir, "claude-home") })
       : await runCodexAppServer({ ...common, home: join(dir, "codex-home") });
     const capacity = /\b(429|503)\b|non-exhausted|rate limit|Reconnecting|responseStreamDisconnected|overloaded/i.test(out.error ?? "");
-    const untouched = !existsSync(mcpLog) || !readFileSync(mcpLog, "utf8").includes('"tools/call"');
+    const untouched = (!existsSync(mcpLog) || !readFileSync(mcpLog, "utf8").includes('"tools/call"'))
+      && !existsSync(join(dir, "cli.jsonl"));
     if (!capacity || !untouched || attempt >= 4) break;
     await new Promise((r) => setTimeout(r, 30_000 * (attempt + 1) + Math.random() * 15_000));
   }
@@ -436,7 +440,7 @@ async function runSample(testCase, surface, index) {
   const dir = join(OUT, surface, testCase.id, `s${index}`);
   mkdirSync(dir, { recursive: true });
   const name = `te${process.pid}-${(jobSeq++).toString(36)}`;
-  const session = await openSession({ cli: CLI, name, dir, allTools: surface === "all" ? true : surface === "hybrid" ? "hybrid" : false, setup: testCase.setup ?? [], noApp: !!testCase.noApp, remote: REMOTE });
+  const session = await openSession({ cli: CLI, name, dir, allTools: surface === "all" ? true : surface === "hybrid" ? "hybrid" : false, setup: testCase.setup ?? [], noApp: !!testCase.noApp, remote: REMOTE, chief: !!testCase.chief });
   const sample = { dir, session, ops: [], shell: [], scripts: [], cliCalls: [], docsCalls: 0, text: "", steps: 0, usage: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }, firstInput: 0 };
   try {
     for (const [file, body] of Object.entries(testCase.files ?? {})) {

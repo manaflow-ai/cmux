@@ -74,7 +74,8 @@ export async function runClaudeSdk({ model, prompt, cwd, mcp, env, home, own, ef
         // The installed Claude Code: the SDK's bundled one can be older than a model requires
         // (Opus 5.5 needs 2.1.280+, the SDK bundled 2.1.81 and every run got a 400).
         pathToClaudeCodeExecutable: guardedClaude(home, own),
-        mcpServers: { cmux: { type: "stdio", ...mcp } },
+        // No `mcp` (the cli surface): the agent has only the `cmux` command in its shell.
+        mcpServers: mcp ? { cmux: { type: "stdio", ...mcp } } : {},
         effort,
         env: { ...env, CLAUDE_CONFIG_DIR: home, ...(allTools ? { ENABLE_TOOL_SEARCH: "true" } : {}) },
         stderr: () => {},
@@ -136,9 +137,11 @@ export function codexHome(home) {
 export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, own, effort, timeoutMs }) {
   codexHome(home);
   const mcpConfig = [
-    `mcp_servers.cmux.command=${tomlString(mcp.command)}`,
-    `mcp_servers.cmux.args=[${mcp.args.map(tomlString).join(",")}]`,
-    `mcp_servers.cmux.env={${Object.entries(mcp.env).map(([k, v]) => `${k}=${tomlString(v)}`).join(",")}}`,
+    ...(mcp ? [
+      `mcp_servers.cmux.command=${tomlString(mcp.command)}`,
+      `mcp_servers.cmux.args=[${mcp.args.map(tomlString).join(",")}]`,
+      `mcp_servers.cmux.env={${Object.entries(mcp.env).map(([k, v]) => `${k}=${tomlString(v)}`).join(",")}}`,
+    ] : []),
   ].flatMap((c) => ["-c", c]);
   // The sandbox matches resolved paths (/tmp is /private/tmp): the allow rule names both,
   // else Codex could not read its own CODEX_HOME in the sample dir and hung at start.
