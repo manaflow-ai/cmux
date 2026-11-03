@@ -1934,11 +1934,13 @@ function measuredRowHeight(
   if (row.kind === LANE_NOTICE_BATCH && row.laneNoticeBatch) {
     const head = finish(lineRow());
     if (!messageOpened(sessionId, row.id)) return head;
+    // An inbox batch's messages sit on its own columns, with no indent (LaneNoticeBatch.css).
+    const inner = row.laneNoticeBatch.kind === "inbox" ? width : width - 24;
     return (
       head +
       row.laneNoticeBatch.rows.reduce(
         (height, member) =>
-          height + measuredRowHeight(member, Math.max(80, width - 24), cache, false, false, sessionId) - LINE_FRAME,
+          height + measuredRowHeight(member, Math.max(80, inner), cache, false, false, sessionId) - LINE_FRAME,
         0,
       )
     );
