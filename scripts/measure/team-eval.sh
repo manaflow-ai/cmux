@@ -217,7 +217,7 @@ if [[ -d "$repo/webviews" ]]; then
     # The reference PR's tests under their own names, beside whatever the agents
     # wrote. Browser-lane tests run only with CMUX_BROWSER_TESTS=1 and the
     # engines installed, else they skip; the counts show which happened.
-    (cd "$repo/webviews" && "$BUN" x playwright install chromium webkit > "$work/out/playwright-install.log" 2>&1) || true
+    (cd "$repo/webviews" && { "$BUN" x playwright install webkit && "$repo/scripts/ci/ensure-system-chrome.sh" --optional; } > "$work/out/playwright-install.log" 2>&1) || true
     hidden_rc=0
     IFS=, read -ra files <<< "$hidden"
     names=()

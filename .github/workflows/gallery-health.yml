@@ -146,7 +146,7 @@ jobs:
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           bun install --frozen-lockfile
-          ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+          "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
           bun health.ts --manifest "$RUNNER_TEMP/manifest.json" --gallery-dir "$RUNNER_TEMP/gallery" \
             --output-dir "$RUNNER_TEMP/health" --shard-count 8 --shard-index "$SHARD"
 

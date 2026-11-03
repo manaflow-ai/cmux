@@ -75,6 +75,13 @@ extension NSWindow {
         return report.merging(motion.mapValues { $0 as Any }) { first, _ in first }
     }
 
+    /// The window's rect in global display coordinates (top-left origin), for `WindowFrame.recordAbove`: a
+    /// frame strip of what the screen shows there, the window's Chromium pages (child windows over it) too.
+    public var frameStripBounds: CGRect? {
+        guard let screen = NSScreen.screens.first else { return nil }
+        return CGRect(x: frame.minX, y: screen.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
+    }
+
     /// `host`'s rect as fractions of the window's captured image (top-left origin), for `WindowFrame.record(crop:)`.
     public func unitRect(of host: NSView) -> CGRect? {
         guard host.window === self, frame.width > 0,

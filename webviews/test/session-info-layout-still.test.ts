@@ -140,7 +140,9 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
   const toggle = (page: Page) => page.locator("button.acpmux-session-info-toggle");
   const close = async (page: Page) => {
     if ((await panel(page).count()) === 0) return;
-    await toggle(page).click({ force: true });
+    // Pressed while it shows; a pane that waits for the person (SessionInfo.tsx sessionInfoFits) has it
+    // closed already, its card leaving.
+    if ((await toggle(page).getAttribute("aria-pressed")) === "true") await toggle(page).click({ force: true });
     await panel(page).waitFor({ state: "detached", timeout: 5_000 });
   };
 

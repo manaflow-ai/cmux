@@ -10,6 +10,7 @@
 // shows the raw input: no path found is an empty list (the card says "Unknown file").
 import { cmuxTitle } from "./conversation/cmuxExec";
 import { mcpCall, mcpPlainName } from "./conversation/mcpCalls";
+import { harnessToolLabel } from "./harnessToolLabels";
 import { currentLanguage, translatorFor } from "./i18n";
 import { ROW_WIDTH, shortCommand } from "./conversation/shortCommand";
 import type { AcpmuxActivity } from "./model";
@@ -77,7 +78,8 @@ export function toolLabel(
     const action = firstWord(title || fallbackName);
     return title.includes(paths[0]!) ? title : `${action} ${fromFolder(paths[0]!, cwd)}`;
   }
-  return title || fallbackName;
+  // A harness's own tool reads as what it does ("Scheduled a wakeup"), never as "ScheduleWakeup".
+  return harnessToolLabel(translatorFor(currentLanguage()), tool, title || fallbackName) ?? (title || fallbackName);
 }
 
 /// A shell tool's own name standing in for a label: "Bash", "Shell", "Terminal", `exec_command`.

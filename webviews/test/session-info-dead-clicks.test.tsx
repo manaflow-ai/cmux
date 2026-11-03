@@ -260,7 +260,7 @@ const agent = (index: number, fields: Partial<Subagent> = {}): Subagent => ({
   id: `tray-${index}`,
   parent: null,
   name: `Lane ${index}`,
-  task: "Land one piece",
+  task: `Land piece ${index}`,
   state: "running",
   startedAt: started - (index + 1) * 60_000,
   action: "Reading SubagentTray.tsx",
@@ -311,7 +311,7 @@ test("every line of the tray, and its header, does something", async () => {
   expect(dead).toEqual([]);
   for (const handler of ["onOpen", "onOpenCommand", "onOpenSession"]) expect(calls).toContain(handler);
   // A line's Stop is in its context menu (#28533), and each one there does something too.
-  for (const name of ["Lane 0", "bun run dev"]) {
+  for (const name of ["Land piece 0", "bun run dev"]) {
     const line = [...container.querySelectorAll<HTMLElement>(".acpmux-agent-line")].find((each) =>
       each.textContent?.includes(name),
     )!;
