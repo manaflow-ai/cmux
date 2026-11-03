@@ -164,13 +164,16 @@
 .ui-glass-fisheye {
   --glass-fisheye: url(#cmux-glass-fisheye-medium);
   --glass-fisheye-tint: color-mix(in srgb, var(--glass-surface) 14%, transparent);
+  /* What runs after the bend (CSS filter functions): the frost that keeps the bent words from
+     reading through the disc, and the glass's lift. */
+  --glass-fisheye-frost: saturate(1.15);
 }
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
     :root:not([data-reduce-transparency]) .ui-glass.ui-glass-fisheye {
       /* The color alone, so a surface's own background-image (a hover wash) still draws. */
       background-color: var(--glass-fisheye-tint);
-      backdrop-filter: var(--glass-fisheye) saturate(1.15);
+      backdrop-filter: var(--glass-fisheye) var(--glass-fisheye-frost);
       box-shadow:
         inset 0.75px 1px 0.5px -0.25px var(--glass-specular),
         inset -0.75px -1px 1px -0.5px var(--glass-shade),
