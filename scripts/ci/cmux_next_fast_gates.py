@@ -202,7 +202,9 @@ def deepen(repo: Path, remote: str, wants: list[str], head: str, base: str) -> N
         if deep_enough(repo, head, base):
             return
         git(repo, "fetch", "--no-tags", "--quiet", f"--deepen={depth}", remote, *wants)
-    if not deep_enough(repo, head, base):
+    # A deepen can complete the history, and --unshallow refuses a complete repository.
+    shallow = git(repo, "rev-parse", "--is-shallow-repository").stdout.strip() == "true"
+    if shallow and not deep_enough(repo, head, base):
         git(repo, "fetch", "--no-tags", "--quiet", "--unshallow", remote, *wants)
 
 
