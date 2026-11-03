@@ -124,7 +124,8 @@ describe("hover wave model", () => {
         expect(value).toBeLessThanOrEqual(last);
         last = value;
       }
-      expect(last).toBe(0);
+      expect(last).toBeLessThan(0.001);
+      expect(zipStep(motions, undefined, 1000 + ZIP_RELEASE_MS).get(10)).toBe(0);
       // Halfway through, still an eighth of the way up (not a drop in one frame).
       expect(zipValue(motions.get(10)!, 1000 + ZIP_RELEASE_MS / 2)).toBeGreaterThan(0.1);
     });
