@@ -1593,6 +1593,7 @@ const ThinkingRow = memo(
         turnTotal={row.turnTotal}
         untimed={row.untimed}
         quietKey={row.quietKey}
+        quietAt={row.quietAt}
         below={row.below}
         command={row.doingCommand}
       />
@@ -1617,6 +1618,7 @@ const ThinkingRow = memo(
     a.row.turnTotal === b.row.turnTotal &&
     a.row.untimed === b.row.untimed &&
     a.row.quietKey === b.row.quietKey &&
+    a.row.quietAt === b.row.quietAt &&
     a.row.below === b.row.below &&
     a.row.doingCommand === b.row.doingCommand,
 );
