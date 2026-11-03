@@ -225,12 +225,17 @@ pub enum Command {
         no_steer: bool,
         /// Hand the message to this daemon and return at once, for a session here or on a
         /// peer: it prints the delivery id, and the daemon delivers it in the background,
-        /// trying again while the peer is down (`acpmux send --status ID`).
-        #[arg(long)]
+        /// trying again while the peer is down (`acpmux send --status ID`). The default for an
+        /// agent's send and for one with --class; the person's own send waits for the reply.
+        #[arg(long, conflicts_with = "wait")]
         no_wait: bool,
-        /// Print the state of a delivery `--no-wait` printed: queued, delivering, delivered or
-        /// failed.
-        #[arg(long, value_name = "ID", conflicts_with_all = ["session", "no_wait"])]
+        /// Wait for the reply and stream it, even for an agent's send or one with --class,
+        /// which otherwise return once the message is queued here. --quiet and --timeout wait too.
+        #[arg(long)]
+        wait: bool,
+        /// Print the state of a delivery a queued send printed: queued, delivering, delivered,
+        /// held or failed. With no ID, every message this daemon was handed, newest first.
+        #[arg(long, value_name = "ID", num_args = 0..=1, default_missing_value = "", conflicts_with_all = ["session", "no_wait", "wait"])]
         status: Option<String>,
         /// Do not stream; print only the final assistant text.
         #[arg(long, short)]
@@ -575,6 +580,9 @@ pub enum Command {
     DaemonStart { person_key_fd: Option<i32>, show_token: bool },
     #[command(hide = true)]
     DaemonRestart,
+    /// App sign-out: clear peer tails without starting an agent or daemon.
+    #[command(hide = true, name = "__clear-peer-snapshots")]
+    ClearPeerSnapshots,
     #[command(hide = true, alias = "kill-server")]
     Shutdown {
         /// Accepted for callers of older builds; hosted agents keep running anyway.

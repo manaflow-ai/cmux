@@ -3,8 +3,10 @@
 // composer is currently no longer usable bc it doesn't display much", on a bar that read only
 // "1 subagent running · 1 command 4s"). Folded, it reads as Claude Code's running-tasks list does:
 // the subagent's task and the command's description (its short command when it has none), the
-// newest first; with more running it names the newest two and counts the rest. Open, the lines name
-// them and the header keeps its counts.
+// newest one, then a count of the rest: one name that fits beats two cut ones (Leo, 2026-11-03, on a
+// bar whose two names were both cut). Open, the lines list them newest first, as the folded bar
+// names them ("this previews one of the latest but it doesn't show in latest it shows in oldest
+// order"), and the header keeps its counts.
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
@@ -98,15 +100,15 @@ async function head(agents: Subagent[], commands: BackgroundCommand[]) {
 }
 
 describe("the folded running bar names what runs", () => {
-  test("one subagent and one command: the subagent's task and the command's description, newest first", async () => {
+  test("one subagent and one command: the newest one's name, then a count of the other", async () => {
     const bar = await head(
       [agent("a1", "Explore how the daemon updates itself", 4_000)],
       [command("c1", "cd ~/app && bun test --watch", 2_000, "Watch the tests")],
     );
     try {
       expect(bar.button.getAttribute("aria-expanded")).toBe("false");
-      expect(bar.title()).toBe("Watch the tests · Explore how the daemon updates itself");
-      expect(bar.more()).toBe("");
+      expect(bar.title()).toBe("Watch the tests");
+      expect(bar.more()).toBe("+1 more");
       // Open, the lines name them and the header goes back to its counts.
       await act(async () => bar.button.click());
       expect(bar.title()).toBe("1 subagent running · 1 command");
@@ -121,13 +123,13 @@ describe("the folded running bar names what runs", () => {
       [command("c1", "cd ~/Projects/app && bun run dev", 1_000)],
     );
     try {
-      expect(bar.title()).toBe("bun run dev · Review the tray");
+      expect(bar.title()).toBe("bun run dev");
     } finally {
       await bar.done();
     }
   });
 
-  test("five running: the newest two by name, then a count of the rest", async () => {
+  test("five running: the newest one by name, then a count of the rest", async () => {
     const bar = await head(
       [
         agent("a1", "Review the tray", 50_000),
@@ -140,10 +142,26 @@ describe("the folded running bar names what runs", () => {
       ],
     );
     try {
-      expect(bar.title()).toBe("Lint the web · Audit the stack");
-      expect(bar.more()).toBe("+3 more");
+      expect(bar.title()).toBe("Lint the web");
+      expect(bar.more()).toBe("+4 more");
     } finally {
       await bar.done();
     }
+  });
+});
+
+describe("the open running tray lists what runs newest first", () => {
+  test("subagents, commands and their order: the newest on top, a nested subagent under its parent", () => {
+    const items = trayItems(
+      [
+        agent("old", "Review the tray", 50_000),
+        { ...agent("child", "Read the spec", 1_000), parent: "old" },
+        agent("mid", "Audit the stack", 20_000),
+      ],
+      [command("c-old", "bun run dev", 40_000), command("c-new", "bun run lint", 500)],
+      [],
+      true,
+    );
+    expect(items.map((item) => item.id)).toEqual(["c-new", "mid", "c-old", "old", "child"]);
   });
 });

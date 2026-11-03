@@ -5,12 +5,16 @@
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
 mod activity;
+// A foreground shell still running after a minute goes to the background (Claude Code).
+mod auto_background;
+pub use auto_background::AUTO_BACKGROUND_ENV;
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
 mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;
 mod agent_pairs;
+mod away_recap;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
@@ -650,6 +654,12 @@ pub struct Hub {
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
     /// Work that waits for the chat index to start (`Hub::when_chats_ready`).
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
+    /// The app's `agents.chats.sessionRecap` (`away_recap.rs`), from its last chat settings push.
+    pub(super) session_recap: AtomicBool,
+    /// When each away chat's recap is asked for, in hub clock nanos (`away_recap.rs`).
+    pub(super) recap_due: StdMutex<HashMap<String, u64>>,
+    /// Wakes the recap loop when `recap_due` changes.
+    pub(super) recap_wake: Arc<Notify>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
     /// Held by each `sessions.allowFullAccess` push through its teardown (`apply_full_access_push`).
@@ -712,6 +722,11 @@ pub struct Hub {
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// How long Ctrl-B waits for Claude Code's answer (`processes.rs`).
     pub(super) background_timeout: StdMutex<std::time::Duration>,
+    /// How long a foreground shell runs before it goes to the background, None: never
+    /// (`auto_background.rs`).
+    pub(super) auto_background_after: StdMutex<Option<std::time::Duration>>,
+    /// The `<session>/<tool call>` shells a timer of `auto_background.rs` watches.
+    pub(super) auto_background_armed: StdMutex<std::collections::HashSet<String>>,
     /// Chats agents offered the person, still open (`offers.rs`).
     pub(super) offers: offers::Offers,
     /// Which session each lane reports its turns to (`lane_reports.rs`).
@@ -894,6 +909,9 @@ impl Hub {
             vm_marker_root: StdMutex::new(PathBuf::from("/")),
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
+            session_recap: AtomicBool::new(away_recap::saved_setting()),
+            recap_due: StdMutex::new(HashMap::new()),
+            recap_wake: Arc::new(Notify::new()),
             start_mode_state,
             full_access_pushes: tokio::sync::Mutex::new(()),
             family_gate: Arc::new(tokio::sync::RwLock::new(())),
@@ -930,6 +948,8 @@ impl Hub {
             workflow_index: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
+            auto_background_after: StdMutex::new(auto_background::auto_background_from_env()),
+            auto_background_armed: Default::default(),
             offers: Default::default(),
             lane_reports: Default::default(),
             lane_report_reads: Default::default(),
@@ -972,6 +992,7 @@ impl Hub {
                 hub.watch_orphans();
             }
             hub.watch_titles();
+            hub.watch_recaps();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }
@@ -1235,6 +1256,7 @@ impl Hub {
             admit: StdMutex::new(()),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),
+            away: StdMutex::new(Default::default()),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             prepared: StdMutex::new(std::collections::VecDeque::new()),

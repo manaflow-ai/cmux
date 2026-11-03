@@ -13,6 +13,7 @@ import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { ReactionMark, ReactionReply } from "./ReactionMark";
+import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
 import { Check, ChevronRight, TerminalSquare } from "./icons";
 import { isRunning, toolDuration } from "./toolGroups";
@@ -104,6 +105,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
         </span>
         <span className="cv-command__meta">
           <ReactionMark reaction={tool.reaction} />
+          {tool.approved && <ApprovedMark />}
           {foreground ? null : tool.background ? (
             <BackgroundMark background={tool.background} />
           ) : failure ? (

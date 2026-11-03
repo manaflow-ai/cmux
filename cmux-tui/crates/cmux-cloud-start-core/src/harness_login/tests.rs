@@ -234,8 +234,126 @@ fn the_setting_wins_else_only_dogfood_builds_pass_a_login() {
     assert_eq!(decide(&d(true, None)).step, Step::Install);
     assert!(decide(&d(true, None)).gate);
     assert_eq!(decide(&d(true, Some(false))).reason, Reason::BuildGateOff);
-    assert_eq!(decide(&d(false, None)).reason, Reason::BuildGateOff);
-    assert_eq!(decide(&d(false, Some(true))).reason, Reason::BuildGateOff);
+    // Release with no remote switch read is held by the switch (release_passes_harness_login).
+    assert_eq!(decide(&d(false, None)).reason, Reason::RemoteSwitchOff);
+    assert_eq!(decide(&d(false, Some(true))).reason, Reason::RemoteSwitchOff);
+    assert_eq!(decide(&d(false, Some(false))).reason, Reason::BuildGateOff);
+}
+
+/// A Release start on the person's own machine with the switch on and consent given.
+fn release() -> Inputs {
+    Inputs { dogfood: Some(false), remote_switch: Some(true), consent: Some(true), ..owner() }
+}
+
+/// Leo, 2026-11-02, approving the copy in Release: "Consent first. It's on only after a clear
+/// one-time prompt", "Your token only: your own token, to your own machine. Never stored by us,
+/// never on team machines, never shared", and "A remote off switch".
+#[test]
+fn release_copies_only_with_the_switch_on_and_the_persons_consent() {
+    assert!(release_passes_harness_login(None, Some(true)));
+    assert!(!release_passes_harness_login(None, None));
+    assert!(!release_passes_harness_login(None, Some(false)));
+    assert!(!release_passes_harness_login(Some(false), Some(true)));
+    // Consent given: a cached login installs, and with none the consent is the confirm
+    // (the setup-token runs with no second prompt).
+    assert_eq!(decide(&cached(release())).step, Step::Install);
+    assert_eq!(
+        (decide(&release()).step, decide(&release()).reason),
+        (Step::Install, Reason::InstallChosen)
+    );
+    assert!(decide(&release()).gate);
+    // Never asked: the one-time prompt, before any copy; a run that may show no prompt refuses.
+    let unasked = Inputs { consent: None, ..cached(release()) };
+    assert_eq!(
+        (decide(&unasked).step, decide(&unasked).reason),
+        (Step::AskConsent, Reason::ConsentFirst)
+    );
+    let headless = Inputs { headless: true, ..unasked.clone() };
+    assert_eq!(decide(&headless).step, Step::Refuse);
+    // Neither a `--login pass` nor a kept pass stands in for the consent.
+    let pass =
+        Inputs { requested: Some(Choice::Pass), requested_by_person: true, ..unasked.clone() };
+    assert_eq!(decide(&pass).step, Step::AskConsent);
+    let kept = Inputs { stored: Some(Choice::Pass), ..unasked };
+    assert_eq!(decide(&kept).step, Step::AskConsent);
+    // Declined or taken back in Settings: nothing is copied and nothing is asked again.
+    let declined = Inputs { consent: Some(false), ..cached(release()) };
+    assert_eq!(
+        (decide(&declined).step, decide(&declined).reason),
+        (Step::Skip, Reason::ConsentDeclined)
+    );
+    // The switch off (or never read): no copy and no prompt, whatever the consent.
+    for remote_switch in [Some(false), None] {
+        for consent in [Some(true), None] {
+            let off = Inputs { remote_switch, consent, ..cached(release()) };
+            let decision = decide(&off);
+            assert_eq!(
+                (decision.step, decision.reason),
+                (Step::Skip, Reason::RemoteSwitchOff),
+                "{off:?}"
+            );
+            assert!(!decision.reads_machine && !decision.gate);
+        }
+    }
+}
+
+/// A pre-resolved request (`release` and `gate` sent, no `dogfood`) is held the same way: the
+/// switch and the setting are checked whatever `gate` says.
+#[test]
+fn a_pre_resolved_release_request_cannot_skip_the_switch() {
+    for (remote_switch, setting, reason) in [
+        (None, None, Reason::RemoteSwitchOff),
+        (Some(false), None, Reason::RemoteSwitchOff),
+        (Some(true), Some(false), Reason::BuildGateOff),
+    ] {
+        let d = Inputs {
+            dogfood: None,
+            release: true,
+            gate: true,
+            remote_switch,
+            setting,
+            consent: Some(true),
+            ..cached(owner())
+        };
+        let decision = decide(&d);
+        assert_eq!((decision.step, decision.reason), (Step::Skip, reason), "{d:?}");
+        assert!(!decision.gate && !decision.reads_machine);
+    }
+    let on = Inputs {
+        dogfood: None,
+        release: true,
+        gate: true,
+        remote_switch: Some(true),
+        consent: Some(true),
+        ..cached(owner())
+    };
+    assert_eq!(decide(&on).step, Step::Install);
+}
+
+#[test]
+fn release_never_copies_to_a_team_or_shared_machine() {
+    // The creator's team guest takes the login in DEV and NIGHTLY, never in Release.
+    let team = Inputs { guest_kind: Some("team".into()), ..cached(release()) };
+    let decision = decide(&team);
+    assert_eq!((decision.step, decision.reason), (Step::Skip, Reason::GuestNotOwner));
+    assert!(!decision.guest_takes_login && decision.skipped_team_machine);
+    // A machine the platform does not say the caller owns, or a guest of no known kind.
+    let teammate = Inputs { caller_owns: Some(false), ..cached(release()) };
+    assert_eq!(decide(&teammate).reason, Reason::CallerNotOwner);
+    let shared = Inputs { guest_kind: Some("shared".into()), ..cached(release()) };
+    assert_eq!(decide(&shared).reason, Reason::GuestNotOwner);
+    // A working login there stays, and the consent is never asked for it.
+    let working = Inputs { consent: None, machine_login: Some(MachineLogin::Working), ..release() };
+    assert_eq!(decide(&working).reason, Reason::MachineLoginKept);
+}
+
+#[test]
+fn the_release_record_says_consent_and_switch() {
+    let line = decide(&Inputs { consent: None, ..release() }).summary;
+    assert!(line.starts_with("ask-consent (consent-first): gate on"), "{line}");
+    assert!(line.ends_with(", release consent -, switch yes"), "{line}");
+    let line = decide(&Inputs { remote_switch: Some(false), ..release() }).summary;
+    assert!(line.starts_with("skip (remote-switch-off): gate off"), "{line}");
 }
 
 /// The chat's harness, the guest probe's output and the machine probe's output go into the one
