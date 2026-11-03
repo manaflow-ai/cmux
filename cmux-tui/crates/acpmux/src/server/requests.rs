@@ -2194,6 +2194,16 @@ async fn dispatch_request_with_identity(
             hub.lane_report_history_read(conn.caller(), &s.id, &turns);
             Ok(json!({"sessionId": s.id, "turns": turns}))
         }
+        method::MUX_SESSION_SEARCH => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let query = crate::session_search::Query::from_params(&params)
+                .map_err(RpcError::invalid_params)?;
+            // A first search of a long log reads it whole: off the runtime.
+            let hub = Arc::clone(hub);
+            tokio::task::spawn_blocking(move || hub.session_search(&s.id, &query))
+                .await
+                .map_err(|e| RpcError::internal(format!("session search stopped: {e}")))?
+        }
         m if composer::handles(m) => heap(|| composer::handle(hub, conn, m, &params)).await,
         method::MUX_TAG => {
             let s = hub.resolve(session_key(&params)?)?;
