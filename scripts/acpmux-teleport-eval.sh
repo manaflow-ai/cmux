@@ -72,6 +72,13 @@ for m in "$@"; do
   fi
   moved=$(( $(date +%s) - t0 ))
   where="$m"
+  # A machine that still has a closed copy under that name gives the chat a new one (`-1`).
+  name="$(printf '%s' "$out" | python3 -I -c '
+import json, sys
+text = sys.stdin.read()
+d = json.loads(text[text.find("{"):])
+print((d.get("moves") or [{}])[0].get("name") or sys.argv[1])
+' "$name" 2>/dev/null || printf '%s' "$name")"
   reply="$(ask "What code word did I ask you to remember? Run the command hostname too. Reply exactly: <codeword> <hostname>" 2>&1 | tail -1)"
   if [[ "$reply" == *"$word"* ]]; then pass=true; else pass=false; fi
   echo "hop $prev -> $m: moved in ${moved}s, reply: $reply, pass: $pass"
