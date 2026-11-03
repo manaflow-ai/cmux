@@ -113,6 +113,8 @@ extension AgentPaneImageCopies {
         guard model.transport.gestures.consume() else { return AgentPaneModel.replyFailure(.gestureRequired) }
         let folder = model.replyLinks.imageFolder.appendingPathComponent("Composer Copies", isDirectory: true)
         var files = await composerFiles(items, localPaths: !model.chatIsElsewhere, home: model.replyLinks.home, in: folder)
+        let copyID = UUID().uuidString
+        let html = await composerHTML(text, copyID: copyID)
         // The files were made off the main actor: a chat that turned remote meanwhile puts none of
         // this Mac's own files on the pasteboard (cx-k21v).
         if model.chatIsElsewhere { files.removeAll { $0.isLocal } }
@@ -124,11 +126,21 @@ extension AgentPaneImageCopies {
             board.append(item)
         }
         board += files.map { composerPasteboardItem($0) }
+        board[0].setString(html, forType: .html)
         guard model.replyLinks.copyItems(board) else { return AgentPaneModel.replyFailure(.openFailed) }
         // Each kept file's item and name: the page knows its own copy again by them on a paste, which
         // WebKit gives the files of with no text while the pasteboard holds file URLs.
         let written: [[String: Any]] = files.map { ["item": $0.index, "name": $0.file.lastPathComponent] }
-        return AgentPaneReply.success(["copied": files.count, "skipped": items.count - files.count, "files": written])
+        return AgentPaneReply.success(["copied": files.count, "skipped": items.count - files.count, "files": written, "copyID": copyID])
+    }
+
+    /// WebKit keeps HTML beside file URLs even when it withholds their plain text. A new screenshot
+    /// has no copy marker, so a matching file name cannot bring back an older prompt.
+    @concurrent static func composerHTML(_ text: String, copyID: String) async -> String {
+        let escaped = text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        return "<span data-cmux-composer-copy=\"\(copyID)\" style=\"white-space: pre-wrap\">\(escaped)</span>"
     }
 
     /// The pasteboard item of one attachment: as ``pasteboardItem(_:data:)``, with the TIFF made

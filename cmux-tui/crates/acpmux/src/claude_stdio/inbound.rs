@@ -697,8 +697,15 @@ impl Translator {
                 // turn. That is startup noise, not the end of our prompt; a
                 // failed result is never noise. A local slash command's result
                 // looks the same but follows its output, and ends the prompt.
+                // 2.1.305 can replay /compact after that output, clearing
+                // turn_output. Its explicit local_command still proves it ended.
+                let local_command = line
+                    .get("local_command")
+                    .and_then(Value::as_str)
+                    .is_some_and(|command| !command.is_empty());
                 let startup_noise = sub == "success"
                     && !is_error
+                    && !local_command
                     && !self.turn_output.load(Ordering::SeqCst)
                     && line.get("num_turns").and_then(Value::as_u64) == Some(0)
                     && line.get("duration_api_ms").and_then(Value::as_u64) == Some(0)

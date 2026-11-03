@@ -1,5 +1,5 @@
 /* Gallery only: the working mark's candidate looks (SpinnerLooksBoard.tsx). The shipped look is the
-   real `Spinner` (spinner.css); the conic sweep and the spokes are drawn here for comparison. */
+   real `Spinner` (spinner.css); the other gap rings, #31455's sweep and the spokes are drawn here for comparison. */
 .spinner-looks {
   display: flex;
   gap: 16px;
@@ -35,19 +35,8 @@
   display: inline-flex;
   justify-content: center;
 }
-.spinner-looks__conic {
-  display: inline-block;
-  border-radius: 50%;
-  background: conic-gradient(from 0deg, transparent 0deg, currentColor 330deg, transparent 331deg);
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
-  mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
-  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, currentColor 18%, transparent);
-}
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-status-indicators="static"]) .spinner-looks__conic {
-    animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
-  }
   :root:not([data-status-indicators="static"]) .spinner-looks__spokes {
-    animation: cmux-spin var(--cmux-spinner-period, 900ms) steps(8, end) infinite;
+    animation: cmux-spin var(--cmux-spinner-period, 1400ms) steps(8, end) infinite;
   }
 }

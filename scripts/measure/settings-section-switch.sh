@@ -17,7 +17,7 @@ cd webviews
 bun install --frozen-lockfile
 playwright_version="$(python3 -c 'import json; print(json.load(open("package.json"))["devDependencies"]["playwright"])' 2>/dev/null || echo unknown)"
 export PLAYWRIGHT_BROWSERS_PATH="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/playwright-$playwright_version"
-./node_modules/.bin/playwright install --only-shell chromium webkit
+./node_modules/.bin/playwright install webkit && ../scripts/ci/ensure-system-chrome.sh
 echo "host: $(hostname) sha: $(git rev-parse HEAD) bun: $(bun --version)"
 out="$(mktemp -d)/settings-switch.json"
 bun scripts/latency/run.ts --page settings --runs "${CMUX_SETTINGS_SWITCH_RUNS:-40}" --no-fail --json "$out"

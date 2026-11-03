@@ -12,12 +12,15 @@ export function isVisiblyEmptyText(text: string | undefined): boolean {
   return true;
 }
 
-/// Whether an agent's reply says nothing: only punctuation and white space (".", "·", "…"), the mark
-/// an agent sends to end a turn it had nothing to say in (Leo, 2026-11-02, on a column of lone "·"
-/// replies: "why do you still do these"). Only replies: a person's "?" is a message. A reply longer
-/// than a mark is read as text without a look, so a streamed token never costs more than 64 steps.
+/// Whether an agent's words say nothing: empty, blank, or only punctuation (".", "·", "…"). Claude
+/// often answers another agent's message with "." alone, which drew as a stray dot on its own line
+/// under the received line (Leo, 2026-11-02, on that capture: "these are all so stupid looking"),
+/// and ends a background turn it had nothing to say in with "·" (Leo, 2026-11-02, on a column of
+/// them: "why do you still do these"). Only an agent's words: a person's own "." or "?" is what they
+/// sent and still draws. Words longer than a mark are read as text without a look, so a streamed
+/// token never costs more than 64 steps.
 const PUNCTUATION = /\p{P}/u;
-export function isPunctuationOnlyText(text: string | undefined): boolean {
+export function isBareAgentText(text: string | undefined): boolean {
   if (text === undefined || text.length === 0) return true;
   if (text.length > 64) return false;
   for (const character of text) {
@@ -27,17 +30,35 @@ export function isPunctuationOnlyText(text: string | undefined): boolean {
   return true;
 }
 
-/// Whether a message row has no drawn content. An agent's reply of only punctuation draws nothing
-/// either (`isPunctuationOnlyText`). Attachments, incoming cards, status metadata and
-/// author chips remain visible even when their text field is empty.
+/// Whether a message row has no drawn content. Attachments, incoming cards, status metadata and
+/// author chips remain visible even when their text field is empty. An agent's reply or another
+/// agent's received message that says nothing but "." draws nothing too (`isBareAgentText`).
 export function isVisiblyEmptyMessage(row: AcpmuxRow): boolean {
   if (row.kind !== "assistant" && row.kind !== "user") return false;
   if (row.incoming?.kind === "hidden") return true;
-  if (!(row.kind === "assistant" ? isPunctuationOnlyText(row.text) : isVisiblyEmptyText(row.text))) return false;
+  if (
+    row.kind === "user" &&
+    row.incoming?.kind === "message" &&
+    !row.incoming.message.fromPerson &&
+    isBareAgentText(row.incoming.message.text)
+  )
+    return (
+      !row.images?.length &&
+      !row.failed &&
+      !row.delivery &&
+      !row.pending &&
+      !row.queued &&
+      !row.queuedMessage &&
+      !row.retryable &&
+      !row.error &&
+      !row.pasted?.length &&
+      !row.retryAttachments?.length
+    );
+  if (!(row.kind === "assistant" ? isBareAgentText(row.text) : isVisiblyEmptyText(row.text))) return false;
   const inlineVisible = row.inlineParts?.some(
     (part) =>
       part.kind !== "text" ||
-      !(row.kind === "assistant" ? isPunctuationOnlyText : isVisiblyEmptyText)("text" in part ? part.text : undefined),
+      !(row.kind === "assistant" ? isBareAgentText : isVisiblyEmptyText)("text" in part ? part.text : undefined),
   );
   return (
     // Empty prompts can still carry recovery or delivery affordances. Keep the row so

@@ -9,7 +9,7 @@ import { BackgroundTurnLine } from "./BackgroundTurnLine";
 import { backgroundRunRowId, foldBackgroundRuns } from "./backgroundRuns";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
 import { hiddenRowFolds, turnView } from "./turns";
-import { isPunctuationOnlyText, isVisiblyEmptyMessage } from "./visibleMessage";
+import { isBareAgentText, isVisiblyEmptyMessage } from "./visibleMessage";
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -21,7 +21,7 @@ const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRo
 });
 const line = (id: string, background: Partial<NonNullable<AcpmuxRow["background"]>> = {}) =>
   row(backgroundTurnRowId(id), BACKGROUND_TURN, {
-    background: { id, trigger: "task_notification", running: false, quiet: true, ...background },
+    background: { id, trigger: "task_notification", running: false, quiet: true, hasRows: true, ...background },
   });
 const note = (id: string, state: "completed" | "failed" | "stopped") =>
   row(id, "backgroundTask", { backgroundTask: { toolCallId: id, command: "cargo test", state } });
@@ -37,8 +37,8 @@ const prompt = () => {
 };
 
 test("a reply of only punctuation draws no row; a person's does", () => {
-  for (const text of [".", "·", "…", " . ", "—", "...", ""]) expect(isPunctuationOnlyText(text)).toBe(true);
-  for (const text of ["ok", "1", ". done", "👍"]) expect(isPunctuationOnlyText(text)).toBe(false);
+  for (const text of [".", "·", "…", " . ", "—", "...", ""]) expect(isBareAgentText(text)).toBe(true);
+  for (const text of ["ok", "1", ". done", "👍"]) expect(isBareAgentText(text)).toBe(false);
   expect(isVisiblyEmptyMessage(dot("a"))).toBe(true);
   expect(isVisiblyEmptyMessage(row("q", "user", { text: "?" }))).toBe(false);
   expect(isVisiblyEmptyMessage(row("r", "assistant", { text: "Done." }))).toBe(false);

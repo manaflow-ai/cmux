@@ -11,10 +11,18 @@ import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
 const quiet = (id: string, minutes: number): AcpmuxRow =>
   row(BACKGROUND_TURN, minutes, {
     id: backgroundTurnRowId(id),
-    background: { id, trigger: "task_notification", running: false, quiet: true },
+    background: { id, trigger: "task_notification", running: false, quiet: true, hasRows: true },
   });
-/// The lone "·" an agent sends to end a turn it had nothing to say in; it draws nothing.
-const dot = (id: string, minutes: number) => assistant("·", minutes - 0.05, { id: `${id}-dot`, inBackground: id });
+/// What the agent did in a quiet background turn: read the task's log, then the lone "·" an agent
+/// sends to end a turn it had nothing to say in, which draws nothing.
+const dot = (id: string, minutes: number) => [
+  activity(
+    [tool("tail -n 3 suite.log", "execute", "completed", { command: "tail -n 3 suite.log", output: "14 passed" })],
+    minutes - 0.03,
+    { id: `${id}-work`, inBackground: id },
+  ),
+  assistant("·", minutes - 0.05, { id: `${id}-dot`, inBackground: id }),
+];
 const opening = [
   user("Run the four suites in the background and tell me if anything breaks", 12),
   assistant("Started all four suites in the background.", 11.9),
@@ -25,13 +33,13 @@ const opening = [
 const fourFinished = [
   ...opening,
   quiet("gallery-run-a", 10),
-  dot("gallery-run-a", 10),
+  ...dot("gallery-run-a", 10),
   quiet("gallery-run-b", 9),
-  dot("gallery-run-b", 9),
+  ...dot("gallery-run-b", 9),
   quiet("gallery-run-c", 8),
-  dot("gallery-run-c", 8),
+  ...dot("gallery-run-c", 8),
   quiet("gallery-run-d", 7),
-  dot("gallery-run-d", 7),
+  ...dot("gallery-run-d", 7),
 ];
 const RUN = backgroundRunRowId(backgroundTurnRowId("gallery-run-a"));
 
@@ -39,24 +47,24 @@ const RUN = backgroundRunRowId(backgroundTurnRowId("gallery-run-a"));
 const mixed = [
   ...opening,
   quiet("gallery-mix-a", 10),
-  dot("gallery-mix-a", 10),
+  ...dot("gallery-mix-a", 10),
   row("backgroundTask", 9, {
     id: "gallery-mix-stopped",
     backgroundTask: { toolCallId: "gallery-mix-stopped", command: "Wait for rust tests", state: "stopped" },
   }),
   quiet("gallery-mix-b", 8),
-  dot("gallery-mix-b", 8),
+  ...dot("gallery-mix-b", 8),
   quiet("gallery-mix-c", 7),
-  dot("gallery-mix-c", 7),
+  ...dot("gallery-mix-c", 7),
 ];
 
 /// Two quiet lines, a task the agent answered with something to say, then two more.
 const withReply = [
   ...opening,
   quiet("gallery-reply-a", 10),
-  dot("gallery-reply-a", 10),
+  ...dot("gallery-reply-a", 10),
   quiet("gallery-reply-b", 9),
-  dot("gallery-reply-b", 9),
+  ...dot("gallery-reply-b", 9),
   row(BACKGROUND_TURN, 8, {
     id: backgroundTurnRowId("gallery-reply-loud"),
     background: { id: "gallery-reply-loud", trigger: "task_notification", running: false, quiet: false },
@@ -70,9 +78,9 @@ const withReply = [
     inBackground: "gallery-reply-loud",
   }),
   quiet("gallery-reply-c", 6),
-  dot("gallery-reply-c", 6),
+  ...dot("gallery-reply-c", 6),
   quiet("gallery-reply-d", 5),
-  dot("gallery-reply-d", 5),
+  ...dot("gallery-reply-d", 5),
 ];
 
 export default agentPaneEntry({
@@ -86,7 +94,7 @@ export default agentPaneEntry({
   ],
   variants: {
     closed: {
-      note: "Leo's chat: four background tasks finished in a row, each answered with a lone dot. One muted line, 4 background tasks finished, closed; no dot draws.",
+      note: "Four background tasks finished in a row; the agent read each one's log and answered with a lone dot. One muted line, 4 background tasks finished, closed; no dot draws. (A turn whose only reply is the dot has nothing to open and draws no line at all.)",
       snapshot: chat(fourFinished),
     },
     open: {
@@ -113,8 +121,8 @@ export default agentPaneEntry({
       snapshot: chat(withReply),
     },
     "single-line": {
-      note: "One quiet line alone stays as it was (no run of one); its lone dot no longer draws a row of its own.",
-      snapshot: chat([...opening, quiet("gallery-one", 10), dot("gallery-one", 10)]),
+      note: "One quiet line alone stays as it was (no run of one); opened, its lone dot draws no row of its own.",
+      snapshot: chat([...opening, quiet("gallery-one", 10), ...dot("gallery-one", 10)]),
     },
   },
 });

@@ -62,12 +62,42 @@ export function subsessionDisplayName(t: Translate, session: Pick<SubsessionInfo
 /// 01a15779-…/toolu_01H9…": "this needs to be rendered better"). A raw id is Claude's
 /// `<session>/<tool call>` or Codex's bare thread UUID; a name equal to any other id is a real
 /// name a record gave it, so it stays.
-export function subagentDisplayName(t: Translate, agent: { id: string; name: string }): string {
-  const rawId = agent.id.includes("/") || /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(agent.id);
-  return (agent.name === agent.id && rawId) || /(?:^|\/)toolu_[0-9A-Za-z]+$/u.test(agent.name)
-    ? t("tray.kind.subagent")
-    : agent.name;
+export function subagentDisplayName(
+  t: Translate,
+  agent: { id: string; name: string; task?: string; kind?: string; prompt?: string },
+): string {
+  return namedBy(agent, agent.name) ?? fallbackName(agent) ?? t("tray.kind.subagent");
 }
+
+/// A subagent's label on the running tray's line: what it was asked to do (Claude's Agent
+/// `description`, a workflow's summary), as Claude Code's and ChatGPT's task rows name a task; else
+/// its name; "Subagent" only when nothing names it (Leo, 2026-11-02, on a done line that read just
+/// "Subagent": "this running thing now looks mildly awkward"). Its name stays in the tooltip.
+export function subagentTaskLabel(
+  t: Translate,
+  agent: { id: string; name: string; task?: string; kind?: string; prompt?: string },
+): string {
+  return namedBy(agent, firstLine(agent.task)) ?? subagentDisplayName(t, agent);
+}
+
+/// `text` when it names the subagent: not empty and not one of its raw ids.
+function namedBy(agent: { id: string; name: string }, text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  const rawId = agent.id.includes("/") || /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(agent.id);
+  return (text === agent.id && rawId) || /(?:^|\/)toolu_[0-9A-Za-z]+$/u.test(text) ? undefined : text;
+}
+
+/// What still names a subagent its record left unnamed: its task, the first line of what it was
+/// asked, then its kind (Explore, general-purpose).
+function fallbackName(agent: { id: string; name: string; task?: string; kind?: string; prompt?: string }) {
+  return namedBy(agent, firstLine(agent.task)) ?? namedBy(agent, firstLine(agent.prompt)) ?? namedBy(agent, agent.kind);
+}
+
+const firstLine = (text: string | undefined) =>
+  text
+    ?.split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
 
 /// What a sub-session waiting on the person waits for, in one line: a question (and its first
 /// prompt, which the line cuts when there is no room) or a tool's permission. Only the person

@@ -208,7 +208,7 @@ fn text_filter<'a>(params: &'a Value, name: &str) -> Result<Option<&'a str>, Rpc
     }
 }
 
-fn bool_filter(params: &Value, name: &str) -> Result<bool, RpcError> {
+pub(crate) fn bool_filter(params: &Value, name: &str) -> Result<bool, RpcError> {
     match params.get(name) {
         None | Some(Value::Null) => Ok(false),
         Some(Value::Bool(value)) => Ok(*value),
@@ -233,8 +233,8 @@ fn status_filter<'a>(params: &'a Value, name: &str) -> Result<Vec<&'a str>, RpcE
 
 /// `_acpmux/watch` refuses `peer` and `status`: its events cover every session.
 pub(crate) fn refuse_watch_filters(params: &Value) -> Result<(), RpcError> {
-    for name in ["peer", "status", "localOnly", "excludeStatus", "orderBy"] {
-        if name == "localOnly" {
+    for name in ["peer", "status", "localOnly", "pendingOnly", "excludeStatus", "orderBy"] {
+        if name == "localOnly" || name == "pendingOnly" {
             if bool_filter(params, name)? {
                 return Err(RpcError::invalid_params(format!(
                     "{name} filters _acpmux/sessions only: a watch streams every session"

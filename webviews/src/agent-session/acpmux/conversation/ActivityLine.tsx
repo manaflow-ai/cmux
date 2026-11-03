@@ -29,6 +29,8 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
         after={after}
         meta={<span className="cv-command__meta">{formatDuration(Math.max(0, time - row.at))}</span>}
         className="cv-activity-row"
+        // It opens nothing, so it draws no chevron (a row shows one only with something to show).
+        chevron={false}
         ariaLabel={t("send.sending", { target: sendName })}
       />
     );
