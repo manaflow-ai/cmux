@@ -477,11 +477,17 @@ if ! grep -Fq 'description: Build one arm64 dogfood DMG without Intel or Sparkle
   exit 1
 fi
 
-# cmux-next ships no Cloud tunnel system extension. It does ship the Computer
-# Use helper (D19; tests/test_nightly_next_computer_use_helper.py). The
-# Chromium engine artifact is arm64 only, so an x86_64 variant drops it before
-# thinning.
-if grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension' "$WORKFLOW_FILE"; then
+# cmux-next ships no legacy Cloud tunnel system extension. The opt-in Cloud
+# Tunnel (plans/cmux-next/cloud-tunnel-DESIGN.md) is handled only by its own
+# "Prepare the Cloud Tunnel extension" step, which signs or removes it, so that
+# step is left out of this check. It does ship the Computer Use helper (D19;
+# tests/test_nightly_next_computer_use_helper.py). The Chromium engine artifact
+# is arm64 only, so an x86_64 variant drops it before thinning.
+if awk '
+  /^      - name: Prepare the Cloud Tunnel extension$/ { skip=1; next }
+  skip && /^      - name:/ { skip=0 }
+  !skip
+' "$WORKFLOW_FILE" | grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension'; then
   echo "FAIL: nightly still handles the legacy tunnel extension"
   exit 1
 fi
