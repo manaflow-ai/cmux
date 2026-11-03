@@ -132,18 +132,12 @@ struct NotificationPopoverRow: View, Equatable {
                     Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
                         .cmuxFont(size: 10.5)
                         .foregroundColor(.secondary)
-                        .anchorPreference(key: NotificationPopoverRowFrames.self, value: .bounds) {
-                            [NotificationPopoverRowFrames.timestamp: $0]
-                        }
                         // Room for the hover clear button, which the hint replaces.
                         .padding(.trailing, shortcutHint == nil ? 34 : 0)
                         .layoutPriority(2)
                     // In the header, after the time, so it can never cover it.
                     if let shortcutHint {
                         ShortcutHintPill(text: shortcutHint, fontSize: 10, emphasis: 1.05)
-                            .anchorPreference(key: NotificationPopoverRowFrames.self, value: .bounds) {
-                                [NotificationPopoverRowFrames.shortcutHint: $0]
-                            }
                             .padding(.trailing, 10)
                             .shortcutHintTransition()
                             // Decorative: a click on the hint must reach the row's Button underneath.
@@ -187,17 +181,5 @@ struct NotificationPopoverRow: View, Equatable {
             .frame(width: 20, height: 20)
         }
         .buttonStyle(.plain)
-    }
-}
-
-/// Where a row drew its timestamp and shortcut hint, for layout tests.
-struct NotificationPopoverRowFrames: PreferenceKey {
-    static let timestamp = "timestamp"
-    static let shortcutHint = "shortcutHint"
-
-    static var defaultValue: [String: Anchor<CGRect>] { [:] }
-
-    static func reduce(value: inout [String: Anchor<CGRect>], nextValue: () -> [String: Anchor<CGRect>]) {
-        value.merge(nextValue()) { _, next in next }
     }
 }

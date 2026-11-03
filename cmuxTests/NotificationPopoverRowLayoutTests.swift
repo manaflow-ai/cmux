@@ -11,25 +11,56 @@ import Testing
 @testable import cmux
 #endif
 
-/// Where a notifications-popover row draws its Cmd-hold shortcut hint.
+/// Where a notifications-popover row draws its Cmd-hold shortcut hint, read from rendered pixels.
 @MainActor
 @Suite("Notification popover row layout", .serialized)
 struct NotificationPopoverRowLayoutTests {
     /// The popover's narrowest width.
     private static let rowWidth: CGFloat = 320
+    private static let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
 
-    @Test("the shortcut hint never covers the timestamp", arguments: ["⌘3", "⇧⌘3", "⌃⌥⇧⌘9"])
-    func hintClearsTheTimestamp(hint: String) throws {
-        let frames = RowFrames()
+    /// The time is found as the pixels that change when only the time changes. The pill is found
+    /// from its digit, the pixels that change when only the digit changes (the pill sets digits
+    /// monospaced, so its size does not change): the same digit drawn in a pill on its own gives
+    /// the digit's offset inside the pill, and so where the pill starts in the row.
+    @Test("the shortcut hint never covers the timestamp", arguments: ["⌘", "⇧⌘", "⌃⌥⇧⌘"])
+    func hintClearsTheTimestamp(prefix: String) throws {
+        let base = try Self.renderRow(createdAt: Self.createdAt, hint: prefix + "3")
+        let laterTime = try Self.renderRow(createdAt: Self.createdAt + 7 * 3_600 + 37 * 60, hint: prefix + "3")
+        let otherDigit = try Self.renderRow(createdAt: Self.createdAt, hint: prefix + "8")
+        let time = try #require(Self.differenceBounds(base.bitmap, laterTime.bitmap), "the time drew nothing")
+        let digitInRow = try #require(Self.differenceBounds(base.bitmap, otherDigit.bitmap), "the hint drew nothing")
+
+        let pill = try Self.renderPill(prefix + "3")
+        let pillOther = try Self.renderPill(prefix + "8")
+        let digitInPill = try #require(Self.differenceBounds(pill.bitmap, pillOther.bitmap), "the pill drew nothing")
+
+        let scale = base.scale
+        let pillStart = (digitInRow.minX - digitInPill.minX * scale / pill.scale) / scale
+        let pillEnd = pillStart + pill.width
+        let timeEnd = time.maxX / scale
+        #expect(timeEnd <= pillStart, "\(prefix)3: the time ends at \(timeEnd), past the hint's start at \(pillStart)")
+        #expect(pillEnd <= Self.rowWidth, "\(prefix)3: the hint ends at \(pillEnd), past the row")
+    }
+
+    private struct Rendered {
+        let bitmap: NSBitmapImageRep
+        /// Pixels per point.
+        let scale: CGFloat
+        /// The view's width in points.
+        let width: CGFloat
+    }
+
+    private static func renderRow(createdAt: Date, hint: String) throws -> Rendered {
         let row = NotificationPopoverRow(
             notification: TerminalNotification(
-                id: UUID(),
-                tabId: UUID(),
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+                tabId: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
                 surfaceId: nil,
                 title: "Agent finished",
                 subtitle: "",
                 body: "",
-                createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                createdAt: createdAt,
                 isRead: false
             ),
             workspaceTitle: "main",
@@ -38,22 +69,23 @@ struct NotificationPopoverRowLayoutTests {
             onClear: {},
             onToggleRead: {}
         )
-        let window = Self.layOut(RowFrameRecorder(content: row, frames: frames))
-        defer { window.close() }
-
-        let timestamp = try #require(frames.frames[NotificationPopoverRowFrames.timestamp], "no timestamp")
-        let pill = try #require(frames.frames[NotificationPopoverRowFrames.shortcutHint], "no hint")
-        #expect(!pill.intersects(timestamp), "\(hint): hint \(pill) covers timestamp \(timestamp)")
-        #expect(pill.maxX <= Self.rowWidth, "\(hint): hint \(pill) runs past the row")
+        return try render(row.frame(width: rowWidth), width: rowWidth)
     }
 
-    /// Lays the view out at the popover's width in a window that is never shown.
-    private static func layOut<V: View>(_ view: V) -> NSWindow {
+    private static func renderPill(_ text: String) throws -> Rendered {
+        let pill = ShortcutHintPill(text: text, fontSize: 10, emphasis: 1.05)
+        let width = NSHostingView(rootView: pill).fittingSize.width
+        return try render(pill.frame(width: width), width: width)
+    }
+
+    /// Draws `view` at `width` in a window that is never shown.
+    private static func render<V: View>(_ view: V, width: CGFloat) throws -> Rendered {
         _ = NSApplication.shared
-        let host = NSHostingView(rootView: view.frame(width: rowWidth))
-        let size = NSSize(width: rowWidth, height: max(host.fittingSize.height, 1))
+        let host = NSHostingView(rootView: view)
+        let size = NSSize(width: width, height: max(host.fittingSize.height, 1))
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentView = host
         host.frame = NSRect(origin: .zero, size: size)
         for _ in 0..<30 {
@@ -61,29 +93,28 @@ struct NotificationPopoverRowLayoutTests {
             host.displayIfNeeded()
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
         }
-        return window
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        return Rendered(bitmap: bitmap, scale: CGFloat(bitmap.pixelsWide) / width, width: width)
     }
-}
 
-@MainActor
-private final class RowFrames {
-    var frames: [String: CGRect] = [:]
-
-    func record(_ frames: [String: CGRect]) {
-        self.frames = frames
-    }
-}
-
-private struct RowFrameRecorder<Content: View>: View {
-    let content: Content
-    let frames: RowFrames
-
-    var body: some View {
-        content.overlayPreferenceValue(NotificationPopoverRowFrames.self) { anchors in
-            GeometryReader { proxy in
-                let _ = frames.record(anchors.mapValues { proxy[$0] })
-                Color.clear
+    /// The pixel rectangle where two renderings of the same size differ, or nil where they match.
+    private static func differenceBounds(_ lhs: NSBitmapImageRep, _ rhs: NSBitmapImageRep) -> CGRect? {
+        guard lhs.pixelsWide == rhs.pixelsWide, lhs.pixelsHigh == rhs.pixelsHigh else { return nil }
+        var bounds: CGRect?
+        for y in 0..<lhs.pixelsHigh {
+            for x in 0..<lhs.pixelsWide {
+                guard let a = lhs.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                      let b = rhs.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                let delta = abs(a.redComponent - b.redComponent)
+                    + abs(a.greenComponent - b.greenComponent)
+                    + abs(a.blueComponent - b.blueComponent)
+                    + abs(a.alphaComponent - b.alphaComponent)
+                guard delta > 0.18 else { continue }
+                let point = CGRect(x: x, y: y, width: 1, height: 1)
+                bounds = bounds.map { $0.union(point) } ?? point
             }
         }
+        return bounds
     }
 }
