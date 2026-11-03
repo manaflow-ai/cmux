@@ -9,7 +9,7 @@ import Testing
 /// Sleepy Mode's scene costs the main thread nothing per frame (every-action sweep, m27
 /// other-main-work: `SleepySceneView.drawSky` held main 20-38 ms per frame, ten frames a
 /// second, while the scene showed and agents kept working). The sky's loops run in the render
-/// server; the main thread only updates the clock once a second.
+/// server; the main thread updates the clock once a minute and the agent count on changes.
 @MainActor @Suite(.serialized, .closesItsWindows) struct SleepySceneCostTests {
     @Observable @MainActor private final class AgentCount {
         var working = 0
