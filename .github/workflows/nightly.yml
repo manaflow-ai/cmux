@@ -3446,9 +3446,9 @@ jobs:
     # routing environment, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
     environment: ci-routing-agent
     # Room for every step budget in turn (the read token mint 1, the Blacksmith pick 2, then the owned pick's token
-    # mints 1 + 1, the verify picker 2 and the signing picker 2) plus checkout, so the job is never
+    # mints 1 + 1, the verify picker 2, the signing picker 2 and the overtaken check 1) plus checkout, so the job is never
     # cut off before its outputs; the Blacksmith pick runs before the owned steps so `runner` is set first.
-    timeout-minutes: 15
+    timeout-minutes: 16
     permissions:
       # The queue janitor's pool snapshot (an artifact).
       actions: read
@@ -3476,6 +3476,8 @@ jobs:
       # The shared pool label from sign_owned. Publication controls use this pool route so they never pin one runner.
       sign_owned_pool: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.sign-owned.outputs.owned_pool || '' }}
       attempt: ${{ github.run_attempt }}
+      # A newer run's build is already on the feed: signer-app and build-sign-notarize-nightly skip.
+      overtaken: ${{ steps.overtaken.outputs.overtaken }}
     steps:
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -3602,6 +3604,16 @@ jobs:
 
       - *upload-the-owned-pool-watch-ma
 
+      - name: Leave notarization to a newer published build
+        id: overtaken
+        if: github.event_name == 'push' && github.ref == 'refs/heads/nightly-next'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: bash .publish-tooling/scripts/ci/nightly-steps/sign-pick-overtaken.sh
+
   build-sign-notarize-nightly:
     # Production secrets: GitHub releases them only to protected refs (the
     # environment's deployment branch policy: main, tags v*). The nightly-next
@@ -3610,7 +3622,7 @@ jobs:
     # The fallback for the release-pool signer jobs: runs unless signer-dmg
     # passed, so a failed, skipped or not-opted-in pool run signs here as before.
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, pick-nightly-sign-runner, signer-dmg]
-    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.pick-nightly-sign-runner.result == 'success' && needs.signer-dmg.result != 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'"
+    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.pick-nightly-sign-runner.result == 'success' && needs.signer-dmg.result != 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.pick-nightly-sign-runner.outputs.overtaken != 'true'"
     outputs:
       # nightly-next is arm64 only, so its one matrix leg sets this; publish
       # waits for a later run when Apple had not accepted the build in time.
@@ -4801,7 +4813,7 @@ jobs:
   signer-app:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, signer-build, pick-nightly-sign-runner]
-    if: needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'
+    if: needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.pick-nightly-sign-runner.outputs.overtaken != 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 75
     permissions:
