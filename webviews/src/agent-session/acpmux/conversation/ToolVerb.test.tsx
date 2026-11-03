@@ -183,12 +183,12 @@ test("a group's line reads as words: its count is never pushed out to the verb c
   expect(container.querySelectorAll(".cv-command .cv-tool__verb")).toHaveLength(2);
 });
 
-test("an MCP call's verb joins the column; its plain name on a lone row stays whole", async () => {
+test("an MCP call's verb joins the column, on a group's line and on a lone row alike", async () => {
   const mcp = () => call("mcp__hub__frobnicate", "other", { inputSummary: JSON.stringify({}) });
   const container = await render(<ColumnRows row={turn([mcp(), thought("Then."), call("Read App.tsx", "read")])} />);
   const verbs = [...container.querySelectorAll(".cv-tool__verb")].map((verb) => verb.textContent);
-  expect(verbs).toEqual(["Called", "Read"]);
-  // A row that draws the call's plain name ("Hub · frobnicate") leads with its server: no verb.
+  expect(verbs).toEqual(["Used", "Read"]);
+  // A lone row reads as Claude Code words it, "Used hub: frobnicate", its verb in the column.
   await act(async () =>
     root!.render(
       <ToolVerbColumn className="cv-tools">
@@ -197,8 +197,8 @@ test("an MCP call's verb joins the column; its plain name on a lone row stays wh
     ),
   );
   const lone = container;
-  expect(lone.querySelector(".cv-tool__text")!.textContent).toContain(" · ");
-  expect(lone.querySelector(".cv-tool__verb")).toBeNull();
+  expect(lone.querySelector(".cv-tool__text")!.textContent).toBe("Used hub: frobnicate");
+  expect(lone.querySelector(".cv-tool__verb")?.textContent).toBe("Used");
 });
 
 test("a call that finishes moves its row from Running to Ran in the column", async () => {

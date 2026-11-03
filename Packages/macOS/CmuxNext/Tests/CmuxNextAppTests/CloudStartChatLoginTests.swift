@@ -30,7 +30,9 @@ struct CloudStartChatLoginTests {
         defaults.set(false, forKey: "cmux.cloud.passHarnessLogin")
         #expect(!CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: true, defaults: defaults))
         defaults.set(true, forKey: "cmux.cloud.passHarnessLogin")
-        #expect(CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: false, defaults: defaults))
+        #expect(CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: true, defaults: defaults))
+        // Release never passes a login, whatever the default says.
+        #expect(!CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: false, defaults: defaults))
     }
 
     /// The decision's rules and their cases are Rust's (cmux-cloud-start-core `harness_login`); this
