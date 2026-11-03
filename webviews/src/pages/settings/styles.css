@@ -2128,3 +2128,38 @@ button.menu-disclosure {
 .number-list .token-input {
   font-variant-numeric: tabular-nums;
 }
+
+/* Updates > App Update: the download's bar under its status row, and Restart to Update filled. */
+.app-update-progress-row {
+  padding: 0 8px 8px;
+}
+
+.app-update-progress {
+  display: block;
+  width: 100%;
+  block-size: 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 2px;
+  appearance: none;
+  background: var(--input-bg);
+}
+
+.app-update-progress::-webkit-progress-bar {
+  background: transparent;
+}
+
+.app-update-progress::-webkit-progress-value {
+  border-radius: 2px;
+  background: var(--text);
+}
+
+.app-update-progress::-moz-progress-bar {
+  border-radius: 2px;
+  background: var(--text);
+}
+
+.button.app-update-prominent {
+  border-color: transparent;
+  background: var(--accent-soft);
+}

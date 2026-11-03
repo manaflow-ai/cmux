@@ -21,6 +21,12 @@
   takes `RowBadgeView.spinnerSide` (`SidebarStyle.statusGlyphSize`: 10 pt compact, 12 comfortable) on the same cell
   center; the red warning and needs-you marks keep 14 pt. Regression: `RowBadgeSpinnerDensityTests` (every density and
   minimal mode), `RowBadgeMarkSizeTests.theSpinnerIsSmallerThanTheWarning`.
+- 2026-11-03: a download shows no sidebar card; the staged update is the one Restart to Update card. Leo, verbatim, on
+  the Downloading Update card: "also idk chatgpt's seems to be just like a one step "ok it's already downloaded you click
+  this button to accept the button and restart" idk if we wanna follow that too". `UpdateFlow.card` returns nil while
+  downloading, asked for or not; the progress, its Cancel and a failure's Try Again moved to Settings > Updates' App
+  Update card (`UpdaterService.settingsStatus`, `AppUpdatePageProvider`). The ready card itself is unchanged.
+  Regression: `UpdateOneStepTests`.
 - 2026-11-03: the update and notice cards take the theme. Leo, verbatim, on the Downloading Update card: "will this
   be themeed properly?". The download bar was the fixed secondary-text gray (`Palette.textSecondary`) and the Update
   Ready and notice cards' veil the neutral gray; the bar is now the theme's accent (`Palette.accentFill`, the primary
