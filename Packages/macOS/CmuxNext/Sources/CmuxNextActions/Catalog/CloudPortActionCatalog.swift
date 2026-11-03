@@ -17,8 +17,9 @@ nonisolated enum CloudPortActionCatalog: ActionCatalogGroup {
                     optionalPort,
                     ActionArgument(name: "audience", title: String(localized: "argument.value", defaultValue: "Value", bundle: .module), kind: .string, isRequired: false),
                     ActionArgument(name: "user_id", title: String(localized: "argument.value", defaultValue: "Value", bundle: .module), kind: .string, isRequired: false),
-                ], targets: [.machine], cliName: "cloud preview",
-                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .duplicateOfDefault)
+                ], targets: [.machine],
+                // Rust owns cloud preview's subcommands; action.run is its Mac adapter.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .duplicateOfDefault)
             ),
             ActionDescriptor(
                 id: "cloudOpenBrowser",
