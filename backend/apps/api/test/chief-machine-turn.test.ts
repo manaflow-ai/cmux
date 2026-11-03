@@ -93,6 +93,42 @@ describe("default Chief machine turn", () => {
     expect(f.ports.events).not.toHaveBeenCalled()
   })
 
+  it("keeps an accepted original request pending when its first turn proves signed out", async () => {
+    for (const error_kind of ["auth.signed_out", "auth.expired"] as const) {
+      const f = fixture()
+      f.ports.auth = vi.fn(async () => "unknown" as const)
+      f.ports.events = vi.fn(async () => ({ ok: true as const, value: { events: [{ seq: 46, session: "machine-session", at: 1, event: { kind: "error" as const, code: -32603, error_kind } }], last_seq: 46, head_seq: 46 } }))
+      expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "claude", "build me original X", "scoped-run", 1000)).toEqual({ pending: "auth" })
+      expect(f.state()).toMatchObject({ phase: "waiting_auth", operation: "scoped-run", session: "machine-session", after: 46, authRetrySafe: true })
+      expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "claude", "build me original X", "scoped-run", 1000)).toEqual({ pending: "auth" })
+      expect(f.ports.start).toHaveBeenCalledOnce()
+      expect(f.ports.events).toHaveBeenCalledOnce()
+      expect(f.ports.stop).toHaveBeenCalledWith("machine-session")
+    }
+  })
+
+  it("never replays partial work, legacy uncertain work or generic errors as a sign-in retry", async () => {
+    const prior: Array<MachineState | null> = [
+      null,
+      { phase: "running", operation: "scoped-run", hand: "hand_a", cwd: "/home/cmux/proj", session: "machine-session", after: 1, text: "" },
+      { phase: "running", operation: "scoped-run", hand: "hand_a", cwd: "/home/cmux/proj", session: "machine-session", after: 1, text: "", authRetrySafe: false },
+    ]
+    for (const initial of prior) {
+      const f = fixture(initial)
+      f.ports.events = vi.fn(async () => ({ ok: true as const, value: { events: [{ seq: 2, session: "machine-session", at: 2, event: { kind: "error" as const, error_kind: initial ? "auth.expired" as const : undefined, message: "Not logged in" } }], last_seq: 2, head_seq: 2 } }))
+      expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "claude", "build me X", "scoped-run", 1000)).toEqual({ ok: false, reason: "chief.machine.agent_error" })
+      expect(f.state()?.phase).toBe("failed")
+    }
+    for (const activity of [{ kind: "text" as const, text: "Starting the build" }, { kind: "tool" as const, update: false, id: "write" }]) {
+      const f = fixture()
+      f.ports.events = vi.fn<MachineAgentPorts["events"]>().mockResolvedValueOnce({ ok: true, value: { events: [{ seq: 1, session: "machine-session", at: 1, event: activity }], last_seq: 1, head_seq: 2 } }).mockRejectedValueOnce(new Error("connection lost"))
+      expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "claude", "build me X", "scoped-run", 1000)).toEqual({ pending: "provisioning" })
+      expect(f.state()?.authRetrySafe).toBe(false)
+      f.ports.events = vi.fn(async () => ({ ok: true as const, value: { events: [{ seq: 2, session: "machine-session", at: 2, event: { kind: "error" as const, error_kind: "auth.expired" as const } }], last_seq: 2, head_seq: 2 } }))
+      expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "claude", "build me X", "scoped-run", 1000)).toEqual({ ok: false, reason: "chief.machine.agent_error" })
+    }
+  })
+
   it("reconciles the same durable operation when a start response was lost", async () => {
     const f = fixture()
     const start = vi.fn<MachineAgentPorts["start"]>().mockRejectedValueOnce(new Error("connection lost after dispatch")).mockResolvedValue({ ok: true, value: { session: "machine-session" } })
@@ -311,9 +347,36 @@ describe("default machine sign-in recovery", () => {
       expect(f.calls).toEqual(["_acpmux/session/auth", "_acpmux/agent_login/finish", "_acpmux/session/auth"])
       expect(f.timeouts.every((timeout) => timeout <= 300_000)).toBe(true)
       expect(f.kick).toHaveBeenCalledOnce()
-      expect(readMachineState(b.sql, f.run)).toBeNull()
+      expect(readMachineState(b.sql, f.run)).toMatchObject({ phase: "dispatching", attempt: 1, after: 0, authRetrySafe: true })
       expect(b.sql.exec<{ input: string }>(`SELECT input FROM cb_turn WHERE id = ?`, f.run).one().input).toBe('["build me the original hello page"]')
       expect(JSON.stringify(b.sql.exec(`SELECT * FROM cb_config`).toArray())).not.toContain("one-use-private-code")
+    })
+  })
+
+  it("durably changes the rejected attempt after login and retries a lost dispatch without replaying it", async () => {
+    await recovery("accepted", async (b, f) => {
+      const original = readMachineState(b.sql, f.run)!
+      writeConfig(b.sql, { [`machine:${f.run}`]: JSON.stringify({ ...original, session: "rejected-session", after: 46, authRetrySafe: true }) })
+      f.auth = "ready"
+      expect(await machineLogin(b, f.owner, f.run, "finish", { loginId: "consumed-guest-login" })).toEqual({ signedIn: true, resumed: true })
+      const resumed = readMachineState(b.sql, f.run)!
+      expect(resumed).toMatchObject({ phase: "dispatching", operation: original.operation, attempt: 1, after: 0, text: "" })
+      expect(resumed.session).toBeUndefined()
+      const run = fixture(resumed)
+      const executions = new Set<string>([original.operation]) // The old ledger replays its settled auth failure.
+      const start = vi.fn<MachineAgentPorts["start"]>().mockImplementation(async (request) => {
+        expect(readMachineState(b.sql, f.run)?.attempt).toBe(1) // Saved before dispatch.
+        if (request.operation === original.operation) return { ok: false, error: { code: "cached_auth_failure", message: "old prompt replayed" } }
+        if (!executions.has(request.operation)) { executions.add(request.operation); throw new Error("accepted but response lost") }
+        return { ok: true, value: { session: "machine-session" } }
+      })
+      run.ports.start = start
+      expect(await runMachineAgent(run.ports, original.hand, original.cwd, "claude", "build me original X", original.operation, 1000)).toEqual({ pending: "provisioning" })
+      expect(await runMachineAgent(run.ports, original.hand, original.cwd, "claude", "build me original X", original.operation, 1000)).toMatchObject({ ok: true })
+      expect(start.mock.calls[0]).toEqual(start.mock.calls[1])
+      expect(executions.size).toBe(2)
+      expect(f.kick).toHaveBeenCalledOnce()
+      expect(b.sql.exec<{ input: string }>(`SELECT input FROM cb_turn WHERE id = ?`, f.run).one().input).toBe('["build me the original hello page"]')
     })
   })
 

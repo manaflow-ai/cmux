@@ -5,6 +5,8 @@
 .guest-card__title{margin:0;font-size:var(--text-title);line-height:var(--text-title--line-height);font-weight:600}
 .guest-card__detail{margin:0;color:var(--agent-muted)}
 .guest-card__error{margin:0;color:var(--agent-danger)}
+.guest-card__link{color:inherit;text-decoration:underline}
+.guest-live__view-only{margin:0;padding:4px 0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);text-align:center}
 .guest-join{display:flex;gap:8px;margin-top:4px}
 .guest-join__name{flex:1;min-width:0;height:32px;box-sizing:border-box;padding:0 12px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit}
 /* Focus shows as the caret and a stronger edge, never a ring on the field (desktop.css). */

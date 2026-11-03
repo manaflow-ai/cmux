@@ -5,8 +5,8 @@ import CmuxNextFeed
 import Testing
 
 /// The share consent sheet (#30550) waits on the owner, so while it shows it is an open Feed request
-/// (the Feed's pinned Needs you), withdrawn when the sheet ends. The Feed can decline it or bring the
-/// Mac forward, never allow a link.
+/// (``FeedPendingConfirm``, the Feed's pinned Needs you), withdrawn when the sheet ends. The Feed can
+/// decline it or bring the Mac forward, never allow a link.
 @MainActor @Suite
 struct AgentShareConsentFeedTests {
     @MainActor final class Owner {
@@ -21,7 +21,7 @@ struct AgentShareConsentFeedTests {
     static let ask = AgentShareConsentAsk(chat: "Fix the build", ttlSecs: nil, uses: nil)
 
     @Test func theSheetIsAnOpenConfirmRequestThatOnlyDeclinesOrShowsTheMac() throws {
-        let body = AgentShareConsentFeed.postBody(Self.ask, key: "share-consent:1", expiresInMs: 170_000)
+        let body = FeedPendingConfirm.postBody(AgentShareConsentSheet.feedRequest(Self.ask), key: "share-consent:1", expiresInMs: 170_000)
         #expect(body["op"] as? String == "feed.post")
         let params = try #require(body["params"] as? [String: Any])
         #expect(params["type"] as? String == "request")
@@ -37,8 +37,8 @@ struct AgentShareConsentFeedTests {
 
     @Test func theRequestIsWithdrawnWhenTheSheetEnds() async {
         let owner = Owner()
-        let feed = AgentShareConsentFeed(owner: owner.call)
-        let id = await feed.open(Self.ask, key: "share-consent:2", expiresInMs: 170_000)
+        let feed = FeedPendingConfirm(owner: owner.call)
+        let id = await feed.open(AgentShareConsentSheet.feedRequest(Self.ask), key: "share-consent:2", expiresInMs: 170_000)
         #expect(id == "fi_consent0000000000001")
         await feed.close()
         await feed.close()
@@ -49,9 +49,9 @@ struct AgentShareConsentFeedTests {
 
     @Test func aSheetThatEndedFirstPostsNothing() async {
         let owner = Owner()
-        let feed = AgentShareConsentFeed(owner: owner.call)
+        let feed = FeedPendingConfirm(owner: owner.call)
         await feed.close()
-        #expect(await feed.open(Self.ask, key: "share-consent:3", expiresInMs: 170_000) == nil)
+        #expect(await feed.open(AgentShareConsentSheet.feedRequest(Self.ask), key: "share-consent:3", expiresInMs: 170_000) == nil)
         #expect(owner.calls.isEmpty)
     }
 
@@ -63,9 +63,9 @@ struct AgentShareConsentFeedTests {
                      answer: confirmed.map { FeedAnswerRecord(value: .confirm($0), by: "inst_phone", device: "iPhone", at: Date()) },
                      createdAt: Date(timeIntervalSince1970: 0))
         }
-        #expect(AgentShareConsentFeed.answer(of: item(.answered, false)) == .decline)
-        #expect(AgentShareConsentFeed.answer(of: item(.answered, true)) == .show)
-        #expect(AgentShareConsentFeed.answer(of: item(.open, nil)) == nil)
-        #expect(AgentShareConsentFeed.answer(of: item(.cancelled, nil)) == nil)
+        #expect(FeedPendingConfirm.confirmed(item(.answered, false)) == false)
+        #expect(FeedPendingConfirm.confirmed(item(.answered, true)) == true)
+        #expect(FeedPendingConfirm.confirmed(item(.open, nil)) == nil)
+        #expect(FeedPendingConfirm.confirmed(item(.cancelled, nil)) == nil)
     }
 }
