@@ -20934,6 +20934,62 @@
     },
     {
       "cli" : "focusMove",
+      "cli_name" : "sidebar reveal-workspace",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.revealWorkspace",
+      "main_menu" : null,
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Reveal Workspace in Sidebar",
+      "title_key" : "action.sidebar.revealWorkspace",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "sidebar reveal-and-focus-workspace",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.revealAndFocusWorkspace",
+      "main_menu" : null,
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Reveal and Focus Workspace in Sidebar",
+      "title_key" : "action.sidebar.revealAndFocusWorkspace",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "focusMove",
       "cli_name" : "sidebar focus-right",
       "context_menu" : "focusMove",
       "context_menus" : [
@@ -49289,6 +49345,23 @@
         {
           "children" : [
             {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.revealWorkspace",
+              "kind" : "action",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 1
+            },
+            {
               "children" : [
                 {
                   "enabled_when" : "can_perform",
@@ -49414,20 +49487,20 @@
               ],
               "folder" : "new",
               "kind" : "folder",
-              "order" : 0,
+              "order" : 2,
               "title" : "New",
               "title_key" : "menu.folder.new",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 1
+              "order" : 3
             },
             {
               "enabled_when" : "can_perform",
               "id" : "workspace.toggleArchive",
               "kind" : "action",
-              "order" : 2,
+              "order" : 4,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -49438,13 +49511,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 3
+              "order" : 5
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.resetWorkspaceColor",
               "kind" : "action",
-              "order" : 4,
+              "order" : 6,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -49458,7 +49531,7 @@
               "id" : "workspace.setIcon",
               "kind" : "action",
               "label" : "Set Icon…",
-              "order" : 5,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -49472,7 +49545,7 @@
               "id" : "workspace.clearIcon",
               "kind" : "action",
               "label" : "Remove Icon",
-              "order" : 6,
+              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -49485,7 +49558,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspace.clearTheme",
               "kind" : "action",
-              "order" : 7,
+              "order" : 9,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -49496,7 +49569,7 @@
             },
             {
               "kind" : "separator",
-              "order" : 8
+              "order" : 10
             },
             {
               "children" : [
@@ -49900,44 +49973,18 @@
               ],
               "folder" : "options",
               "kind" : "folder",
-              "order" : 9,
+              "order" : 11,
               "title" : "Options",
               "title_key" : "menu.folder.options",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 10
+              "order" : 12
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.closeOtherWorkspaces",
-              "kind" : "action",
-              "order" : 11,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "workspace.closeOthersInGroup",
-              "kind" : "action",
-              "order" : 12,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "palette.closeWorkspacesBelow",
               "kind" : "action",
               "order" : 13,
               "visible_when" : {
@@ -49950,7 +49997,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.closeWorkspacesAbove",
+              "id" : "workspace.closeOthersInGroup",
               "kind" : "action",
               "order" : 14,
               "visible_when" : {
@@ -49963,7 +50010,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.closeAll",
+              "id" : "palette.closeWorkspacesBelow",
               "kind" : "action",
               "order" : 15,
               "visible_when" : {
@@ -49976,7 +50023,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "reopenClosedWorkspace",
+              "id" : "palette.closeWorkspacesAbove",
               "kind" : "action",
               "order" : 16,
               "visible_when" : {
@@ -49989,7 +50036,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.stash",
+              "id" : "workspace.closeAll",
               "kind" : "action",
               "order" : 17,
               "visible_when" : {
@@ -50002,9 +50049,35 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "window.stash",
+              "id" : "reopenClosedWorkspace",
               "kind" : "action",
               "order" : 18,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.stash",
+              "kind" : "action",
+              "order" : 19,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "window.stash",
+              "kind" : "action",
+              "order" : 20,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
