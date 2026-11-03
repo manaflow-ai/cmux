@@ -242,7 +242,7 @@ enum BrowserHandlers {
                     } catch let failure as ActionFailure {
                         chrome?.showNotice(failure.message)
                     } catch {}
-                }, notice: { [weak chrome = entry.chrome] text in chrome?.showNotice(text) })
+                }, noLinks: { [weak chrome = entry.chrome] in chrome?.showNotice(LinkHintStrings.noLinks) })
             })
         }
     }
