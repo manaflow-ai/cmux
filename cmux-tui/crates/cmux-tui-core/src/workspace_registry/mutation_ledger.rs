@@ -15,7 +15,7 @@ pub(crate) const LEGACY_ACTOR: &str = "legacy";
 /// The account-less local user (identity.md: `user_local`).
 pub const LOCAL_USER_ID: &str = "user_local";
 /// The suffix of [`WorkspaceMutation::workspace_reservation`]'s id.
-pub const WORKSPACE_RESERVATION_SUFFIX: &str = "/workspace";
+pub(crate) const WORKSPACE_RESERVATION_SUFFIX: &str = "/workspace";
 
 /// Who caused a durable mutation.
 #[derive(Debug, Clone, PartialEq, Eq)]
