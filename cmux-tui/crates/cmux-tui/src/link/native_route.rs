@@ -32,7 +32,8 @@ pub(super) struct NativeRoute {
     mesh: String,
     cidr: String,
     base: u32,
-    own: Ipv4Addr,
+    /// The device's own mesh address, when the provider has attached it yet (cmux-vm sends null until then).
+    own: Option<Ipv4Addr>,
     gateway: Gateway,
 }
 
@@ -50,16 +51,20 @@ impl NativeRoute {
         tunnel: Tunnel,
     ) -> io::Result<Self> {
         let base = mesh_base(&cidr).ok_or_else(|| refused("ipv4_cidr"))?;
-        let own =
-            tunnel.mesh_address.as_deref().ok_or_else(|| refused("meshAddress missing")).and_then(
-                |value| {
-                    mesh_host(value, base).ok_or_else(|| refused("meshAddress outside ipv4_cidr"))
-                },
-            )?;
+        let own = tunnel
+            .mesh_address
+            .as_deref()
+            .map(|value| {
+                mesh_host(value, base).ok_or_else(|| refused("meshAddress outside ipv4_cidr"))
+            })
+            .transpose()?;
+        // The provider sends a bare address or `/32` (the cmux-vm mesh agent reads both).
         let interface = tunnel
             .interface_address
             .strip_suffix("/32")
-            .and_then(|value| value.parse::<Ipv4Addr>().ok());
+            .unwrap_or(tunnel.interface_address.as_str())
+            .parse::<Ipv4Addr>()
+            .ok();
         let checks = [
             (
                 "tenant",
@@ -82,7 +87,8 @@ impl NativeRoute {
                 interface.is_none_or(|ip| {
                     !(ip.is_private()
                         || (u32::from(ip) >> 22 == u32::from(Ipv4Addr::new(100, 64, 0, 0)) >> 22))
-                        || format!("{ip}/32") != tunnel.interface_address
+                        || !(tunnel.interface_address == ip.to_string()
+                            || tunnel.interface_address == format!("{ip}/32"))
                 }),
             ),
             (
@@ -113,7 +119,7 @@ impl NativeRoute {
             tunnel_id: tunnel.id,
             endpoint,
             server_public_key: tunnel.server_public_key,
-            client_address: tunnel.interface_address,
+            client_address: format!("{}/32", interface.ok_or_else(|| refused("interfaceAddress"))?),
             // The provider also returns its VPC IPv6 routes. Cloud VM routing here
             // needs only the owner-confirmed IPv4 mesh; no extra route is installed.
             allowed_ips: vec![cidr.clone()],
@@ -133,7 +139,7 @@ impl NativeRoute {
             .ipv4
             .as_deref()
             .and_then(|value| mesh_host(value, self.base))
-            .filter(|ip| *ip != self.own)
+            .filter(|ip| Some(*ip) != self.own)
             .ok_or_else(|| refused("vm ipv4"))?;
         let vpc = SocketAddr::new(IpAddr::V4(address), CLOUD_UDP_PORT);
         if info.peer.public_ipv6.is_some()
