@@ -47,7 +47,9 @@ const receive = (state: Head, raw: unknown, ctx: ReduceContext): ReduceResult<He
   const priorId = ctx.rows?.get<{ message_id: string }>(conversation.TABLE_MSGKEY, messageKey)?.row.message_id
   if (priorId) {
     const prior = ctx.rows?.get<conversation.Message>(conversation.TABLE_MSG, priorId)?.row
-    return { ok: true, state, value: { message_id: priorId, seq: prior?.seq, change: { kind: "message", message: prior } }, changed: false }
+    // Retention keeps the tuple tombstone: a retry must not resurrect expired content.
+    if (!prior) return { ok: true, state, value: { message_id: priorId, expired: true }, changed: false }
+    return { ok: true, state, value: { message_id: priorId, seq: prior.seq, change: { kind: "message", message: prior } }, changed: false }
   }
   const root = ctx.rows?.get<conversation.Message>(conversation.TABLE_MSG, input.root)?.row
   const link = slackThread(root)

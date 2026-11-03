@@ -29,7 +29,8 @@ export async function slackInbound(b: ChiefBrainDO, w: SlackWake) {
   const res = await conversation.slackMessage(w.conversation, { owner: i.ownerUserId, agent: w.agent, root, inbound: i })
   const frame = res.frames.find((f) => f.t === "result" || f.t === "reject")
   if (!frame || frame.t === "reject") return { ok: false as const, code: frame?.t === "reject" ? frame.code : "owner.unreachable" }
-  const value = (frame as { value: { message_id: string; seq: number; change: { message: homeConversation.Message & { slack: { isOwner: boolean; displayName: string } } } } }).value
+  const value = (frame as { value: { message_id: string; expired: true } | { message_id: string; seq: number; change: { message: homeConversation.Message & { slack: { isOwner: boolean; displayName: string } } } } }).value
+  if ("expired" in value) return { ok: true as const, conversation: w.conversation, thread: root, queued: false }
   const committed = value.change.message
   const committedRoot = committed.thread_root ?? committed.id
   const authorized = committed.slack.isOwner

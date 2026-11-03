@@ -42,7 +42,7 @@ const harness = () => {
     if (!result.ok) throw new Error(result.code)
     return message((result.value as { message_id: string }).message_id)
   }
-  return { submit, receive, message, send, rows, state: () => head! }
+  return { submit, receive, message, send, rows, expire: (id: string) => data.get(conversation.TABLE_MSG)?.delete(id), state: () => head! }
 }
 
 describe("Slack conversation adapter", () => {
@@ -70,6 +70,15 @@ describe("Slack conversation adapter", () => {
     expect(h.message(root)).toMatchObject({ author: "slack:T123:U123", parts: [{ type: "text", text: inbound.text }] })
     expect(h.receive({ channelId: "COTHER" }, "msg_channel")).toMatchObject({ ok: true, value: { seq: 2 } })
     expect(h.receive({ slackTeamId: "TOTHER" }, "msg_team")).toMatchObject({ ok: true, value: { seq: 3 } })
+  })
+
+  it("acknowledges an expired tuple without recreating its message", () => {
+    const h = harness()
+    expect(h.receive()).toMatchObject({ ok: true })
+    h.expire(root)
+    expect(h.receive({ slackUserName: "Updated" })).toMatchObject({ ok: true, changed: false, value: { message_id: root, expired: true } })
+    expect(h.message(root)).toBeUndefined()
+    expect(h.state().last_seq).toBe(1)
   })
 
   it("never exposes Slack injection to a normal principal or another Chief's owner", () => {
