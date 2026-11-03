@@ -29,6 +29,7 @@ pub(super) async fn dispatch(
             | method::MUX_MCP_SET_KEY
             | method::MUX_MCP_SIGN_IN
             | method::MUX_MCP_REMOVE
+            | method::MUX_MCP_APPROVE_TOOLS
             | method::MUX_MCP_AUDIT
     ) {
         return Some(connections(hub, conn, m, params).await);
@@ -127,6 +128,7 @@ async fn connections(
                 }
                 method::MUX_MCP_SIGN_IN => hub.mcp_sign_in(id()?).await,
                 method::MUX_MCP_REMOVE => hub.mcp_remove(id()?),
+                method::MUX_MCP_APPROVE_TOOLS => hub.mcp_approve_tools(id()?),
                 method::MUX_MCP_AUDIT => {
                     Ok(hub.mcp_audit(
                         params.get("limit").and_then(Value::as_u64).unwrap_or(200) as usize

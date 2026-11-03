@@ -101,6 +101,7 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_MCP_SET_KEY,
             method::MUX_MCP_SIGN_IN,
             method::MUX_MCP_REMOVE,
+            method::MUX_MCP_APPROVE_TOOLS,
             method::MUX_MCP_AUDIT,
         ],
     },

@@ -47,6 +47,7 @@ fn http() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(HTTP_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
+        .dns_resolver(super::mcp_resolver::CheckedResolver)
         .build()
         .map_err(|_| "could not start an HTTP client".to_owned())
 }
@@ -170,8 +171,27 @@ fn page(ok: bool, title: &str) -> String {
     )
 }
 
-/// Reads one HTTP request from `sock` and returns the query of a `GET /callback?...`.
-async fn read_callback(sock: &mut tokio::net::TcpStream) -> Option<String> {
+/// One request to the sign-in listener.
+enum ListenerRequest {
+    /// `GET /start?t=...`: the link the agent hands to the person; the query.
+    Start(String),
+    /// `GET /callback?...`: the authorization server's redirect; the query.
+    Callback(String),
+    /// A `Host` that is not this listener's own (DNS rebinding: a page on another name that
+    /// resolves to 127.0.0.1), or a request it does not serve.
+    Refused(&'static str),
+}
+
+/// The bare status answers of the sign-in listener.
+const BAD_REQUEST: &[u8] =
+    b"HTTP/1.1 400 Bad Request\r\ncontent-length: 0\r\nconnection: close\r\n\r\n";
+const NOT_FOUND: &[u8] =
+    b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n";
+const GONE: &[u8] = b"HTTP/1.1 410 Gone\r\ncontent-length: 0\r\nconnection: close\r\n\r\n";
+
+/// Reads one HTTP request from `sock`; only `GET /start` and `GET /callback` sent to
+/// `127.0.0.1:port` or `localhost:port` are served.
+async fn read_request(sock: &mut tokio::net::TcpStream, port: u16) -> Option<ListenerRequest> {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 2048];
     while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
@@ -188,13 +208,45 @@ async fn read_callback(sock: &mut tokio::net::TcpStream) -> Option<String> {
         }
     }
     let text = String::from_utf8_lossy(&buf);
-    let line = text.lines().next()?;
+    let mut lines = text.lines();
+    let line = lines.next()?;
+    let host = lines
+        .take_while(|l| !l.is_empty())
+        .find_map(|l| {
+            let (name, value) = l.split_once(':')?;
+            name.trim().eq_ignore_ascii_case("host").then(|| value.trim().to_ascii_lowercase())
+        })
+        .unwrap_or_default();
+    if host != format!("127.0.0.1:{port}") && host != format!("localhost:{port}") {
+        return Some(ListenerRequest::Refused("host"));
+    }
     let target = line.strip_prefix("GET ")?.split(' ').next()?;
-    target.strip_prefix("/callback?").map(str::to_owned)
+    Some(if let Some(query) = target.strip_prefix("/callback?") {
+        ListenerRequest::Callback(query.to_owned())
+    } else if let Some(query) = target.strip_prefix("/start?") {
+        ListenerRequest::Start(query.to_owned())
+    } else {
+        ListenerRequest::Refused("path")
+    })
+}
+
+/// The `t` value of a `/start` query.
+fn start_token(query: &str) -> Option<String> {
+    let parsed = reqwest::Url::parse(&format!("http://127.0.0.1/start?{query}")).ok()?;
+    parsed.query_pairs().find(|(k, _)| k == "t").map(|(_, v)| v.into_owned())
+}
+
+/// What the listener needs to answer `/start` once.
+struct StartLink {
+    token: String,
+    authorize_url: String,
 }
 
 impl Hub {
-    /// `_acpmux/mcp_sign_in`: starts the sign-in and answers `{authorizeUrl}` for the app to open.
+    /// `_acpmux/mcp_sign_in`: starts the sign-in and answers `{authorizeUrl}` for the app to open,
+    /// and `{startUrl}`: a one-use link to this listener that redirects to `authorizeUrl`. The
+    /// agent gets only `startUrl`, so the OAuth state never reaches it (no login CSRF by a
+    /// hostile local agent).
     pub async fn mcp_sign_in(self: &Arc<Self>, id: &str) -> Result<Value, RpcError> {
         let conn = self
             .mcp_store
@@ -250,6 +302,9 @@ impl Hub {
         let verifier = Zeroizing::new(pkce::verifier(&random));
         getrandom::fill(&mut random).map_err(|_| RpcError::invalid_params("no randomness"))?;
         let state = pkce::state(&random);
+        getrandom::fill(&mut random).map_err(|_| RpcError::invalid_params("no randomness"))?;
+        let start_token = pkce::state(&random);
+        let start_url = format!("http://127.0.0.1:{port}/start?t={start_token}");
         let authorize_url = plan
             .auth
             .authorize_url(&AuthorizeRequest {
@@ -274,11 +329,14 @@ impl Hub {
         }));
         let hub = self.clone();
         let id_owned = id.to_owned();
+        let start_link_target = authorize_url.clone();
         tokio::spawn(async move {
             let done = tokio::time::timeout(
                 SIGN_IN_TTL,
                 hub.finish_sign_in(
                     listener,
+                    port,
+                    StartLink { token: start_token, authorize_url: start_link_target },
                     &id_owned,
                     plan.auth,
                     oauth,
@@ -295,7 +353,7 @@ impl Hub {
             }
         });
         Ok(
-            json!({"id": id, "authorizeUrl": authorize_url, "redirectUri": format!("http://127.0.0.1:{port}/callback")}),
+            json!({"id": id, "authorizeUrl": authorize_url, "startUrl": start_url, "redirectUri": format!("http://127.0.0.1:{port}/callback")}),
         )
     }
 
@@ -303,6 +361,8 @@ impl Hub {
     async fn finish_sign_in(
         self: &Arc<Self>,
         listener: tokio::net::TcpListener,
+        port: u16,
+        start: StartLink,
         id: &str,
         auth: AuthServer,
         oauth: OauthClient,
@@ -312,21 +372,45 @@ impl Hub {
         client: reqwest::Client,
     ) {
         let title = self.mcp_store.get(id).map(|c| c.title).unwrap_or_default();
+        let mut start = Some(start);
         loop {
             let Ok((mut sock, _)) = listener.accept().await else { return };
-            let Some(query) = read_callback(&mut sock).await else {
-                let _ = sock
-                    .write_all(
-                        b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
-                    )
-                    .await;
-                continue;
+            let query = match read_request(&mut sock, port).await {
+                Some(ListenerRequest::Callback(query)) => query,
+                Some(ListenerRequest::Start(query)) => {
+                    // The link works once; a second use (or a guess) gets 410.
+                    let given = start_token(&query);
+                    match start.take() {
+                        Some(link) if given.as_deref() == Some(link.token.as_str()) => {
+                            let answer = format!(
+                                "HTTP/1.1 302 Found\r\nlocation: {}\r\ncache-control: no-store\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                                link.authorize_url
+                            );
+                            let _ = sock.write_all(answer.as_bytes()).await;
+                        }
+                        kept => {
+                            start = kept;
+                            let _ = sock.write_all(GONE).await;
+                        }
+                    }
+                    continue;
+                }
+                Some(ListenerRequest::Refused("host")) => {
+                    self.mcp_store
+                        .audit(json!({"event": "signIn", "id": id, "outcome": "foreignHost"}));
+                    let _ = sock.write_all(BAD_REQUEST).await;
+                    continue;
+                }
+                Some(ListenerRequest::Refused(_)) | None => {
+                    let _ = sock.write_all(NOT_FOUND).await;
+                    continue;
+                }
             };
             // A wrong state is someone else's request: ignored, the listener keeps waiting (T12).
             let code = match auth.callback_code(&query, &state) {
                 Ok(code) => Zeroizing::new(code),
                 Err(r) if r.0.contains("state") => {
-                    let _ = sock.write_all(b"HTTP/1.1 400 Bad Request\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await;
+                    let _ = sock.write_all(BAD_REQUEST).await;
                     continue;
                 }
                 Err(_) => {
