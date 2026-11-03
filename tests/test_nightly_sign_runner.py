@@ -749,5 +749,61 @@ class SnapshotReadToken(unittest.TestCase):
                 self.assertNotIn("snapshot-read-token", yaml.safe_dump(job))
 
 
+class Overtaken(unittest.TestCase):
+    """2026-11-03: Apple's daily notarization cap (429 RATE_LIMIT) failed every
+    nightly for hours while about ten runs signed side by side. A run whose build
+    a newer published build is already above can only be superseded at publish,
+    so pick-nightly-sign-runner's overtaken skips its notarizations; a newer push
+    alone never does (#28961), and an unreadable feed signs as before."""
+
+    SCRIPT = ROOT / "scripts/ci/nightly-steps/sign-pick-overtaken.sh"
+
+    def run_step(self, feed: str | None, run_id: str = "41571567978", attempt: str = "1") -> str:
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "feed"
+            base.mkdir()
+            if feed is not None:
+                (base / "appcast-arm64.xml").write_text(feed, encoding="utf-8")
+            out = Path(tmp) / "out"
+            env = dict(os.environ, NIGHTLY_NEXT_FEED_BASE=f"file://{base}", RUN_ID=run_id, RUN_ATTEMPT=attempt,
+                       GITHUB_OUTPUT=str(out))
+            result = subprocess.run(["bash", str(self.SCRIPT)], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return out.read_text(encoding="utf-8").strip()
+
+    @staticmethod
+    def feed(*builds: str) -> str:
+        items = "".join(f"<item><sparkle:version>{b}</sparkle:version></item>" for b in builds)
+        return f'<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel>{items}</channel></rss>'
+
+    def test_a_newer_published_build_skips_notarization(self) -> None:
+        self.assertEqual(self.run_step(self.feed("4157013432001", "4157485009901")), "overtaken=true")
+
+    def test_an_older_or_equal_feed_signs(self) -> None:
+        self.assertEqual(self.run_step(self.feed("4157013432001")), "overtaken=false")
+        self.assertEqual(self.run_step(self.feed("4157156797801")), "overtaken=false")
+
+    def test_the_attempt_is_part_of_the_build(self) -> None:
+        # Attempt 1 of this run is on the feed; attempt 2 is above it.
+        self.assertEqual(self.run_step(self.feed("4157156797801"), attempt="2"), "overtaken=false")
+        self.assertEqual(self.run_step(self.feed("4157156797802"), attempt="1"), "overtaken=true")
+
+    def test_an_unreadable_feed_signs(self) -> None:
+        self.assertEqual(self.run_step(None), "overtaken=false")
+
+    def test_the_signers_and_the_fallback_skip_on_it_and_the_step_cannot_fail_the_pick(self) -> None:
+        jobs = WORKFLOW["jobs"]
+        picker_job = jobs["pick-nightly-sign-runner"]
+        self.assertEqual(picker_job["outputs"]["overtaken"], "${{ steps.overtaken.outputs.overtaken }}")
+        step = next(s for s in picker_job["steps"] if s.get("id") == "overtaken")
+        self.assertTrue(step["continue-on-error"])
+        self.assertEqual(step["if"], "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next'")
+        gate = "needs.pick-nightly-sign-runner.outputs.overtaken != 'true'"
+        for name in ("signer-app", "build-sign-notarize-nightly"):
+            self.assertIn("pick-nightly-sign-runner", jobs[name]["needs"])
+            self.assertIn(gate, jobs[name]["if"], name)
+
+
 if __name__ == "__main__":
     unittest.main()
