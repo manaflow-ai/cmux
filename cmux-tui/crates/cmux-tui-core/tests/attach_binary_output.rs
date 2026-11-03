@@ -17,6 +17,7 @@ mod support;
 use base64::Engine;
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::{Mux, SurfaceOptions};
+use support::DaemonMuxOps;
 
 const FRAME_HEADER: usize = 24;
 const FLOOD: usize = 256 * 1024;
