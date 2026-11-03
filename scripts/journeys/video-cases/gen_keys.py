@@ -224,6 +224,45 @@ def xtp_idle():
 xtp_idle()
 
 
+# 11. Mouse divider drags with the core tier probe (lead 2026-11-03 01:3xZ, Lawrence: "resizing columns and splits is still
+# not very good"): the RESIZE VIDEOS drag journeys (gen_cases.py: rv-col-drag-*, rv-row-drag-*), each with ext_tiers around
+# its recording, as rkd-<case> so a build's keyboard and drag films sit together with start tiers.
+DRAG_SOURCES = ["rv-col-drag-2-heavy-dark", "rv-col-drag-3-heavy-dark", "rv-col-drag-6-heavy-dark", "rv-col-drag-clamp-heavy-dark",
+                "rv-row-drag-slow-heavy-dark", "rv-row-drag-fast-heavy-dark", "rv-row-drag-clamp-heavy-dark"]
+
+
+def tiered_drags(journeys_dir):
+    out = []
+    for src in DRAG_SOURCES:
+        path = os.path.join(journeys_dir, src + ".json")
+        if not os.path.isfile(path):
+            continue
+        j = json.load(open(path))
+        steps = []
+        for st in j["steps"]:
+            steps.append(st)
+            if st.get("do") == "video_start":
+                steps.append({"do": "tiers_start", "name": "tiers", "seconds": float(st.get("seconds", 20)) + 1.0,
+                              "title": "probe: the main thread's core tier per ms (ext_tiers, no profiler)"})
+            if st.get("do") == "video_stop":
+                steps.append({"do": "tiers_stop", "name": "tiers"})
+        rid = "rkd-" + src[len("rv-"):]
+        if src == "rv-col-drag-6-heavy-dark":
+            # Six panes across need 6 x 200 pt (layout.minimumPaneWidth) plus 5 gaps: the 90% window leaves 1153 pt of
+            # content beside the sidebar on the 1512 pt 2x display, room for 5. The full-width window leaves 1304 pt.
+            for st in steps:
+                if st.get("do") == "window_place":
+                    st["fraction"] = [0.0, 0.05, 1.0, 0.9]
+                    st["title"] = "set-up: the window at the full screen width x 90% (six panes of 200 pt need 1235 pt beside the sidebar)"
+        for st in steps:
+            if st.get("do") in ("video_start", "video_stop") and st.get("name") == src:
+                st["name"] = rid
+                st["title"] = st.get("title", "").replace(src, rid)
+        j = dict(j, id=rid, steps=steps, source="RESIZE KEYS (drag with core tiers), from " + src)
+        out.append(j)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out")
@@ -236,6 +275,7 @@ def main():
             print(f"{c['id']:24} {c['budget_seconds']:4} {c['title']}")
         return 0
     os.makedirs(opts.out, exist_ok=True)
+    chosen += [d for d in tiered_drags(opts.out) if not opts.only or d["id"] in opts.only]
     for c in chosen:
         with open(os.path.join(opts.out, c["id"] + ".json"), "w") as f:
             json.dump(c, f, indent=1)

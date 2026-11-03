@@ -2,6 +2,7 @@
 """Per-frame geometry check of one layout motion (RESIZE VIDEOS suite).
 
   judge_trace.py TRACE.json [--frames MOVIE.frames.json] [--scale 2] [--json OUT.json]
+                [--tiers diag-tiers.json --events MOVIE.events.json]
 
 TRACE.json: the reply of `debug.motion` `trace_stop` (keys `samples`, `refresh_ms`, `t0_s`), or a file holding
 it under "trace". Each sample: `t` (ms from the first tick), `panes` rows [pane, x, y, w, h, alpha, z, fx, fy, fw,
@@ -17,6 +18,11 @@ It reports, with the frame number (the trace sample index, and the movie frame i
   reverse    an edge that moves back against its motion by more than 1 device pixel (overshoot, jump back)
   lurch      one frame's step more than 3x the steps around it (and over 2 device pixels): a jump on the curve
   end-jump   the last step into the rest frame more than 2x the step before it (and over 2 device pixels)
+With --tiers (ext_tiers: the app main thread's cumulative CPU ms per core tier, CLOCK_UPTIME_RAW) and --events (the
+recording's app input journal, uptimeNanos on the same clock), each refresh interval of the motion gets the tier its main
+thread ran on most (Super, Performance, Efficiency), so dropped refreshes are counted per tier, and each input (key-down,
+mouse-down) gets its start tier, the tier with the most main CPU in its first 4 ms (as judge_keys.py): a drag on a
+mini compares with a drag on another Mac only within one tier (STATUS 7770: a main thread woken from idle starts on E).
 Standard library only. Exit 0 with no defect, 1 with a defect, 2 when the input has no motion.
 """
 import argparse
@@ -170,12 +176,66 @@ def judge(trace, frames=None, scale=2.0):
             "refresh_ms": refresh, "samples": len(samples), "movie": movie, "counts": counts, "defects": defects}
 
 
+def tier_split(rows, a_ns, b_ns, n):
+    def at(t):
+        best = rows[0]
+        for r in rows:
+            if r[0] > t:
+                break
+            best = r
+        return best
+    ra, rb = at(a_ns), at(b_ns)
+    return [rb[1 + i] - ra[1 + i] for i in range(n)]
+
+
+def tiers_report(trace, report, tiers, events):
+    """Per-tier refresh intervals and dropped refreshes of the motion, and the start tier of each input."""
+    rows, levels = tiers.get("rows") or [], tiers.get("levels") or []
+    n = len(levels)
+    if len(rows) < 2 or not n or not report.get("motion"):
+        return None
+    names = [str(x)[:1] for x in levels]
+    samples, refresh = trace["samples"], float(report["refresh_ms"])
+    t0_ns = float(trace.get("t0_s") or 0) * 1e9
+    ns = lambda t_ms: int(t0_ns + float(t_ms) * 1e6)
+    first, last = report["motion"]["first_frame"], report["motion"]["last_frame"]
+    lo, hi = max(1, first - 2), min(len(samples) - 1, last + 2)
+    per = {k: {"intervals": 0, "dropped": 0, "cpu_ms": 0.0} for k in names + ["idle"]}
+    for i in range(lo, hi + 1):
+        a, b = ns(samples[i - 1]["t"]), ns(samples[i]["t"])
+        if a < rows[0][0] or b > rows[-1][0]:
+            continue
+        cpu = tier_split(rows, a, b, n)
+        k = names[max(range(n), key=lambda j: cpu[j])] if sum(cpu) > 0.05 else "idle"
+        missed = max(0, round((float(samples[i]["t"]) - float(samples[i - 1]["t"])) / refresh) - 1)
+        per[k]["intervals"] += 1
+        per[k]["dropped"] += missed
+        per[k]["cpu_ms"] = round(per[k]["cpu_ms"] + sum(cpu), 2)
+    inputs = []
+    for e in (events or {}).get("journal") or []:
+        kind = e.get("kind") or {}
+        name = next(iter(kind), None) if isinstance(kind, dict) else None
+        body = (kind.get(name) or {}).get("_0") if name else None
+        if not isinstance(body, dict) or body.get("phase") != "down" or not e.get("uptimeNanos") or body.get("keyClass") == "modifier":
+            continue
+        t = int(e["uptimeNanos"])
+        if not (rows[0][0] <= t - 2_000_000 and rows[-1][0] >= t + 4_000_000):
+            continue
+        first4 = tier_split(rows, t - 2_000_000, t + 4_000_000, n)
+        inputs.append({"input": name, "t_ms": round((t - t0_ns) / 1e6, 2),
+                       "start_tier": names[max(range(n), key=lambda j: first4[j])] if sum(first4) > 0.05 else "idle",
+                       "first_4ms_cpu": dict(zip(names, [round(x, 2) for x in first4]))})
+    return {"levels": levels, "per_tier": {k: v for k, v in per.items() if v["intervals"]}, "inputs": inputs}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("trace")
     ap.add_argument("--frames")
     ap.add_argument("--scale", type=float, default=2.0)
     ap.add_argument("--json")
+    ap.add_argument("--tiers")
+    ap.add_argument("--events")
     opts = ap.parse_args()
     trace = load_trace(opts.trace)
     frames = None
@@ -185,6 +245,14 @@ def main():
         if isinstance(frames, dict):
             frames = frames.get("frames") or []
     report = judge(trace, frames, opts.scale)
+    if opts.tiers:
+        with open(opts.tiers) as f:
+            tiers = json.load(f)
+        events = None
+        if opts.events:
+            with open(opts.events) as f:
+                events = json.load(f)
+        report["tiers"] = tiers_report(trace, report, tiers, events)
     if opts.json:
         with open(opts.json, "w") as f:
             json.dump(report, f, indent=1)
@@ -194,6 +262,10 @@ def main():
     m = report["motion"]
     print(f"motion: frames {m['first_frame']}..{m['last_frame']} ({m['frames']} frames, t {m['t_ms'][0]}..{m['t_ms'][1]} ms), "
           f"refresh {report['refresh_ms']} ms; defects: {report['counts'] or 'none'}")
+    if report.get("tiers"):
+        t = report["tiers"]
+        print("  per tier (refresh intervals, dropped): " + ", ".join(f"{k} {v['intervals']}/{v['dropped']}" for k, v in t["per_tier"].items())
+              + "; inputs: " + ", ".join(f"{i['input']}@{i['t_ms']} {i['start_tier']}" for i in t["inputs"]))
     for d in report["defects"][:60]:
         where = f"frame {d['frame']}" if d.get("frame") is not None else f"movie frame {d.get('movie_frame')}"
         print(f"  {d['kind']:9} {where:16} t={d['t_ms']} ms  {d['what']}")

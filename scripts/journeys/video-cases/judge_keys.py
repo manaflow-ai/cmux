@@ -264,7 +264,13 @@ def judge(base):
         mean_move = sum(abs(m) for m in moves) / len(moves) if moves else 0
         jump_back = [round(m, 2) for m in moves if direction and m * direction < -px / 2]
         over = [round(p, 2) for _, p in motion if direction and (p - p1) * direction > px / 2]
-        lurch = [round(m, 2) for m in moves if abs(m) > max(4 * px, 3 * mean_move) and len(moves) > 3]
+        # A lurch is one step far larger than the steps around it (as judge_trace.py): against the mean of the whole
+        # motion, a chain of presses (each retarget speeds the spring up, then a long slow tail) read every peak as one.
+        lurch = []
+        for k, m in enumerate(moves):
+            around = [abs(x) for x in moves[max(0, k - 2):k] + moves[k + 1:k + 3] if abs(x) > 0]
+            if len(moves) > 3 and around and abs(m) > max(4 * px, 3 * sum(around) / len(around)):
+                lurch.append(round(m, 2))
         mt = [t for t, _ in motion]
         dropped = sum(1 for a, b in zip(mt, mt[1:]) if b - a > 1.5 * refresh)
         rest_gap = seam(before[-1], target)
