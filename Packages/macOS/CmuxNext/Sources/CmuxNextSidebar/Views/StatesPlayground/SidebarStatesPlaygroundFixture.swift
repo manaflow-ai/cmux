@@ -34,7 +34,7 @@ struct SidebarStatesPlaygroundFixture {
         case .error: .list(.workspace(Self.error))
         case .needsInput: .list(.workspace(Self.needsInput))
         case .usageWarning: .list(.workspace(Self.usageWarning))
-        case .pinned: .band(block: SidebarLayoutDocument.pinnedSectionID.rawValue, item: Self.pin)
+        case .pinned, .pinnedHoverCard: .band(block: SidebarLayoutDocument.pinnedSectionID.rawValue, item: Self.pin)
         case .selected: .list(.workspace(Self.selected))
         case .hovered: .list(.workspace(Self.hovered))
         case .renaming: .list(.workspace(Self.renaming))
