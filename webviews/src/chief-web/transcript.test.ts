@@ -88,7 +88,7 @@ test("committing a reply structurally replaces its live row and preserves the co
   expect(after.rows).toHaveLength(4_001);
   expect(after.rows.at(-1)).toBe(persisted);
   expect(after.rows.some((row) => row.id === "live-reply")).toBe(false);
-  expect(after.rows.slice(0, committed.length)).toEqual(committed);
+  expect(after.rows.slice(0, committed.length)).toEqual([...committed]);
   expect(after.rows[0]).toBe(committed[0]);
   expect(after.rows[3_999]).toBe(committed[3_999]);
   expect(removedLive).toBeUndefined();
