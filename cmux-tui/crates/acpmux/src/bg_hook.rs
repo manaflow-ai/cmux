@@ -149,7 +149,7 @@ pub fn slow_reason(command: &str) -> Option<&'static str> {
         let Some(program) = argv.first().map(|w| w.rsplit('/').next().unwrap_or(w)) else {
             return;
         };
-        let rest = &argv[1..];
+        let rest = argv.get(1..).unwrap_or_default();
         for (tool, next, needs, why) in SLOW {
             if *tool != program
                 || next.is_some_and(|n| rest.first() != Some(&n))
