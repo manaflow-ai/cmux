@@ -38,14 +38,7 @@ extension DeepLink {
     /// its web page (Leo, 2026-11-03: "we need to be able to link WITHIN THE APP"). Nil for any
     /// other URL, and for the opaque `?id=` form, which names no session.
     public static func parseAgentWeb(_ url: URL) -> DeepLink? {
-        guard url.scheme?.lowercased() == "https",
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              components.user == nil, components.password == nil, components.port == nil, components.fragment == nil,
-              let host = components.host?.lowercased(), agentWebHosts.contains(host) else { return nil }
-        let segments = components.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-        let path = segments.count == 3 && isLocale(segments[0]) ? Array(segments.dropFirst()) : segments
-        guard path == ["deeplink", "agent"] else { return nil }
-        let query = components.queryItems ?? []
+        guard let query = agentWebQuery(url) else { return nil }
         func one(_ name: String) -> String? {
             let items = query.filter { $0.name == name }
             return items.count == 1 ? items[0].value : nil
@@ -59,6 +52,28 @@ extension DeepLink {
         native.queryItems = hints.isEmpty ? nil : hints
         guard let link = native.url.flatMap({ parse($0, scheme: chiefScheme) }), link.target.isAgent else { return nil }
         return link
+    }
+
+    /// The harness session id an https agent link names when it names no harness (`?host=&session=`,
+    /// as lanes print them): acpmux resolves a bare id against its chats' agent session ids. Nil for
+    /// any other URL, and for a link with a harness (``parseAgentWeb(_:)`` reads that one).
+    public static func agentWebSession(_ url: URL) -> String? {
+        guard let query = agentWebQuery(url), !query.contains(where: { $0.name == "harness" }) else { return nil }
+        let sessions = query.filter { $0.name == "session" }
+        guard sessions.count == 1, let session = sessions[0].value, isAgentSession(session) else { return nil }
+        return session
+    }
+
+    /// The query of an https agent session link's page (cmux.com, `/deeplink/agent`, an optional
+    /// locale segment and trailing slash; no user, port or fragment), nil for any other URL.
+    private static func agentWebQuery(_ url: URL) -> [URLQueryItem]? {
+        guard url.scheme?.lowercased() == "https",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.user == nil, components.password == nil, components.port == nil, components.fragment == nil,
+              let host = components.host?.lowercased(), agentWebHosts.contains(host) else { return nil }
+        let segments = components.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        let path = segments.count == 3 && isLocale(segments[0]) ? Array(segments.dropFirst()) : segments
+        return path == ["deeplink", "agent"] ? components.queryItems ?? [] : nil
     }
 
     /// A cmux.com locale segment (`en`, `zh-CN`).

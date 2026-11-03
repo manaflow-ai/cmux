@@ -35,6 +35,18 @@ struct DeepLinkAgentWebTests {
         #expect(link.message == "m_1")
     }
 
+    /// Leo's screenshot: a lane's `?session=&host=` link with no harness opened the web page on
+    /// "missing required parameters: harness". It names a harness session id acpmux resolves.
+    @Test func aLinkWithNoHarnessNamesItsSessionID() throws {
+        let url = URL(string: "https://cmux.com/deeplink/agent?session=01a19f86-e54b-78b3-9911-4326190bc1aa&host=cosmic-gray")!
+        #expect(DeepLink.parseAgentWeb(url) == nil)
+        #expect(DeepLink.agentWebSession(url) == "01a19f86-e54b-78b3-9911-4326190bc1aa")
+        #expect(DeepLink.agentWebSession(URL(string: "https://cmux.com/deeplink/agent?harness=claude&session=s1")!) == nil)
+        #expect(DeepLink.agentWebSession(URL(string: "https://cmux.com/deeplink/agent?session=a&session=b")!) == nil)
+        #expect(DeepLink.agentWebSession(URL(string: "https://evil.com/deeplink/agent?session=s1")!) == nil)
+        #expect(DeepLink.agentWebSession(URL(string: "https://cmux.com/deeplink/agent?id=aid-81baa1463f6190d4c5dc")!) == nil)
+    }
+
     @Test(arguments: [
         // The opaque form names no session.
         "https://cmux.com/deeplink/agent?id=aid-81baa1463f6190d4c5dc",

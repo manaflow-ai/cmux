@@ -156,13 +156,20 @@ struct DeepLinkNavigator {
             if let turn, shown.adopted { services.agentTabs.revealTurn(turn, in: shown.tab) }
             return
         }
+        openLinked(link.url(scheme: DeepLink.chiefScheme)?.absoluteString, turn: turn, intent, asking: asking, notFound: notFound)
+    }
+
+    /// Opens the acpmux chat `query` names (an agent link, or a harness session id), as a session
+    /// link opens one; `notFound` (nil: the refusal) when acpmux lists none.
+    func openLinked(_ query: String?, turn: String? = nil, _ intent: WindowActivation.Intent, asking: Bool,
+                    notFound: (@MainActor () -> Void)? = nil) {
         let (hud, window) = (services.refusalHUD, services.windows.active?.window)
         let missing = notFound ?? { hud.show(Self.gone.message, in: window) }
-        guard let socket = AgentLaneStore.shared.socketPath, let text = link.url(scheme: DeepLink.chiefScheme)?.absoluteString else { return missing() }
+        guard let socket = AgentLaneStore.shared.socketPath, let query else { return missing() }
         // task-owner: one resolve, then one open.
         Task { @MainActor in
-            guard let id = try? await AcpmuxSessionPage(socketPath: socket).linked(text) else { return missing() }
-            do { try openSession(id, turn: turn, intent, asking: asking) } catch { hud.show(Self.gone.message, in: window) }
+            guard let id = try? await AcpmuxSessionPage(socketPath: socket).linked(query) else { return missing() }
+            do { try openSession(id, turn: turn, intent, asking: asking) } catch { hud.show((error as? ActionFailure)?.message ?? Self.gone.message, in: window) }
         }
     }
 

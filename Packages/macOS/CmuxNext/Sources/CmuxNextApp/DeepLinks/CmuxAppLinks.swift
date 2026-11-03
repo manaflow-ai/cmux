@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextLayout
 import CmuxNextPages
 import Foundation
@@ -22,19 +23,27 @@ enum CmuxAppLinks {
         if let action = settingsAction(for: url, linkScheme: services.linkScheme) {
             return services.registry.perform(action, invocation: ActionInvocation(origin: .user))
         }
-        if let agent = DeepLink.parseAgentWeb(url) { return openAgentWeb(url, agent, services: services) }
+        if let agent = openAgentWeb(url, services: services) { return agent }
         guard let link = link(for: url, linkScheme: services.linkScheme, chiefHost: services.agentTabs.chiefHost),
               let text = link.url(scheme: services.linkScheme)?.absoluteString else { return false }
         return services.registry.perform("link.open", invocation: ActionInvocation(arguments: ["url": .string(text)], origin: .user))
     }
 
-    /// An agent session link's web form (`https://cmux.com/deeplink/agent?harness=&session=…`)
-    /// clicked in the app opens the chat here, with no question since the person clicked it in cmux;
-    /// only a chat acpmux does not list (not theirs) opens its web page. False with agent links off.
+    /// An agent session link's web form (`https://cmux.com/deeplink/agent?harness=&session=…`, or
+    /// `?host=&session=` with no harness) clicked in the app opens the chat here, with no question
+    /// since the person clicked it in cmux; only a chat acpmux does not list (not theirs) opens its
+    /// web page. Nil for any other URL; false with agent links off.
     @MainActor
-    static func openAgentWeb(_ url: URL, _ link: DeepLink, services: AppServices) -> Bool {
+    static func openAgentWeb(_ url: URL, services: AppServices) -> Bool? {
         let web = { @MainActor in LinkRouter.shared.open(url, in: LinkRouter.shared.target(for: url)) }
-        return (try? DeepLinkNavigator(services: services).openAgentLink(link, .raise, asking: false, notFound: web)) != nil
+        let navigator = DeepLinkNavigator(services: services)
+        if let link = DeepLink.parseAgentWeb(url) {
+            return (try? navigator.openAgentLink(link, .raise, asking: false, notFound: web)) != nil
+        }
+        guard let session = DeepLink.agentWebSession(url) else { return nil }
+        guard AgentPaneTunables.agentLinks.value else { return false }
+        navigator.openLinked(session, .raise, asking: false, notFound: web)
+        return true
     }
 
     /// A path link (`file:///…`: Home's form of a path an agent wrote): a file opens in the
