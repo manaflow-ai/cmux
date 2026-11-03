@@ -12,7 +12,17 @@ frame and its scan budget), and the judge's note. px_page: the openBrowser actio
 refuses any other argument: "openBrowser has no argument 'focus'", cmux22 2026-11-03) and the page's own report.
 px_agent_css: theme.css beside the settings file. gen_pixel.py: every journey validates (run.py), stays in one lease,
 names each film once; the x1 + Reduce Motion journeys fit three to a lease.
+
+The recorder (cmux22 2026-11-03, kit 469b5922800): a second film's ScreenCaptureKit start gave no callback within
+ext_video's 8 s, while the app bounds each of its two ScreenCaptureKit calls at 10 s (callLimit) and only then reports
+an error. video_start takes `start_timeout` (default 8, as before) and reads the app's own start error as not run (it
+was a StepError); px_record_start waits for the recorder to be idle (no recording running, the last one written),
+starts with the app's own bound and retries a start that did not take once. The lease fetch moved every film raw (`tar c
+*/video`, about 400 MB of scan for six films) and timed out at 240 s: run.py's VIDEO_FETCH compresses it (`tar cz`), which
+take_videos reads as before; px_film records each film's movie and scan bytes in its result.
 """
+import gzip
+import io
 import json
 import os
 import subprocess
@@ -111,6 +121,7 @@ class FakeApp:
 class FakeJourney:
     def __init__(self, app, config_dir):
         self.app, self.marks, self.config_dir = app, {}, config_dir
+        self.out = Path(config_dir) / "out"
         self.ext_panes = {"p0": {"pane": "pane-a", "term": "t-a", "host_pid": 1, "window": "w1"},
                           "p1": {"pane": "pane-b", "term": "t-b", "host_pid": 1, "window": "w1"}}
         self.video = None
@@ -281,6 +292,236 @@ class ExtPixelTests(unittest.TestCase):
         self.assertFalse(Path(out["path"]).exists())
 
 
+class FakeClock:
+    """time.monotonic / sleep / time for ext_video's waits (no real waiting in a test)."""
+
+    def __init__(self):
+        self.t = 1000.0
+
+    def monotonic(self):
+        return self.t
+
+    def sleep(self, seconds):
+        self.t += max(0.0, float(seconds))
+
+    def time(self):
+        return 1.7e9 + self.t
+
+
+class RecorderApp(FakeApp):
+    """The app's recorder (MotionScreenRecord): ScreenCaptureKit's start takes `start_s` of the fake clock; with
+    `error_after`, the app gives up first (its own 10 s call limit), forgets the recording and reports the error on every
+    record_read until the next start; record_stop answers "no recording" then."""
+
+    def __init__(self, clock, start_s, error_after=None):
+        super().__init__()
+        self.clock, self.start_s, self.error_after = clock, start_s, error_after
+        self.recording, self.written, self.last_error, self.started_at, self.starts = False, True, None, None, 0
+
+    def rpc(self, method, params=None, timeout=None):
+        params = params or {}
+        if method == "debug.journal":
+            return {"entries": []}
+        if method != "debug.motion" or params.get("action") not in ("trace_start", "record_start", "record_read", "record_stop",
+                                                                      "trace_stop", "trace_read"):
+            return super().rpc(method, params, timeout)
+        self.calls.append((method, params))
+        action = params["action"]
+        if action == "trace_start":
+            return {"views": 3}
+        if action in ("trace_stop", "trace_read"):
+            return {"refresh_ms": 8.333, "samples": []}
+        if action == "record_start":
+            self.starts += 1
+            self.recording, self.written, self.last_error, self.started_at = True, False, None, self.clock.t
+            return {"starting": True, "width": 2872, "height": 1816, "scale": 2.0}
+        if action == "record_stop":
+            if not self.recording:
+                raise D.StepError("debug.motion: no recording")
+            self.recording, self.written = False, True
+            return {"written": True}
+        if self.recording and self.error_after is not None and self.clock.t - self.started_at >= self.error_after:
+            self.recording, self.written, self.last_error = False, True, "start the capture: no answer within 10 s"
+        if self.last_error:
+            raise D.StepError(f"debug.motion: {self.last_error}")
+        capturing = self.recording and self.clock.t - self.started_at >= self.start_s
+        return {"capturing": capturing, "written": self.written, "callbacks": 0, "frames": 0}
+
+
+class VideoStartTimeoutTests(unittest.TestCase):
+    """ext_video's video_start waits for the app's own answer when asked (`start_timeout`); 8 s stays the default."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ext-pixel-vs-")
+        self.clock = FakeClock()
+        self.saved = (X.V.time, X.V._bypass_dialog)
+        X.V.time, X.V._bypass_dialog = self.clock, (lambda j: None)
+
+    def tearDown(self):
+        X.V.time, X.V._bypass_dialog = self.saved
+
+    def start(self, app, **step):
+        j = FakeJourney(app, self.tmp)
+        return j, X.V.step_video_start(j, dict({"name": "px-f-s1", "seconds": 8, "require_hz": 120, "lead": 0.5}, **step))
+
+    def test_default_bound_is_still_8_s(self):
+        with self.assertRaises(D.NotRun) as caught:
+            self.start(RecorderApp(self.clock, start_s=9.0))
+        self.assertIn("ScreenCaptureKit did not start", str(caught.exception))
+
+    def test_a_slow_start_is_waited_for(self):
+        app = RecorderApp(self.clock, start_s=9.0)
+        j, out = self.start(app, start_timeout=22)
+        self.assertEqual(out["refresh_ms"], 8.333)
+        self.assertEqual(j.video["name"], "px-f-s1")
+        self.assertEqual(app.starts, 1)
+
+    def test_the_apps_own_start_error_is_not_run(self):
+        app = RecorderApp(self.clock, start_s=1e9, error_after=10.0)
+        with self.assertRaises(D.NotRun) as caught:  # was a StepError (a journey fail): record_read and record_stop raise
+            self.start(app, start_timeout=22)
+        self.assertIn("no answer within 10 s", str(caught.exception))
+
+
+class RecorderWaitTests(unittest.TestCase):
+    """px_record_start: the recorder idle first (a real signal: no recording running, the last one written), the app's own
+    start bound, one retry of a start that did not take; px_film: each film's bytes."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ext-pixel-rw-")
+        self.clock = FakeClock()
+        self.saved = (X.V.time, X.V._bypass_dialog, X.D.now, X.time)
+        X.V.time, X.V._bypass_dialog = self.clock, (lambda j: None)
+        X.D.now, X.time = self.clock.monotonic, self.clock
+
+    def tearDown(self):
+        X.V.time, X.V._bypass_dialog, X.D.now, X.time = self.saved
+
+    def record(self, app, **step):
+        j = FakeJourney(app, self.tmp)
+        out = X.step_px_record_start(j, dict({"name": "px-f-reduce", "seconds": 8, "require_hz": 120, "lead": 0.5,
+                                              "fixture": {"p0": {"kind": "tui", "fill": "#FFFF00"}}}, **step))
+        return j, out
+
+    def test_waits_for_the_last_recording_to_be_written(self):
+        app = RecorderApp(self.clock, start_s=0.2)
+        app.recording, app.written, app.started_at = False, False, self.clock.t  # the last film still being written
+        written_at = self.clock.t + 1.5
+        real = app.rpc
+
+        def rpc(method, params=None, timeout=None):
+            if method == "debug.motion" and (params or {}).get("action") == "record_read" and not app.recording \
+                    and self.clock.t >= written_at:
+                app.written = True
+            if method == "debug.motion" and (params or {}).get("action") == "record_start" and not app.written:
+                raise D.StepError("debug.motion: the last recording is still being written (read until written)")
+            return real(method, params, timeout)
+
+        app.rpc = rpc
+        j, out = self.record(app)
+        self.assertEqual(app.starts, 1)
+        self.assertGreaterEqual(out["recorder"]["idle"][0]["waited_s"], 1.5)
+        self.assertEqual(j.video["notes"]["pixel"]["recorder"]["attempts"], [])
+
+    def test_a_start_that_did_not_take_is_tried_again(self):
+        app = RecorderApp(self.clock, start_s=0.2, error_after=10.0)
+        first = {"n": 0}
+        real = app.rpc
+
+        def rpc(method, params=None, timeout=None):
+            if method == "debug.motion" and (params or {}).get("action") == "record_start":
+                first["n"] += 1
+                app.start_s = 1e9 if first["n"] == 1 else 0.2  # the first start hangs, the app ends it at 10 s
+            return real(method, params, timeout)
+
+        app.rpc = rpc
+        j, out = self.record(app)
+        self.assertEqual(app.starts, 2)
+        attempts = j.video["notes"]["pixel"]["recorder"]["attempts"]
+        self.assertEqual(len(attempts), 1)
+        self.assertIn("no answer within 10 s", attempts[0])
+        self.assertEqual(len(out["recorder"]["idle"]), 2)
+
+    def test_start_bound_is_the_apps_call_limits(self):
+        seen = {}
+        real = X.V.step_video_start
+
+        def fake(j, step):
+            seen.update(step)
+            j.video = {"notes": {}}
+            return {}
+
+        X.V.step_video_start = fake
+        try:
+            self.record(RecorderApp(self.clock, start_s=0.2))
+        finally:
+            X.V.step_video_start = real
+        self.assertEqual(seen["start_timeout"], X.START_TIMEOUT)
+        self.assertGreaterEqual(X.START_TIMEOUT, 21)  # two ScreenCaptureKit calls of at most 10 s each, and a margin
+
+    def test_other_not_runs_are_not_retried(self):
+        calls = {"n": 0}
+        real = X.V.step_video_start
+
+        def fake(j, step):
+            calls["n"] += 1
+            raise D.NotRun("video_start px-f-reduce: the window's display runs at 16.67 ms a frame, not 120 Hz")
+
+        X.V.step_video_start = fake
+        try:
+            with self.assertRaises(D.NotRun):
+                self.record(RecorderApp(self.clock, start_s=0.2))
+        finally:
+            X.V.step_video_start = real
+        self.assertEqual(calls["n"], 1)
+
+    def test_film_records_its_bytes(self):
+        app = FakeApp()
+        j = FakeJourney(app, self.tmp)
+        video = j.out / "video"
+        video.mkdir(parents=True)
+        (video / "f-s1.mov").write_bytes(b"m" * 1234)
+        (video / "f-s1.mov.scan").write_bytes(b"s" * 56789)
+        line = X.step_px_film(j, film("f-s1", 1.0))
+        self.assertEqual(line["bytes"], {"movie": 1234, "scan": 56789})
+        self.assertEqual(j.px["films"][-1]["bytes"], {"movie": 1234, "scan": 56789})
+
+
+class VideoFetchTests(unittest.TestCase):
+    """run.py's lease fetch of the films: compressed on the mini (`tar cz`), read back by take_videos unchanged."""
+
+    def test_fetch_is_compressed_and_read_back(self):
+        import run as R
+        with tempfile.TemporaryDirectory() as mini, tempfile.TemporaryDirectory() as vm:
+            video = Path(mini) / "px-a-s1r" / "video"
+            video.mkdir(parents=True)
+            header = json.dumps({"width": 2872, "height": 1816, "rows": [28], "columns": [762]}).encode() + b"\n"
+            row = (b"\x00\xff\xff\xff" * 400 + b"\x00\x00\xff\xff" * 2472)  # BGRA: a yellow run, then a red one
+            scan = header + b"".join(b"\x00" * 8 + row + b"\xff\x00\xff\xff" * 1816 for _ in range(600))
+            (video / "px-a-s1r-s1.mov.scan").write_bytes(scan)
+            (video / "px-a-s1r-s1.mov").write_bytes(os.urandom(200_000))  # an encoded movie does not compress
+            stream = subprocess.run(["sh", "-c", f"cd '{mini}' && {R.VIDEO_FETCH}"], capture_output=True, timeout=120).stdout
+            self.assertTrue(stream.startswith(b"\x1f\x8b"), "the fetch is gzip")
+            self.assertLess(len(stream), 600_000, f"{len(stream)} bytes for {len(scan)} bytes of scan")
+            R.take_videos(stream, Path(vm), {"px-a-s1r"})
+            self.assertEqual((Path(vm) / "px-a-s1r" / "video" / "px-a-s1r-s1.mov.scan").read_bytes(), scan)
+            self.assertEqual(len((Path(vm) / "px-a-s1r" / "video" / "px-a-s1r-s1.mov").read_bytes()), 200_000)
+
+    def test_take_videos_still_reads_an_uncompressed_fetch(self):
+        import run as R
+        import tarfile
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            data = b"scan bytes"
+            info = tarfile.TarInfo("rk-x/video/rk-x.mov.scan")
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+        with tempfile.TemporaryDirectory() as vm:
+            R.take_videos(buf.getvalue(), Path(vm), {"rk-x"})
+            self.assertEqual((Path(vm) / "rk-x" / "video" / "rk-x.mov.scan").read_bytes(), b"scan bytes")
+        self.assertEqual(gzip.decompress(gzip.compress(b"x")), b"x")
+
+
 class PixelCasesTests(unittest.TestCase):
     def test_generated_journeys(self):
         with tempfile.TemporaryDirectory() as out:
@@ -303,6 +544,7 @@ class PixelCasesTests(unittest.TestCase):
                     starts = [st for st in f["steps"] if st["do"] == "px_record_start"]
                     self.assertEqual([st["name"] for st in starts], [f["name"]])
                     self.assertEqual(starts[0]["require_hz"], 120)
+                    self.assertEqual(starts[0]["mbps"], 60)  # flat fixture colors: a capped movie, the scan is exact
                     self.assertEqual(f["steps"][-1], {"do": "video_stop", "name": f["name"], "tail": 0.4,
                                                       "title": f"the motion ends; stop the recording ({f['name']})"})
                     self.assertTrue(("speed" in f) != ("reduce" in f), f)
