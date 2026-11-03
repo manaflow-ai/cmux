@@ -2706,6 +2706,7 @@
       "center-line:row spacing-received-a",
       "center-line:row spacing-received-b"
     ],
+    "agent-pane.transcript-type#claude-approve": [],
     "agent-pane.transcript-type#claude-code-entry": [],
     "agent-pane.transcript-type#codex-code": [],
     "agent-pane.transcript-type#reading": [],
