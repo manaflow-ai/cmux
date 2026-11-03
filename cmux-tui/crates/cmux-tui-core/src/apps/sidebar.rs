@@ -209,7 +209,7 @@ fn placement_ops(
     let mut ops = Vec::new();
     for section in sections {
         let SectionKind::App { contribution } = &section.kind else { continue };
-        let key = receipt_key(section).expect("app section");
+        let Some(key) = receipt_key(section) else { continue };
         if automatic && has_receipt(transaction, &key)? {
             continue;
         }
@@ -236,6 +236,7 @@ fn placement_ops(
 
 #[cfg(test)]
 mod tests {
+    use super::super::mirror::Tier;
     use super::*;
     use cmux_layout_reducer::sidebar_doc::reduce;
 
@@ -243,8 +244,8 @@ mod tests {
         Package {
             id: "local/customize".into(),
             version: "1.0.0".into(),
-            tier: super::super::mirror::Tier::Unverified,
-            source: super::super::mirror::Source::Local,
+            tier: Tier::Unverified,
+            source: Source::Local,
             dir: Default::default(),
             manifest: json!({"implements": {"cmux.section/1": {
                 "export": "render", "title": "Recent PRs",
@@ -253,8 +254,8 @@ mod tests {
         }
     }
 
-    fn connection() -> rusqlite::Connection {
-        let connection = rusqlite::Connection::open_in_memory().unwrap();
+    fn connection() -> Connection {
+        let connection = Connection::open_in_memory().unwrap();
         connection
             .execute_batch("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
             .unwrap();
