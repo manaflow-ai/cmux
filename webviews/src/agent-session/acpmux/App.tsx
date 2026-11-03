@@ -8611,7 +8611,7 @@ function AcpmuxPane() {
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
   /// The last accepted first send, retained so choosing This Mac after a refusal can
   /// explicitly finish its Cloud key just as the native cap-card answer does.
-  const lastCloudAttempt = useRef<{ key: string; request: CloudStart }>();
+  const lastCloudAttempt = useRef<{ key: string; request: CloudStart } | undefined>(undefined);
   /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
   /// host closes this tab with only the sent prompt, so text or files added meanwhile would be lost;
   /// on failure the prompt is still in the composer to edit and send again.
