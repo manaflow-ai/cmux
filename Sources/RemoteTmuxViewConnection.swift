@@ -548,11 +548,24 @@ final class RemoteTmuxViewConnection {
         let read = Self.readBringupRows(lines)
         placeholderWindowId = read.placeholder
         ownedWindowIds = read.adopted
+        if !read.marksSettled {
+            // One sequence, so the view is flagged only once every mark has landed; if any
+            // fails, the next bringup reads the view the old way again.
+            let settle = read.toMark.map { RemoteTmuxViewSession.linkedMarkCommand(windowId: $0) }
+                + ["set-option -t \(quoted(view.sessionName)) \(RemoteTmuxViewSession.optMarksSettled) 1"]
+            _ = conn.send(settle.joined(separator: " ; "))
+        }
         return true
     }
 
-    /// Reads the bringup's `list-windows` reply into the placeholder and the windows to treat as
-    /// ours. Pure, so the row rules can be checked without a server.
+    /// The bringup's `list-windows -F` format: id, linked flag, the window's mark, and the
+    /// view's ``RemoteTmuxViewSession/optMarksSettled`` flag (a session option, which tmux
+    /// reads through a window format).
+    nonisolated static let bringupListFormat =
+        "#{window_id} #{window_linked} #{\(RemoteTmuxViewSession.optLinked)} #{\(RemoteTmuxViewSession.optMarksSettled)}"
+
+    /// Reads the bringup's `list-windows` reply (``bringupListFormat``) into the placeholder and
+    /// the windows to treat as ours. Pure, so the row rules can be checked without a server.
     ///
     /// The placeholder is the window reconcile must never unlink: it is the only window the
     /// view is guaranteed to keep, and unlinking it would destroy the view. It is the
@@ -567,19 +580,25 @@ final class RemoteTmuxViewConnection {
     /// copies unlinked. A window in the view alone without the mark was created there by
     /// somebody else. It is not ours, because reconcile unlinks dead copies with `-k`, which would
     /// destroy it; ``RemoteTmuxViewOnlyWindows`` moves it into a real session instead.
-    /// The bringup's `list-windows -F` format: id, linked flag, the window's mark, and the
-    /// view's ``RemoteTmuxViewSession/optMarksSettled`` flag (a session option, which tmux
-    /// reads through a window format).
-    nonisolated static let bringupListFormat =
-        "#{window_id} #{window_linked} #{\(RemoteTmuxViewSession.optLinked)} #{\(RemoteTmuxViewSession.optMarksSettled)}"
-
+    ///
+    /// A view without ``RemoteTmuxViewSession/optMarksSettled`` was left by a cmux that set no
+    /// marks, so a window in it alone may be one of that cmux's copies. Such a view is read the
+    /// old way, every window but the placeholder is ours, and `toMark` lists those windows so
+    /// the bringup can mark them and flag the view.
     nonisolated static func readBringupRows(
         _ lines: [String]
     ) -> (placeholder: String?, adopted: Set<String>, marksSettled: Bool, toMark: [String]) {
-        let rows = lines.compactMap { line -> (id: String, isLinked: Bool, isMarked: Bool)? in
-            let fields = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        let rows = lines.compactMap { line -> (id: String, isLinked: Bool, isMarked: Bool, settled: Bool)? in
+            // Empty fields stay in place: an unset mark prints nothing between two spaces.
+            let fields = line.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
             guard let id = fields.first, !id.isEmpty else { return nil }
-            return (id, fields.count > 1 && fields[1] == "1", fields.count > 2 && fields[2] == "1")
+            func flag(_ index: Int) -> Bool { fields.count > index && fields[index] == "1" }
+            return (id, flag(1), flag(2), flag(3))
+        }
+        guard rows.contains(where: \.settled) else {
+            let placeholder = (rows.first { !$0.isLinked } ?? rows.first)?.id
+            let adopted = rows.map(\.id).filter { $0 != placeholder }
+            return (placeholder, Set(adopted), false, adopted)
         }
         let placeholder = (rows.first { !$0.isLinked && !$0.isMarked } ?? rows.first { !$0.isLinked } ?? rows.first)?.id
         var adopted = Set(rows.filter { $0.isLinked || $0.isMarked }.map(\.id))
@@ -797,8 +816,8 @@ final class RemoteTmuxViewConnection {
         for action in plan.reconcileActions {
             switch action {
             case let .link(windowId):
-                if conn.send("link-window -s \(windowId) -t \(quoted(view.sessionName))") {
-                    _ = conn.send(RemoteTmuxViewSession.linkedMarkCommand(windowId: windowId))
+                if conn.send(RemoteTmuxViewSession.linkAndMark(
+                    "link-window -s \(windowId) -t \(quoted(view.sessionName))", windowId: windowId)) {
                     ownedWindowIds.insert(windowId)
                 }
             case let .unlinkFromView(windowId):
@@ -817,7 +836,11 @@ final class RemoteTmuxViewConnection {
                 ownedWindowIds.remove(windowId)
             }
         }
-        ownedWindowIds.formUnion(adoptViewOnlyWindows(plan.adoptions, over: conn))
+        Self.adopt(plan.adoptions, send: { conn.sendTracked($0, completion: $1) }, onLinked: { [weak self] windowId in
+            guard let self else { return }
+            self.ownedWindowIds.insert(windowId)
+            self.requestReconcile()
+        })
 
         if plan.workspaces != workspaces {
             workspaces = plan.workspaces
