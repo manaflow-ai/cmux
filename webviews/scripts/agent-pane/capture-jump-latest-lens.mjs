@@ -36,7 +36,7 @@ const shots = [
   ["strong", "strong"],
 ];
 try {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ channel: "chrome" });
   try {
     const context = await browser.newContext({
       viewport: { width: 900, height: 720 },

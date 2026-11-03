@@ -11,7 +11,11 @@ const turn = (n: number): AcpmuxRow[] =>
   ] as unknown as AcpmuxRow[];
 const turns = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => turn(from + i)).flat();
 
-const pass = (state: OlderReserve | undefined, rows: AcpmuxRow[], more: { canLoadOlder?: boolean; earlier?: number }) =>
+const pass = (
+  state: OlderReserve | undefined,
+  rows: AcpmuxRow[],
+  more: { canLoadOlder?: boolean; earlier?: number; promptCount?: number },
+) =>
   olderReserve(state, {
     sessionId: "s",
     rows,
@@ -19,6 +23,7 @@ const pass = (state: OlderReserve | undefined, rows: AcpmuxRow[], more: { canLoa
     rowsHeight: rows.length * 100,
     canLoadOlder: more.canLoadOlder ?? true,
     earlier: more.earlier,
+    promptCount: more.promptCount,
   });
 
 describe("olderReserve", () => {
@@ -57,13 +62,13 @@ describe("olderReserve", () => {
     expect(pass(undefined, turns(0, 10), {}).reserve).toBe(0);
   });
 
-  test("a room that runs out with history left is estimated again, once", () => {
+  test("a room that runs out stays exhausted when more pages and counts arrive", () => {
     const first = pass(undefined, turns(49, 50), { earlier: 1 });
     expect(first.reserve).toBe(200);
     // The estimate was short: three turns landed and more are left.
     const step = pass(first.state, turns(46, 50), { earlier: 10 });
-    expect(step.reserve).toBe(2000);
-    expect(step.state?.pinId).toBe("u46");
+    expect(step.reserve).toBe(0);
+    expect(pass(step.state, turns(40, 50), { earlier: 40 }).reserve).toBe(0);
   });
 
   test("a divider above the first prompt that is replaced keeps the room", () => {
@@ -77,12 +82,60 @@ describe("olderReserve", () => {
     expect(step.reserve + 3 * 100).toBe(first.reserve + 1 * 100);
   });
 
-  test("a count that arrives after the rows sets up the room", () => {
+  test("late counts never add room after the first frame", () => {
     const rows = turns(40, 50);
     const none = pass(undefined, rows, {});
     expect(none.reserve).toBe(0);
     expect(pass(none.state, rows, {}).reserve).toBe(0);
-    expect(pass(none.state, rows, { earlier: 40 }).reserve).toBe(8000);
+    expect(pass(none.state, rows, { earlier: 40 }).reserve).toBe(0);
+    expect(pass(none.state, rows, { promptCount: 50 }).reserve).toBe(0);
+  });
+
+  test("the first frame uses promptCount before earlier prompts arrive", () => {
+    const rows = turns(40, 50);
+    const first = pass(undefined, rows, { promptCount: 50 });
+    expect(first.reserve).toBe(8000);
+    expect(pass(first.state, rows, { earlier: 400, promptCount: 500 }).reserve).toBe(8000);
+  });
+
+  test("shrinking rows above the pin never refills consumed room", () => {
+    const first = pass(undefined, turns(40, 50), { promptCount: 50 });
+    const page = pass(first.state, turns(30, 50), { earlier: 30 });
+    expect(page.reserve).toBe(6000);
+    const resized = (state: OlderReserve | undefined, top: number) =>
+      olderReserve(state, {
+        sessionId: "s",
+        rows: turns(30, 50),
+        rowTop: (index) => (index < 20 ? (index * top) / 20 : top + (index - 20) * 100),
+        rowsHeight: top + 2000,
+        canLoadOlder: true,
+        promptCount: 50,
+      });
+    const collapsed = resized(page.state, 1000);
+    expect(collapsed.reserve).toBe(6000);
+    expect(resized(collapsed.state, 2000).reserve).toBe(5000);
+  });
+
+  test("a removed pin keeps only the remaining room without another estimate", () => {
+    const first = pass(undefined, turns(40, 50), { promptCount: 50 });
+    const page = pass(first.state, turns(30, 50), { earlier: 30 });
+    const removed = turns(30, 50).filter((row) => row.id !== "u40");
+    const next = pass(page.state, removed, { earlier: 400 });
+    expect(next.reserve).toBe(page.reserve);
+    expect(next.state?.pinId).toBe("u30");
+    expect(pass(next.state, removed, { earlier: 4000 }).reserve).toBe(next.reserve);
+  });
+
+  test("completed or temporarily empty history never reseeds the same session", () => {
+    const rows = turns(40, 50);
+    const first = pass(undefined, rows, { promptCount: 50 });
+    const complete = pass(first.state, rows, { canLoadOlder: false });
+    expect(complete.reserve).toBe(0);
+    expect(pass(complete.state, rows, { promptCount: 500 }).reserve).toBe(0);
+    const empty = pass(first.state, [], {});
+    expect(pass(empty.state, rows, { promptCount: 500 }).reserve).toBe(0);
+    const initiallyEmpty = pass(undefined, [], {});
+    expect(pass(initiallyEmpty.state, rows, { promptCount: 50 }).reserve).toBe(8000);
   });
 
   test("another chat starts its own room, and the room is capped", () => {

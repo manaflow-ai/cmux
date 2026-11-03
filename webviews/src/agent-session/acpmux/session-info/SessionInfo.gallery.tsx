@@ -402,6 +402,31 @@ const checkTopBlockAlignment: Play = async (ctx) => {
     throw new Error("The Changes heading moved from the shared text column");
 };
 
+/// The default order, top to bottom (sectionOrder.ts DEFAULT_ORDER; Leo, 2026-11-03: "1. Machines showing
+/// up so I know if it's cloud or not 2. context 3. Subagents/background tasks running 4. Sources").
+const DEFAULT_SECTION_ORDER = [
+  "environment",
+  "context",
+  "usage",
+  "subagents",
+  "tasks",
+  "sources",
+  "changes",
+  "outputs",
+  "connectors",
+];
+const assertDefaultOrder: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
+  const drawn = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-sections > [data-slot]")].map(
+    (slot) => slot.dataset.slot!,
+  );
+  const expected = DEFAULT_SECTION_ORDER.filter((id) => drawn.includes(id));
+  if (drawn.join(" ") !== expected.join(" "))
+    throw new Error(`Session Info's default order is ${drawn.join(", ")}, not ${expected.join(", ")}`);
+  for (const id of ["environment", "context", "subagents", "sources"])
+    if (!drawn.includes(id)) throw new Error(`The full chat does not draw ${id}`);
+};
+
 /// Every session acpmux lists, this Mac's and a peer's: the usage audit's deputies on a build box (no
 /// autocompact cap, 290-330k per call, 67-90 subagents a day) above this chat.
 const fleet: AcpmuxSessionEntry[] = [
@@ -778,9 +803,12 @@ export default componentEntry<Props>({
   load: async () => GallerySessionInfo,
   variants: {
     full: {
-      note: "A chat on this Mac with every section, shipped layout (glance): no section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Connectors (1 to reconnect) as one row each. A hairline, then what it made: six session-owned pull requests, then Sources with read-only PRs, URLs, files and MCP tools, then its outputs. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished.",
+      note: "A chat on this Mac with every section, shipped layout (glance), in the default order: the machine (this Mac or Cloud), Context, what it runs, then Sources. No section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Usage as one row each. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished. A hairline, then Sources with read-only PRs, URLs, files and MCP tools, six session-owned pull requests in Changes, and its outputs. A last hairline, then Connectors (1 to reconnect).",
       props: full,
-      play: checkTopBlockAlignment,
+      play: async (ctx) => {
+        await assertDefaultOrder(ctx);
+        await checkTopBlockAlignment(ctx);
+      },
     },
     "workflow-running": {
       note: "Chosen: the live workflow row keeps the agent name above its truncating model label, puts its current action beneath, and keeps state and elapsed time aligned on the right. Running work uses a spinner; finished and failed work use status marks; queued work uses an outline.",
@@ -959,7 +987,7 @@ export default componentEntry<Props>({
       },
     },
     "reorder-dragging": {
-      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (a raised surface and a shadow, only while held) and follows the pointer; Connectors and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
+      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (a raised surface and a shadow, only while held) and follows the pointer; Usage and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
       props: full,
       play: dragOutputsOverContext,
     },
