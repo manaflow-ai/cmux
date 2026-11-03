@@ -38,7 +38,7 @@ pub(super) fn tool() -> Value {
             "type": "object",
             "properties": {
                 "to": {"type": "string", "description": "The session: its name, id, or host/name for a session on a peer (as ls lists them)."},
-                "text": {"type": "string", "description": "The message, self-contained."},
+                "text": {"type": "string", "description": "The message, self-contained. Text too large for one RPC is uploaded automatically as a file for the receiver to read."},
                 "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step. false: queued behind the running turn."},
                 "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "What the message asks of the receiver: block or blocker (you cannot go on until it acts; wakes an idle receiver), question (you wait for its answer; wakes it too), result or action (work you finished or work for it; the default; wakes an idle receiver only when you started it or gave it its first work) or fyi (wakes no one)."},
                 "pr": {"type": "integer", "description": "The pull request this message is about: the receiver's inbox threads it with the others about it."},
@@ -103,6 +103,8 @@ pub(super) struct Target {
 pub(super) struct MessageFile {
     path: std::path::PathBuf,
     size: u64,
+    /// Only inline text needs spooling; file inputs keep their original descriptor.
+    _spool: Option<tempfile::TempDir>,
     // try_clone shares a cursor. Hold this lock through an upload so batch recipients
     // cannot move each other's cursor; unrelated message files still upload in parallel.
     file: tokio::sync::Mutex<std::fs::File>,
@@ -201,9 +203,9 @@ fn pick<'v>(own: &'v Value, defaults: Option<&'v Value>, a: &str, b: &str) -> &'
 }
 
 /// The message: its text, or its file's contents.
-async fn body(item: &Item) -> Result<(String, Option<Arc<MessageFile>>), String> {
-    let text = match (&item.text, &item.file) {
-        (Some(text), _) => text.clone(),
+async fn body(item: &mut Item) -> Result<(String, Option<Arc<MessageFile>>), String> {
+    let text = match (item.text.take(), &item.file) {
+        (Some(text), _) => text,
         (None, Some(path)) => {
             let path = path.clone();
             return tokio::task::spawn_blocking(move || read_message_file(&path))
@@ -217,7 +219,56 @@ async fn body(item: &Item) -> Result<(String, Option<Arc<MessageFile>>), String>
             if item.file.is_some() { "the file is empty" } else { "text is empty" }.to_owned()
         );
     }
+    if text_needs_file(&text) {
+        return tokio::task::spawn_blocking(move || spool_message(text))
+            .await
+            .map_err(|e| format!("cannot prepare message: {e}"))?;
+    }
     Ok((text, None))
+}
+
+/// Count JSON string bytes without allocating an escaped copy. Leave room for the
+/// prompt's fields and provenance on each RPC hop, including the durable outbox.
+pub(super) fn text_needs_file(text: &str) -> bool {
+    let budget = crate::rpc::MAX_MESSAGE_BYTES.saturating_sub(128 << 10);
+    text.bytes()
+        .try_fold(2usize, |n, b| {
+            let escaped = match b {
+                b'"' | b'\\' | 8 | 9 | 10 | 12 | 13 => 2,
+                0..=31 => 6,
+                _ => 1,
+            };
+            n.checked_add(escaped).filter(|&n| n <= budget)
+        })
+        .is_none()
+}
+
+fn spool_message(text: String) -> Result<(String, Option<Arc<MessageFile>>), String> {
+    use std::io::Write;
+    let spool = tempfile::Builder::new()
+        .prefix("acpmux-message-")
+        .tempdir()
+        .map_err(|e| format!("cannot spool message: {e}"))?;
+    let path = spool.path().join("message.txt");
+    let mut open = std::fs::OpenOptions::new();
+    open.read(true).write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
+    let mut file = open.open(&path).map_err(|e| format!("cannot spool message: {e}"))?;
+    // The MCP parser already owns text. Move it here, without another full copy,
+    // then release it as soon as the spool is ready for the chunked uploader.
+    for chunk in text.as_bytes().chunks(crate::hub::file_uploads::CHUNK_BYTES) {
+        file.write_all(chunk).map_err(|e| format!("cannot spool message: {e}"))?;
+    }
+    Ok((
+        "Read the complete message in the attached file before acting.".into(),
+        Some(Arc::new(MessageFile {
+            path,
+            size: text.len() as u64,
+            _spool: Some(spool),
+            file: tokio::sync::Mutex::new(file),
+        })),
+    ))
 }
 
 /// A message file: a regular file of this user's. A relative
@@ -260,6 +311,7 @@ pub(super) fn read_message_file(path: &str) -> Result<(String, Option<Arc<Messag
             Some(Arc::new(MessageFile {
                 path: path.to_owned(),
                 size: meta.len().max(bytes.len() as u64),
+                _spool: None,
                 file: tokio::sync::Mutex::new(file),
             })),
         ));
@@ -286,11 +338,11 @@ async fn send_one(daemon: &Arc<Client>, args: &Value) -> Value {
     {
         return error_result("to and text are required".to_owned());
     }
-    let item = match item_of(args, None) {
+    let mut item = match item_of(args, None) {
         Ok(item) => item,
         Err(e) => return error_result(e),
     };
-    let (text, file) = match body(&item).await {
+    let (text, file) = match body(&mut item).await {
         Ok(body) => body,
         Err(e) => return error_result(e),
     };
@@ -337,7 +389,7 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
             json!({"index": index, "to": to, "tag": tag, "ok": false, "promptId": null,
                 "deliveryId": null, "status": "failed", "error": error})
         };
-        let item = match item {
+        let mut item = match item {
             Ok(item) => item,
             Err(e) => {
                 rows.insert((index, 0), failed("", None, e));
@@ -345,7 +397,7 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
             }
         };
         let (to, tag) = (item.to.clone().unwrap_or_default(), item.tag.clone());
-        let (text, file) = match body(&item).await {
+        let (text, file) = match body(&mut item).await {
             Ok(body) => body,
             Err(e) => {
                 rows.insert((index, 0), failed(&to, tag.as_deref(), e));

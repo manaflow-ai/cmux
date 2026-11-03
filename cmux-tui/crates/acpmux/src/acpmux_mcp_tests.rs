@@ -275,6 +275,23 @@ async fn a_message_can_be_a_file_of_yours() {
 /// receives the complete file by reference, through the same durable outbox.
 #[tokio::test]
 async fn a_large_message_file_is_uploaded_and_reaches_the_agent_intact() {
+    large_message_arrives(true).await;
+}
+
+#[tokio::test]
+async fn text_past_the_rpc_envelope_reaches_the_agent_intact() {
+    large_message_arrives(false).await;
+}
+
+#[test]
+fn json_expansion_is_counted_before_deciding_to_upload_text() {
+    let plain = "a".repeat(6 << 20);
+    assert!(!send::text_needs_file(&plain));
+    let escaped = "\0".repeat(6 << 20);
+    assert!(send::text_needs_file(&escaped));
+}
+
+async fn large_message_arrives(from_file: bool) {
     use sha2::Digest;
     use std::io::{Read, Write};
     let (hub, client, _socket) = daemon().await;
@@ -291,9 +308,20 @@ async fn a_large_message_file_is_uploaded_and_reaches_the_agent_intact() {
         }
     }
     assert!(std::fs::metadata(&path).unwrap().len() > 40 << 20);
-    let r = call(&client, &tool("send", json!({"to": "large-file-lane", "file": path}))).await;
+    let args = if from_file {
+        json!({"to": "large-file-lane", "file": path})
+    } else {
+        json!({"to": "large-file-lane", "text": std::fs::read_to_string(&path).unwrap()})
+    };
+    let name = if from_file { "instructions.md" } else { "message.txt" };
+    let started = std::time::Instant::now();
+    let r = call(&client, &tool("send", args)).await;
     assert_eq!(r["isError"], false, "{r}");
-    assert!(received(&hub, &lane, "instructions.md").await, "file was not recorded");
+    eprintln!(
+        "41.133 MiB MCP message (from_file={from_file}) delivered in {:?}",
+        started.elapsed()
+    );
+    assert!(received(&hub, &lane, name).await, "file was not recorded");
     let finished = client
         .request(
             method::MUX_WAIT,
@@ -313,7 +341,7 @@ async fn a_large_message_file_is_uploaded_and_reaches_the_agent_intact() {
         })
         .unwrap_or_else(|| panic!("agent got no file reference: {reply}"));
     let saved = reqwest::Url::parse(&uri).unwrap().to_file_path().unwrap();
-    assert_eq!(saved.file_name().unwrap(), "instructions.md");
+    assert_eq!(saved.file_name().unwrap(), name);
     let mut file = std::fs::File::open(saved).unwrap();
     let mut actual = sha2::Sha256::new();
     let mut bytes = [0u8; 65536];
