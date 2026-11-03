@@ -37,6 +37,13 @@ export type FindMatchesResult = {
 /** The highlight names conversation.css styles. */
 export const FIND_HIGHLIGHT = "acpmux-find";
 export const FIND_ACTIVE_HIGHLIGHT = "acpmux-find-active";
+/// Dispatched on the pane's shell when Find in Chat's bar opens (ChatFindBar.tsx): where the chat has
+/// no room for the bar beside Session Info, the panel steps aside (session-info/SessionInfo.tsx
+/// findBarCramped) instead of covering it.
+export const FIND_OPEN_EVENT = "acpmux-find-open";
+/// Dispatched on the pane's shell to close Find in Chat's bar: the person opened Session Info over it
+/// where the chat has no room for both.
+export const FIND_HIDE_EVENT = "acpmux-find-hide";
 
 /// Prompts, replies, and another agent's message waiting in the queue (QUEUED_MESSAGE, its text),
 /// which the transcript draws in the group of waiting messages (pendingMessages.ts).

@@ -31,6 +31,10 @@ public actor CloudCodexBroker {
     private var targetWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var refreshTask: Task<Void, Never>?
     private var refreshCycle = 0
+    /// The first wait before a failed renewal tries again; each failure after it doubles the wait, up
+    /// to ``renewalRetryCap``.
+    private let renewalRetryBase: Duration
+    static let renewalRetryCap: Duration = .seconds(300)
     private var refreshInFlight: Task<CloudCodexAccessGrant, any Error>?
     private var quitWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private var quitTimers: [UUID: Task<Void, Never>] = [:]
@@ -41,7 +45,9 @@ public actor CloudCodexBroker {
                 executable: URL,
                 executablePrefix: [String] = [],
                 codexExecutable: URL,
-                home: URL) {
+                home: URL,
+                renewalRetryBase: Duration = .seconds(15)) {
+        self.renewalRetryBase = renewalRetryBase
         self.scope = scope
         self.currentScope = currentScope
         self.executable = executable
@@ -469,21 +475,23 @@ public actor CloudCodexBroker {
 
     private func targetList() -> [CloudCodexBrokerTarget] { targets.values.sorted { $0.machineID < $1.machineID } }
 
-    private func scheduleRefresh(grant: CloudCodexAccessGrant) {
+    /// Renews `grant` before it expires. `failures` counts the renewals that failed in a row: after
+    /// one the next try comes after a backoff instead (``renewalRetryDelay(_:)``).
+    private func scheduleRefresh(grant: CloudCodexAccessGrant, failures: Int = 0) {
         // A foreground force-refresh can race a renewal fan-out. Keep the
         // active renewal task alive so its target delivery is not cancelled and
         // misclassified as a revoked target. The existing task will schedule
         // itself again after its fan-out; a completed failed task clears its
         // handle in the catch below.
-        guard refreshTask == nil, !targets.isEmpty else { return }
+        guard refreshTask == nil, !targets.isEmpty, !stopped else { return }
         refreshCycle += 1
         let cycle = refreshCycle
-        let wait = max(1, grant.expiresAt.timeIntervalSinceNow - 120)
+        let wait: Duration = failures == 0 ? .seconds(max(1, grant.expiresAt.timeIntervalSinceNow - 120)) : renewalRetryDelay(failures)
         let expectedScope = scope
         refreshTask = Task { [weak self] in
             do {
-                // wakeup-allow: one renewal wakeup before the short-lived grant expires
-                try await Task.sleep(for: .seconds(wait))
+                // wakeup-allow: one renewal wakeup before the short-lived grant expires, or one backoff after a failed renewal
+                try await Task.sleep(for: wait)
                 guard let self else { return }
                 guard await self.currentScope() == expectedScope else { throw CloudCodexBrokerError.scopeChanged }
                 let refreshed = try await self.retryRenewal { try await self.refreshAccess(schedule: false) }
@@ -497,7 +505,8 @@ public actor CloudCodexBroker {
             } catch {
                 // cancellation, logout, or a stopped VM ends renewal; do not
                 // leave a completed task handle blocking future scheduling.
-                if let self { await self.finishRefreshTask(cycle: cycle) }
+                // A transient failure (the Mac woke before its network did, Wi-Fi dropped) tries again later.
+                if let self { await self.renewalFailed(error, grant: grant, cycle: cycle, failures: failures) }
             }
         }
     }
@@ -515,6 +524,32 @@ public actor CloudCodexBroker {
             }
         }
         throw CloudCodexBrokerError.brokerUnavailable
+    }
+
+    /// A renewal that failed: it ends, and after a transient failure the next one is scheduled after a
+    /// backoff. Renewal used to end for good after its three quick retries (7 s), so a Mac that woke from
+    /// sleep at a renewal before its Wi-Fi was back never renewed again, and the Cloud machine's Codex
+    /// lost its access once the grant expired. Stops: the broker shut down, no target left, a newer
+    /// renewal, the account or team changed, Codex signed out, or the task cancelled.
+    private func renewalFailed(_ error: any Error, grant: CloudCodexAccessGrant, cycle: Int, failures: Int) {
+        finishRefreshTask(cycle: cycle)
+        guard cycle == refreshCycle, !Task.isCancelled, Self.retriesLater(error) else { return }
+        scheduleRefresh(grant: cached ?? grant, failures: failures + 1)
+    }
+
+    /// Whether a failed renewal tries again later: the local holder or a delivery failed, including the
+    /// holder's `codex_auth_unavailable` (``CloudCodexBrokerError/notAuthenticated``), which is also what an
+    /// offline refresh answers (the holder maps every refresh error but an account change to it, so a
+    /// sign-out and a network failure look alike; retrying a signed-out holder only asks it again, locally).
+    /// Never an account or team change, or a cancel.
+    static func retriesLater(_ error: any Error) -> Bool {
+        guard let failure = error as? CloudCodexBrokerError else { return false }
+        return [CloudCodexBrokerError.brokerUnavailable, .remoteDeliveryFailed, .expiredAccess, .invalidReply, .notAuthenticated].contains(failure)
+    }
+
+    /// The wait before renewal try `failures` (1 or more): the base, doubled per failure, capped.
+    func renewalRetryDelay(_ failures: Int) -> Duration {
+        min(renewalRetryBase * (1 << min(max(failures - 1, 0), 10)), Self.renewalRetryCap)
     }
 
     private func finishRefreshTask(cycle: Int) {
