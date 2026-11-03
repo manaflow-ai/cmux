@@ -448,7 +448,9 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       [{ promptId: "q-2", prompt: "Docs are rebuilt for the 2.3 release notes." }],
     );
     try {
-      await page.locator(".cv-pending__toggle").click();
+      // One waiting message is its own line; more wait in one collapsed group (PendingMessagesCard.tsx).
+      await page.locator(".cv-pending__toggle, .cv-pending--one").first().waitFor({ timeout: 10_000 });
+      if (await page.locator(".cv-pending__toggle").count()) await page.locator(".cv-pending__toggle").click();
       const rows = page.locator(".cv-received");
       await rows.nth(1).waitFor({ timeout: 10_000 });
       const lines = await rows.evaluateAll((all) =>
