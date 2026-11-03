@@ -1169,6 +1169,8 @@ export function mergeToolItem(
       ...(before?.background ? { background: before.background } : {}),
       // An approval stays on its call as the call's result comes in.
       ...(before?.approved ? { approved: true as const } : {}),
+      // What a background task's end left on it (`attachReaction`) stays as later updates come in.
+      ...(before?.reaction ? { reaction: before.reaction } : {}),
       locations,
       ...(input ? { inputPath: input } : {}),
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
@@ -5386,7 +5388,9 @@ export class AcpmuxDirectClient {
   private react(origin: string, reaction: AcpmuxBackgroundReaction): boolean {
     // The call's row as the pane knows it now, else where its reaction went (a prompt forgets
     // its calls' rows, `toolRows`, but not the rows themselves).
-    const id = this.toolRows.get(origin) ?? this.reactions.get(origin)?.row;
+    // A call a newer prompt forgot (`toolRows` holds only its own prompt's) is found among the
+    // rows once, when its task first ends: once per background turn, never per token.
+    const id = this.toolRows.get(origin) ?? this.reactions.get(origin)?.row ?? this.callRow(origin);
     const row = id === undefined ? undefined : this.rows.get(id);
     const index = row?.items?.findIndex((item) => item.tool?.id === origin) ?? -1;
     if (row && index >= 0) {
@@ -5400,6 +5404,14 @@ export class AcpmuxDirectClient {
     if (reaction.fresh) this.freshReactions.add(origin);
     else this.freshReactions.delete(origin);
     return true;
+  }
+
+  /// The newest activity row that holds call `origin`.
+  private callRow(origin: string): string | undefined {
+    let found: string | undefined;
+    for (const row of this.rows.values())
+      if (row.kind === "activity" && row.items?.some((item) => item.tool?.id === origin)) found = row.id;
+    return found;
   }
 
   /// The person's prompt: the results they had not seen are seen.

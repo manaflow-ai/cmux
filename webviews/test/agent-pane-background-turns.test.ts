@@ -886,3 +886,28 @@ test("a subagent's done line draws its reaction's mark as it comes and goes", as
     client.close();
   }
 });
+
+// #33375: a later update of the call keeps its reaction; a task that ends after a newer prompt
+// still finds its call.
+test("a background reaction survives the call's later updates and a newer prompt", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Run the suite", turnId: "t1" }],
+      ["mux", "turn_started", { turnId: "t1" }],
+      shellCall("sh9"),
+      ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+      ...personTurn("Meanwhile, what's next?", "The bench.", "t2"),
+      weighed("bg-late", { kind: "shell", status: "completed", weight: "result", origin: "sh9" }),
+      say("All 412 tests passed."),
+      ended("bg-late", true),
+      ["in", "tool_call_update", update({ sessionUpdate: "tool_call_update", toolCallId: "sh9", status: "completed" })],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(callOf(rows(), "sh9")?.reaction).toMatchObject({ weight: "result", text: "All 412 tests passed." });
+    expect(drawn(rows()).some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+  } finally {
+    client.close();
+  }
+});
