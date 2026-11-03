@@ -115,3 +115,77 @@ test("a prompt lost with its connection shows once, settled, in the next connect
     two.close?.();
   }
 });
+
+// HQ#6740: a client retries an unacked send on reconnect under the same id, and acpmux applies it
+// once. On a chat no host journal keeps (another machine's acpmux), the pane sends the lost prompt
+// again itself on its next connection, marked a resend, instead of handing it back as Not sent.
+test("a prompt lost with a remote connection goes again on the next one under the same id", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const { clientWaiter, lostPrompt, resentAfterLoss } = await import("./lostPrompt");
+  let sent: any;
+  let first: InstanceType<typeof MockAcpmuxSocket> | undefined;
+  class Silent extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as Hooks;
+      const answer = hooks.answer.bind(this);
+      hooks.answer = (method, params) => {
+        if (method !== "session/prompt") return answer(method, params);
+        sent = params;
+        return new Promise(() => undefined);
+      };
+    }
+  }
+  type Client = InstanceType<typeof AcpmuxDirectClient>;
+  const clients = clientWaiter<Client>();
+  const one = await AcpmuxDirectClient.connect(
+    mockHost,
+    () => undefined,
+    undefined,
+    () => (first = new Silent()) as unknown as WebSocket,
+  );
+  clients.connected(one);
+  const failure = one.send("ship it").then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  await settle(() => sent !== undefined);
+  const promptId = sent._meta.acpmux.promptId as string;
+  const sessionId = sent.sessionId as string;
+  first!.close();
+  (first as unknown as { onclose: (() => void) | null }).onclose?.();
+  const error = await failure;
+  expect(lostPrompt(error)?.promptId).toBe(promptId);
+  one.close?.();
+
+  const resent: any[] = [];
+  class Takes extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as Hooks;
+      const answer = hooks.answer.bind(this);
+      hooks.answer = (method, params) => {
+        if (method === "session/prompt") resent.push(params);
+        return answer(method, params);
+      };
+    }
+  }
+  const two = await AcpmuxDirectClient.connect(
+    { ...mockHost, sessionId },
+    () => undefined,
+    undefined,
+    () => new Takes() as unknown as WebSocket,
+  );
+  try {
+    const shown = resentAfterLoss(error, clients, one, 2_000, 2_000);
+    clients.connected(two);
+    expect(await shown).toBe(true);
+    expect(resent.length).toBe(1);
+    expect(resent[0]._meta.acpmux.promptId).toBe(promptId);
+    expect(resent[0]._meta.acpmux.resend).toBe(true);
+    expect(resent[0].prompt).toEqual(sent.prompt);
+  } finally {
+    two.close?.();
+  }
+});
