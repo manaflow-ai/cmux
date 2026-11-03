@@ -5,7 +5,7 @@ type PaintedSample = {
   read: (time: number) => boolean | void;
   cancelled: boolean;
 };
-type RowRect = { index: number; top: number; bottom: number };
+type RowRect = { index: number; top: number; bottom: number; size?: number };
 
 const restores: (() => void)[] = [];
 afterEach(() => {
@@ -36,8 +36,9 @@ function page({ paddingTop = 0, initialTop = 100, timeoutMs = 1_000 } = {}) {
     querySelector: (selector: string) => (selector === ".acpmux-thread" ? thread : null),
     querySelectorAll: (selector: string) =>
       selector === ".acpmux-row"
-        ? rows.map(({ index, top, bottom }) => ({
-            getAttribute: (name: string) => (name === "aria-posinset" ? String(index) : null),
+        ? rows.map(({ index, top, bottom, size }) => ({
+            getAttribute: (name: string) =>
+              name === "aria-posinset" ? String(index) : name === "aria-setsize" ? String(size ?? 100) : null,
             getBoundingClientRect: () => ({ top, bottom }),
           }))
         : [],
@@ -107,6 +108,24 @@ test("a missing row leaves a measurable blank strip in the viewport", () => {
   ]);
   view.paint(8);
   expect(view.stop()).toMatchObject({ frames: 1, blank_frames: 1, max_uncovered_px: 30 });
+});
+
+test("trailing room is intentional only after a visible mounted final row", () => {
+  const view = page();
+  view.scroller.scrollTop += 1;
+  view.rows([{ index: 9, size: 9, top: -10, bottom: 70 }]);
+  view.paint(8);
+  expect(view.stop()).toMatchObject({ blank_frames: 0, max_uncovered_px: 0 });
+  view.start();
+  view.scroller.scrollTop += 1;
+  view.rows([{ index: 8, size: 9, top: -10, bottom: 70 }]);
+  view.paint(16);
+  expect(view.stop()).toMatchObject({ blank_frames: 1, max_uncovered_px: 30 });
+  view.start();
+  view.scroller.scrollTop += 1;
+  view.rows([{ index: 9, size: 9, top: -50, bottom: -10 }]);
+  view.paint(24);
+  expect(view.stop()).toMatchObject({ blank_frames: 1, max_uncovered_px: 100 });
 });
 
 test("blank time belongs to the preceding painted frame, not its clean replacement", () => {

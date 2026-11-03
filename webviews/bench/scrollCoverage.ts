@@ -60,16 +60,23 @@ export function startScrollCoverage({ timeoutMs }: { timeoutMs: number }): void 
     const started = performance.now();
     const view = scroller.getBoundingClientRect();
     const top = view.top + scroller.clientTop + Math.max(0, padding - scroller.scrollTop);
-    const bottom = Math.min(
+    let bottom = Math.min(
       view.top + scroller.clientTop + scroller.clientHeight,
       view.top + scroller.clientTop + scroller.scrollHeight - scroller.scrollTop,
     );
     const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")]
       .map((row) => ({
         index: Number(row.getAttribute("aria-posinset")),
+        size: Number(row.getAttribute("aria-setsize")),
         box: row.getBoundingClientRect(),
       }))
       .sort((a, b) => a.index - b.index);
+    // The transcript deliberately keeps room after its final row (tail gap/composer).
+    // Exclude it only when the actual final row is mounted and touches the viewport;
+    // a missing final row or a view entirely past the rows must still count as blank.
+    const finalRow = rows.find((row) => row.index > 0 && row.index === row.size);
+    if (finalRow && finalRow.box.bottom > top && finalRow.box.top < bottom)
+      bottom = Math.min(bottom, finalRow.box.bottom);
     const runs: { top: number; bottom: number }[] = [];
     rows.forEach((row, at) => {
       if (at > 0 && row.index === rows[at - 1].index + 1) {
