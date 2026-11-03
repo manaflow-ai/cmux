@@ -29,7 +29,7 @@ The host decides how the real code receives the data:
 
 | helper               | host                                                            | a variant is                                                                                                                    |
 | -------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `agentPaneEntry`     | the whole agent pane (`acpmux/main.tsx`) on the pane bridge     | `{ ready?, snapshot }`: the `ready` answer fields and an `AcpmuxSnapshot`                                                       |
+| `agentPaneEntry`     | the whole agent pane (`acpmux/mount.tsx`) on the pane bridge     | `{ ready?, snapshot }`: the `ready` answer fields and an `AcpmuxSnapshot`                                                       |
 | `markdownPageEntry`  | the markdown page entry on an in-page cmuxPage host             | `{ path, text, readOnly?, settings?, files? }`                                                                                  |
 | `diffPageEntry`      | the diff page entry on an in-page cmuxPage host                 | `{ files: [{ path, before?, after? }] }` or `{ patch }`, `layout?`                                                              |
 | `settingsPageEntry`  | the settings page on its real mock provider through cmuxPage    | `{ section, focus?, options?, host?, accounts?, steps? }`                                                                       |

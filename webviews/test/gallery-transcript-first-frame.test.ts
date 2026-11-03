@@ -62,8 +62,7 @@ await requireBrowserLane("gallery-transcript-first-frame.test.ts", async () => {
         await installPaintedFrames(page);
         await page.addInitScript(() => {
           const probe: InitialProbe = { frames: [], stop: () => {} };
-          (window as unknown as { transcriptInitialProbe: InitialProbe }).transcriptInitialProbe =
-            probe;
+          (window as unknown as { transcriptInitialProbe: InitialProbe }).transcriptInitialProbe = probe;
           const deadline = performance.now() + 90_000;
           probe.stop = window.cmuxAfterPaint(
             () => performance.now() < deadline && probe.frames.length < 600,
@@ -94,17 +93,14 @@ await requireBrowserLane("gallery-transcript-first-frame.test.ts", async () => {
         );
         const initial = await page.evaluate(async () => {
           await window.cmuxPaintFrame();
-          const probe = (window as unknown as { transcriptInitialProbe: InitialProbe })
-            .transcriptInitialProbe;
+          const probe = (window as unknown as { transcriptInitialProbe: InitialProbe }).transcriptInitialProbe;
           probe.stop();
           return { ready: document.documentElement.dataset.galleryReady, frames: probe.frames };
         });
         expect(initial.ready).toBe("1");
         expect(initial.frames.length).toBeGreaterThan(0);
         expect(
-          initial.frames.filter(
-            (frame) => !frame.main || frame.rows < 2 || !frame.prompt || !frame.reply,
-          ),
+          initial.frames.filter((frame) => !frame.main || frame.rows < 2 || !frame.prompt || !frame.reply),
         ).toEqual([]);
 
         // Read the actual loaded fixture, preserving its ids, versions and timestamps. Rebuilding
@@ -130,24 +126,22 @@ await requireBrowserLane("gallery-transcript-first-frame.test.ts", async () => {
           await window.cmuxPaintFrame();
           const box = (rect: DOMRect) => [rect.x, rect.y, rect.width, rect.height];
           const read = (): Geometry => ({
-            rows: [...document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")].map(
-              (row) => {
-                const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
-                const lines: number[][] = [];
-                for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-                  if (!node.textContent?.trim()) continue;
-                  const range = document.createRange();
-                  range.selectNodeContents(node);
-                  lines.push(...[...range.getClientRects()].map(box));
-                }
-                return {
-                  id: row.getAttribute("data-row-id"),
-                  text: row.textContent ?? "",
-                  box: box(row.getBoundingClientRect()),
-                  lines,
-                };
-              },
-            ),
+            rows: [...document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")].map((row) => {
+              const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+              const lines: number[][] = [];
+              for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+                if (!node.textContent?.trim()) continue;
+                const range = document.createRange();
+                range.selectNodeContents(node);
+                lines.push(...[...range.getClientRects()].map(box));
+              }
+              return {
+                id: row.getAttribute("data-row-id"),
+                text: row.textContent ?? "",
+                box: box(row.getBoundingClientRect()),
+                lines,
+              };
+            }),
             scroll: [
               scroller.scrollTop,
               scroller.scrollLeft,
@@ -197,9 +191,7 @@ await requireBrowserLane("gallery-transcript-first-frame.test.ts", async () => {
           const before = dimensions(result.before);
           const after = dimensions(frame);
           expect(after.length).toBe(before.length);
-          expect(
-            Math.max(...after.map((value, index) => Math.abs(value - before[index]!))),
-          ).toBeLessThanOrEqual(0.5);
+          expect(Math.max(...after.map((value, index) => Math.abs(value - before[index]!)))).toBeLessThanOrEqual(0.5);
         }
       } finally {
         await context.close();

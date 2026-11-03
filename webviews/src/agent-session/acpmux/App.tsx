@@ -6097,7 +6097,8 @@ export function applyPaneThemeCSS(themeCSS: string): void {
   style.textContent = themeCSS;
 }
 
-/** A host with a complete, identified chat can supply it before the first render. */
+/** Static preview boot state, not a production host handshake. The gallery still delivers the
+ * snapshot through receive() after ready to initialize trust, harness and persistence state. */
 export type InitialChat = {
   snapshot: AcpmuxSnapshot;
   machineName?: string;
