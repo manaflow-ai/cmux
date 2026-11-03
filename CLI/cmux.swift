@@ -31276,7 +31276,8 @@ struct CMUXCLI {
             surfaceFlagIsExplicit: hookSurfaceFlag != nil,
             preferCallerTTYRouting: preferCallerTTYRouting,
             callerTerminalBinding: callerTTYBindingProvider,
-            agentPid: liveHookAgentPID
+            agentPid: liveHookAgentPID,
+            routeWasSnapshotted: routeWasSnapshotted
         )
         hookRouting.allowsPidProbe = liveProcessIdentityAllowed
         let rawInput = rawInputOverride

@@ -23,6 +23,7 @@
 // app without the resolver method degrades to the legacy chain unchanged.
 
 import Foundation
+import CMUXAgentLaunch
 
 extension CMUXCLI {
     struct AgentHookDeliveryTarget {
@@ -44,6 +45,9 @@ extension CMUXCLI {
         let preferCallerTTYRouting: Bool
         let callerTerminalBinding: (() -> CallerTerminalBinding?)?
         let agentPid: Int?
+        /// The environment's route was resolved at queue admission from a live
+        /// viewer lease and must not be vetoed by a lagging session record.
+        var routeWasSnapshotted: Bool = false
         /// Frequent events (per-tool PreToolUse) skip the pid/tty scan and
         /// rely on records healed by the turn-level hooks. This does NOT gate
         /// the cheap `{surface_id}` re-home probe: that probe only fires when
@@ -102,12 +106,26 @@ extension CMUXCLI {
             let recordedSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId)
             guard let invocationSurfaceId else { return nil }
             if let recordedSurfaceId, recordedSurfaceId != invocationSurfaceId {
-                guard let recordedWorkspaceId = nonEmptyClaudeHookIdentifier(mappedSession?.workspaceId),
-                      !claudeHookSurfaceIsListed(
-                          recordedSurfaceId,
-                          workspaceId: recordedWorkspaceId,
-                          client: client
-                      ) else { return nil }
+                let recordedWorkspaceId = nonEmptyClaudeHookIdentifier(mappedSession?.workspaceId)
+                let listed = recordedWorkspaceId.map {
+                    claudeHookSurfaceIsListed(
+                        recordedSurfaceId,
+                        workspaceId: $0,
+                        client: client
+                    )
+                } ?? false
+                // Admission already matched this invocation to a live viewer
+                // lease and the app-resolved pane. A record rewritten by an
+                // older queued event (the launch pane) must not veto it; when
+                // no such snapshot exists, keep the original fail-closed rule,
+                // including a record without a workspace claim.
+                let vetoesRecorded = AgentHookDeliveryPolicy().recordedSurfaceVetoes(
+                    invocationSurfaceId: invocationSurfaceId,
+                    recordedSurfaceId: recordedSurfaceId,
+                    recordedSurfaceIsListed: listed,
+                    routeWasSnapshotted: routing.routeWasSnapshotted
+                ) || (!routing.routeWasSnapshotted && recordedWorkspaceId == nil)
+                guard !vetoesRecorded else { return nil }
             }
             switch liveAgentSurfaceDeliveryTarget(
                 surfaceId: invocationSurfaceId,

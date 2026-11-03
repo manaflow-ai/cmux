@@ -127,6 +127,37 @@ struct AgentHookDeliveryPolicyTests {
         ) == nil)
     }
 
+    @Test("An admission snapshot bypasses a stale listed recorded surface")
+    func admissionSnapshotBypassesStaleRecordedSurface() {
+        // An older queued event can rewrite the record back to the launch
+        // pane after a viewer lease is admitted. The snapshot was resolved
+        // from the live worker and viewer, so it wins.
+        #expect(!policy.recordedSurfaceVetoes(
+            invocationSurfaceId: "viewer",
+            recordedSurfaceId: "launcher",
+            recordedSurfaceIsListed: true,
+            routeWasSnapshotted: true
+        ))
+        #expect(policy.recordedSurfaceVetoes(
+            invocationSurfaceId: "viewer",
+            recordedSurfaceId: "launcher",
+            recordedSurfaceIsListed: true,
+            routeWasSnapshotted: false
+        ))
+        #expect(!policy.recordedSurfaceVetoes(
+            invocationSurfaceId: "viewer",
+            recordedSurfaceId: "launcher",
+            recordedSurfaceIsListed: false,
+            routeWasSnapshotted: false
+        ))
+        #expect(!policy.recordedSurfaceVetoes(
+            invocationSurfaceId: "viewer",
+            recordedSurfaceId: "viewer",
+            recordedSurfaceIsListed: true,
+            routeWasSnapshotted: false
+        ))
+    }
+
     @Test("Agent names produce stable ASCII PID environment keys")
     func pidEnvironmentKey() {
         #expect(policy.pidEnvironmentVariable(agentName: "claude") == "CMUX_CLAUDE_PID")

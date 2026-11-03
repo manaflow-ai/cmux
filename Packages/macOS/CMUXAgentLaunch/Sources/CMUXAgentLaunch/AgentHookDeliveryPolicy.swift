@@ -109,6 +109,40 @@ public struct AgentHookDeliveryPolicy: Sendable {
         return Self.auxiliaryQueuedSubcommands[normalizedAgent]?.contains(normalizedSubcommand) == true
     }
 
+    /// Whether a recorded session surface must reject a live invocation
+    /// surface during hook delivery.
+    ///
+    /// The recorded surface can lag behind the pane that a background viewer
+    /// lease already owns: an older queued event may still address the pane
+    /// that launched the agent and rewrite the record after the viewer
+    /// admitted. A surface snapshot produced at queue admission already
+    /// matched the live worker to an admitted viewer and the app-resolved
+    /// pane, so a stale record must not veto it.
+    ///
+    /// - Parameters:
+    ///   - invocationSurfaceId: The surface the current hook invocation names.
+    ///   - recordedSurfaceId: The session record's persisted surface.
+    ///   - recordedSurfaceIsListed: Whether the app still lists the recorded
+    ///     surface in its recorded workspace.
+    ///   - routeWasSnapshotted: Whether admission resolved the route from a
+    ///     live viewer lease and captured it in the environment.
+    /// - Returns: `true` only when the recorded surface differs, is still
+    ///   live, and the invocation is not using an admission-time snapshot.
+    public func recordedSurfaceVetoes(
+        invocationSurfaceId: String?,
+        recordedSurfaceId: String?,
+        recordedSurfaceIsListed: Bool,
+        routeWasSnapshotted: Bool
+    ) -> Bool {
+        guard let invocationSurfaceId, !invocationSurfaceId.isEmpty,
+              let recordedSurfaceId, !recordedSurfaceId.isEmpty,
+              recordedSurfaceId != invocationSurfaceId else {
+            return false
+        }
+        guard !routeWasSnapshotted else { return false }
+        return recordedSurfaceIsListed
+    }
+
     /// Chooses the agent process that owns one hook invocation.
     ///
     /// - Parameters:
