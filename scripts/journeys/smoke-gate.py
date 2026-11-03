@@ -44,7 +44,7 @@ Never run it on a person's Mac: the hog fills the memory up to swap.
 """
 import argparse
 import calendar
-import importlib.util
+import hashlib
 import json
 import re
 import shutil
@@ -52,6 +52,7 @@ import os
 import subprocess
 import sys
 import time
+import types
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -460,19 +461,36 @@ def p0_waivers():
 # imported, never copied (a copy can drift). The ledger is append-only: a {"record": "supersede"} line names ONE fail
 # row of a reader misread exactly (id, run_at, out, status fail) and only that row is dropped; every other FAIL counts,
 # also with a later PASS. The gate runs on the orchestrator VM beside the runner; with no reader the .pass is refused.
+# The override is for the gate's own tests only (lead 2026-11-03): a real run with it set gets no .pass. The .pass
+# names the reader's path and the SHA-256 of the exact bytes the gate ran (p0_reader_facts).
+P0_READER_FROM_ENV = bool(os.environ.get("SMOKE_GATE_P0_LEDGER_READER"))
 P0_LEDGER_READER = Path(os.environ.get("SMOKE_GATE_P0_LEDGER_READER",
                                        "/work/wt/chrome-parity-design/p0-journey-runner/ledger.py"))
+
+
+def _p0_reader_source():
+    """(bytes, sha256) of the reader file: one read, so the hash is of the code the gate runs."""
+    data = P0_LEDGER_READER.read_bytes()
+    return data, hashlib.sha256(data).hexdigest()
+
+
+def p0_reader_facts():
+    """{"path", "sha256"} of the open-P0 ledger reader, for the .pass."""
+    return {"path": str(P0_LEDGER_READER), "sha256": _p0_reader_source()[1]}
 
 
 def p0_ledger_reader():
     """(live_rows, None) of the runner's ledger module, or (None, why) when it cannot be loaded."""
     try:
-        spec = importlib.util.spec_from_file_location("p0_journey_runner_ledger", P0_LEDGER_READER)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        data, _ = _p0_reader_source()
+        module = types.ModuleType("p0_journey_runner_ledger")
+        module.__file__ = str(P0_LEDGER_READER)
+        exec(compile(data, str(P0_LEDGER_READER), "exec"), module.__dict__)
+        if not callable(getattr(module, "live_rows", None)):
+            raise AttributeError("no callable live_rows")
         return module.live_rows, None
-    except (OSError, ImportError, SyntaxError, AttributeError) as error:
-        return None, f"the open-P0 ledger reader {P0_LEDGER_READER} cannot be loaded ({error}): no .pass"
+    except Exception as error:  # any failure to load is no reader: never "no blockers"
+        return None, f"the open-P0 ledger reader {P0_LEDGER_READER} cannot be loaded ({type(error).__name__}: {error}): no .pass"
 
 
 def open_p0_blockers(job, waived=None):
@@ -483,10 +501,20 @@ def open_p0_blockers(job, waived=None):
         listed = [l.split() for l in OPEN_P0.read_text().splitlines() if l.strip() and not l.lstrip().startswith("#")]
     except OSError as error:
         return [(str(OPEN_P0), f"the open-P0 list cannot be read ({error}): no .pass")]
+    if P0_READER_FROM_ENV:
+        return [(str(P0_LEDGER_READER), "SMOKE_GATE_P0_LEDGER_READER is set: the override is for the gate's own tests "
+                                        "only, so a real run with it gets no .pass")]
     live_rows, why = p0_ledger_reader()
     if live_rows is None:
         return [(str(P0_LEDGER_READER), why)]
-    rows = [r for r in live_rows(str(P0_LEDGER / f"{job}.jsonl")) if isinstance(r, dict) and r.get("build_job") == job]
+    try:
+        read = live_rows(str(P0_LEDGER / f"{job}.jsonl"))
+        if not isinstance(read, list):
+            raise TypeError(f"live_rows returned {type(read).__name__}, not a list")
+    except Exception as error:  # e.g. the reader refuses a bad supersede record (LedgerError): no rule, no .pass
+        return [(str(P0_LEDGER / f"{job}.jsonl"), f"the open-P0 ledger reader refused the ledger "
+                                                  f"({type(error).__name__}: {str(error)[:200]}): no .pass")]
+    rows = [r for r in read if isinstance(r, dict) and r.get("build_job") == job]
     blockers, waivers = [], p0_waivers()
     for fields in listed:
         ids = set(fields[0].split("|"))
@@ -1038,6 +1066,7 @@ def main(argv=None):
         handoff.mkdir(parents=True, exist_ok=True)
         summary["video_goldens"] = {"list": listing[0], "checked": [f[0] for f in listing[1]]}
         summary["open_p0_waived"] = waived
+        summary["open_p0_reader"] = p0_reader_facts()
         summary["open_p0_checked"] = [l.split()[0] for l in OPEN_P0.read_text().splitlines()
                                       if l.strip() and not l.lstrip().startswith("#")]
         (handoff / f"{opts.build}.pass").write_text(json.dumps(summary, indent=1) + "\n")
