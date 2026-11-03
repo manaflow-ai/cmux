@@ -61,7 +61,6 @@
   background: transparent;
   color: var(--page-text-2);
   font: inherit;
-  cursor: pointer;
 }
 .hc-chief-work__refresh {
   padding: 0 8px;
@@ -133,7 +132,6 @@
 .hc-chief-work__text summary {
   display: list-item;
   list-style-position: inside;
-  cursor: pointer;
 }
 .hc-chief-work__text pre {
   margin: 8px 0 0;
@@ -174,7 +172,6 @@
   min-height: var(--chief-work-touch);
   padding-block: 12px;
   color: var(--page-text-2);
-  cursor: pointer;
 }
 .hc-chief-work__finished > summary > span {
   margin-inline-start: 8px;
