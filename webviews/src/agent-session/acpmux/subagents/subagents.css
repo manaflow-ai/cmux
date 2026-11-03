@@ -442,9 +442,9 @@ button.cv-subagent > :last-child {
    (SubagentComposer.tsx), over the row's middle where a chat's look dots sit (composerLook.css). */
 .cv-subagent-composer-via {
   position: absolute;
+  right: 16px;
   bottom: 12px;
-  left: 50%;
-  max-width: calc(100% - 32px);
+  left: 16px;
   overflow: hidden;
   font-family: var(--cv-font);
   font-size: var(--text-detail);
@@ -453,8 +453,10 @@ button.cv-subagent > :last-child {
   letter-spacing: var(--text-detail--letter-spacing);
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: center;
   user-select: none;
-  transform: translateX(-50%);
+  /* The row's controls under it stay clickable. */
+  pointer-events: none;
 }
 
 /* ---------- The tray of running work above the composer (SubagentTray.tsx) ---------- */
