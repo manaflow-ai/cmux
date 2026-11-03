@@ -259,8 +259,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// (or an error page). Before that a key reached the empty document a restore then replaced, a page whose script
     /// had not run, or a document the next navigation of the same load replaced. Once per browser.
     @ObservationIgnored public var onReadyForKeys: (@MainActor () -> Void)?
-    /// The tab comes back from the session (a reopen, a hibernation wake): keys wait for its first document (red stub: unused).
+    /// The tab comes back from the session (a reopen, a hibernation wake): keys wait for its first document. Another page
+    /// takes keys once Chromium created it (a New Tab page's document is blank and needs no wait).
     @ObservationIgnored public var awaitsFirstDocument = false
+    /// The document the tab shows is blank (a restored New Tab page): its blank document counts as loaded.
+    @ObservationIgnored var blankIsDocument = false
     /// ``onReadyForKeys`` was reported for this browser.
     @ObservationIgnored var hasDocument = false
     /// The current document is a real page that finished loading, or an error page (not an aborted load).
@@ -268,7 +271,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
 
     func attach(browser: Int32) {
         browserID = browser
-        (hasDocument, documentLoaded) = (false, false)
+        (hasDocument, documentLoaded, blankIsDocument) = (false, false, !PageBackground.isRealPage(pendingURL))
         isCreationPending = false
         // A spare's renderer-less placeholder never loads or shows: no page to set up, no DevTools call.
         if isRendererlessPlaceholder { return }
@@ -311,9 +314,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
             host.lifecycleTrace.record(id, "restore-navigation sent")
         }
         refreshExtensionActions()
+        if !awaitsFirstDocument { documentArrived() }
     }
 
-    /// Chromium stopped loading on a real document or an error page: the page takes keys now.
+    /// The page takes keys now: Chromium created it, and (a tab back from the session) stopped loading on its document.
     func documentArrived() {
         guard !hasDocument else { return }
         hasDocument = true

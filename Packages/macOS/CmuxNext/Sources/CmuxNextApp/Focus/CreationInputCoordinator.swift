@@ -283,7 +283,7 @@ final class CreationInputCoordinator {
         // A surface hold keeps a chord no app shortcut takes (Ctrl-C, Ctrl-L), also as its first key.
         let terminalChord = !closes && buffer.awaitedTab != nil && KeyRouter.isChord(event.modifierFlags) && controller.map { router.resolve(event, context: router.keyContext(for: $0.focus.currentState(), facts: router.facts(in: shell, controller: $0))) == nil } == true
         // A page hold keeps a page action, a plain key and a chord the page takes, until its bound (REOPEN-F4 browser case).
-        let pageKey = !closes && buffer.awaitsPage && ContinuousClock.now - buffer.began < holdLimit && controller.map { AwaitedContent.pageHoldKeeps(isChord: KeyRouter.isChord(event.modifierFlags), holdIsEmpty: buffer.isEmpty, command: router.resolve(event, context: router.keyContext(for: $0.focus.currentState(), facts: router.facts(in: shell, controller: $0)))?.command.rawValue) } == true
+        let pageKey = !closes && buffer.awaitsPage && ContinuousClock.now - buffer.began < holdLimit && controller.map { AwaitedContent.pageHoldKeeps(isChord: KeyRouter.isChord(event.modifierFlags), holdIsEmpty: buffer.isEmpty, command: router.resolve(event, context: router.keyContext(for: $0.focus.currentState(), facts: router.facts(in: shell, controller: $0)))?.command.rawValue, pageCreated: router.focusedBrowserTab(in: $0)?.pageCreated ?? false) } == true
         guard kind == .content, controller != nil, pageKey || terminalChord || buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
             flush(in: shell, force: true, end: .focusLeft)
             guard let next = buffers[shell.windowNumber], next.holds(event, limit: holdLimit, expiring: false, closes: closes) else { return false }

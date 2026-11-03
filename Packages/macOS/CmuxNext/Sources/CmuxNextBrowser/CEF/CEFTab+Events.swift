@@ -73,7 +73,7 @@ extension CEFTab {
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
             pageEvents?.committed?(URL(string: url))
         case .loadEnd:
-            if PageBackground.isRealPage(committedURL) { documentLoaded = true } // its script ran: a focused field and listeners exist
+            if PageBackground.isRealPage(committedURL) || blankIsDocument { documentLoaded = true } // its script ran: a focused field and listeners exist
             if let navigation { machine.apply(.finished(navigation)) }
             documentDidSettle()
             // A document with no contentful paint (an empty body) shows as it is now.
