@@ -1,0 +1,563 @@
+{
+ "id": "link-hints-cost-wiki-20",
+ "priority": "P1",
+ "title": "Measurement: 20 times plain f, wait 1 s, Escape on en.wikipedia.org/wiki/United_States; the journal's link-hints focus-check and targets times",
+ "why": "Measurement for reopen-f4 and the lead (#32537 review point 3): the cost of the link-hint page check on a heavy real page. No click on the page body: a CuaDriver click into a Chromium page cannot be delivered on the minis (STATUS 7302, 7362); after the address-bar load the page has the keyboard with no field focused.",
+ "source": "REOPEN VIDEO for reopen-f4",
+ "budget_seconds": 200,
+ "steps": [
+  {
+   "do": "require_whole_host"
+  },
+  {
+   "do": "wait",
+   "seconds": 5,
+   "title": "set-up: Home finishes its first load"
+  },
+  {
+   "do": "key",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "focused_terminal",
+   "as": "term"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo t-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "t"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the terminal works",
+   "since": "t",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "t-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "bar",
+   "title": "Cmd-Shift-L opens a browser tab"
+  },
+  {
+   "do": "expect",
+   "title": "the address bar takes the keys",
+   "since": "bar",
+   "timeout": 15,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "addressBar"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "https://en.wikipedia.org/wiki/United_States",
+   "mark": "url"
+  },
+  {
+   "do": "key",
+   "key": "return",
+   "modifiers": [],
+   "mark": "loaded"
+  },
+  {
+   "do": "expect",
+   "title": "the heavy page loaded and has the keyboard (no field is focused on a Wikipedia article)",
+   "since": "loaded",
+   "timeout": 45,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    },
+    {
+     "frame_text": "United States"
+    }
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 5,
+   "title": "the page finishes its late loads"
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f1",
+   "title": "cycle 1: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc1"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f2",
+   "title": "cycle 2: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc2"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f3",
+   "title": "cycle 3: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc3"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f4",
+   "title": "cycle 4: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc4"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f5",
+   "title": "cycle 5: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc5"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f6",
+   "title": "cycle 6: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc6"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f7",
+   "title": "cycle 7: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc7"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f8",
+   "title": "cycle 8: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc8"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f9",
+   "title": "cycle 9: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc9"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f10",
+   "title": "cycle 10: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc10"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f11",
+   "title": "cycle 11: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc11"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f12",
+   "title": "cycle 12: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc12"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f13",
+   "title": "cycle 13: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc13"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f14",
+   "title": "cycle 14: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc14"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f15",
+   "title": "cycle 15: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc15"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f16",
+   "title": "cycle 16: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc16"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f17",
+   "title": "cycle 17: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc17"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f18",
+   "title": "cycle 18: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc18"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f19",
+   "title": "cycle 19: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc19"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "hid_key",
+   "key": "f",
+   "modifiers": [],
+   "mark": "f20",
+   "title": "cycle 20: a real plain f (link hints)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "modifiers": [],
+   "mark": "esc20"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4
+  },
+  {
+   "do": "expect",
+   "title": "the page still has the keyboard after the cycles",
+   "timeout": 10,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "input_journal",
+   "name": "inputjournal",
+   "last": 1000
+  }
+ ]
+}
