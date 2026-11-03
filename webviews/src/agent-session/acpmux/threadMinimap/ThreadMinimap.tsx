@@ -152,8 +152,10 @@ export function ThreadMinimap({
   /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
   earlier?: readonly AcpmuxRow[];
   /// The chat's prompt count while `rows` and `earlier` do not hold every prompt yet (the snapshot's
-  /// `promptCount`): it decides whether the chat has enough prompts for a rail. It reserves no rows: the
-  /// box holds only the ticks drawn, centered, so held ticks never sit at its foot.
+  /// `promptCount`): the prompts neither holds draw as pending resting ticks above the held ones
+  /// (model.ts pendingTurns), so the rail's first frame has its final length and tick rows. It
+  /// reserves no empty rows: the box holds only the ticks drawn, centered, so held ticks never sit at
+  /// its foot.
   promptCount?: number;
   loadThrough?: (seq: number) => Promise<boolean>;
   sessionId?: string;
@@ -209,8 +211,8 @@ export function ThreadMinimap({
   // Every streamed token is a new `rows`: `turns` then changes with the live reply (the card reads
   // it), while `ticks` stays as long as the prompts do, so the tick list below renders nothing.
   const read = useMemo(
-    () => minimapTurns(rows, sessionId, lastTurns.current, change, earlierRows),
-    [rows, sessionId, change, earlierRows],
+    () => minimapTurns(rows, sessionId, lastTurns.current, change, earlierRows, promptCount),
+    [rows, sessionId, change, earlierRows, promptCount],
   );
   useLayoutEffect(() => {
     lastTurns.current = read;
@@ -354,8 +356,10 @@ export function ThreadMinimap({
   /// The box holds the ticks the rail draws, centered in the view (model.ts railTop), never a run of
   /// empty rows for prompts not held yet: those pushed the held ticks to the box's foot, so the rail
   /// sat at the bottom of the pane (Leo, 2026-11-01: "what a stupid f***ing choice to put the f***ing
-  /// scroll rail at the bottom???"). The prompt index (`earlier`) gives every prompt its tick from the
-  /// first frame, so the box is full height as soon as it answers.
+  /// scroll rail at the bottom???"). The count (`promptCount`, as pending ticks) and then the prompt
+  /// index (`earlier`) give every prompt its tick from the first frame, so the box is full height and
+  /// centered once, and history paging in neither grows nor re-centres it (Leo, 2026-11-03: "mostly i
+  /// just don't like it when the thing shifts and whatnot trying to center itself").
   /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
   const boxRail = railHeight(
     turns.length,
@@ -551,7 +555,7 @@ export function ThreadMinimap({
   const [jump] = useState(() => (index: number, how: Jump): number | undefined => {
     const node = scroller.current;
     const turn = live.current.turns[index];
-    if (!node || !turn) return undefined;
+    if (!node || !turn || turn.pending) return undefined;
     if (turn.index < 0) {
       const seq = Number(turn.id.slice(turn.id.indexOf("-") + 1));
       const load = loadThroughNow.current;
@@ -694,7 +698,8 @@ export function ThreadMinimap({
 
   // The card's own height, for centering it on its row and keeping it inside the viewport.
   const cardTurn: MinimapTurn | undefined = cardRow === undefined ? undefined : turns[cardRow];
-  const showCard = railVisible && cardOpen && cardTurn !== undefined;
+  // A pending tick (model.ts pendingTurns) has no prompt to preview yet.
+  const showCard = railVisible && cardOpen && cardTurn !== undefined && !cardTurn.pending;
   /// Focus is inside the card (its bookmark button): Escape there closes it, as on a row.
   // A card closed with focus in it (Escape, a click elsewhere) takes no blur: it starts unfocused.
   if (!showCard && cardFocus) setCardFocus(false);
@@ -706,7 +711,9 @@ export function ThreadMinimap({
   // that grows glides back to center from where the band was, over SHIFT_MS (a second page during
   // the glide starts from where the first one has got to). The hovered, focused and scrubbed rows
   // and the card's stay on their prompts. Where the band's first row sits comes from the rail's
-  // geometry, so no commit reads layout for it.
+  // geometry, so no commit reads layout for it. With the chat's prompt count known, a page or the
+  // index names pending ticks in place and adds no row (model.ts pendingTurns), so nothing glides:
+  // this is only the fallback for a chat with no count, or a count the index corrects.
   const glide = useRef<Animation | undefined>(undefined);
   const holding = useRef(false);
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose (the band tracks every frame); its setState calls are guarded by `added`.
@@ -967,7 +974,13 @@ export function ThreadMinimap({
         scrolls={scrolls}
         placement={placement}
         marks={marks}
-        jump={jump}
+        // The map numbers the loaded turns from 0, one per prompt; the rail's `turns` start with the
+        // earlier and pending ones and fold runs of other chats' messages: find its turn by row.
+        jump={(turn, how) => {
+          const id = loadedTurns[turn]?.id;
+          const at = id === undefined ? -1 : turns.findIndex((each) => each.id === id || each.members?.includes(id));
+          return at < 0 ? undefined : jump(at, how);
+        }}
       />
     );
   if (!shown) return null;

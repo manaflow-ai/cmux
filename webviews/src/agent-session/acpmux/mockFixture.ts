@@ -46,7 +46,11 @@ export type MockSession = {
 
 type Update = Record<string, unknown>;
 /// One seeded event, `ago` milliseconds before the fixture loads.
-export type SeedStep = ({ update: Update } | { mux: string; msg?: Record<string, unknown> }) & { ago: number };
+/// An update step's `meta` is the `_meta` acpmux writes beside it (its `acpmux.subagents` model).
+export type SeedStep = (
+  | { update: Update; meta?: Record<string, unknown> }
+  | { mux: string; msg?: Record<string, unknown> }
+) & { ago: number };
 
 export const LOCAL_HOST = "This Mac";
 
@@ -131,6 +135,10 @@ const effort = (currentValue: string) => [
 /// The session the pane opens on: one fully worked turn.
 export const WORKED_SESSION = "mock-session";
 const CMUX = "~/code/cmux";
+
+export const SUBAGENT_NAMES_SESSION = "mock-subagent-names";
+export const SUBAGENT_NAMES_AGENT_ID = "a6ab68f9e2c41d07b";
+export const SUBAGENT_NAMES_TASK = "Watch CI for #33005";
 
 export const mockSessions: MockSession[] = [
   {
@@ -458,6 +466,81 @@ export const mockSessions: MockSession[] = [
       { ago: at + 20_000, update: text(" not once per chat. With one machine per workspace, that's rare.") },
       { ago: at, mux: "turn_result", msg: { status: "completed" } },
     ],
+  },
+  {
+    // A background subagent whose Agent call is on a page not loaded (Leo, 2026-11-03: "why is the
+    // spacing like this it's weird", his capture reading "Subagent finished: Subagent" and "Sent to
+    // a6ab68f9"). acpmux repeats its name and task on its progress and end, and its progress says
+    // its agentId (cmux-tui/crates/acpmux), so its end line names its description and a SendMessage to its agentId reads
+    // "Sent to <description>".
+    sessionId: SUBAGENT_NAMES_SESSION,
+    title: "Watch CI for the subagent names fix",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9200,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "CI is green.",
+    history: (at) => {
+      const id = `${SUBAGENT_NAMES_SESSION}/toolu_ci_watch`;
+      const named = { name: "ci-watcher", task: SUBAGENT_NAMES_TASK };
+      const send = "mock-subagent-names-send";
+      return [
+        { ago: at + 4_400_000, mux: "user_message", msg: { text: "Keep watching CI and tell me when it is green." } },
+        { ago: at + 4_400_000, mux: "turn_started" },
+        {
+          ago: at + 4_350_000,
+          update: { sessionUpdate: "subagent_progress", subagentSessionId: id },
+          meta: {
+            acpmux: {
+              subagents: [
+                {
+                  id,
+                  parent: null,
+                  state: "running",
+                  background: true,
+                  action: "Reading the run log",
+                  agentId: SUBAGENT_NAMES_AGENT_ID,
+                  ...named,
+                },
+              ],
+            },
+          },
+        },
+        {
+          ago: at + 4_300_000,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: send,
+            title: "SendMessage",
+            kind: "other",
+            status: "pending",
+            rawInput: {
+              to: SUBAGENT_NAMES_AGENT_ID,
+              message: "Don't end turns to wait: keep watching until the run is green, then report.",
+            },
+          },
+        },
+        {
+          ago: at + 4_299_000,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: send,
+            status: "completed",
+            content: [{ type: "content", content: { type: "text", text: '{"success":true}' } }],
+          },
+        },
+        {
+          ago: at + 10_000,
+          update: { sessionUpdate: "subagent_state_update", subagentSessionId: id, state: "completed" },
+          meta: { acpmux: { subagents: [{ id, parent: null, state: "completed", ...named }] } },
+        },
+        { ago: at + 5_000, update: text("CI is green.") },
+        { ago: at, mux: "turn_result", msg: { status: "completed" } },
+      ];
+    },
   },
   {
     sessionId: "mock-session-links",
