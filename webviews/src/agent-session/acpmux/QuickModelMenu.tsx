@@ -1423,9 +1423,7 @@ export function QuickModelMenu({
     }
     if (!query && onChatTab && effort && levels.length > 1) {
       items.push(out.separator("effort-sep"));
-      const effortRow = out.action("effort", t("effort.title"), undefined, {
-        ...(level?.name ? { sideLabel: level.name } : {}),
-      });
+      const effortRow = out.action("effort", t("effort.title"), undefined, level?.name ? { sideLabel: level.name } : {});
       if (effort.slider) {
         const at = (id: string | undefined) => levels.findIndex((choice) => choice.id === id);
         const recommended = levels.find((choice) => choice.recommended);
