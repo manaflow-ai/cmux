@@ -22,13 +22,18 @@ public final class TerminalHostView: NSView {
     /// a label shows: a new terminal's "connected" or quick "Restoring…" builds and shows nothing.
     private lazy var statusLabel = TerminalStatusLabel(clock: statusClock, install: { [weak self] banner in
         guard let self else { return }
-        // Where it stood when the host built it first: above the scroller and the accessory,
-        // below the find bar, the buttons and the top overlay.
-        addSubview(banner, positioned: .above, relativeTo: bottomAccessory ?? scroller)
+        // Where it stood when the host built it first: above the surface, the scroller and the
+        // accessory, below the find bar, the buttons and the top overlay.
+        addSubview(banner, positioned: .above, relativeTo: bottomAccessory ?? scroller ?? current)
     }, didReveal: { [weak self] in self?.needsLayout = true })
     private let statusClock: any Clock<Duration>
-    /// The scroller: thin, shown only while scrolling (SCROLLBARS-THIN).
-    private let scroller = TerminalScroller()
+    /// The scroller: thin, shown only while scrolling (SCROLLBARS-THIN). Overlay and hidden at rest,
+    /// so it is built the first time the viewport moves through the scrollback, not with the
+    /// terminal (an NSScrollView, its document and two observers: 5.2 ms of main thread per HEAVY
+    /// workspace switch, STATUS 8158).
+    private var scroller: TerminalScroller?
+    /// The surface's last scrollbar state (Ghostty's scrollbar action), kept while no scroller is built.
+    private var scrollbar: TerminalScrollbar?
     private var shownStatus: TerminalConnectionStatus = .connected
     private var hostLoss: TerminalHostLoss?
     private var hostLossCause: TerminalHostLossCause?
@@ -64,7 +69,7 @@ public final class TerminalHostView: NSView {
         let scale = window?.backingScaleFactor ?? 2
         let gridWidth = CGFloat(grid.columns) * model.cellPixelSize.width / scale
         let gridHeight = CGFloat(grid.rows) * model.cellPixelSize.height / scale
-        let width = bounds.width - scroller.reservedWidth
+        let width = bounds.width - scrollerWidth
         return CGPoint(x: max(padding.leading, (width - gridWidth) / 2), y: max(padding.top, (terminalBounds.height - gridHeight) / 2))
     }
 
@@ -77,7 +82,7 @@ public final class TerminalHostView: NSView {
             oldValue?.removeFromSuperview()
             if let bottomAccessory {
                 bottomAccessory.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
-                addSubview(bottomAccessory, positioned: .above, relativeTo: scroller)
+                addSubview(bottomAccessory, positioned: .above, relativeTo: scroller ?? current)
             }
             needsLayout = true
         }
@@ -129,10 +134,6 @@ public final class TerminalHostView: NSView {
         paintBackground()
         // Frame layout (`layout()`), not Auto Layout: a pane resized every
         // frame of a drag solves no constraints here.
-        addSubview(scroller)
-        scroller.onStyleChange = { [weak self] in self?.needsLayout = true }
-        scroller.onScrollToRow = { [weak self] row in _ = self?.current?.performBindingAction("scroll_to_row:\(row)") }
-        scroller.onWheel = { [weak self] event in self?.current?.scrollWheel(with: event) }
         // A config reload can change window-padding-x.
         configObserver = NotificationCenter.default.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
@@ -179,7 +180,7 @@ public final class TerminalHostView: NSView {
     var statusLabelWaits: Bool { statusLabel.isWaiting }
 
     /// The view the overlays stack above: the status label once built, else the accessory or the scroller.
-    private var overlayFloor: NSView { statusLabel.banner ?? bottomAccessory ?? scroller }
+    private var overlayFloor: NSView? { statusLabel.banner ?? bottomAccessory ?? scroller ?? current }
 
     func showStatus(_ status: TerminalConnectionStatus) {
         shownStatus = status
@@ -281,8 +282,8 @@ public final class TerminalHostView: NSView {
         let old = current
         surfaceView.autoresizingMask = []
         surfaceView.frame = surfaceFrame
-        // Below the scroller and the status banner, which stay over every swapped-in surface.
-        addSubview(surfaceView, positioned: .below, relativeTo: scroller)
+        // At the back: the scroller and the overlays stay over every swapped-in surface.
+        addSubview(surfaceView, positioned: .below, relativeTo: nil)
         current = surfaceView
         old?.removeFromSuperview()
         followScrollbar(of: surfaceView)
@@ -298,7 +299,46 @@ public final class TerminalHostView: NSView {
                 self.followScrollbar(of: surfaceView)
             }
         }
+        showScrollbar(bar)
+    }
+
+    /// Shows `bar` on the scroller. With none built yet, it is built on the first move through the
+    /// scrollback (the only change an overlay scroller shows); output that follows the bottom
+    /// only keeps the state.
+    func showScrollbar(_ bar: TerminalScrollbar?) {
+        let previous = scrollbar
+        scrollbar = bar
+        if let scroller { return scroller.update(bar) }
+        guard TerminalScrollerGeometry.isUserMove(from: previous, to: bar) else { return }
+        let scroller = makeScroller()
+        scroller.update(previous)
         scroller.update(bar)
+    }
+
+    /// Whether the scroller is built (tests).
+    var hasScroller: Bool { scroller != nil }
+
+    private func makeScroller() -> TerminalScroller {
+        let scroller = TerminalScroller()
+        scroller.onStyleChange = { [weak self] in self?.needsLayout = true }
+        scroller.onScrollToRow = { [weak self] row in _ = self?.current?.performBindingAction("scroll_to_row:\(row)") }
+        scroller.onWheel = { [weak self] event in self?.current?.scrollWheel(with: event) }
+        // Directly above the surface: below the accessory, the status label and the overlays.
+        if let current {
+            addSubview(scroller, positioned: .above, relativeTo: current)
+        } else {
+            addSubview(scroller, positioned: .below, relativeTo: nil)
+        }
+        scroller.frame = scroller.strip(in: terminalBounds)
+        self.scroller = scroller
+        needsLayout = true
+        return scroller
+    }
+
+    /// The strip the scroller keeps free beside the surface: none, since it is pinned to the
+    /// overlay style (``SystemScrollers/nativeStyle``), built or not.
+    private var scrollerWidth: CGFloat {
+        scroller?.reservedWidth ?? TerminalScroller.reservedWidth(for: SystemScrollers.nativeStyle)
     }
 
     /// The width a surface gets in a host `hostWidth` points wide (less the scroller's strip), for working out a
@@ -318,13 +358,13 @@ public final class TerminalHostView: NSView {
             let y = hold.anchor == .bottom ? area.minY : area.maxY - hold.size.height
             return CGRect(x: area.minX, y: y, width: hold.size.width, height: hold.size.height)
         }
-        return CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scroller.reservedWidth), height: area.height)
+        return CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scrollerWidth), height: area.height)
     }
 
     /// The size the surface takes in a host of `hostSize` points: less the accessory's strip and a legacy
     /// scroller's.
     func surfaceSize(forHostSize hostSize: CGSize) -> CGSize {
-        CGSize(width: max(0, hostSize.width - scroller.reservedWidth), height: max(0, hostSize.height - accessoryHeight(forHostHeight: hostSize.height)))
+        CGSize(width: max(0, hostSize.width - scrollerWidth), height: max(0, hostSize.height - accessoryHeight(forHostHeight: hostSize.height)))
     }
 
     /// The surface's size and edge while its pane's layout spring runs; nil at rest.
@@ -348,8 +388,10 @@ public final class TerminalHostView: NSView {
     public override func layout() {
         super.layout()
         if let current, current.frame != surfaceFrame { current.frame = surfaceFrame }
-        let strip = scroller.strip(in: terminalBounds)
-        if scroller.frame != strip { scroller.frame = strip }
+        if let scroller {
+            let strip = scroller.strip(in: terminalBounds)
+            if scroller.frame != strip { scroller.frame = strip }
+        }
         if let bottomAccessory, !bottomAccessory.isHidden {
             let frame = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: accessoryHeight)
             if bottomAccessory.frame != frame { bottomAccessory.frame = frame }
@@ -368,7 +410,7 @@ public final class TerminalHostView: NSView {
         let inset = Metrics.panelInset
         if let sizedForChip, !sizedForChip.isHidden {
             // Bottom-trailing, clear of the scroller: where a padded grid leaves room.
-            let trailing = bounds.width - scroller.reservedWidth - inset
+            let trailing = bounds.width - scrollerWidth - inset
             _ = place(sizedForChip, maxWidth: bounds.width - inset * 2) { size in
                 CGPoint(x: max(inset, trailing - size.width), y: self.terminalBounds.minY + inset)
             }
