@@ -161,20 +161,24 @@ import Testing
         let delay = window.personClick.activationDelay
         let base = ProcessInfo.processInfo.systemUptime + 1000
         window.personClick.shown(at: base)
+        let at = allow.convert(NSPoint(x: allow.bounds.midX, y: allow.bounds.midY), to: nil)
         var number = 0
+        let event = { (type: NSEvent.EventType, time: TimeInterval) throws -> NSEvent in
+            number += 1
+            return try #require(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: time,
+                                                   windowNumber: window.windowNumber, context: nil, eventNumber: number,
+                                                   clickCount: 1, pressure: 0))
+        }
         var current: NSEvent?
         window.personClick.eventInHand = { current }
+        /// The person's click on Allow begun at `time`, its mouse-up inside the mouse-down's dispatch.
         let click = { (time: TimeInterval) throws in
-            let at = allow.convert(NSPoint(x: allow.bounds.midX, y: allow.bounds.midY), to: nil)
-            let make = { (type: NSEvent.EventType, stamp: TimeInterval) throws -> NSEvent in
-                number += 1
-                return try #require(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: stamp,
-                                                       windowNumber: window.windowNumber, context: nil, eventNumber: number,
-                                                       clickCount: 1, pressure: 0))
-            }
-            let pressed = try make(.leftMouseDown, time), released = try make(.leftMouseUp, time + 0.05)
+            let pressed = try event(.leftMouseDown, time), released = try event(.leftMouseUp, time + 0.05)
             current = pressed
-            window.dispatch(pressed) { current = released }
+            window.dispatch(pressed) {
+                current = released
+                allow.performClick(nil)
+            }
         }
         window.setFrameOrigin(NSPoint(x: window.frame.minX + 40, y: window.frame.minY + 40))
         try click(base + 4 * delay) // the first click after the move

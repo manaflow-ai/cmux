@@ -275,7 +275,7 @@ final class CookieImportConsentWindow: NSPanel {
     /// SECURITY: Allow answers here, from the person's click itself, never from the button's action. A
     /// mouse-down on a panel that moved since it was armed (an Accessibility client set its position) arms
     /// it again at that click, so that click is not taken.
-    func dispatch(_ event: NSEvent, _ body: @MainActor () -> Void) {
+    func dispatch(_ event: NSEvent, _ body: () -> Void) {
         if event.type == .leftMouseDown, frame != armedFrame {
             armedFrame = frame
             personClick.shown(at: event.timestamp)

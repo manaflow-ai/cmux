@@ -51,7 +51,7 @@ public final class JoinConsentAskPanel: NSPanel {
 
     /// SECURITY: Allow answers here, from the person's click itself, never from the button's action: no
     /// Accessibility press, programmatic click or key reaches a grant, inside a dispatch or out of one.
-    func dispatch(_ event: NSEvent, _ body: @MainActor () -> Void) {
+    func dispatch(_ event: NSEvent, _ body: () -> Void) {
         guard personClick.dispatch(event, allow: { [content] in content.allow }, in: windowNumber, body) else { return }
         // task-owner: one answer per click; the sheet hides at once and the write ends on its own
         Task { [weak model] in await model?.answer(allow: true) }
