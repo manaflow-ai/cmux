@@ -115,7 +115,9 @@ test("a running MCP call's line names its server and action, never the raw id", 
   const { mcpTitleName } = await import("../src/agent-session/acpmux/conversation/mcpCalls");
   const { turnView, WORKING } = await import("../src/agent-session/acpmux/conversation/turns");
   const call = startSession("in_progress");
-  expect(toolLabel(call.tool!, call.text, (line) => line)).toBe("cmux-subsessions · start session sidebar-drag-bugs");
+  expect(toolLabel(call.tool!, call.text, (line) => line)).toBe(
+    "Using cmux-subsessions: start session sidebar-drag-bugs",
+  );
   expect(mcpTitleName("mcp__cmux__list_workspaces")).toBe("cmux · list workspaces");
   expect(mcpTitleName("Read config.ts")).toBeUndefined();
   // Two calls to one tool share a closed line, so the working line is what names the running one.
@@ -131,7 +133,7 @@ test("a running MCP call's line names its server and action, never the raw id", 
   ];
   const doing = (items: AcpmuxActivity[]) =>
     turnView(run(items), new Set(), { working: true }).find((row) => row.kind === WORKING)?.doing;
-  expect(doing([listing("list-0", "completed"), listing("list-1", "in_progress")])).toBe("cmux · list workspaces");
+  expect(doing([listing("list-0", "completed"), listing("list-1", "in_progress")])).toBe("Using cmux: list workspaces");
   // A running sub-session start draws its own card (subsessionCalls.ts), which names it: the line
   // does not say it again.
   const earlier = { ...startSession(), tool: { ...startSession().tool!, id: "start-0" } };
