@@ -109,7 +109,7 @@ final class UIInspectorController {
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
             guard let self else { return event }
             guard Thread.isMainThread else { return event } // main-proof: AppKit local monitors are delivered on the main thread
-            return self.handle(event)
+            return self.handle(event, window: self.shellWindow(for: event.window), point: self.screenPoint(of: event))
         }
     }
 
@@ -124,9 +124,10 @@ final class UIInspectorController {
         activeWindow = nil
     }
 
-    private func handle(_ event: NSEvent) -> NSEvent? {
+    /// One picker event in `window` at `point` (screen points); the monitor passes the event's own.
+    func handle(_ event: NSEvent, window: NSWindow?, point: NSPoint?) -> NSEvent? {
         if event.type == .keyDown, event.keyCode == 53 { stop(); return nil }
-        guard services != nil, let window = shellWindow(for: event.window), let point = screenPoint(of: event) else { return event }
+        guard services != nil, let window, let point else { return event }
         activeWindow = window
         if let page = page(at: point, in: window) {
             activate(page)
