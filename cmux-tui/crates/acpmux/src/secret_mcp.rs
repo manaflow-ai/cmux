@@ -34,7 +34,22 @@ pub fn protocol_version(params: &Value) -> &'static str {
         .unwrap_or(NEWEST_PROTOCOL_VERSION)
 }
 
+/// Lists `connect_mcp_server` only with this set to `1`: until the daemon runs an approved
+/// server (plans/cmux-next/mcp-connect-DESIGN.md step 2b), an approval connects nothing, so agents
+/// do not see the tool by default.
+pub const MCP_CONNECT_PREVIEW_ENV: &str = "CMUX_MCP_CONNECT_PREVIEW";
+
 fn tools() -> Value {
+    let mut all = all_tools();
+    if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1")
+        && let Some(list) = all.as_array_mut()
+    {
+        list.retain(|t| t["name"] != "connect_mcp_server");
+    }
+    all
+}
+
+fn all_tools() -> Value {
     json!([
         {
             "name": "request_secret",
@@ -178,6 +193,15 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
                 "name": arguments["name"], "reason": arguments["reason"],
             }),
         ),
+        Some("connect_mcp_server")
+            if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1") =>
+        {
+            return error_result(
+                "connect_mcp_server is not on yet: cmux cannot run an approved MCP server until its \
+                 sign-in and proxy land. Tell the user to add the server to the harness themselves."
+                    .to_owned(),
+            );
+        }
         Some("connect_mcp_server") => (
             method::MUX_MCP_CONNECT_REQUEST,
             json!({

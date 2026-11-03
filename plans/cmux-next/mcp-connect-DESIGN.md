@@ -269,6 +269,19 @@ Recommendation: 2 for verified, 6's risk line on top for unverified or local. La
 
 ## 10. Order of work
 
+Status (a974, 2026-11-03):
+
+| Step | State |
+|---|---|
+| 1. Doc + `cmux-mcp-connect` core (resolve, URL/command rules, pin, screen, classify, PKCE, discovery, redact) with 34 tests | built; fleet-tested |
+| 2a. acpmux `mcp_connect_request` / `mcp_connect_answer` (person only), `connect_mcp_server` tool on `cmux-secrets` (listed only with `CMUX_MCP_CONNECT_PREVIEW=1` until 2b lands, since an approval connects nothing yet), 5 integration tests | built |
+| 2b. Connection store, Keychain item with an acpmux-only access list, OAuth run (loopback listener, DCR, token exchange), `acpmux mcp-proxy`, tool pin and policy at call time, audit records | next |
+| 3a. Swift card (model, flow, key that never prints, six styles), Debug > MCP Connect Card Playground, flow tests | built |
+| 3b. The card in the Home transcript: the Chief's turn session is hidden, so the Chief host relays its `mcp_connect_request` into the Home conversation as a card part, and the app answers on its own person-proven acpmux connection; the webview agent pane gets `McpConnectCard.tsx` beside `SecretCard.tsx` | next |
+| 3c. Settings > MCP Servers, palette entries | next |
+| 4. `cmux mcp add|ls|rm|auth|tools|policy` | next |
+| 5. Teleport: record moves, secret does not | next |
+
 1. This doc + `cmux-mcp-connect` core with tests (landed first).
 2. acpmux: records, person-only answer, `cmux-connect` MCP server, store, proxy.
 3. App: card (Swift Home + webview agent pane), playground, Settings pane, palette.
