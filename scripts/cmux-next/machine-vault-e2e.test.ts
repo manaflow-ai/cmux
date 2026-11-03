@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  CANCEL_BUDGET_MS,
   DEV_API,
   DEV_PLATFORM,
   KEY_VAR,
@@ -57,7 +58,25 @@ interface Knobs {
   holdSet?: Record<string, Promise<void>>
   /** `vault rm` leaves the entry (a failed removal). */
   rmFails?: boolean
+  /** Requests whose URL (or ops op) includes this never answer until their signal aborts. */
+  stall?: string[]
+  /** The first `vault rm MACHINE_VAULT_E2E` hangs until its signal aborts. */
+  firstRmHangs?: boolean
+  /** The agent run hangs until its signal aborts. */
+  agentHangs?: boolean
+  /** A revoke answers 200 but the machine stays live. */
+  revokeNoop?: boolean
+  /** The machine list answers this status. */
+  listStatus?: number
+  /** The earlier run's machine's revoke answers this status. */
+  staleRevokeStatus?: number
+  /** The Stack sign-out answers this status. */
+  signOutStatus?: number
 }
+
+/** Resolves when `signal` aborts. */
+const aborted = (signal: AbortSignal | undefined | null) =>
+  new Promise<void>((resolve) => (signal?.aborted ? resolve() : signal?.addEventListener("abort", () => resolve(), { once: true })))
 
 /** A tar archive of one regular file, as bsdtar's gnutar format writes it (enough for tarEntries). */
 function tarOf(files: Record<string, string>): string {
@@ -81,12 +100,21 @@ function fakes(k: Knobs = {}) {
   const removed: string[] = []
   const revoked: string[] = []
   const lines: string[] = []
+  /** Every request, "METHOD url[ op]". */
+  const requests: string[] = []
+  let rms = 0
   const vault = new Set<string>(k.existingKey ? [KEY_VAR] : [])
   const ok = (stdout = ""): ChildResult => ({ code: 0, stdout, stderr: k.leak ?? "" })
   const deps: Deps = {
     fetch: async (url, init) => {
       const body = init.body ? JSON.parse(String(init.body)) : {}
       const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status })
+      const label = `${init.method} ${url}${body.op ? ` ${body.op}` : ""}`
+      requests.push(label)
+      if (k.stall?.some((p) => label.includes(p))) {
+        await aborted(init.signal)
+        throw new DOMException("aborted", "AbortError")
+      }
       if (url.endsWith("/auth/password/sign-in")) return json(200, { access_token: STACK_ACCESS, refresh_token: "fake-refresh-token-value" })
       if (url === `${DEV_API}/v1/ops`) {
         if (body.op === "user.ensure") return json(200, { ok: true, value: { id: "user_1" } })
@@ -96,23 +124,26 @@ function fakes(k: Knobs = {}) {
       if (url.endsWith("/v1/auth/challenge")) return json(200, { nonce: "n1", message_prefix: "p:" })
       if (url.endsWith("/v1/auth/token")) return json(200, { access_token: ACCESS, expires_at: Date.now() + 600_000 })
       if (url.endsWith("/v1/machines/credentials") && init.method === "GET") {
+        if (k.listStatus) return json(k.listStatus, {})
         return json(200, {
           machines: [
             { machineId: "m_1", label: opts.name, revoked: revoked.includes("m_1"), joinTokenId: "jt_1", mintedBy: "user_1", createdAt: new Date().toISOString() },
-            { machineId: "m_old", label: "ci-vault-0-1", revoked: false, mintedBy: "user_1", createdAt: new Date(Date.now() - 3_600_000).toISOString() },
+            { machineId: "m_old", label: "ci-vault-0-1", revoked: revoked.includes("m_old"), mintedBy: "user_1", createdAt: new Date(Date.now() - 3_600_000).toISOString() },
             { machineId: "m_other", label: "laptop", revoked: false, mintedBy: "user_1", createdAt: new Date(0).toISOString() }
           ]
         })
       }
       const m = url.match(/\/v1\/machines\/credentials\/([^/]+)\/revoke$/)
       if (m) {
-        revoked.push(decodeURIComponent(m[1]!))
+        const id = decodeURIComponent(m[1]!)
+        if (id === "m_old" && k.staleRevokeStatus) return json(k.staleRevokeStatus, {})
+        if (!k.revokeNoop) revoked.push(id)
         return json(200, {})
       }
-      if (url.endsWith("/auth/sessions/current")) return json(200, {})
+      if (url.endsWith("/auth/sessions/current")) return json(k.signOutStatus ?? 200, {})
       return json(404, { code: "not_found" })
     },
-    run: async (argv, { stdin }) => {
+    run: async (argv, { stdin, signal }) => {
       calls.push(argv)
       const text = argv.join(" ")
       if (argv[0] === opts.cmux) {
@@ -127,6 +158,10 @@ function fakes(k: Knobs = {}) {
           return ok("")
         }
         if (text.includes("vault rm")) {
+          if (k.firstRmHangs && argv.includes(NONCE_VAR) && rms++ === 0) {
+            await aborted(signal)
+            return { code: null, stdout: "", stderr: "" }
+          }
           if (!k.rmFails) vault.delete(argv[argv.indexOf("rm") + 1]!)
           return ok("")
         }
@@ -140,6 +175,10 @@ function fakes(k: Knobs = {}) {
         if (text.includes("machine vault status")) {
           return ok(JSON.stringify({ joined: true, secretStore: "keychain", lastResult: "ok", env: (k.vaultEnv ?? [NONCE_VAR, KEY_VAR]).map((name) => ({ name, revision: 1 })) }, null, 2))
         }
+        if (text.includes(" run ") && k.agentHangs) {
+          await aborted(signal)
+          return { code: null, stdout: "", stderr: "" }
+        }
         if (text.includes(" run ")) return ok(JSON.stringify({ sessionId: "s", name: "n", reply: k.reply ?? `${NONCE}\n`, stopReason: "end_turn" }, null, 2))
         if (text.includes("/usr/bin/find")) return { code: 0, stdout: "", stderr: "" }
         if (text.includes("/usr/bin/tar")) {
@@ -152,9 +191,10 @@ function fakes(k: Knobs = {}) {
     writeFile: (path, text) => files.set(path, text),
     removeFile: (path) => removed.push(path),
     now: () => Date.now(),
+    sleep: (ms, signal) => Promise.race([Bun.sleep(ms), aborted(signal)]),
     random: () => NONCE
   }
-  return { deps, calls, stdins, files, removed, revoked, lines, vault }
+  return { deps, calls, stdins, files, removed, revoked, lines, vault, requests }
 }
 
 const env = (apiKey = API_KEY) => ({ CMUX_UITEST_STACK_EMAIL: EMAIL, CMUX_UITEST_STACK_PASSWORD: PASSWORD, CMUX_E2E_ANTHROPIC_API_KEY: apiKey })
@@ -329,6 +369,94 @@ describe("machine-vault-e2e", () => {
     expect(rm.result).toBe("fail")
     expect(rm.reason).toContain("is still in the vault after cleanup")
   })
+
+  test("the API key is in the vault only from right before the join to right after the reply", async () => {
+    const f = fakes()
+    const e = await runE2E(opts, env(), f.deps)
+    expect(e.result).toBe("pass")
+    const at = (pred: (a: string[]) => boolean) => f.calls.findIndex(pred)
+    const setKey = at((a) => a.includes("set") && a.includes(KEY_VAR))
+    const add = at((a) => a.includes("add"))
+    const run = at((a) => a.includes("run"))
+    const rmKey = at((a) => a.includes("rm") && a.includes(KEY_VAR))
+    expect(setKey).toBe(add - 1)
+    expect(rmKey).toBe(run + 1)
+    // Cleanup does not remove it again, and still checks the list.
+    expect(f.calls.filter((a) => a.includes("rm") && a.includes(KEY_VAR)).length).toBe(1)
+    expect(e.cleanup.vaultRemoved).toEqual([NONCE_VAR, KEY_VAR])
+  })
+
+  test("cleanup revokes the join's machine by id first, then confirms it on the list", async () => {
+    const f = fakes()
+    const e = await runE2E(opts, env(), f.deps)
+    const machineCalls = f.requests.filter((r) => r.includes("/v1/machines/credentials"))
+    expect(machineCalls[0]).toBe(`POST ${DEV_PLATFORM}/v1/machines/credentials/m_1/revoke`)
+    expect(machineCalls[1]).toBe(`GET ${DEV_PLATFORM}/v1/machines/credentials`)
+    expect(e.cleanup.machinesConfirmed).toBe(true)
+    expect(e.cleanup.signedOut).toBe(true)
+  })
+
+  test("an unconfirmed machine revoke fails the run", async () => {
+    const live = await runE2E(opts, env(), fakes({ revokeNoop: true }).deps)
+    expect(live.result).toBe("fail")
+    expect(live.cleanup.machinesConfirmed).toBe(false)
+    expect(live.reason).toContain("machine m_1 is still live after cleanup")
+    const unlisted = await runE2E(opts, env(), fakes({ listStatus: 500 }).deps)
+    expect(unlisted.result).toBe("fail")
+    expect(unlisted.cleanup.machinesConfirmed).toBe(false)
+    expect(unlisted.reason).toContain("machine revoke unconfirmed")
+  })
+
+  test("a failed stale-machine revoke or Stack sign-out fails the run", async () => {
+    const stale = await runE2E(opts, env(), fakes({ staleRevokeStatus: 500 }).deps)
+    expect(stale.result).toBe("fail")
+    expect(stale.reason).toContain("revoke m_old (left by an earlier run): HTTP 500")
+    const signOut = await runE2E(opts, env(), fakes({ signOutStatus: 500 }).deps)
+    expect(signOut.result).toBe("fail")
+    expect(signOut.cleanup.signedOut).toBe(false)
+    expect(signOut.reason).toContain("could not sign out the run's Stack session")
+  })
+
+  test("a cancel with a stalled request still cleans up within the budget, machine and vault first", async () => {
+    const f = fakes({ agentHangs: true, stall: ["install.revoke"] })
+    let cancel: () => Promise<void> = async () => undefined
+    const running = runE2E(opts, env(), f.deps, (c) => (cancel = c))
+    for (let i = 0; i < 2_000 && !f.calls.some((a) => a.includes("run")); i++) await Bun.sleep(1)
+    const started = Date.now()
+    await cancel()
+    const took = Date.now() - started
+    const e = await running
+    expect(took).toBeLessThan(CANCEL_BUDGET_MS)
+    expect(e.cleanup.cancelCleanupMs).not.toBeNull()
+    expect(e.cleanup.cancelCleanupMs!).toBeLessThan(CANCEL_BUDGET_MS)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("cancelled")
+    expect(e.reason).toContain("could not revoke the run's cmux install")
+    // The machine and the vault were done before the stalled request.
+    expect(f.revoked).toContain("m_1")
+    expect(e.cleanup.machinesConfirmed).toBe(true)
+    expect(f.vault.size).toBe(0)
+    // Earlier runs' machines wait for a run that has the time.
+    expect(f.revoked).not.toContain("m_old")
+    // The home scan is skipped after a cancel.
+    expect(f.calls.some((a) => a.includes("/usr/bin/tar"))).toBe(false)
+  }, 15_000)
+
+  test("a cancel during a slow cleanup starts a fresh pass on the deadline", async () => {
+    const f = fakes({ firstRmHangs: true, reply: "wrong" })
+    let cancel: () => Promise<void> = async () => undefined
+    const running = runE2E(opts, env(), f.deps, (c) => (cancel = c))
+    // The run fails on its own (a wrong reply); its cleanup hangs on the first vault rm.
+    for (let i = 0; i < 2_000 && !f.calls.some((a) => a.includes("rm") && a.includes(NONCE_VAR)); i++) await Bun.sleep(1)
+    const started = Date.now()
+    await cancel()
+    expect(Date.now() - started).toBeLessThan(CANCEL_BUDGET_MS)
+    const e = await running
+    expect(e.result).toBe("fail")
+    expect(f.vault.size).toBe(0)
+    expect(e.cleanup.vaultRemoved).toEqual([NONCE_VAR, KEY_VAR])
+    expect(e.reason).not.toContain("interrupted")
+  }, 15_000)
 
   test("reads the CLIs' JSON", () => {
     expect(lastJson('noise\n{"a":1}\n{"b":2}\n')).toEqual({ b: 2 })
