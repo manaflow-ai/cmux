@@ -214,7 +214,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   });
 
   const entitlements = Layer.succeed(Entitlements, {
-    mayCreate: (tenantId) => Effect.sync(() => billed.has(tenantId)),
+    mayCreate: (caller) => Effect.sync(() => billed.has(caller.tenantId)),
   });
 
   const apiKeys = Layer.succeed(ApiKeyStore, {

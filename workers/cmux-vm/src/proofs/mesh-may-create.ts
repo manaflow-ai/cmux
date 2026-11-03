@@ -36,7 +36,7 @@ const decide = <C, const K extends "mesh" | "device">(
 ): Effect.Effect<MeshCreateDecision<C, K>, EntitlementUnavailable | StoreError | LimitsUnavailable, Needs> =>
   Effect.gen(function* () {
     const tenantId = caller.value.tenantId;
-    if (!(yield* (yield* Entitlements).mayCreate(tenantId, kind))) return { _tag: "not_entitled" };
+    if (!(yield* (yield* Entitlements).mayCreate(caller.value, kind))) return { _tag: "not_entitled" };
     const count = yield* live;
     const reserved = yield* (yield* TenantLimits).reserve(tenantId, reservationKind, limit, count);
     if (!reserved.ok) return { _tag: "over_budget", limit };
@@ -57,7 +57,7 @@ export const tenantMayCreateMesh = <C>(caller: Named<C, Principal>, resume?: { r
       Effect.flatMap(OwnershipStore, (store) => store.countLive(caller.value.tenantId, "mesh")),
     ) : Effect.gen(function* () {
       const tenantId = caller.value.tenantId;
-      if (!(yield* (yield* Entitlements).mayCreate(tenantId, "mesh"))) return { _tag: "not_entitled" as const };
+      if (!(yield* (yield* Entitlements).mayCreate(caller.value, "mesh"))) return { _tag: "not_entitled" as const };
       const result = yield* (yield* TenantLimits).meshCreation(tenantId, { op: "reservation", ...resume });
       if (result.state !== "reservation") return yield* Effect.fail(new LimitsUnavailable({ cause: "mesh reservation is not retained" }));
       const TenantMayCreate = defineProof("TenantMayCreate:mesh");
