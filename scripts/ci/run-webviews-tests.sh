@@ -337,6 +337,8 @@ plain_jobs=$((jobs - browser_jobs))
 # The split weighs each file by the pool it runs in, so it gets these widths, but only widths the
 # workflow set (CMUX_WEB_TEST_JOBS): widths from this runner's cores could differ between shards,
 # and shards that split differently skip or repeat files. Unset, the split keeps its own widths.
+# At one job there is no plain lane beside the browser one (the pools run in turn); the split then
+# counts one plain lane, which only an unsharded run (the base replay) ever has.
 split_widths=""
 if [[ "${CMUX_WEB_TEST_JOBS:-}" =~ ^[1-9][0-9]*$ && "$browser_jobs$dev_jobs" =~ ^[0-9]+$ ]]; then split_widths="$((plain_jobs > 0 ? plain_jobs : 1)),$browser_jobs,$dev_jobs"; fi
 shard="${CMUX_WEB_TEST_SHARD:-}"
