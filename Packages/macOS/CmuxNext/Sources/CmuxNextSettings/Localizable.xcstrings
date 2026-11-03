@@ -47747,6 +47747,268 @@
         }
       }
     },
+    "settings.feed.needsYouInChief": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin Needs You in Chief"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تثبيت «بحاجة إليك» في Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikači „Treba te“ u Chiefu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fastgør Har brug for dig i Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Braucht dich“ im Chief anheften"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fijar «Te necesita» en Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Épingler « Vous attend » dans Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fissa «Serve a te» in Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief に「対応が必要」を固定"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ខ្ទាស់ «ត្រូវការអ្នក» ក្នុង Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief에 '확인 필요' 고정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fest «Trenger deg» i Chief"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przypnij „Czeka na Ciebie” w Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixar “Precisa de você” no Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрепить «Ждёт вас» в Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปักหมุด \"ต้องการคุณ\" ใน Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief'te \"Seni bekliyor\"u sabitle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закріпити «Чекає на вас» у Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghim \"Cần bạn\" trong Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Chief 中置顶“需要你”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Chief 中釘選「需要你」"
+          }
+        }
+      }
+    },
+    "settings.feed.needsYouInChief.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُثبَّت الطلبات المفتوحة، مثل طلبات الأذونات والأسئلة، أعلى محادثة Chief. ويعرضها الموجز دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvoreni zahtjevi, poput upita za dozvole i pitanja, prikačeni su na vrh razgovora s tvojim Chiefom. Feed ih uvijek prikazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbne anmodninger, f.eks. tilladelsesforespørgsler og spørgsmål, fastgøres øverst i din Chiefs samtale. Feedet viser dem altid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offene Anfragen wie Berechtigungsabfragen und Fragen werden oben im Gespräch mit deinem Chief angeheftet. Der Feed listet sie immer auf."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las solicitudes abiertas, como avisos de permisos y preguntas, se fijan arriba en la conversación de tu Chief. El Feed siempre las muestra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les demandes en attente, comme les demandes d'autorisation et les questions, sont épinglées en haut de la conversation de votre Chief. Le Feed les liste toujours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le richieste aperte, come le richieste di autorizzazione e le domande, vengono fissate in cima alla conversazione del tuo Chief. Il Feed le elenca sempre."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限の確認や質問など未対応のリクエストを Chief の会話の上部に固定します。フィードには常に表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សំណើដែលនៅបើក ដូចជាការស្នើសុំសិទ្ធិ និងសំណួរ ត្រូវបានខ្ទាស់នៅខាងលើការសន្ទនារបស់ Chief។ Feed តែងតែបង្ហាញពួកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권한 요청이나 질문 같은 열린 요청을 Chief 대화 맨 위에 고정합니다. 피드에는 항상 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne forespørsler, som tillatelsesforespørsler og spørsmål, festes øverst i samtalen med Chief. Feeden viser dem alltid."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwarte prośby, takie jak prośby o uprawnienia i pytania, są przypinane na górze rozmowy z Twoim Chiefem. Feed zawsze je wyświetla."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solicitações abertas, como pedidos de permissão e perguntas, ficam fixadas no topo da conversa do seu Chief. O Feed sempre as lista."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открытые запросы, например запросы разрешений и вопросы, закрепляются вверху беседы с Chief. В ленте они видны всегда."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำขอที่ยังเปิดอยู่ เช่น คำขอสิทธิ์และคำถาม จะถูกปักหมุดไว้ด้านบนของการสนทนากับ Chief โดย Feed จะแสดงรายการเหล่านี้เสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İzin istekleri ve sorular gibi açık istekler Chief sohbetinin en üstüne sabitlenir. Akış bunları her zaman listeler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкриті запити, як-от запити дозволів і запитання, закріплюються вгорі розмови з Chief. У стрічці вони видні завжди."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các yêu cầu đang mở, như yêu cầu cấp quyền và câu hỏi, được ghim ở đầu cuộc trò chuyện với Chief. Feed luôn liệt kê chúng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "权限请求和问题等待处理的请求会置顶在你与 Chief 的对话顶部。动态中始终会列出它们。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "權限請求和問題等待處理的請求會釘選在你與 Chief 的對話頂端。動態中一律會列出它們。"
+          }
+        }
+      }
+    },
     "settings.feed.agentPermissionPrompts": {
       "extractionState": "manual",
       "localizations": {
