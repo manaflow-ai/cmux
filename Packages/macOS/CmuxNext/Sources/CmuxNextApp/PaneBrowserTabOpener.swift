@@ -93,6 +93,19 @@ struct PaneBrowserTabOpener {
             let pageRequests = services.cache.pageRequests
             let newTabAddress = services.newTabAddress(for: choice)
             let controller = controller, model = controller.pane
+            // A caller-supplied callback is HomeDockOpens.placing (or another placement owner).
+            // It starts the move and owns the OutboundTab hold; selecting here after that callback
+            // begins would release the hold and briefly restore Home's strip.
+            let callerOwnsHomePlacement = controller.isOpenPinnedDockPane && placementOwner
+            // A tab for a new split (LinkOpener), or aimed at Home's dock alone (a column beside it, one commit):
+            // made there, never shown in this pane first, and its `finished` ends the open's turn, so it goes first.
+            let split = split ?? (child == nil && !background && opener == nil && !callerOwnsHomePlacement && opensBesideDockInSplit
+                ? BrowserTabSplitRequest(direction: .right, finished: { (surface: SurfaceID?) in if let surface { then?(surface) } }) : nil)
+            if let split, child == nil {
+                openInSplit(split, choice: choice, address: url?.absoluteString ?? newTabAddress, focusesAddressBar: url == nil,
+                            profile: profile, notice: notice)
+                return true
+            }
             // Home's pinned dock takes dragged tabs (`allow_tabs`, Leo 2026-10-21) but opens nothing in
             // itself (HomeDockOpens): a new browser tab aimed at it (History, Bookmarks, a URL from another
             // app, Split Browser, Duplicate Tab, a popup, the update card's Release Notes) is made there and
@@ -101,17 +114,6 @@ struct PaneBrowserTabOpener {
             let beside = then == nil && controller.isOpenPinnedDockPane
             // Keep a Home-dock tab out of the dock strip until it lands beside the dock.
             let outbound = beside ? OutboundTab.begin(in: controller) : nil
-            // A caller-supplied callback is HomeDockOpens.placing (or another placement owner).
-            // It starts the move and owns the OutboundTab hold; selecting here after that callback
-            // begins would release the hold and briefly restore Home's strip.
-            let callerOwnsHomePlacement = controller.isOpenPinnedDockPane && placementOwner
-            // A tab for a new split (LinkOpener): made there, never shown in this pane first, and its
-            // `finished` ends the open's turn, so it goes before the in-pane stand-in.
-            if let split, child == nil {
-                openInSplit(split, choice: choice, address: url?.absoluteString ?? newTabAddress, focusesAddressBar: url == nil,
-                            profile: profile, notice: notice)
-                return true
-            }
             // A person's foreground tab: shown with its page in this turn (openStandIn). Not one aimed
             // at Home: the stand-in selects it in Home's dock, and its strip would come back (Lawrence
             // 2026-10-29: "chief in home should not have horizontal tabbar").
@@ -196,11 +198,14 @@ extension PaneBrowserTabOpener {
     /// Whether a person's foreground browser tab of this pane can open straight in a new split of it
     /// (``BrowserTabSplitCommand``), so LinkOpener never makes it here and moves it: the pane's daemon
     /// makes its browser tabs and serves the split, and the pane is not Home's pinned dock.
-    var opensInSplit: Bool {
+    var opensInSplit: Bool { splits && !controller.isOpenPinnedDockPane }
+    /// Home's dock alone (``DaemonStore/isLonePinnedDock(_:)``): a tab aimed at it opens beside it in one commit, as a new chat does (NewChatPlacement).
+    var opensBesideDockInSplit: Bool { splits && controller.daemon.supports(DaemonCapability.pinnedDockAlone.rawValue) && controller.daemon.store.isLonePinnedDock(controller.pane.handle) }
+    private var splits: Bool {
         let daemon = controller.daemon, tabs = controller.services.cache.browserTabs, pane = controller.pane
         let route = BrowserTabRoute(isLocal: daemon.isLocal, connected: daemon.connection != nil, servesTabs: tabs.isAvailable(in: pane))
         // Not incognito: its record holds about:blank until the reply registers the URL, so a pane arriving first mounts a blank page.
-        return route == .daemon && BrowserTabSplitCommand.isServed(by: daemon) && !controller.isOpenPinnedDockPane && ActionRunScope.viewChangeAllowed() && !tabs.isIncognitoPane(pane)
+        return route == .daemon && BrowserTabSplitCommand.isServed(by: daemon) && ActionRunScope.viewChangeAllowed() && !tabs.isIncognitoPane(pane)
     }
 
     /// The split and the tab's stand-in show now, with the chain's even sizing (as PaneHandlers.split),
@@ -210,9 +215,10 @@ extension PaneBrowserTabOpener {
                              profile: String?, notice: String?) {
         let controller = controller, browserTabs = controller.services.cache.browserTabs, model = controller.pane
         let intent = controller.workspace?.beginFocusIntent(), command = BrowserTabSplitCommand(pane: model.handle, direction: split.direction, url: address)
-        let send = BenchSpans.measure("split.intend") { command.intendNow(on: controller.daemon, layout: controller.workspace?.layoutModel, shown: controller.layoutPaneID) }
+        let layout = controller.isPinnedDockPane ? nil : controller.workspace?.layoutModel // beside Home's dock it is a column: no even sizing
+        let send = BenchSpans.measure("split.intend") { command.intendNow(on: controller.daemon, layout: layout, shown: controller.layoutPaneID) }
         BenchSpans.measure("split.layout") { controller.workspace?.applyCurrent() } // the split draws in the click's frame
-        controller.services.registry.track(Task {
+        controller.services.registry.trackOrRefuse(Task { // a key press nobody awaits still shows a refused open
             do {
                 let made = try await send { try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice, split: $0) }
                 if let made { controller.workspace?.expectFocus(on: made, target: focusesAddressBar ? .addressBar : .content, generation: intent) }
@@ -220,7 +226,7 @@ extension PaneBrowserTabOpener {
                 return nil
             } catch {
                 split.finished(nil)
-                return "new-frontend-browser-tab: \(error)"
+                return ActionWorkFailure("new-frontend-browser-tab", error) // typed: a timeout stays a timeout
             }
         })
     }

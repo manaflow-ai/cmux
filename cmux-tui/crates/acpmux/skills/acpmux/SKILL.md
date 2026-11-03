@@ -281,6 +281,10 @@ acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works o
   pushed and checked out there as a fresh worktree; uncommitted changes refuse the move unless
   `--leave-dirty`. A running turn refuses it unless `--interrupt`. `--dry-run` says where each
   would go. The copy left here never runs again and `resolve` points at the new one.
+  `--from MACHINE` moves chats that are on another machine, driven from here over ssh to both
+  ends (they need not reach each other), and `--machine local` brings them here. The agent's own
+  transcript goes with the chat (Claude Code, Codex, pi files; OpenCode as its export), so it
+  resumes with its full context; other agents resume from the chat's history.
   `acpmux session export MACHINE/NAME` fetches a bundle to `~/.acpmux/bundles/`, and
   `acpmux session import DIR` restores a copy on this machine.
 - **What the machine allows.** Some machines are not for builds or long jobs. When the task or the
