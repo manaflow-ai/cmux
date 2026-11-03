@@ -78,6 +78,7 @@ import hashlib
 import json
 import os
 import posixpath
+import re
 import shlex
 import shutil
 import subprocess
@@ -279,33 +280,48 @@ def eslint_executed_changes(package: EslintPackage, files: list[str]) -> list[st
 
 
 # The branches whose history is reviewed: check code that matches where a pushed commit meets one of them is
-# reviewed code. The remote's HEAD (main) counts too, for a main-based branch.
+# reviewed code. The remote's HEAD (main) counts too, for a main-based branch. Only on a reviewed remote
+# (reviewed_remotes()): a fork's feat-cmux-next is whatever its owner pushed.
 REVIEWED_BRANCHES = ("feat-cmux-next", "HEAD")
-
-
+REVIEWED_URL = re.compile(r"github\.com[:/]+manaflow-ai/cmux(\.git)?/?$")
+# `git config --add cmux.reviewedRemote NAME`: a remote of this clone whose branches are reviewed though its URL is not
+# manaflow-ai/cmux's (a mirror). Local config, which no push can set.
+REVIEWED_REMOTE_CONFIG = "cmux.reviewedRemote"
 # A branch more commits than this past where it meets feat-cmux-next is not based on it (a main-based branch): the
 # remote's HEAD may then meet it nearer. Counted with a cap, so a feat-based push pays for its own commits only.
 FAR = 2000
 
 
-def trust_base(repo: Path, head: str, remote: str) -> str | None:
-    """Where HEAD meets a reviewed branch of REMOTE, or None when this clone has none of them. The hook measures
-    check-code changes from here, never from the branch's own last pushed head. Any such merge base holds only
-    reviewed code, so the choice changes how much the hook lints, never what it trusts: feat-cmux-next's first (one
-    cheap merge base), the remote's HEAD's only for a branch far past it or a clone without it."""
+def reviewed_remotes(repo: Path) -> list[str]:
+    """The remotes of this clone whose branches are reviewed: those whose URL is manaflow-ai/cmux, and the ones local
+    config names (REVIEWED_REMOTE_CONFIG). Never the pushed remote for being pushed to."""
+    names = git(repo, "remote", check=False).split()
+    reviewed = [name for name in names
+                if REVIEWED_URL.search(git(repo, "remote", "get-url", name, check=False).strip())]
+    configured = git(repo, "config", "--get-all", REVIEWED_REMOTE_CONFIG, check=False).split()
+    return list(dict.fromkeys(reviewed + [name for name in configured if name in names]))
+
+
+def trust_base(repo: Path, head: str) -> str | None:
+    """Where HEAD meets a reviewed branch of a reviewed remote, or None when this clone has none (the caller then
+    fails closed). The hook measures check-code changes from here, never from the branch's own last pushed head nor
+    from the pushed remote's branches. Any such merge base holds only reviewed code, so the choice changes how much
+    the hook lints, never what it trusts: feat-cmux-next first (one cheap merge base), the remote's HEAD only for a
+    branch far past it or a clone without it."""
     found = []
     for branch in REVIEWED_BRANCHES:
-        ref = f"refs/remotes/{remote}/{branch}"
-        if subprocess.run(["git", "-C", str(repo), "rev-parse", "-q", "--verify", f"{ref}^{{commit}}"],
-                          capture_output=True).returncode != 0:
-            continue
-        base = git(repo, "merge-base", head, ref, check=False).strip()
-        if not base:
-            continue
-        distance = len(git(repo, "rev-list", f"--max-count={FAR}", f"{base}..{head}").split())
-        if distance < FAR:
-            return base
-        found.append((distance, base))
+        for remote in reviewed_remotes(repo):
+            ref = f"refs/remotes/{remote}/{branch}"
+            if subprocess.run(["git", "-C", str(repo), "rev-parse", "-q", "--verify", f"{ref}^{{commit}}"],
+                              capture_output=True).returncode != 0:
+                continue
+            base = git(repo, "merge-base", head, ref, check=False).strip()
+            if not base:
+                continue
+            distance = len(git(repo, "rev-list", f"--max-count={FAR}", f"{base}..{head}").split())
+            if distance < FAR:
+                return base
+            found.append((distance, base))
     return min(found)[1] if found else None
 
 
@@ -1077,7 +1093,7 @@ def main(argv: list[str] | None = None) -> int:
             # Check code is measured from where the commit meets the reviewed branches, never from the branch's last
             # pushed head: an earlier push that changed it keeps this one out too. No reviewed branch in the clone:
             # every own file and, failing closed, every path the commit has.
-            base = trust_base(repo, head, args.remote)
+            base = trust_base(repo, head)
             trusted_files = (trust_files(repo, base, head) if base else
                              git(repo, "ls-tree", "-r", "--name-only", head).splitlines())
         plan = make_plan(repo, files, guard_executed=args.pre_push, exists=exists, trusted_files=trusted_files,
