@@ -280,8 +280,6 @@ jobs:
             /scripts/ci/side_lane_placement.py
             /scripts/ci/next_macos_cascade.py
             /scripts/ci/simple_pool_picker.py
-            /scripts/ci/nightly-steps/decide-start-early-linux-admission.sh
-            /scripts/ci/nightly-steps/decide-admit-early-controls.sh
           sparse-checkout-cone-mode: false
 
       - name: Decide whether a nightly build is needed
@@ -829,7 +827,14 @@ jobs:
           SNAPSHOT_TOKEN: ${{ github.token }}
         # Receipt mode reads the controller's published receipt once after a fixed wait; started
         # early it would usually miss and sleep, so it keeps running inline in place-early.
-        run: bash -e scripts/ci/nightly-steps/decide-start-early-linux-admission.sh
+        run: |
+          [ "$CHECK_RECEIPTS" = 1 ] && exit 0
+          state="$RUNNER_TEMP/early-linux-admission"
+          ( set +e
+            GITHUB_OUTPUT="$state.out" GITHUB_STEP_SUMMARY="$state.summary" \
+              python3 scripts/ci/nightly_linux_admission.py > "$state.log" 2>&1
+            echo $? > "$state.rc" ) > /dev/null 2>&1 &
+          echo $! > "$state.pid"
 
       # Reservation route (no admission above): the reservation only while it has an idle runner per job, else
       # one 30 s re-read, then the runs-on tail (hosted Ubuntu on attempt 1). Run 41655282358 waited 163 s here.
@@ -871,6 +876,9 @@ jobs:
           SNAPSHOT_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/portable_job_placement.py
 
+      # The controller reserves unconsumed JIT runners before placement.
+      # Opted-in builds require the controller App receipt before choosing any runner.
+      # Disabled builds retain the existing private-controller/declared-light fallback.
       - name: Admit early controls on reserved fleet Linux
         id: place-early
         if: steps.decide.outputs.track == 'nightly-next' && steps.decide.outputs.should_build == 'true' && !(github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro')
@@ -881,7 +889,18 @@ jobs:
         # two 180 s windows overlap (run 41335987427 spent 6:12 in decide on them in
         # turn). Its outputs, summary and exit status pass through unchanged; when
         # nothing was started it runs here, as before.
-        run: bash -e scripts/ci/nightly-steps/decide-admit-early-controls.sh
+        run: |
+          set -uo pipefail
+          state="$RUNNER_TEMP/early-linux-admission"
+          if [ ! -s "$state.pid" ]; then
+            python3 scripts/ci/nightly_linux_admission.py
+            exit $?
+          fi
+          tail --pid="$(cat "$state.pid")" -f /dev/null
+          cat "$state.log"
+          cat "$state.out" >> "$GITHUB_OUTPUT"
+          cat "$state.summary" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          exit "$(cat "$state.rc" 2>/dev/null || echo 1)"
 
       - name: Record early nightly admission receipt
         if: always() && steps.place-early.outcome != 'skipped'
