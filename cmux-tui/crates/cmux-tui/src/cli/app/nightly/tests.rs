@@ -119,3 +119,10 @@ fn nightly_install_counts_only_a_closed_connection_as_the_restart() {
     ));
     assert!(matches!(switched("{not json"), Switched::Failed(_)));
 }
+
+#[test]
+fn help_words_ask_for_the_usage_text() {
+    for args in [&["help"][..], &["--help"], &["-h"], &["list", "--help"], &["install", "-h"]] {
+        assert_eq!(parse(&words(args)).unwrap(), Command::Help, "{args:?}");
+    }
+}

@@ -79,6 +79,9 @@ pub(super) struct Args {
     /// `--no-wait-agents`: pipe mode ends with the turn that answers the
     /// message, not after the subagents it started (E22).
     pub no_wait_agents: bool,
+    /// `--no-wait`: pipe mode exits once the message is in the Chief's
+    /// conversation, without waiting for the Chief to read or answer it.
+    pub no_wait: bool,
     /// `--chat`, `--cloud` and the cloud lease flags (script.rs).
     pub target: script::TargetArgs,
     /// `--from NAME`: the acpmux session that sends `-p` (default:
@@ -186,6 +189,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
                 parsed.chief = Some(id);
             }
             "--no-wait-agents" => parsed.no_wait_agents = true,
+            "--no-wait" => parsed.no_wait = true,
             "--chat" | "--cloud" | "--cloud-api" | "--cloud-token-file" | "--cloud-auth" => {
                 parsed.target.flag(flag, &mut value)?;
             }

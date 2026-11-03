@@ -183,3 +183,22 @@ test("setup hint becomes a link when an environment callback is provided", () =>
   );
   expect(html).toContain('class="acpmux-cloud-start__link"');
 });
+
+test("the harness row says Starting until the harness has started", () => {
+  const running = startupChecklist({ key: "k", task: "hi", state: "starting", step: "opening", agent: "Claude" });
+  expect(running[3]?.status).toBe("running");
+  expect(running[3]?.label).toBe("Starting Claude");
+  const waiting = startupChecklist({ key: "k", task: "hi", state: "starting", agent: "Claude" });
+  expect(waiting[3]?.label).toBe("Starting Claude");
+  const done = startupChecklist({ key: "k", task: "hi", state: "starting", initialized: true, agent: "Claude" });
+  expect(done[3]?.label).toBe("Started Claude");
+});
+
+test("row state words are screen-reader only, hidden by the card's own sheet", async () => {
+  const css = await Bun.file(new URL("./cloudStart.css", import.meta.url)).text();
+  expect(css).toMatch(/\.acpmux-cloud-start \.visually-hidden\s*\{[^}]*clip: rect\(0 0 0 0\)/);
+  const html = renderToStaticMarkup(
+    <CloudStartView start={{ key: "k", task: "hi", state: "starting", machineStartedAt: 1_000 }} />,
+  );
+  expect(html).toContain('<span class="visually-hidden">');
+});

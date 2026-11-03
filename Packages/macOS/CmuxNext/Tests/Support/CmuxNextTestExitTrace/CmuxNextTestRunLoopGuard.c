@@ -154,7 +154,9 @@ int cmux_next_test_lists_tests(void);
 /// signal 6 after every Swift Testing test had passed (2026-11-02, five fleet Macs and Blacksmith):
 /// `-[XCTestDriver _runTests]` waits on its start-up future with a turn of the main run loop
 /// (`+[XCTWaiter _synchronouslyWaitForTimeInterval:]`) whenever that work is not done yet, the
-/// guard's block ran in that turn, and XCTest never ran its suite (XCTestPhaseTests).
+/// guard's block ran in that turn, and XCTest never ran its suite (XCTestPhaseTests). #33023 first
+/// stopped the hold in a process whose argv has `-XCTest`; this name check covers that leg and every
+/// other host (an Xcode test host, `xctest` started without `-XCTest`), and installs nothing there.
 int cmux_next_test_runloop_guard_holds_in(const char *process_name) {
     return process_name != NULL && strcmp(process_name, "swiftpm-testing-helper") == 0;
 }

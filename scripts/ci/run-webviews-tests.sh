@@ -257,7 +257,10 @@ elif [ "${CMUX_BROWSER_TESTS:-}" = 1 ] && [ "${GITHUB_ACTIONS:-}" != true ]; the
   ./node_modules/.bin/playwright install webkit
   # Chromium is the system Google Chrome (test/preload.ts), never Playwright's bundled build, which
   # lacks recent security fixes and runs unsandboxed. A host without a current Chrome skips Chromium.
-  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ensure-system-chrome.sh" --optional
+  chrome_out="$("$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ensure-system-chrome.sh" --optional)"
+  printf '%s\n' "$chrome_out"
+  shell_line="$(printf '%s\n' "$chrome_out" | grep '^CMUX_CHROME_HEADLESS_SHELL=' | tail -1 || true)"
+  [ -n "$shell_line" ] && export CMUX_CHROME_HEADLESS_SHELL="${shell_line#CMUX_CHROME_HEADLESS_SHELL=}"
 fi
 
 timeout_seconds="${CMUX_WEB_TEST_FILE_TIMEOUT:-120}"

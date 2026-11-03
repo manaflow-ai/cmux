@@ -392,7 +392,8 @@ extension SidebarGridAlignmentTests {
 
 extension SidebarGridAlignmentTests {
     /// grid.md 3: a leading icon's box is 16 (compact) or 20 (comfortable) and the text starts one 8 pt gap after
-    /// it, so the icon-to-text gap is 8 at both densities; the glyph centers in the box and keeps its size
+    /// it, so the icon-to-text gap is 8 at both densities; the glyph's ink starts at the box's leading edge (Lawrence msg
+    /// 19643) and keeps its size
     /// (Astra's c8a8b25e follow-up 2: comfortable reserved a 20 column around a 16 frame, a 12 pt gap).
     @Test(arguments: [false, true])
     func leadingIconBoxEndsOneGapBeforeTheText(comfortable: Bool) throws {
@@ -406,11 +407,11 @@ extension SidebarGridAlignmentTests {
             #expect(abs(workspace.icon.frame.width - box) <= 0.5)
             #expect(abs(origin + workspace.icon.frame.minX - Self.lead(comfortable)) <= 0.5)
             #expect(abs(workspace.title.frame.minX - workspace.icon.frame.maxX - 8) <= 0.5)
-            // The emoji keeps its 16 pt square, centered in the column box.
+            // The emoji keeps its 16 pt square, at the column box's leading edge (Lawrence msg 19643).
             workspace.icon.layout()
             for glyph in workspace.icon.subviews where !glyph.isHidden {
                 #expect(glyph.frame.width <= 16.5)
-                #expect(abs(glyph.frame.midX - box / 2) <= 0.5)
+                #expect(abs(glyph.frame.minX) <= 0.5)
             }
 
             let itemCase = Case(kind: .item, comfortable: comfortable, depth: 0, marks: 1)
@@ -420,7 +421,7 @@ extension SidebarGridAlignmentTests {
             let ink = try #require(item.glyphInkFrame)
             // Band rows own their outer inset: the row starts at the sidebar edge less the rail inset (0 here).
             let lead = Self.lead(comfortable) - origin + SidebarStyle.horizontalInset
-            #expect(abs(ink.midX - (lead + box / 2)) <= 0.5)
+            #expect(abs(ink.minX - lead) <= 0.5)
             #expect(abs(item.titleFrame.minX - (lead + box) - 8) <= 0.5)
         }
     }

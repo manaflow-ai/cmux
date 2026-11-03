@@ -19,6 +19,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 SETTINGS_SWITCH = ROOT / "scripts" / "measure" / "settings-section-switch.sh"
 BROWSER_USE_PERF = ROOT / "scripts" / "measure" / "browser-use-perf.sh"
 TEAM_EVAL = ROOT / "scripts" / "measure" / "team-eval.sh"
+ENSURE_CHROME = ROOT / "scripts" / "ci" / "ensure-system-chrome.sh"
+PRELOAD = ROOT / "webviews" / "test" / "preload.ts"
 REFUSAL = "not on a Mac (Lawrence's rule: no Playwright on Macs); run it in CI or on a cloud VM"
 
 
@@ -30,7 +32,8 @@ class MeasureScriptsOnAMac(unittest.TestCase):
         (bin_dir / "uname").write_text(f"#!/bin/sh\necho {uname}\n", encoding="utf-8")
         # A step that got past the guard would call these; each records that it ran.
         calls = temp / "calls"
-        for tool in ("bun", "node", "cargo", "git"):
+        for tool in ("bun", "node", "cargo", "git", "curl", "hdiutil", "ditto", "codesign", "sudo", "bunx", "npx",
+                     "google-chrome-stable"):
             (bin_dir / tool).write_text(f'#!/bin/sh\necho {tool} >> "{calls}"\nexit 97\n', encoding="utf-8")
             (bin_dir / tool).chmod(0o755)
         (bin_dir / "uname").chmod(0o755)
@@ -98,6 +101,37 @@ class MeasureScriptsOnAMac(unittest.TestCase):
                 else:
                     self.assertEqual(lines[-2], "off on a Mac", output)
                     self.assertIn(f"TEAM-EVAL browser lane: {REFUSAL}", output)
+
+
+    def test_ensure_system_chrome_refuses_on_a_mac(self):
+        # It must not copy Chrome into /Applications, install it through Playwright, or vouch for a
+        # Chrome for Playwright to drive on a Mac, a fleet Mac included.
+        for args, status in (([], 1), (["--optional"], 0)):
+            with self.subTest(args=args):
+                result, ran = self.run_script(ENSURE_CHROME, "Darwin", args=args)
+                self.assertEqual(result.returncode, status, result.stdout + result.stderr)
+                self.assertIn(f"ensure-system-chrome.sh: {REFUSAL}", result.stderr)
+                self.assertNotIn("system Chrome", result.stdout)
+                self.assertEqual(ran, [])
+
+    def test_ensure_system_chrome_keeps_linux_and_github_actions(self):
+        for uname, env in (("Linux", {}), ("Darwin", {"GITHUB_ACTIONS": "true"})):
+            with self.subTest(uname=uname, env=env):
+                result, ran = self.run_script(ENSURE_CHROME, uname, args=["--optional"], extra_env=env)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotIn(REFUSAL, result.stdout + result.stderr)
+
+    def test_webviews_preload_refuses_playwright_on_macs(self):
+        # Every bun test in webviews loads test/preload.ts: it must refuse Playwright launches on a
+        # Mac outside GitHub Actions for every engine, after useSystemChrome (systemChrome.test.ts
+        # covers the refusal itself).
+        text = PRELOAD.read_text(encoding="utf-8")
+        self.assertIn("refusePlaywrightOnMacs([chromium, webkit, firefox]", text)
+        self.assertLess(text.index("useSystemChrome("), text.index("refusePlaywrightOnMacs("))
+
+    def test_browser_use_perf_says_how_a_mac_run_must_drive_the_browser(self):
+        header = BROWSER_USE_PERF.read_text(encoding="utf-8").split("set -euo pipefail")[0]
+        self.assertIn("cmux browser", header)
 
 
 if __name__ == "__main__":
