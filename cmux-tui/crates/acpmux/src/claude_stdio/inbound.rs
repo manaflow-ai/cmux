@@ -150,6 +150,9 @@ impl Translator {
                                 .await
                                 .insert(parent.unwrap_or("").to_owned(), id.to_owned());
                         }
+                        if parent.is_none() {
+                            self.call_started(ev.pointer("/message/usage"));
+                        }
                         if parent.is_none()
                             && let Some(m) = ev.pointer("/message/model").and_then(Value::as_str)
                         {
@@ -191,43 +194,7 @@ impl Translator {
                     }
                     Some("message_delta") => {
                         if let Some(u) = ev.get("usage") {
-                            // `used` is the context held by the last request. It is the prompt
-                            // side of the usage, including cache reads/writes, and deliberately
-                            // excludes output: the context ring must not grow from generated text.
-                            let input = u.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
-                            let cache_read = u
-                                .get("cache_read_input_tokens")
-                                .and_then(Value::as_u64)
-                                .unwrap_or(0);
-                            let cache_write = u
-                                .get("cache_creation_input_tokens")
-                                .and_then(Value::as_u64)
-                                .unwrap_or(0);
-                            let output =
-                                u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
-                            let used = input + cache_read + cache_write;
-                            // A subagent's usage is its own context, not the chat's.
-                            if parent.is_none() {
-                                self.context_used.store(used, Ordering::SeqCst);
-                                self.context_from_compaction.store(false, Ordering::SeqCst);
-                            }
-                            let size = self.context_window.load(Ordering::SeqCst);
-                            // One model call's own usage, marked so a client can add a turn's
-                            // calls up (the pane's running line). The result's resend below is
-                            // the context ring's and is not marked. A subagent's calls are
-                            // marked too: they are the turn's spend. The four counts split the
-                            // call so the line can say its output apart from what it read (fresh
-                            // input, cache reads and cache writes).
-                            out.push(upd(json!({
-                                "sessionUpdate": "usage_update",
-                                "used": used,
-                                "size": size,
-                                "inputTokens": input,
-                                "cachedReadTokens": cache_read,
-                                "cachedWriteTokens": cache_write,
-                                "outputTokens": output,
-                                "_meta": {"acpmux": {"call": true}},
-                            })));
+                            out.push(upd(self.call_usage(u, parent.is_some())));
                         }
                     }
                     _ => {}
@@ -608,6 +575,8 @@ impl Translator {
                             ),
                         ));
                     }
+                } else if let Some(acp) = rid.strip_prefix("psp-") {
+                    out.extend(self.suggestions_set(acp, &sid).await);
                 } else if let Some(acp) = rid.strip_prefix("stop-") {
                     // A stop_task's answer (`subagent_stop`, `STOP_TASK`); the
                     // task's end is its own event.
@@ -727,7 +696,7 @@ impl Translator {
                         if self.context_from_compaction.load(Ordering::SeqCst) {
                             usage.set("_meta", json!({"acpmux": {"compactionDerived": true}}));
                         }
-                        out.push(upd(usage));
+                        out.push(upd(prompt_cache::with_expiry(usage, self.cache.expires_at())));
                     }
                 }
                 // The result of a turn acpmux already ended (a Stop Claude Code
@@ -890,6 +859,7 @@ impl Translator {
                 let after = line.pointer("/compact_metadata/post_tokens").and_then(Value::as_u64);
                 self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
                 self.context_from_compaction.store(true, Ordering::SeqCst);
+                self.cache.compacted();
                 self.awaiting_summary.store(true, Ordering::SeqCst);
                 // Keep the cancelled boundary marker until its result; consuming it
                 // here would let that zero-turn result answer the next echoed prompt.
@@ -911,6 +881,9 @@ impl Translator {
             }
             // The account's plan usage limits, newest per window (`usage_limits.rs`).
             "rate_limit_event" => out.extend(self.usage_limits_update(line).await),
+            "prompt_suggestion" if parent.is_none() => {
+                out.extend(self.suggestion_update(line).map(upd))
+            }
             "system" if sub.starts_with("task_") => {
                 if let Some(update) = self.background_shell_task(sub, line, &sid).await {
                     out.push(update);

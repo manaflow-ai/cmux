@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 794,
-    "mcp": 709
+    "verbs": 795,
+    "mcp": 710
   },
   "nouns": [
     {
@@ -2029,6 +2029,13 @@
           "id": "home.togglePin",
           "mcp": true,
           "mcpTool": "app_home_pin_unpin"
+        },
+        {
+          "command": "cmux home primary-chief",
+          "title": "Make Primary Chief",
+          "id": "home.setPrimaryChief",
+          "mcp": true,
+          "mcpTool": "app_home_primary_chief"
         },
         {
           "command": "cmux home remove-member",

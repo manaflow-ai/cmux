@@ -2022,6 +2022,11 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
   font-variant-numeric: tabular-nums;
 }
+/* A finished step's own time beside the label once the turn's clock reads as the total. */
+.cv-worked__own {
+  color: var(--cv-text-dim);
+  font-variant-numeric: tabular-nums;
+}
 .cv-worked__open {
   all: unset;
   min-width: 0;
@@ -2049,9 +2054,15 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cv-worked__time {
+.cv-worked__time,
+.cv-worked__own {
   flex: none;
   margin-inline-start: 6px;
+}
+/* Past the turn's first step its clock reads as the total ("· 4m total", Thinking.tsx): the words
+   around it sit at the count's own gap. */
+.cv-worked__total .cv-worked__time {
+  margin-inline: 0;
 }
 /* A command in flight leads with the terminal glyph (WorkingFor.tsx), still, like the tool rows'. */
 .cv-worked__glyph {
@@ -2081,6 +2092,14 @@ pre.cv-math-source {
    keeps the footer's 4px meta gap) and 20px under a tool row, as the Codex and Claude desktop apps
    space it, never flush under the text (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE").
    The line reserves the normal turn gap below it, so the end-of-turn swap does not move anything. */
+/* The live line keeps the shared icon slot empty: its words start on the text column every iconed
+   status row's words start on, never 24px left of them on the icon column (Leo, 2026-11-03, on
+   "Writing a command" under "Subagent finished" and over "1 message from 1 session": "weird
+   indenting /cut off text?"; design/chat-transcript.md "One icon column"). A folded turn's
+   "Worked for" line keeps col-left. */
+.cv-worked.cv-worked--live {
+  padding-inline-start: var(--cv-tool-text-inset);
+}
 .cv-worked.is-below {
   /* The footer's slot (transcriptGrid.ts MARK_FOOTER_SLOT): its 32 line, 8 under a reply. */
   height: var(--cv-footer-row);
@@ -2159,6 +2178,11 @@ pre.cv-math-source {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* The live line's action in full ink, the rest of its words at the line's muted tone, as Claude Code
+   desktop draws "Using repo: repo grep" (Thinking.tsx `liveLead`). */
+.cv-worked__lead {
+  color: var(--cv-text);
 }
 .cv-shimmer__band {
   display: none;
@@ -2540,8 +2564,8 @@ pre.cv-math-source {
 }
 /* A finished thought folded (ThoughtRow.tsx; Debug toggle agentPane.debug.foldLongThoughts): "Thought
    for 12s", or with agentPane.debug.thoughtHeader "preview", "Thought" and its first line, then a
-   trailing chevron. Opened, the text sits under one left rule at the label's indent plus the
-   row's gap (AI Elements' Trace nesting); the reader's toggle animates its height (ThoughtRow.tsx). */
+   trailing chevron. Opened, the text sits flush under the label (above); the reader's toggle
+   animates its height (ThoughtRow.tsx). */
 .cv-thought__preview {
   color: var(--cv-text-muted);
 }
@@ -2549,13 +2573,19 @@ pre.cv-math-source {
   display: block;
 }
 /* A flex item already, so no display here: the live viewport's column (above) keeps its own. */
+/* A thought's text sits flush under its label, with no guide line or indent, as Claude Code
+   desktop draws "Thought process" (Leo, 2026-11-03, above); `data-tool-steps-look="guide"` keeps
+   the replaced guide and indent for the gallery's comparison. */
 .cv-thought__body,
 .cv-thought.is-full .cv-thought__text {
   margin: 0;
-  padding-left: var(--grid-icon-box);
-  box-shadow: inset 1px 0 var(--cv-rule);
+  padding-left: 0;
   line-height: 20px;
   overflow: hidden;
+}
+:root[data-tool-steps-look="guide"] :is(.cv-thought__body, .cv-thought.is-full .cv-thought__text) {
+  padding-left: var(--grid-icon-box);
+  box-shadow: inset 1px 0 var(--cv-rule);
 }
 /* A heading in a thought's text (Codex's `**Heading**`, ThoughtRow.tsx thoughtParts): its own muted
    title, without the marks, a paragraph's gap over the text it heads. */
@@ -3029,13 +3059,23 @@ button.cv-video-frames__frame:focus-visible {
   /* Where a step's under-line (a thought's text, a cause) starts. */
   --cv-step-text: var(--cv-tool-text-inset);
 }
-/* A quiet guide between the icon and text columns marks the opened run without indenting it.
-   Keep it inside the transcript row: paint containment clips any outside guide. The comparison
-   gallery's card/tree/zebra looks keep their own rules. */
-:root:not([data-tool-steps-look="card"]):not([data-tool-steps-look="tree"]):not([data-tool-steps-look="zebra"]) .cv-tool-group.is-flat.cv-steps {
+/* An opened run's steps draw as Claude Code desktop lists them (Leo, 2026-11-03: "i feel like
+   comparing claude code's to ours, we're not faithfully following how they're doing stuff"): no
+   icon on a step, its words still on the header's text column, and no guide line. The comparison
+   gallery's card/tree/zebra looks keep their own rules; `guide` is the replaced look (cmux#32363):
+   the steps' glyphs and a quiet guide between the icon and text columns, kept inside the
+   transcript row because paint containment clips any outside guide. */
+:root:not([data-tool-steps-look="card"]):not([data-tool-steps-look="tree"]):not([data-tool-steps-look="zebra"]):not([data-tool-steps-look="guide"])
+  .cv-steps
+  > .cv-step
+  > .cv-tool
+  > .cv-tool__icon {
+  visibility: hidden;
+}
+:root[data-tool-steps-look="guide"] .cv-tool-group.is-flat.cv-steps {
   position: relative;
 }
-:root:not([data-tool-steps-look="card"]):not([data-tool-steps-look="tree"]):not([data-tool-steps-look="zebra"]) .cv-tool-group.is-flat.cv-steps::before {
+:root[data-tool-steps-look="guide"] .cv-tool-group.is-flat.cv-steps::before {
   content: "";
   position: absolute;
   inset-block: 0;
@@ -3334,6 +3374,12 @@ button.cv-video-frames__frame:focus-visible {
 .cv-command__ok {
   color: var(--agent-diff-add);
 }
+/* "Approved" on a call whose permission ask the person approved (ApprovedMark.tsx): dim, at rest,
+   before the status and time, so the approval reads on its row and never as a line of its own. */
+.cv-command__approved {
+  white-space: nowrap;
+  color: var(--cv-text-dim);
+}
 /* A finished call's check and run time show only while the row is pointed at or focused, as in
    the Codex app: at rest a run reads as its words. A failure keeps its red mark ("exit 1",
    "failed") in sight; its time waits for the hover too. Opacity, not display, so the row never
@@ -3394,13 +3440,14 @@ button.cv-video-frames__frame:focus-visible {
 }
 /* "⌃B to run in background" while a command runs (BackgroundHint.tsx), at the right of the running
    turn's live line; never on the command's own row. Its live-line hover rule controls visibility. */
+/* At the line's own size, so its words share the command's baseline and middle: a smaller face
+   centered beside it sat on a different baseline (Leo, 2026-11-03: "this isn't really centered with
+   the tool call i think it should be or at least it looks weird?"). The dim color keeps it a hint. */
 .cv-command__bg {
   flex: none;
   margin-left: auto;
   color: var(--cv-text-dim);
-  font-size: var(--text-detail);
   white-space: nowrap;
-  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* A message to another agent (MessageCard.tsx) is the shared agent message row
    (AgentMessageRow.css). Opened, its text grows in place under the line, at the line's text
@@ -3597,11 +3644,12 @@ button.cv-video-frames__frame:focus-visible {
   justify-content: center;
   color: var(--cv-text-muted);
 }
-.cv-received__mark > :is(svg, img) {
+.cv-received__mark :is(svg, img) {
   display: block;
 }
-/* A harness mark's wrapper centres its glyph too; the Chief's text avatar keeps its own box. */
-.cv-received__mark > span:not(.cv-chief-text-avatar) {
+/* A harness mark's wrappers (AgentIdentity's and its tone span) centre its glyph too, so no inline
+   wrapper sits it on a baseline; the Chief's text avatar keeps its own box. */
+.cv-received__mark span:not(.cv-chief-text-avatar) {
   display: inline-flex;
   align-items: center;
 }
@@ -4162,6 +4210,17 @@ a.cv-sha:focus-visible {
   gap: 4px;
   padding-inline: 6px;
   margin-inline-start: -2px;
+  white-space: nowrap;
+}
+/* A stopped turn's one muted word (TurnRows.tsx `stoppedWord`), in the time's caption size and the
+   footer's resting ink: what ended the turn is its tooltip, never the transcript's text. */
+.cv-turn-actions .cv-turn-stopped {
+  display: inline-flex;
+  align-items: center;
+  height: var(--cv-footer-row);
+  color: var(--cv-footer-ink);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
   white-space: nowrap;
 }
 .cv-iconbtn.cv-turn-continue:disabled {
@@ -5092,10 +5151,16 @@ a.cv-sha:focus-visible {
   z-index: var(--layer-sticky, 10);
   height: 0;
 }
+/* The bar belongs to the chat's column: with Session Info open it sits left of the panel in every stage
+   (float, push, over the chat), keeping the panel's reach into the chat (--acpmux-session-info-clear,
+   SessionInfo.tsx sessionInfoClear) and its inset, and narrows (its field shrinks) to the room left of
+   it, never under the panel (Leo, 2026-11-03: "oh no the command f overlaps with the session info..").
+   Where even its narrowest does not fit, the panel steps aside when Find opens and Find closes when the toggle opens the panel (findBarCramped). */
 .acpmux-find__bar {
   position: absolute;
   top: var(--find-pill-inset, 10px);
-  right: var(--find-pill-inset, 10px);
+  right: calc(var(--find-pill-inset, 10px) + var(--acpmux-session-info-clear, 0px));
+  max-width: calc(100% - 2 * var(--find-pill-inset, 10px) - var(--acpmux-session-info-clear, 0px));
 }
 /* Find matches: the theme's highlight (the yellow is only for an unthemed preview). */
 ::highlight(acpmux-find) {
@@ -5374,23 +5439,14 @@ a.cv-sha:focus-visible {
 .cv-plan__item[data-status="pending"] .cv-plan__mark {
   border-style: dashed;
 }
-/* A thin arc on a faint ring; it turns while the turn runs. */
-.cv-plan__item[data-status="in_progress"] .cv-plan__mark {
-  border-color: var(--cv-card-ring);
-  border-top-color: var(--agent-text);
+/* The step at work draws the shared Spinner inside the mark (PlanList.tsx), so the mark has no ring of
+   its own while the turn runs. */
+.cv-plan:not([data-ended]) .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+  border-width: 0;
 }
-/* Left in progress when its turn ended: a plain ring, not an arc frozen mid-turn. */
+/* Left in progress when its turn ended: a plain ring, not a spinner frozen mid-turn. */
 .cv-plan[data-ended] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
   border-color: var(--cv-text-muted);
-}
-/* Static status indicators and Reduce Motion: the arc holds still. */
-@media (prefers-reduced-motion: no-preference) {
-  :root:not([data-status-indicators="static"])
-    .cv-plan:not([data-ended])
-    .cv-plan__item[data-status="in_progress"]
-    .cv-plan__mark {
-    animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
-  }
 }
 
 /* The running turn's activity line under its todo list (ActivityLine.tsx, agent.sessionStatus,
@@ -5934,3 +5990,58 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);
 }
 .cv-repo-recovery button:hover { background: color-mix(in srgb, var(--agent-text) 15%, transparent); }
+/* The selection's Reply chip (SelectionReply.tsx): a small pill over the selection's end, as
+   Claude's and ChatGPT's. It shows on the selection's end with no fade-in and goes when the
+   selection does. `icon` draws the glyph alone. */
+.cv-selection-reply {
+  position: fixed;
+  z-index: var(--layer-dropdown);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding-inline: 8px 12px;
+  border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
+  border-radius: 8px;
+  /* Opaque over the text it floats above: the page's colour under the cards' fill. */
+  background: linear-gradient(var(--cv-card-fill), var(--cv-card-fill)), var(--agent-page-bg, Canvas);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.14);
+  color: var(--cv-tool-strong);
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+.cv-selection-reply[data-look="icon"] {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+.cv-selection-reply:hover {
+  color: var(--cv-text, currentColor);
+  background: linear-gradient(var(--cv-bubble), var(--cv-bubble)), linear-gradient(var(--cv-card-fill), var(--cv-card-fill)),
+    var(--agent-page-bg, Canvas);
+}
+/* A background task's result the person has not seen (ReactionMark.tsx): a 6px accent dot at the
+   row's edge, before its check and time, until the next prompt. It never pulses. */
+.cv-reaction-mark {
+  position: relative;
+  flex: none;
+  /* A dot, not a control: its size is the glyph's, and an aspect ratio keeps it round. */
+  width: 6px;
+  aspect-ratio: 1;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--agent-accent);
+  align-self: center;
+}
+/* The agent's reply to that result, under the opened call's output (ReactionReply). */
+.cv-reaction-reply {
+  margin: 4px 0 6px;
+  padding-left: var(--cv-tool-text-inset);
+  color: var(--cv-text-dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

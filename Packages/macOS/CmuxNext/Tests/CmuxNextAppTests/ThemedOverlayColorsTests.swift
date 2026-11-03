@@ -36,7 +36,7 @@ import Testing
     @Test func theTerminalStatusPillDrawsInTheTheme() throws {
         let scope = try Self.purpleRoom()
         let banner = TerminalStatusBanner()
-        banner.show(.exited)
+        banner.show(try #require(TerminalStatusBanner.text(for: .exited)), fadeIn: false)
         scope.root(banner)
 
         let fill = try #require(banner.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))

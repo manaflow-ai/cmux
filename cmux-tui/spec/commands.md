@@ -5899,9 +5899,12 @@ Params:
 | `dock` | `ColumnPin` | optional; `edge-docks-v1` | `{edge:"left"\|"right"\|"top"\|"bottom", mode:"docked"\|"overlay", role?:"agent_chat"}`: pins the new column to that edge in the same commit, with the rules of `set-column-dock` (the column that held the edge scrolls again); `role` needs `dock-column-role-v1`, and an unknown role is dropped |
 | `respawn` | `SplitRespawn` | optional; `tab-column-respawn-v1` | As in `move-tab-to-split`; only for the pane's only tab: the pane keeps a fresh tab of that kind, created before the move, so the column the tab leaves stays |
 | `keep_focus` | bool | default false; `tab-split-keep-focus-v1` | As in `move-tab-to-split`: the new column's pane does not take focus |
+| `pane_id` | `string` | default null; `tab-column-client-pane-v1` | Caller-minted id of the new column's pane, `pane_` and 32 lowercase hex digits, refused with `pane_id_exists` when a live or deleted resource has it; see "Client-minted pane ids" |
 | `transaction` | string | optional | As in `move-tab-to-split` |
 
 Result: as `move-tab-to-split`.
+
+With `tab-column-client-pane-v1`, a client that shows the new column before the reply (a lone agent chat docking left, its pane keeping a `respawn` tab) mints the column's pane id, so the daemon's `pane-added` replaces its provisional pane by id.
 
 ### move-tab-to-new-workspace
 
@@ -8390,6 +8393,8 @@ Protocol v9 adds `surface` for a single-terminal frontend. The server filters un
 Clients must require the `surface-subscribe-filter` capability before sending `surface`. A client connected to an older protocol-v9 build must ask the user to restart or upgrade the session instead of silently falling back to an unfiltered stream.
 
 A connection that applies no `scroll-changed` from its event stream echoes `subscribe-scroll-on-attach-v1` in `set-client-info` before `subscribe`; its subscription then carries no `scroll-changed` events, while each terminal's attach stream still does (the Mac app: its scrollbars come from its own surfaces, and with many hidden terminals printing these events woke its event pump about 15 times a second per terminal for nothing). Every other connection keeps them. `identify` lists the capability.
+
+A delta subscriber that echoes `tree-selection-deltas-v1` in `set-client-info` before `subscribe` gets a selection change that rides with a lifecycle delta (a created workspace takes the focus, a created tab becomes its pane's active tab) as `{"event":"selection-changed","workspace":W,"active":bool,"active_workspace":W|null,"screens":[{"id","active","active_pane","panes":[{"id","active_tab","focused_at"}]}]}`: the whole selection of that one workspace, read when the event is written, instead of a `tree-changed` that makes it read the whole tree again. A screen or pane the client does not hold yet comes with its own later delta and is skipped. A selection change that names no workspace is still `tree-changed`. A `workspace.update` of a workspace's title, color or icon (no workspace revision) comes to the same subscriber as `{"event":"workspace-presentation-changed","workspace":W,"entity":Workspace}`, the workspace as `list-workspaces` has it when the event is written. Other delta subscribers keep `tree-changed` for both. In the same way, a created terminal's first placement is its `screen-added` or `tab-added`, and a terminal that ends while its tabs stay is one `tab-changed` per tab, for every subscriber.
 
 Params:
 

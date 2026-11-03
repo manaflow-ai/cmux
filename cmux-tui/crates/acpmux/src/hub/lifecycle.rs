@@ -1030,6 +1030,11 @@ impl Hub {
                 if resume.is_none() { Some(uuid::Uuid::now_v7().to_string()) } else { None };
             let effort = current_effort(&meta).unwrap_or_else(|| "default".into());
             let fast = current_option(&meta, "fast-mode").as_deref() == Some("on");
+            let suggestions = crate::claude_stdio::prompt_suggestions::chat_pick(current_option(
+                &meta,
+                crate::claude_stdio::prompt_suggestions::OPTION,
+            ));
+            let recap = current_option(&meta, crate::claude_stdio::RECAP_OPTION);
             let mode = meta
                 .modes
                 .as_ref()
@@ -1097,6 +1102,8 @@ impl Hub {
                     model: model.clone(),
                     effort: effort.clone(),
                     fast,
+                    prompt_suggestions: suggestions,
+                    recap: recap.clone(),
                     claude_session_id: known.clone(),
                 };
                 self.spawn_hosted_child(
@@ -1116,6 +1123,8 @@ impl Hub {
                     &effort,
                 );
                 *tr.fast.lock().await = fast;
+                tr.prompt_suggestions.store(suggestions, std::sync::atomic::Ordering::SeqCst);
+                tr.set_recap(recap.as_deref());
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);
                 }

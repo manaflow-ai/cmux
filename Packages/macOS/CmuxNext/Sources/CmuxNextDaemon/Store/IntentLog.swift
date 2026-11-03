@@ -38,6 +38,8 @@ enum IntentUndo: Equatable {
     /// The provisional screen shown in workspace `key`, and whether the workspace itself was the
     /// provisional one (inserted) rather than the daemon's.
     case createdWorkspace(key: WorkspaceKey, inserted: Bool)
+    /// What a dock's overlay changed (``ProvisionalDock``).
+    case dockTab(ProvisionalDock.Undo)
 }
 
 struct PendingIntent {
@@ -248,8 +250,7 @@ struct IntentLog {
     /// The daemon reported the pane under public id `paneID`: the split that mints it saw its pane.
     mutating func noteDaemonPane(_ paneID: String) {
         entries.modifyFirst(where: { entry in
-            guard case .splitPane(_, _, _, let provisional) = entry.kind else { return false }
-            return provisional.paneID == paneID
+            entry.kind.provisionalPane?.paneID == paneID
         }) { $0.daemonPaneSeen = true }
     }
 
