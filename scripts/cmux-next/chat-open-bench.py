@@ -120,6 +120,9 @@ parser.add_argument("--capture-check", action="store_true",
                     help="only say whether this process (and so the app it launches) may read the screen "
                          "(screen_capture_check.py) into --json, then exit: nothing is launched (scripts/measure/chat-open.sh "
                          "with --app=PATH builds nothing)")
+parser.add_argument("--sck-picture", action="store_true",
+                    help="click cases: each kept open also keeps one picture through ScreenCaptureKit's current-process "
+                         "capture (debug.motion record_*), to compare with frame_strip's")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts = parser.parse_args()
@@ -640,6 +643,35 @@ def frame_pictures(folder, frames, record, width=640, names=None):
     return out
 
 
+def sck_picture(run, folder):
+    """The window as it shows now through ScreenCaptureKit's current-process capture (`debug.motion record_*`, a short
+    movie of the display showing only this app's windows), its last frame as a kept picture: whether a capture that
+    needs no Screen Recording grant has the Chromium page's pixels, which frame_strip's window list capture lacks on a
+    worker without the grant. (picture or None, facts)."""
+    movie = os.path.join(folder, "sck.mov")
+    facts = {"start": run.rpc("debug.motion", {"action": "record_start", "path": movie, "seconds": 1.0, "filter": "display"})}
+    time.sleep(1.4)  # test script: the recording ends itself after 1 s
+    facts["stop"] = run.rpc("debug.motion", {"action": "record_stop"})
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        facts["read"] = run.rpc("debug.motion", {"action": "record_read"}) or {}
+        if facts["read"].get("written") or facts["read"].get("error"):
+            break
+        time.sleep(0.2)  # test script: the movie is written on the recorder's queue
+    ffmpeg = next((p for p in ("/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", shutil.which("ffmpeg")) if p and os.path.exists(p)), None)
+    if not ffmpeg or not os.path.exists(movie):
+        facts["error"] = "no ffmpeg" if not ffmpeg else "no movie"
+        return None, facts
+    still = os.path.join(folder, "sck.png")
+    done = subprocess.run([ffmpeg, "-v", "error", "-y", "-sseof", "-0.3", "-i", movie, "-frames:v", "1", still],
+                          capture_output=True, text=True, timeout=60)
+    if done.returncode != 0 or not os.path.exists(still):
+        facts["error"] = f"ffmpeg: {done.stderr.strip()[:300]}"
+        return None, facts
+    picture = frame_pictures(folder, [{"ms": "sck", "file": "sck.png"}], {}, width=1200, names={"sck": "sck"})
+    return picture.get("sck"), facts
+
+
 def frame_click(run, key, label, keep=False):
     """Clicks the sidebar row of workspace `key` inside a frame strip and judges the frames (chat_open_frames)."""
     import threading
@@ -669,6 +701,10 @@ def frame_click(run, key, label, keep=False):
             record["pictures"].update(frame_pictures(folder, [{"ms": "screen", "file": "screen.png"}], {}, names={"screen": "screen"}))
         else:
             record["screen_error"] = f"screencapture exited {shot.returncode}: {(shot.stderr or shot.stdout).strip()[:300]}"
+        if opts.sck_picture:
+            picture, record["sck_facts"] = sck_picture(run, folder)
+            if picture:
+                record["pictures"]["sck"] = picture
     shutil.rmtree(folder, ignore_errors=True)  # the PNGs: the numbers per frame, and the kept pictures, are the evidence
     record.update({"click": strip.get("key"), "frame_count": strip.get("frame_count"),
                    "mean_interval_ms": strip.get("mean_interval_ms"), "strip_settled_ms": strip.get("settled_ms"),
