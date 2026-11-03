@@ -828,10 +828,19 @@ impl Brain {
         }
     }
 
-    pub(super) fn sub_started(&mut self, id: &str, session_id: String, policy: Option<String>) {
+    pub(super) fn sub_started(
+        &mut self,
+        id: &str,
+        session_id: String,
+        policy: Option<String>,
+        harness: Option<String>,
+    ) {
         if let Some(sub) = self.state.sub_mut(id) {
             sub.session_id = Some(session_id);
             sub.policy = policy;
+            if harness.is_some() {
+                sub.harness = harness;
+            }
             if sub.status == SubStatus::Starting {
                 sub.status = SubStatus::Running;
             }
@@ -1008,8 +1017,17 @@ impl Brain {
     pub(super) fn sub_answer(&mut self, id: &str, answer: &Result<Value, String>) {
         let mut fields = crate::subagents::answer_fields(answer);
         fields["id"] = json!(id);
-        if let Some((spawn, _)) = self.state.sub(id) {
+        if let Some((spawn, sub)) = self.state.sub(id) {
             fields["spawn"] = json!(spawn);
+            // The usage ledger's attribution, from the durable record: the
+            // trace fold's memory of `subagent.start` is gone after a host
+            // restart, and subagents outlive many of them.
+            if let Some(session) = &sub.session_id {
+                fields["session"] = json!(session);
+            }
+            if let Some(harness) = &sub.harness {
+                fields["harness"] = json!(harness);
+            }
         }
         self.trace.emit("subagent.answer", fields);
         // A prompt the harness failed ends the run with a failure report,
@@ -1107,6 +1125,10 @@ impl Brain {
         else {
             return;
         };
+        // A cancelled subagent's sign-ins wait on nobody now (every stop path ends here).
+        if self.state.sub(id).is_some_and(|(_, s)| s.cancelled) {
+            self.sign_ins.abandoned(id);
+        }
         // control interrupt|restart with a message: the cut run reports
         // nothing; the message is its next prompt, sent now that it stopped.
         let follow = self.state.sub_mut(id).and_then(|s| s.after_stop.take());
@@ -2266,6 +2288,10 @@ impl Brain {
             self.tell_mode(id, message, queue)
                 .map(|answer| format!("outcome: done. {answer}"))
         };
+        if answer.is_ok() {
+            // "Signed in to SITE ...; go on." (chief-auth-escalation): its Feed request closes.
+            self.sign_ins.told(id, message);
+        }
         if answer.is_ok()
             && !told_for.is_empty()
             && let Some(sub) = self.state.sub_mut(id)

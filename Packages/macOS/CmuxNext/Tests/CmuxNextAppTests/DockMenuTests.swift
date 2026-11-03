@@ -69,10 +69,21 @@ struct DockMenuTests {
         var opened: [String] = []
         func dockMenuHarnesses() async -> [AcpmuxHarnessRow] { reads += 1; return [AcpmuxHarnessRow(id: "codex", kind: "acp", source: "path")] }
         func dockMenuMachines() async -> [AgentChatDestinations.Destination] { [] }
-        var dockMenuHasWindow: Bool { true }
-        func dockMenuReopenWindow() {}
+        var dockMenuHasWindow = true
+        var dockMenuHasPane = true
+        var dockMenuWindow: DockMenuWindow { !dockMenuHasWindow ? .closed : dockMenuHasPane ? .pane : .noPane }
+        var reopens = 0
+        /// What the reopen does in its own call (a closed window brought back mounts its panes there).
+        var onReopen: (() -> Void)?
+        func dockMenuReopenWindow() { reopens += 1; onReopen?() }
         func dockMenuNewChat(_ arguments: [String: ActionValue]) { newChats.append(arguments) }
-        func dockMenuOpenChat(_ id: String) throws { opened.append(id) }
+        /// Chats a tab already shows: they open with no pane, as a session link reveals its tab.
+        var shownChats: Set<String> = []
+        struct NoPane: Error {}
+        func dockMenuOpenChat(_ id: String) throws {
+            guard dockMenuWindow == .pane || (dockMenuWindow != .closed && shownChats.contains(id)) else { throw NoPane() }
+            opened.append(id)
+        }
         func dockMenuRefuse(_ reason: String) {}
     }
 
@@ -100,5 +111,126 @@ struct DockMenuTests {
         #expect(box.action == .newChat(harness: nil, machine: "peer:m"))
         let more = try #require(menu.items[9].submenu)
         #expect((more.items[0].representedObject as? DockMenuBuilder.Box)?.action == .open(chat: "d"))
+    }
+
+    /// #33238: with no window open, a row opens one and runs once its first pane mounts, keeping
+    /// New Chat in ▸'s harness or machine; before, the choice was dropped and chat rows ran with
+    /// no pane to open in.
+    @Test func aRowPickedWithNoWindowRunsOnceTheWindowsFirstPaneMounts() {
+        let host = Host()
+        host.dockMenuHasWindow = false
+        let controller = DockMenuController(lanes: AgentLaneStore(), marks: AgentPriorityMarks(defaults: nil), host: host)
+        controller.run(.newChat(harness: "codex", machine: nil))
+        #expect(host.reopens == 1)
+        #expect(host.newChats.isEmpty)
+        #expect(controller.waiting == .newChat(harness: "codex", machine: nil))
+        // A later pick replaces the waiting one.
+        controller.run(.newChat(harness: nil, machine: "peer:m"))
+        host.dockMenuHasWindow = true
+        controller.windowDidShowContent()
+        #expect(host.newChats == [["host": .string("peer:m")]])
+        #expect(!controller.isWaiting)
+        controller.windowDidShowContent() // runs once
+        #expect(host.newChats.count == 1)
+
+        host.dockMenuHasWindow = false
+        controller.run(.open(chat: "a"))
+        #expect(host.opened.isEmpty)
+        host.dockMenuHasWindow = true
+        controller.windowDidShowContent()
+        #expect(host.opened == ["a"])
+        controller.stop()
+    }
+
+    @Test func plainNewChatWithNoWindowUsesTheNewWindowsNewTabPage() {
+        let host = Host()
+        host.dockMenuHasWindow = false
+        let controller = DockMenuController(lanes: AgentLaneStore(), marks: AgentPriorityMarks(defaults: nil), host: host)
+        controller.run(.newChat(harness: nil, machine: nil))
+        controller.windowDidShowContent()
+        #expect(host.reopens == 1 && !controller.isWaiting && host.newChats.isEmpty)
+        controller.stop()
+    }
+
+    @Test func aWaitingRowWaitsForAPaneInTheActiveWindow() {
+        let host = Host()
+        host.dockMenuHasWindow = false
+        host.dockMenuHasPane = false
+        let controller = DockMenuController(lanes: AgentLaneStore(), marks: AgentPriorityMarks(defaults: nil), host: host)
+        controller.run(.open(chat: "a"))
+        host.dockMenuHasWindow = true
+        controller.windowDidShowContent() // a window, but its active window shows no pane yet
+        #expect(host.opened.isEmpty && controller.isWaiting)
+        host.dockMenuHasPane = true
+        controller.windowDidShowContent()
+        #expect(host.opened == ["a"] && !controller.isWaiting)
+        controller.stop()
+    }
+
+    @Test func aPickWithAWindowOpenDropsAStaleWaitingPick() {
+        let host = Host()
+        host.dockMenuHasWindow = false
+        let controller = DockMenuController(lanes: AgentLaneStore(), marks: AgentPriorityMarks(defaults: nil), host: host)
+        controller.run(.open(chat: "stale"))
+        host.dockMenuHasWindow = true
+        controller.run(.open(chat: "b"))
+        #expect(!controller.isWaiting)
+        controller.windowDidShowContent() // a later first-pane mount runs nothing old
+        #expect(host.opened == ["b"])
+        controller.stop()
+    }
+
+    /// A closed window brought back mounts its panes inside the reopen call: the first-pane hook
+    /// must already see the pick waiting, and the pick runs.
+    @Test func aReopenThatMountsAtOnceStillRunsThePick() {
+        let host = Host()
+        host.dockMenuHasWindow = false
+        host.dockMenuHasPane = false
+        let controller = DockMenuController(lanes: AgentLaneStore(), marks: AgentPriorityMarks(defaults: nil), host: host)
+        var hookSawWaiting = false
+        host.onReopen = {
+            host.dockMenuHasWindow = true
+            host.dockMenuHasPane = true
+            hookSawWaiting = controller.isWaiting // WorkspaceContentController's first mount
+        }
+        controller.run(.open(chat: "a"))
+        #expect(hookSawWaiting)
+        if hookSawWaiting { controller.windowDidShowContent() } // the hook's deferred call
+        #expect(host.opened == ["a"])
+        controller.stop()
+    }
+
+    /// The last window closed on a top page (History): it comes back with no pane mounted. A chat a
+    /// tab already shows is revealed at once, as before, instead of waiting for a pane.
+    @Test func aReopenedTopPageWindowRevealsAChatATabShows() {
+        let host = Host()
+        host.dockMenuHasWindow = false
+        host.dockMenuHasPane = false
+        host.shownChats = ["a"]
+        let controller = DockMenuController(lanes: AgentLaneStore(), marks: AgentPriorityMarks(defaults: nil), host: host)
+        host.onReopen = { host.dockMenuHasWindow = true }
+        controller.run(.open(chat: "a"))
+        #expect(host.opened == ["a"] && !controller.isWaiting)
+        controller.stop()
+    }
+
+    @Test func aPlainNewChatDropsAWaitingPick() {
+        let host = Host()
+        host.dockMenuHasWindow = false
+        host.dockMenuHasPane = false
+        let controller = DockMenuController(lanes: AgentLaneStore(), marks: AgentPriorityMarks(defaults: nil), host: host)
+        controller.run(.open(chat: "a"))
+        controller.run(.newChat(harness: nil, machine: nil))
+        #expect(!controller.isWaiting)
+        controller.stop()
+    }
+
+    /// #33727: a terminal harness opens a terminal, not a chat, so New Chat in ▸ leaves it out.
+    @Test func newChatInLeavesTerminalHarnessesOut() {
+        let rows = [AcpmuxHarnessRow(id: "codex", kind: "acp", source: "path"),
+                    AcpmuxHarnessRow(id: "shell", kind: "terminal", source: "user-file"),
+                    AcpmuxHarnessRow(id: "claude", name: "Claude", kind: "claude-stdio", source: "path")]
+        let choices = DockMenuChoices.make(harnesses: rows, machines: [AgentChatDestinations.local(title: "This Mac")])
+        #expect(choices.harnesses.map(\.id) == ["claude", "codex"])
     }
 }

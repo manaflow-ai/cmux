@@ -76,7 +76,8 @@ export const authorizeDefaultMachine = async (env: Env, scope: DefaultHandScope,
     identity: `install:${install}`, kind: "install", user: owner, team, install,
     grant: i.grant, install_kind: "vm", bound_machine: carrier, grant_classes: ["vm-self"],
   }, "cloud.vm.self.get", { machine: carrier })
-  if (!self.ok || (self.value as { machine?: { status?: string; creator?: string } }).machine?.creator !== owner) throw new Error("chief.machine.carrier_changed")
+  if (!self.ok) throw new Error(self.code === "owner.unreachable" ? "chief.machine.carrier_unavailable" : "chief.machine.carrier_changed")
+  if ((self.value as { machine?: { status?: string; creator?: string } }).machine?.creator !== owner) throw new Error("chief.machine.carrier_changed")
   if (options.running !== false && (self.value as { machine?: { status?: string } }).machine?.status !== "running") throw new Error("chief.machine.not_running")
   return cloud
 }

@@ -87,7 +87,7 @@ final class SessionRegistrar {
         guard home.store.personal.isLoaded, !home.store.isProvisional, Self.canRegister(home.store.connectionState),
               let connection = home.connection else { return }
         var present = Set<String>()
-        for daemon in machines.daemons where daemon.store.isLoaded {
+        for daemon in machines.daemons.filter({ $0.store.isLoaded }).onePerRegistryID(\.store.registryID, \.isLocal, \.machineID) {
             guard let session = daemon.store.registryID, let identity = daemon.store.identity else { continue }
             present.insert(session)
             let name = machineName(daemon)

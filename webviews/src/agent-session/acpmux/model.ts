@@ -33,6 +33,7 @@ import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMessage";
+import type { InboxNotice } from "./conversation/inboxNotice";
 import type { TurnCopyPart } from "./conversation/turnCopy";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
@@ -264,6 +265,10 @@ export type QueuedPrompt = {
   /// Another agent's message waiting here (direct.ts `queuedMessage`): it draws in the transcript
   /// as the message's received card (conversation/queuedMessages.ts), never as a queue row.
   message?: IncomingMessage;
+  /// acpmux's inbox notice waiting here (provenance `inbox_notice`, hub/inbox.rs): other agents'
+  /// messages, not the person's prompt. Like `message`, it draws in the transcript's one group of
+  /// waiting messages as its threads (conversation/queuedMessages.ts), never as a queue row.
+  inbox?: InboxNotice;
   /// A teammate's prompt in a shared chat (its `person_message` provenance): its row names them,
   /// and only they may change it (acpmux refuses another author's edit with `queue.not_author`).
   author?: Participant;
@@ -513,6 +518,21 @@ export type AcpmuxRow = {
   /// `doing` names the latest step, finished, which the live line holds until the next step
   /// (conversation/turns.ts `liftedStep`): "Ran grep …".
   doingDone?: boolean;
+  /// How long that finished step took, its own start to its own end (conversation/turns.ts
+  /// `liftedStep`): the live line says it beside the step, never the turn's time.
+  doingForMs?: number;
+  /// What the Codex-style live line says when it names no call (conversation/turns.ts
+  /// `codexLiveTurn`): the agent waits on its foreground subagents (`liveAgents` of them still
+  /// running), or writes its reply. Neither reads "Thinking" (Leo, 2026-11-03: "i think the
+  /// "thinking" accounting is also off pretty frequently").
+  liveState?: "subagents" | "writing";
+  liveAgents?: number;
+  /// With the line reading "Thinking" past the first step: how long the turn's thoughts streamed,
+  /// summed (conversation/turns.ts `thoughtTime`), the time it shows beside the word.
+  thoughtMs?: number;
+  /// The live line's clock is the turn's whole time, past its first step: it reads "4m total", so
+  /// the time never reads as what the line names (conversation/Thinking.tsx).
+  turnTotal?: boolean;
   /// The call in flight sends another agent a message (conversation/turns.ts `sendingTo`: a shell
   /// `acpmux send`, a sub-session's `send_message`): the line reads "Sending message to
   /// <doingSendTo>", and the sub-session `doingSendSession` by its name once the list has it.
@@ -544,6 +564,12 @@ export type AcpmuxRow = {
   /// The summary of a turn a prompt sent now ended, not Stop or Esc (direct.ts): the turn goes on
   /// under that prompt, so it draws no "You stopped after" (conversation/turns.ts).
   continued?: boolean;
+  /// A stopped turn's summary that acpmux ended itself because the agent never answered Stop
+  /// (`cancelForced`, hub/cancel.rs). It draws as any stop; only the footer's tooltip says so.
+  stopForced?: true;
+  /// A steer logged after its turn's Stop and never read: drawn as a plain message below the stop
+  /// (direct.ts `deferLateSteers`), until acpmux runs it again as the next prompt.
+  afterStop?: true;
   /// A waiting steer's promptId, which its Send now names (conversation/PendingSteer.tsx).
   steerPromptId?: string;
   /// A prompt's promptId as acpmux recorded it (its `user_message` record's): the thread rail keys
