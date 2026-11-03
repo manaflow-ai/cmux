@@ -127,7 +127,7 @@ fn fake_cloud_asking(
             "noted in the cloud",
         ] {
             let i = memory.len();
-            memory.push(json!({"i": i, "kind": if i % 2 == 0 { "user" } else { "talk" }, "text": text, "size": text.len(), "date": "2026-11-02T10:00:00.000Z"}));
+            memory.push(json!({"i": i, "kind": if i.is_multiple_of(2) { "user" } else { "talk" }, "text": text, "size": text.len(), "date": "2026-11-02T10:00:00.000Z"}));
         }
         let history = [
             json!({"id": "msg_A", "seq": 1, "client_msg_id": "c1", "author": USER, "parts": [{"type": "text", "text": "hi"}], "created_at": "2026-10-20T09:00:00.000Z"}),
