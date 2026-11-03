@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 function respond(body: unknown, status = 200) {
-  fetchMock = spyOn(globalThis, "fetch").mockResolvedValue(Response.json(body, { status }));
+  fetchMock = spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(body, { status }));
   return fetchMock;
 }
 
