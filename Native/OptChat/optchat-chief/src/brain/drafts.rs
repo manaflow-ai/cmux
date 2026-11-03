@@ -7,12 +7,6 @@ use super::Brain;
 impl Brain {
     /// A draft of the running turn's reply goes to its conversation.
     pub(super) fn turn_draft(&mut self, draft: &crate::draft::Draft) {
-        self.first_words.draft(
-            &draft.turn,
-            !draft.done && !draft.text.is_empty(),
-            std::time::Instant::now(),
-            chrono::Utc::now(),
-        );
         let Some(conversation) = self
             .state
             .turn
@@ -30,6 +24,13 @@ impl Brain {
         {
             return;
         }
+        // The first words clock stops at the first draft the person sees.
+        self.first_words.draft(
+            &draft.turn,
+            !draft.done && !draft.text.is_empty(),
+            std::time::Instant::now(),
+            chrono::Utc::now(),
+        );
         self.publish_draft(&conversation, draft);
     }
 

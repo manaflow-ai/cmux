@@ -592,6 +592,8 @@ pub fn run_with_drafts(
     interrupt.wake_with(Some(tx.clone()));
     let blocks = reused.map_or_else(|| start.blocks.clone(), |r| r.blocks.clone());
     let started = agents.start_prompt(&session, blocks, &start.prompt_id, tx);
+    // Before the old session's end, which overlaps the model's first byte.
+    let start_ms = Some(began.elapsed().as_millis() as u64);
     retire.end();
     if let Err(e) = started {
         interrupt.wake_with(None);
@@ -611,7 +613,6 @@ pub fn run_with_drafts(
             ..TurnOutcome::default()
         };
     }
-    let start_ms = Some(began.elapsed().as_millis() as u64);
     let fetch = |fold: &mut TurnFold| -> Result<(), String> {
         let before = fold.seq();
         let mut entries = Vec::new();
