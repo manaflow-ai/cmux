@@ -33,7 +33,7 @@ extension MobileHostLaunch {
             "items": requests.map { request -> [String: Any] in
                 var item: [String: Any] = [
                     "id": request.id, "title": request.title, "body": request.body, "kind": request.kind,
-                    "source": request.source, "created_at_ms": Int64(request.createdAt.timeIntervalSince1970 * 1000),
+                    "source": request.source, "created_at_ms": Int64(exactly: (request.createdAt.timeIntervalSince1970 * 1000).rounded()) ?? 0,
                 ]
                 if let url = request.url { item["url"] = url.absoluteString }
                 return item

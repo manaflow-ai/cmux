@@ -280,7 +280,7 @@ mod tests {
     fn an_open_request_is_never_forgotten() {
         let mut pushed = Pushed::load(None);
         let open = request("fi_open");
-        assert_eq!(pushed.pushes(&[open.clone()]).len(), 1);
+        assert_eq!(pushed.pushes(std::slice::from_ref(&open)).len(), 1);
         for n in 0..PUSHED_LIMIT + 10 {
             pushed.pushes(&[open.clone(), request(&format!("fi_{n}"))]);
         }
