@@ -32,6 +32,7 @@ struct ChiefAvatarMotionTests {
                 entry("noah", "Noah", .monogram("NO"), nil, false),
             ]
             window.contentView = view
+            view.animates = true  // this suite tests the motion itself (off by default, msg 20105)
             controller.avatarMotion.onScreenPin = true
             controller.setWindowActive(true)  // the host's window is key
             show()
