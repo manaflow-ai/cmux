@@ -75,7 +75,10 @@ extension SidebarListViewComponents {
         // A reload with no motion (a launch's restore, a space switch) jumps to the reveal in the frame it commits: the clip
         // goes there first and apply realizes the rows once, around it (REOPEN-F7: applied at the anchor and then
         // jumped, a reopened window far down its list built its rows twice before its first frame).
-        if !animated, !toNewRow, abs(target - clip.bounds.minY) > 0.25 {
+        // A Cmd-N row is new to a list that shows workspace rows already; the launch's restored rows are all new to a list
+        // that shows none yet (only its section's header), so they jump too.
+        let firstWorkspaceRows = toNewRow && !displayed.rows.contains { if case .workspace = $0.key { true } else { false } }
+        if !animated, !toNewRow || firstWorkspaceRows, abs(target - clip.bounds.minY) > 0.25 {
             if frame.height < after.content { setFrameSize(NSSize(width: frame.width, height: after.content)) }
             isShiftingViewport = true
             clip.setBoundsOrigin(NSPoint(x: clip.bounds.minX, y: target))
