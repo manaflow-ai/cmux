@@ -42,6 +42,8 @@ final class SidebarDragAutoscroll {
               let scrollView = list.enclosingScrollView else { return false }
         let velocity = velocity(windowPoint: windowPoint)
         guard velocity != 0 else { return false }
+        // A frame that shows no later than the last one (after a hang) moves nothing: keep ticking.
+        guard tick.motionElapsed > 0 else { return true }
         let clip = scrollView.contentView
         let b = clip.bounds
         let dt = tick.motionElapsed

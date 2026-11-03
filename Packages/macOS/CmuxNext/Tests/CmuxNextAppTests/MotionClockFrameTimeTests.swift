@@ -59,7 +59,9 @@ struct MotionClockFrameTimeTests {
                                                             help: "Springs at the time each frame shows; drags in the frame tick.",
                                                             kind: .bool, defaultSource: .fixed(.bool(false)))])
         }
-        defer { TunableStore.shared.set(key, nil) }
+        // Synchronous from here to the restore: no other test runs while the switch is on.
+        let before = TunableStore.shared.override(key)
+        defer { TunableStore.shared.set(key, before) }
         try #require(TunableStore.shared.set(key, .bool(true)) == .bool(true), "the switch takes the override")
         try body()
     }

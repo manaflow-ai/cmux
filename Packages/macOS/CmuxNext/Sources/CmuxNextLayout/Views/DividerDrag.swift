@@ -43,7 +43,7 @@ struct DividerDrag {
             let point = contentPoint(fromWindow: windowPoint, kind: kind)
             screen.activeDrag?.sample(point, at: CACurrentMediaTime())
             screen.resizeGestureMoved()
-            guard MotionTunables.frameOwnerTiming.value else { return apply(at: windowPoint, phase: .changed) }
+            guard screen.context.dragsOnFrameTick else { return apply(at: windowPoint, phase: .changed) }
             // Control's trail follows every event, with the keys held at it, as `apply` did for each one.
             _ = screen.activeDrag?.effective(point)
             waitForFrame()
@@ -53,7 +53,7 @@ struct DividerDrag {
             screen.activeDrag?.modifiers = modifiers
             // A press that has not moved yet stays a click: nothing to re-apply.
             guard drag.pointer != nil else { return }
-            if MotionTunables.frameOwnerTiming.value { waitForFrame() } else { apply(at: drag.lastWindowPoint, phase: .changed) }
+            if screen.context.dragsOnFrameTick { waitForFrame() } else { apply(at: drag.lastWindowPoint, phase: .changed) }
         case .cancelled:
             cancel(redraw: true)
         case let .ended(windowPoint, flags):

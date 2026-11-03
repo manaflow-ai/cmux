@@ -210,6 +210,8 @@ public final class FrameScheduler: NSObject {
         stall.cancel()
         link?.invalidate()
         link = nil
+        // A window shown again (Reopen Closed Window) keeps its scheduler: its next first frame is one refresh.
+        (lastTimestamp, lastTarget) = (nil, nil)
         closeObserver = nil
     }
 

@@ -87,73 +87,130 @@ struct DividerDragFrameTickTests {
         for _ in 0..<6 { await Task.yield() }
     }
 
-    /// The Debug Settings switch the films flip (`motion.frameOwner.timing`), on while `body` runs. It is set by its
-    /// key, as the films' override file sets it.
-    static func withTiming(_ body: () async throws -> Void) async throws {
-        let key = "motion.frameOwner.timing"
-        TunableStore.shared.activate(file: nil)
-        if TunableStore.shared.descriptor(for: key) == nil {
-            let section = TunableSection(id: "frameOwner", title: "Frame Owner", symbol: "timer", order: 52)
-            TunableStore.shared.register([TunableDescriptor(key: key, section: section, label: "Frame timing",
-                                                            help: "Springs at the time each frame shows; drags in the frame tick.",
-                                                            kind: .bool, defaultSource: .fixed(.bool(false)))])
+    /// A probe whose layout runs with `motion.frameOwner.timing` on, pinned on its own root (`frameTimingOverride`):
+    /// the process-wide switch would leak into tests that run while this async test is suspended.
+    static func probe(_ layout: ScreenLayout, rows: Bool = false) -> LayoutWorkProbe {
+        let probe = LayoutWorkProbe(layout, focused: "p1")
+        probe.root.context.frameTimingOverride = true
+        if rows {
+            // Row heights are resizable only where the daemon serves rows-v1.
+            probe.model.acceptsRowOps = true
+            probe.root.syncWithModel()
+            probe.settle()
         }
-        defer { TunableStore.shared.set(key, nil) }
-        try #require(TunableStore.shared.set(key, .bool(true)) == .bool(true), "the switch takes the override")
-        try await body()
+        return probe
+    }
+
+    static let twoPanes = ScreenLayout.columns([LayoutColumn(id: "c0", width: 1, root: .split("x", axis: .horizontal, ratio: 0.5,
+                                                                                                    a: .leaf("p1"), b: .leaf("p2")))])
+
+    /// The window x of `kind`'s handle center.
+    static func handleX(_ probe: LayoutWorkProbe, _ kind: DividerHandleView.Kind) throws -> CGFloat {
+        let handle = try #require(probe.screen.dividerViews[kind])
+        return probe.screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil).x
     }
 
     @Test(arguments: Edge.allCases)
     func dragEventsInOneFrameLayTheLayoutOutOnceAtTheFrameTick(_ edge: Edge) async throws {
-        try await Self.withTiming {
-            let probe = LayoutWorkProbe(edge.layout, focused: "p1")
-            defer { probe.close() }
-            if edge == .rowEdge {
-                // Row heights are resizable only where the daemon serves rows-v1.
-                probe.model.acceptsRowOps = true
-                probe.root.syncWithModel()
-                probe.settle()
-            }
-            let screen = probe.screen
-            let handle = try #require(screen.dividerViews[edge.handle], "no \(edge) handle in \(screen.dividerViews.keys)")
-            let start = screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil)
-            handle.mouseDown(with: probe.event(.leftMouseDown, start))
-            await Self.turns()
+        let probe = Self.probe(edge.layout, rows: edge == .rowEdge)
+        defer { probe.close() }
+        let screen = probe.screen
+        let handle = try #require(screen.dividerViews[edge.handle], "no \(edge) handle in \(screen.dividerViews.keys)")
+        let start = screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil)
+        handle.mouseDown(with: probe.event(.leftMouseDown, start))
+        await Self.turns()
 
-            let writes = ModelWrites(probe.model)
-            let before = Self.work(probe)
-            // Five drag events inside one display frame, each in its own turn.
-            var point = start
-            for _ in 1...5 {
-                point = CGPoint(x: point.x + edge.step.dx, y: point.y + edge.step.dy)
-                handle.mouseDragged(with: probe.event(.leftMouseDragged, point))
-                await Self.turns()
-            }
-            let between = Self.work(probe) - before
-            // The frame's tick.
-            _ = probe.root.advanceFrame(1.0 / 120)
+        let writes = ModelWrites(probe.model)
+        let before = Self.work(probe)
+        // Five drag events inside one display frame, each in its own turn.
+        var point = start
+        for _ in 1...5 {
+            point = CGPoint(x: point.x + edge.step.dx, y: point.y + edge.step.dy)
+            handle.mouseDragged(with: probe.event(.leftMouseDragged, point))
             await Self.turns()
-            let frame = Self.work(probe) - before
-            let atTick = frame - between
-
-            #expect(between.reconciles == 0 && between.presentations == 0,
-                    "\(edge): 5 drag events laid the layout out between frame ticks (\(between))")
-            #expect(atTick.reconciles == 1 && atTick.presentations == 1,
-                    "\(edge): the frame tick laid the layout out \(atTick.presentations) times for 5 drag events (\(atTick)), not once")
-            #expect(frame.overlaySyncs <= 1, "\(edge): \(frame.overlaySyncs) overlay syncs (page updates) in one frame of drag events")
-            // A row edge writes the model once, at its release (rows.md Z1); a divider and a column edge once per frame.
-            if edge != .rowEdge {
-                #expect(writes.count == 1, "\(edge): \(writes.count) model writes in one frame of drag events")
-            }
-            if edge == .split {
-                // The frame shows the newest pointer: the divider sits 5 steps from where it was grabbed.
-                let shown = screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil)
-                #expect(abs(shown.x - (start.x + 5 * edge.step.dx)) <= 1, "the divider shows at \(shown.x), the pointer is at \(point.x)")
-            }
-
-            handle.mouseUp(with: probe.event(.leftMouseUp, point))
-            await Self.turns()
-            probe.settle()
         }
+        let between = Self.work(probe) - before
+        // The frame's tick.
+        _ = probe.root.advanceFrame(1.0 / 120)
+        await Self.turns()
+        let frame = Self.work(probe) - before
+        let atTick = frame - between
+
+        #expect(between.reconciles == 0 && between.presentations == 0,
+                "\(edge): 5 drag events laid the layout out between frame ticks (\(between))")
+        #expect(atTick.reconciles == 1 && atTick.presentations == 1,
+                "\(edge): the frame tick laid the layout out \(atTick.presentations) times for 5 drag events (\(atTick)), not once")
+        #expect(frame.overlaySyncs <= 1, "\(edge): \(frame.overlaySyncs) overlay syncs (page updates) in one frame of drag events")
+        // A row edge writes the model once, at its release (rows.md Z1); a divider and a column edge once per frame.
+        if edge != .rowEdge {
+            #expect(writes.count == 1, "\(edge): \(writes.count) model writes in one frame of drag events")
+        }
+        if edge == .split {
+            // The frame shows the newest pointer: the divider sits 5 steps from where it was grabbed.
+            let shown = screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil)
+            #expect(abs(shown.x - (start.x + 5 * edge.step.dx)) <= 1, "the divider shows at \(shown.x), the pointer is at \(point.x)")
+        }
+
+        handle.mouseUp(with: probe.event(.leftMouseUp, point))
+        await Self.turns()
+        probe.settle()
+    }
+
+    /// A release while an event waits for the frame: the release lands at its own point in its own turn, and no later
+    /// frame writes the waiting pointer again.
+    @Test func aReleaseWhileAnEventWaitsLandsAtItsOwnPointOnce() async throws {
+        let probe = Self.probe(Self.twoPanes)
+        defer { probe.close() }
+        let handle = try #require(probe.screen.dividerViews[.split("x")])
+        let start = try Self.handleX(probe, .split("x"))
+        let y = probe.screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil).y
+        handle.mouseDown(with: probe.event(.leftMouseDown, CGPoint(x: start, y: y)))
+        handle.mouseDragged(with: probe.event(.leftMouseDragged, CGPoint(x: start + 40, y: y)))
+        // Released 80 pt right before any frame wrote the waiting 40 pt sample.
+        handle.mouseUp(with: probe.event(.leftMouseUp, CGPoint(x: start + 80, y: y)))
+        await Self.turns()
+        probe.settle()
+        let landed = try Self.handleX(probe, .split("x"))
+        #expect(abs(landed - (start + 80)) <= 1, "the release landed at \(landed), not at its point \(start + 80)")
+        for _ in 0..<3 { _ = probe.root.advanceFrame(1.0 / 120) }
+        #expect(try Self.handleX(probe, .split("x")) == landed, "a frame after the release wrote the drag again")
+        #expect(probe.screen.activeDrag == nil)
+    }
+
+    /// Control moves the divider at a quarter of the pointer's speed over every event, also when several events
+    /// come in one frame (its trail follows each event, not only the one the frame writes).
+    @Test func controlKeepsAQuarterOfThePointerOverEventsInOneFrame() async throws {
+        let probe = Self.probe(Self.twoPanes)
+        defer { probe.close() }
+        let handle = try #require(probe.screen.dividerViews[.split("x")])
+        let start = try Self.handleX(probe, .split("x"))
+        let y = probe.screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil).y
+        handle.mouseDown(with: probe.event(.leftMouseDown, CGPoint(x: start, y: y), .control))
+        for step in 1...4 { handle.mouseDragged(with: probe.event(.leftMouseDragged, CGPoint(x: start + CGFloat(step) * 20, y: y), .control)) }
+        _ = probe.root.advanceFrame(1.0 / 120)
+        let shown = try Self.handleX(probe, .split("x"))
+        #expect(abs(shown - (start + 20)) <= 1, "80 pt of pointer with Control moved the divider to \(shown - start) pt, not 20")
+        handle.mouseUp(with: probe.event(.leftMouseUp, CGPoint(x: start + 80, y: y), .control))
+        await Self.turns()
+        probe.settle()
+    }
+
+    /// With Reduce Motion on, a frame tick lands everything at once and still writes the drag's newest pointer.
+    @Test func reduceMotionStillLaysTheDragOutAtTheFrameTick() async throws {
+        let probe = Self.probe(Self.twoPanes)
+        defer { probe.close() }
+        probe.root.context.reduceMotionOverride = true
+        let handle = try #require(probe.screen.dividerViews[.split("x")])
+        let start = try Self.handleX(probe, .split("x"))
+        let y = probe.screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil).y
+        handle.mouseDown(with: probe.event(.leftMouseDown, CGPoint(x: start, y: y)))
+        handle.mouseDragged(with: probe.event(.leftMouseDragged, CGPoint(x: start + 30, y: y)))
+        handle.mouseDragged(with: probe.event(.leftMouseDragged, CGPoint(x: start + 60, y: y)))
+        #expect(probe.root.advanceFrame(1.0 / 120), "a drag keeps the frame ticks under Reduce Motion")
+        let shown = try Self.handleX(probe, .split("x"))
+        #expect(abs(shown - (start + 60)) <= 1, "the divider shows at \(shown - start) pt, the pointer is at 60")
+        handle.mouseUp(with: probe.event(.leftMouseUp, CGPoint(x: start + 60, y: y)))
+        await Self.turns()
+        probe.settle()
     }
 }
