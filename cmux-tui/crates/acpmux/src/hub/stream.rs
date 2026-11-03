@@ -24,6 +24,8 @@ const NEUTRAL_UPDATES: &[&str] = &[
     // A subagent's spawn and end belong to the subagent (`crate::subagents`).
     "subagent_spawned",
     "subagent_state_update",
+    // A predicted next prompt comes after the turn's answer (`claude_stdio/prompt_suggestions.rs`).
+    "prompt_suggestion",
 ];
 
 /// Codex (`codex-acp`) reports stream trouble as

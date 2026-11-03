@@ -260,8 +260,15 @@ pub struct TranslatorSpec {
     /// Claude Code's fast mode at spawn (the session's `fast-mode` option).
     #[serde(default)]
     pub fast: bool,
+    /// The chat's prompt suggestions at spawn (its `prompt-suggestions` option, on unless off).
+    #[serde(default = "suggestions_default")]
+    pub prompt_suggestions: bool,
     /// Claude's own session id when it is known at spawn.
     pub claude_session_id: Option<String>,
+}
+
+fn suggestions_default() -> bool {
+    true
 }
 
 impl SpawnSpec {
