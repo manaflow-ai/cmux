@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1279,
+    "entries": 1281,
     "shortcuts": 189
   },
   "sections": [
@@ -222,6 +222,12 @@
         {
           "id": "recentlyFocused",
           "title": "Location History…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "home.mcpConnectPlayground",
+          "title": "MCP Connect Card Playground",
           "shortcut": null,
           "command": null
         },
@@ -6938,6 +6944,12 @@
           "title": "Add Server…",
           "shortcut": null,
           "command": "cmux servers add"
+        },
+        {
+          "id": "debug.allThemesPlayground",
+          "title": "All Themes Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "layout.centerFocusedColumn.always",
