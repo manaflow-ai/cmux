@@ -654,6 +654,13 @@ fn a_fleet_sized_list_answers_small_and_live_first() {
     let r = ls_result(&all, &json!({"status": "closed", "limit": 5}));
     assert_eq!(r["structuredContent"]["sessions"].as_array().unwrap().len(), 5);
     assert!(text(&r).starts_with("peer-a/old-2999  [closed]"), "{}", text(&r));
+    assert!(text(&r).contains("raise limit (up to 500)"), "{}", text(&r));
+
+    // A closed session is found by query once status asks for closed ones, and only then.
+    let r = ls_result(&all, &json!({"query": "old-42", "status": "closed"}));
+    assert!(text(&r).lines().any(|l| l.starts_with("peer-a/old-42  [closed]")), "{}", text(&r));
+    let r = ls_result(&all, &json!({"query": "old-42"}));
+    assert_eq!(text(&r), "No sessions.", "{r}");
 }
 
 #[tokio::test]
