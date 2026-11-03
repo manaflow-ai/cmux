@@ -270,6 +270,10 @@ fn assert_old_path_waits_for(name: &str, holder: Holder) {
     connection.close();
     eprintln!("SHARED-LOCKS control (lane off) key wait while {name} is held {HOLD:?}: {waited:?}");
     assert!(
+        waited != Duration::MAX,
+        "control: with stage S1 off a key never reached its terminal while {name} was held"
+    );
+    assert!(
         waited >= BUDGET,
         "control: with stage S1 off the key took {waited:?} while {name} was held {HOLD:?}; the hold does not reach \
          the old path, so the lane's test proves nothing"
