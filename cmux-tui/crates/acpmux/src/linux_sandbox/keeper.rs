@@ -558,7 +558,7 @@ async fn session(
     let supervisor = SupervisorHandle::start(notify, policy)?;
     let stop = CancellationToken::new();
     let mut services = JoinSet::new();
-    let policy = proxy::NetPolicy { api: options.api.map(|a| (a.port(), true)) };
+    let policy = net_policy(&options);
     start_service(
         &mut services,
         proxy::serve_proxy(listeners.next().ok_or("missing proxy listener")?, policy, stop.clone()),
@@ -599,6 +599,12 @@ async fn session(
         (Ok(code), Ok(_)) => Ok(code),
         (Ok(_), Err(error)) => Err(error),
     }
+}
+
+/// The proxy's port policy: the loopback API port (served by the forwarder),
+/// else 80/443 only.
+fn net_policy(options: &Options) -> proxy::NetPolicy {
+    proxy::NetPolicy { api: options.api.map(|a| (a.port(), true)) }
 }
 
 fn init_prefix(
@@ -856,6 +862,27 @@ mod tests {
         assert_eq!(options.api, Some("127.0.0.1:31415".parse().unwrap()));
         assert!(parse(argv(&["--api-port", "31415", "--api-loopback-v6"])).is_err());
         assert!(parse(argv(&["--bwrap", "/opt/bwrap"])).is_err());
+    }
+    /// A non-loopback API port (a tailnet router such as sr2 :4016) is
+    /// reachable through the proxy; loopback on that port stays shut.
+    #[test]
+    fn remote_api_port_opens_only_that_port_off_loopback() {
+        let options = parse(argv(&["--api-remote-port", "4016"])).unwrap();
+        assert_eq!(options.api, None);
+        let policy = net_policy(&options);
+        assert!(proxy::allowed(&policy, "100.120.48.119:4016".parse().unwrap()));
+        assert!(!proxy::allowed(&policy, "127.0.0.1:4016".parse().unwrap()));
+        assert!(!proxy::allowed(&policy, "100.120.48.119:4017".parse().unwrap()));
+        let closed = net_policy(&parse(argv(&[])).unwrap());
+        assert!(!proxy::allowed(&closed, "100.120.48.119:4016".parse().unwrap()));
+        for bad in [
+            vec!["--api-remote-port", "0"],
+            vec!["--api-remote-port", "3128"],
+            vec!["--api-remote-port", "4016", "--api-remote-port", "4016"],
+            vec!["--api-remote-port", "4016", "--api-port", "31415", "--api-loopback-v4"],
+        ] {
+            assert!(parse(argv(&bad)).is_err(), "{bad:?}");
+        }
     }
     #[test]
     fn options_refuse_missing_duplicate_and_unknown_flags() {
