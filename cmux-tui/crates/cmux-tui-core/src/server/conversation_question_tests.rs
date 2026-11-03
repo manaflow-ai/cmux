@@ -105,7 +105,7 @@ fn store() -> (ConversationStore, String, Op) {
         {"id":"agent_mux","kind":"agent","display_name":"Chief","agent_class":"mux","acp_session":"session1"}
     ])).unwrap();
     let created = store.create("create-q", LOCAL_USER, "Questions", &participants).unwrap();
-    let conversation = created.summary.id.clone();
+    let conversation = created.summary.id;
     let sent = store
         .apply_op(
             &conversation,
