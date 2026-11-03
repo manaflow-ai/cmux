@@ -35,35 +35,39 @@ describe("sessionInfoPopover", () => {
     expect(sessionInfoPushes("push", { width: 1800, height: 960 }, 320)).toBe(true);
   });
 
-  // Dragging the panel's left edge to resize it pushes the chat left instead of lying over it (Leo,
-  // 2026-11-02: "THIS IS NOT F***ING HARD TO UNDERSTAND"). The drag sets the width on every move
-  // (setSessionInfoWidth), so each width it passes through must keep the transcript's column clear
-  // of the panel: in a pane that can push, a wider panel never turns into an overlay, the chat gives
-  // up more room as the panel grows, and the column always ends left of the panel.
-  test("dragging the edge wider pushes the chat left and never covers it", () => {
-    for (const paneWidth of [760, 900, 1000, 1200, 1600]) {
+  // Dragging the panel's left edge resizes it (setSessionInfoWidth on every move), and the chat
+  // makes room by moving left instead of lying under it (Leo, 2026-11-02: "THIS IS NOT F***ING HARD TO
+  // UNDERSTAND"), never narrowing the transcript's column (Leo, 2026-11-03: "if it would need to be
+  // then session info should be an overlay", #33037). So each width a drag passes through only moves
+  // the stage on from float to push to overlay, and while it pushes, the room grows with the panel,
+  // the column keeps its width and ends left of the panel.
+  test("dragging the edge wider pushes the chat left until the column would narrow", () => {
+    const order = ["float", "push", "overlay"];
+    for (const paneWidth of [760, 900, 1100, 1200, 1400, 1600, 2000]) {
       const pane = { width: paneWidth, height: 960 };
+      let lastStage = 0;
       let lastRoom = 0;
-      let lastLeft = Number.POSITIVE_INFINITY;
-      for (let width = SESSION_INFO_WIDTH.min; width <= SESSION_INFO_WIDTH.max; width += 4) {
-        const stage = sessionInfoStage("overlay", pane, width);
-        expect(stage).not.toBe("overlay");
-        if (stage !== "push") continue;
+      for (let width = SESSION_INFO_WIDTH.min; width <= SESSION_INFO_WIDTH.max; width += 2) {
+        const stage = order.indexOf(sessionInfoStage("overlay", pane, width));
+        expect(stage).toBeGreaterThanOrEqual(lastStage);
+        lastStage = stage;
+        if (order[stage] !== "push") continue;
         const panel = pushedWidth(paneWidth, width);
         const room = pushedRoom(paneWidth, panel);
         const chat = paneWidth - room;
-        const columnEnd = chat - transcriptColumn(chat).inset;
-        const panelLeft = paneWidth - panel - FLOAT_MARGIN;
-        expect(columnEnd).toBeLessThanOrEqual(panelLeft);
         expect(room).toBeGreaterThanOrEqual(lastRoom);
-        expect(panelLeft).toBeLessThanOrEqual(lastLeft);
+        expect(transcriptColumn(chat).width).toBe(transcriptColumn(paneWidth).width);
+        expect(chat - transcriptColumn(chat).inset).toBeLessThanOrEqual(paneWidth - panel - FLOAT_MARGIN);
         lastRoom = room;
-        lastLeft = panelLeft;
       }
     }
-    // Where the gutter cannot hold the widest panel, the drag really moves the chat.
-    expect(sessionInfoStage("overlay", { width: 900, height: 960 }, SESSION_INFO_WIDTH.max)).toBe("push");
-    const widest = pushedWidth(900, SESSION_INFO_WIDTH.max);
-    expect(pushedRoom(900, widest)).toBeGreaterThan(pushedRoom(900, pushedWidth(900, SESSION_INFO_WIDTH.min)));
+    // Where the gutter stops holding the panel, the drag really moves the chat.
+    const pane = { width: 1400, height: 960 };
+    const pushing = Array.from({ length: 151 }, (_, i) => SESSION_INFO_WIDTH.min + 2 * i).filter(
+      (width) => sessionInfoStage("overlay", pane, width) === "push",
+    );
+    expect(pushing.length).toBeGreaterThan(1);
+    const roomAt = (width: number) => pushedRoom(1400, pushedWidth(1400, width));
+    expect(roomAt(pushing[pushing.length - 1])).toBeGreaterThan(roomAt(pushing[0]));
   });
 });
