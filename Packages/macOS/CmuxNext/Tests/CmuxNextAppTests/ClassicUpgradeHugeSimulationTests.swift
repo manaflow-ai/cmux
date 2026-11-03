@@ -25,7 +25,7 @@ struct ClassicUpgradeHugeSimulationTests {
             mac = try ClassicUpgradeSimulator.Mac()
             try mac.save(ClassicUpgradeProfile.huge)
             before = try mac.classicDigest()
-            sim = try ClassicUpgradeSimulator(mac: mac)
+            sim = try ClassicUpgradeSimulator(mac: mac, tap: DaemonCommandTap()) // DIAG (#32408)
         }
     }
 

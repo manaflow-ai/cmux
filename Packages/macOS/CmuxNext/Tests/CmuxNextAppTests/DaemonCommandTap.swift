@@ -84,7 +84,7 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
             let connection = Connection()
             // task-owner: one relayed connection's two directions; each ends at its side's end of stream
             Thread.detachNewThread { [self] in pump(from: client, to: daemon, counting: connection); pair.ended() }
-            Thread.detachNewThread { [self] in pump(from: daemon, to: client, counting: nil); pair.ended() }
+            Thread.detachNewThread { [self] in pump(from: daemon, to: client, counting: nil, inspectsReplies: true); pair.ended() }
         }
     }
 
@@ -99,7 +99,7 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
     }
 
     /// Copies `source` to `sink` until either ends; with `counting`, counts each request line's command.
-    private func pump(from source: Int32, to sink: Int32, counting: Connection?) {
+    private func pump(from source: Int32, to sink: Int32, counting: Connection?, inspectsReplies: Bool = false) {
         var line = Data()
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
         while true {
@@ -112,6 +112,15 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
                 offset += wrote
             }
             guard offset == read else { break }
+            if inspectsReplies {
+                // DIAG (#32408): what each large daemon line restates (session.events items by resource and kind).
+                line.append(contentsOf: buffer[0..<read])
+                while let newline = line.firstIndex(of: UInt8(ascii: "\n")) {
+                    Self.diagLarge(line[line.startIndex..<newline])
+                    line.removeSubrange(line.startIndex...newline)
+                }
+                continue
+            }
             guard let counting else { continue }
             line.append(contentsOf: buffer[0..<read])
             while let newline = line.firstIndex(of: UInt8(ascii: "\n")) {
@@ -149,6 +158,17 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
             }
             if command == "list-workspaces" { connection.pendingTreeRead = true } else { counts[command, default: 0] += 1 }
         }
+    }
+
+    /// DIAG (#32408): a line over 20 KB: its size, and for a `session.events` delta item its changes by resource and kind.
+    private static func diagLarge(_ line: Data) {
+        guard line.count > 20_000, let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return }
+        let item = object["item"] as? [String: Any]
+        let changes = item?["changes"] as? [[String: Any]] ?? []
+        var counts: [String: Int] = [:]
+        for change in changes { counts["\(change["resource"] ?? "?"):\(change["kind"] ?? "?")", default: 0] += 1 }
+        let keys = object.keys.sorted().joined(separator: ",")
+        print("DIAGLARGE bytes=\(line.count) keys=\(keys) changes=\(changes.count) \(counts.sorted { $0.value > $1.value }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))")
     }
 
     private static func address(_ path: String) -> sockaddr_un {
