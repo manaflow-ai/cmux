@@ -1825,7 +1825,7 @@ export class AcpmuxDirectClient {
   /// Steers logged after their turn's `stopping` record. The agent never reads one: if the turn ends
   /// stopped, each goes below the stop (`deferLateSteers`), where it belongs in time, and acpmux sends
   /// it again as the next prompt with the same promptId, whose row replaces it (`steerRows`).
-  private lateSteers: { rowId: string; promptId?: string; text: string }[] = [];
+  private lateSteers: string[] = [];
   /// The promptIds drawn as prompts. An older page folds in after the rows below it, so the steer
   /// a held prompt re-ran comes after that prompt: it draws nothing. Kept across that fold.
   private promptsShown = new Set<string>();
@@ -5836,7 +5836,7 @@ export class AcpmuxDirectClient {
             this.stoppingTurn.turnId === undefined ||
             msg.turnId === this.stoppingTurn.turnId)
         )
-          this.lateSteers = [...this.lateSteers, { rowId: durableRowId, promptId, text: raw }];
+          this.lateSteers = [...this.lateSteers, durableRowId];
         const inlineParts = recordedPromptParts(msg, knownParts) ?? knownParts;
         const optimisticRow = optimisticRowId ? this.rows.get(optimisticRowId) : undefined;
         this.rows.set(durableRowId, {
@@ -6368,7 +6368,7 @@ export class AcpmuxDirectClient {
     this.stoppingTurn = undefined;
     this.lateSteers = [];
     if (status !== "cancelled" && status !== "interrupted") return;
-    for (const { rowId } of late) {
+    for (const rowId of late) {
       const row = this.rows.get(rowId);
       if (row?.kind !== "user") continue;
       // Queued again already: its queued card draws it at the end of the chat.
