@@ -142,7 +142,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
       },
     },
     "checklist-harness": {
-      note: "Last step: the machine, repository and setup are done (checks) and the harness row spins, reading Starting Claude Code until it has.",
+      note: "Last step: the machine, repository and setup are done (checks) and the harness row spins, reading Starting Claude Code until it has (no start time in the fixture: a running row times against the page clock).",
       props: {
         start: {
           ...begun,
@@ -154,7 +154,6 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           machineFinishedAt: 12_400,
           clone: { state: "done", ...timing },
           setup: { state: "done", ...timing },
-          harnessStartedAt: 12_400,
         },
       },
     },

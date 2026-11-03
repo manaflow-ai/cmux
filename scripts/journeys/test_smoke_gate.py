@@ -255,7 +255,9 @@ class Launch(unittest.TestCase):
         # capture-host (hq main 2026-10-30) refuses `launch` without --commit SHA checked against the bundle.
         src = (HERE / "run.py").read_text()
         self.assertIn('[ch, "launch", "--commit", commit, *(["--activate"] if whole_host else []), lease, app', src)
-        self.assertIn("capture-commit", src)
+        # The cache fill writes it beside the bundle (build_cache.py; test_build_cache.py plays it).
+        self.assertIn("capture-commit", (HERE / "build_cache.py").read_text())
+        self.assertIn("{q(commit if re.fullmatch(r'[0-9a-f]{40}', commit) else '-')}", src)
 
 
 class WholeHost(unittest.TestCase):
