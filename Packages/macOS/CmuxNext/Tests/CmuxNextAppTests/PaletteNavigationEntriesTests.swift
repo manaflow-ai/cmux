@@ -119,13 +119,13 @@ struct PaletteNavigationEntriesTests {
         #expect(PaletteNavigationEntries.entries(topology, groups: [], lastActive: [:]).map(\.itemID) == ["tab:a1", "tab:a2", "tab:b1"])
     }
 
-    @Test func theChatsThatRepeatTheirWorkspaceNameAreToldApartByKind() {
+    @Test func theChatsThatRepeatTheirWorkspaceNameCarryItsIDForTheRowsToTellThemApart() {
+        // NavigationPaletteProvider titles them "Agent Chat 1" and "Agent Chat 2" per workspace id
+        // (PaletteNavigationTests.ultraListsEachWorkspaceOnceAndItsChatsByKind).
         let entries = PaletteNavigationEntries.entries(Self.ultras(), groups: [], lastActive: [:])
-        let items = NavigationPaletteProvider.items(entries, source: nil)
-        #expect(items.map(\.title) == ["Agent Chat 1", "Agent Chat 2"])
-        #expect(items.allSatisfy { $0.subtitle == "mac-studio-ultras" && $0.accessory == "Agent Chat" })
-        // Typing the workspace's name still finds them, after the workspace row (tabs rank below it).
-        #expect(items.allSatisfy { $0.keywords.contains("mac-studio-ultras") })
+        #expect(entries.map(\.title) == ["mac-studio-ultras", "mac-studio-ultras"])
+        #expect(entries.map(\.workspaceTitle) == ["mac-studio-ultras", "mac-studio-ultras"])
+        #expect(entries.map(\.workspaceID) == ["ws-a", "ws-a"])
     }
 
     // MARK: Group to first workspace
