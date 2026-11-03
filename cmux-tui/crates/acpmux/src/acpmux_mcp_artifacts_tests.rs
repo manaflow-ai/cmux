@@ -173,7 +173,7 @@ fn a_save_takes_exactly_one_source_and_refuses_secrets_and_clashes() {
         "other",
     )
     .unwrap();
-    assert_eq!(two[1].bytes, vec![0, 1]);
+    assert_eq!(two[1].bytes.as_ref(), &[0, 1]);
     for bad in [
         json!({"files": [{"name": "a", "text": "a"}, {"name": "A", "text": "b"}]}),
         json!({"files": [{"name": "a", "text": "a"}, {"name": "a/b", "text": "b"}]}),
@@ -338,6 +338,7 @@ async fn save_provisions_then_creates_and_retries_once_on_a_conflict() {
     let moved = "2".repeat(40);
     let (base, server) = fixture(vec![
         (200, JSON, json!({"repo": "r", "headSha": head}).to_string().into_bytes()),
+        (200, JSON, json!({"sha256": "a".repeat(64), "size": 11}).to_string().into_bytes()),
         (409, JSON, json!({"code": "artifacts.conflict", "message": "repository head changed", "currentHeadSha": moved}).to_string().into_bytes()),
         (200, JSON, json!({"id": id, "headSha": "3".repeat(40), "commit": {}}).to_string().into_bytes()),
     ])
@@ -351,15 +352,18 @@ async fn save_provisions_then_creates_and_retries_once_on_a_conflict() {
     let seen = server.await.unwrap();
     assert_eq!(result["isError"], false, "{result}");
     assert!(seen[0].line.starts_with("POST /v1/artifacts/repo "), "{}", seen[0].line);
-    assert!(seen[1].line.starts_with("POST /v1/artifacts "), "{}", seen[1].line);
-    let first: Value = serde_json::from_slice(&seen[1].body).unwrap();
-    let retry: Value = serde_json::from_slice(&seen[2].body).unwrap();
+    assert!(seen[1].line.starts_with("POST /v1/artifacts/blobs "));
+    assert_eq!(seen[1].body, b"<h1>ok</h1>");
+    assert!(seen[2].line.starts_with("POST /v1/artifacts "), "{}", seen[2].line);
+    let first: Value = serde_json::from_slice(&seen[2].body).unwrap();
+    let retry: Value = serde_json::from_slice(&seen[3].body).unwrap();
     assert_eq!(first["expectedHeadSha"], head);
     assert_eq!(retry["expectedHeadSha"], moved);
     assert_eq!(retry["title"], "Build report");
     assert_eq!(retry["kind"], "html");
     assert_eq!(retry["files"][0]["name"], "index.html");
-    assert_eq!(retry["files"][0]["contentBase64"], BASE64.encode("<h1>ok</h1>"));
+    assert_eq!(retry["files"][0]["blobSha256"], "a".repeat(64));
+    assert!(retry["files"][0].get("contentBase64").is_none());
     let data = &result["structuredContent"]["data"];
     assert_eq!(data["id"], id);
     assert_eq!(data["path"], format!("artifacts/{id}"));
@@ -408,4 +412,114 @@ async fn an_answer_over_its_cap_is_refused_not_buffered() {
     server.await.unwrap();
     assert_eq!(r["isError"], true);
     assert!(r["content"][0]["text"].as_str().unwrap().contains("over 4 MiB"), "{r}");
+}
+
+#[test]
+fn text_preview_handles_unicode_across_chunks_and_keeps_one_page() {
+    let mut preview = TextPreview::new(1);
+    for chunk in "a😀éZ".as_bytes().chunks(2) {
+        preview.push(chunk);
+    }
+    assert_eq!(preview.text, "😀éZ");
+    assert_eq!(preview.chars, 4);
+    assert!(preview.pending.is_empty());
+    let mut large = TextPreview::new(0);
+    for _ in 0..100 {
+        large.push(&vec![b'x'; 65536]);
+    }
+    assert_eq!(large.text.len(), MAX_TEXT_CHARS);
+    assert_eq!(large.chars, 100 * 65536);
+    assert!(large.pending.is_empty());
+    large.push(&[0xff]);
+    assert!(!large.valid);
+}
+
+#[tokio::test]
+async fn reads_over_16_mib_stream_complete_files_and_keep_unicode_pagination() {
+    let text = "é".repeat(9 << 20);
+    let binary = vec![0xff; 3 << 20];
+    let (base, server) = fixture(vec![
+        (200, "Content-Type: text/plain\r\n", text.as_bytes().to_vec()),
+        (200, "Content-Type: application/octet-stream\r\n", binary.clone()),
+    ])
+    .await;
+    let c = client(&base);
+    let result =
+        run(&c, "artifact_read", json!({"path": "notes/large.txt", "offset": (9 << 20) - 7})).await;
+    assert_eq!(result["isError"], false, "{result}");
+    let data = &result["structuredContent"]["data"];
+    assert_eq!(data["size"], text.len());
+    assert_eq!(data["text"], "é".repeat(7));
+    assert_eq!(data["chars"], 9 << 20);
+    let path = data["localPath"].as_str().unwrap().to_owned();
+    assert_eq!(tokio::fs::read(&path).await.unwrap(), text.as_bytes());
+    let result = run(&c, "artifact_read", json!({"path": "notes/large.bin"})).await;
+    assert_eq!(result["isError"], false, "{result}");
+    let data = &result["structuredContent"]["data"];
+    assert_eq!(data["size"], binary.len());
+    assert!(data.get("contentBase64").is_none());
+    assert_eq!(tokio::fs::read(data["localPath"].as_str().unwrap()).await.unwrap(), binary);
+    server.await.unwrap();
+    drop(c);
+    assert!(!std::path::Path::new(&path).exists(), "downloads follow client lifetime");
+}
+
+#[tokio::test]
+async fn saves_75_mib_and_300_files_as_staged_blobs_before_one_commit() {
+    let size = 256 << 10;
+    let count = 300;
+    let id = "01J8Z7Q4M6N2K5P8R3T1V9W0X2";
+    let mut answers =
+        vec![(200, JSON, json!({"headSha": "1".repeat(40)}).to_string().into_bytes())];
+    for _ in 0..count {
+        answers.push((
+            200,
+            JSON,
+            json!({"sha256": "a".repeat(64), "size": size}).to_string().into_bytes(),
+        ));
+    }
+    answers.push((
+        200,
+        JSON,
+        json!({"id": id, "headSha": "2".repeat(40)}).to_string().into_bytes(),
+    ));
+    let (base, server) = fixture(answers).await;
+    let args = json!({"title": "Large dataset", "kind": "other", "files":
+        (0..count).map(|i| json!({"name": format!("data-{i}.txt"), "text": "x".repeat(size)})).collect::<Vec<_>>()});
+    let result = tokio::time::timeout(
+        Duration::from_secs(120),
+        call(&client(&base), "artifact_save", &args),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result["isError"], false, "{result}");
+    let seen = server.await.unwrap();
+    assert_eq!(seen.len(), count + 2);
+    for request in &seen[1..=count] {
+        assert!(request.line.starts_with("POST /v1/artifacts/blobs "));
+        assert_eq!(request.body.len(), size);
+        assert!(request.body.iter().all(|b| *b == b'x'));
+    }
+    let manifest = &seen[count + 1];
+    assert!(manifest.line.starts_with("POST /v1/artifacts "));
+    let body: Value = serde_json::from_slice(&manifest.body).unwrap();
+    assert_eq!(body["files"].as_array().unwrap().len(), count);
+    assert!(body["files"].as_array().unwrap().iter().all(|f| f.get("contentBase64").is_none()));
+    assert!(manifest.body.len() < 64 << 10, "75 MiB content never enters the commit request");
+}
+
+#[tokio::test]
+async fn a_failed_blob_upload_does_not_create_an_artifact() {
+    let (base, server) = fixture(vec![
+        (200, JSON, json!({"headSha": null}).to_string().into_bytes()),
+        (500, JSON, json!({"code": "upload.failed"}).to_string().into_bytes()),
+    ])
+    .await;
+    let result =
+        run(&client(&base), "artifact_save", json!({"title": "t", "kind": "html", "html": "x"}))
+            .await;
+    assert_eq!(result["isError"], true);
+    let seen = server.await.unwrap();
+    assert_eq!(seen.len(), 2);
+    assert!(seen[1].line.starts_with("POST /v1/artifacts/blobs "));
 }
