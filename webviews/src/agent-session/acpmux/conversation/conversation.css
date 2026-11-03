@@ -5054,6 +5054,60 @@ a.cv-sha:focus-visible {
   cursor: default;
 }
 
+/* A ```ask fence in a reply (AskFenceCard): the question card's surface, its context muted above
+   the question, then one button per option in a wrapping row, the first filled as Claude desktop
+   draws an ask. Answered, it is the question card's answered record. */
+.cv-ask {
+  display: flex;
+  flex-direction: column;
+  margin: 8px 0;
+}
+.cv-ask-card {
+  gap: var(--ds-space-3, 12px);
+  padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
+}
+.cv-ask-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2, 8px);
+  padding: 0;
+}
+.cv-ask-context {
+  color: var(--agent-muted);
+}
+.cv-ask-question {
+  color: var(--agent-text);
+}
+.cv-ask-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2, 8px);
+}
+.cv-ask-option {
+  padding: var(--ds-space-1, 4px) var(--ds-space-3, 12px);
+  border: 0;
+  border-radius: 8px;
+  background: var(--agent-control, color-mix(in srgb, var(--agent-text) 10%, var(--agent-page-bg)));
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-ask-option[data-primary] {
+  padding: var(--ds-space-1, 4px) var(--ds-space-3, 12px);
+  background: var(--agent-text);
+  color: var(--acpmux-base, var(--agent-accent-text, Canvas));
+}
+.cv-ask-option:not([data-primary]):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--agent-text) 16%, var(--agent-page-bg));
+}
+.cv-ask-option:disabled {
+  opacity: 0.5;
+}
+.cv-ask-answered .cv-ask-context {
+  font-size: var(--text-detail);
+}
+
 /* Charts in replies (DiagramBlock). */
 .cv-diagram {
   margin: 8px 0;

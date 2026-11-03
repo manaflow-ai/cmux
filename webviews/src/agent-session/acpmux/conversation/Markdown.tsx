@@ -14,6 +14,8 @@ import { CodeBlock } from "./CodeBlock";
 import { InlinePreview } from "./InlinePreview";
 import { inlinePreviewKind } from "./previewDocument";
 import { TableBlock } from "./TableBlock";
+import { AskFenceCard } from "./AskFenceCard";
+import { isAskLang, parseAskFence } from "./askFence";
 import { DiagramBlock, isChart } from "./DiagramBlock";
 import { canRender, RenderCard } from "./RenderCard";
 import { renderFence } from "./renderCall";
@@ -1106,6 +1108,11 @@ function Block({
             artifactRevision={artifactRevision}
           />
         );
+      // A closed ```ask fence is a choice card (askFence.ts); one still streaming stays code.
+      if (!block.open && isAskLang(block.lang)) {
+        const ask = parseAskFence(block.code);
+        if (ask) return <AskFenceCard ask={ask} code={block.code} actions={trailing} />;
+      }
       // A diagram draws once its fence closes; a Mermaid source still streaming stays code.
       if (isChart(block.lang, block.code) && !(block.open && block.lang.toLowerCase() === "mermaid"))
         return <DiagramBlock lang={block.lang} code={block.code} actions={trailing} />;

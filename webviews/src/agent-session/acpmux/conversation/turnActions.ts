@@ -67,6 +67,9 @@ export type TurnActions = {
   /// Continue a turn the reader stopped (the last turn's footer, when `resumable`): sends
   /// `CONTINUE_PROMPT` through the composer's send path, so it queues and shows as a prompt.
   resume?: () => Promise<void>;
+  /// Answer a ```ask fence's choice (AskFenceCard.tsx): sends the option's text through the composer's
+  /// send path, as Continue does, so it shows as the reader's prompt. Settles with whether it went.
+  reply?: (text: string) => Promise<boolean>;
   /// Compact the chat (a context-full failure's Compact): sends the harness's own `/compact` through
   /// the composer's send path. Only where the agent lists `compact` among its slash commands.
   compact?: () => Promise<void>;

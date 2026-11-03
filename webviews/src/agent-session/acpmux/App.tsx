@@ -8038,6 +8038,19 @@ function AcpmuxPane() {
               : Promise.resolve()
         )(restartChat),
       }),
+      // A ```ask fence's choice (AskFenceCard.tsx) is sent as Continue sends its prompt, with the
+      // same reach: never to a View Only chat or a read-only pane, never the next chat.
+      ...(restartChat && {
+        reply: (
+          (owner: string) => (text: string) =>
+            restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
+              ? callNative("chat.send", { text }).then(
+                  () => true,
+                  () => false,
+                )
+              : Promise.resolve(false)
+        )(restartChat),
+      }),
       // A context-full failure's Compact sends the agent's own /compact as Continue sends its prompt,
       // with the same reach: never to a View Only chat or a read-only pane, never the next chat.
       ...(restartChat &&
