@@ -570,8 +570,10 @@ else: sys.exit(9)
         for status in [0, 23] {
             let dir = tempfile::tempdir().unwrap();
             repository(dir.path()).await;
+            let nested = dir.path().join("sub dir ' ");
+            std::fs::create_dir(&nested).unwrap();
             let command = format!("printf 'complete output'; printf ' stderr' >&2; exit {status}");
-            let intent = prepare(&run(dir.path()), "activity", &command, &json!({})).await.unwrap();
+            let intent = prepare(&run(&nested), "activity", &command, &json!({})).await.unwrap();
             let client = fake(dir.path(), &intent, false);
             let job = client.submit(&intent, &dir.path().join("submit.json")).await.unwrap();
             let receipt = dir.path().join("terminal.json");
