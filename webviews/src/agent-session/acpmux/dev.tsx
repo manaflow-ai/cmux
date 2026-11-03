@@ -76,11 +76,8 @@ import { seedDevRecents } from "./devRecents";
 const params = new URLSearchParams(location.search);
 const devHost = devHostParams(location.hash);
 if (devHost) installDevHost(devHost);
-else if (params.has("mock") && !window.webkit?.messageHandlers?.agentSession) {
-  // Prepare the standalone mock daemon before the pane can paint its first handshake.
-  await import("./mock");
+else if (params.has("mock") && !window.webkit?.messageHandlers?.agentSession)
   window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
-}
 if (params.get("recents") === "demo") seedDevRecents();
 // A standalone daemon has no cmux host to send the `display` event: the frame-cost bench
 // (bench/thread-minimap-frame-cost.bench.ts) turns the chat minimap on through this instead.
@@ -90,4 +87,6 @@ if (devHost) {
 }
 // The dev server has no locales/<code>.js: install the whole string table before the pane loads.
 globalThis.__cmuxPaneStrings ??= (await import("./generated/strings.json")).default;
+// Prepare the standalone mock daemon before the pane can paint its first handshake.
+if (!devHost && params.has("mock") && !window.webkit?.messageHandlers?.agentSession) await import("./mock");
 await import("./main");
