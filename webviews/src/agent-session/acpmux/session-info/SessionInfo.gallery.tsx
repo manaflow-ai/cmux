@@ -13,7 +13,7 @@
 // worktree of its own, its environment, tokens, background test run and diffs its own, under three
 // ways to say whose panel it is (the head's title, the one drawn; a path; a card); one sharing the
 // chat's checkout; and the chat's panel beside them, its Subagents listing it.
-import type { ComponentProps, CSSProperties } from "react";
+import { useState, type ComponentProps, type CSSProperties } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { WAVE_CLASS, WAVE_KEYFRAMES } from "../../../ui/wave";
@@ -103,8 +103,11 @@ function GallerySessionInfo({
   tones,
   ceiling,
   panelWidth = 320,
+  more: moreAtFirst,
   ...props
 }: Props) {
+  // The panel's Show more, held here so a variant starts where it says and a play can open it.
+  const [more, setMore] = useState(moreAtFirst);
   return (
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
       {ceiling ? <style>{`.acpmux-session-info[data-placement]{max-height:${ceiling}}`}</style> : null}
@@ -112,6 +115,9 @@ function GallerySessionInfo({
       <SessionInfoPanel
         width={panelWidth}
         placement={placement}
+        // Over a transcript it floats over the chat's column (a foot), where it is glass; otherwise it
+        // sits in the gutter or pushes, with no card (SessionInfo.tsx SessionInfoPanel).
+        foot={transcript && placement === "overlay" ? 0 : undefined}
         chrome={chrome}
         // The head draws only with a close: as in the chat pane.
         onClose={scope || closable ? () => undefined : undefined}
@@ -119,6 +125,8 @@ function GallerySessionInfo({
       >
         <SessionInfo
           {...props}
+          more={more}
+          onMore={more === undefined ? undefined : setMore}
           banner={scope && header !== "title" ? <SubagentBanner scope={scope} variant={header} /> : undefined}
         />
       </SessionInfoPanel>
@@ -319,6 +327,70 @@ const dragOutputsOverContext: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[data-slot="outputs"][data-lifted]'));
 };
 
+const FOLDABLE_HEAD =
+  ".acpmux-session-info-section > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger";
+const style = (ctx: PlayContext, element: Element) => ctx.document.defaultView!.getComputedStyle(element);
+
+/// cmux#32765, as native #32674: a section's fold chevron sits after its title and shows only while its
+/// head is hovered (or keyboard focused). At rest no chevron draws, but its room is kept, so the title
+/// does not move when it shows.
+const chevronOnHoverAfterTitle: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(`${FOLDABLE_HEAD} > .acpmux-session-info-section__fold`));
+  const folds = [...ctx.document.querySelectorAll(`${FOLDABLE_HEAD} > .acpmux-session-info-section__fold`)];
+  for (const fold of folds)
+    if (style(ctx, fold).visibility !== "hidden") throw new Error("A section's fold chevron draws at rest");
+  const head = folds[0]!.parentElement!;
+  const section = head.closest<HTMLElement>(".acpmux-session-info-section")!.dataset.section;
+  const selector = `[data-section="${section}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`;
+  const title = head.querySelector(".acpmux-session-info-section__title")!;
+  const before = title.getBoundingClientRect();
+  await ctx.hover({ selector });
+  const fold = ctx.find({ selector: `${selector} > .acpmux-session-info-section__fold` });
+  await ctx.waitFor(() => style(ctx, fold).visibility === "visible");
+  const after = title.getBoundingClientRect();
+  if (after.left !== before.left || after.width !== before.width)
+    throw new Error("The title moved when the chevron showed");
+  if (fold.getBoundingClientRect().left < after.right) throw new Error("The fold chevron is not after the title");
+};
+
+/// As native #32674: the six-dot grip draws nothing at rest, nor for a pointer over a section's other
+/// rows; it shows while its section's head is hovered, at the head's right edge.
+const gripOnHeadHoverOnly: Play = async (ctx) => {
+  const handles = () => [...ctx.document.querySelectorAll(".acpmux-session-info-section__handle")];
+  await ctx.waitFor(() => handles().length > 0);
+  for (const handle of handles())
+    if (style(ctx, handle).opacity !== "0") throw new Error("A section's drag grip draws at rest");
+  const head = ctx.find({ selector: FOLDABLE_HEAD });
+  const section = head.closest<HTMLElement>(".acpmux-session-info-section")!;
+  const handle = section.querySelector(":scope > .acpmux-session-info-section__handle")!;
+  const row = section.querySelector(".ui-disclosure-panel :is(.acpmux-session-info-row, li)");
+  if (row && row.getClientRects().length > 0) {
+    await ctx.hover({
+      selector: `[data-section="${section.dataset.section}"] .ui-disclosure-panel :is(.acpmux-session-info-row, li)`,
+    });
+    if (style(ctx, handle).opacity !== "0") throw new Error("A body row's hover showed its section's grip");
+  }
+  await ctx.hover({
+    selector: `[data-section="${section.dataset.section}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`,
+  });
+  await ctx.waitFor(() => style(ctx, handle).opacity === "1");
+  if (handle.getBoundingClientRect().left < head.getBoundingClientRect().right - 0.5)
+    throw new Error("The grip is not at the head's right edge");
+};
+
+/// As native #32661: pushed beside the chat (or in the empty gutter) the panel draws no card behind its
+/// sections: no fill, no blur, no shadow.
+const noCardBehind: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info"));
+  const panel = ctx.find({ selector: ".acpmux-session-info" });
+  const look = style(ctx, panel);
+  if (panel.classList.contains("ui-glass")) throw new Error("The panel is a glass card where nothing runs under it");
+  if (look.backgroundColor !== "rgba(0, 0, 0, 0)" || look.backgroundImage !== "none")
+    throw new Error(`The panel paints a card: ${look.backgroundColor} ${look.backgroundImage}`);
+  if (!["none", ""].includes(look.backdropFilter) || look.boxShadow !== "none")
+    throw new Error(`The panel draws a card's blur or shadow: ${look.backdropFilter} ${look.boxShadow}`);
+};
+
 // Every section title shares the Environment rows' text column, with or without an icon.
 const checkTopBlockAlignment: Play = async (ctx) => {
   const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
@@ -333,6 +405,62 @@ const checkTopBlockAlignment: Play = async (ctx) => {
   const heading = rect('[data-section="changes"] .acpmux-session-info-section__title');
   if (Math.abs(heading.left - labelLeft) > 0.5)
     throw new Error("The Changes heading moved from the shared text column");
+};
+
+/// The default order, top to bottom (sectionOrder.ts DEFAULT_ORDER; Leo, 2026-11-03: "1. Machines showing
+/// up so I know if it's cloud or not 2. context 3. Subagents/background tasks running 4. Sources").
+const DEFAULT_SECTION_ORDER = [
+  "environment",
+  "context",
+  "usage",
+  "subagents",
+  "tasks",
+  "sources",
+  "changes",
+  "outputs",
+  "connectors",
+];
+const assertDefaultOrder: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
+  const drawn = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-sections > [data-slot]")].map(
+    (slot) => slot.dataset.slot!,
+  );
+  const expected = DEFAULT_SECTION_ORDER.filter((id) => drawn.includes(id));
+  if (drawn.join(" ") !== expected.join(" "))
+    throw new Error(`Session Info's default order is ${drawn.join(", ")}, not ${expected.join(", ")}`);
+  for (const id of ["environment", "context", "subagents", "sources"])
+    if (!drawn.includes(id)) throw new Error(`The full chat does not draw ${id}`);
+};
+
+/// The sections the panel draws, top to bottom.
+const drawnSlots = (ctx: PlayContext) =>
+  [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-sections > [data-slot]")].map(
+    (slot) => slot.dataset.slot!,
+  );
+const LEO_FOUR = ["environment", "context", "subagents", "tasks", "sources"];
+const LESS_USED = ["usage", "changes", "outputs", "connectors"];
+const expectDrawn = (ctx: PlayContext, expected: readonly string[]) => {
+  const drawn = drawnSlots(ctx);
+  if (drawn.join(" ") !== expected.join(" "))
+    throw new Error(`Session Info draws ${drawn.join(", ")}, not ${expected.join(", ")}`);
+};
+/// The shipped default view: Leo's four in view, the less-used sections behind one Show more that
+/// names them; Show more draws every one in the default order, and Show less puts them back.
+const compactByDefault: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
+  expectDrawn(ctx, LEO_FOUR);
+  const more = ctx.find({ selector: ".acpmux-session-info-more" });
+  if (more.getAttribute("aria-expanded") !== "false") throw new Error("Show more starts open");
+  const names = more.querySelector(".acpmux-session-info-more__names")?.textContent ?? "";
+  for (const title of ["Usage", "Changes", "Outputs", "Connectors"])
+    if (!names.includes(title)) throw new Error(`Show more does not name ${title}: "${names}"`);
+  await ctx.click({ selector: ".acpmux-session-info-more" });
+  await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length + LESS_USED.length);
+  expectDrawn(ctx, DEFAULT_SECTION_ORDER);
+  if (!/Show less/.test(ctx.find({ selector: ".acpmux-session-info-more" }).textContent ?? ""))
+    throw new Error("Show more open does not offer Show less");
+  await ctx.click({ selector: ".acpmux-session-info-more" });
+  await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length);
 };
 
 /// Every session acpmux lists, this Mac's and a peer's: the usage audit's deputies on a build box (no
@@ -433,6 +561,9 @@ const full: Props = {
   onReconnectMcp: async () => undefined,
   onCompact: () => undefined,
   remoteControl: { on: false, set: () => undefined },
+  // Every section in view: the variants below compare the sections themselves. The default view
+  // (Show more closed) is `compact-more`.
+  more: true,
 };
 
 /// A busy coordinator, as in Leo's 2026-10-21 screenshot: twelve subagents and five chats it started
@@ -711,9 +842,52 @@ export default componentEntry<Props>({
   load: async () => GallerySessionInfo,
   variants: {
     full: {
-      note: "A chat on this Mac with every section, shipped layout (glance): no section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Connectors (1 to reconnect) as one row each. A hairline, then what it made: six session-owned pull requests, then Sources with read-only PRs, URLs, files and MCP tools, then its outputs. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished.",
+      note: "A chat on this Mac with every section, shipped layout (glance), in the default order: the machine (this Mac or Cloud), Context, what it runs, then Sources. No section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Usage as one row each. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished. A hairline, then Sources with read-only PRs, URLs, files and MCP tools, six session-owned pull requests in Changes, and its outputs. A last hairline, then Connectors (1 to reconnect).",
       props: full,
-      play: checkTopBlockAlignment,
+      play: async (ctx) => {
+        await assertDefaultOrder(ctx);
+        await checkTopBlockAlignment(ctx);
+      },
+    },
+    "compact-more": {
+      note: "Chosen default view (Leo, 2026-11-03: \"i feel like it's a bit too much stuff by default there's a bunch of things there that can be a bit more hidden under 'show more' or whatnot\"): his four in view (the machine, Context, subagents and background tasks, Sources), then one whole-row Show more that names what it holds (Usage, Changes, Outputs, Connectors). Opened, every section shows in the default order and the choice stays for the pane; a reveal of a held section opens it. A section the person dragged above one of the four stays in view. The play opens and closes it.",
+      props: { ...full, more: false },
+      play: compactByDefault,
+    },
+    "compact-more-open": {
+      note: "The chosen view with Show more opened: every section, then Show less.",
+      props: { ...full, more: false },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-session-info-more" });
+        await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length + LESS_USED.length);
+      },
+    },
+    "compact-folded": {
+      note: "Alternative (not shipped): every section in view, the less-used ones folded to their one-line head. Shorter than today, but still nine rows of headings before anything is read, and a fold already saved open in a chat keeps it long, so it does little for the chats Leo has open.",
+      props: {
+        ...full,
+        more: undefined,
+        compactLook: "all",
+        sections: { ...DEFAULT_SECTIONS, usage: false, changes: false, outputs: false, connectors: false },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
+        expectDrawn(ctx, DEFAULT_SECTION_ORDER);
+        for (const id of LESS_USED) {
+          const trigger = ctx.document.querySelector(`[data-slot="${id}"] .ui-disclosure-trigger`);
+          if (trigger?.getAttribute("aria-expanded") !== "false") throw new Error(`${id} is not folded`);
+        }
+      },
+    },
+    "compact-capped": {
+      note: "Alternative (not shipped): every section open, each body cut at three rows with a Show more of its own. Short lists get a Show more they do not need, the cut lands mid-list, and every section still takes its place, so the panel is busier, not calmer.",
+      props: { ...full, more: undefined, compactLook: "capped" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
+        expectDrawn(ctx, DEFAULT_SECTION_ORDER);
+        if (ctx.document.querySelectorAll("[data-capped]").length < LEO_FOUR.length)
+          throw new Error("the sections are not capped");
+      },
     },
     "workflow-running": {
       note: "Chosen: the live workflow row keeps the agent name above its truncating model label, puts its current action beneath, and keeps state and elapsed time aligned on the right. Running work uses a spinner; finished and failed work use status marks; queued work uses an outline.",
@@ -892,7 +1066,7 @@ export default componentEntry<Props>({
       },
     },
     "reorder-dragging": {
-      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (a raised surface and a shadow, only while held) and follows the pointer; Connectors and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
+      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (a raised surface and a shadow, only while held) and follows the pointer; Usage and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
       props: full,
       play: dragOutputsOverContext,
     },
@@ -1176,8 +1350,19 @@ export default componentEntry<Props>({
       props: { ...busy, closable: true, ceiling: "calc((100% - var(--acpmux-session-info-top, 0px)) * 0.9)" },
     },
     push: {
-      note: "Settings > Agent Chat > Session Info set to Push: the panel sits beside the chat and narrows it, instead of lying over it with a shadow. It is glass there too, with its left hairline as its only edge.",
+      note: 'Pushed: the panel sits beside the chat and narrows it. Nothing runs under it, so it draws no card: its sections sit on the pane with no fill, blur or shadow, as the native panel (#32661; Leo, 2026-11-02: "we still HAVE AN ASININE BACKGROUND").',
       props: { ...full, placement: "push" },
+      play: noCardBehind,
+    },
+    "header-chevron-hover": {
+      note: "A section head under the pointer: its fold chevron shows one grid gap after the title (cmux#32765, as native #32674). At rest no head draws a chevron, and its room is kept, so the title never moves.",
+      props: { ...full, placement: "push" },
+      play: chevronOnHoverAfterTitle,
+    },
+    "header-grip-hover": {
+      note: "A section head under the pointer: the six-dot grip shows at the head's right edge (as native #32674). At rest no grip draws, and a pointer over the section's other rows shows none.",
+      props: { ...full, placement: "push" },
+      play: gripOnHeadHoverOnly,
     },
     "subagent-parent": {
       note: "The chat's own panel while a subagent works in a worktree: the chat's folder, branch, context, pull requests and tasks, and its Subagents list, which opens each subagent's own panel.",

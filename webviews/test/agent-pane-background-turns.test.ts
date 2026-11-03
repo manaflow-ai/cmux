@@ -5,6 +5,9 @@
 // me this/get pinged to send this"). The person's own turns, and a log from before acpmux wrote
 // these records, draw exactly as before.
 import { expect, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { BackgroundTurnLine } from "../src/agent-session/acpmux/conversation/BackgroundTurnLine";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "../src/agent-session/acpmux/conversation/backgroundTurns";
 import {
   messageRevealTarget,
@@ -72,6 +75,7 @@ test("a quiet background turn is one line that opens to its rows", async () => {
       running: false,
       quiet: true,
       reason: "result",
+      hasRows: true,
     });
     // Its rows belong to it; the person's turn's rows do not.
     const members = rows().filter((row) => row.inBackground === "bg1");
@@ -127,7 +131,7 @@ test("a running background turn is the compact line, marked running", async () =
     const view = drawn(rows());
     const line = view.at(-1)!;
     expect(line.kind).toBe(BACKGROUND_TURN);
-    expect(line.background).toEqual({ id: "bg3", trigger: "scheduled", running: true });
+    expect(line.background).toEqual({ id: "bg3", trigger: "scheduled", running: true, hasRows: true });
     expect(view.some((row) => row.kind === "activity")).toBe(false);
     // It ends quiet: the same line, no longer running.
     daemon.push(record([say("Queue empty."), ended("bg3", true, "result", "scheduled")], 7));
@@ -219,7 +223,10 @@ test("an older page's started record takes the rows its turn already made", () =
   make(8, "after");
   // The older page brings the started record.
   rows.current = 3;
-  expect(rows.openBackground("bg6", 3)).toEqual({ id: "bg6", trigger: "scheduled", running: false, quiet: true });
+  expect(rows.openBackground("bg6", 3)).toEqual({
+    ended: { id: "bg6", trigger: "scheduled", running: false, quiet: true },
+    hasRows: true,
+  });
   rows.current = undefined;
   expect(rows.get("inside")?.inBackground).toBe("bg6");
   expect(rows.get("after")?.inBackground).toBeUndefined();
@@ -527,4 +534,75 @@ test("a fold change after the reused turns draws the turns before it again", () 
   expect(fresh.rows.some((item) => item.id === lateOwned.id)).toBe(true);
   const loud = turnViewFrom([...head, line(false)], folds, { now }, quiet);
   expect(loud.rows.map((item) => item.id)).toEqual(fresh.rows.map((item) => item.id));
+});
+
+// Leo (2026-11-03): "these background updates don't really expand out to anything? idk what those
+// are even for". A background turn whose only events update rows that are not its own (a call an
+// earlier turn started, a subagent's work) has nothing to open to.
+const lineHtml = (row: AcpmuxRow) =>
+  renderToStaticMarkup(createElement(BackgroundTurnLine, { row, expanded: false, onToggle: () => {} }));
+const calling = (id: string): Step => [
+  "in",
+  "tool_call",
+  update({ sessionUpdate: "tool_call", toolCallId: id, title: `ls ${id}`, kind: "execute", status: "in_progress" }),
+];
+const finished = (id: string): Step => [
+  "in",
+  "tool_call_update",
+  update({ sessionUpdate: "tool_call_update", toolCallId: id, status: "completed" }),
+];
+
+test("a quiet background turn with no rows of its own draws no line", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Run the tests", turnId: "t1" }],
+      ["mux", "turn_started", { turnId: "t1" }],
+      calling("check"),
+      say("Started them."),
+      ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+      started("bg-empty", "system"),
+      finished("check"),
+      ended("bg-empty", true, "result", "system"),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(rows().filter((row) => row.inBackground === "bg-empty")).toEqual([]);
+    expect(drawn(rows()).some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+    expect(drawn(rows(), [backgroundTurnRowId("bg-empty")]).some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+  } finally {
+    client.close();
+  }
+});
+
+test("a running background turn with no rows yet is a plain line, no chevron and no button", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Run the tests", turnId: "t1" }],
+      ["mux", "turn_started", { turnId: "t1" }],
+      calling("check"),
+      ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+      started("bg-wait", "system"),
+      finished("check"),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const line = drawn(rows()).find((row) => row.kind === BACKGROUND_TURN)!;
+    expect(line.background).toMatchObject({ running: true });
+    const html = lineHtml(line);
+    expect(html).not.toContain("<button");
+    expect(html).not.toContain("cv-agent-activity__chevron");
+    expect(html).not.toContain("aria-expanded");
+    // Its first row of its own makes it open to that row.
+    daemon.push(record([say("Still running.")], 7));
+    const after = drawn(rows()).find((row) => row.kind === BACKGROUND_TURN)!;
+    const opened = lineHtml(after);
+    expect(opened).toContain("<button");
+    expect(opened).toContain("cv-agent-activity__chevron");
+    const open = drawn(rows(), [after.id]);
+    expect(open.at(-1)?.text).toBe("Still running.");
+  } finally {
+    client.close();
+  }
 });

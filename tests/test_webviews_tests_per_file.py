@@ -30,6 +30,10 @@ FAKE_BUN = """#!/usr/bin/env bash
 # The test file is the last argument: the runner passes options such as --timeout before it.
 file="${!#}"
 printf '%s\\n' "$file" >> "$BUN_CALLS"
+# What a browser file would see: whether the lane is on, and where Playwright looks for engines.
+if [ -n "${BUN_ENV_LOG:-}" ]; then
+  printf '%s|%s|%s\\n' "$file" "${CMUX_BROWSER_TESTS-unset}" "${PLAYWRIGHT_BROWSERS_PATH-unset}" >> "$BUN_ENV_LOG"
+fi
 # A file that starts a Vite dev server optimizes dependencies into its Vite cache while it runs: two
 # at once on one cache lose each other's files, and a cold cache is the slow first bundle.
 if grep -q -e '"dev",' -e 'createServer(' -e 'vite.config.gallery-dev.ts' -e 'vite.config.acpmux-pane.mjs' "$file"; then
@@ -122,7 +126,8 @@ def path_without_timeout(temp):
 
 
 class PerFileRunner(unittest.TestCase):
-    def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None, extra_env=None, args=()):
+    def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None, extra_env=None, args=(),
+                   uname=None):
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         web = temp / "webviews"
         for name in files:
@@ -137,6 +142,10 @@ class PerFileRunner(unittest.TestCase):
         bin_dir.mkdir()
         (bin_dir / "bun").write_text(FAKE_BUN, encoding="utf-8")
         (bin_dir / "bun").chmod(0o755)
+        if uname is not None:
+            # The host the runner believes it is on (`uname -s`), whatever runs this test.
+            (bin_dir / "uname").write_text(f"#!/usr/bin/env bash\necho {uname}\n", encoding="utf-8")
+            (bin_dir / "uname").chmod(0o755)
         calls = temp / "calls"
         self.calls_file = calls
         calls.write_text("", encoding="utf-8")
@@ -711,23 +720,66 @@ class PerFileRunner(unittest.TestCase):
         engines CI installs (requireBrowserLane.ts); without it the lane skips everywhere but PR CI."""
         cache = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.web_hook = self.install_fake_playwright()
-        result, _, calls = self.run_runner(["test/a.test.ts"], extra_env={
+        result, _, calls = self.run_runner(["test/a.test.ts"], uname="Linux", extra_env={
             "CMUX_BROWSER_TESTS": "1", "CMUX_CI_CACHE_DIR": str(cache)})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, ["./test/a.test.ts"])
         lines = self.playwright_calls.read_text(encoding="utf-8").splitlines()
-        self.assertEqual(len(lines), 1, lines)
+        # WebKit from Playwright; Chromium is the system Chrome (ensure-system-chrome.sh), which
+        # installs Chrome stable only on a host whose Chrome is missing or old.
+        self.assertIn(len(lines), (1, 2), lines)
         args, browsers = lines[0].split("|")
-        self.assertEqual(args, "install --only-shell chromium webkit")
+        self.assertEqual(args, "install webkit")
         self.assertTrue(browsers.startswith(str(cache / "playwright")), browsers)
+        self.assertEqual([line.split("|")[0] for line in lines[1:]], ["install --with-deps chrome"][: len(lines) - 1])
 
     def test_ci_and_plain_runs_install_no_engines(self):
         for env in ({}, {"CMUX_BROWSER_TESTS": "0"}, {"CMUX_BROWSER_TESTS": "1", "GITHUB_ACTIONS": "true"}):
             with self.subTest(env=env):
                 self.web_hook = self.install_fake_playwright()
-                result, _, _ = self.run_runner(["test/a.test.ts"], extra_env=env)
+                result, _, _ = self.run_runner(["test/a.test.ts"], extra_env=env, uname="Linux")
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(self.playwright_calls.read_text(encoding="utf-8"), "")
+
+    def test_a_mac_never_installs_engines_and_runs_the_lane_without_its_browser_files(self):
+        """No Playwright on Macs (Lawrence, 2026-11-02): a Mac outside GitHub Actions installs no engine,
+        even with CMUX_BROWSER_TESTS=1 (the fleet's step cache held 4.6 GB of them on 10 Macs). It says
+        so in one line, then runs every file with the lane off and Playwright pointed at a folder that
+        cannot hold an engine, so the browser files skip as they do without the variable."""
+        browser_file = 'import { requireBrowserLane } from "./support/requireBrowserLane";\nrequireBrowserLane("x", () => {});\n'
+        files = {"test/a.test.ts": "", "test/b-browser.test.ts": browser_file}
+        for env in ({"CMUX_BROWSER_TESTS": "1"}, {}, {"CMUX_BROWSER_TESTS": "1", "CI": "true", "CMUX_CI_STEP_KEY": "k"}):
+            with self.subTest(env=env):
+                cache = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+                env_log = cache / "bun-env"
+                self.web_hook = self.install_fake_playwright()
+                result, _, calls = self.run_runner(list(files), contents=files, uname="Darwin", extra_env={
+                    **env, "CMUX_CI_CACHE_DIR": str(cache), "BUN_ENV_LOG": str(env_log)})
+                output = result.stdout + result.stderr
+                self.assertEqual(result.returncode, 0, output)
+                self.assertEqual(self.playwright_calls.read_text(encoding="utf-8"), "")
+                self.assertEqual(list(cache.glob("playwright*")), [])
+                self.assertEqual(calls, sorted(f"./{name}" for name in files))
+                seen = sorted(env_log.read_text(encoding="utf-8").splitlines())
+                self.assertEqual(seen, [f"./{name}|unset|/var/empty/cmux-no-playwright-on-macs" for name in sorted(files)])
+                notice = ("browser lane: not on a Mac (Lawrence's rule: no Playwright on Macs); "
+                          "run it in CI or on a cloud VM")
+                self.assertEqual(output.count(notice), 1 if env.get("CMUX_BROWSER_TESTS") == "1" else 0, output)
+
+    def test_github_actions_on_a_mac_keeps_its_own_engines(self):
+        """GitHub Actions installs the engines in the workflow, on any runner: the runner leaves its
+        lane and its PLAYWRIGHT_BROWSERS_PATH alone and installs nothing itself."""
+        cache = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        env_log = cache / "bun-env"
+        self.web_hook = self.install_fake_playwright()
+        result, _, _ = self.run_runner(["test/a.test.ts"], uname="Darwin", extra_env={
+            "CMUX_BROWSER_TESTS": "1", "GITHUB_ACTIONS": "true", "PLAYWRIGHT_BROWSERS_PATH": "/ci/browsers",
+            "BUN_ENV_LOG": str(env_log)})
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertEqual(self.playwright_calls.read_text(encoding="utf-8"), "")
+        self.assertNotIn("not on a Mac", output)
+        self.assertEqual(env_log.read_text(encoding="utf-8").splitlines(), ["./test/a.test.ts|1|/ci/browsers"])
 
     def test_no_test_files_is_an_error(self):
         result, _, _ = self.run_runner([])

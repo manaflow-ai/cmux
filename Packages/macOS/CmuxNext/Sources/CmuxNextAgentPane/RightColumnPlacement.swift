@@ -13,6 +13,9 @@ public import CoreGraphics
 ///   browser pane already on the right: "imo in this case, just open it on the existing. you only
 ///   need the rightmost botom auto split when there's a terminal that gets opened when there's
 ///   already a browser, and vice versa".
+/// - A document (the Changes viewer's diff): a tab in the lowest pane on the right, never a lower
+///   split; with nothing there a split right, whatever the width floors say. Leo 2026-11-03, of the
+///   Changes viewer: "just put it in a tab???".
 /// - One pane on the right: a new split below it, the right column's lower pane. What the right
 ///   pane shows stays; closing the lower pane's last tab collapses the split back.
 /// - Two or more: a tab in the lowest pane, never another split.
@@ -27,11 +30,13 @@ public struct RightColumnPlacement {
     /// The narrowest the right column may be for a split in it.
     public static let minimumRightColumnWidth: CGFloat = 420
 
-    /// What an open shows, for the same-kind rule: only the two kinds Leo named. Anything else (a
-    /// chat, a subagent, a file page) opens with no kind and splits as before.
+    /// What an open shows, for the same-kind rule: only the two kinds Leo named, and a document,
+    /// which is a tab in any pane on the right. Anything else (a chat, a subagent, a file page) opens
+    /// with no kind and splits as before.
     public enum Kind: Sendable, Hashable {
         case terminal
         case browser
+        case document
     }
 
     /// Where the item opens. `Pane` is the caller's pane identity.
@@ -64,6 +69,8 @@ public struct RightColumnPlacement {
     /// holds a tab of a kind. An unknown width sets no floor.
     public static func decide<Pane>(sourceWidth: CGFloat?, column: [Pane], width: (Pane) -> CGFloat?, opening kind: Kind? = nil,
                                     holds: (Pane, Kind) -> Bool = { _, _ in false }) -> Decision<Pane> {
+        // A document never stays in the source's pane, so the chat is never what it replaces.
+        if kind == .document { return column.last.map { .tab($0) } ?? .splitRight }
         guard let right = column.first else {
             // A split right halves the source: both halves must stay wide enough.
             let fits = sourceWidth.map { $0 / 2 >= minimumChatWidth && $0 / 2 >= minimumRightColumnWidth } ?? true

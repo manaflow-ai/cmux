@@ -121,6 +121,9 @@ export type AcpmuxBackgroundTurn = {
   running: boolean;
   quiet?: boolean;
   reason?: string;
+  /// A row of its own draws something, so its line opens to it. A turn whose events only update
+  /// rows that are not its own (a call an earlier turn started, a subagent's work) has none.
+  hasRows?: true;
 };
 
 /// The chat's permission policy (an acpmux policy id narrower than approve-all) that its harness
@@ -824,6 +827,9 @@ export type AcpmuxSnapshot = {
     /// autocompact cap, its subagents. Unset while the harness has no readable transcript.
     usageStats?: SessionUsageStats;
     host?: string;
+    /// The machine acpmux runs the chat on (acpmux `machine`), for the `/status` card only:
+    /// unlike `host` it is set for a local chat too.
+    machine?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
     branch?: string;
@@ -844,6 +850,9 @@ export type AcpmuxSnapshot = {
     settingsSources?: unknown;
     /// acpmux's structured limits, or a harness's own text for them.
     usageLimits?: AcpmuxUsageLimits | string;
+    /// False when acpmux knows the sign-in has no plan usage limits (an API key, a cloud
+    /// provider): the `/status` card hides the row. Unset: they apply, reported or not yet.
+    usageLimitsApply?: boolean;
     /// The model the agent last reported, when the pane draws a pick (`model`) it has not
     /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
     confirmedModel?: string;

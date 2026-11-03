@@ -80,6 +80,7 @@ import {
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
+import { readHostTail } from "./tailCache";
 import { failedRowOf, failedRowTrustRetry } from "./failedRowTrustRetry";
 import {
   authBlocksSend,
@@ -369,6 +370,7 @@ import {
   foldHoldTarget,
   foldHolding,
   foldRoomFor,
+  opensBody,
   foldToggleAt,
   holdFold,
   keepFold,
@@ -498,6 +500,7 @@ import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import {
   FALLBACK_LINK_SCHEME,
+  notifyRevealRowsChanged,
   revealedMessage,
   revealMessageWhenShown,
   revealTurnWhenShown,
@@ -577,7 +580,13 @@ import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
-import { NewestSteerContext, PendingSteer, takeBackSteer, takesSteersBack } from "./conversation/PendingSteer";
+import {
+  markSentNow,
+  NewestSteerContext,
+  PendingSteer,
+  takeBackSteer,
+  takesSteersBack,
+} from "./conversation/PendingSteer";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
@@ -645,7 +654,7 @@ import { WatchBanner } from "./WatchBanner";
 import { ManagedBanner } from "./ManagedBanner";
 import { PaneNotices } from "./PaneNotices";
 import { setPaneNotices } from "./paneNoticeStore";
-import { chiefOf, isTakenOver, managedBy, takeOverManaged } from "./managedBy";
+import { chiefOf, isTakenOver, managedBy, managerDrivingUntil, takeOverManaged } from "./managedBy";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -1078,7 +1087,12 @@ const answerHeld = (promptId: string, approve: boolean, revision?: number): Prom
   );
 
 const editQueued = (promptId: string, edit: QueueEdit) =>
-  callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => result?.ok === true);
+  callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => {
+    const ok = result?.ok === true;
+    // Whichever control sent it now, its steer row (same promptId) offers no Send now again.
+    if (ok && edit.op === "send_now") markSentNow(promptId);
+    return ok;
+  });
 
 /// The width the header's tools take in the pane's tab row, so the App narrows the tabs (header/tabRow.ts).
 const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools", { width }).catch(() => undefined);
@@ -5199,9 +5213,10 @@ export function VirtualTranscript({
       setFoldRoom(end);
     };
     const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement): boolean => {
-      // This ask is for tool/work disclosures. Message Show more/less and other controls retain
-      // their established row anchor, including the room they need when closing at the end.
-      if (!toggle.matches(".cv-tool.is-toggle, .cv-worked, .cv-subagents")) {
+      // Tool/work disclosures, and any line that opens (Leo, 2026-11-02: "YOU EXPAND UP WHILE YOUR
+      // SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE"): a thought, the edits card, a cut row.
+      // Closing other controls (Show less) keeps its established row anchor and the room it needs.
+      if (!toggle.matches(".cv-tool.is-toggle, .cv-worked, .cv-subagents") && !opensBody(toggle)) {
         stopBottomStackFold();
         return false;
       }
@@ -5222,7 +5237,7 @@ export function VirtualTranscript({
       // Reopening at the physical bottom consumes any room retained by a prior collapse. The
       // expanded body itself supplies the height; keeping the old blank room would add a second,
       // jarring gap while the stack moves up.
-      if (!stickyFoldRoom.current || toggle.getAttribute("aria-expanded") === "false") dropFoldRoom();
+      if (!stickyFoldRoom.current || opensBody(toggle)) dropFoldRoom();
       const stack: BottomStackFold = { toggle: line, row, beforeTop: layoutScrollTop(node), delta: 0, from: 0 };
       bottomStackFold.current = stack;
       row.setAttribute("data-bottom-fold", "");
@@ -6835,14 +6850,37 @@ function AcpmuxPane() {
   chatViewRef.current = chatView;
   const viewToggled = viewToggles.get(chatView) ?? NO_FOLD_TOGGLES;
   const folds = useMemo(() => viewFolds(chatView, expanded, viewToggled), [chatView, expanded, viewToggled]);
-  // Who runs this chat when it is not the person (managedBy.ts): the line over the composer.
+  // Who runs this chat when it is not the person (managedBy.ts): the line over the composer, shown
+  // only while that manager drives the chat (`managerDrivingUntil`), never on a chat it only
+  // dispatched or that went quiet (Leo, 2026-11-03: "i feel like it's put out there too often").
   const [takenOverAt, setTakenOverAt] = useState(0);
-  const manager = useMemo(
+  const chatManager = useMemo(
     () => (isTakenOver(shownSessionId) ? undefined : managedBy(shownSessionId, snapshot.sessions)),
-    // takenOverAt: the person's Take over, read back from the store.
+    // takenOverAt: the person's Hide, read back from the store.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [shownSessionId, snapshot.sessions, takenOverAt],
   );
+  const drivingUntil = useMemo(() => {
+    const now = Date.now();
+    // Rows carry a peer's clock (SSH, Cloud): this computer's is the peer's plus the offset.
+    const peerUntil = managerDrivingUntil(
+      chatManager,
+      snapshot.rows,
+      snapshot.queue.map((entry) => entry.message),
+    );
+    const until = peerUntil === undefined ? undefined : peerUntil + (snapshot.clockOffsetMs ?? 0);
+    return until !== undefined && until > now ? until : undefined;
+  }, [chatManager, snapshot.rows, snapshot.queue, snapshot.clockOffsetMs]);
+  // The line goes when the window ends: one timer to that moment, cleared when the chat, its rows
+  // or the window change and on unmount (its stop condition).
+  const [drivingExpired, setDrivingExpired] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    // A queued manager message keeps it (Infinity) until the queue changes: no timer.
+    if (drivingUntil === undefined || !Number.isFinite(drivingUntil)) return;
+    const timer = setTimeout(() => setDrivingExpired(drivingUntil), Math.max(0, drivingUntil - Date.now()));
+    return () => clearTimeout(timer);
+  }, [drivingUntil]);
+  const manager = drivingUntil !== undefined && drivingExpired !== drivingUntil ? chatManager : undefined;
   // The Chief whose prompts this chat draws "Sent from" (conversation/sentFrom.ts).
   const chatChief = useMemo(() => chiefOf(shownSessionId, snapshot.sessions), [shownSessionId, snapshot.sessions]);
   const freshAgents = useMemo(
@@ -8876,6 +8914,8 @@ function AcpmuxPane() {
     setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
     return target.rowId;
   };
+  // A link waiting on replay retries against committed rows, without a polling timer.
+  useLayoutEffect(() => notifyRevealRowsChanged(), [sourceRows, transcriptRows]);
   // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that
   // holds the call. The reveal lets go after a moment, so the run closes again like any other.
   // False when no loaded row holds the call (a command only the registry knows).
@@ -10478,6 +10518,9 @@ function AcpmuxPane() {
           else pendingWake.current = wake.composer;
         }
         if (!reconnect && host.sessionId) {
+          // The chat's kept tail is asked for now, beside the reading place: the client draws it
+          // while its socket connects, and this read is the one it waits on (#32735, tailCache.ts).
+          if (host.transport !== "mock") void readHostTail(host.sessionId).catch(() => undefined);
           // The released page's place is newer than the kept one: a scroll that settled while
           // hidden was never reported. Keep it for a relaunch too.
           const woken = wake?.scrollAnchor;
@@ -13467,13 +13510,13 @@ function AcpmuxPane() {
             </button>
           </output>
         </Notice>
-        {/* A chat the Chief or another chat's agent runs: who, and Take over (ManagedBanner.tsx). */}
+        {/* A chat the Chief or another chat's agent is driving now: who, and Hide (ManagedBanner.tsx). */}
         <Notice id="managed-by" tier="status" when={!quick && manager}>
           {manager && shownSessionId && (
             <ManagedBanner
               manager={manager}
               onOpenManager={openSenderChat}
-              onTakeOver={() => {
+              onHide={() => {
                 takeOverManaged(shownSessionId);
                 setTakenOverAt(Date.now());
                 composerHandle.current?.focus();

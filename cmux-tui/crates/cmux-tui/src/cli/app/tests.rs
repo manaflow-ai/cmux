@@ -17,6 +17,7 @@ fn call(command: AppCommand) -> (&'static str, Value) {
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
         | AppCommand::Settings(_)
+        | AppCommand::Nightly(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }
@@ -622,6 +623,19 @@ fn liveness_probes_do_not_wait_for_the_daemon() {
     assert_eq!(with_read_barrier("system.identify", json!({})), json!({ "after": "sync" }));
 }
 
+/// The action catalog and the agent dialogs read nothing a `cmux` call writes
+/// to the daemon: a busy daemon round trip timed them out on a loaded app.
+#[test]
+fn catalog_and_dialog_reads_do_not_wait_for_the_daemon() {
+    assert_eq!(with_read_barrier("action.list", json!({})), json!({}));
+    let describe = json!({ "action": "cloud start-session" });
+    assert_eq!(with_read_barrier("action.describe", describe.clone()), describe);
+    let dialogs = json!({ "pending_only": false });
+    assert_eq!(with_read_barrier("feed.list", dialogs.clone()), dialogs);
+    // A dialog answer changes the app: it keeps the barrier.
+    assert_eq!(with_read_barrier("feed.permission.reply", json!({})), json!({ "after": "sync" }));
+}
+
 #[test]
 fn only_reads_are_asked_again_after_a_timeout() {
     for read in ["system.ping", "snapshot.get", "workspace.list", "action.describe"] {
@@ -1110,6 +1124,7 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
         | AppCommand::Settings(_)
+        | AppCommand::Nightly(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }
