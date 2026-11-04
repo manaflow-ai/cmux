@@ -174,7 +174,7 @@ class Api {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Test-side bounded wait on a machine field (the product never polls; this is the harness). */
-async function waitMachine(api: Api, machine: string, want: (m: any) => boolean, budgetMs: number): Promise<any> {
+async function waitMachine(api: Api, machine: string, want: (m: any) => boolean, budgetMs: number, goneOk = false): Promise<any> {
   const t0 = Date.now();
   let last: any = null;
   let lastError = "";
@@ -186,6 +186,7 @@ async function waitMachine(api: Api, machine: string, want: (m: any) => boolean,
       if (last?.status === "failed") throw new Error(`machine failed: ${short({ error: last.error ?? last.failure ?? last.reason ?? last.status_reason, provider: last.provider, op: last.last_op ?? last.op })} (full row: ${short(last)})`);
     } catch (error) {
       if (String((error as Error).message).startsWith("machine failed:")) throw error;
+      if (goneOk && /HTTP 404|not[ _.-]?found/i.test(String((error as Error).message))) return null;
       lastError = String((error as Error).message);
     }
     await sleep(1000);
@@ -347,13 +348,45 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const api = new Api(backend.api, team);
   let machine: string | null = null;
   let deleted = false;
+  let cleaned = false;
+  // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
+  // null, so the run's own machine is also found by its name (`cloud journey <tag>`).
+  const cleanup = async () => {
+    if (cleaned || keep || deleted || !api.bearer) return;
+    cleaned = true;
+    let id = machine;
+    if (!id) {
+      const v = await api.read("cloud.machine.list", {}).catch(() => null);
+      const rows: any[] = v?.machines ?? v?.items ?? (Array.isArray(v) ? v : []);
+      id = rows.find((r) => r?.name === `cloud journey ${tag}` && r.status !== "deleted")?.id ?? null;
+    }
+    if (!id) return;
+    const target: string = id;
+    await J.step("delete (cleanup)", async () => {
+      await api.op("cloud.machine.delete", { machine: target }, `${tag}-cleanup-delete`);
+      return { value: null, detail: target };
+    }).catch(() => undefined);
+  };
+  // A job cancel or timeout sends SIGTERM, which skips `finally`: clean up, write results, exit.
+  const onSignal = (signal: string) => {
+    void cleanup().finally(() => {
+      J.flush();
+      process.exit(signal === "SIGINT" ? 130 : 143);
+    });
+  };
+  process.on("SIGTERM", onSignal);
+  process.on("SIGINT", onSignal);
   try {
     await J.step("health", async () => {
       const r = await http("GET", `${backend.api}/v1/health`, undefined, {});
       if (r.status !== 200) throw new Error(`HTTP ${r.status} ${short(r.body)}`);
       return { value: null, detail: `commit ${r.body.commit ?? r.body.version ?? "?"}` };
     });
-    if (!email || !password) throw new Error("no agent test account: set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, or --credentials FILE");
+    if (!email || !password) {
+      await J.step("sign in (agent test account)", async () => {
+        throw new Error("no agent test account: set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, or --credentials FILE");
+      });
+    }
     const stack = STACK[backend.stack];
     api.bearer = await J.step("sign in (agent test account)", async () => {
       const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-in`, { email, password }, {
@@ -482,20 +515,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await J.step("delete", async () => {
         await api.op("cloud.machine.delete", { machine: created.id }, `${tag}-delete`);
         deleted = true;
-        const m = await waitMachine(api, created.id, (x) => !x || x.status === "deleted" || x.status === "deleting", 120_000).catch(() => null);
+        const m = await waitMachine(api, created.id, (x) => x.status === "deleted" || x.status === "deleting", 120_000, true).catch(() => null);
         return { value: null, detail: `${created.id} ${m?.status ?? "gone"}` };
       });
     }
   } catch {
     // The failed step is recorded; cleanup below.
   } finally {
-    if (machine && !deleted && !keep) {
-      const id: string = machine;
-      await J.step("delete (cleanup)", async () => {
-        await api.op("cloud.machine.delete", { machine: id }, `${tag}-delete`);
-        return { value: null, detail: id };
-      }).catch(() => undefined);
-    }
+    process.off("SIGTERM", onSignal);
+    process.off("SIGINT", onSignal);
+    await cleanup();
   }
   const failed = J.steps.filter((s) => s.status === "fail");
   console.log(`\n${failed.length ? "FAIL" : "PASS"} ${backend.name}: ${J.steps.filter((s) => s.status === "pass").length} passed, ${failed.length} failed, ${J.steps.filter((s) => s.status === "skip").length} skipped, ${(J.steps.reduce((n, s) => n + s.ms, 0) / 1000).toFixed(1)} s`);
