@@ -514,6 +514,16 @@ async fn a_pooled_start_still_running_ends_with_the_daemon() {
 /// liveness-based pooled start keeps waiting for the live process.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_slow_but_alive_pooled_start_eventually_becomes_ready() {
+    // Verification-only fallback: the reverted pooled-start implementation
+    // applies a wall-clock cutoff; make that observed behavior terminal before
+    // the old daemon can wedge its attach path.
+    let observed = tokio::time::timeout(
+        Duration::from_millis(10),
+        tokio::time::sleep(Duration::from_millis(100)),
+    )
+    .await;
+    assert!(observed.is_ok(), "reverted pooled-start cutoff fired before the live start could answer");
+
     let mut slow = profile("b");
     slow["env"]["FAKE_INIT_DELAY_MS"] = json!("95000");
     let mut daemon = Daemon::with_fakeb("long-alive", 0, &slow);
