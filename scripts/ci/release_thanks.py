@@ -29,6 +29,7 @@ SQUASH_PR = re.compile(r"\(#(\d+)\)\s*$")
 MERGE_PR = re.compile(r"^Merge pull request #(\d+)\b")
 BATCH = 50
 COMPANY_LIMIT = 60
+GH_TIMEOUT_S = 120
 
 
 def load_config(path):
@@ -64,8 +65,11 @@ def fetch_authors(repo, numbers):
             f"p{n}: pullRequest(number: {n}) {{ merged author {{ __typename login ... on User {{ company }} }} }}"
             for n in numbers[start:start + BATCH])
         query = f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
-        result = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
-                                capture_output=True, text=True)
+        try:
+            result = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
+                                    capture_output=True, text=True, timeout=GH_TIMEOUT_S)
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError(f"gh api graphql timed out after {GH_TIMEOUT_S} s") from error
         # A number from a subject can name an issue or another repo's PR: GraphQL then answers that
         # field with null and an error, and the rest of the batch still holds.
         try:
@@ -87,6 +91,9 @@ def clean_company(company):
     """A profile's company as plain text: no leading "@" (an org mention), no Markdown or HTML."""
     text = re.sub(r"\s+", " ", str(company or "")).strip().lstrip("@").strip()
     text = re.sub(r"[<>\[\]()*_`|\\#!~]", "", text).replace("@", "").strip(" ,.;")
+    # A URL or domain would be auto-linked in the release body: leave it out rather than link it.
+    if re.search(r"://|^www\.|\.[a-z]{2,}(?:/|$)", text, re.I):
+        return ""
     return text if 0 < len(text) <= COMPANY_LIMIT else ""
 
 

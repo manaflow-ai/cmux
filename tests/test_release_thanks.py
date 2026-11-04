@@ -63,6 +63,16 @@ class ThanksTextTests(unittest.TestCase):
         self.assertNotIn("@org", text)
         self.assertNotIn("x" * 61, text)
 
+    def test_url_like_companies_are_left_out(self):
+        for company in ("https://example.com", "www.example.org", "example.io", "acme.dev/team"):
+            self.assertEqual(THANKS.clean_company(company), "", company)
+        self.assertEqual(THANKS.clean_company("Acme Inc."), "Acme Inc")
+
+    def test_fetch_authors_times_out_into_an_error(self):
+        with unittest.mock.patch.object(THANKS.subprocess, "run", side_effect=subprocess.TimeoutExpired("gh", 1)):
+            with self.assertRaises(RuntimeError):
+                THANKS.fetch_authors("manaflow-ai/cmux", [1])
+
     def test_odd_logins_are_skipped(self):
         self.assertEqual(THANKS.thanks([author("bad login<"), author("")], CONFIG), "")
 
