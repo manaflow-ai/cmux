@@ -54,10 +54,18 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// the session offer tools while suggested tasks are on
     /// (``AcpmuxEnvironment/offersSessionTools``), the agent message runaway guard
     /// off when ``AcpmuxEnvironment/agentPairGuard`` is off (else its cap), and the launch knobs.
+    /// The app's own launch identity, which LaunchServices and launchd set on the app (its bundle
+    /// id, its launchd job and instance). The daemon outlives the app on purpose, so it carries
+    /// none of it: after an update relaunch on macOS, loginwindow sent the old daemon SIGTERM 1 s
+    /// after the app quit, while the bundle was being replaced, and its agent host was lost with
+    /// it (manaflow-ai/cmuxterm-hq#6338).
+    static let appLaunchIdentityKeys: Set<String> = ["__CFBundleIdentifier", "XPC_SERVICE_NAME", "XPC_FLAGS", "LaunchInstanceID"]
+
     static func spawnEnvironment(_ environment: AcpmuxEnvironment, inherited: [String: String]) -> [String: String] {
         let computerUse = Set(AcpmuxEnvironment.computerUseKeys + [AcpmuxEnvironment.computerUseHostKey])
         let safeInherited = inherited.filter { key, _ in
             !computerUse.contains(key)
+                && !appLaunchIdentityKeys.contains(key)
                 && (environment.passesPersonKeyAtSpawn
                     || signedInheritedKeys.contains(key)
                     || key.hasPrefix("LC_"))

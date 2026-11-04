@@ -467,13 +467,19 @@ impl Started {
         }
         {
             let tx = events_tx.clone();
+            let signals_log = signals_log(&spec.hosts_dir);
+            let session = spec.session_id.clone();
             tokio::spawn(async move {
                 let Ok(mut term) =
                     tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                 else {
                     return;
                 };
+                // Who sent it goes to the home's `agent-host-signals.log` (`daemon/term_sender.rs`).
+                crate::daemon::term_sender::record();
                 if term.recv().await.is_some() {
+                    let sender = crate::daemon::term_sender::settled().await;
+                    note_term(&signals_log, &session, sender);
                     let _ = tx.send(Event::Term).await;
                 }
             });
@@ -1240,6 +1246,39 @@ fn record_present(spec: &SpawnSpec, nonce: &str) -> bool {
 /// (the daemon's home was deleted, or a daemon removed the record), no daemon
 /// can ever adopt this host: it ends like SIGTERM. Every event only triggers a
 /// stat; a record rewritten in place (write, then rename) is still present.
+/// The file a host notes each SIGTERM it ends on: `agent-host-signals.log` in the acpmux home
+/// (the parent of `hosts/`, or of `hosts/pool/` for a pooled host). Hosts write no other log, so
+/// without it nothing said who ended a host (manaflow-ai/cmuxterm-hq#6338).
+pub(crate) fn signals_log(hosts_dir: &Path) -> PathBuf {
+    let hosts = if hosts_dir.file_name().and_then(|n| n.to_str()) == Some(POOL_DIR_NAME) {
+        hosts_dir.parent().unwrap_or(hosts_dir)
+    } else {
+        hosts_dir
+    };
+    hosts.parent().unwrap_or(hosts).join(SIGNALS_LOG)
+}
+
+/// The name of [`signals_log`].
+pub(crate) const SIGNALS_LOG: &str = "agent-host-signals.log";
+
+/// Appends one line for a SIGTERM this host ends on: when, which host and session, and its
+/// sender when the kernel named one. Best effort: a failed write changes nothing.
+fn note_term(log: &Path, session: &str, sender: Option<i32>) {
+    use std::io::Write as _;
+    let from = sender.map_or_else(
+        || "an unknown sender".to_owned(),
+        crate::daemon::term_sender::describe,
+    );
+    let line = format!(
+        "{} agent host {} (session {session}) stopping: SIGTERM from {from}\n",
+        chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+        std::process::id()
+    );
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log) {
+        let _ = file.write_all(line.as_bytes());
+    }
+}
+
 fn watch_record(
     spec: &SpawnSpec,
     nonce: &str,
