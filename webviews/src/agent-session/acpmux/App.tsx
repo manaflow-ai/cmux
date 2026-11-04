@@ -4757,9 +4757,15 @@ export function VirtualTranscript({
         setSeeking(false);
       } else {
         const top = at < 0 ? latest : Math.min(latest, layout.geometry.topAt(at) + openAt!.offset);
+        const before = node.scrollTop;
         clearScrollOrigin(node);
         if (at < 0) node.scrollTop = top;
         else writeAnchorScrollTop(node, top);
+        // A send made a tail that fit overflow (Leo, 2026-11-04: "from partially empty"): the
+        // thread is drawn back by the rise and slides up on the send's glide, the prompt rising out
+        // from behind the composer, instead of the whole chat moving up a row in one frame.
+        if (sentBeforeOpen.current && at < 0 && node.scrollTop - before > 0.5)
+          followGlide.current?.sent(thread.current, node.scrollTop - before);
         followTrace.set(node.scrollTop);
         scrollPacer.current?.cancel();
         setScrollAt(node.scrollTop, 0);
@@ -5220,6 +5226,9 @@ export function VirtualTranscript({
       // The chat has not opened yet: it stops paging back to the reader's old place and opens at
       // the latest message (the placement pass, which `seekExpired` runs again).
       sentBeforeOpen.current = true;
+      // A tail that fit and overflows with this send opens at the latest row on the send's glide
+      // (placement pass), and the reply's rows that land next rise on it too (`sendRows`).
+      sendRiseUntil.current = performance.now() + SEND_RISE_MS;
       setSeekExpired(true);
       return;
     }
