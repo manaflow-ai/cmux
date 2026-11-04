@@ -499,7 +499,18 @@ impl Translator {
                     // An MCP server's form, asked as a question (elicitation.rs).
                     Some("elicitation") => out.extend(self.elicit(&sid, &rid, &req).await),
                     // A registered hook fired: answered with no decision (hook_callback.rs).
-                    Some("hook_callback") => self.spawn_hook_callback(rid, req),
+                    Some("hook_callback") => {
+                        #[cfg(unix)]
+                        if req.get("callback_id").and_then(Value::as_str)
+                            == Some(hook_callback::SYNC_CALLBACK)
+                        {
+                            self.spawn_hook_callback(rid, req);
+                        } else {
+                            self.answer_hook_callback(&rid, &req).await;
+                        }
+                        #[cfg(not(unix))]
+                        self.answer_hook_callback(&rid, &req).await;
+                    }
                     // Anything else (mcp_message) is declined with an error
                     // response, so claude does not wait on it.
                     other => self.decline_control(&rid, other.unwrap_or("?")).await,
