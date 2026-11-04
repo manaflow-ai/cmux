@@ -188,8 +188,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         self.assertNotIn("needs.pick-nightly-build-runner.outputs.blacksmith", runs_on)
         self.assertNotIn("vars.MACOS_RUNNER_26", runs_on)
         self.assertNotIn("RUNNER_POOLS", runs_on)
-        self.assertTrue(runs_on.endswith("|| vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER "
-                                         "|| 'glaeda-nightly-only-m4pro' }}"), runs_on)
+        self.assertTrue(runs_on.endswith("|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"), runs_on)
 
     def test_secret_bearing_nightlies_use_the_trusted_owned_pool(self) -> None:
         text = nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
