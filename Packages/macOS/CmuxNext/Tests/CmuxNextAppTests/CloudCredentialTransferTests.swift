@@ -11,7 +11,7 @@ struct CloudCredentialTransferTests {
     @MainActor final class Recorder {
         var commands: [String] = []
         var writes: [(String, Data)] = []
-        var logins = 0, stores = 0
+        var logins = 0, stores = 0, pauses = 0
         var cached: Data?
         var owner = true
         var allowed = true
@@ -27,6 +27,7 @@ struct CloudCredentialTransferTests {
         var effects: CloudCredentialTransfer.Effects {
             .init(callerOwnsVM: { await MainActor.run { self.owner } },
                   stillAllowed: { await MainActor.run { self.allowed } },
+                  pause: { await MainActor.run { self.pauses += 1 } },
                   exec: { command in await MainActor.run { self.commands.append(command); return self.answer(command) } },
                   write: { path, data in await MainActor.run { self.writes.append((path, data)); self.onWrite?() } },
                   load: { await MainActor.run { self.cached } },
@@ -107,7 +108,7 @@ struct CloudCredentialTransferTests {
     @Test func ownerAnswerOnATeamGuestStillNeedsTheAllowance() async {
         let r = Recorder(); r.preflight = 1
         await #expect(throws: CloudCredentialTransfer.Failure.sharedMachine) { try await r.run() }
-        #expect(r.commands == [CloudCredentialInstaller.preflight] && r.logins == 0)
+        #expect(r.commands == [CloudCredentialInstaller.preflight, CloudCredentialTransfer.kindMissing] && r.logins == 0 && r.pauses == 0)
     }
 
     /// A copy right after the machine is created: the guest's cmux-host writes /etc/cmux/vm-kind only once it
@@ -115,7 +116,16 @@ struct CloudCredentialTransferTests {
     @Test func aCopyRightAfterCreateWaitsForTheGuestsBind() async throws {
         let r = Recorder(); r.cached = Self.token; r.preflightRefusals = 2
         try await r.run()
-        #expect(r.writes.count == 1)
+        #expect(r.writes.count == 1 && r.pauses == 2)
+    }
+
+    /// A guest that never records its kind is not taken for a shared machine: the copy stops after its
+    /// budget, saying the machine is still setting up, and no login was read or acquired.
+    @Test func aGuestThatNeverBindsStopsAfterTheBudget() async {
+        let r = Recorder(); r.cached = Self.token; r.preflight = 1
+        r.answers[CloudCredentialTransfer.kindMissing] = 0
+        await #expect(throws: CloudCredentialTransfer.Failure.machineNotReady) { try await r.run() }
+        #expect(r.pauses == CloudCredentialTransfer.guestCheckTries - 1 && r.writes.isEmpty && r.logins == 0)
     }
 
     @Test func firstTransferStoresThenDeliversAndRepeatReusesScopedCache() async throws {
