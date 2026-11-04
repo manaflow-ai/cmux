@@ -349,7 +349,8 @@ impl McpStore {
 }
 
 /// Whether `lines` form an unbroken chain: each `prev` is the hash of the line before, and each
-/// `hash` is the sha256 of its line without the hash.
+/// `hash` is the sha256 of its line without the hash. Only the tests read the chain back.
+#[cfg(test)]
 pub(crate) fn audit_chain_ok(lines: &[Value]) -> bool {
     let mut prev =
         lines.first().and_then(|l| l.field("prev").as_str()).unwrap_or_default().to_owned();
