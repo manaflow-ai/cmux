@@ -246,10 +246,10 @@ fn command(params: &Value, start: &Start, host: Option<&str>, on_host: bool) -> 
         };
     };
     if on_host {
-        change_option(&mut words, "--host", None);
+        change_option(&mut words, "--machine", None);
     } else if let Some(host) = host {
         // Pin an automatic placement to the peer that actually refused this start.
-        change_option(&mut words, "--host", Some(host));
+        change_option(&mut words, "--machine", Some(host));
     }
     change_option(&mut words, "--mode", None);
     // `suggest` already selected the usable folder (or the scratch-folder fallback).
@@ -360,11 +360,11 @@ impl Start {
         }
     }
 
-    /// `acpmux new [--host HOST] ... -d`, each value quoted for a POSIX shell.
+    /// `acpmux new [--machine MACHINE] ... -d`, each value quoted for a POSIX shell.
     fn command(&self, host: Option<&str>) -> String {
         let mut words = vec!["acpmux".to_owned(), "new".to_owned()];
         let flags = [
-            ("--host", host.map(str::to_owned)),
+            ("--machine", host.map(str::to_owned)),
             ("--preset", self.preset.clone()),
             ("-m", self.model.clone()),
             ("-e", self.effort.clone()),
@@ -395,7 +395,7 @@ impl Start {
 
 #[derive(Debug, PartialEq)]
 enum Hint {
-    /// `acpmux new --host HOST ...` from here.
+    /// `acpmux new --machine MACHINE ...` from here.
     Here(Start),
     /// The start on HOST itself.
     OnHost(Start),
@@ -461,7 +461,7 @@ mod tests {
     fn a_start_is_spelled_as_the_flags_that_make_it() {
         assert_eq!(
             start().command(Some("gcp-1")),
-            "acpmux new --host gcp-1 -m codex/gpt-6 -n lane --cwd /home/cmux/hb-acpmux/x --policy approve-all --mode auto -d"
+            "acpmux new --machine gcp-1 -m codex/gpt-6 -n lane --cwd /home/cmux/hb-acpmux/x --policy approve-all --mode auto -d"
         );
         let odd = Start { cwd: Some("/tmp/a b/it's".into()), ..Start::default() };
         assert_eq!(odd.command(None), r"acpmux new --cwd '/tmp/a b/it'\''s' -d");
@@ -531,7 +531,7 @@ mod tests {
         assert_eq!(
             got,
             r#"printf %s 'line 1; $(touch nope)
-line '\''two'\''' | (acpmux new --host=b -m codex --prompt-file=/dev/stdin --tag 'a=$()' 'a prompt with '\''quotes'\'' and
+line '\''two'\''' | (acpmux new --machine=b -m codex --prompt-file=/dev/stdin --tag 'a=$()' 'a prompt with '\''quotes'\'' and
 newlines')"#
         );
     }
@@ -728,7 +728,7 @@ newlines')"#
         assert_eq!(data["reason"], "peer_version_skew");
         assert_eq!(data["refused"], CWD_OUTSIDE_ROOTS);
         assert_eq!(data["try"], "acpmux machine update gcp-codex-lane-1 --if-idle");
-        assert_eq!(data["then"], "acpmux new --host=gcp-codex-lane-1 -m claude hi");
+        assert_eq!(data["then"], "acpmux new --machine=gcp-codex-lane-1 -m claude hi");
         assert!(e.message.contains("972843ddd"), "{}", e.message);
         let update = "`acpmux machine update gcp-codex-lane-1 --if-idle`";
         assert!(e.message.contains(update), "{}", e.message);

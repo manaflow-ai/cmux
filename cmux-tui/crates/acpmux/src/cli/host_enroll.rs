@@ -1137,7 +1137,7 @@ fn harness(
             .unwrap_or(false);
         if !local_profile && remote_harness_discovered(r, id) {
             parts.push(format!(
-                "{id} discovered on the host (profile copy skipped; verify with `acpmux new --host {peer_name} -m {id} -d`) ",
+                "{id} discovered on the host (profile copy skipped; verify with `acpmux new --machine {peer_name} -m {id} -d`) ",
             ));
             continue;
         }
