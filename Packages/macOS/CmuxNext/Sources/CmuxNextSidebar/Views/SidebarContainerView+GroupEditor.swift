@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 // The group editor's App side (cx-rcby): its action rows and what runs them.
 extension SidebarContainerView {
@@ -18,10 +18,11 @@ extension SidebarContainerView {
         set { sidebarView.list.onGroupEditorItem = newValue }
     }
 
-    /// The group editor's Sort menu picked a sort: the App stores it on the group (`SidebarDocStore.setGroupSort`).
-    public var onGroupSort: ((GroupID, SidebarGroupSort) -> Void)? {
-        get { sidebarView.list.onGroupSort }
-        set { sidebarView.list.onGroupSort = newValue }
+    /// The group editor's Sort menu for a group: the App builds it from the registry (`workspaceGroup.setSort`'s
+    /// choices), so a pick runs the same action as the group menu, the palette and the CLI.
+    public var groupSortMenu: ((GroupID) -> NSMenu?)? {
+        get { sidebarView.list.groupSortMenu }
+        set { sidebarView.list.groupSortMenu = newValue }
     }
 
     /// The editor row that shows the group's full menu (the sidebar shows it).

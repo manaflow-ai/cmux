@@ -15,8 +15,8 @@ struct SidebarGroupEditing {
     /// Not a row: the editor is about to give way to another picker (the
     /// color panel) that still edits this group, so a new empty group stays.
     static let keepGroupItem = "sidebar.group.keep"
-    /// The id of the editor's Sort row: it opens the sort menu (Manual, Name, Recent) next to the group, and the
-    /// pick goes to the App as `onGroupSort` (the document stores it on the group).
+    /// The id of the editor's Sort row: it opens the sort menu (Manual, Name, Recent) next to the group, which the
+    /// App builds from the registry (`groupSortMenu`, `workspaceGroup.setSort`).
     static let sortItem = "sidebar.group.sort"
 
     /// The editor's rows when the App gives none: the shared group actions. Pin and Move to Top
@@ -54,7 +54,7 @@ struct SidebarGroupEditing {
         editor.onItem = { [weak list] id, item in
             guard let list else { return }
             // The App hears every row, More too (a menu action may add a member).
-            // Sort is the sidebar's own menu: the App hears the pick (`onGroupSort`), not the row.
+            // Sort opens the group's sort menu (`groupSortMenu`); its pick runs the action, not the row.
             // It opens once the bubble has closed (the row's press closes it), where the bubble's more button is.
             if item == Self.sortItem {
                 Task { @MainActor [weak list] in
@@ -145,23 +145,10 @@ struct SidebarGroupEditing {
         }
     }
 
-    /// The sort menu: Manual, Name and Recent, the group's own sort checked. A pick goes to the App.
-    func sortMenu(_ id: GroupID) -> NSMenu {
-        let current = list.groups[id]?.sort ?? .manual
-        let menu = NSMenu(title: GroupEditorStrings.sort)
-        for sort in SidebarGroupSort.allCases {
-            let item = NSMenuItem(title: GroupEditorStrings.sortTitle(sort), action: #selector(SidebarListView.pickGroupSort(_:)), keyEquivalent: "")
-            (item.target, item.representedObject) = (list, SidebarGroupSortPick(group: id, sort: sort))
-            item.state = sort == current ? .on : .off
-            menu.addItem(item)
-        }
-        return menu
-    }
-
-    /// The sort menu where the group's full menu opens (`showMenu`).
+    /// The App's sort menu (Manual, Name, Recent) where the group's full menu opens (`showMenu`).
     func showSortMenu(_ id: GroupID) {
-        guard list.groups[id] != nil else { return }
-        present(sortMenu(id), for: id)
+        guard list.groups[id] != nil, let menu = list.groupSortMenu?(id) else { return }
+        present(menu, for: id)
     }
 
     /// The group's full menu under its more button, on the button's trailing
@@ -241,19 +228,5 @@ extension SidebarListView {
             menu: { [weak self] in self?.groupEditing.showMenu(id) },
             add: onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
         )
-    }
-}
-
-/// What a Sort menu row picks: the group and its sort, carried on the item.
-struct SidebarGroupSortPick {
-    let group: GroupID
-    let sort: SidebarGroupSort
-}
-
-extension SidebarListView {
-    /// A Sort menu pick (`SidebarGroupEditing.sortMenu`).
-    @objc func pickGroupSort(_ item: NSMenuItem) {
-        guard let pick = item.representedObject as? SidebarGroupSortPick else { return }
-        onGroupSort?(pick.group, pick.sort)
     }
 }

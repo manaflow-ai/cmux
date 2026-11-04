@@ -7135,5 +7135,18 @@
       "es": "Manual is the Spanish adjective for a hand-set order (as settings.terminal.resumeCommands.policy.manual).",
       "pt-BR": "Manual is the Portuguese adjective for a hand-set order, spelled as in English."
     }
+  },
+  "argument.value.groupSort.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German (as sidebar.groupSort.name)."
+    }
+  },
+  "argument.value.groupSort.manual": {
+    "source": "Manual",
+    "identityLocales": {
+      "es": "Manual is the Spanish adjective for a hand-set order (as sidebar.groupSort.manual).",
+      "pt-BR": "Manual is the Portuguese adjective for a hand-set order, spelled as in English."
+    }
   }
 }

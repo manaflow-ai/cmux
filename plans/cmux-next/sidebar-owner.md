@@ -45,8 +45,10 @@
   after, in stored order. Members pinned in the group stay first and archived ones last. The sort is stored per group
   in the sidebar document (`extra.sort`, `group.update`'s `sort` patch, one undo step) and `arrange` applies it
   (`SidebarDocListing.sortingGroups`); the stored order is never rewritten, so Manual brings it back. A drag inside a
-  sorted group still saves its place, which shows again under Manual. Filter is not built. Regression:
-  `SidebarGroupSortTests`, the reducer's `a_group_stores_its_own_sort`.
+  sorted group still saves its place, which shows again under Manual. Filter is not built. The menu is the
+  `workspaceGroup.setSort` action's choices (`ActionRegistry.makeChoicesMenu`), also the group menu's Move > Sort
+  Order, the palette's Set Workspace Group Sort Order… and `cmux workspace-group set-sort`. Regression:
+  `SidebarGroupSortTests`, the reducer's `a_group_stores_its_own_sort`, `SidebarOrderingSurfacesTests`.
 - 2026-11-03: folding a group never changes the rows' width. Leo: "why when i collapse/expand the cosmic-gray group
   do the workspace horizontal widths differ?". The list took the clip's width, which a legacy scroller narrows by 11 pt
   only while the rows overflow (an open long group); `SidebarListView.rowsWidth(in:)` now counts the scroller for its
