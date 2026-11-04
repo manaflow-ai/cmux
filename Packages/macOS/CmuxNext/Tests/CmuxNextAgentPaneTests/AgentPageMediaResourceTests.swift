@@ -81,7 +81,8 @@ struct AgentPageMediaResourceTests {
         let (folder, file, data) = try Self.clip(100)
         defer { try? FileManager.default.removeItem(at: folder) }
         let src = AgentPaneMediaGrants.src(AgentPaneMediaGrants.shared.grant(file), on: AgentPaneMediaGrants.pageOrigin)
-        let request = try #require(PageSchemeHandler.dynamicRequest(for: try #require(URL(string: src)), page: .agent))
+        let srcURL = try #require(URL(string: src))
+        let request = try #require(PageSchemeHandler.dynamicRequest(for: srcURL, page: .agent))
         let ranged = await PageSchemeHandler.rangedResponse(to: request, range: "bytes=10-19", source: AgentPageMediaResource.shared)
         #expect(ranged.status == 206)
         #expect(ranged.mimeType == "video/quicktime")
@@ -89,8 +90,8 @@ struct AgentPageMediaResourceTests {
         #expect(ranged.rangeHeaders == ["Content-Range": "bytes 10-19/100", "Accept-Ranges": "bytes"])
         let past = await PageSchemeHandler.rangedResponse(to: request, range: "bytes=500-", source: AgentPageMediaResource.shared)
         #expect(past.status == 416 && past.rangeHeaders["Content-Range"] == "bytes */100")
-        let unknown = try #require(PageSchemeHandler.dynamicRequest(
-            for: try #require(URL(string: "cmux-page://cmux.agent/__media/ffffffffffffffffffffffffffffffff.mov")), page: .agent))
+        let unknownURL = try #require(URL(string: "cmux-page://cmux.agent/__media/ffffffffffffffffffffffffffffffff.mov"))
+        let unknown = try #require(PageSchemeHandler.dynamicRequest(for: unknownURL, page: .agent))
         #expect(await PageSchemeHandler.rangedResponse(to: unknown, range: "bytes=0-", source: AgentPageMediaResource.shared).status == 404)
     }
 }
