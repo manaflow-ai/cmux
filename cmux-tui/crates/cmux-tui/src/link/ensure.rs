@@ -7,7 +7,7 @@
 //! app's link never share a socket, a registration or a state directory.
 //!
 //! - `ensure --state-dir D [--install ID] [--port P] [--session-socket S]
-//!   [--server-config F]`: runs `init` first when D has no config (then
+//!   [--server-config F] [--cloud-token-file F]`: runs `init` first when D has no config (then
 //!   `--install` is required; `--port 0` binds any free UDP port), returns
 //!   the live link of D when one runs, else starts `cmux link serve` in its
 //!   own session (it survives the caller) and waits for its ready line. A
