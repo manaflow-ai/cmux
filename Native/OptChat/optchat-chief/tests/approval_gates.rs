@@ -698,38 +698,88 @@ fn pending_prompt(h: &Harness) -> bool {
 }
 
 #[test]
-fn a_delivered_home_card_expires_when_home_is_never_opened() {
-    // A conversation receipt proves delivery, not that Home is visible.
-    // Keep #22941's deadline even when the card arrives and events replay.
+fn a_delivered_home_card_waits_for_the_person() {
+    // Leo, 2026-11-03: a Chief subagent's prompt must show in Home as an
+    // Allow/Deny card and never be declined behind the person's back. Once
+    // the card is delivered, the request waits for its click (or for the
+    // Chief to deny or steer it), however long Home stays closed.
     let mut h = harness(None, false, default_script());
     const T0: u64 = 1_800_000_000_000;
     h.brain.set_clock(Arc::new(|| T0));
     let session = subagent_asking(&mut h, false);
     h.settle_posts();
     assert_eq!(questions(&h), 1);
-    assert_eq!(
-        h.brain.unanswered_permissions(),
-        vec![(session.clone(), "p1".into())]
-    );
 
     let wait = optchat_chief::approval::PERMISSION_WAIT.as_millis() as u64;
     h.brain.set_clock(Arc::new(move || T0 + wait - 1));
+    // A replayed event neither posts a second card nor arms a deadline.
     h.brain.step(permission_in(
         &session,
         "p1",
         "Bash",
         json!({"command": "make deploy"}),
     ));
-    h.brain.deny_overdue_permissions_at(T0 + wait - 1);
-    assert_eq!(answered(&h, "p1"), None);
     h.brain.deny_overdue_permissions_at(T0 + wait);
+    h.brain.deny_overdue_permissions_at(T0 + 3_600_000);
     h.settle_posts();
 
-    assert_eq!(answered(&h, "p1"), Some(Some("reject".into())));
-    assert!(!pending_prompt(&h));
-    assert!(h.brain.unanswered_permissions().is_empty());
-    assert!(h.owner.lock().unwrap().ops.iter().any(|(_, op)| matches!(op, Op::MessageEdit { parts, .. }
-        if matches!(&parts[0], Part::Question(q) if q.state == cmux_conversation::QuestionState::Cancelled))));
+    assert_eq!(answered(&h, "p1"), None, "nobody denied the person's card");
+    assert!(pending_prompt(&h));
+    assert_eq!(questions(&h), 1);
+    assert!(!h.owner.lock().unwrap().ops.iter().any(|(_, op)| matches!(op, Op::MessageEdit { parts, .. }
+        if matches!(&parts[0], Part::Question(q) if q.state == cmux_conversation::QuestionState::Cancelled))),
+        "the card stays answerable");
+}
+
+/// Records the workspaces the Chief opens for its subagents.
+#[derive(Default)]
+struct Opened(std::sync::Mutex<Vec<String>>);
+
+impl optchat_chief::workspaces::Workspaces for Opened {
+    fn open(
+        &self,
+        key: &str,
+        _session: &str,
+        _name: &str,
+        _group: &str,
+        _cwd: &std::path::Path,
+    ) -> Result<String, String> {
+        self.0.lock().unwrap().push(key.to_owned());
+        Ok(key.to_owned())
+    }
+    fn rename(&self, _key: &str, _name: &str) -> Result<(), String> {
+        Ok(())
+    }
+    fn close(&self, _key: &str) -> Result<(), String> {
+        Ok(())
+    }
+    fn place(&self) -> String {
+        "the test".into()
+    }
+    fn locate(&self, _key: &str) -> Option<optchat_chief::workspaces::WorkspaceRef> {
+        None
+    }
+}
+
+#[test]
+fn a_hidden_prompt_home_cannot_show_opens_its_workspace_instead_of_being_denied() {
+    // A request Home cannot draw as Allow once / Deny (here: no allow-once
+    // option) used to be denied after two minutes nobody could see. Its
+    // subagent's workspace opens instead, whose tab answers it.
+    let mut h = harness(None, false, default_script());
+    const T0: u64 = 1_800_000_000_000;
+    h.brain.set_clock(Arc::new(|| T0));
+    let opened = Arc::new(Opened::default());
+    let ws: Arc<dyn optchat_chief::workspaces::Workspaces> = opened.clone();
+    h.brain.set_workspaces(Some(ws));
+    subagent_asking_with_allow(&mut h, false, false);
+    drain(&mut h);
+    h.settle_posts();
+    assert_eq!(questions(&h), 0, "no card for a request Home cannot answer");
+    assert_eq!(opened.0.lock().unwrap().len(), 1, "its workspace opened");
+    h.brain.deny_overdue_permissions_at(T0 + 3_600_000);
+    assert_eq!(answered(&h, "p1"), None);
+    assert!(pending_prompt(&h));
 }
 
 /// A hidden local owner subagent has no agent tab. Its request must still
