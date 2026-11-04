@@ -1093,7 +1093,10 @@ RESIZE_CURSORS = ("columnResize", "rowResize", "resizeLeftRight", "resizeUpDown"
 
 
 def step_hid_move(j, step):
-    """The real pointer to a window point with no button (CuaDriver move_cursor, desktop pixels)."""
+    """The real pointer to a window point with no button, as a mouse moves it: CuaDriver's move_cursor puts the OS
+    pointer there (desktop pixels), then hid_inject posts real mouse-moved events at the HID tap along the last 4 pt
+    into it (global points). A warp alone reaches no tracking area: px-divider-hover rounds 3-5 (cmux22, cmux24) read
+    the pointer on the divider with no move event in the app. hid_inject not granted on the host: not run."""
     V.R.require_front(j)
     point = tuple(float(v) for v in step["window_point"])
     (x, y), scale = V._desktop_pixels(j, point)
@@ -1101,7 +1104,15 @@ def step_hid_move(j, step):
     bad, data, raw = V.R._session(j).call("move_cursor", {"scope": "desktop", "x": x, "y": y})
     if bad or (data or {}).get("effect") in ("refused", "failed", "error"):
         raise D.NotRun(f"hid_move: CuaDriver did not move the pointer: {json.dumps(raw)[:400]}")
-    return {"point": list(point), "pixels": [x, y], "scale": scale, "sent": round(sent, 6)}
+    gx, gy = x / scale, y / scale
+    script = {"start_delay_ms": 30, "rate_floor": 0.5,
+              "steps": [{"do": "move", "x": gx - 4, "y": gy}, {"do": "wait", "ms": 16}, {"do": "move", "x": gx - 2, "y": gy},
+                        {"do": "wait", "ms": 16}, {"do": "move", "x": gx, "y": gy}]}
+    code, log, err = V.run_hid_inject(j, script, mode="run", via_open=True)
+    if code != 0 or not (log or {}).get("posted"):
+        raise D.NotRun(f"hid_move: hid_inject posted no mouse-moved event (exit {code}): {err[-300:]}")
+    return {"point": list(point), "pixels": [x, y], "scale": scale, "sent": round(sent, 6),
+            "events": len((log or {}).get("events") or [])}
 
 
 def _cursor(j):

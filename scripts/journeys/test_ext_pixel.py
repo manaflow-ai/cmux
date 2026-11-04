@@ -2044,5 +2044,47 @@ class DividerHoverTests(unittest.TestCase):
             self.run_step(HoverApp(self.clock, 8000.0, cursor_reply=False))
 
 
+
+class HidMoveTests(unittest.TestCase):
+    """hid_move: CuaDriver's move_cursor puts the OS pointer at the point (desktop pixels), then hid_inject posts real
+    mouse-moved events into it (global points = pixels / scale): a warp alone reached no tracking area on the fleet."""
+
+    def setUp(self):
+        self.saved = (X.V._desktop_pixels, X.V.R.require_front, X.V.R._session, X.V.run_hid_inject)
+        self.calls, self.scripts = [], []
+        test = self
+
+        class Session:
+            def call(self, tool, args):
+                test.calls.append((tool, args))
+                return False, {"effect": "moved"}, {}
+
+        X.V._desktop_pixels = lambda j, p: ((round(p[0] * 2 + 100), round(p[1] * 2 + 50)), 2.0)
+        X.V.R.require_front = lambda j: None
+        X.V.R._session = lambda j: Session()
+
+    def tearDown(self):
+        X.V._desktop_pixels, X.V.R.require_front, X.V.R._session, X.V.run_hid_inject = self.saved
+
+    def test_the_warp_is_followed_by_real_move_events(self):
+        def inject(j, script, mode="run", via_open=True):
+            self.scripts.append((script, mode, via_open))
+            return 0, {"posted": True, "events": [[1, "move", 0, 0, 0]] * 3}, ""
+        X.V.run_hid_inject = inject
+        out = X.step_hid_move(object(), {"window_point": [300, 200]})
+        self.assertEqual(self.calls, [("move_cursor", {"scope": "desktop", "x": 700, "y": 450})])
+        script, mode, via_open = self.scripts[0]
+        moves = [st for st in script["steps"] if st["do"] == "move"]
+        self.assertEqual((moves[-1]["x"], moves[-1]["y"]), (350.0, 225.0))
+        self.assertTrue(all(m["y"] == 225.0 for m in moves) and moves[0]["x"] < moves[-1]["x"])
+        self.assertEqual((mode, via_open), ("run", True))
+        self.assertEqual(out["events"], 3)
+
+    def test_no_posted_event_is_not_run(self):
+        X.V.run_hid_inject = lambda j, script, mode="run", via_open=True: (3, None, "no PostEvent grant")
+        with self.assertRaises(X.D.NotRun):
+            X.step_hid_move(object(), {"window_point": [300, 200]})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
