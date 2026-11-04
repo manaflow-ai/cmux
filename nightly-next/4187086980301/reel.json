@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4187086980301",
+  "notes": "notes/4187086980301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 35588,
+      "title": "ci(nightly): republish a verified nightly-next build with the tip's publication tooling",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34318,
+      "title": "fix(webviews): align summary tab emphasis and header grid",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35042,
+      "title": "cloud-vm-dogfood: run the journey on NEXT Cloud's cmux VM API instead of classic /api/vm",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35581,
+      "title": "base red: request_stack reads dispatch_request's arms from dispatch_request_with_identity, with rows for 4 new arms (from #33811)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34529,
+      "title": "Agent chat: real names, one row pitch and one tone on subagent, send, reaction and report rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35529,
+      "title": "backend: name the check that refuses a Native dial (details.reason on link_token's auth.forbidden)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35516,
+      "title": "base red: transcript-cohesion expects a finished Claude turn's Worked for fold, and declares its 4-minute run",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
