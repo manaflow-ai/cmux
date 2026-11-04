@@ -91,6 +91,8 @@ impl Mux {
             if entry.members.get(&id).is_none_or(|member| member.client != client) {
                 return None;
             }
+            // The key's terminal may be a respawn of the entry's runtime: its fast path follows it.
+            entry.follow_runtime_of(runtime, surface);
             let changed = entry.engine.note_activity(&id);
             sizing.note_size_state(runtime, changed);
             Some(changed)
@@ -533,11 +535,14 @@ impl Mux {
         runtime: SurfaceId,
         placement: SurfaceId,
     ) -> &'a mut TerminalSizingEntry {
+        let surface = self.surface(placement).or_else(|| self.surface(runtime));
         if !sizing.terminal_sizing.contains_key(&runtime) {
-            let surface = self.surface(placement).or_else(|| self.surface(runtime));
             let (cols, rows) = surface.as_ref().map_or((80, 24), |surface| surface.size());
-            let fast_path_slot =
-                surface.as_ref().and_then(|surface| surface.sizing_fast_path_slot());
+            // Only a surface of this runtime: a placement that a respawn moved to a new runtime id keeps its slot.
+            let fast_path_slot = surface
+                .as_ref()
+                .filter(|surface| surface.terminal_runtime_id() == Some(runtime))
+                .and_then(|surface| surface.sizing_fast_path_slot());
             let policy = self.resolved_size_policy(sizing, runtime, placement);
             sizing.terminal_sizing.insert(
                 runtime,
@@ -553,6 +558,9 @@ impl Mux {
             );
         }
         let entry = sizing.terminal_sizing.get_mut(&runtime).expect("inserted above");
+        if let Some(surface) = &surface {
+            entry.follow_runtime_of(runtime, surface);
+        }
         entry.placements.insert(placement);
         entry
     }
