@@ -24,7 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = ROOT / ".github" / "classic-auto-deploy.json"
-REASON_LINE = re.compile(r"^\s*Classic API change:\s*(\S.*)$", re.MULTILINE)
+REASON_LINE = re.compile(r"^[ \t]*Classic API change:[ \t]*(\S.*)$", re.MULTILINE)
 PLACEHOLDER = re.compile(r"^<[^>]*>$")
 
 

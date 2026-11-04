@@ -23,8 +23,8 @@ concurrency:
 jobs:
   classic-api:
     name: classic-api-guard
-    # A description edit that leaves the body unchanged (a title edit) needs no new answer.
-    if: ${{ github.event.action != 'edited' || github.event.changes.body != null }}
+    # A title-only edit needs no new answer; a body edit or a retarget (changes.base) does.
+    if: ${{ github.event.action != 'edited' || github.event.changes.body != null || github.event.changes.base != null }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:

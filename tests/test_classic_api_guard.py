@@ -40,6 +40,11 @@ class ClassicApiGuardTests(unittest.TestCase):
         code, _ = guard.check(CFG, "main", "Classic API change: <reason>\n", ["web/db/schema.ts"])
         self.assertEqual(code, 1)
 
+    def test_empty_reason_does_not_swallow_the_next_line(self) -> None:
+        body = "Classic API change:\n\n## Testing\npython3 tests.py\n"
+        code, _ = guard.check(CFG, "main", body, ["web/app/api/vm/route.ts"])
+        self.assertEqual(code, 1)
+
     def test_feat_cmux_next_only_warns(self) -> None:
         code, lines = guard.check(CFG, "feat-cmux-next", "", ["web/app/api/vm/route.ts"])
         self.assertEqual(code, 0)
@@ -92,6 +97,7 @@ class ClassicApiGuardTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertIn("branches: [main, feat-cmux-next]", text)
         self.assertIn("edited", text)
+        self.assertIn("github.event.changes.base != null", text)
         self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", text)
         self.assertIn("scripts/ci/classic_api_guard.py", text)
         self.assertNotIn("pull_request_target", text)
