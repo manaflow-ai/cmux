@@ -34,11 +34,12 @@ struct PRMediaOCRTests {
 
     /// A band that reads no text is named on stderr: in the light r3fc frame of 8e8f5f70 the bottom band (the card
     /// "Did you know? Command Palette ...") reads nothing on macOS 27, so the read is partial, and a negative frame check
-    /// must not trust it (scripts/journeys/driver.py `unread_bands`).
+    /// must not trust it (scripts/journeys/driver.py `unread_bands`). Band 3 (empty terminal rows there) is named too.
     @Test func aBandThatReadsNothingIsNamed() async throws {
         let read = try await Reader.shared.read("8e8f5f70-r3fc-light")
         #expect(read.status == 0, "the reader exited \(read.status): \(read.stderr)")
-        #expect(read.stderr.contains("lines in 4 bands; no text in band 4"), "\(read.stderr)")
+        let named = read.stderr.range(of: #"lines in 4 bands; no text in bands? ([0-9]+, )*4\n"#, options: .regularExpression)
+        #expect(named != nil, "band 4 is not named: \(read.stderr)")
         #expect(!read.lines.contains { $0.contains("Command Palette") }, "band 4 read after all: \(read.lines)")
     }
 
