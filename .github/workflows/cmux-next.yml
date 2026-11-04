@@ -5248,6 +5248,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
+          fetch-depth: 1
       - name: Request nightly-next promotion after this gate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -5667,7 +5668,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          fetch-depth: 1
           sparse-checkout: scripts/ci
       - name: Mint the owned-pool read token
         id: route-token
@@ -6893,6 +6893,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ inputs.same_tree_sha || github.sha }}
+          NEXT_PUSH_BISECT: ${{ vars.NEXT_PUSH_BISECT }}
         run: |
           python3 scripts/ci/cmux_next_push_attribution.py --repo "$GITHUB_REPOSITORY" \
             --run-id "$GITHUB_RUN_ID" --sha "$SHA" --server-url "$GITHUB_SERVER_URL" \

@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
-from cmux_next_push_attribution import (MAX_COMMENTED_PRS, failed_jobs, first_red_observed, last_green,
+from cmux_next_push_attribution import (MAX_COMMENTED_PRS, failed_jobs, bisect_history, last_green,
                                          never_passed, should_comment)  # noqa: E402
 from cmux_next_route import MAX_PRIORITY_SUITES, outputs, route  # noqa: E402
 
@@ -1184,17 +1184,107 @@ class RunnerAndScriptRoutes(unittest.TestCase):
 
 
 class PushAttribution(unittest.TestCase):
-    def test_first_observed_red_names_only_a_completed_failure_after_last_green(self):
-        runs = [
-            ("c3", {"job": "failure"}),
-            ("c2", {"job": "success"}),
-            ("c1", {"job": "success"}),
+    def test_bisect_history_probes_midpoints_and_names_adjacent_green_red(self):
+        commits = [f"c{i}" for i in range(1, 33)]
+        runs = [("green", {"job": "success"})] + [
+            (sha, {"job": "success" if i < 13 else "failure"}) for i, sha in enumerate(commits, 1)
         ]
-        self.assertEqual(first_red_observed(["job"], runs, "c1", ["c2", "c3"]), {"job": "c3"})
-        self.assertEqual(first_red_observed(["job"], runs, "missing", ["c1", "c2", "c3"]), {"job": "c3"})
+        verdict = bisect_history(["job"], runs, "green", commits)["job"]
+        self.assertEqual((verdict["method"], verdict["green"], verdict["culprit"]), ("bisect", "c12", "c13"))
+        self.assertEqual([p["sha"] for p in verdict["probes"]], ["c16", "c8", "c12", "c14", "c13"])
+        self.assertEqual([p["conclusion"] for p in verdict["probes"]],
+                         ["failure", "success", "success", "failure", "failure"])
 
-    def test_first_observed_red_keeps_unknown_when_no_completed_failure_exists(self):
-        self.assertEqual(first_red_observed(["job"], [("c2", {"job": "skipped"})], "c1"), {"job": None})
+    def test_bisect_history_rejects_non_monotonic_failure(self):
+        runs = [("green", {"job": "success"}), ("c1", {"job": "failure"}),
+                ("c2", {"job": "success"}), ("c3", {"job": "failure"})]
+        verdict = bisect_history(["job"], runs, "green", ["c1", "c2", "c3"])["job"]
+        self.assertEqual(verdict["method"], "unresolved")
+        self.assertIn("not monotonic", verdict["reason"])
+        self.assertEqual(verdict["probes"], [])
+
+    def test_bisect_history_requires_explicit_complete_consistent_verdicts(self):
+        for value in ("skipped", "cancelled", "timed_out", "startup_failure", "neutral", "", None):
+            with self.subTest(value=value):
+                runs = [("green", {"job": "success"}), ("c1", {"job": value}), ("c2", {"job": "failure"})]
+                self.assertEqual(bisect_history(["job"], runs, "green", ["c1", "c2"])["job"]["method"], "unresolved")
+        for runs in (
+            [("green", {"job": "success"}), ("c2", {"job": "failure"})],
+            [("green", {"job": "failure"}), ("c1", {"job": "success"}), ("c2", {"job": "failure"})],
+            [("green", {"job": "success"}), ("c1", {"job": "success"}),
+             ("c1", {"job": "failure"}), ("c2", {"job": "failure"})],
+        ):
+            self.assertEqual(bisect_history(["job"], runs, "green", ["c1", "c2"])["job"]["method"], "unresolved")
+
+    def test_bisect_history_never_falls_back_to_an_unvalidated_range(self):
+        verdict = bisect_history(["job"], [("green", {"job": "success"}), ("c2", {"job": "failure"})],
+                                 "green", [])["job"]
+        self.assertEqual(verdict["method"], "unresolved")
+        self.assertIsNone(verdict["culprit"])
+
+    def test_bisect_history_keeps_unresolved_when_midpoint_budget_runs_out(self):
+        runs = [("green", {"job": "success"})] + [(f"c{i}", {"job": "failure"}) for i in range(8)]
+        verdict = bisect_history(["job"], runs, "green", [f"c{i}" for i in range(8)], max_probes=1)["job"]
+        self.assertEqual(verdict["method"], "unresolved")
+        self.assertEqual(len(verdict["probes"]), 1)
+
+    def test_compare_walks_first_parents_without_reversing_github_order(self):
+        import cmux_next_push_attribution as attribution
+        a, b, c, side = (x * 40 for x in "abcd")
+        payload = {"status": "ahead", "merge_base_commit": {"sha": a}, "total_commits": 3,
+                   "commits": [{"sha": side, "parents": [{"sha": a}]},
+                               {"sha": b, "parents": [{"sha": a}, {"sha": side}]},
+                               {"sha": c, "parents": [{"sha": b}]}]}
+        with mock.patch.object(attribution, "gh_api", return_value=payload):
+            self.assertEqual(attribution.compare_commits("o/r", a, c), [b, c])
+        payload["total_commits"] = 4
+        with mock.patch.object(attribution, "gh_api", return_value=payload):
+            self.assertEqual(attribution.compare_commits("o/r", a, c), [])
+        payload.update(total_commits=3, merge_base_commit={"sha": side})
+        with mock.patch.object(attribution, "gh_api", return_value=payload):
+            self.assertEqual(attribution.compare_commits("o/r", a, c), [])
+
+    def test_culprit_mapping_requires_the_prs_actual_merge_commit(self):
+        import cmux_next_push_attribution as attribution
+        pulls = [{"number": 7, "merged_at": "now", "base": {"ref": "feat-cmux-next"}, "merge_commit_sha": "other"}]
+        with mock.patch.object(attribution, "gh_api", return_value=pulls):
+            self.assertEqual(attribution.pull_requests_for_commit("o/r", "sha", "feat-cmux-next"), [])
+        pulls[0]["merge_commit_sha"] = "sha"
+        with mock.patch.object(attribution, "gh_api", return_value=pulls):
+            self.assertEqual(attribution.pull_requests_for_commit("o/r", "sha", "feat-cmux-next"), [7])
+
+    def test_main_includes_current_jobs_and_notifies_proved_culprit_owner(self):
+        import cmux_next_push_attribution as attribution
+        lower, culprit, head = (x * 40 for x in "abc")
+        runs = [{"id": 1, "head_sha": lower, "status": "completed"},
+                {"id": 2, "head_sha": culprit, "status": "completed"}]
+        jobs = {1: {"check": "success"}, 2: {"check": "failure"}, 3: {"check": "failure"}}
+        writes = []
+        with mock.patch.object(attribution, "run_jobs", side_effect=lambda repo, run_id: jobs[run_id]), \
+             mock.patch.object(attribution, "gh_api", side_effect=lambda path: {"user": {"login": "alice"}}
+                               if path.endswith("/pulls/7") else {"workflow_runs": runs}), \
+             mock.patch.object(attribution, "compare_commits", return_value=[culprit, head]), \
+             mock.patch.object(attribution, "pull_requests", return_value=[]), \
+             mock.patch.object(attribution, "pull_requests_for_commit", return_value=[7]), \
+             mock.patch.object(attribution.pr_status, "upsert", side_effect=lambda *args, **kwargs: writes.append(args)):
+            self.assertEqual(attribution.main(["--repo", "o/r", "--run-id", "3", "--sha", head,
+                                               "--last-known-green", lower]), 0)
+        self.assertEqual(len(writes), 1)
+        self.assertEqual(writes[0][:3], ("o/r", 7, "push-culprit"))
+        self.assertIn("@alice", writes[0][3])
+        self.assertIn("Bisected completed CI verdicts", writes[0][3])
+        self.assertIn(culprit, writes[0][3])
+
+    def test_run_jobs_refuses_ambiguous_incomplete_or_unfinished_receipts(self):
+        import cmux_next_push_attribution as attribution
+        for payload in (
+            {"total_count": 2, "jobs": [{"name": "job", "status": "completed", "conclusion": "success"}]},
+            {"jobs": [{"name": "job", "status": "completed", "conclusion": "success"},
+                      {"name": "job", "status": "completed", "conclusion": "failure"}]},
+            {"jobs": [{"name": "job", "status": "in_progress", "conclusion": "success"}]},
+        ):
+            with mock.patch.object(attribution, "gh_api", return_value=payload):
+                self.assertNotIn(attribution.run_jobs("o/r", 1).get("job"), ("success", "failure"))
 
     def test_repeated_push_failures_edit_the_shared_status_comment(self):
         import cmux_next_push_attribution as attribution
