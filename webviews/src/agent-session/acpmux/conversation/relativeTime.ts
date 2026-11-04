@@ -14,22 +14,34 @@ const UNITS: readonly (readonly [Intl.RelativeTimeFormatUnit, number])[] = [
   ["minute", 60],
 ];
 
+// Newly mounted messages share the pane's language. Keep one formatter, not one per message
+// or an unbounded map of locale strings. Default-locale fallbacks stay live and uncached.
+let lastWords: { locale: string; formatter: Intl.RelativeTimeFormat; englishNow: boolean } | undefined;
+function relativeWords(locale?: string) {
+  if (locale !== undefined && lastWords?.locale === locale) return lastWords;
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  const words = { formatter, englishNow: formatter.resolvedOptions().locale.toLowerCase().startsWith("en") };
+  if (locale !== undefined && Intl.RelativeTimeFormat.supportedLocalesOf(locale).length)
+    lastWords = { locale, ...words };
+  return words;
+}
+
 /// `at`'s age at `now`, in `locale`.
 export function relativeTime(at: number, now: number, locale?: string): string {
   // A time past `now` is a prompt the minute clock (clock.ts) has not caught up with, or another
   // computer's clock running ahead: it reads as just sent, never "in 1 minute".
   const seconds = Math.round(Math.min(0, at - now) / 1000);
   const age = -seconds;
+  const words = relativeWords(locale);
   if (age < 60) {
-    const words = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
     // English says "just now" (Claude's words); other languages their own word for now.
     // l10n-allow: English only by design (Claude's wording); every other language gets Intl's own word.
-    return words.resolvedOptions().locale.toLowerCase().startsWith("en") ? "just now" : words.format(0, "second");
+    return words.englishNow ? "just now" : words.formatter.format(0, "second");
   }
   const [unit, size] = UNITS.find(([, length]) => age >= length) ?? ["minute", 60];
   // The count rounds within its unit, as Claude's does (Math.round on the negative count: 90
   // minutes is "1 hour ago", 36 hours "yesterday"); "auto" says "yesterday", "last week".
-  return new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(Math.round(seconds / size), unit);
+  return words.formatter.format(Math.round(seconds / size), unit);
 }
 
 /// Claude's exact time for a message: "Oct 20, 2026, 10:16 PM" in en-US, the same fields in
