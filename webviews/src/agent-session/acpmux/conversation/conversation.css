@@ -3710,7 +3710,7 @@ button.cv-video-frames__frame:focus-visible {
   display: inline-flex;
   /* Its whole name: the first line after it gives way first (`.cv-disclosure__label`, shrink 1000;
      Leo, 2026-11-03: "idk why names are ellipses'd so early"). Only a name wider than the line is cut. */
-  flex: 0 0 auto;
+  flex: 0 0.0001 auto;
   align-items: center;
   min-width: 0;
   max-width: 100%;
