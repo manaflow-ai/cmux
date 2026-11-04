@@ -61,7 +61,8 @@ struct Pipe {
 }
 
 fn pump(mut from: UnixStream, mut to: UnixStream, link: Link, counted: Arc<Wire>, up: bool) {
-    let pipe = Arc::new(Pipe { queue: Mutex::new((VecDeque::new(), false)), ready: Condvar::new() });
+    let pipe =
+        Arc::new(Pipe { queue: Mutex::new((VecDeque::new(), false)), ready: Condvar::new() });
     let writer = {
         let pipe = pipe.clone();
         std::thread::spawn(move || {
@@ -249,7 +250,12 @@ fn scratch(label: &str) -> (PathBuf, Cleanup) {
 
 /// Pushes `repo` to the VM's `~/work/app` through `link`; the summary, the
 /// wall time and the wire counts.
-fn push_through(root: &Path, vm: &Machine, repo: &Path, link: Link) -> (Value, Duration, Arc<Wire>) {
+fn push_through(
+    root: &Path,
+    vm: &Machine,
+    repo: &Path,
+    link: Link,
+) -> (Value, Duration, Arc<Wire>) {
     let proxied = root.join("link.sock");
     let wire = proxy(&proxied, vm.socket.clone(), link);
     let started = Instant::now();

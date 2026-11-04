@@ -29,7 +29,10 @@ pub(crate) enum Encoding {
 }
 
 impl Encoding {
-    pub(crate) fn parse(encoding: Option<&str>, decoded_size: Option<u64>) -> Result<Self, FsError> {
+    pub(crate) fn parse(
+        encoding: Option<&str>,
+        decoded_size: Option<u64>,
+    ) -> Result<Self, FsError> {
         match (encoding, decoded_size) {
             (None, None) => Ok(Self::Identity),
             (Some(DEFLATE), Some(decoded_size)) => Ok(Self::Deflate { decoded_size }),

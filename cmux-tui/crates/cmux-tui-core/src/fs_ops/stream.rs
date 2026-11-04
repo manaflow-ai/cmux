@@ -43,7 +43,11 @@ pub const STREAM_CHUNK_BYTES: usize = 256 * 1024;
 /// A request line that opens a byte stream.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StreamRequest {
-    Read { id: Value, path: String, offset: u64 },
+    Read {
+        id: Value,
+        path: String,
+        offset: u64,
+    },
     Write {
         id: Value,
         path: String,
@@ -216,8 +220,8 @@ fn serve_write(
     reader: &mut impl Read,
     writer: &mut impl Write,
 ) -> io::Result<()> {
-    let begun = Encoding::parse(options.encoding.as_deref(), options.decoded_size).and_then(
-        |encoding| {
+    let begun =
+        Encoding::parse(options.encoding.as_deref(), options.decoded_size).and_then(|encoding| {
             let decoded = match encoding {
                 Encoding::Identity => size,
                 Encoding::Deflate { decoded_size } => decoded_size,
@@ -228,8 +232,7 @@ fn serve_write(
                 pending.set_permissions(permissions)?;
             }
             Ok((encoding, pending))
-        },
-    );
+        });
     let (encoding, mut pending) = match begun {
         Ok(begun) => begun,
         Err(error) => return send(writer, &answer(id, Err(error))),

@@ -670,7 +670,12 @@ impl Listings {
             let listing = remote.list(parent)?;
             self.0.insert(parent.to_string(), listing);
         }
-        Ok(self.0.get(parent).and_then(Option::as_ref).and_then(|entries| entries.get(name)).cloned())
+        Ok(self
+            .0
+            .get(parent)
+            .and_then(Option::as_ref)
+            .and_then(|entries| entries.get(name))
+            .cloned())
     }
 
     fn clear(&mut self) {

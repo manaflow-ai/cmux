@@ -334,8 +334,11 @@ impl Remote {
         let second = if first.len() == PART_BYTES { read_part(reader)? } else { Vec::new() };
         if second.is_empty() {
             let request = json!({ "path": path, "mode": "overwrite", "permissions": permissions });
-            let entry =
-                self.call_with_progress("fs.write", with_bytes(request, &first, compress)?, progress)?;
+            let entry = self.call_with_progress(
+                "fs.write",
+                with_bytes(request, &first, compress)?,
+                progress,
+            )?;
             return revision_of(&entry);
         }
         let (parent, name) = split(path)?;
@@ -701,8 +704,11 @@ mod tests {
             return wire;
         }
         let mut out = Vec::new();
-        std::io::Read::read_to_end(&mut flate2::read::DeflateDecoder::new(wire.as_slice()), &mut out)
-            .unwrap();
+        std::io::Read::read_to_end(
+            &mut flate2::read::DeflateDecoder::new(wire.as_slice()),
+            &mut out,
+        )
+        .unwrap();
         assert_eq!(request["decoded_size"], json!(out.len()));
         out
     }
