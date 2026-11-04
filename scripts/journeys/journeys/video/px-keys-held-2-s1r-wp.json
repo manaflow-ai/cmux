@@ -257,7 +257,8 @@
       "action": "stop",
       "raw": true
      },
-     "title": "debug.frames stop raw: window_passes, window_passes_per_frame, window_passes_no_slot"
+     "title": "debug.frames stop raw: window_passes, window_passes_per_frame, window_passes_no_slot",
+     "keep": "frames"
     }
    ],
    "after": [],
@@ -365,7 +366,8 @@
       "action": "stop",
       "raw": true
      },
-     "title": "debug.frames stop raw: window_passes, window_passes_per_frame, window_passes_no_slot"
+     "title": "debug.frames stop raw: window_passes, window_passes_per_frame, window_passes_no_slot",
+     "keep": "frames"
     }
    ],
    "after": [],

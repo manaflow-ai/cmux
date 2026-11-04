@@ -1245,6 +1245,27 @@ class PixelCasesTests(unittest.TestCase):
 
 
 
+class KeepTests(unittest.TestCase):
+    """px_film `keep`: a sub-step's whole reply goes to <out>/<film>.<keep>.json (a long array is never cut at RESULT_CHARS),
+    result.json keeps the file name, and run.py's RESULT_FILE takes that file back from the capture host."""
+
+    def test_a_kept_reply_is_whole_in_its_file_and_named_in_the_line(self):
+        class J(FakeJourney):
+            def step_rpc(self, step):
+                return {"reply": {"intervals_ms": [8.33] * 2000}}
+        j = J(FakeApp(), tempfile.mkdtemp())
+        j.out.mkdir(parents=True, exist_ok=True)
+        f = film("f-s1", 1.0)
+        f["steps"] = [{"do": "rpc", "method": "debug.frames", "params": {"action": "stop", "raw": True}, "keep": "frames"}] + f["steps"]
+        X.step_px_film(j, f)
+        kept = j.out / "f-s1.frames.json"
+        self.assertEqual(len(json.loads(kept.read_text())["reply"]["intervals_ms"]), 2000)
+        line = next(st for st in j.px["films"][-1].get("steps", []) if st.get("do") == "rpc") if j.px["films"][-1].get("steps") else None
+        import run as R
+        self.assertTrue(R.RESULT_FILE.fullmatch("px-a-wp/f-s1.frames.json".replace("f-s1", "px-a-s1")))
+        self.assertIsNone(R.RESULT_FILE.fullmatch("px-a-wp/other.json"))
+
+
 class EqualizeApp:
     """action.run equalizeSplits: answers, or times out (as on feat 8dea72b7d62f) or fails otherwise; debug.pane_chrome
     gives p0 and p1 cells whose widths become `after` once the action ran (a spring landing over `polls` reads)."""
