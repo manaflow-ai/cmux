@@ -224,7 +224,9 @@ def _commit_runs(commit):
         return None
     runs = []
     for suite in suites.get("nodes") or []:
-        page = (suite or {}).get("checkRuns") or {}
+        if not isinstance(suite, dict):
+            return None  # a null suite could hide a red run: incomplete, so REST answers
+        page = suite.get("checkRuns") or {}
         if (page.get("pageInfo") or {}).get("hasNextPage"):
             return None
         for node in page.get("nodes") or []:

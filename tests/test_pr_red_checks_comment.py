@@ -530,6 +530,8 @@ def test_a_null_graphql_check_run_reads_that_commit_over_rest():
     assert red._commit_runs(commit) is None
     commit["checkSuites"]["nodes"][0]["checkRuns"]["nodes"] = [good]
     assert [r["id"] for r in red._commit_runs(commit)] == [1]
+    commit["checkSuites"]["nodes"].append(None)
+    assert red._commit_runs(commit) is None
 
 
 def test_a_null_step_or_annotation_leaves_that_run_to_rest():
@@ -547,6 +549,7 @@ def test_a_null_step_or_annotation_leaves_that_run_to_rest():
     gh = GH()
     red.prefetch_details(gh, [{"id": i, "node_id": f"n{i}"} for i in (1, 2, 3)], query=lambda q, v: data)
     assert sorted(gh.details) == [3]
+
 
 if __name__ == "__main__":
     import traceback
