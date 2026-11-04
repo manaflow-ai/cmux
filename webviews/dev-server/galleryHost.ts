@@ -405,13 +405,14 @@ export function galleryModules(): Plugin {
 }
 
 /**
- * The shell and a stage in the dev server: `<mount>` and `<mount>frame.html`. `bun run dev` mounts
+ * The shell, a stage and the two whole-window pages in the dev server: `<mount>`, `<mount>frame.html`,
+ * `<mount>app.html` and `<mount>mock-app.html`. `bun run dev` mounts
  * them at /gallery/; the live gallery (vite.config.gallery-dev.ts) at its base, `/live/` or
  * `/wt/<name>/`, where the base is also every module URL's prefix.
  */
 export function galleryHost({ mount = "/gallery/" }: { mount?: string } = {}): Plugin {
   const escaped = mount.replace(/[.*+?^$()|[\]{}\\]/g, "\\$&");
-  const page = new RegExp(`^${escaped}(index\\.html|frame\\.html|app\\.html)?$`);
+  const page = new RegExp(`^${escaped}(index\\.html|frame\\.html|app\\.html|mock-app\\.html)?$`);
   return {
     name: "cmux-dev-gallery",
     apply: "serve",
