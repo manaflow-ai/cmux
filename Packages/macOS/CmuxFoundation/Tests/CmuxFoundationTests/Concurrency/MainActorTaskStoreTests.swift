@@ -215,7 +215,7 @@ struct MainActorTaskStoreTests {
         let finishedSlotCancelled = CancellationFlag()
         store?.replaceOnMainActor(-1) {
             await withTaskCancellationHandler {
-                finished.continuation.yield()
+                _ = finished.continuation.yield()
             } onCancel: {
                 finishedSlotCancelled.mark()
             }
