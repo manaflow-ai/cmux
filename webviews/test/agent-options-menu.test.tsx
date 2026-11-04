@@ -238,16 +238,16 @@ test("a custom harness collaboration option stays available in Options", async (
 });
 
 test("a chat still opening draws no Options from the last session's summary", async () => {
-  const recap = [option("prompt-suggestions", ["off", "on"], { name: "Prompt suggestions", category: "model_config" })];
+  const thinking = [option("thinking", ["off", "on"], { name: "Thinking" })];
   // The pane opened chat s2 while the summary still describes s1 (another chat's switch).
-  await render(codex(recap), [], { sessionId: "s2" });
+  await render(codex(thinking), [], { sessionId: "s2" });
   expect(host.querySelector("[data-menu=options]")).toBeNull();
   // A chat switching harness also carries its old session's options.
-  await render(codex(recap), [], { sessionId: "s1", switching: { phase: "starting" } });
+  await render(codex(thinking), [], { sessionId: "s1", switching: { phase: "starting" } });
   expect(host.querySelector("[data-menu=options]")).toBeNull();
   // Once its own summary is attached, Options is back.
-  await render(codex(recap), [], { sessionId: "s1" });
-  expect(host.querySelector("[data-menu=options]")?.textContent).toContain("Prompt suggestions");
+  await render(codex(thinking), [], { sessionId: "s1" });
+  expect(host.querySelector("[data-menu=options]")?.textContent).toContain("Thinking");
 });
 
 test("a session with no extra option shows no Options chip", async () => {
