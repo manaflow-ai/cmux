@@ -129,21 +129,6 @@ pub(super) fn live_holder_pid(path: &Path) -> Option<u32> {
     lock_is_held(&file).then_some(pid)
 }
 
-/// What to say of a lock holder that serves no socket: its pid, and how to recover. A holder
-/// that does not answer at its socket is never one a command can wait out (cosmic-gray,
-/// 2026-11-02: a daemon ran two hours with its socket gone), and a SIGTERM is safe: its agents
-/// outlive it and the next daemon adopts them.
-pub(super) fn not_serving_recovery(lock: &Path) -> String {
-    #[cfg(unix)]
-    if let Some(pid) = live_holder_pid(lock) {
-        return format!(
-            " (pid {pid}). To recover, stop it with `kill -TERM {pid}`: its agents outlive it and the next daemon adopts them"
-        );
-    }
-    let _ = lock;
-    ". To recover, stop the acpmux daemon process that holds it with SIGTERM: its agents outlive it and the next daemon adopts them".into()
-}
-
 /// The pid of another process that holds a daemon lock serving `socket`: this home's lock, or the
 /// one in the socket's folder (an `ACPMUX_SOCKET` that names another home's socket). Only a lock's
 /// holder may remove the socket it serves (`server::bind_unix`): a daemon of another home, or a
