@@ -115,3 +115,115 @@ fn each_line_names_its_daemon() {
         json!({"acp_activity": {"turns": 2, "daemon": "/run/acpmux-a.sock"}})
     );
 }
+
+fn turn(id: &str) -> SessionAtWork {
+    SessionAtWork { id: id.into(), turn: true, ..SessionAtWork::default() }
+}
+
+fn call(id: &str, status: &str) -> Value {
+    json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "s",
+        "update": {"sessionUpdate": "tool_call_update", "toolCallId": id, "status": status}}})
+}
+
+fn phases(line: &Value) -> Vec<(String, u64)> {
+    line["acp_activity"]["phases"]["turns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| (t["phase"].as_str().unwrap().to_owned(), t["since"].as_u64().unwrap()))
+        .collect()
+}
+
+/// cmux#34298: a running turn waits on the model until a tool call runs (`in_progress`), runs
+/// the tool until the call is `completed` or `failed`, then waits on the model again; each
+/// change goes at once, with the time it was seen.
+#[test]
+fn a_turn_moves_between_model_wait_and_tool_and_each_change_goes() {
+    let mut t = Tracker::default();
+    t.observe(&[turn("a")], 1_000);
+    let line = t.line(1, false, 1_000).unwrap();
+    assert_eq!(line["acp_activity"]["phases"]["relayed"], false);
+    assert_eq!(phases(&line), [("model-wait".to_owned(), 1_000)]);
+    assert_eq!(
+        line["acp_activity"]["phases"]["turns"][0],
+        json!({"phase": "model-wait", "since": 1_000, "processes": 0, "attached": false})
+    );
+
+    // A call named early streams its input: still the model.
+    assert!(!t.tool_event("a", "tool_call", &call("t1", "pending")));
+    t.observe(&[turn("a")], 2_000);
+    assert!(t.line(1, false, 2_000).is_none(), "nothing changed");
+
+    // The whole call: the tool runs in the guest.
+    assert!(t.tool_event("a", "tool_call_update", &call("t1", "in_progress")));
+    t.observe(&[turn("a")], 3_000);
+    assert_eq!(phases(&t.line(1, false, 3_000).unwrap()), [("tool".to_owned(), 3_000)]);
+    // A second call alongside, then the first ends: still a tool.
+    assert!(!t.tool_event("a", "tool_call", &call("t2", "in_progress")));
+    assert!(!t.tool_event("a", "tool_call_update", &call("t1", "completed")));
+    t.observe(&[turn("a")], 4_000);
+    assert!(t.line(1, false, 4_000).is_none(), "the tool phase holds, since unchanged");
+    assert!(t.tool_event("a", "tool_call_update", &call("t2", "failed")));
+    t.observe(&[turn("a")], 5_000);
+    assert_eq!(phases(&t.line(1, false, 5_000).unwrap()), [("model-wait".to_owned(), 5_000)]);
+    // A renewal keeps the since.
+    t.observe(&[turn("a")], 25_000);
+    assert_eq!(phases(&t.line(1, true, 25_000).unwrap()), [("model-wait".to_owned(), 5_000)]);
+}
+
+/// A session at work with processes left running, a background subagent, or no turn at all is
+/// pinned; a turn waiting on a permission waits on the person. Entries go in id order, one per
+/// session at work, with its process count and whether a client shows it.
+#[test]
+fn processes_pin_a_session_and_a_permission_waits_on_the_person() {
+    let mut t = Tracker::default();
+    let busy = SessionAtWork { processes: 2, shown: true, ..turn("b") };
+    let asking = SessionAtWork { person: true, ..turn("a") };
+    let below = SessionAtWork { below: true, ..turn("c") };
+    let no_turn = SessionAtWork { id: "d".into(), processes: 1, ..SessionAtWork::default() };
+    t.observe(&[busy, asking, below, no_turn], 7);
+    let line = t.line(4, false, 7).unwrap();
+    let turns = &line["acp_activity"]["phases"]["turns"];
+    assert_eq!(turns.as_array().unwrap().len(), 4, "one entry per session at work");
+    assert_eq!(turns[0]["phase"], "person");
+    assert_eq!(turns[1], json!({"phase": "pinned", "since": 7, "processes": 2, "attached": true}));
+    assert_eq!(turns[2]["phase"], "pinned");
+    assert_eq!(turns[3]["phase"], "pinned");
+    // A tool call outranks the pin.
+    assert!(t.tool_event("b", "tool_call", &call("x", "in_progress")));
+    t.observe(&[SessionAtWork { processes: 2, ..turn("b") }], 9);
+    assert_eq!(phases(&t.line(1, false, 9).unwrap()), [("tool".to_owned(), 9)]);
+}
+
+/// A call whose `completed` never came (a lagged event stream, a cancelled turn) is forgotten at
+/// the turn's end and once its session is no longer at work, so it never holds `tool` on.
+#[test]
+fn an_open_call_is_forgotten_at_the_turns_end() {
+    let mut t = Tracker::default();
+    assert!(t.tool_event("a", "tool_call", &call("t1", "in_progress")));
+    assert!(t.turn_ended("a"));
+    assert!(!t.turn_ended("a"), "nothing left open");
+    t.observe(&[turn("a")], 1);
+    assert_eq!(phases(&t.line(1, false, 1).unwrap()), [("model-wait".to_owned(), 1)]);
+
+    assert!(t.tool_event("b", "tool_call", &call("t2", "in_progress")));
+    t.observe(&[], 2);
+    t.observe(&[turn("b")], 3);
+    assert_eq!(phases(&t.line(1, false, 3).unwrap()), [("model-wait".to_owned(), 3)]);
+    assert!(!t.tool_event("b", "agent_message_chunk", &call("t3", "in_progress")));
+    assert!(!t.tool_event(
+        "b",
+        "tool_call",
+        &json!({"params": {"update": {"status": "in_progress"}}})
+    ));
+}
+
+/// An unsent line's phases go again with the next chance.
+#[test]
+fn unsent_phases_go_again() {
+    let mut t = Tracker::default();
+    t.observe(&[turn("a")], 1);
+    assert!(t.line(1, false, 1).is_some());
+    t.unsent();
+    assert!(t.line(1, false, 1).is_some());
+}
