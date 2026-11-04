@@ -673652,6 +673652,124 @@
           }
         }
       }
+    },
+    "cli.browser.screenshot.error.outPathDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot: --out needs a file path, not the directory '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot: يتطلب ‎--out مسار ملف، وليس المجلد '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot: --out benötigt einen Dateipfad, nicht das Verzeichnis '%@'"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot: --out necesita una ruta de archivo, no el directorio '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot : --out nécessite un chemin de fichier, pas le dossier '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot: --out にはディレクトリ '%@' ではなくファイルパスが必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot: --out에는 디렉터리 '%@' 대신 파일 경로가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot：--out 需要文件路径，而不是目录 '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot：--out 需要檔案路徑，而不是目錄 '%@'"
+          }
+        }
+      }
+    },
+    "cli.browser.screenshot.error.outPathEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot: --out needs a file path"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot: يتطلب ‎--out مسار ملف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot: --out benötigt einen Dateipfad"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot: --out necesita una ruta de archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot : --out nécessite un chemin de fichier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot: --out にはファイルパスが必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot: --out에는 파일 경로가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot：--out 需要文件路径"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser screenshot：--out 需要檔案路徑"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

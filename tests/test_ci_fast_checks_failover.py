@@ -60,11 +60,9 @@ class FastChecksFailoverTests(unittest.TestCase):
             with self.subTest(requested=requested):
                 actual = (evaluate_runs_on(parse_expression(selector[3:-2]), {"inputs.runner": requested})
                           if selector.startswith("${{") else selector)
-                expected = requested if requested in {
-                    "blacksmith-8vcpu-ubuntu-2404",
-                    "blacksmith-16vcpu-ubuntu-2404",
-                    "blacksmith-32vcpu-ubuntu-2404",
-                } else "ubuntu-24.04"
+                # Only the smallest measured Blacksmith size: a picker's re-run
+                # route is never 16 or 32 vCPU.
+                expected = requested if requested == "blacksmith-8vcpu-ubuntu-2404" else "ubuntu-24.04"
                 self.assertEqual(actual, expected)
 
     def test_admission_guard_keeps_the_overflow_set_exact(self) -> None:
@@ -75,6 +73,10 @@ class FastChecksFailoverTests(unittest.TestCase):
             selector.replace("'ubuntu-24.04'", "'self-hosted'"),
             selector.replace("contains(", "startsWith("),
             selector.replace("&& inputs.runner", "&& inputs.other_runner"),
+            # A picker's re-run route is the smallest measured size only.
+            selector.replace('"blacksmith-8vcpu-ubuntu-2404"',
+                             '"blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"'),
+            selector.replace('"blacksmith-8vcpu-ubuntu-2404"', '"blacksmith-32vcpu-ubuntu-2404"'),
         ):
             with self.subTest(selector=unsafe):
                 self.assertNotEqual(runner_label_errors(unsafe), [])
@@ -200,6 +202,8 @@ class FastChecksFailoverTests(unittest.TestCase):
         self.assertRegex(admission, r"(?m)^          ref: [0-9a-f]{40}$")
         self.assertIn("python3 .fast-checks-tools/scripts/ci/fast_checks_runner.py", text)
         self.assertRegex(text, r"sparse-checkout: \|\n\s+scripts/ci/fast_checks_runner\.py\n\s+scripts/ci/pr_runner_pool\.py")
+        # pr_runner_pool imports github_spend at load (#34270): without it every admit step failed.
+        self.assertRegex(admission, r"\n\s+scripts/ci/github_spend\.py\n")
         self.assertIn("needs: admit", text)
         self.assertIn("if: startsWith(needs.admit.outputs.runner, 'blacksmith-')", text)
 
