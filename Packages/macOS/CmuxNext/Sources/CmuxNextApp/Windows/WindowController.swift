@@ -533,7 +533,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         defer { if traced { DebugWindowTransition.shared.noteLayoutPass(self, seconds: CACurrentMediaTime() - began) } }
         #endif
         overlayLayer.windowWillLayout()
-        super.layoutIfNeeded()
+        if overlayLayer.layoutDepth == 0 { BenchSpans.measure("window.layoutIfNeeded") { super.layoutIfNeeded() } } else { super.layoutIfNeeded() }
         // The outermost pass only, and before the overlay layer's own
         // after-pass work, so an occluder change it causes joins that work.
         if overlayLayer.layoutDepth == 1 {

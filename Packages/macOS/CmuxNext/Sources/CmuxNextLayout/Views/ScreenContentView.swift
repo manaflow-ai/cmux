@@ -129,7 +129,9 @@ final class ScreenContentView: NSView {
         guard changed else { return }
         // A hidden screen (another of the workspace's screens shows) lays out once, when it shows:
         // each live-resize tick re-ran its full geometry, pane and divider reconcile.
-        if isHidden { needsReconcileOnShow = true } else { reconcileAndScroll(keepsMotion: hasMotion && window?.inLiveResize != true) }
+        if isHidden { needsReconcileOnShow = true } else {
+            LayoutRootView.bench(newSize.width == 0 ? "layout.reconcile.resize.zero" : "layout.reconcile.resize") { reconcileAndScroll(keepsMotion: hasMotion && window?.inLiveResize != true) }
+        }
     }
 
     /// Resized while hidden: reconcile when it shows.
@@ -161,7 +163,7 @@ final class ScreenContentView: NSView {
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         guard !isApplyingCamera, window != nil, reconciledScale != scale else { return }
-        reconcileAndScroll()
+        LayoutRootView.bench(reconciledScale == nil ? "layout.reconcile.backing.first" : "layout.reconcile.backing") { reconcileAndScroll() }
     }
 
     /// Ends pane and divider motion where it was going before a hidden workspace's clock stops.

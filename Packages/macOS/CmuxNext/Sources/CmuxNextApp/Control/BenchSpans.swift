@@ -22,11 +22,11 @@ enum BenchSpans {
     static func begin() {
         #if DEBUG || CMUX_BENCH_HOOKS
         origin = .now
+        Thread.main.threadDictionary["cmux.benchMeasure"] = { (name: String, body: () -> Void) in measure(name, body) } as (String, () -> Void) -> Void
         spans.removeAll(keepingCapacity: true)
         #endif
     }
 
-    /// Stops recording and returns what was recorded.
     static func end() -> [Span] {
         #if DEBUG || CMUX_BENCH_HOOKS
         origin = nil
