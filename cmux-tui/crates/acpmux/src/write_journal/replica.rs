@@ -168,10 +168,16 @@ fn current(
             Op::Delete => None,
         }));
     }
+    let generation = replica.generation();
     if !replica.is_fresh() {
         return Ok(Err(NeedsMachine::Stale));
     }
-    Ok(match replica.read(path)? {
+    let read = replica.read(path)?;
+    // Invalidated (or reseeded) while reading: the bytes may predate what ran on the machine.
+    if !replica.is_fresh() || replica.generation() != generation {
+        return Ok(Err(NeedsMachine::Stale));
+    }
+    Ok(match read {
         ReplicaRead::Present(b) => Ok(Some(b)),
         ReplicaRead::Absent => Ok(None),
         ReplicaRead::MachineOnly => Err(NeedsMachine::MachineOnly),

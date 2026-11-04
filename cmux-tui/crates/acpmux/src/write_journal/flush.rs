@@ -59,7 +59,12 @@ pub enum Mutation {
 
 /// [`MachineFs`] over a local folder: what runs on the machine itself, and the test double.
 ///
-/// No call follows a link anywhere on a path, the folder itself included. A replace is an
+/// No call follows a link anywhere on a path, the folder itself included, so a journal path
+/// can never name a file outside the folder. The machine's own processes are not an adversary
+/// here: they run as the same user and can write anywhere that user can. A process that moves a
+/// folder while the flush holds it open moves the agent's file along with it, as it would
+/// move a file the agent had written there directly.
+/// A replace is an
 /// atomic swap and a remove an atomic rename aside, each checked afterwards and undone when
 /// what came out was not the expected version, so a save made at any moment before the swap is
 /// kept. Only a process writing in place through a handle it opened before the swap can still
@@ -109,12 +114,14 @@ mod dir_impl {
     use super::{DirMachineFs, MachineFs, Mutation, Version};
     use std::io::{self, Write};
 
+    use super::super::STAGING_PREFIX;
+
     fn staging(seq: u64) -> String {
-        format!(".cmux-journal-{seq}.tmp")
+        format!("{STAGING_PREFIX}{seq}.tmp")
     }
 
     fn aside(seq: u64) -> String {
-        format!(".cmux-journal-{seq}.aside")
+        format!("{STAGING_PREFIX}{seq}.aside")
     }
 
     impl DirMachineFs {
@@ -125,6 +132,14 @@ mod dir_impl {
             let Some(name) = parts.pop() else {
                 return Err(io::Error::new(io::ErrorKind::InvalidInput, "an empty path"));
             };
+            // `rel_path` refuses these, and `WriteJournal::open` re-checks stored paths; refused
+            // here too, so a staging name can never be the file itself.
+            if path.split('/').any(|p| p.starts_with(STAGING_PREFIX)) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("{path}: a name the write journal keeps for itself"),
+                ));
+            }
             let mut chain = vec![Dir::open_root(&self.root)?];
             for part in parts {
                 let Some(at) = chain.last() else { break };

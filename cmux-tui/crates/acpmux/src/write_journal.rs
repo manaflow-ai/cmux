@@ -93,7 +93,13 @@ pub enum PathError {
     Absolute(String),
     #[error("the path {0:?} leaves the machine's folder")]
     Escapes(String),
+    /// A name the flush uses for its own staging files ([`STAGING_PREFIX`]).
+    #[error("the path {0:?} uses a name the write journal keeps for itself")]
+    Reserved(String),
 }
+
+/// Names starting with this are the flush's staging files; no journal path may use one.
+pub const STAGING_PREFIX: &str = ".cmux-journal-";
 
 /// `raw` as a journal path: relative, `/`-separated, no `.`/empty components, never `..`.
 /// Anything that would leave the folder is refused, never resolved.
@@ -110,6 +116,7 @@ pub fn rel_path(raw: &str) -> Result<String, PathError> {
             // also names an NTFS alternate stream. Refused everywhere, so a journal reads the
             // same on every platform.
             p if p.contains(':') => return Err(PathError::Absolute(raw.to_owned())),
+            p if p.starts_with(STAGING_PREFIX) => return Err(PathError::Reserved(raw.to_owned())),
             p => parts.push(p),
         }
     }

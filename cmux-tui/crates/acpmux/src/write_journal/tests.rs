@@ -1,7 +1,8 @@
 use super::classify::{CallClass, classify_command, is_pure_read};
 use super::flush::{ConflictReason, DirMachineFs, MachineFs, Mutation, flush};
 use super::replica::{
-    DirReplica, NeedsMachine, ReadOutcome, ReplicaSource, WriteOutcome, read_text, write_text,
+    DirReplica, NeedsMachine, ReadOutcome, ReplicaRead, ReplicaSource, WriteOutcome, read_text,
+    write_text,
 };
 use super::*;
 use std::sync::Arc;
@@ -59,6 +60,9 @@ fn rel_path_normalizes_and_refuses_escapes() {
     assert!(matches!(rel_path("/etc/passwd"), Err(PathError::Absolute(_))));
     assert!(matches!(rel_path("src/../../x"), Err(PathError::Escapes(_))));
     assert!(matches!(rel_path("./"), Err(PathError::Empty)));
+    for reserved in [".cmux-journal-1.tmp", "src/.cmux-journal-x"] {
+        assert!(matches!(rel_path(reserved), Err(PathError::Reserved(_))), "{reserved}");
+    }
     for drive in ["C:/outside/file", "C:outside/file", "a/b:stream"] {
         assert!(matches!(rel_path(drive), Err(PathError::Absolute(_))), "{drive}");
     }
@@ -652,6 +656,40 @@ fn a_remove_that_died_after_moving_a_machine_save_aside_puts_it_back() {
     assert_eq!(report.conflicts.len(), 1, "{report:?}");
     assert_eq!(machine_text(&f, "a.txt").as_deref(), Some("guest"));
     assert_eq!(names(&f.machine_root), vec!["a.txt".to_owned()]);
+}
+
+/// A replica that something on the machine invalidates while a read is in flight.
+struct InvalidatedDuringRead(DirReplica);
+
+impl ReplicaSource for InvalidatedDuringRead {
+    fn generation(&self) -> u64 {
+        self.0.generation()
+    }
+    fn is_fresh(&self) -> bool {
+        self.0.is_fresh()
+    }
+    fn read(&self, path: &str) -> std::io::Result<ReplicaRead> {
+        let r = self.0.read(path);
+        self.0.invalidate();
+        r
+    }
+}
+
+#[test]
+fn a_replica_invalidated_during_a_read_is_stale_for_reads_and_writes() {
+    let f = fixture(&[("a.txt", "one")]);
+    let mut j = open(&f);
+    let replica = InvalidatedDuringRead(f.replica);
+    assert_eq!(
+        read_text(&j, &replica, "a.txt").unwrap(),
+        ReadOutcome::NeedsMachine(NeedsMachine::Stale)
+    );
+    replica.0.reseeded();
+    assert_eq!(
+        write_text(&mut j, &replica, "a.txt", Some("x"), 1).unwrap(),
+        WriteOutcome::NeedsMachine(NeedsMachine::Stale)
+    );
+    assert!(j.is_empty());
 }
 
 #[test]
