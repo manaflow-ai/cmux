@@ -392,6 +392,15 @@ impl Hub {
                     breakdown_changed |= m.usage_limits.as_ref() != Some(&merged);
                     m.usage_limits = Some(merged);
                 }
+                // Codex's, as cmux-codex-acp passes `account/rateLimits/updated` on: each is
+                // every window it knows, so it replaces the last (`codex_app_server`).
+                if let Some(limits) = update
+                    .pointer("/_meta/codexAppServer/rateLimits")
+                    .and_then(crate::codex_app_server::usage_limits)
+                {
+                    breakdown_changed |= m.usage_limits.as_ref() != Some(&limits);
+                    m.usage_limits = Some(limits);
+                }
                 // Claude Code's system/init: its MCP servers, plugins and skills.
                 reported_tools = update
                     .pointer("/_meta/claude")
