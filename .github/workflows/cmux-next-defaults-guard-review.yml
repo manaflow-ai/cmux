@@ -38,20 +38,45 @@ jobs:
       issues: read
       pull-requests: read
     steps:
+      # The pull-request read, the run lookup and the re-run go on the cmux-bot App's
+      # own budget: every workflow's GITHUB_TOKEN shares one hourly REST budget, and
+      # this workflow runs for every PR comment. Minted only for a review event or a
+      # comment that can be a SHIP receipt; a failed mint uses GITHUB_TOKEN. The
+      # re-run triggers nothing new (the guard reads no actor).
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: >-
+          ${{
+            vars.CMUX_BOT_APP_ID != '' &&
+            (github.event_name == 'pull_request_review' ||
+              (startsWith(github.event.comment.body, 'Review (') && contains(github.event.comment.body, '): SHIP at ')))
+          }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: write
+          permission-pull-requests: read
+
       - name: Resolve an exact-head SHIP receipt comment
         id: receipt
         if: ${{ github.event_name == 'issue_comment' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           EVENT_PATH: ${{ github.event_path }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.issue.number }}
           COMMENT_ID: ${{ github.event.comment.id }}
         run: |
           set -euo pipefail
-          # The issue_comment payload already contains the comment body. Reject
-          # ordinary comments before spending a pull-request or comment API
-          # read; the API response remains the authority for author trust.
+          # The issue_comment payload already contains the comment body and its
+          # author's association, as GitHub recorded them for this event: reject
+          # ordinary comments before spending the pull-request read, and judge the
+          # author from the payload (an edit is its own event with its own payload).
           event_first_line="$(jq -r '.comment.body // "" | split("\n")[0]' "$EVENT_PATH")"
           event_receipt_re='^Review \([^)]*\): SHIP at [0-9a-f]{40}$'
           if [[ ! "$event_first_line" =~ $event_receipt_re ]]; then
@@ -62,7 +87,7 @@ jobs:
           base_ref="$(jq -r '.base.ref' <<<"$pr_json")"
           head_repo="$(jq -r '.head.repo.full_name // empty' <<<"$pr_json")"
           head_sha="$(jq -r '.head.sha' <<<"$pr_json")"
-          comment_json="$(gh api "repos/$REPO/issues/comments/$COMMENT_ID")"
+          comment_json="$(jq '.comment' "$EVENT_PATH")"
           association="$(jq -r '.author_association // empty' <<<"$comment_json")"
           first_line="$(jq -r '.body // "" | split("\n")[0]' <<<"$comment_json")"
           receipt_re='^Review \([^)]*\): SHIP at ([0-9a-f]{40})$'
@@ -95,7 +120,7 @@ jobs:
       - name: Re-run the trusted defaults guard
         if: ${{ steps.receipt.outputs.eligible == 'true' || steps.review.outputs.eligible == 'true' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ steps.receipt.outputs.head_sha || steps.review.outputs.head_sha }}
         run: |

@@ -141,8 +141,9 @@ class Rerun(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, [])
 
-    def invoke_authoritative(self, *, event_association="MEMBER", fetched_association="MEMBER", fetched_head=HEAD):
-        event = {"comment": {"body": f"Review (router): SHIP at {HEAD}\nEvidence: focused checks passed", "author_association": event_association}}
+    def invoke_authoritative(self, *, event_association="MEMBER", fetched_head=HEAD):
+        event = {"comment": {"body": f"Review (router): SHIP at {HEAD}\nEvidence: focused checks passed",
+                             "author_association": event_association, "user": {"login": "octo", "type": "User"}}}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             event_path = root / "event.json"
@@ -152,15 +153,13 @@ class Rerun(unittest.TestCase):
             gh.write_text(f"#!{sys.executable}\n" + textwrap.dedent('''\
                 import os, sys
                 args = sys.argv[1:]
-                with open(os.environ["CALL_LOG"], "a") as log:
-                    log.write("called\\n")
                 endpoint = next(arg for arg in args if arg.startswith("repos/"))
-                if "/pulls/" in endpoint:
+                with open(os.environ["CALL_LOG"], "a") as log:
+                    log.write(endpoint + "\\n")
+                if endpoint.endswith("/pulls/7"):
                     print(os.environ["PR_RESPONSE"])
-                elif "/issues/comments/" in endpoint:
-                    print(os.environ["COMMENT_RESPONSE"])
                 else:
-                    sys.exit("unexpected API endpoint")
+                    sys.exit("unexpected API endpoint: " + endpoint)
                 '''))
             gh.chmod(0o755)
             output = root / "output"
@@ -168,39 +167,67 @@ class Rerun(unittest.TestCase):
                    "EVENT_PATH": str(event_path), "REPO": REPO, "PR_NUMBER": "7",
                    "COMMENT_ID": "8", "GITHUB_OUTPUT": str(output), "CALL_LOG": str(log),
                    "PR_RESPONSE": json.dumps({"base": {"ref": "feat-cmux-next"},
-                                              "head": {"repo": {"full_name": REPO}, "sha": fetched_head}}),
-                   "COMMENT_RESPONSE": json.dumps({"author_association": fetched_association,
-                                                   "body": event["comment"]["body"]})}
+                                              "head": {"repo": {"full_name": REPO}, "sha": fetched_head}})}
             result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", receipt_script()],
                                     env=env, text=True, capture_output=True, timeout=5)
             calls = log.read_text().splitlines()
             output_text = output.read_text() if output.exists() else ""
         return result, calls, output_text
 
-    def test_valid_receipt_reaches_authoritative_api_checks(self):
+    def test_valid_receipt_spends_only_the_pull_request_read(self):
+        # The comment's body and author association come from the event payload:
+        # no issues/comments read on the shared token budget.
         result, calls, output = self.invoke_authoritative()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls, ["called", "called"])
+        self.assertEqual(calls, [f"repos/{REPO}/pulls/7"])
         self.assertIn("eligible=true", output)
         self.assertIn(f"head_sha={HEAD}", output)
 
-    def test_fetched_untrusted_author_is_still_rejected(self):
-        result, calls, output = self.invoke_authoritative(fetched_association="CONTRIBUTOR")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls, ["called", "called"])
-        self.assertNotIn("eligible=true", output)
+    def test_untrusted_event_author_is_rejected(self):
+        for association in ("CONTRIBUTOR", "NONE", "FIRST_TIME_CONTRIBUTOR", ""):
+            with self.subTest(association=association):
+                result, calls, output = self.invoke_authoritative(event_association=association)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("eligible=true", output)
 
     def test_fetched_stale_head_is_still_rejected(self):
         result, calls, output = self.invoke_authoritative(fetched_head="b" * 40)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls, ["called", "called"])
+        self.assertEqual(calls, [f"repos/{REPO}/pulls/7"])
         self.assertNotIn("eligible=true", output)
 
-    def test_event_association_does_not_replace_api_authority(self):
-        result, calls, output = self.invoke_authoritative(event_association="CONTRIBUTOR")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls, ["called", "called"])
-        self.assertIn("eligible=true", output)
+
+class TokenRouting(unittest.TestCase):
+    """The reads and the re-run spend the cmux-bot App's budget, with GITHUB_TOKEN as fallback."""
+
+    def setUp(self):
+        import yaml
+        document = yaml.safe_load(WORKFLOW.read_text())
+        self.steps = document["jobs"]["rerun"]["steps"]
+
+    def step(self, step_id):
+        return next(step for step in self.steps if step.get("id") == step_id)
+
+    def test_the_mint_comes_first_and_falls_back(self):
+        mint = self.steps[0]
+        self.assertEqual(mint.get("id"), "cmux-bot-token")
+        self.assertIn("actions/create-github-app-token@", mint["uses"])
+        self.assertTrue(mint.get("continue-on-error"))
+        self.assertEqual(mint["with"]["app-id"], "${{ vars.CMUX_BOT_APP_ID }}")
+        self.assertEqual(mint["with"]["permission-actions"], "write")
+
+    def test_the_mint_is_skipped_for_ordinary_comments(self):
+        condition = self.steps[0]["if"]
+        self.assertIn("startsWith(github.event.comment.body, 'Review (')", condition)
+        self.assertIn("): SHIP at ", condition)
+        self.assertIn("github.event_name == 'pull_request_review'", condition)
+
+    def test_every_api_step_uses_the_bot_token_or_the_fallback(self):
+        for step_id in ("receipt",):
+            self.assertEqual(self.step(step_id)["env"]["GH_TOKEN"],
+                             "${{ steps.cmux-bot-token.outputs.token || github.token }}")
+        rerun = next(step for step in self.steps if step.get("name") == "Re-run the trusted defaults guard")
+        self.assertEqual(rerun["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
 
 
 if __name__ == "__main__":
