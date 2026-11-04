@@ -565,6 +565,7 @@ mod resource_attach;
 mod resource_waits;
 mod session_streams;
 mod sizing;
+mod sizing_participants;
 mod socket_and_render;
 mod thread_qos;
 mod view_leases;
