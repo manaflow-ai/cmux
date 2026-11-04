@@ -856,6 +856,33 @@ fn notification_workspace_scope_names_the_workspace_and_clears_only_it() {
     let titles =
         mux.resource_notifications(8).iter().map(|entry| entry.title.clone()).collect::<Vec<_>>();
     assert_eq!(titles, vec!["second"], "another workspace's row stays");
+
+    // One row by its id (the notifications panel's Clear on a row an agent chat posted,
+    // which has no terminal): only that row goes.
+    create("n-loose", "loose", serde_json::json!({}));
+    let loose =
+        mux.resource_notifications(8).into_iter().find(|entry| entry.title == "loose").unwrap();
+    assert!(loose.terminal_id.is_none());
+    let mixed = public_request(
+        &mux,
+        "clear-mixed",
+        "notification.clear",
+        serde_json::json!({"machine":"current","session":"current",
+            "notification_id":loose.id, "terminal_id":second_terminal}),
+        Some("clear-mixed"),
+    );
+    assert!(mixed.get("error").is_some(), "one scope at a time: {mixed}");
+    let one = public_request(
+        &mux,
+        "clear-one",
+        "notification.clear",
+        serde_json::json!({"machine":"current","session":"current","notification_id":loose.id}),
+        Some("clear-one"),
+    );
+    assert_eq!(one["result"]["value"]["cleared"], serde_json::json!([loose.id]), "{one}");
+    let titles =
+        mux.resource_notifications(8).iter().map(|entry| entry.title.clone()).collect::<Vec<_>>();
+    assert_eq!(titles, vec!["second"], "the other rows stay");
     drop(events);
     drop(mux);
     let mux = open_persistent_test_mux(session, &root);
