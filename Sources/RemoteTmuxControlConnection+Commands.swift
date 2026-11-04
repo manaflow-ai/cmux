@@ -4,7 +4,7 @@ import Foundation
 extension RemoteTmuxControlConnection {
     /// How many lines of pane history `capture-pane` seeds onto a freshly mounted
     /// (or reconnected) mirror surface. Clamped by the remote pane's `history-limit`.
-    static let attachSeedHistoryRows = 5_000
+    nonisolated static let attachSeedHistoryRows = 5_000
 
     /// Sends a tmux command on the control stream (newline-terminated).
     @discardableResult

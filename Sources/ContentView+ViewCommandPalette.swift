@@ -59,6 +59,9 @@ extension ContentView {
                 title: constant(String(localized: "shortcut.findTmuxWindow.label", defaultValue: "Find tmux Window…")),
                 subtitle: constant(String(localized: "remoteTmux.findWindow.command.subtitle", defaultValue: "Remote tmux")),
                 keywords: ["tmux", "find", "window", "pane", "search", "history", "scrollback", "grep", "find-window"],
+                // Find-window replaces the palette itself and takes over its focus target;
+                // dismissing after the run would close the panel it just opened.
+                dismissOnRun: false,
                 when: { _ in AppDelegate.shared?.hasRemoteTmuxFindWindowCandidates == true }
             ),
             CommandPaletteCommandContribution(

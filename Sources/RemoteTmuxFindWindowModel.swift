@@ -23,7 +23,7 @@ final class RemoteTmuxFindWindowModel {
     }
 
     /// Pane text kept across all panes; panes past it are not read.
-    static let maximumTextBytes = 64 * 1_024 * 1_024
+    nonisolated static let maximumTextBytes = 64 * 1_024 * 1_024
 
     var query = "" {
         didSet { if query != oldValue { runSearch() } }

@@ -10170,6 +10170,9 @@ struct ContentView: View {
         commandPaletteRestoreFocusTarget = nil
         commandPaletteBrowserActionTarget = nil
         if let window = observedWindow { _ = window.makeFirstResponder(nil) }
+        // Drop the window's palette-visible flag now, as dismissCommandPalette does: while
+        // it is set, terminals refuse first responder and the restore below would stall.
+        syncCommandPaletteDebugStateForObservedWindow()
         guard restoreFocus, let focusTarget else { return }
         requestCommandPaletteFocusRestore(target: focusTarget)
     }
