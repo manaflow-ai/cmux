@@ -104,6 +104,23 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => !video.seeking && video.readyState >= 2);
       },
     },
+    "video-expanded": {
+      note: 'Leo, 2026-11-03: "i can neither preview a vid in place nor have it pop up anymore". A double-click on the poster opens the recording large over the pane, playing with its controls, as a sent image opens in its viewer; Close brings the tile back. Held still at 1 s for the capture.',
+      props: { typed: "Why does the sidebar jump when I open this?", screenshot: true },
+      chipHost: { media: { [PATH]: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` } },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__video img"));
+        const tile = ctx.document.querySelector<HTMLElement>(".cv-user__video")!;
+        const view = ctx.document.defaultView!;
+        tile.dispatchEvent(new view.MouseEvent("dblclick", { bubbles: true }));
+        const playing = ".acpmux-image-viewer .cv-media__frame.is-playing video";
+        await ctx.waitFor(() => ctx.document.querySelector(playing));
+        const video = ctx.document.querySelector<HTMLVideoElement>(playing)!;
+        video.pause();
+        video.currentTime = 1;
+        await ctx.waitFor(() => !video.seeking && video.readyState >= 2);
+      },
+    },
     "video-only": {
       note: "A recording sent alone: no empty bubble under it.",
       props: { typed: "", screenshot: false },

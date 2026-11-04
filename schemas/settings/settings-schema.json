@@ -2942,7 +2942,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "minimal",
+      "default" : "standard",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.window",
