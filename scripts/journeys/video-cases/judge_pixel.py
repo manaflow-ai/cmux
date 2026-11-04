@@ -47,11 +47,11 @@ A found (or cut) side gives:
 and per pane and line, on one row of its own (side "inside", never on the side rows: it is no side's), shell inside
 the pane: exact shell pixels in the pane's visible span on the line (beyond the rest count), and the frames that show
 none of the pane's fill on the line (no fill).
-Dividers: the middle of the gap between the content edges of the two fixture panes beside each trace divider, read
-only in frames where both content edges are on their pane edges (less than 1 px off; a late edge is off). In a frame
-where one is off, the derived middle moves with that edge while the divider can be on time, and the edge's own row
-carries the defect: the divider is not read there (information: divider not read, with its frames). Its settle counts
-only the frames that read it: not those, nor the frames where a content edge beside it is not found or under the cue.
+Dividers (pair C): the fixture's divider band shows the shell, so the film never shows a divider layer; a film
+"divider" (the middle of the two content edges beside it) would only restate those edges, so none is derived. Each
+trace divider is judged from the trace: its rect's centre against the middle of the gap between the two panes it
+separates (any pane row, a closing one too), per sample; 1 px or more off is the finding "divider rect not centred on its
+panes' gap", with its samples. The drag cue (below) stays information on the pane sides.
 Tab strips (the note's strip rows): the strip's two edges against the pane's edges, each read inside the pane's own
 rect of the shown sample and 48 pt around it (a strip that lags its pane): a neighbour's strip that touches it with no
 shell between is never this strip (that side's edge is the pane's own edge); the selected tab's pill against the pane's
@@ -112,6 +112,7 @@ COMMIT_SLACK_S = 0.0005
 MOVE_EPS_PX = 0.01
 STILL_SAMPLES = 3           # a motion ends after this many still samples
 REST_FALLBACK = 5           # frames used for rest values when nothing rests before the first motion
+DIVIDER_RECT_CHECK = "divider rect not centred on its panes' gap"
 CLOCK_OFFSETS = (-1, 0, 1)  # the clock's offsets fitted per film (refreshes later than the fixed clock: + is later)
 CLOCK_MIN_FRAMES = 4        # a track votes for the clock with at least this many moving frames that tell offsets apart
 SPRING_T0_STEPS = 41        # t0 grid points (coarse, then as many again around the best)
@@ -576,12 +577,11 @@ def motions_of(series):
     return out
 
 
-def judge_track(film, shown, measured, series, rest_frames, spring, reduce, settle_reads_only=False):
+def judge_track(film, shown, measured, series, rest_frames, spring, reduce):
     """measured: per frame a position (device px) or None; series: per sample the trace's position or None.
     Returns {rest_offset, per_frame: {f: {dev, lag}}, motions: [...], stats}: dev is measured - rest offset - the shown
     sample's position; lag the samples back that match within TOL_PX. A settle counts a frame with no position as not
-    landed (content that does not show has not landed), or, with SETTLE_READS_ONLY (a track derived from other tracks:
-    the divider), not at all: it counts from the first frame that shows the landed sample and has a position."""
+    landed (content that does not show has not landed)."""
     pool = [f for f in rest_frames if measured[f] is not None and series[shown[f]] is not None]
     if not pool:
         pool = [f for f in range(film.n) if measured[f] is not None and shown[f] is not None and series[shown[f]] is not None][-REST_FALLBACK:]
@@ -606,14 +606,11 @@ def judge_track(film, shown, measured, series, rest_frames, spring, reduce, sett
         mv = {"samples": [a, landed], "travel_px": round(final - before, 2) if before is not None else None}
         driven = film.input_driven(film.sample_t[a] - film.period, film.sample_t[landed])
         mv["input_driven"] = driven
-        first_landed = next((f for f in range(film.n) if shown[f] is not None and shown[f] >= landed
-                             and not (settle_reads_only and measured[f] is None)), None)
+        first_landed = next((f for f in range(film.n) if shown[f] is not None and shown[f] >= landed), None)
         settle = None
         if first_landed is not None:
             ok_from = None
             for f in range(first_landed, film.n):
-                if settle_reads_only and measured[f] is None:
-                    continue
                 on = measured[f] is not None and abs(measured[f] - offset - final) <= TOL_PX
                 ok_from = (f if ok_from is None else ok_from) if on else None
             settle = (ok_from - first_landed) if ok_from is not None else None
@@ -944,7 +941,6 @@ def judge(base, all_frames=False):
     rest_frames = [f for f in range(film.n) if shown[f] is not None and (first is None or shown[f] < first - 1)]
     report["rest_frames"] = len(rest_frames)
     summary, frames_out = {}, {}
-    edge_off = {}  # (pid, line, axis, side) -> the frames where that content edge is 1 px or more off its pane edge
 
     def add_frame(f, entry):
         if entry.get("problems") or all_frames:
@@ -963,8 +959,6 @@ def judge(base, all_frames=False):
             continue
         view = [m["view_edge"] if judged(m) else None for m in per]
         track = judge_track(film, shown, view, series[(pid, axis, side)], rest_frames, spring, reduce)
-        # A lag is off too: lag 0 (within TOL_PX of the shown sample) is the first one tried.
-        edge_off[key] = {f for f, t in track["per_frame"].items() if abs(t["dev"]) >= TOL_PX}
         pool = [f for f in rest_frames if per[f] is not None and per[f].get("status") == "found"] or \
             [f for f in range(film.n) if per[f] is not None and per[f].get("status") == "found"][-REST_FALLBACK:]
         rings_rest = [float(np.median([per[f]["rings"][r] for f in pool])) if pool else None for r in range(3)]
@@ -1046,66 +1040,7 @@ def judge(base, all_frames=False):
 
     judge_inside(film, shown, inside, rest_frames, summary, add_frame)
 
-    # -- dividers: the middle of the gap between the two fixture panes beside each one --
-    for did, (axis, centres, rects) in sorted(dividers.items(), key=lambda kv: str(kv[0])):
-        for name, laxis, coord, _ in lines:
-            if laxis != axis:
-                continue
-            mid = [None] * film.n
-            pair = None
-            not_read = []  # frames where a content edge beside the divider is off its pane edge: its own row carries it
-            for f in range(film.n):
-                k = shown[f]
-                if k is None or rects[k] is None:
-                    continue
-                x, y, w, h = rects[k]
-                across = (y, y + h) if axis == "row" else (x, x + w)
-                if not across[0] * film.scale <= coord < across[1] * film.scale:
-                    continue
-                lo_edge, hi_edge = (x, x + w) if axis == "row" else (y, y + h)
-                left = right = None
-                for pid in film.panes:
-                    row = film.samples[k].panes.get(pid)
-                    if row is None:
-                        continue
-                    (px_, py_, pw_, ph_), _ = pane_rect(row)
-                    p_lo, p_hi = (px_, px_ + pw_) if axis == "row" else (py_, py_ + ph_)
-                    if abs(p_hi - lo_edge) <= DIVIDER_NEAR_PT:
-                        left = pid
-                    if abs(p_lo - hi_edge) <= DIVIDER_NEAR_PT:
-                        right = pid
-                if left is None or right is None:
-                    continue
-                a = measured.get((left, name, axis, "hi"))
-                b = measured.get((right, name, axis, "lo"))
-                ma, mb = (a[f] if a else None), (b[f] if b else None)
-                if not judged(ma) or not judged(mb):
-                    continue
-                pair = (film.panes[left]["label"], film.panes[right]["label"])
-                if f in edge_off.get((left, name, axis, "hi"), ()) or f in edge_off.get((right, name, axis, "lo"), ()):
-                    not_read.append(f)
-                    add_frame(f, {"f": f, "t_ms": round((film.t[f] - film.t[0]) * 1000, 2), "sample": k, "line": name,
-                                  "divider": did, "label": f"divider {pair[0]}|{pair[1]}", "side": "mid",
-                                  "not_read": "a content edge beside the divider is off its pane edge"})
-                    continue
-                mid[f] = (ma["view_edge"] + mb["view_edge"]) / 2
-            if pair is None:  # no frame shows both content edges beside the divider on this line
-                continue
-            track = judge_track(film, shown, mid, centres, rest_frames, spring, reduce, settle_reads_only=True)
-            for f, t in sorted(track["per_frame"].items()):
-                entry = {"f": f, "t_ms": round((film.t[f] - film.t[0]) * 1000, 2), "sample": shown[f], "line": name,
-                         "divider": did, "label": f"divider {pair[0]}|{pair[1]}", "side": "mid", "dev": t["dev"], "lag": t["lag"]}
-                problems = []
-                if abs(t["dev"]) >= TOL_PX:
-                    problems.append(f"shown divider {t['dev']:+.1f} px off the trace divider")
-                if t["lag"]:
-                    problems.append(f"divider lag {t['lag']} frame(s)")
-                if problems:
-                    entry["problems"] = problems
-                add_frame(f, entry)
-            summary[f"divider:{did}:{name}"] = row_summary("divider", did, f"divider {pair[0]}|{pair[1]}", "divider", name, "mid", track,
-                                                           divider=did, not_read_frames=len(not_read),
-                                                           not_read_ranges=ranges(not_read))
+    judge_divider_rects(film, dividers, summary)
     judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, line_codes)
     judge_page_windows(film, shown, measured, summary, add_frame)
     if film.main_pane_source and film.main_pane_source != "note" and film.main_pane[0] > 0:
@@ -1165,6 +1100,63 @@ def judge_inside(film, shown, inside, rest_frames, summary, add_frame):
             "pane", pid, info["label"], "agent" if info["agent"] else info["kind"], name, "inside",
             rest={"shell_in": shell_rest}, shell_in_frames=len(shell_in), shell_in_ranges=ranges(shell_in),
             shell_in_max_px=round(shell_max, 1), no_fill_frames=len(no_fill), no_fill_ranges=ranges(no_fill))
+
+
+def divider_panes(sample, rect, axis):
+    """(left, right): the two panes trace divider RECT separates in SAMPLE, as (pane id, edge in points), or None on a
+    side with no pane. Any pane row counts, a closing one too (with S3 a closing pane keeps its rect in its slot during
+    the close, beside its own divider; frame-owner-s3b), fixture or not, faded or not. A pane shares part of the
+    divider's extent across it; on the lo side, a pane that starts before the divider's centre and ends within
+    DIVIDER_NEAR_PT of the rect; on the hi side, one that ends after the centre and starts within DIVIDER_NEAR_PT of it.
+    On each side the pane whose edge is nearest the centre: the one beside the divider, not the next one past it."""
+    x, y, w, h = rect
+    lo, hi, c0, c1 = (x, x + w, y, y + h) if axis == "row" else (y, y + h, x, x + w)
+    centre = (lo + hi) / 2
+    left = right = None
+    for pid, row in sample.panes.items():
+        if len(row) < 5 or float(row[3]) <= 0 or float(row[4]) <= 0:
+            continue
+        (px_, py_, pw_, ph_), _ = pane_rect(row)
+        p_lo, p_hi, p0, p1 = (px_, px_ + pw_, py_, py_ + ph_) if axis == "row" else (py_, py_ + ph_, px_, px_ + pw_)
+        if min(c1, p1) - max(c0, p0) <= 0:
+            continue  # not beside the divider across its extent
+        if p_lo < centre and lo - DIVIDER_NEAR_PT <= p_hi <= hi + DIVIDER_NEAR_PT \
+                and (left is None or abs(p_hi - centre) < abs(left[1] - centre)):
+            left = (str(pid), p_hi)
+        if p_hi > centre and lo - DIVIDER_NEAR_PT <= p_lo <= hi + DIVIDER_NEAR_PT \
+                and (right is None or abs(p_lo - centre) < abs(right[1] - centre)):
+            right = (str(pid), p_lo)
+    if left is not None and right is not None and left[0] == right[0]:
+        return None, None  # one pane on both sides: it covers the divider; no gap to judge
+    return left, right
+
+
+def judge_divider_rects(film, dividers, summary):
+    """Pair C (FRAME OWNER): the film never shows a divider layer (the fixture's divider band shows the shell), so a
+    divider is judged from the trace alone. Per divider, per sample: the rect's centre against the middle of the gap
+    between the two panes it separates (divider_panes), in device px; >= TOL_PX is off. One summary row per divider
+    (what "divider rect", line "trace", side "mid"; its off spans are samples), labelled by its panes at the last
+    sample judged."""
+    s = film.scale
+    for did, (axis, centres, rects) in sorted(dividers.items(), key=lambda kv: str(kv[0])):
+        per, pair = {}, None
+        for k, rect in enumerate(rects):
+            if rect is None:
+                continue
+            left, right = divider_panes(film.samples[k], rect, axis)
+            if left is None or right is None:
+                continue
+            per[k] = {"dev": round(centres[k] - (left[1] + right[1]) / 2 * s, 2), "lag": None}
+            pair = (left[0], right[0])
+        if pair is None:
+            continue  # no sample shows a pane on each side of it
+        stats = track_stats(per)
+        names = [film.panes.get(p, {}).get("label", p) for p in pair]
+        off = [k for k, t in per.items() if abs(t["dev"]) >= TOL_PX]
+        detail = (f"{len(off)} of {len(per)} trace samples off the middle of its panes' gap by >= {TOL_PX:g} px (samples "
+                  f"{ranges(off)}); max {stats['max_edge_dev_px']:+.1f} px") if off else f"{len(per)} trace samples centred"
+        summary[f"divider:{did}:trace"] = row_summary("divider rect", did, f"divider {names[0]}|{names[1]}", "divider", "trace",
+                                                      "mid", None, divider=did, detail=detail, **stats)
 
 
 def judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, line_codes):
@@ -1320,8 +1312,10 @@ def findings_of(report):
         where = f"{s['label']} ({s['kind']}) {s['side']} on {s['line']}"
         stats = f"{s['off_frames']} of {s['frames']} frames off by >= 1 px (frames {s['off_ranges']}); p50 {s['p50_px']}, " \
                 f"p95 {s['p95_px']}, max {s['max_edge_dev_px']:+.1f} px; most common {', '.join(f'{d:+.1f} px x{n}' for d, n in s['dev_top'])}"
-        if s["off_frames"]:
-            check = {"divider": "divider off", "strip": "tab strip edge off", "pill": "tab pill off",
+        if s["off_frames"] and s["what"] == "divider rect":
+            out.append({"check": DIVIDER_RECT_CHECK, "where": where, "detail": s["detail"]})
+        elif s["off_frames"]:
+            check = {"strip": "tab strip edge off", "pill": "tab pill off",
                      "page window": "page window off its host"}.get(s["what"], "content edge off")
             (info if s["what"] == "pill" else out).append({"check": check, "where": where, "detail": stats
                                                            + (f" ({s['detail']})" if s.get("detail") else "")})
@@ -1338,10 +1332,6 @@ def findings_of(report):
             out.append({"check": "lag", "where": where, "detail": f"up to {s['max_lag_frames']} frame(s) behind the trace"})
         if s["not_found_frames"]:
             info.append({"check": "not found", "where": where, "detail": f"{s['not_found_frames']} frame(s) (frames {s['not_found_ranges']})"})
-        if s.get("not_read_frames"):
-            info.append({"check": "divider not read", "where": where,
-                         "detail": f"{s['not_read_frames']} frame(s): a content edge beside it is off its pane edge, and "
-                                   f"that edge's row carries the defect (frames {s['not_read_ranges']})"})
         if s["cue_frames"]:
             info.append({"check": "divider cue", "where": where,
                          "detail": f"{s['cue_frames']} frame(s): the drag cue over the rings (frames {s['cue_ranges']})"})
