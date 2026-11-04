@@ -128,15 +128,46 @@ fn session_json_lsn(dir: &Path) -> Lsn {
         .map_or(0, |only| only.journal_lsn)
 }
 
-/// Writes `meta` (the image of LSN `lsn`) to `dir`'s `session.json`, durably.
+/// Writes `meta` (the image of LSN `lsn`) to `dir`'s `session.json`: whole under a temporary
+/// name (owner-only, never through a symlink), synced in write order, renamed into place, the
+/// folder synced in write order. The checkpoint that writes it (or recovery's, which ends the
+/// open) flushes the drive once afterward (`write_checkpoint`), so a power loss keeps it too:
+/// one drive flush per checkpoint, not two per chat (29 ms per replayed chat on macOS before,
+/// fleet ead05e82).
+#[cfg(unix)]
 fn write_session_json(dir: &Path, meta: &SessionMeta, lsn: Lsn) -> Result<()> {
-    let written = crate::config::write_atomic(&dir.join("session.json"), &session_json(meta, lsn)?);
-    // Tests: `write_atomic` syncs the file and its folder (two drive flushes on macOS).
-    #[cfg(test)]
-    if written.is_ok() {
-        log_sync::FULL_SYNCS.fetch_add(2, std::sync::atomic::Ordering::SeqCst);
+    use std::os::unix::fs::OpenOptionsExt;
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let path = dir.join("session.json");
+    crate::config::refuse_lost_home(&path)?;
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
+    let written = (|| -> Result<()> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&tmp)
+            .with_context(|| format!("write {}", tmp.display()))?;
+        file.write_all(&session_json(meta, lsn)?)
+            .with_context(|| format!("write {}", tmp.display()))?;
+        log_sync::sync_segment_ordered(&file).with_context(|| format!("sync {}", tmp.display()))?;
+        drop(file);
+        std::fs::rename(&tmp, &path).with_context(|| format!("rename to {}", path.display()))?;
+        log_sync::sync_directory_ordered(dir)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
     written
+}
+
+/// Writes `meta` (the image of LSN `lsn`) to `dir`'s `session.json`, durably.
+#[cfg(not(unix))]
+fn write_session_json(dir: &Path, meta: &SessionMeta, lsn: Lsn) -> Result<()> {
+    crate::config::write_atomic(&dir.join("session.json"), &session_json(meta, lsn)?)
 }
 
 impl super::repair::Replay {

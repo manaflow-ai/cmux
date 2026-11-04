@@ -48,7 +48,10 @@ pub(super) fn remove_checkpoint_temporaries(home: &Path) {
 }
 
 /// Writes the checkpoint whole under a temporary name, syncs it, renames it into place and syncs
-/// the home folder; an error at any step (the folder's sync too) is returned.
+/// the home folder; an error at any step (the folder's sync too) is returned. Its syncs are full
+/// (`F_FULLFSYNC` on macOS flushes the drive's whole cache): every log, folder and `session.json`
+/// the checkpoint and recovery synced in write order before it is then durable against a power
+/// loss too, once per checkpoint, before any journal record is retired.
 fn write_checkpoint(home: &Path, lsn: Lsn) -> Result<()> {
     let path = home.join(CHECKPOINT_NAME);
     crate::config::refuse_lost_home(&path)?;
@@ -184,7 +187,7 @@ impl Inner {
                 }
             }
         }
-        sync_directory(&self.local.root).map_err(failed)
+        log_sync::sync_directory_ordered(&self.local.root).map_err(failed)
     }
 
     /// A log sync failed: no checkpoint until a restart, and the daemon is asked to stop.

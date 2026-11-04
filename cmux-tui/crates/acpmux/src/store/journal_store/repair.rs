@@ -248,7 +248,7 @@ impl Inner {
                 truncate_private(path, offset)?;
             }
         }
-        sync_directory(&self.local.dir(id).join("events"))
+        log_sync::sync_directory_ordered(&self.local.dir(id).join("events"))
     }
 
     fn forget_index_copy(&self, id: &str, index: u32) -> Result<()> {
@@ -344,7 +344,7 @@ fn piece_seq(line: &[u8]) -> Option<u64> {
 /// Syncs the folder at `path`; nothing when it is not there.
 fn sync_if_there(path: &Path) -> Result<()> {
     match std::fs::symlink_metadata(path) {
-        Ok(_) => sync_directory(path),
+        Ok(_) => log_sync::sync_directory_ordered(path),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(anyhow::Error::from(error).context(format!("stat {}", path.display()))),
     }
@@ -386,6 +386,6 @@ fn truncate_private(path: &Path, len: u64) -> Result<()> {
     file.set_len(len).with_context(|| format!("shorten {}", path.display()))?;
     #[cfg(all(test, unix))]
     sync_model::cut(&file, len);
-    log_sync::sync_segment(&file, true)?;
+    log_sync::sync_segment_ordered(&file)?;
     Ok(())
 }
