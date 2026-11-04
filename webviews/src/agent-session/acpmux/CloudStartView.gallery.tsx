@@ -78,6 +78,16 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           state: "failed",
           message: "Couldn't copy paint to paint-dev: the machine stopped answering.",
         },
+    signedOut: {
+      note: "The first Cloud send is kept in the composer while the inline sign-in action opens the browser callback.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "not_signed_in",
+          message: "Sign in to use Cloud.",
+        },
+        onSignIn: async () => undefined,
       },
     },
     "checklist-machine": {

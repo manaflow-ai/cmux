@@ -67,6 +67,21 @@
   line-height: var(--text-body--line-height);
   letter-spacing: normal;
 }
+.acpmux-cloud-start__failure {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.acpmux-cloud-start__sign-in {
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--agent-link, #60a5fa) 60%, transparent);
+  border-radius: 6px;
+  color: var(--agent-link, #60a5fa);
+  background: color-mix(in srgb, var(--agent-link, #60a5fa) 10%, transparent);
+  font: inherit;
+}
+.acpmux-cloud-start__sign-in:disabled { opacity: .65; }
 .acpmux-cloud-start__status--ready { color: var(--agent-accent, #4ade80); }
 .acpmux-cloud-start[data-state="failed"] .acpmux-cloud-start__status {
   color: var(--agent-danger, currentColor);

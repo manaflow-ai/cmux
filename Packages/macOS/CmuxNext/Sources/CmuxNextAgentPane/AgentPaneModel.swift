@@ -100,6 +100,8 @@ public final class AgentPaneModel {
     @ObservationIgnored private var handoffSession: String?
     /// A new chat's first send with Cloud picked (``AgentPaneCloudStart``); nil: no Cloud chats here.
     @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
+    /// Signs into the app's Cloud account for inline first-send recovery; nil when Cloud is unavailable.
+    @ObservationIgnored public var onCloudSignIn: (@MainActor () async -> Bool)?
     /// Reads this Mac's local repository catalog through its cmux daemon frame connection.
     @ObservationIgnored public var onCloudRepositoryLocal: (@MainActor () async throws -> Data)?
     /// For a Cloud chat, forwards machine actions through its tab host even while the page's
@@ -557,6 +559,9 @@ public final class AgentPaneModel {
         case .environment(let request): return await request.reply(store: startFolders.environments, newTabPage: newTab != nil && sessionId == nil)
         // A new chat's send elsewhere spends Cloud time: the Send's own gesture (``AgentPaneHandOff``).
         case .sandboxRun(let task, let agent, let key): return await AgentPaneHandOff(model: self).sandbox(task: task, agent: agent, key: key)
+        case .cloudSignIn:
+            guard userGesture, let signIn = onCloudSignIn else { return Self.unsupported("cloud.signIn") }
+            return AgentPaneReply.success(["signed_in": await signIn()])
         case .cloudStartChat(let start): return await AgentPaneHandOff(model: self).cloud(start)
         // Only a chat on another machine, on the person's own pick (one gesture).
         case .cloudRepickChat(let repick):

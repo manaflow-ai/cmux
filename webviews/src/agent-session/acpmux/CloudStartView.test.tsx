@@ -131,6 +131,18 @@ test("a failure says the host's words with no spinner, and the New Tab page draw
   expect(html).not.toContain("fix the build");
 });
 
+test("a signed-out failure keeps the prompt card and offers inline sign-in", () => {
+  const html = renderToStaticMarkup(
+    <CloudStartView
+      start={{ ...start, state: "failed", code: "not_signed_in", message: "Sign in first" }}
+      onSignIn={() => undefined}
+    />,
+  );
+  expect(html).toContain("fix the build");
+  expect(html).toContain("Sign in to continue");
+  expect(html).toContain("Sign in first");
+});
+
 test("the startup checklist skips clone without a repository and explains a missing script", () => {
   const rows = startupChecklist({
     key: "k",

@@ -118,6 +118,37 @@ export function grantedCloudStart(
 /// The host's answer: ok, or a code with the host's own words when it has them.
 export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message?: string };
 
+/// Keeps the failed first-send prompt in the composer while Cloud account sign-in runs, then
+/// resumes it once. Concurrent clicks share one browser callback, and a later click after a
+/// successful callback cannot send the prompt a second time.
+export function makeCloudSignInRetry(
+  signIn: () => Promise<boolean>,
+  resume: () => void,
+): () => Promise<boolean> {
+  let inFlight: Promise<boolean> | undefined;
+  let resumed = false;
+  return () => {
+    if (resumed) return Promise.resolve(false);
+    if (inFlight) return inFlight;
+    inFlight = signIn()
+      .then((signedIn) => {
+        if (!signedIn || resumed) return false;
+        resumed = true;
+        resume();
+        return true;
+      })
+      .catch(() => false)
+      .finally(() => {
+        inFlight = undefined;
+      });
+    return inFlight;
+  };
+}
+
+export function cloudSignInSucceeded(value: unknown): boolean {
+  return typeof value === "object" && value !== null && (value as { signed_in?: unknown }).signed_in === true;
+}
+
 /// A page-side refusal before anything goes to the host: Cloud is picked but not offered now
 /// (a chat is starting here). Attachment contents go with the prompt; the native host checks them
 /// before provisioning and uploads them before opening the chat. A refused prompt stays in the composer.

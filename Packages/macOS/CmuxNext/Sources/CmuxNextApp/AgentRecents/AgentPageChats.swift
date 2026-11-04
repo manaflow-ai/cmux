@@ -37,6 +37,8 @@ final class AgentPageChats {
     var cloudEnvironment: (@MainActor (AgentPaneCloudEnvironmentRequest) async -> [String: Any])?
     /// A new chat's first send in Cloud (``CloudStartChat``), one runner for every page, given the pane that sent.
     var cloudStart: (@MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any])?
+    /// The app's Cloud account sign-in, awaited by an inline first-send recovery card.
+    var cloudSignIn: (@MainActor () async -> Bool)?
     /// Another machine picked for a Cloud chat whose first send has not run (``CloudStartChat``'s repick), given the pane.
     var cloudRepick: (@MainActor (AgentPaneView?, AgentPaneCloudRepick) async -> [String: Any])?
     /// The chats Cloud starts opened, by their tab's key, for this run of the App: a repick moves only one
@@ -120,6 +122,7 @@ final class AgentPageChats {
         } else {
             view.model.onCloudStartChat = nil
         }
+        view.model.onCloudSignIn = cloudSignIn
         if let run = cloudRepick {
             view.model.onCloudRepickChat = { @MainActor [weak view] (repick: AgentPaneCloudRepick) async -> [String: Any] in
                 await run(view, repick)
@@ -138,6 +141,10 @@ final class AgentPageChats {
         let notices = SandboxRunNotices(services: services)
         tabs.pageChats.runNotices = notices
         tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
+        tabs.pageChats.cloudSignIn = { [weak services] in
+            guard let services else { return false }
+            return await services.cloud.auth.signIn()
+        }
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
         tabs.pageChats.cloudEnvironment = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }

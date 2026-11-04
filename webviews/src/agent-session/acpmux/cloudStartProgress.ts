@@ -38,6 +38,8 @@ export type CloudStartProgress = {
   network?: "full" | "limited";
   /// A failure's words, the host's own.
   message?: string;
+  /// A stable host refusal code, used to attach recovery to the matching failure.
+  code?: string;
   /// The agent the chat starts, by name ("Claude Code"), for the opening step.
   agent?: string;
   /// No project: nothing is copied, so the card shows no copy step.
@@ -338,7 +340,14 @@ export function cloudStartEnded(
   // code, never the host's generic "The app refused the agent connection." (cloudRefusalText).
   const refusedHere = answer.code.startsWith("transport.") || REFUSED_HERE.has(answer.code);
   const message = refusedHere ? cloudRefusalText(answer.code, answer.message) : line(answer.message, 240);
-  return { ...current, state: "failed", ...(message ? { message } : {}), ...(refusedHere ? { refusedHere } : {}) };
+  const message = refusedHere ? cloudRefusalText(answer.code, answer.message) : line(answer.message, 240);
+  return {
+    ...current,
+    state: "failed",
+    ...(answer.code ? { code: answer.code } : {}),
+    ...(message ? { message } : {}),
+    ...(refusedHere ? { refusedHere } : {}),
+  };
 }
 
 /// The words for a Cloud start this Mac's pane refused: a folder that is not one of the tab's own

@@ -576,6 +576,8 @@ import {
   cloudFolderGrants,
   cloudStartFolder,
   cloudStartToasted,
+  cloudSignInSucceeded,
+  makeCloudSignInRetry,
   grantedCloudStart,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
@@ -9702,6 +9704,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The composer itself, which takes back prompts a harness switch held; prompts handed back
   /// while it is not mounted (a handoff review) go in when it mounts.
   const composerHandle = useRef<ComposerHandle | null>(null);
+  /// The signed-out Cloud first-send card owns one browser callback and one composer resume.
+  const [cloudSignInRetry] = useState(() =>
+    makeCloudSignInRetry(
+      () => callNative("cloud.signIn", {}).then(cloudSignInSucceeded),
+      () => composerHandle.current?.send(),
+    ),
+  );
   /// What the new chat shown leaves when its tab opens another chat (set below, cmux#32276).
   const newChatLeftover = useRef<() => { leave: () => void; cancel: () => void } | undefined>(() => undefined);
   /// The composer is in shell mode, whose ⌘Return answers no recap card (RecapCard.tsx `keyHint`).
@@ -14857,7 +14866,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         ...(cloudStart
                           ? {
                               cloudStatus: (
-                                <CloudStartView start={cloudStart} bubble={cloudStart.state === "starting"} />
+                                <CloudStartView start={cloudStart} bubble={cloudStart.state === "starting"} onSignIn={cloudSignInRetry} />
                               ),
                             }
                           : {}),
@@ -15280,7 +15289,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
                   <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
                 ) : cloudStart && !snapshot.sessionId ? (
-                  <CloudStartView start={cloudStart} />
+                  <CloudStartView start={cloudStart} onSignIn={cloudSignInRetry} />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
                   <SandboxRunView
                     run={sandboxView}

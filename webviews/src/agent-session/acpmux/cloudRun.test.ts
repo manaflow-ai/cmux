@@ -11,10 +11,26 @@ import {
   cloudStartKeys,
   cloudStartToasted,
   grantedCloudStart,
+  makeCloudSignInRetry,
   newTabProjectPick,
   oneCloudStart,
   startCloudChat,
 } from "./cloudRun";
+
+test("sign-in recovery preserves the prompt and resumes it once", async () => {
+  let resolveSignIn!: (signedIn: boolean) => void;
+  const signIn = () => new Promise<boolean>((resolve) => { resolveSignIn = resolve; });
+  let sends = 0;
+  const retry = makeCloudSignInRetry(signIn, () => { sends += 1; });
+  const first = retry();
+  const second = retry();
+  expect(first).toBe(second);
+  resolveSignIn(true);
+  await expect(first).resolves.toBe(true);
+  expect(sends).toBe(1);
+  await expect(retry()).resolves.toBe(false);
+  expect(sends).toBe(1);
+});
 
 test("a Cloud start sends the prompt, folder, agent and model with a key, and answers ok", async () => {
   const calls: [string, Record<string, unknown>][] = [];
