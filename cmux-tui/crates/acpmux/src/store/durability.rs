@@ -14,6 +14,9 @@ pub struct Durability {
     /// The journal's durable LSN. Closed when the journal's writer ended: nothing becomes
     /// durable any more.
     pub durable: tokio::sync::watch::Receiver<u64>,
+    /// Called when a line waited past the stall limit for the journal (a hung or failing disk:
+    /// its writer retries without end): the store asks the daemon to stop for a restart.
+    pub stalled: Arc<dyn Fn(String) + Send + Sync>,
 }
 
 /// A streamed agent line: a `Stream` record, synced with the next acked batch or a second later,

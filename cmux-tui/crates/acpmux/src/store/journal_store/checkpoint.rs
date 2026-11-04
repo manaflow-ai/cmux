@@ -98,18 +98,6 @@ impl Inner {
                 !order.frozen,
                 "the event journal's checkpoint is frozen (a log sync failed): a restart writes the logs again"
             );
-            // A failed repair's hold: bounded by the journal that came after it.
-            if order.held > 0 {
-                order.held_bytes = order.held_bytes.saturating_add(order.bytes);
-                if order.held_bytes > HOLD_MAX_BYTES {
-                    tracing::error!(
-                        held = order.held,
-                        "the journal past a chat whose repair failed is over {HOLD_MAX_BYTES} bytes: its lines stay only in journal-unapplied/"
-                    );
-                    order.held = 0;
-                    order.held_bytes = 0;
-                }
-            }
             if !order.has_work() {
                 let checkpointed = order.checkpointed;
                 drop(order);
@@ -118,7 +106,7 @@ impl Inner {
             }
             // A failed checkpoint waits for the timer or another `CHECKPOINT_BYTES`.
             order.bytes = 0;
-            (order.target(), std::mem::take(&mut order.dirty), order.metas.clone())
+            (order.applied, std::mem::take(&mut order.dirty), order.metas.clone())
         };
         // Every record up to `lsn` durable first (one group commit, on this background thread):
         // the checkpoint is never past the journal's durable end, and a metadata image written
@@ -193,7 +181,7 @@ impl Inner {
         self.ask_to_stop(why);
     }
 
-    fn ask_to_stop(&self, why: String) {
+    pub(super) fn ask_to_stop(&self, why: String) {
         tracing::error!(
             "{why}: the event journal keeps every line; the daemon stops so that its restart writes the logs again"
         );
@@ -217,6 +205,8 @@ impl Inner {
                 // goes up before the second look, so a change either shows in that look or finds
                 // the flag and wakes this wait (it notifies under the timer lock held here).
                 self.idle.store(true, AtomicOrdering::SeqCst);
+                #[cfg(test)]
+                self.hold(|seams| seams.idle_hold.take());
                 if !self.order.lock_or_recover().has_work() {
                     timer = self
                         .wake
@@ -231,10 +221,17 @@ impl Inner {
                 self.idle.store(false, AtomicOrdering::SeqCst);
             }
             if !timer.wanted {
-                // One period after the first change: a burst shares one checkpoint.
+                // One period after the first change: a burst shares one checkpoint. Each wait here
+                // ends only on the state its waker sets before it notifies under the timer lock
+                // (`idle` for the wait above; `wanted` and `stop` for this one), never on a bare
+                // notify: a `touched` that took the idle flag before the second look above gets
+                // the timer lock, and notifies, only once this thread waits here, and a spurious
+                // wakeup is no reason either.
                 timer = self
                     .wake
-                    .wait_timeout(timer, checkpoint_every())
+                    .wait_timeout_while(timer, self.checkpoint_every(), |timer| {
+                        !timer.stop && !timer.wanted
+                    })
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .0;
                 if timer.stop {
@@ -244,7 +241,7 @@ impl Inner {
             timer.wanted = false;
             drop(timer);
             #[cfg(test)]
-            CHECKPOINTER_WAKES.fetch_add(1, AtomicOrdering::SeqCst);
+            checkpointer_seams(&self.home, |seams| seams.wakes = seams.wakes.saturating_add(1));
             if let Err(error) = self.checkpoint() {
                 tracing::warn!("event journal checkpoint: {error:#}");
             }
@@ -256,8 +253,36 @@ impl Inner {
     /// when it is not idle. Never called with the appends' lock held.
     pub(super) fn touched(&self) {
         if self.idle.load(AtomicOrdering::SeqCst) && self.idle.swap(false, AtomicOrdering::SeqCst) {
+            #[cfg(test)]
+            self.hold(|seams| seams.touch_hold.take());
             let _timer = self.timer.lock_or_recover();
             self.wake.notify_all();
+        }
+    }
+
+    /// How long the checkpointer waits between two checkpoints. Debug builds only:
+    /// `ACPMUX_TEST_JOURNAL_CHECKPOINT_MS` (10 ms to 60 s) shortens it for the daemon-level tests.
+    fn checkpoint_every(&self) -> Duration {
+        #[cfg(test)]
+        if let ms @ 1.. = checkpointer_seams(&self.home, |seams| seams.every_ms) {
+            return Duration::from_millis(ms);
+        }
+        #[cfg(debug_assertions)]
+        if let Some(ms) = std::env::var("ACPMUX_TEST_JOURNAL_CHECKPOINT_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+        {
+            return Duration::from_millis(ms.clamp(10, 60_000));
+        }
+        CHECKPOINT_EVERY
+    }
+
+    /// Tests: stops at the hold that `take` gives out of this store's seams, if there is one.
+    #[cfg(test)]
+    fn hold(&self, take: impl FnOnce(&mut CheckpointerSeams) -> Option<Hold>) {
+        if let Some((arrived, release)) = checkpointer_seams(&self.home, take) {
+            let _ = arrived.send(());
+            let _ = release.recv();
         }
     }
 
@@ -269,23 +294,6 @@ impl Inner {
             self.wake.notify_all();
         }
     }
-}
-
-/// How long the checkpointer waits between two checkpoints. Debug builds only:
-/// `ACPMUX_TEST_JOURNAL_CHECKPOINT_MS` (10 ms to 60 s) shortens it for the daemon-level tests.
-fn checkpoint_every() -> Duration {
-    #[cfg(test)]
-    if let ms @ 1.. = TEST_CHECKPOINT_EVERY_MS.load(AtomicOrdering::SeqCst) {
-        return Duration::from_millis(ms);
-    }
-    #[cfg(debug_assertions)]
-    if let Some(ms) = std::env::var("ACPMUX_TEST_JOURNAL_CHECKPOINT_MS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-    {
-        return Duration::from_millis(ms.clamp(10, 60_000));
-    }
-    CHECKPOINT_EVERY
 }
 
 /// Whether `error` comes from a file or folder that is not there.

@@ -168,7 +168,7 @@ impl Brain {
                 self.cloud_pause_retry.remove(&peer);
                 continue;
             }
-            if self.cloud_paused.contains(&peer) {
+            if self.state.cloud_paused.contains(&peer) {
                 continue;
             }
             // A failed pause waits out its backoff (PAUSE_BACKOFF).
@@ -193,8 +193,9 @@ impl Brain {
             if now.saturating_sub(since) < wait {
                 continue;
             }
-            self.cloud_paused.insert(peer.clone());
+            self.state.cloud_paused.insert(peer.clone());
             self.cloud_idle_since.remove(&peer);
+            self.save();
             if self.cloud_pause_retry.contains_key(&peer) {
                 // A retry: its failure was logged once, the outcome is too.
             } else if own {
@@ -395,7 +396,7 @@ impl Brain {
     /// `peer` (a subagent's own VM) is gone: its subagent is marked so.
     pub(super) fn cloud_vm_deleted(&mut self, peer: &str) {
         self.cloud_reaping.remove(peer);
-        self.cloud_paused.remove(peer);
+        self.state.cloud_paused.remove(peer);
         self.cloud_idle_since.remove(peer);
         self.cloud_pause_retry.remove(peer);
         for sub in self
@@ -527,7 +528,7 @@ impl Brain {
     /// error is logged when it differs from the one logged before, so a VM
     /// that stays busy or broken gives one line, not one per tick.
     pub(super) fn cloud_pause_failed(&mut self, peer: &str, error: &str) {
-        self.cloud_paused.remove(peer);
+        self.state.cloud_paused.remove(peer);
         self.cloud_idle_since.remove(peer);
         // A result that comes back after the VM was deleted starts no streak.
         if !self.has_vm_peer(peer) {
@@ -590,13 +591,14 @@ impl Brain {
         peers.sort_unstable();
         peers.dedup();
         for peer in peers {
-            if self.live_on(&peer) > 0 || self.cloud_paused.contains(&peer) {
+            if self.live_on(&peer) > 0 || self.state.cloud_paused.contains(&peer) {
                 continue;
             }
             let began = std::time::Instant::now();
             match vms.pause(&peer) {
                 Ok(()) => {
-                    self.cloud_paused.insert(peer.clone());
+                    self.state.cloud_paused.insert(peer.clone());
+                    self.save();
                     (self.log)(&format!(
                         "cloud: host stops: paused {peer} in {} ms",
                         began.elapsed().as_millis()
@@ -644,7 +646,7 @@ impl Brain {
             .iter()
             .filter(|peer| {
                 per_agent
-                    || self.cloud_paused.contains(*peer)
+                    || self.state.cloud_paused.contains(*peer)
                     || self.cloud_vms.as_ref().is_some_and(|vms| vms.available())
                     || machines
                         .iter()
@@ -714,10 +716,11 @@ impl Brain {
             })
             .collect();
         for p in chosen.iter().flatten() {
-            self.cloud_paused.remove(p);
+            self.state.cloud_paused.remove(p);
             self.cloud_idle_since.remove(p);
             self.cloud_pause_retry.remove(p);
         }
+        self.save();
         let sizes: Vec<Option<String>> = chosen
             .iter()
             .zip(tasks)
@@ -2226,9 +2229,14 @@ impl Brain {
         // B4: its VM was paused while it was idle; it resumes before the
         // message (a rare tell to a finished cloud subagent, seconds).
         if !cancelled
-            && let Some(peer) = peer.filter(|p| self.cloud_paused.contains(p))
+            && let Some(peer) = peer.filter(|p| self.state.cloud_paused.contains(p))
             && let Some(vms) = self.cloud_vms.clone()
         {
+            if !vms.available() {
+                return Err(format!(
+                    "{id}'s cloud VM {peer} is paused and this Mac has no pool tool (~/.config/cloud-subagents/vm-cmd) to resume it; set up the pool tool here (deploy.sh install-vm-cmd) or tell it from the Mac that paused it"
+                ));
+            }
             let began = std::time::Instant::now();
             vms.resume(&peer)
                 .map_err(|e| format!("{id}'s cloud VM {peer} did not resume: {e}"))?;
@@ -2236,9 +2244,10 @@ impl Brain {
                 "cloud: resumed {peer} for a tell to {id} in {} ms",
                 began.elapsed().as_millis()
             ));
-            self.cloud_paused.remove(&peer);
+            self.state.cloud_paused.remove(&peer);
             self.cloud_idle_since.remove(&peer);
             self.cloud_pause_retry.remove(&peer);
+            self.save();
         }
         if cancelled {
             return Ok(format!(
@@ -2719,6 +2728,8 @@ impl Brain {
                     Some(summary) => {
                         self.sub_changed(summary);
                     }
+                    // A handed-over session: its own link reports it.
+                    None if self.reported_elsewhere.contains(&session) => {}
                     None => self.sub_done(
                         &id,
                         "(gone: its session no longer exists, so no report will come)".into(),

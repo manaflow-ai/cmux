@@ -54,8 +54,6 @@ struct PaneGroundCoversPaneTests {
             model.splitSizingOverride = .even
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = false
-            // S3's switch pinned on this view, on as shipped: the shared store leaks across suites.
-            root.context.contentPolicyOverride = true
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = root

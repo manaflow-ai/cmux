@@ -199,7 +199,7 @@ final class BubbleTextCache: @unchecked Sendable {
     static let shared = BubbleTextCache()
 
     /// Everything `MessageCellLayout.attributedBody` builds from; the font
-    /// carries the text size.
+    /// carries the text size, `textColor` the host's Chat Colors (nil: Messages').
     struct Key: Hashable {
         var text: String
         var outgoing: Bool
@@ -208,6 +208,7 @@ final class BubbleTextCache: @unchecked Sendable {
         var runs: [ConversationTextRun]
         var links: [ConversationTextLink] = []
         var font: UIFont
+        var textColor: ConversationColor?
     }
 
     private struct SizeKey: Hashable {
@@ -276,7 +277,11 @@ extension MessageCellLayout {
         runs: [ConversationTextRun] = [],
         links: [ConversationTextLink] = []
     ) -> NSAttributedString {
-        let key = BubbleTextCache.Key(text: text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, links: links, font: ConversationTheme.bubbleFont)
+        // The text colour is read once, so the key and the text built under it agree.
+        let colors = ConversationTheme.bubbleColors
+        let chosen = outgoing ? colors?.resolvedSentText : colors?.resolvedReceivedText
+        let key = BubbleTextCache.Key(text: text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, links: links,
+                                      font: ConversationTheme.bubbleFont, textColor: chosen)
         if let cached = BubbleTextCache.shared.text(for: key) { return cached }
         // A build on the main thread is a bubble the off-main pre-build or
         // measure-ahead missed (`main=1` in Instruments' os_signpost track).
@@ -284,7 +289,7 @@ extension MessageCellLayout {
             "BubbleTextBuild", id: bubbleTextSignposter.makeSignpostID(),
             "main=\(Thread.isMainThread ? 1 : 0) length=\(text.utf16.count) links=\(links.count)"
         )
-        let result = buildAttributedBody(text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, links: links)
+        let result = buildAttributedBody(text, outgoing: outgoing, textColor: chosen, mentions: mentions, meID: meID, runs: runs, links: links)
         bubbleTextSignposter.endInterval("BubbleTextBuild", signpost)
         BubbleTextCache.shared.store(result, for: key)
         return result
@@ -308,12 +313,13 @@ extension MessageCellLayout {
     private static func buildAttributedBody(
         _ text: String,
         outgoing: Bool,
+        textColor chosen: ConversationColor?,
         mentions: [ConversationMention],
         meID: String?,
         runs: [ConversationTextRun],
         links: [ConversationTextLink]
     ) -> NSAttributedString {
-        let textColor = outgoing ? ConversationTheme.outgoingText : ConversationTheme.incomingText
+        let textColor = chosen.map(UIColor.init(conversation:)) ?? (outgoing ? ConversationTheme.outgoingText : ConversationTheme.incomingText)
         let result = NSMutableAttributedString(string: text, attributes: [
             .font: ConversationTheme.bubbleFont,
             .foregroundColor: textColor,

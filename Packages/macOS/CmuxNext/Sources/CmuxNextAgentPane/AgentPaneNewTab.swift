@@ -101,6 +101,11 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent
     /// chats only, never All chats; nil lists All chats where the template does.
     public var allChats: Bool?
+    /// Where the page's new chat starts, as this Mac already knows it (``AgentPaneStartFolders/local(of:)``):
+    /// the page draws its project, or Do not work in a project, on its first frame, and the handshake's
+    /// answer from the store replaces it only when it differs. Set on the context the page gets
+    /// (``AgentPaneModel/newTabForPage``), never on the tab's own, so it draws no other screen.
+    public var start: AgentPaneNewTabStart?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
@@ -282,5 +287,17 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             "commands": commands,
             "history": history.map { optional([("url", $0.url), ("title", $0.title), ("icon", $0.icon)]) },
         ]
+    }
+}
+
+/// A new chat's start folder before the store's answer (``AgentPaneNewTab/start``): the folder, or
+/// none with Choose Folder… offered (the workspace's agent-home folder).
+public nonisolated struct AgentPaneNewTabStart: Codable, Sendable, Equatable {
+    public var cwd: String?
+    public var chooseFolder: Bool?
+
+    public init(cwd: String? = nil, chooseFolder: Bool? = nil) {
+        self.cwd = cwd
+        self.chooseFolder = chooseFolder
     }
 }

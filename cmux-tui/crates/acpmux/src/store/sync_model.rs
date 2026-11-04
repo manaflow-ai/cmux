@@ -23,6 +23,11 @@ struct Kept {
 
 static FILES: LazyLock<Mutex<HashMap<PathBuf, Kept>>> = LazyLock::new(Mutex::default);
 
+/// Each synced folder's entries (name and file id) as of its last sync: what an OS crash keeps
+/// of that folder.
+static FOLDERS: LazyLock<Mutex<HashMap<PathBuf, Vec<(std::ffi::OsString, u64)>>>> =
+    LazyLock::new(Mutex::default);
+
 /// The real path of `file`'s descriptor.
 #[cfg(target_os = "linux")]
 fn path_of(file: &File) -> Option<PathBuf> {
@@ -114,6 +119,42 @@ pub(crate) fn os_crash(sessions: &Path) {
                 .unwrap_or_else(|e| panic!("open {}: {e}", path.display()));
             file.set_len(len).unwrap_or_else(|e| panic!("cut {}: {e}", path.display()));
             files.insert(real, Kept { ino: meta.ino(), durable: len, lost_from: None });
+        }
+    }
+}
+
+/// The folder at `path` was synced: its entries now are what an OS crash keeps of it.
+pub(crate) fn folder_synced(path: &Path) {
+    use std::os::unix::fs::MetadataExt;
+    let (Some(real), Ok(entries)) = (key(path), std::fs::read_dir(path)) else { return };
+    let kept = entries
+        .flatten()
+        .filter_map(|entry| Some((entry.file_name(), entry.metadata().ok()?.ino())))
+        .collect();
+    FOLDERS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(real, kept);
+}
+
+/// Whether the last sync of the folder at `path` kept its entry `name` as it is now.
+pub(crate) fn folder_keeps(path: &Path, name: &str) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let (Some(real), Ok(meta)) = (key(path), std::fs::symlink_metadata(path.join(name))) else {
+        return false;
+    };
+    let folders = FOLDERS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    folders.get(&real).is_some_and(|kept| {
+        kept.iter().any(|(kept_name, ino)| kept_name.as_os_str() == name && *ino == meta.ino())
+    })
+}
+
+/// An OS crash of `sessions`' entries: each chat folder its last sync did not keep goes, with
+/// what is in it.
+pub(crate) fn os_crash_folders(sessions: &Path) {
+    let Ok(chats) = std::fs::read_dir(sessions) else { return };
+    for chat in chats.flatten() {
+        let name = chat.file_name().to_string_lossy().into_owned();
+        if !folder_keeps(sessions, &name) {
+            std::fs::remove_dir_all(chat.path())
+                .unwrap_or_else(|e| panic!("remove {}: {e}", chat.path().display()));
         }
     }
 }
