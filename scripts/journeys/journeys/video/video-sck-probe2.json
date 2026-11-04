@@ -17,6 +17,10 @@
    "do": "smoke_make_key"
   },
   {
+   "do": "skip_first_run_history",
+   "title": "set-up: Skip the first-run Bring your history page (#33215) as a person does (its Skip button); nothing when the build or profile has no such page"
+  },
+  {
    "do": "new_terminal",
    "via": "key",
    "name": "rvq"

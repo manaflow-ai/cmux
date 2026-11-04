@@ -170,7 +170,12 @@ class GeneratorTests(unittest.TestCase):
         self.check(self.run_gen("video-cases/gen_cases.py", "--out", "{out}"))
 
     def test_gen_load(self):
-        specs = self.run_gen("typing/gen_load.py", "--out", "{out}")
+        # gen_load.py writes the kit's own folder (its --out is for --switch only): its --check proves those files are its
+        # output, and they are read here.
+        done = subprocess.run([sys.executable, str(HERE / "typing" / "gen_load.py"), "--check"], capture_output=True, text=True,
+                              timeout=180)
+        self.assertEqual(done.returncode, 0, done.stdout[-2000:] + done.stderr[-2000:])
+        specs = [json.loads(p.read_text()) for p in sorted((HERE / "journeys" / "video").glob("typing-load-l[0-9]*.json"))]
         self.check(specs)
         # The typing round relaunches (probe_relaunch) and makes the new window key again: that one stays as it was.
         l6 = next(s for s in specs if s["id"] == "typing-load-l6")

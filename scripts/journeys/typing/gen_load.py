@@ -30,6 +30,9 @@ SEED = 7
 def steps(profile, film):
     s = [{"do": "smoke_ready", "timeout": 60}, {"do": "env_windows", "at": "start"},
          {"do": "smoke_remember_workspaces"}, {"do": "smoke_make_key"},
+         # The first-run Bring your history page (#33215) left as a person leaves it (ext_firstrun); the relaunch below
+         # keeps the profile that saw it, so its own smoke_make_key needs none.
+         {"do": "skip_first_run_history"},
          {"do": "smoke_key", "key": "n", "modifiers": ["cmd"], "mark": "ws"},
          {"do": "expect", "title": "set-up: Cmd-N makes the typing workspace", "since": "ws", "timeout": 20,
           "all": [{"smoke_workspaces": {"new": 1}}, {"smoke_frame": {}}]},

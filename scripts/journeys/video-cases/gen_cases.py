@@ -64,7 +64,9 @@ def load_cmd(index, heavy):
 
 # -- layout building blocks ---------------------------------------------------------------------------
 def first_pane(case_id, heavy):
-    steps = [{"do": "smoke_ready", "timeout": 60}, {"do": "smoke_make_key"},
+    # skip_first_run_history (ext_firstrun): a fresh profile's first-run Bring your history page (#33215) is left as a
+    # person leaves it before the first terminal.
+    steps = [{"do": "smoke_ready", "timeout": 60}, {"do": "smoke_make_key"}, {"do": "skip_first_run_history"},
              {"do": "new_terminal", "via": "key", "name": case_id},
              {"do": "neutral_prompt"},
              {"do": "name_pane", "as": "home"},

@@ -46,6 +46,9 @@
       "do": "smoke_make_key"
     },
     {
+      "do": "skip_first_run_history"
+    },
+    {
       "do": "smoke_key",
       "key": "n",
       "modifiers": [

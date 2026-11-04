@@ -50,6 +50,9 @@
       "do": "smoke_make_key"
     },
     {
+      "do": "skip_first_run_history"
+    },
+    {
       "do": "smoke_snapshot",
       "name": "b1"
     },
