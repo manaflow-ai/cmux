@@ -107,6 +107,8 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     family: "claude",
     status: "working",
     turnCount: 1,
+    // Claude Code takes a prompt into a running turn (acpmux `steering`).
+    steering: true,
     // acpmux's list holds the queue; the replayed `queued` record gives the prompt's whole text.
     queue: [{ promptId: "q1", prompt: "this is a bit spammy" }],
     updatedAt: START,
@@ -245,7 +247,8 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     expect(sent).toContain("SendMessage");
     expect(sent).toContain("a39e817af38ddf5e7");
     expect(sent).toContain("Reviewer");
-    // A steer: the chat's running turn reads it at its next step, not after the turn.
+    // A steer: the chat's turn runs and its agent steers, so its next step reads it, not after the
+    // turn (an idle chat gets a prompt of its own: subagentMessage.test.ts subagentRelaySteers).
     expect(sent).toContain('"steer":true');
     await page.close();
   });

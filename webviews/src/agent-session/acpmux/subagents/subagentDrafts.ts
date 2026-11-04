@@ -142,7 +142,7 @@ export function subagentDraftUnsaved(): boolean {
 }
 
 // A web update waits while a draft is kept only in memory: reloading would lose it.
-holdWebSwap(() => (unsaved.size > 0 ? "subagent draft" : null));
+holdWebSwap(() => (unsaved.size > 0 ? "subagents.draft-unsaved" : null));
 
 /// What `draft` says as one message: its pasted chips' text in their places (one not placed goes
 /// after), since the relay to the subagent is text only.
