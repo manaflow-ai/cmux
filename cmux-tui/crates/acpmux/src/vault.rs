@@ -48,6 +48,8 @@ use self::store::SecretStore;
 
 /// Advertised by `acpmux capabilities`: `machine vault pull|status|forget`.
 pub const CAPABILITY: &str = "machine.vault.pull.v1";
+/// Advertised too: proxy delivery (placeholders and the egress proxy, `vault::egress`).
+pub const EGRESS_CAPABILITY: &str = "machine.vault.egress.v1";
 /// How often the daemon pulls.
 pub const EVERY: Duration = Duration::from_secs(15 * 60);
 /// The first retry after a failed pull; doubled up to [`EVERY`].
