@@ -81,7 +81,7 @@ enum ViewerHandlers {
                             throw ActionFailure(message: reason)
                         }
                     } else if AgentBesidePlacement.showsChat(pane) {
-                        services.linkOpener.openFile(URL(fileURLWithPath: path), from: pane, markdown: true, besideChat: true)
+                        if let reason = viewers.openFile(URL(fileURLWithPath: path), on: nil, from: pane, userChose: true) { throw ActionFailure(message: reason) }
                     } else {
                         viewers.openFile(URL(fileURLWithPath: path), in: pane, markdown: true)
                     }

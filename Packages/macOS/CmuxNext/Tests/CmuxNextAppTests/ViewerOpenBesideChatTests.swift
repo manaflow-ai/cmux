@@ -19,16 +19,65 @@ struct ViewerOpenBesideChatTests {
 
     @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), arguments: Open.allCases)
     func aViewerOpenedOnALoneChatLandsRightOfTheChat(_ open: Open) async throws {
+        try await Self.withLoneChat { services, root, chat in
+            let store = services.daemon.store
+            // No beside flags: what the shortcut, the palette and the File menu run on the focused chat.
+            let (id, path, page): (ActionID, URL, String) = switch open {
+            case .diff: ("openDiffViewer", root, "diff")
+            case .markdown: ("openMarkdownFile", root.appending(path: "NOTES.md"), "markdown")
+            case .file: ("file.open", root.appending(path: "notes.txt"), "editor")
+            }
+            #expect(services.registry.perform(id, invocation: ActionInvocation(arguments: ["path": .string(path.path)], origin: .user)))
+            let opened = { store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.page == page } }
+            let chatPane = { services.locateTab(chat.id, onMachine: services.daemon.machineID)?.1 }
+            try await PasswordManagerRouteTests.until({
+                guard let tab = opened(), let viewer = services.locateTab(model: tab)?.1, let home = chatPane() else { return false }
+                return viewer !== home
+            }, report: {
+                let tab = opened()
+                return "\(page) tab \(String(describing: tab?.id)) in \(String(describing: tab.flatMap { services.locateTab(model: $0)?.1.id })), chat in \(String(describing: chatPane()?.id))"
+            })
+            // The chat's own pane never lists the viewer.
+            let home = try #require(chatPane())
+            #expect(!home.tabs.contains { $0.page == page })
+        }
+    }
+
+    /// A script's open (`cmux open` without `--focus`) that waits its turn behind a person's open beside the same chat
+    /// keeps its own scope: it lands on the right too, and the person's file keeps the focus (router review at 3a7ce485).
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func aScriptsQueuedFileOpenBesideTheChatNeverTakesTheFocus() async throws {
+        try await Self.withLoneChat { services, root, chat in
+            let store = services.daemon.store
+            let content = try #require(services.windows.active?.workspaceContent)
+            let person = root.appending(path: "notes.txt"), script = root.appending(path: "script.txt")
+            try "script\n".write(to: script, atomically: true, encoding: .utf8)
+            #expect(services.registry.perform("file.open", invocation: ActionInvocation(arguments: ["path": .string(person.path)], origin: .user)))
+            #expect(services.registry.perform("file.open", invocation: ActionInvocation(arguments: ["path": .string(script.path)], origin: .cli)))
+            let editors = { store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).filter { $0.page == "editor" } }
+            let chatPane = { services.locateTab(chat.id, onMachine: services.daemon.machineID)?.1 }
+            try await PasswordManagerRouteTests.until({
+                let tabs = editors()
+                return tabs.count == 2 && tabs.allSatisfy { services.locateTab(model: $0)?.1 !== chatPane() }
+            }, report: { "editors \(editors().map(\.id)), chat in \(String(describing: chatPane()?.id))" })
+            // The person's file (made first) has the focus; the script's tab never took it.
+            let first = try #require(editors().first)
+            try await PasswordManagerRouteTests.until({ content.focusedPane?.selectedTab?.id == first.id },
+                                                      report: { "focused \(String(describing: content.focusedPane?.selectedTab?.id)), person's \(first.id)" })
+        }
+    }
+
+    /// A fresh app whose one pane holds only an agent chat, focused, and a repository with a commit and an unstaged change.
+    private static func withLoneChat(_ body: (AppServices, URL, TabModel) async throws -> Void) async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "viewer-beside-\(UUID().uuidString.prefix(8))")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        try Self.git(root.path, "init", "-q")
-        let note = root.appending(path: "NOTES.md"), text = root.appending(path: "notes.txt")
-        try "# Notes\n".write(to: note, atomically: true, encoding: .utf8)
+        try git(root.path, "init", "-q")
+        let text = root.appending(path: "notes.txt")
+        try "# Notes\n".write(to: root.appending(path: "NOTES.md"), atomically: true, encoding: .utf8)
         try "notes\n".write(to: text, atomically: true, encoding: .utf8)
-        // A repository with a commit and an unstaged change: the diff has a HEAD to compare with.
-        try Self.git(root.path, "add", ".")
-        try Self.git(root.path, "-c", "user.name=cmux", "-c", "user.email=cmux@example.com", "commit", "-q", "-m", "notes")
+        try git(root.path, "add", ".")
+        try git(root.path, "-c", "user.name=cmux", "-c", "user.email=cmux@example.com", "commit", "-q", "-m", "notes")
         try "notes, edited\n".write(to: text, atomically: true, encoding: .utf8)
         try await PasswordManagerRouteTests.withApp { services, connection in
             let store = services.daemon.store
@@ -43,26 +92,7 @@ struct ViewerOpenBesideChatTests {
             let chat = try #require(store.tab(surface: chatReply.surface))
             PaneHandlers.focus(source.layoutPaneID, in: content)
             try await PasswordManagerRouteTests.until({ content.focusedPane === source && source.selectedTab?.id == chat.id })
-            // No beside flags: what the shortcut, the palette and the File menu run on the focused chat.
-            let (id, path, page): (ActionID, URL, String) = switch open {
-            case .diff: ("openDiffViewer", root, "diff")
-            case .markdown: ("openMarkdownFile", note, "markdown")
-            case .file: ("file.open", text, "editor")
-            }
-            let invocation = ActionInvocation(arguments: ["path": .string(path.path)], origin: .user)
-            #expect(services.registry.perform(id, invocation: invocation))
-            let opened = { store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.page == page } }
-            let chatPane = { services.locateTab(chat.id, onMachine: services.daemon.machineID)?.1 }
-            try await PasswordManagerRouteTests.until({
-                guard let tab = opened(), let viewer = services.locateTab(model: tab)?.1, let home = chatPane() else { return false }
-                return viewer !== home
-            }, report: {
-                let tab = opened()
-                return "\(page) tab \(String(describing: tab?.id)) in \(String(describing: tab.flatMap { services.locateTab(model: $0)?.1.id })), chat in \(String(describing: chatPane()?.id))"
-            })
-            // The chat's own pane never lists the viewer.
-            let home = try #require(chatPane())
-            #expect(!home.tabs.contains { $0.page == page })
+            try await body(services, root, chat)
         }
     }
 

@@ -64,15 +64,26 @@ final class ViewerService {
     /// a tab beside the chat (Leo, 2026-11-04); elsewhere in `pane`. Returns why it did not open.
     func openFile(_ file: URL, on machine: DaemonService?, from pane: PaneController, userChose: Bool, asText: Bool = false) -> String? {
         guard AgentBesidePlacement.showsChat(pane), let opener = fileOpener as? FilePageOpener, let links = services?.linkOpener else {
-            return machine.map { openFile(file, on: $0, in: pane, userChose: userChose, asText: asText) } ?? openFile(file, in: pane, userChose: userChose, asText: asText)
+            if let machine { return openFile(file, on: machine, in: pane, userChose: userChose, asText: asText) }
+            return openFile(file, in: pane, userChose: userChose, asText: asText)
         }
-        var refusal: String?
-        links.open(from: pane, besideChat: true) { target, placed in
-            let inPlace: (@MainActor () -> Void)? = placed == nil ? nil : { links.openedInPlace() }
-            refusal = machine.map { opener.open(file, on: $0, in: target, userChose: userChose, asText: asText, placed: placed, shownInPlace: inPlace) }
-                ?? opener.open(file, in: target, userChose: userChose, asText: asText, placed: placed, shownInPlace: inPlace)
-            return refusal == nil
+        // An open that waits its turn behind another beside the chat runs later: in this run's scope (a script's
+        // open never takes the focus), and its refusal shows then, as the action already answered.
+        let scope = ActionRunScope.current
+        var refusal: String?, answered = false
+        links.open(from: pane, background: !ActionRunScope.viewChangeAllowed(), besideChat: true) { [weak self] target, placed in
+            ActionRunScope.carrying(scope) {
+                let inPlace: (@MainActor () -> Void)? = placed == nil ? nil : { links.openedInPlace() }
+                let reason: String? = if let machine {
+                    opener.open(file, on: machine, in: target, userChose: userChose, asText: asText, placed: placed, shownInPlace: inPlace)
+                } else {
+                    opener.open(file, in: target, userChose: userChose, asText: asText, placed: placed, shownInPlace: inPlace)
+                }
+                if answered, let reason { self?.showRefusal(reason) } else { refusal = reason }
+                return reason == nil
+            }
         }
+        answered = true
         return refusal
     }
 
