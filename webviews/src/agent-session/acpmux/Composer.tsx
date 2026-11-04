@@ -25,6 +25,7 @@ import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellR
 import { opensProcessTerminal } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
+import type { CloudMachine } from "./cloudMachines";
 import { showsLocationRow } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
@@ -378,6 +379,8 @@ type Props = {
   onComputer?(computer: string): void;
   /// A Cloud chat whose first send has not run: another Cloud machine picked moves it there (see ComposerContext).
   onRepick?(machine: RepickMachine): Promise<boolean>;
+  /// Reports a selected account Cloud machine so typing can prewarm it before Send.
+  onCloudMachinePicked?(machine: CloudMachine): void;
   projectChoices?: Project[];
   /// A chat on another machine: that machine's own folders (`project.list`), for its folder menu.
   machineFolders?: Project[];
@@ -485,6 +488,7 @@ export function Composer({
   onProject,
   onComputer,
   onRepick,
+  onCloudMachinePicked,
   projectChoices,
   machineFolders,
   onBrowseProject,
@@ -1933,7 +1937,7 @@ export function Composer({
     noteDraftEdited(sessionId);
     // One change per key: what the field does after it (normalizing) is not another.
     typedAt.current = Number.NEGATIVE_INFINITY;
-    if (sessionId && value.trim()) onTyping?.(value, sessionId);
+    if (value.trim()) onTyping?.(value, sessionId);
     if (value.trim()) onPromptEdit?.(value);
   };
   promptCaret.current = setCaret;
@@ -2258,6 +2262,7 @@ export function Composer({
       environments={environments}
       {...(onComputer ? { onComputer } : {})}
       {...(onRepick ? { onRepick } : {})}
+      {...(onCloudMachinePicked ? { onCloudMachinePicked } : {})}
       onProject={
         onProject &&
         ((cwd, peer) => {
