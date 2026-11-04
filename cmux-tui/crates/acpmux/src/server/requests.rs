@@ -379,7 +379,7 @@ async fn dispatch_brief(
                     return replayed;
                 }
                 return Err(RpcError::not_found(format!(
-                    "{why}; use --host HOST or connect a peer"
+                    "{why}; use --machine MACHINE or connect one with `acpmux machine add`"
                 )));
             }
         }

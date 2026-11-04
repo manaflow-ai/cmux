@@ -47,7 +47,7 @@ pub(super) async fn resume_held(client: &Client, id: &str, info: &Value) -> Resu
 /// What `session resume` prints when it moved the chat first.
 fn moved_line(host: &str) -> String {
     format!(
-        "moved to {host} (as `session move --host auto` does): this machine is one a person works at, so a stopped chat resumes on a fleet host"
+        "moved to {host} (as `session move --machine auto` does): this machine is one a person works at, so a stopped chat resumes on a fleet host"
     )
 }
 

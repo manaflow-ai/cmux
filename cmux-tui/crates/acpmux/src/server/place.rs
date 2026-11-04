@@ -70,7 +70,7 @@ fn dispatch_place(candidates: Vec<Candidate>, registry: Option<&Value>, work: Wo
     if v.get("pick").is_some_and(Value::is_null) && !left_out.is_empty() {
         let why = v.get("why").and_then(Value::as_str).unwrap_or_default();
         let why = format!(
-            "{why}. `dispatch --host auto` never starts a new lane on {}: a machine a person \
+            "{why}. `dispatch --machine auto` never starts a new lane on {}: a machine a person \
 works at or that runs a person's own apps (fleet-registry.json interactive, leo-mac, attended \
 or leo-apps), and for an agent lane a last-resort host (lanes.last_resort), which takes \
 captures and builds only (design/agent-dispatch.md)",

@@ -272,7 +272,7 @@ fn credential_step(facts: &Facts) -> JoinStep {
                 let shown = mode.filter(|m| m.len() <= 4 && m.bytes().all(|b| b.is_ascii_digit()));
                 let fix = match v["credentialPath"].as_str().filter(|p| plain(p)) {
                     Some(path) => format!("chmod 600 {}", shell_word(path)),
-                    None => "chmod 600 the file acpmux host join --status --json names as credentialPath"
+                    None => "chmod 600 the file acpmux machine join --status --json names as credentialPath"
                         .to_owned(),
                 };
                 return JoinStep::fail(
@@ -357,7 +357,8 @@ fn consent_step(facts: &Facts, status: Option<&Value>) -> JoinStep {
         detail.push_str(&format!("; a {surface} request was last refused here"));
     }
     if !on("screen") || !on("control") {
-        detail.push_str("; to allow, run here: acpmux host consent grant --screen (or --control)");
+        detail
+            .push_str("; to allow, run here: acpmux machine consent grant --screen (or --control)");
     }
     JoinStep::new("consent", StepState::Ok, detail)
 }

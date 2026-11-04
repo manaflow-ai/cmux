@@ -92,7 +92,7 @@ pub async fn resolve(
                 let mut many = many.to_vec();
                 many.sort();
                 let at: Vec<String> = many.iter().map(|h| at(h.as_deref())).collect();
-                bail!("session {name:?} runs on {}; pass --host with one of them", at.join(", "))
+                bail!("session {name:?} runs on {}; pass --machine with one of them", at.join(", "))
             }
         }
     }
