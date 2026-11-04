@@ -904,6 +904,8 @@ struct SidebarRowsMoveOnRenderServerTests {
         let members = (1...60).map { "m\($0)" }
         let (model, list, _, restore) = try Self.sidebar(Self.grouped(["w1"], members: members))
         defer { restore() }
+        let whole = SidebarChangeMotion.use(.wholeList)
+        defer { whole() }
         let reset = Self.insertMotion(.spring)
         defer { reset() }
         DesignSettings.shared.animationSpeed = .normal
