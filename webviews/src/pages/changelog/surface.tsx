@@ -5,6 +5,7 @@
 // `cmux.changelog.surface.changes` (UpdateHighlights, or null while there is nothing to show). The
 // Updated card also reads the notes of every build the update spans (`cmux.changelog.list` and
 // `get`, the page's own ChangelogStore), so it sums up skipped nightlies too.
+import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { languageDirection, UiProvider } from "../../ui/UiProvider";
 import { routeChipHost } from "./ChangePullRequest";
@@ -70,27 +71,29 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
   let latest: UpdateHighlights | null = null;
   const render = (data: UpdateHighlights | null) => {
     latest = data;
-    react.render(
-      <UiProvider container={root} dir={languageDirection(strings.language)} overlayPosition="fixed">
-        {data === null ? null : kind === "ready" ? (
-          <UpdateReadyHighlights data={data} strings={strings} actions={actions} />
-        ) : (
-          <UpdatedCard
-            data={data}
-            span={spans?.notes(data.changelog)}
-            strings={strings}
-            actions={actions}
-            closeButton={false}
-            glass={false}
-          />
-        )}
-      </UiProvider>,
+    // Committed now, not on React's next task: the size below reads these rows. The card's page is
+    // hidden until it reports (the host shows it once it has a height), so it gets no animation frame
+    // to report from, and its rows may already have their size (no resize to observe).
+    flushSync(() =>
+      react.render(
+        <UiProvider container={root} dir={languageDirection(strings.language)} overlayPosition="fixed">
+          {data === null ? null : kind === "ready" ? (
+            <UpdateReadyHighlights data={data} strings={strings} actions={actions} />
+          ) : (
+            <UpdatedCard
+              data={data}
+              span={spans?.notes(data.changelog)}
+              strings={strings}
+              actions={actions}
+              closeButton={false}
+              glass={false}
+            />
+          )}
+        </UiProvider>,
+      ),
     );
-    // The new rows exist after React's commit: size them from the next frame on.
-    requestAnimationFrame(() => {
-      observeCard();
-      report();
-    });
+    observeCard();
+    report();
   };
   // The host sizes the popover or the card slot to the content; 0 while there is nothing.
   // A scrolling card (the popover) reports its whole content, not the part the page view shows.
