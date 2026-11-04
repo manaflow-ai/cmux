@@ -10,9 +10,13 @@ import CoreGraphics
 /// its left edge snapped to the place the spring was still taking it, while the pane beside it is still on that spring,
 /// so the shell shows between them, or they overlap (SharedEdgeDuringSpringTests: 59 pt open, 47 pt overlap).
 ///
-/// The rule here: an edge whose target the gesture changes lands on it; an edge whose target it does not change keeps
-/// its spring. Both neighbours of a shared edge see the same target change, so they always land together or spring on
-/// together. A release's fling seeds the same edges only.
+/// The rule here: an edge whose target the gesture changes moves by as much as its target and keeps its velocity, so
+/// it rides the spring it is on, moved by the drag; an edge whose target the gesture does not change keeps its spring.
+/// Both neighbours of a shared edge see the same target change, so they move together. A component at rest lands on
+/// its new target exactly, so a drag with no spring running places frames as before S2B. A drag measures the pointer
+/// against the rest layout (`DividerDrag.start`, as before S2B): a press changes nothing, and the pointer's travel
+/// changes the dragged pane's size 1:1 while its column's own spring carries it. A release's fling seeds the edges it
+/// moved only.
 enum SharedEdgeMotion {
     /// One axis of a frame as its two edges: where each shows, how fast it moves, and where it goes.
     private struct Edges {
@@ -41,22 +45,26 @@ enum SharedEdgeMotion {
         return true
     }
 
-    /// Sets `frame`'s target to `target` during a pointer gesture that does not animate: each edge whose target changed
-    /// lands on it, every other edge keeps where it shows and its velocity (its spring goes on).
+    /// Sets `frame`'s target to `target` during a pointer gesture that does not animate: each component (x, y, width,
+    /// height) moves by as much as its target and keeps its velocity, so each edge moves by its own target's change.
+    /// The alpha does as before S2B: opaque, at once for a frame the gesture retargets.
     static func place(_ frame: inout AnimatedFrame, at target: CGRect) { // perf-hot: 4ms motion-frame
-        let before = frame.targetRect
-        frame.setTarget(target, alpha: 1)
-        land(start: &frame.x, extent: &frame.width, low: target.minX != before.minX, high: target.maxX != before.maxX)
-        land(start: &frame.y, extent: &frame.height, low: target.minY != before.minY, high: target.maxY != before.maxY)
+        let retargeted = frame.targetRect != target
+        shift(&frame.x, to: target.minX)
+        shift(&frame.y, to: target.minY)
+        shift(&frame.width, to: target.width)
+        shift(&frame.height, to: target.height)
+        if retargeted { frame.alpha.snap(to: 1) } else { frame.alpha.target = 1 }
     }
 
-    /// Lands the low and/or high edge of one axis on its target; an edge that did not move keeps its value and speed.
-    private static func land(start: inout SpringValue, extent: inout SpringValue, low: Bool, high: Bool) {
-        guard low || high else { return }
-        var edges = Edges(start: start, extent: extent)
-        if low { (edges.low, edges.lowSpeed) = (edges.lowTarget, 0) }
-        if high { (edges.high, edges.highSpeed) = (edges.highTarget, 0) }
-        edges.write(start: &start, extent: &extent)
+    /// Retargets `value` to `target` and moves it by as much as its target moved, its velocity kept; at rest (on its
+    /// old target, still) it is on the new target exactly, as a snap puts it.
+    private static func shift(_ value: inout SpringValue, to target: CGFloat) {
+        let delta = target - value.target
+        guard delta != 0 else { return }
+        let resting = value.velocity == 0 && value.value == value.target
+        value.target = target
+        value.value = resting ? target : value.value + delta
     }
 
     /// The edges a layout change moved for one frame, compared with its targets before the change. A release seeds only
@@ -89,25 +97,5 @@ enum SharedEdgeMotion {
         if low { edges.lowSpeed = (edges.lowTarget - edges.low) * rate }
         if high { edges.highSpeed = (edges.highTarget - edges.high) * rate }
         edges.write(start: &start, extent: &extent)
-    }
-}
-
-extension SharedEdgeMotion {
-    /// How far the edge a drag of `kind` grabs shows from its rest place on `screen` now, along the drag's axis: a drag
-    /// that starts while that edge springs measures the pointer from where the edge shows, so the edge starts under
-    /// the pointer, not at its rest place plus the pointer's move. Zero at rest, and for a row edge (its drag lays out
-    /// a preview of the rest rows) or with `sharedEdges` off (the drag's latched `motion.frameOwner.sharedEdges`).
-    static func shownDrift(of kind: DividerHandleView.Kind, on screen: ScreenContentView, sharedEdges: Bool) -> CGFloat {
-        guard sharedEdges, let frame = screen.dividerFrames[kind] else { return 0 }
-        switch kind {
-        case let .split(id):
-            guard let divider = screen.geometry.dividers.first(where: { $0.id == id }) else { return 0 }
-            return divider.axis == .horizontal ? frame.x.value - frame.x.target : frame.y.value - frame.y.target
-        case let .columnEdge(column):
-            let band = screen.geometry.columnEdges.first(where: { $0.column == column })?.dockEdge?.isBand == true
-            return band ? frame.y.value - frame.y.target : frame.x.value - frame.x.target
-        case .rowEdge:
-            return 0
-        }
     }
 }

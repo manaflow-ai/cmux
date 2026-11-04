@@ -68,13 +68,13 @@ public nonisolated enum MotionTunables {
 
     /// FRAME OWNER REFACTOR stage S2B, a kill switch (default on), latched when a divider, column-edge or row-edge drag
     /// starts: a flip applies from the next drag. It goes once S2B's films and the first dogfood gate after it pass.
-    /// On: a drag that starts while a spring runs moves only the pane and divider edges the drag changes; every other
-    /// edge stays on its spring (a shared edge is changed for both of its panes or for neither), a release's fling seeds
-    /// only the edges it moved, and the drag measures the pointer from where its edge shows. Off: as before S2B, a drag
-    /// snaps every frame it retargets (all four edges) and measures from the rest layout.
+    /// On: a drag that starts while a spring runs moves each pane and divider edge it changes by as much as its target
+    /// and keeps that edge on its spring; every other edge stays on its spring (a shared edge moves the same for both of
+    /// its panes), and a release's fling seeds only the edges it moved. Off: as before S2B, a drag snaps every frame it
+    /// retargets (all four edges) to its rest place.
     public static let frameOwnerSharedEdges = Tunable<Bool>.toggle(
         "motion.frameOwner.sharedEdges", .springs, "Shared edges (frame owner S2B)",
-        help: "On: a drag that starts while panes spring moves only the edges it changes, so two panes that share an edge show it at one place in every frame, and the dragged edge starts under the pointer. Off: a drag snaps every pane it touches to its rest place.",
+        help: "On: a drag that starts while panes spring moves only the edges it changes, and they keep springing, so two panes that share an edge show it at one place in every frame. Off: a drag snaps every pane it touches to its rest place.",
         default: true, code: "MotionTunables.frameOwnerSharedEdges")
 
     // MARK: Fades and loops

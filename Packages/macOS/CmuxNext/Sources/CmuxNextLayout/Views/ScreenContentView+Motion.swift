@@ -125,7 +125,7 @@ extension ScreenContentView {
     }
 
     /// Sets `frame`'s target (opaque); without animation it snaps there. During a pointer gesture (a divider drag)
-    /// only a frame the gesture retargets snaps (only its retargeted edges, `SharedEdgeMotion`, FRAME OWNER S2B): a
+    /// only a frame the gesture retargets snaps (its retargeted edges move with their targets, `SharedEdgeMotion`, S2B): a
     /// spring already running elsewhere (a close landing in another column) keeps going (M3). Reduce Motion snaps all.
     func place(_ frame: inout AnimatedFrame, at target: CGRect, animated: Bool) {
         guard !SharedEdgeMotion.place(&frame, at: target, animated: animated, on: self) else { return }

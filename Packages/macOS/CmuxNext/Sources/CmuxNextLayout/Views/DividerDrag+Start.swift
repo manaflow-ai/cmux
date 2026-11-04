@@ -14,8 +14,7 @@ extension DividerDrag {
         case let .split(id):
             guard let divider = screen.geometry.dividers.first(where: { $0.id == id }) else { return nil }
             let pointer = divider.axis == .horizontal ? point.x : point.y
-            // Where the divider shows, also mid-spring (FRAME OWNER S2B): the drag starts under the pointer.
-            let start = (divider.axis == .horizontal ? divider.frame.minX : divider.frame.minY) + SharedEdgeMotion.shownDrift(of: kind, on: screen, sharedEdges: sharedEdges)
+            let start = divider.axis == .horizontal ? divider.frame.minX : divider.frame.minY
             let tree = layout.tree(containing: id)
             var drag = DividerDragState(kind: kind, transaction: .make(), grabOffset: pointer - start, container: divider.container,
                                         axis: divider.axis, minimumA: divider.minimumA, minimumB: divider.minimumB,
@@ -36,13 +35,11 @@ extension DividerDrag {
             guard let frame = screen.geometry.columns[id] else { return nil }
             let size = layout.columns.first { $0.id == id }.map { $0.minimumSize(style: style) } ?? .zero
             let edge = screen.geometry.columnEdges.first { $0.column == id }?.dockEdge
-            // Where the edge shows, also mid-spring (FRAME OWNER S2B): the drag starts under the pointer.
-            let drift = SharedEdgeMotion.shownDrift(of: kind, on: screen, sharedEdges: sharedEdges)
             let grab: CGFloat = switch edge {
-            case .right?: point.x - frame.minX - drift
-            case .top?: point.y - frame.maxY - drift
-            case .bottom?: point.y - frame.minY - drift
-            case .left?, nil: point.x - frame.maxX - drift
+            case .right?: point.x - frame.minX
+            case .top?: point.y - frame.maxY
+            case .bottom?: point.y - frame.minY
+            case .left?, nil: point.x - frame.maxX
             }
             let band = edge?.isBand == true
             var drag = DividerDragState(kind: kind, transaction: .make(), grabOffset: grab, container: frame,
