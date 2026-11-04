@@ -2741,26 +2741,9 @@ nonisolated extension Feature {
         replaces: ["browserHost.tabs"]
     )
 
-    /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
-    public static let perfLabCanary = Feature(
-        index: 158,
-        name: "perfLabCanary",
-        owner: "Performance Lead",
-        description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
-        kind: .killSwitch,
-        process: .app,
-        chromiumFeature: nil,
-        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
-        expires: nil,
-        params: [],
-        stories: [],
-        sticky: false,
-        runtimeMutable: false
-    )
-
     /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
     public static let perfLabKillProbe = Feature(
-        index: 159,
+        index: 158,
         name: "perfLabKillProbe",
         owner: "Performance Lead",
         description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
@@ -2937,7 +2920,6 @@ nonisolated extension Feature {
         .chromiumHostNoSpareWindow,
         .chromiumHostRestoreTabs,
         .chromiumHostTabs,
-        .perfLabCanary,
         .perfLabKillProbe,
     ]
     #else

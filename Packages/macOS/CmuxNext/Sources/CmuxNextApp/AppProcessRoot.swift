@@ -22,8 +22,8 @@ final class AppProcessRoot {
     /// The adopted services; never released once set.
     private(set) var services: AppServices?
 
-    /// Holds `services` for the rest of the process. A bench build also logs the perf lab features' values and
-    /// sources (the kill probe's proof; `PerfLabCanaryKeyDown` runs the canary's spin).
+    /// Holds `services` for the rest of the process. A bench build also logs the perf lab kill probe's value and
+    /// source (its proof).
     func adopt(_ services: AppServices) {
         self.services = services
         #if CMUX_BENCH_HOOKS

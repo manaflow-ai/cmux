@@ -82,9 +82,14 @@ def appears(value: object, text: str) -> bool:
     return any(re.search(rf"(?<![\d.]){re.escape(form)}(?![\d])", text) for form in forms)
 
 
+# Spec items the prove-or-remove deletion wave (2026-11-04) removed with their mechanism; the spec and the design
+# JSON keep their number so the others keep theirs.
+REMOVED_ITEMS = {10}  # pipeline proof: the regression canary (row p12-03)
+
+
 class TableMatchesSpec(unittest.TestCase):
     def test_every_spec_item_has_a_row(self):
-        self.assertEqual(sorted({c.number for c in dc.CHECKS}), sorted(spec_items()))
+        self.assertEqual(sorted({c.number for c in dc.CHECKS}), sorted(set(spec_items()) - REMOVED_ITEMS))
 
     def test_commands_are_the_spec_commands(self):
         items = spec_items()
@@ -159,8 +164,6 @@ GOOD_OUTPUTS = {
     "stories --lint --format=paths": "scripts/perf-lab/perf_result.py\n",
     "stories --orphans": [],
     "aa --since-live": aa_report(),
-    "canary --last 3": [{"injected_sha": s, "culprit_sha": s, "alert_batches": 7, "alert_to_culprit_hours": 2.5,
-                         "verification": "different"} for s in ("a1", "b2", "c3")],
     "sheriff.py --slo": {"groups": 4, "triage": {"missed": [], "pct": 100.0, "slo_hours": 1.0},
                       "culprit": {"median_hours": 3.0}, "stale": []},
     "play.py": [{"story": f"s{i}", "replays": 2, "digests_identical": True, "key_frame_p50_cv": 0.03,
@@ -254,7 +257,6 @@ class Runner(unittest.TestCase):
             (3, "targets-mapped"): ("targets --check", "targets mapped: 11/12\n"),
             (8, "no-orphan-benches"): ("stories --orphans", ["scripts/cmux-next/old-bench.py"]),
             (9, "noise"): ("aa --since-live", aa_report(false_alerts_per_100_series_days=1.25)),
-            (10, "pipeline-proof"): ("canary --last 3", GOOD_OUTPUTS["canary --last 3"][:2]),
             (12, "sheriff-slo"): ("sheriff.py --slo", {**GOOD_OUTPUTS["sheriff.py --slo"],
                                                     "culprit": {"median_hours": 4.5}}),
             (15, "corpus"): ("play.py", GOOD_OUTPUTS["play.py"][:5]),

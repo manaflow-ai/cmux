@@ -79,7 +79,7 @@ NOT_BENCHES: Dict[str, str] = {
     f"{TESTS}/CmuxNextDesignTests/OverlayHoverPerFrameTests.swift":
         "overlay hover deliveries per frame (feature pointerFrameHover): counts checked, not a bench",
     f"{TESTS}/CmuxNextFeaturesTests/PerfLabProbesTests.swift":
-        "the perf lab canary and kill probe features on a stepping clock: behavior, not a bench",
+        "the perf lab kill probe feature report: behavior, not a bench",
     f"{TESTS}/CmuxNextWakeupsTests/PerfResultWriterTests.swift": "the result writer's own tests",
 }
 

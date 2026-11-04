@@ -330,30 +330,6 @@ def judge_noise(ev: Evidence, t: Mapping[str, object]) -> Verdict:
     return _verdict(failures, measured)
 
 
-def judge_canary(ev: Evidence, t: Mapping[str, object]) -> Verdict:
-    """Reads [{"injected_sha", "culprit_sha", "alert_batches", "alert_to_culprit_hours", "verification"}]."""
-    runs = _list(_json(ev.outputs[0]))
-    failures = [] if len(runs) == t["runs"] else [f"{len(runs)} canary runs, need {t['runs']}"]
-    passed = 0
-    for run in runs:
-        injected, culprit = _get(run, "injected_sha"), _get(run, "culprit_sha")
-        batches, hours = _get(run, "alert_batches"), _get(run, "alert_to_culprit_hours")
-        problems = []
-        if batches is None or _number(run, "alert_batches") > t["max_alert_batches"]:
-            problems.append(f"alert after {batches} T0 batches")
-        if culprit != injected:
-            problems.append(f"bisect found {culprit}")
-        if hours is None or _number(run, "alert_to_culprit_hours") > t["max_bisect_hours"]:
-            problems.append(f"culprit {hours} h after the alert")
-        if str(_get(run, "verification")).lower() != str(t["verification"]).lower():
-            problems.append(f"verification {run['verification']}")
-        if problems:
-            failures.append(f"canary {injected}: {', '.join(problems)}")
-        else:
-            passed += 1
-    return _verdict(failures, {"passed": f"{passed}/{len(runs)}"})
-
-
 def _load_module(prefix: str, path: Path) -> ModuleType:
     """Imports the file at `path` once per resolved path: another root or path is another module."""
     path = path.resolve()
@@ -528,8 +504,6 @@ CHECKS: tuple[Check, ...] = (
           {"min_aa_runs_per_waterfall_host": 3, "max_false_alerts_per_100_series_days": 1,
            "max_median_cv_pct": 5, "min_median_cv_series_pct": 90, "max_p99_cv_pct": 10, "min_p99_cv_series_pct": 80},
           judge_noise),
-    Check(10, "pipeline-proof", (Command(f"{LAB} canary --last 3 --json"),),
-          {"runs": 3, "max_alert_batches": 7, "max_bisect_hours": 3, "verification": "DIFFERENT"}, judge_canary),
     Check(11, "pinpoint-statistics", (Command("python3 -m unittest scripts/perf-lab/tests/test_perf_stats.py"),),
           {"samples": {"discrete": ([0] * 20, [0] * 15 + [1] * 5),
                        "spread": (list(range(10, 30)), list(range(10)) + list(range(30, 40)))},

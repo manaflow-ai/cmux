@@ -815,8 +815,7 @@ def serve(args: argparse.Namespace) -> int:
     driver = plan_driver(scheduler, data_dir / "scheduler.json", clock=clock, repo=repo,
                          ls_remote=lambda: scheduler.git_ls_remote(args.remote, args.branch, repo=repo),
                          first_parent=scheduler.git_first_parent(args.remote, args.branch, repo=repo))
-    canary = _sibling("canary", HERE / "canary.py")
-    lanes = lambda: canary.lane_documents(data_dir / canary.CANARY_DIR)
+    lanes = lambda: ()
     plan = None if args.submit_command is None else PlanLoop(
         driver, hosts=lambda: scheduler.hosts_from_document(json.loads(args.pool.read_text(encoding="utf-8"))),
         builds=lambda: ledger_builds(scheduler, builds, data_dir / "builds"),

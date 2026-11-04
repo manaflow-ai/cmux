@@ -46,7 +46,7 @@ struct FeatureDogfoodSetTests {
     @Test func theChromeParitySetHasNoBenchOnlySwitch() {
         let names = FeatureDogfoodSet.chromeParity.names
         #expect(!names.isEmpty)
-        for bench in ["perfLabCanary", "perfLabKillProbe", "cefLayerHostingEveryPage", "hangReportsSchema3"] {
+        for bench in ["perfLabKillProbe", "cefLayerHostingEveryPage", "hangReportsSchema3"] {
             #expect(!names.contains(bench), "\(bench) is bench-only or turned on later")
         }
         #expect(!names.contains { $0.hasPrefix("perfLab") })
