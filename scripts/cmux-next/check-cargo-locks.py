@@ -15,7 +15,8 @@ For each workspace this script runs a full dependency resolution,
 lock file would have to change. (`--no-deps` does not resolve, and
 `cargo update --dry-run` ignores `--locked`, so neither one sees a stale lock.)
 It compiles nothing: no build script, no rustc. It can download crate sources
-into the cargo cache, as `cargo fetch` does.
+into the cargo cache, as `cargo fetch` does, and rustup can install a pinned
+toolchain that is missing (each workspace has at most LIMIT seconds).
 
 The workspaces: the directory of every tracked Cargo.lock, plus the crate
 directories that the Release build compiles with `--locked` (RELEASE_DIRS), so
@@ -27,8 +28,9 @@ crate with no pin of its own.
 Output: one line per workspace, "OK <dir>", "STALE <dir>: <cargo's error line>"
 or "ERROR <dir>: <cargo's error line>" (not a stale lock: a network fault, a
 missing path dependency, a missing toolchain), then one summary line.
-Exit 0 when all are OK, 1 when a lock is stale, 2 when there is no stale lock
-but a workspace could not be checked.
+Exit 0 when all are OK, 1 when a lock is stale (and only then), 2 when there is
+no stale lock but a workspace could not be checked, or the script itself failed
+(no git checkout, no cargo).
 
   python3 scripts/cmux-next/check-cargo-locks.py [--repo DIR] [--jobs N]
 """
@@ -62,15 +64,21 @@ STALE = re.compile(r"cannot update the lock file .* because --locked was passed"
 LIMIT = 600
 
 
+class Unchecked(Exception):
+    """The script could not check the checkout (exit 2, never the stale-lock exit 1)."""
+
+
 def git_root(path):
     out = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
     if out.returncode:
-        sys.exit(f"check-cargo-locks: {path} is not a git checkout: {out.stderr.strip()}")
+        raise Unchecked(f"{path} is not a git checkout: {out.stderr.strip()}")
     return out.stdout.strip()
 
 
 def workspaces(repo):
-    out = subprocess.run(["git", "-C", repo, "ls-files", "-z", "--", "*Cargo.lock"], capture_output=True, check=True)
+    out = subprocess.run(["git", "-C", repo, "ls-files", "-z", "--", "*Cargo.lock"], capture_output=True)
+    if out.returncode:
+        raise Unchecked(f"git ls-files in {repo} failed: {out.stderr.decode(errors='replace').strip()}")
     dirs = {os.path.dirname(p.decode()) or "." for p in out.stdout.split(b"\0") if p}
     dirs.update(d for d in RELEASE_DIRS if os.path.isfile(os.path.join(repo, d, "Cargo.toml")))
     return sorted(d for d in dirs if os.path.isfile(os.path.join(repo, d, "Cargo.toml")))
@@ -108,8 +116,9 @@ def toolchain_env(repo, rel):
 
 
 def cargo_bin():
+    """rustup's cargo first (the build scripts put $CARGO_HOME/bin first too): another cargo ignores the pins."""
     home = os.environ.get("CARGO_HOME") or os.path.expanduser("~/.cargo")
-    return shutil.which("cargo", path=os.pathsep.join([os.environ.get("PATH", ""), os.path.join(home, "bin")]))
+    return shutil.which("cargo", path=os.pathsep.join([os.path.join(home, "bin"), os.environ.get("PATH", "")]))
 
 
 def check(repo, rel, cargo):
@@ -136,11 +145,23 @@ def main(argv=None):
     ap.add_argument("--repo", default=os.getcwd(), help="the checkout to check (default: the current directory's)")
     ap.add_argument("--jobs", type=int, default=4, help="workspaces checked at the same time (default 4)")
     args = ap.parse_args(argv)
+    try:
+        return run(args)
+    except Exception as e:  # never the stale-lock exit 1 for a fault of the script or its host
+        print(f"check-cargo-locks: not checked: {type(e).__name__}: {e}", file=sys.stderr)
+        return 2
+
+
+def fix_command(repo, rel):
+    _, pin = toolchain_env(repo, rel)
+    return f"(cd {rel} && cargo {'+' + pin + ' ' if pin else ''}update --workspace)"
+
+
+def run(args):
     repo = git_root(args.repo)
     cargo = cargo_bin()
     if not cargo:
-        print("check-cargo-locks: no cargo on PATH or in $CARGO_HOME/bin", file=sys.stderr)
-        return 2
+        raise Unchecked("no cargo in $CARGO_HOME/bin or on PATH")
     dirs = workspaces(repo)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
         results = list(pool.map(lambda d: (d, *check(repo, d, cargo)), dirs))
@@ -150,7 +171,7 @@ def main(argv=None):
     errors = [d for d, v, _ in results if v == "ERROR"]
     if stale:
         print(f"check-cargo-locks: {len(stale)} stale of {len(dirs)} Cargo.lock: {', '.join(stale)}. "
-              f"Run `cargo update --workspace` in each (no other change) and commit the lock.")
+              f"Fix: {'; '.join(fix_command(repo, d) for d in stale)}, then commit only the lock.")
         return 1
     if errors:
         print(f"check-cargo-locks: no stale lock, but {len(errors)} of {len(dirs)} not checked: {', '.join(errors)}")
