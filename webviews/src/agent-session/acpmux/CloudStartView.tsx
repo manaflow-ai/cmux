@@ -284,11 +284,15 @@ export function CloudStartView({
   const t = useT();
   const arm = experimentArm(cloudStartLook);
   const failed = start.state === "failed";
-  const [expanded, setExpanded] = useState(!start.initialized);
+  // The chat shell is useful before the machine is ready, so keep the expensive startup
+  // checklist out of the way until someone asks for it. A failure is the one time we open it
+  // automatically: the failed row and its log tail explain what needs attention.
+  const [expanded, setExpanded] = useState(failed);
   const now = usePageNow(!start.initialized && start.state !== "failed");
   useEffect(() => {
-    setExpanded(start.initialized !== true);
-  }, [start.initialized]);
+    if (failed) setExpanded(true);
+    else if (start.initialized) setExpanded(false);
+  }, [failed, start.initialized]);
   const language = usePaneLanguage();
   const rows = startupChecklist(start, t, now, language);
   const known = facts(start, t);
@@ -316,7 +320,13 @@ export function CloudStartView({
       {!failed && !start.initialized && (
         <output className="acpmux-cloud-start__status">
           <Spinner size={14} loading />
-          <span>{t("cloudStart.title")}</span>
+          <span>{t("cloudStart.preparing")}</span>
+        </output>
+      )}
+      {!failed && start.initialized && (
+        <output className="acpmux-cloud-start__status acpmux-cloud-start__status--ready">
+          <Check size={14} />
+          <span>{t("cloudStartup.initialized")}</span>
         </output>
       )}
       <div className="acpmux-cloud-start__card">
@@ -336,36 +346,67 @@ export function CloudStartView({
           )}
         </button>
         {expanded && (
-          <div className="acpmux-cloud-start__checklist" aria-label={t("cloudStartup.checklist")}>
-            {rows.map((step) => (
-              <div key={step.id} className="acpmux-cloud-start__row" data-status={step.status} data-step-id={step.id}>
-                <span className="acpmux-cloud-start__mark">{mark(step, t)}</span>
-                <span className="acpmux-cloud-start__row-label">{step.label}</span>
-                {step.duration && <time className="acpmux-cloud-start__time">{step.duration}</time>}
-                {step.id === "setup" && step.action ? (
-                  <span className="acpmux-cloud-start__detail">
-                    {onOpenEnvironment ? (
-                      <button type="button" className="acpmux-cloud-start__link" onClick={openEnvironment}>
-                        {t("cloudStartup.setupHint")}
-                      </button>
+          <div className="acpmux-cloud-start__details">
+            <div className="acpmux-cloud-start__checklist" aria-label={t("cloudStartup.checklist")}>
+              {rows.map((step) => (
+                <div key={step.id} className="acpmux-cloud-start__row" data-status={step.status} data-step-id={step.id}>
+                  <span className="acpmux-cloud-start__mark">{mark(step, t)}</span>
+                  <span className="acpmux-cloud-start__row-label">{step.label}</span>
+                  {step.duration && <time className="acpmux-cloud-start__time">{step.duration}</time>}
+                  {step.id === "setup" && step.action ? (
+                    <span className="acpmux-cloud-start__detail">
+                      {onOpenEnvironment ? (
+                        <button type="button" className="acpmux-cloud-start__link" onClick={openEnvironment}>
+                          {t("cloudStartup.setupHint")}
+                        </button>
+                      ) : (
+                        t("cloudStartup.setupHint")
+                      )}
+                    </span>
+                  ) : step.detail ? (
+                    <span
+                      className={`acpmux-cloud-start__detail${step.logTail ? " acpmux-cloud-start__log-tail" : ""}`}
+                    >
+                      {step.detail}
+                    </span>
+                  ) : null}
+                  {step.link && (
+                    <span className="acpmux-cloud-start__detail">
+                      <a className="acpmux-cloud-start__link" href={step.link.href} target="_blank" rel="noreferrer">
+                        {step.link.label}
+                      </a>
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+            {known.length > 0 && (
+              <ul className="acpmux-cloud-start__chips" data-look={arm}>
+                {known.map((fact) => (
+                  <li key={fact.id} data-fact={fact.id}>
+                    {fact.id === "folder" ? (
+                      <Folder size={12} />
                     ) : (
-                      t("cloudStartup.setupHint")
+                      <span className="acpmux-cloud-start__label">{fact.label}</span>
                     )}
-                  </span>
-                ) : step.detail ? (
-                  <span className={`acpmux-cloud-start__detail${step.logTail ? " acpmux-cloud-start__log-tail" : ""}`}>
-                    {step.detail}
-                  </span>
-                ) : null}
-                {step.link && (
-                  <span className="acpmux-cloud-start__detail">
-                    <a className="acpmux-cloud-start__link" href={step.link.href} target="_blank" rel="noreferrer">
-                      {step.link.label}
-                    </a>
-                  </span>
-                )}
-              </div>
-            ))}
+                    <span>{fact.value}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {arm === "steps" && !failed && (
+              <ol className="acpmux-cloud-start__legacy-steps" aria-hidden>
+                {CLOUD_START_STEPS.map((name, index) => {
+                  const current = start.step ? CLOUD_START_STEPS.indexOf(start.step) : -1;
+                  const state = index < current ? "done" : index === current ? "current" : "next";
+                  return (
+                    <li key={name} data-step={state}>
+                      {name}
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
           </div>
         )}
       </div>
@@ -373,33 +414,6 @@ export function CloudStartView({
         <output className="acpmux-cloud-start__status" role="alert">
           {start.message ?? t("sandbox.failed")}
         </output>
-      )}
-      {known.length > 0 && (
-        <ul className="acpmux-cloud-start__chips" data-look={arm}>
-          {known.map((fact) => (
-            <li key={fact.id} data-fact={fact.id}>
-              {fact.id === "folder" ? (
-                <Folder size={12} />
-              ) : (
-                <span className="acpmux-cloud-start__label">{fact.label}</span>
-              )}
-              <span>{fact.value}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {arm === "steps" && !failed && (
-        <ol className="acpmux-cloud-start__legacy-steps" aria-hidden>
-          {CLOUD_START_STEPS.map((name, index) => {
-            const current = start.step ? CLOUD_START_STEPS.indexOf(start.step) : -1;
-            const state = index < current ? "done" : index === current ? "current" : "next";
-            return (
-              <li key={name} data-step={state}>
-                {name}
-              </li>
-            );
-          })}
-        </ol>
       )}
     </section>
   );
