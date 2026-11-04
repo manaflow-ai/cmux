@@ -175,9 +175,16 @@ pub(super) fn pull_kept(
             }
         }
     }
+    // Looked up as this Mac's disk compares names: `d/UP` is `d/up` here.
+    let mut folded_links: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (relative, text) in &machine_links {
+        if let Some(text) = text {
+            folded_links.entry(names::folded_path(relative)).or_default().push(text.clone());
+        }
+    }
     let links_at = |path: &str| -> Vec<String> {
         let mut texts: Vec<String> =
-            machine_links.get(path).cloned().flatten().into_iter().collect();
+            folded_links.get(&names::folded_path(path)).cloned().unwrap_or_default();
         let here = local.join(path);
         if std::fs::symlink_metadata(&here).is_ok_and(|meta| meta.file_type().is_symlink())
             && let Some(text) =

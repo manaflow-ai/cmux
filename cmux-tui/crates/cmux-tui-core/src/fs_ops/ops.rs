@@ -342,9 +342,11 @@ impl FsService {
     }
 
     /// Makes a symlink at `path` (nothing may be there) whose text is
-    /// `target`: relative, and lexically inside the root from the folder
-    /// that holds it (that folder found with every symlink on the way
-    /// followed), so the link never names a place outside the roots.
+    /// `target`: relative, lexically inside the root from the folder that
+    /// holds it (that folder found with every symlink on the way followed),
+    /// and naming something that is there once every symlink on its own way
+    /// is followed inside the roots, so the link never names a place
+    /// outside them. One that fails the last check is taken away again.
     pub fn symlink(&self, path: &str, target: &str) -> Result<Entry, FsError> {
         if target.is_empty()
             || target.starts_with('/')
@@ -365,6 +367,18 @@ impl FsService {
             }
         }
         sys::symlink_at(resolved.dir(), name, target)?;
+        if let Err(error) = self.roots.resolve(path, true).and_then(|through| {
+            lstat_resolved(&through)?;
+            Ok(())
+        }) {
+            sys::unlink_at(resolved.dir(), name, false)?;
+            return Err(match error {
+                FsError::NotFound => {
+                    FsError::ParamsInvalid("the symlink's target is not there".into())
+                }
+                _ => FsError::PermissionDenied,
+            });
+        }
         sys::fsync(resolved.dir())?;
         Entry::at(resolved.dir(), name)
     }

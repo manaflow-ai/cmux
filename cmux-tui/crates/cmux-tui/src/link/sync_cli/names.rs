@@ -41,6 +41,12 @@ pub(super) fn is_repository_marker(name: &str) -> bool {
     matches!(hfs_folded(name).as_str(), "head" | "commondir")
 }
 
+/// `relative` as a Mac's disk compares names (case and HFS-ignorable code
+/// points ignored), for looking one path up under any spelling.
+pub(super) fn folded_path(relative: &str) -> String {
+    relative.split('/').map(hfs_folded).collect::<Vec<_>>().join("/")
+}
+
 /// Whether `relative` is `folder` or below it, as a Mac's disk compares
 /// names (case and HFS-ignorable code points ignored).
 pub(super) fn folded_within(relative: &str, folder: &str) -> bool {

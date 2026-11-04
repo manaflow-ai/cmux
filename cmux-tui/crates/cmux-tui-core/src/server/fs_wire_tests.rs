@@ -456,6 +456,7 @@ fn a_symlink_is_made_inside_the_root_and_one_leaving_it_is_refused() {
     let root = home.path.display().to_string();
     std::fs::create_dir_all(home.path.join("work/app/src")).unwrap();
     std::fs::write(home.path.join("work/app/src/a.txt"), "a").unwrap();
+    std::fs::write(home.path.join("work/x"), "x").unwrap();
     let call = |cmd: &str, params: Value| service.call("owner", cmd, params);
 
     let made = call("fs.symlink", json!({"path": format!("{root}/work/app/lib"), "target": "src"}))
@@ -489,6 +490,15 @@ fn a_symlink_is_made_inside_the_root_and_one_leaving_it_is_refused() {
     );
     call("fs.symlink", json!({"path": format!("{root}/work/app/up/ok"), "target": "../x"}))
         .unwrap();
+    // A target that climbs out through another link is taken away again,
+    // and so is one naming nothing.
+    call("fs.symlink", json!({"path": format!("{root}/alias"), "target": "."})).unwrap();
+    let leak = call("fs.symlink", json!({"path": format!("{root}/leak"), "target": "alias/../x"}));
+    assert_eq!(leak.unwrap_err().code(), "fs.permission_denied");
+    assert!(std::fs::symlink_metadata(home.path.join("leak")).is_err());
+    let gone = call("fs.symlink", json!({"path": format!("{root}/gone"), "target": "nothing"}));
+    assert!(gone.is_err());
+    assert!(std::fs::symlink_metadata(home.path.join("gone")).is_err());
     // A file is not a symlink to read.
     let file = call("fs.readlink", json!({"path": format!("{root}/work/app/src/a.txt")}));
     assert!(file.is_err());

@@ -558,6 +558,12 @@ fn push_inner(
             if !set.links.contains_key(relative) && !set.files.contains_key(relative) {
                 summary.deleted += 1;
             }
+        } else if remote.kind(&target)?.as_deref() == Some("symlink")
+            && set.files.remove(relative).is_some()
+        {
+            // The machine changed that link: a file written there would go
+            // through it, so this Mac's file stays and is named.
+            set.skips.note(relative, skips::Why::SymlinkTaken);
         }
     }
     listings.clear();
@@ -714,6 +720,13 @@ impl LinkSync {
             Ok(()) => Ok(Placed::Made),
             Err(error) if remote::refusal_code(&error) == Some("fs.exists") => {
                 Ok(Placed::Skipped(skips::Why::SymlinkTaken))
+            }
+            // The daemon follows the text through the machine's own links.
+            Err(error) if remote::refusal_code(&error) == Some("fs.permission_denied") => {
+                Ok(Placed::Skipped(skips::Why::SymlinkOutside))
+            }
+            Err(error) if remote::refusal_code(&error) == Some("params.invalid") => {
+                Ok(Placed::Skipped(skips::Why::SymlinkBroken))
             }
             Err(error) if is_refusal(&error) => {
                 self.unsupported |= remote::lacks_symlinks(&error);

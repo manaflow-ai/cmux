@@ -1232,3 +1232,37 @@ fn a_link_over_the_record_or_out_through_another_link_stays() {
     assert!(std::fs::symlink_metadata(folder.join("leak")).is_err(), "{pulled}");
     assert_eq!(skipped_by_path(&pulled)["leak"], "a symlink (to a place outside the folder)");
 }
+
+/// A link the machine changed is never written through: this Mac's file at
+/// its path stays here and is named, and the machine's file it now names
+/// keeps its bytes.
+#[test]
+fn a_file_is_never_written_through_a_link_the_machine_changed() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let folder = root.join("site");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("a.txt"), "a\n").unwrap();
+    std::os::unix::fs::symlink("a.txt", folder.join("link")).unwrap();
+    let (_sockets, socket, home) = machine_home(&root);
+    serve_fs(&socket, &home);
+    let remote = home.join("work/site");
+    let (ok, summary, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{summary}");
+
+    std::fs::write(remote.join("secret.txt"), "secret\n").unwrap();
+    std::fs::remove_file(remote.join("link")).unwrap();
+    std::os::unix::fs::symlink("secret.txt", remote.join("link")).unwrap();
+    std::fs::remove_file(folder.join("link")).unwrap();
+    std::fs::write(folder.join("link"), "mine\n").unwrap();
+
+    let (ok, pushed, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{pushed}");
+    assert_eq!(std::fs::read_to_string(remote.join("secret.txt")).unwrap(), "secret\n");
+    assert_eq!(std::fs::read_link(remote.join("link")).unwrap(), Path::new("secret.txt"));
+    assert_eq!(
+        skipped_by_path(&pushed)["link"],
+        "a symlink (something else is at its path on the other side)",
+        "{pushed}"
+    );
+}
