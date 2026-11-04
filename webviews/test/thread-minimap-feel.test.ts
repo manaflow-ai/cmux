@@ -81,11 +81,11 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
     return (fastest * distance * 1000) / 60;
   };
 
-  async function open(rows: unknown[], top: number, count = COUNT, height = 820): Promise<Page> {
+  async function open(rows: unknown[], top: number, count = COUNT, height = 820, query = ""): Promise<Page> {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 1280, height } });
     await installPaintedFrames(page);
-    await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
+    await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html${query}`);
     await page.waitForFunction(() => "__showRows" in window);
     await page.evaluate((shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown), rows);
     await page.waitForSelector(".acpmux-minimap__tick");
@@ -419,8 +419,9 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
     // held still, and crossing into the next row moved every tick near it at once (the hovered one
     // 26 to 20 px). The wave follows the pointer's own y: each tick's length is a smooth function of
     // its distance from the pointer, so a pixel of pointer travel moves the ticks a little, anywhere.
-    test("the hover wave follows the pointer's y: a 1 px move changes no tick by more than 1.5 px", async () => {
-      const page = await open(turns(0, COUNT), 9000);
+    // The cosine arm (wave.experiment.ts), kept for comparison now the zipper ships.
+    test("the cosine wave follows the pointer's y: a 1 px move changes no tick by more than 1.5 px", async () => {
+      const page = await open(turns(0, COUNT), 9000, COUNT, 820, "?wave=cosine-4");
       const top = await page.evaluate(() => {
         const box = document.querySelector<HTMLElement>('[data-tick="30"]')!.getBoundingClientRect();
         return { x: box.left + 6, y: box.top };
@@ -461,6 +462,159 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       expect(Math.max(...tick30.slice(0, 9))).toBeCloseTo(26, 0);
       // The pointer at the boundary between rows 30 and 31 draws them alike.
       expect(Math.abs(rows[9]![6]! - rows[9]![7]!)).toBeLessThan(1);
+      await page.close();
+    });
+
+    /// Ticks `from` to `from + count - 1`, once their lengths have held for three painted frames.
+    const settled = (page: Page, from: number, count: number) =>
+      page.evaluate(
+        async ({ from, count }) => {
+          const probe = window as any;
+          const read = () => Array.from({ length: count }, (_, at) => probe.__length(from + at) as number);
+          let last = read();
+          let held = 0;
+          for (let frame = 0; frame < 120 && held < 3; frame += 1) {
+            await window.cmuxPaintFrame();
+            const now = read();
+            held = now.every((length, at) => Math.abs(length - last[at]!) < 0.01) ? held + 1 : 0;
+            last = now;
+          }
+          return last;
+        },
+        { from, count },
+      );
+    /// The top left of tick `index`'s row, where the pointer goes.
+    const rowTop = (page: Page, index: number) =>
+      page.evaluate((at) => {
+        const box = document.querySelector<HTMLElement>(`[data-tick="${at}"]`)!.getBoundingClientRect();
+        return { x: box.left + 6, y: box.top };
+      }, index);
+    /// ChatGPT's rail hovered (its 2x capture measures 52, 40, 28, 20 and 12 px): the hovered tick and
+    /// the ticks 1 to 4 rows from it, in CSS px.
+    const REFERENCE = [26, 20, 14, 10, 6];
+
+    // Leo, 2026-11-03: "the in-between feels a bit strange and gooey i'd rather keep it per zipper
+    // rail thing" and "you guys kinda messed up the selected one being the center tallest one". The
+    // wave drew the pointer's exact y, so between two rows both drew alike and the hovered tick was
+    // not clearly the longest. The zipper draws by whole rows: wherever the pointer is inside a row,
+    // that row's tick is the single longest, and the rows either side step down alike.
+    test("zipper: anywhere inside a row, the hovered tick is the longest and its neighbours are symmetric", async () => {
+      const page = await open(turns(0, COUNT), 9000);
+      const found: string[] = [];
+      for (const hovered of [30, 31]) {
+        const top = await rowTop(page, hovered);
+        for (let y = 1; y < 10; y += 1) {
+          await page.mouse.move(top.x, top.y + y);
+          // Ticks hovered - 5 to hovered + 5.
+          const lengths = await settled(page, hovered - 5, 11);
+          const at = (distance: number) => lengths[5 + distance]!;
+          const others = lengths.filter((_, index) => index !== 5);
+          if (at(0) < Math.max(...others) + 2) found.push(`row ${hovered} +${y} px: ${at(0)} not the longest`);
+          for (let distance = 1; distance <= 4; distance += 1) {
+            if (Math.abs(at(-distance) - at(distance)) > 0.3)
+              found.push(`row ${hovered} +${y} px: ${at(-distance)} above, ${at(distance)} below at ${distance}`);
+            if (Math.abs(at(distance) - REFERENCE[distance]!) > 0.5)
+              found.push(`row ${hovered} +${y} px: ${at(distance)} at ${distance}, not ${REFERENCE[distance]}`);
+          }
+          if (Math.abs(at(0) - REFERENCE[0]!) > 0.5) found.push(`row ${hovered} +${y} px: hovered ${at(0)}`);
+        }
+      }
+      expect(found).toEqual([]);
+      await page.close();
+    });
+
+    // The zipper's motion: as the hovered row changes, each tick eases from where it is to its new
+    // length, never past it and never back (a wave following the pointer grew the ticks it passed
+    // over and shrank them again), and the hovered tick is the longest on every frame.
+    test("zipper: between frames each tick moves monotonically toward its target, the hovered one longest", async () => {
+      const page = await open(turns(0, COUNT), 9000);
+      const from = await tickPoint(page, 30);
+      await page.mouse.move(from.x, from.y);
+      const before = await settled(page, 25, 13);
+      const to = await tickPoint(page, 32);
+      await page.evaluate(() => {
+        const probe = window as any;
+        probe.__zip = [];
+        window.cmuxAfterPaint(() => {
+          probe.__zip.push(Array.from({ length: 13 }, (_, at) => probe.__length(25 + at) as number));
+          return probe.__zip.length < 40;
+        });
+      });
+      await page.mouse.move(to.x, to.y);
+      await page.waitForFunction(() => (window as any).__zip.length >= 40);
+      const frames = (await page.evaluate(() => (window as any).__zip)) as number[][];
+      const after = await settled(page, 25, 13);
+      const found: string[] = [];
+      for (let tick = 0; tick < 13; tick += 1) {
+        const path = [before[tick]!, ...frames.map((lengths) => lengths[tick]!), after[tick]!];
+        const rising = after[tick]! >= before[tick]!;
+        for (let at = 1; at < path.length; at += 1) {
+          const step = path[at]! - path[at - 1]!;
+          if (rising ? step < -0.05 : step > 0.05)
+            found.push(`tick ${25 + tick} frame ${at}: ${path[at - 1]} to ${path[at]}, heading ${after[tick]}`);
+        }
+      }
+      // Tick 32 (at 7) is the longest from the first frame that drew the move on.
+      const moved = frames.findIndex((lengths) => lengths.some((length, at) => Math.abs(length - before[at]!) > 0.05));
+      expect(moved).toBeGreaterThanOrEqual(0);
+      for (const [at, lengths] of frames.slice(moved).entries()) {
+        const others = lengths.filter((_, index) => index !== 7);
+        if (lengths[7]! <= Math.max(...others)) found.push(`frame ${moved + at}: tick 32 ${lengths[7]} not longest`);
+      }
+      expect(found).toEqual([]);
+      // It landed on the reference's lengths around row 32.
+      for (let distance = 0; distance <= 4; distance += 1) {
+        expect(after[7 - distance]!).toBeCloseTo(REFERENCE[distance]!, 0);
+        expect(after[7 + distance]!).toBeCloseTo(REFERENCE[distance]!, 0);
+      }
+      await page.close();
+    });
+
+    // Leo, 2026-11-03: "you didnt add the animation that's required for when it gets released we
+    // just have ours go down instantly but chatgpt has an animation for when it shrinks". The ticks
+    // dropped back to rest on the micro step's spring, most of the way in two frames. Leaving the rail
+    // now shrinks them over the scale's ceiling, over many frames, and never grows one on the way.
+    test("zipper: after pointerleave the ticks shrink back over frames, not at once", async () => {
+      const page = await open(turns(0, COUNT), 9000);
+      const point = await tickPoint(page, 30);
+      await page.mouse.move(point.x, point.y);
+      await settled(page, 25, 11);
+      await page.evaluate(() => {
+        const probe = window as any;
+        probe.__release = [];
+        probe.__left = undefined;
+        document.addEventListener("pointerout", () => (probe.__left = performance.now()), {
+          once: true,
+          capture: true,
+        });
+        window.cmuxAfterPaint(() => {
+          probe.__release.push({ t: performance.now(), length: probe.__length(30), near: probe.__length(31) });
+          return probe.__release.length < 60;
+        });
+      });
+      await page.mouse.move(point.x + 400, point.y);
+      await page.waitForFunction(() => (window as any).__release.length >= 60);
+      const { left, frames } = await page.evaluate(() => ({
+        left: (window as any).__left as number,
+        frames: ((window as any).__release as { t: number; length: number; near: number }[]).filter(
+          (frame) => frame.t >= (window as any).__left,
+        ),
+      }));
+      expect(left).toBeGreaterThan(0);
+      // Never back up on the way down.
+      for (let at = 1; at < frames.length; at += 1) {
+        expect(frames[at]!.length).toBeLessThanOrEqual(frames[at - 1]!.length + 0.05);
+        expect(frames[at]!.near).toBeLessThanOrEqual(frames[at - 1]!.near + 0.05);
+      }
+      // Several frames on the way, not a drop in one.
+      const between = frames.filter((frame) => frame.length > 6.5 && frame.length < 25.5);
+      expect(between.length).toBeGreaterThanOrEqual(4);
+      // Still visibly on its way 130 ms after the pointer left (a 120 ms spring was done by then).
+      const lastBetween = Math.max(...between.map((frame) => frame.t));
+      expect(lastBetween - left).toBeGreaterThanOrEqual(130);
+      // And at rest at the end, with the wave handed back to the rail.
+      expect(frames.at(-1)!.length).toBeCloseTo(6, 0);
+      await page.waitForFunction(() => !document.querySelector(".acpmux-minimap__rail")!.hasAttribute("data-wave"));
       await page.close();
     });
 

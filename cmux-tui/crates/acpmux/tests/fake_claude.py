@@ -1167,6 +1167,21 @@ while True:
                       {"content": "Add retry", "status": "completed", "activeForm": "Adding retry"},
                       {"content": "Cover it", "status": "in_progress", "activeForm": "Covering it"},
                       {"content": "Update docs", "status": "pending", "activeForm": "Updating docs"}]}}]}})
+        # "task-probe": the turn keeps its list with Claude Code 2.1's TaskCreate and TaskUpdate,
+        # which Claude Code offers only with CLAUDE_CODE_ENABLE_TODO_TOOLS=1 (acpmux sets it).
+        if said.strip() == "task-probe" and os.environ.get("CLAUDE_CODE_ENABLE_TODO_TOOLS") == "1":
+            def task_call(tool_id, name, tool_input, result_text, tool_use_result):
+                send({"type": "assistant", "message": {"content": [
+                    {"type": "tool_use", "id": tool_id, "name": name, "input": tool_input}]}})
+                send({"type": "user", "message": {"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": tool_id, "content": result_text}]},
+                      "tool_use_result": tool_use_result})
+            task_call("toolu_tc1", "TaskCreate", {"subject": "Add retry", "description": "Add retry"},
+                      "Task #1 created successfully: Add retry", {"task": {"id": "1", "subject": "Add retry"}})
+            task_call("toolu_tc2", "TaskCreate", {"subject": "Cover it", "description": "Cover it"},
+                      "Task #2 created successfully: Cover it", {"task": {"id": "2", "subject": "Cover it"}})
+            task_call("toolu_tu1", "TaskUpdate", {"taskId": "1", "status": "completed"},
+                      "Updated task #1 status", {"success": True, "taskId": "1", "updatedFields": ["status"]})
         send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                  "delta": {"type": "text_delta", "text": text}}})
         result = {"type": "result", "subtype": "success", "result": text, "num_turns": 1, "duration_api_ms": 1,

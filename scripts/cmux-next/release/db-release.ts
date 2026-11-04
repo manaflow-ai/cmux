@@ -60,7 +60,7 @@ export interface Deps {
   readonly ownerPgRole?: string | null
 }
 
-const defaultDeps = (): Deps => ({
+export const defaultDeps = (): Deps => ({
   provider: pscaleProvider(),
   connect: connectUrl,
   env: process.env,

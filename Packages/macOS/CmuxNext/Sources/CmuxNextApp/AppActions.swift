@@ -64,7 +64,7 @@ enum AppActions {
         SidebarGroupByActions.bind(into: registry, context: context)
         VerticalTabsActions(host: context, store: services.workspaceVerticalTabs).bind(into: registry)
         SidebarMinimalToggle.bind(into: registry, context: context)
-        MatchTerminalBackgroundToggle.bind(into: registry, context: context)
+        AgentChatRailActions(settings: { [weak services] in services?.settings }, managed: RefusalStrings.settingManaged, notLoaded: RefusalStrings.settingsNotLoaded).bind(into: registry)
         SidebarDensityActions.bind(into: registry, context: context)
         SettingsHandlers.bind(into: registry, context: context)
         AppearanceHandlers.bind(into: registry, context: context)
