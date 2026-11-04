@@ -540,10 +540,14 @@ def needs_jobs(run: Mapping[str, Any], linux_only_paths: frozenset[str], now: dt
     main's runs, and `branch_linux_only` (branch_linux_only_paths()) for a branch's, so a feat-cmux-next run of
     a workflow that branch's copy runs only on Linux is not listed. On 2026-10-31 those were 573 of the 1,324
     runs a sweep listed, each one REST request on the cmux-bot installation's budget."""
-    if run.get("path") in linux_only_paths and not follows_another_copy(run):
+    # Portable placement also needs paid Linux demand and start evidence. These
+    # three workflows must be read even when their branch copy has no Mac job.
+    portable = run.get("path") in rescue.PORTABLE_LIGHT_WORKFLOW_PATHS
+    if not portable and run.get("path") in linux_only_paths and not follows_another_copy(run):
         return False
     target = run_target_branch(run)
-    if target and target != "main" and run.get("path") in (branch_linux_only or {}).get(target, frozenset()):
+    if not portable and target and target != "main" \
+            and run.get("path") in (branch_linux_only or {}).get(target, frozenset()):
         return False
     if run.get("event") in PROTECTED_EVENTS - {"merge_group"}:
         # Deployment/tag bookkeeping never holds pool capacity worth counting.
@@ -650,6 +654,12 @@ def owned_label(job: Mapping[str, Any]) -> str | None:
 
 def is_macos_job(job: Mapping[str, Any]) -> bool:
     return bool(owned_label(job)) or any("macos" in str(label).lower() for label in job.get("labels") or ())
+
+
+def paid_portable_label(job: Mapping[str, Any]) -> str | None:
+    """A paid Linux label the portable placement rescue can refresh."""
+    return next((str(label) for label in job.get("labels") or ()
+                 if rescue.BLACKSMITH_PORTABLE_LABEL.fullmatch(str(label))), None)
 
 
 def lane_label(job: Mapping[str, Any]) -> str | None:
@@ -962,7 +972,7 @@ def pool_load_snapshot(
     markers: Mapping[int, tuple[str, int, int]] | None = None,
     capability_markers: Mapping[int, tuple[str, int]] | None = None,
 ) -> dict[str, Any]:
-    """Per-pool macOS demand from the jobs this sweep already listed.
+    """Per-pool macOS and paid portable Linux demand from jobs this sweep already listed.
 
     A pool is a job's single runner label when it asked for one, which is
     every Blacksmith job, so pr_runner_pool.py can look a label up directly.
@@ -1032,7 +1042,8 @@ def pool_load_snapshot(
             # 3 h 20 min on glaeda-session-std-xcode-26.6 with no runner online, unseen here).
             lane = lane_label(job)
             macos = is_macos_job(job)
-            if not macos and not lane:
+            paid = paid_portable_label(job)
+            if not macos and not lane and not paid:
                 continue
             status = job.get("status")
             if status not in POOL_QUEUED_JOB_STATUSES and status not in RUNNING_JOB_STATUSES:
@@ -1040,7 +1051,7 @@ def pool_load_snapshot(
             # A lane job counts on its lane label whatever else it asked for (`macOS`, `self-hosted`), and on its
             # macOS pool as before.
             counted = (*counted_pools(runner_pool(job)), *capabilities(job)) if macos else ()
-            for pool in dict.fromkeys(((lane,) if lane else ()) + counted):
+            for pool in dict.fromkeys(((lane,) if lane else ()) + ((paid,) if paid else ()) + counted):
                 entry = pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
                                                 "oldest_queued_minutes": 0})
                 if status in RUNNING_JOB_STATUSES:
@@ -1075,16 +1086,16 @@ def pool_load_snapshot(
     }
 
 
-# The snapshot's map of each macOS runner label (an owned pool, a lane, a Blacksmith macOS label) to when a runner
+# The snapshot's map of each owned, lane or paid runner label to when a runner
 # last took a job that asked for exactly that label, among the in-flight runs listed (label_started()).
 LABEL_STARTED_KEY = "label_started"
 
 
 def label_started(runs: Sequence[Mapping[str, Any]],
                   jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]]) -> dict[str, str]:
-    """When a runner last took a job on each macOS runner label: the newest `started_at` of a listed job a runner
+    """When a runner last took a job on each tracked label: the newest `started_at` of a listed job a runner
     took (runner_name or runner_id; a queued job's started_at is only its creation), running or finished, keyed by
-    each owned, lane or macOS label it asked for exactly (no root or capability rollup, as `pools` has).
+    each owned, lane, macOS or paid Linux label it asked for exactly (no root or capability rollup, as `pools` has).
 
     The rescue's stall-aware failover reads it (owned_pool_rescue.label_quiet()): a label whose pool count shows a
     job running but that started nothing while a job waited is no queue that job is moving in. Run 40993742146's
@@ -1102,7 +1113,8 @@ def label_started(runs: Sequence[Mapping[str, Any]],
             if started is None:
                 continue
             for label in {str(item) for item in job.get("labels") or ()}:
-                if not (owned_pool(label) or LANE_LABEL.fullmatch(label) or "macos" in label.lower()):
+                if not (owned_pool(label) or LANE_LABEL.fullmatch(label) or "macos" in label.lower()
+                        or rescue.BLACKSMITH_PORTABLE_LABEL.fullmatch(label)):
                     continue
                 if label not in newest or started > newest[label]:
                     newest[label] = started
