@@ -16,10 +16,7 @@ public import AppKit
 /// for ``isZoomed``. The resize goes through the panes Motion gate: with Reduce Motion or animations
 /// off it happens at once.
 ///
-/// The frame steps stay AppKit's. With ``holdsContent`` (feature `windowFrameAnimationHoldsContent`,
-/// off by default) the content resizes once: the window holds its
-/// content's resizes while it animates (``Motion/beginFrameAnimation(_:)``), as a full screen
-/// transition does, so each terminal sends the daemon one grid, at the end. Off, content resizes live.
+/// The frame steps stay AppKit's; the content resizes live.
 ///
 /// A window keeps one value and forwards to it:
 ///
@@ -42,13 +39,7 @@ public struct WindowZoom {
     /// Points two frames may differ by and still count as the same (AppKit's own zoom rounds).
     static let tolerance: CGFloat = 1
 
-    /// Whether a zoom holds its window's content resizes until it lands (feature
-    /// `windowFrameAnimationHoldsContent`); false, the content resizes on every step.
-    public var holdsContent: Bool
-
-    public init(holdsContent: Bool = false) {
-        self.holdsContent = holdsContent
-    }
+    public init() {}
 
     /// Zooms `window` (AppKit's toggle, ``WindowZoom``) and returns true; false for a full-screen or
     /// screenless window, which the caller hands to `super.zoom(_:)`.
@@ -58,15 +49,8 @@ public struct WindowZoom {
         guard let target = target(from: window.frame, standard: standard) else { return true }
         let generation = begin(to: target, standard: standard)
         let box = WindowZoomCompletion(window: window)
-        // Each animation holds until its own completion, which runs once (landed or taken over by a
-        // second press), so a reversed zoom holds until the last one lands.
-        let holds = holdsContent
-        if holds { Motion.beginFrameAnimation(window) }
         Motion.panes.animateTimed(.move, in: window.contentView, { window.animator().setFrame(target, display: true) },
-                                  completion: {
-                                      box.window?.windowZoomFinished(generation)
-                                      if holds, let held = box.held { Motion.endFrameAnimation(held) }
-                                  })
+                                  completion: { box.window?.windowZoomFinished(generation) })
         return true
     }
 

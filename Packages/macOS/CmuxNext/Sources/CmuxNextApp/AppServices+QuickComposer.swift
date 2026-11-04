@@ -19,7 +19,7 @@ extension AppServices {
                 chat.model.onListProjects = { query in await projects.listProjects(query) }
                 return chat
             },
-            makeWindow: { [features = self.features] in QuickComposerPanel(holdsContentInMotion: features.isEnabled(.windowFrameAnimationHoldsContent)) },
+            makeWindow: { QuickComposerPanel() },
             openInWindow: { [weak self] session in self?.openQuickChat(session: session) ?? false },
             startInBackground: { [weak self] start in await self?.startQuickChatInBackground(start) ?? false }, context: { [weak self] in await FloatingChatContext.focused(in: self) },
             mainWork: mainWork

@@ -22,30 +22,7 @@ import Testing
         }
     }
 
-    /// Feature `windowFrameAnimationHoldsContent` on: folding the
-    /// floating chat animates the panel's frame, but its page keeps its size until the frame lands
-    /// and then resizes once, instead of a page layout at every step of the animation.
-    @Test func aFoldResizesThePageOnceWhenTheFrameLands() throws {
-        _ = NSApplication.shared
-        let panel = QuickComposerPanel(holdsContentInMotion: true)
-        defer { panel.orderOut(nil) }
-        let page = SizeRecordingView()
-        panel.present(page, focus: nil)
-        let parent = try #require(page.superview, "the page is not in the panel")
-        page.sizes.removeAll()
-        panel.setCollapsed(true)
-        let end = Date(timeIntervalSinceNow: 2)
-        while page.frame.size != parent.bounds.size || abs(panel.frame.height - FloatingChatFrames.barHeight) > 0.5, Date() < end {
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
-        }
-        #expect(abs(panel.frame.height - FloatingChatFrames.barHeight) <= 0.5, "the fold did not land: \(panel.frame)")
-        #expect(page.frame.size == parent.bounds.size, "the page \(page.frame) does not fill the panel \(parent.bounds)")
-        #expect(page.sizes.count == 1, "the page resized \(page.sizes.count) times during the fold: \(page.sizes)")
-        #expect(page.autoresizingMask == [.width, .height], "the page no longer follows the panel's size")
-    }
-
-    /// Feature `windowFrameAnimationHoldsContent` off (its default): the fold holds nothing; at
-    /// every step the page fills the panel.
+    /// The fold holds nothing: at every step the page fills the panel.
     @Test func withTheHoldOffThePageFollowsThePanelThroughAFold() throws {
         _ = NSApplication.shared
         let panel = QuickComposerPanel()
@@ -55,7 +32,6 @@ import Testing
         let parent = try #require(page.superview, "the page is not in the panel")
         let mask = page.autoresizingMask
         panel.setCollapsed(true)
-        #expect(panel.frameHold.open == 0, "the fold opened a page hold with the feature off")
         let end = Date(timeIntervalSinceNow: 2)
         while abs(panel.frame.height - FloatingChatFrames.barHeight) > 0.5, Date() < end {
             #expect(page.autoresizingMask == mask, "the page stopped following the panel mid-fold")
@@ -73,7 +49,7 @@ import Testing
     @Test(.enabled(if: NSScreen.main != nil, "the floating chat needs a screen: run on a GUI host"))
     func releasingTheChatMidMoveKeepsTheComposerSize() {
         _ = NSApplication.shared
-        let panel = QuickComposerPanel(holdsContentInMotion: true)
+        let panel = QuickComposerPanel()
         defer { panel.orderOut(nil) }
         panel.present(NSView(), focus: nil)
         panel.holdChat(true)
@@ -82,6 +58,5 @@ import Testing
         while Date() < end { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
         #expect(panel.contentRect(forFrameRect: panel.frame).size == QuickComposerPanel.size,
                 "a late floating chat move sized the composer: \(panel.frame)")
-        #expect(panel.frameHold.open == 0, "the taken-over move kept its hold")
     }
 }

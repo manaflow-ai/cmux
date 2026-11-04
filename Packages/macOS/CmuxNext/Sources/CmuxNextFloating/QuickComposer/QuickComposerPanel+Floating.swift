@@ -56,48 +56,17 @@ extension QuickComposerPanel {
 
     /// Moves and resizes to `target` on the overlays gate (never `setFrame(_:display:animate:)`,
     /// whose animation blocks the main thread); hidden (the chat moved to a tab), at once: a late
-    /// animation would size the next composer. With ``holdsContentInMotion`` the page keeps its
-    /// size and top edge until the frame lands, then resizes once;
-    /// without it the page follows the panel's size on every frame.
+    /// animation would size the next composer. The page follows the panel's size on every frame.
     private func animateFrame(to target: CGRect) {
         guard isVisible else { return setFrameNow(target) }
-        guard holdsContentInMotion else {
-            return Motion.overlays.animateTimed(.panel, in: contentView) { animator().setFrame(target, display: true) }
-        }
-        holdContentSize()
-        Motion.overlays.animateTimed(.panel, in: contentView, { animator().setFrame(target, display: true) },
-                                     completion: { [weak self] in self?.releaseContentSize() })
+        Motion.overlays.animateTimed(.panel, in: contentView) { animator().setFrame(target, display: true) }
     }
 
     /// Sets `target` at once and takes over a frame animation in flight: a zero-length animator
-    /// group replaces it, so it never lands later and its completion still releases its hold.
+    /// group replaces it, so it never lands later.
     private func setFrameNow(_ target: CGRect) {
         let display = isVisible
         Motion.withoutAnimation { animator().setFrame(target, display: display) }
-    }
-
-    /// Holds the page at its size, pinned to the panel's top edge, until the last running frame
-    /// animation ends; the window holds its content's resizes meanwhile (`Motion.beginFrameAnimation`).
-    private func holdContentSize() {
-        Motion.beginFrameAnimation(self)
-        frameHold.open += 1
-        guard frameHold.open == 1, let content = hostedContent, let parent = content.superview else { return }
-        frameHold.view = content
-        frameHold.mask = content.autoresizingMask
-        // The margin away from the top edge flexes: in a flipped parent that is the max-Y one.
-        content.autoresizingMask = parent.isFlipped ? [.maxYMargin] : [.minYMargin]
-    }
-
-    /// One frame animation ended (landed or taken over); after the last, the page takes the
-    /// panel's size once.
-    private func releaseContentSize() {
-        Motion.endFrameAnimation(self)
-        guard frameHold.open > 0 else { return }
-        frameHold.open -= 1
-        guard frameHold.open == 0, let content = frameHold.view else { return }
-        frameHold.view = nil
-        content.autoresizingMask = frameHold.mask
-        if let bounds = content.superview?.bounds, content.frame != bounds { content.frame = bounds }
     }
 
     public func windowDidMove(_ notification: Notification) { saveFrame() }
@@ -109,12 +78,4 @@ extension QuickComposerPanel {
         guard holdsChat, !isCollapsed, let screen else { return }
         frames.save(frame, onDisplay: FloatingChatFrames.display(screen))
     }
-}
-
-/// The page a floating chat holds at its size while its frame animates (`animateFrame(to:)`): how
-/// many animations are open, and the page's own autoresizing to put back after the last.
-struct FloatingChatFrameHold {
-    var open = 0
-    weak var view: NSView?
-    var mask: NSView.AutoresizingMask = []
 }
