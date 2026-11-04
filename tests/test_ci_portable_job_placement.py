@@ -316,6 +316,13 @@ class Decide(unittest.TestCase):
         self.assertEqual((placed.linux_runner, placed.linux_jobs), ("", ()))
         self.assertIn("release-notary take Blacksmith", placed.why)
 
+    def test_live_linux_capacity_places_only_one_job_per_idle_runner(self):
+        config = env(JOBS="size ui-review split", FLEET_LINUX="cmux-fleet-linux-x64",
+                     REQUIRE_LIVE_CAPACITY="1")
+        placed = placement.decide(config, [fleet_runner(), *idle(2)], snapshot(), NOW)
+        self.assertEqual(placed.linux_jobs, ("size",))
+        self.assertEqual(placed.mini_jobs, ("ui-review", "split"))
+
     def test_fleet_linux_comes_before_the_minis(self):
         placed = placement.decide(env(FLEET_LINUX="gcp-linux-32"), idle(5), snapshot(), NOW)
         self.assertEqual(placed.linux_runner, "gcp-linux-32")
@@ -500,7 +507,7 @@ class SharedWait(unittest.TestCase):
         idle_row = dict(runner("synthetic-glaeda"), id=1, os="macOS")
         doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
                    generated_at=dt.datetime.now(dt.timezone.utc).isoformat(), repository_runners=[],
-                   runner_groups={"glaeda-minis": [dict(idle_row, busy=True)], "cmux-fleet-linux": []}, scale_sets={})
+                   runner_groups={"glaeda-minis": [dict(idle_row, busy=True)]}, scale_sets={})
         raw = base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode()
         config = env(GITHUB_REPOSITORY="manaflow-ai/cmux", ROUTE_TOKEN="synthetic-token",
                      SNAPSHOT_TOKEN="synthetic-snapshot", JOBS="control", NIGHTLY="1",
@@ -520,12 +527,9 @@ class SharedWait(unittest.TestCase):
              mock.patch.object(placement.signal, "setitimer"), \
              mock.patch.object(placement, "write") as write, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(placement.main(config), 0)
-        # A complete runner-state publication is the quota-safe bootstrap. Without
-        # its optional queue snapshot, capacity is unknown and placement fails open
-        # to the workflow's overflow; it does not spend a routing API read.
-        self.assertEqual(write.call_args.args[0].mini_jobs, ())
-        self.assertEqual(clock[0], 0)
-        self.assertEqual(paths, [])
+        self.assertEqual(write.call_args.args[0].mini_jobs, ("control",))
+        self.assertEqual(clock[0], 30)
+        self.assertEqual(sum("/10/runners" in path for path in paths), 1)
 
 
 class Wiring(unittest.TestCase):
@@ -695,7 +699,7 @@ class Wiring(unittest.TestCase):
         state = {
             "schema": "runner-state/v1", "repository": "manaflow-ai/cmux", "complete": True,
             "generated_at": NOW.isoformat(), "repository_runners": [],
-            "runner_groups": {"glaeda-minis": [{"id": 1, "name": "cmux1-glaeda", "status": "online", "busy": False, "os": "macOS", "labels": [{"name": "self-hosted"}, {"name": "glaeda-side-light-xcode-26.6"}]}], "cmux-fleet-linux": []},
+            "runner_groups": {"glaeda-minis": [dict(runner("cmux1-glaeda"), id=1, os="macOS")]},
             "scale_sets": {},
         }
         raw = base64.b64encode(gzip.compress(json.dumps(state).encode())).decode()
