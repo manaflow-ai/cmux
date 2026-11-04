@@ -103,7 +103,8 @@ export function agentScript(stubUrl = ""): string {
         `python3 -c 'import json,os,sys; p=os.path.expanduser("~/.claude/settings.json"); c=json.load(open(p)) if os.path.exists(p) else {}; c.setdefault("env", {})["ANTHROPIC_BASE_URL"]=sys.argv[1]; json.dump(c, open(p, "w"))' ${stubUrl} || exit 94`
       ]
     : []
-  return [AGENT_LOGIN_LINES[0], AGENT_LOGIN_LINES[1], ...stub, ...AGENT_LOGIN_LINES.slice(2)].join("\n")
+  // After the PATH export and the cd (the first five lines), before the daemon restarts. Exit 94: the stub settings failed.
+  return [...AGENT_LOGIN_LINES.slice(0, 5), ...stub, ...AGENT_LOGIN_LINES.slice(5)].join("\n")
 }
 
 const AGENT_LOGIN_LINES = [
@@ -676,6 +677,8 @@ export async function runE2E(
     const password = env.CMUX_UITEST_STACK_PASSWORD ?? ""
     // With the model stub the login is made up here: the stub checks it arrived, and no real one exists.
     login = stubUrl ? `sk-ant-oat01-vaultstub-${deps.random()}${deps.random()}` : env.CLAUDE_CODE_OAUTH_TOKEN ?? ""
+    // A real login in the env of a stub run is never used, but is still masked and scanned for.
+    if (stubUrl && env.CLAUDE_CODE_OAUTH_TOKEN) hold(env.CLAUDE_CODE_OAUTH_TOKEN)
     if (!email || !password) throw new Refused("CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD must be set")
     hold(email)
     hold(password)
