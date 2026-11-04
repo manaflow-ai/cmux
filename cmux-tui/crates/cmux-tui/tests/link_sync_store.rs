@@ -78,7 +78,7 @@ fn answer_http(mut connection: std::net::TcpStream, store: &Store) {
     let (method, path) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
     let person = bearer == CREDENTIAL;
     let (status, reply): (&str, Vec<u8>) = match (method, path) {
-        _ if !person && !(method == "GET" && bearer == GRANT) => ("401 Unauthorized", vec![]),
+        _ if !(person || (method == "GET" && bearer == GRANT)) => ("401 Unauthorized", vec![]),
         ("POST", "/v1/sync/blobs/missing") => {
             let asked: Value = serde_json::from_slice(&body).unwrap();
             let blobs = store.blobs.lock().unwrap();
@@ -280,7 +280,7 @@ struct Measured {
 
 impl Measured {
     /// Bytes that left the Mac: over the link plus up to the store.
-    fn from_mac(&self) -> u64 {
+    fn sent_from_mac(&self) -> u64 {
         self.link + self.uploaded
     }
 }
@@ -336,7 +336,11 @@ fn the_store_moves_each_blob_from_the_mac_once_and_the_link_copy_stays_the_fallb
     assert_eq!(second.summary["store"]["used"], true, "{}", second.summary);
     same_tree(&repo, &b.home.join("work/app"));
     // A second machine costs the Mac only the plan and the control lines.
-    assert!(second.from_mac() < 1024 * 1024, "second machine moved {}", second.from_mac());
+    assert!(
+        second.sent_from_mac() < 1024 * 1024,
+        "second machine moved {}",
+        second.sent_from_mac()
+    );
 
     // A one-file edit: only that file's blob goes up.
     let edited = repo.join("src/m3/f3.rs");
@@ -385,9 +389,9 @@ fn the_store_moves_each_blob_from_the_mac_once_and_the_link_copy_stays_the_fallb
     let row = |name: &str, before: &Measured, after: &Measured| {
         eprintln!(
             "| {name} | {} B, {} ms | {} B ({} B link + {} B store), {} ms |",
-            before.from_mac(),
+            before.sent_from_mac(),
             before.millis,
-            after.from_mac(),
+            after.sent_from_mac(),
             after.link,
             after.uploaded,
             after.millis

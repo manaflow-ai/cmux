@@ -691,7 +691,7 @@ fn finish_deferred(
     remote: &mut Remote,
     deferred: &[(&String, &LocalFile, String, u64)],
     pending: &[store::Pending<'_>],
-    refused: Option<&std::collections::BTreeSet<String>>,
+    refused: Option<&BTreeSet<String>>,
     mut part: serde_json::Value,
     next: &mut Manifest,
     summary: &mut Summary,

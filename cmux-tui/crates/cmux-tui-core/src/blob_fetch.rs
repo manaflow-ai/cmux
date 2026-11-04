@@ -325,10 +325,11 @@ impl BlobFetchService {
         let origin = checked_origin(&params.store.origin)?;
         let store = Store { origin, grant: params.store.grant };
         let mut jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
-        // The same plan again is that job, unless it failed (a retry runs again).
+        // The same plan while its job still runs is that job. A finished one
+        // runs again: a file it wrote may have changed on this machine since.
         if let Some(job) = jobs.by_id.values().find(|job| {
             job.plan == params.plan
-                && job.status.lock().unwrap_or_else(PoisonError::into_inner).state != State::Failed
+                && job.status.lock().unwrap_or_else(PoisonError::into_inner).state == State::Running
         }) {
             return Ok(job.answer());
         }

@@ -159,11 +159,16 @@ fn a_plan_writes_every_file_from_its_chunks_with_its_permissions() {
         |name: &str| std::fs::metadata(home.path.join(name)).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode("proj/src/run.sh"), 0o755);
     assert_eq!(mode("proj/empty"), 0o600);
-    // The same plan again is the same job; nothing is fetched twice.
+    // The same plan after its job finished runs again: a file it wrote may
+    // have changed here since, and the push means the plan's bytes.
+    std::fs::write(home.path.join("proj/a.txt"), b"changed on the machine").unwrap();
     let served = store.served.lock().unwrap().len();
     let again = start(&service, &store.origin, &plan);
-    assert_eq!(again["data"]["job"], job.as_str());
-    assert_eq!(store.served.lock().unwrap().len(), served);
+    let second = again["data"]["job"].as_str().unwrap().to_string();
+    assert_ne!(second, job);
+    assert_eq!(wait(&service, &second)["data"]["state"], "done");
+    assert_eq!(std::fs::read(home.path.join("proj/a.txt")).unwrap(), small);
+    assert!(store.served.lock().unwrap().len() > served, "the second job fetched nothing");
 }
 
 #[test]
