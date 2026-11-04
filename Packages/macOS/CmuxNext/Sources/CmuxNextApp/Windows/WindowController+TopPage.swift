@@ -51,7 +51,7 @@ extension WindowController {
 
     /// Leaving the top page shows a workspace, not classic Home's page again (`showWorkspace`, `showsHomePage`).
     var leavingShowsWorkspace: Bool {
-        guard let id = state.workspaceID ?? services.windows.registry.members(of: state.id).first, let (workspace, _) = services.machines.workspace(id: id) else { return false }
+        guard let (workspace, _) = state.workspaceID.flatMap(services.machines.workspace(id:)) ?? firstListedWorkspace else { return false }
         return !(services.home.dock.isClassic && workspace.kind == "home" && services.sidebarLayout.document.hidesHome)
     }
 

@@ -249,10 +249,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) { return showsHomePage(instead: workspace) ? () : show(workspace, on: daemon) }
         if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) || showPausedMachine(state.machineID) { return }
         if let requested, services.windows.claims.awaits(requested, in: state.id) { return content == nil ? showConnecting() : () }  // keeps the request
-        let members = services.windows.registry.members(of: state.id)
-        if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first { return showsHomePage(instead: workspace) ? () : show(workspace, on: daemon) }
+        if let (workspace, daemon) = firstListedWorkspace { return showsHomePage(instead: workspace) ? () : show(workspace, on: daemon) }
         // Keep what is shown (it stays until the manager closes or refills this window); a window with nothing yet waits.
         if content == nil { showConnecting() }
+    }
+
+    /// The first workspace this window lists that a machine holds: what `showWorkspace` shows when its request names none.
+    var firstListedWorkspace: (WorkspaceModel, DaemonService)? {
+        services.windows.registry.members(of: state.id).lazy.compactMap({ self.services.machines.workspace(id: $0) }).first
     }
 
     /// The local daemon's first connection, connecting or unavailable, until a workspace shows.

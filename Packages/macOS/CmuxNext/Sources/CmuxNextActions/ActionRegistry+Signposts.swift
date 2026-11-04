@@ -4,8 +4,10 @@ extension ActionRegistry {
     /// Runs one action run's synchronous work inside ``runTiming`` (always-on `action.perform` and
     /// `action.commit` signposts, in Debug and Release). Every run that does work passes here: the
     /// handler (`runScoped`) and a key window's route. Refused runs (disabled feature, unavailable,
-    /// refused target) do no work and record nothing. Gates (the confirmation presenter, the
-    /// argument collector) are timed apart, by ``gated(_:_:_:)``.
+    /// refused target) do no work and record nothing. A person's leave of a top page
+    /// (`leavesTopPage`) runs inside the timing, just before the handler: its workspace swap is part
+    /// of the run, and a run its guard refuses after the leave is recorded (the window changed).
+    /// Gates (the confirmation presenter, the argument collector) are timed apart, by ``gated(_:_:_:)``.
     ///
     /// `index` is the action's interned timing index (``Action/timingIndex``).
     func signposted<T>(_ id: ActionID, index: UInt32, _ invocation: ActionInvocation, _ run: () -> T) -> T {

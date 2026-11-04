@@ -19,6 +19,10 @@ public struct WindowFrame: Codable, Sendable, Hashable {
         self.width = width
         self.height = height
     }
+
+    public init(rect: CGRect) { self.init(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height) }
+
+    public var rect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
 }
 
 /// One restorable window.

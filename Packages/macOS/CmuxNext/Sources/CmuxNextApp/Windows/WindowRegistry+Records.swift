@@ -80,14 +80,6 @@ extension WindowRegistry {
     }
 }
 
-extension WindowFrame {
-    init(rect: CGRect) {
-        self.init(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height)
-    }
-
-    var rect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
-}
-
 // MARK: Docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md)
 
 extension WindowDocks {
