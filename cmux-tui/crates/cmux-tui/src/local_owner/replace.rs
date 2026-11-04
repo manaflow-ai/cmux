@@ -387,18 +387,19 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
         match connection.read(&mut chunk[..read_len]) {
             Ok(0) => return Probe::Answered,
             Ok(count) => {
+                let previous_len = line.len();
                 line.extend_from_slice(&chunk[..count]);
-                if let Some(end) = line.iter().position(|byte| *byte == b'\n') {
-                    line.truncate(end + 1);
+                if line.len() > super::identify::RESPONSE_LIMIT {
+                    // Malformed input is not evidence authorizing replacement.
+                    return Probe::Answered;
+                }
+                if let Some(end) = chunk[..count].iter().position(|byte| *byte == b'\n') {
+                    line.truncate(previous_len + end + 1);
                     return if super::identify::is_refusal(&line) {
                         Probe::Refused
                     } else {
                         Probe::Answered
                     };
-                }
-                if line.len() > super::identify::RESPONSE_LIMIT {
-                    // Malformed input is not evidence authorizing replacement.
-                    return Probe::Answered;
                 }
             }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
