@@ -108,6 +108,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
     /// Browsers this pane showed before, kept in place and hidden, oldest
     /// first (`PaneContentView+Parking`).
     var parked: [ParkedContent] = []
+    private weak var laidOutContent: NSView? // the content `layout` last laid out by hand: new content gets it once
     let browserChrome = BrowserPaneChrome()  // the pane's browser tabs' one chrome
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and
@@ -203,13 +204,12 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
         if hostsContent, !contentHost.isHolding, let content {
             let resized = content.frame != contentHost.bounds
             if resized { content.frame = contentHost.bounds }
-            // Content shown before the pane had its size (a restored selected
-            // tab) was laid out at that size. A browser chrome lays out its
-            // toolbar and page area by constraints from its own bounds: left
-            // to AppKit's follow-up pass it can keep the stale frames (page
-            // area 0 high at the bottom, toolbar under it) until a tab switch.
-            // Lay it out at its new size now, in this pass (a descendant).
-            if hostChanged || resized {
+            // Content shown before the pane had its size (a restored selected tab) was laid out at that size, and content new
+            // here (install sized it; a relaunch's restored browser tab kept its toolbar at zero). A browser chrome lays out its
+            // toolbar and page area by constraints from its own bounds: left to AppKit's follow-up pass it can keep the stale
+            // frames until a tab switch or the page asks. Lay it out now, in this pass (a descendant).
+            if hostChanged || resized || laidOutContent !== content {
+                laidOutContent = content
                 content.needsLayout = true
                 content.layoutSubtreeIfNeeded()
             }
