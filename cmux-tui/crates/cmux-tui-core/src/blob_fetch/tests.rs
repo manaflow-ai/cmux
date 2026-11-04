@@ -521,3 +521,54 @@ fn a_plan_file_outside_the_jobs_folder_fails_the_plan() {
     assert_eq!(done["data"]["error_code"], "blob.bad_plan", "{done}");
     assert!(!home.path.join("elsewhere/f").exists());
 }
+
+#[test]
+fn a_job_that_wrote_is_kept_until_forgotten_however_many_finish_after_it() {
+    let home = Home::new("kept");
+    std::fs::create_dir_all(home.path.join("proj")).unwrap();
+    std::fs::create_dir_all(home.path.join("other")).unwrap();
+    let bytes = b"fetched".to_vec();
+    let path = home.path.join("proj/f");
+    let plan = json!({"version": 1, "files": [
+        {"path": path.to_str().unwrap(), "permissions": 0o644,
+         "size": bytes.len(), "sha256": sha(&bytes)},
+    ]})
+    .to_string()
+    .into_bytes();
+    let store = FakeStore::start(HashMap::from([(sha(&plan), plan.clone()), (sha(&bytes), bytes)]));
+    let service = BlobFetchService::new(Roots::new([home.path.clone()]));
+    let proj = home.path.join("proj").to_str().unwrap().to_string();
+    let other = home.path.join("other").to_str().unwrap().to_string();
+    // A push whose client died after this commit, before its manifest named it.
+    let wrote = start_under(&service, &store.origin, &plan, &proj)["data"]["job"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(wait(&service, &wrote)["data"]["state"], "done");
+    // More jobs than are kept finish after it, each writing nothing (the
+    // store has no such plan).
+    for index in 0..super::KEPT_FINISHED + 8 {
+        let missing = format!("missing plan {index}").into_bytes();
+        let started = start_under(&service, &store.origin, &missing, &other);
+        let job = started["data"]["job"].as_str().unwrap().to_string();
+        assert_eq!(wait(&service, &job)["data"]["state"], "failed");
+    }
+    // The next push there still reads what it wrote.
+    let cancel = |target: &str| {
+        let line = json!({"id": 4, "cmd": "blob.fetch.cancel", "target": target}).to_string();
+        answer_line(Some(&service), true, &line)
+    };
+    let fenced = cancel(&proj);
+    assert_eq!(fenced["data"]["jobs"], json!([wrote]), "{fenced}");
+    let line =
+        json!({"id": 5, "cmd": "blob.fetch.status", "job": wrote, "written_from": 0}).to_string();
+    let page = answer_line(Some(&service), true, &line);
+    assert_eq!(page["data"]["written"][0]["path"], path.to_str().unwrap(), "{page}");
+    // Jobs that wrote nothing are still dropped past the limit.
+    let elsewhere = cancel(&other);
+    assert_eq!(elsewhere["data"]["jobs"].as_array().unwrap().len(), super::KEPT_FINISHED);
+    // Forgotten, it goes.
+    let forget = json!({"id": 6, "cmd": "blob.fetch.forget", "jobs": [wrote]}).to_string();
+    assert_eq!(answer_line(Some(&service), true, &forget)["data"]["forgotten"], 1);
+    assert_eq!(cancel(&proj)["data"]["jobs"], json!([]));
+}

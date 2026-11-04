@@ -24,6 +24,10 @@ concurrency:
   group: labels-sync${{ github.event_name == 'pull_request' && format('-pr-{0}', github.event.pull_request.number) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   validate:
     if: github.event_name == 'pull_request'
