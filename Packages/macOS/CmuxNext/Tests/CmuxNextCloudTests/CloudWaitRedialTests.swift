@@ -11,7 +11,7 @@ import Testing
 struct CloudWaitRedialTests {
     /// A machine's link whose receiver answers only from `upAt` on the test's clock: a dial before then ends the link.
     @MainActor @Observable
-    private final class LateReceiver {
+    final class LateReceiver {
         let clock: ManualClock
         let upAt: Duration
         var dials = 0
