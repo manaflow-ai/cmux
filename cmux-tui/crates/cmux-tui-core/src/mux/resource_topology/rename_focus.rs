@@ -91,9 +91,13 @@ impl Mux {
                 let screen_id = resolved.path.screen.context("screen selector has no public id")?;
                 let (workspace_index, screen_index) =
                     find_screen(state, screen).context("resolved screen disappeared")?;
-                let topology = registry.resource_topology_scoped(std::slice::from_ref(
-                    &state.workspaces[workspace_index].public_id,
-                ))?;
+                let workspace_id = &state
+                    .workspaces
+                    .get(workspace_index)
+                    .context("resolved screen's workspace disappeared")?
+                    .public_id;
+                let topology =
+                    registry.resource_topology_scoped(std::slice::from_ref(workspace_id))?;
                 let mut durable = topology_screen(&topology, &screen_id)?.clone();
                 durable.name = name.clone();
                 let value = screen_value(
@@ -545,5 +549,5 @@ impl Mux {
 /// The public id of the workspace that holds `pane`.
 fn workspace_of_pane(state: &State, pane: PaneId) -> anyhow::Result<WorkspacePublicId> {
     let (workspace, _) = state.screen_of(pane).context("pane has no screen")?;
-    Ok(state.workspaces[workspace].public_id.clone())
+    Ok(state.workspaces.get(workspace).context("pane's workspace has no row")?.public_id.clone())
 }
