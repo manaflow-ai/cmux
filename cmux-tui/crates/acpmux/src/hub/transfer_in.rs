@@ -372,6 +372,8 @@ impl Hub {
         let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         if let Some(existing) = here.as_ref() {
             // A delayed bundle for an older owner must not replace a newer moved copy.
+            self.restore_ownership_epoch(existing)
+                .map_err(|e| transfer_error("store", format!("ownership epoch unreadable: {e}")))?;
             reject_stale_epoch(existing.ownership_epoch(), manifest_epoch(&manifest))?;
         }
         if here.is_some_and(|s| !self.moved_away(&s)) {
@@ -508,6 +510,8 @@ impl Hub {
         let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let old = old.filter(|s| self.moved_away(s));
         if let Some(existing) = old.as_ref() {
+            self.restore_ownership_epoch(existing)
+                .map_err(|e| transfer_error("store", format!("ownership epoch unreadable: {e}")))?;
             reject_stale_epoch(existing.ownership_epoch(), manifest_epoch(&manifest))?;
         }
         let replacing_durable = old.as_ref().is_some_and(|existing| {

@@ -108,10 +108,13 @@ fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
 /// Reads the fencing epoch persisted beside an outgoing transfer. Old bundles have no marker and
 /// are treated as epoch zero for compatibility with a daemon that predates fencing.
 pub(super) fn transfer_epoch(dir: &Path) -> Result<u64, RpcError> {
-    Ok(std::fs::read_to_string(dir.join("epoch"))
-        .ok()
-        .and_then(|raw| raw.trim().parse().ok())
-        .unwrap_or(0))
+    Ok(transfer_epoch_marker(dir)?.unwrap_or(0))
+}
+
+/// Reads the marker without treating a crash before marker creation as epoch zero. Callers that
+/// already have the session owner can safely use that owner epoch when this returns `None`.
+pub(super) fn transfer_epoch_marker(dir: &Path) -> Result<Option<u64>, RpcError> {
+    Ok(std::fs::read_to_string(dir.join("epoch")).ok().and_then(|raw| raw.trim().parse().ok()))
 }
 
 /// Reject a delayed request from an older owner. Missing epochs remain accepted for old clients;
@@ -375,24 +378,30 @@ impl Hub {
             ));
         }
         let dir = transfers_dir().join(&transfer_id);
-        let made = self
-            .export(session, &dir)
-            .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
-            .and_then(|bundle| {
-                // Check exactly what the target will restore, even if the live queue changed.
-                let approved_waiting = self.held_prompts(&bundle)?;
-                // A prompt the owner approved that still waits goes only to a receiver whose own
-                // `initialize` listed queue approval, which only the move's client sees (it holds
-                // the connection that sends the bundle, `cli/run/transfer.rs`): a client that
-                // does not say it checks that is refused (review of #28859).
-                if !approved_waiting.is_empty() && !gates_receiver {
-                    let why = "the move's client does not check that its receiver approves";
-                    return Err(approved_prompts_error(json!(approved_waiting), why));
-                }
-                let files = bundle_files(&bundle)
-                    .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))?;
-                Ok((files, approved_waiting))
-            });
+        // Publish the epoch marker before export creates the nested bundle. If the daemon dies
+        // after transfer_out is durable, restart/watch still has the fencing value to use.
+        let marker = std::fs::create_dir_all(&dir)
+            .and_then(|()| std::fs::write(dir.join("epoch"), epoch.to_string()))
+            .map_err(|e| RpcError::internal(format!("transfer: epoch marker: {e}")));
+        let made = marker.and_then(|()| {
+            self.export(session, &dir)
+                .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
+                .and_then(|bundle| {
+                    // Check exactly what the target will restore, even if the live queue changed.
+                    let approved_waiting = self.held_prompts(&bundle)?;
+                    // A prompt the owner approved that still waits goes only to a receiver whose own
+                    // `initialize` listed queue approval, which only the move's client sees (it holds
+                    // the connection that sends the bundle, `cli/run/transfer.rs`): a client that
+                    // does not say it checks that is refused (review of #28859).
+                    if !approved_waiting.is_empty() && !gates_receiver {
+                        let why = "the move's client does not check that its receiver approves";
+                        return Err(approved_prompts_error(json!(approved_waiting), why));
+                    }
+                    let files = bundle_files(&bundle)
+                        .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))?;
+                    Ok((files, approved_waiting))
+                })
+        });
         drop(guard);
         let (files, approved_waiting) = match made {
             Ok(made) => made,
@@ -547,7 +556,9 @@ impl Hub {
                 json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}),
             );
         }
-        check_epoch(session.ownership_epoch(), Some(transfer_epoch(&dir)?))?;
+        if let Some(epoch) = transfer_epoch_marker(&dir)? {
+            check_epoch(session.ownership_epoch(), Some(epoch))?;
+        }
         for q in session.queue() {
             self.remove_queued(session, &q.prompt_id);
         }
@@ -613,7 +624,9 @@ impl Hub {
                 "the move committed; the chat lives on the target",
             ));
         }
-        check_epoch(session.ownership_epoch(), Some(transfer_epoch(&dir)?))?;
+        if let Some(epoch) = transfer_epoch_marker(&dir)? {
+            check_epoch(session.ownership_epoch(), Some(epoch))?;
+        }
         let mut record = json!({"transferId": transfer_id});
         record.set("epoch", json!(session.ownership_epoch()));
         if let Some(reason) = reason {
