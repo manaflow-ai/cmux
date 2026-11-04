@@ -131,15 +131,19 @@ jobs:
             /*
             !/cmux-next-ios/verify/
           # The bisector reads the reconciler's read-only last-known-green ref below.
-          # No write token is available in this workflow.
-          persist-credentials: true
+          # Credentials stay disabled; the read step scopes its token to one fetch.
+          persist-credentials: false
 
       - name: Read last-known-green
         id: lkg
         continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set +e
-          git fetch --no-tags origin refs/heads/last-known-green:refs/remotes/origin/last-known-green >/dev/null 2>&1
+          auth=$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')
+          git -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --no-tags origin refs/heads/last-known-green:refs/remotes/origin/last-known-green >/dev/null 2>&1
+          unset auth GITHUB_TOKEN
           sha=$(git rev-parse refs/remotes/origin/last-known-green 2>/dev/null || true)
           case "$sha" in
             [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) echo "sha=$sha" >> "$GITHUB_OUTPUT" ;;
