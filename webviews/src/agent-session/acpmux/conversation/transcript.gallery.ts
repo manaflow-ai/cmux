@@ -1461,6 +1461,7 @@ export default agentPaneEntry({
       ready: { cloudMachineID: "vm_gallery_cloud" },
       snapshot: forkTurns(undefined, "Try another approach · Add retries to the fetch helper"),
       play: async (ctx) => {
+        await ctx.focus({ selector: "[contenteditable='true']" });
         await ctx.waitFor(() => ctx.document.querySelector('[aria-label="Try another approach · Add retries to the fetch helper"]'));
       },
     },
