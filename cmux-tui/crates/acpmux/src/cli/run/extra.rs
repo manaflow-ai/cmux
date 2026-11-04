@@ -775,6 +775,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 crate::cli::host_vault::forget_cmd(json_out).await
             }
         },
+        Command::Host(PeerCmd::Deps { cmd }) => crate::cli::machine_deps::run(cmd, json_out).await,
         Command::Host(PeerCmd::Consent { cmd }) => {
             let (screen, control, granted) = match cmd {
                 crate::cli::command_host::ConsentCmd::Grant { screen, control } => {
@@ -1032,9 +1033,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Ticket(cmd) => {
                     return crate::cli::pairing::ticket(client, cmd, json_out).await;
                 }
-                PeerCmd::Join { .. } | PeerCmd::Consent { .. } | PeerCmd::Vault { .. } => {
+                PeerCmd::Join { .. }
+                | PeerCmd::Consent { .. }
+                | PeerCmd::Vault { .. }
+                | PeerCmd::Deps { .. } => {
                     return Err(anyhow!(
-                        "host join, consent and vault are handled before daemon connection"
+                        "host join, consent, vault and deps are handled before daemon connection"
                     ));
                 }
             };
