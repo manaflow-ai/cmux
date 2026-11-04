@@ -2720,8 +2720,9 @@ function SlashMenu({
   const virtual = matches.length > 40;
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportPx, setViewportPx] = useState(SLASH_MAX_VIEWPORT_PX);
-  const wantedTop = virtual ? slashScrollForActive(active, matches.length, scrollTop, viewportPx) : 0;
-  const view = slashViewport(matches.length, wantedTop, viewportPx);
+  const [rowPx, setRowPx] = useState(SLASH_ROW_PX);
+  const wantedTop = virtual ? slashScrollForActive(active, matches.length, scrollTop, viewportPx, rowPx) : 0;
+  const view = slashViewport(matches.length, wantedTop, viewportPx, rowPx);
   const start = virtual ? view.start : 0;
   const end = virtual ? view.end : matches.length;
 
@@ -2746,13 +2747,20 @@ function SlashMenu({
       const padding = (parseFloat(css?.paddingTop ?? "0") || 0) + (parseFloat(css?.paddingBottom ?? "0") || 0);
       const height = Math.max(1, node.clientHeight - padding);
       setViewportPx((old) => (old === height ? old : height));
+      const row = node.querySelector<HTMLElement>(".acpmux-slash-row");
+      const measuredRow = row?.getBoundingClientRect().height ?? 0;
+      if (measuredRow > 0 && Number.isFinite(measuredRow)) {
+        setRowPx((old) => (Math.abs(old - measuredRow) < 0.5 ? old : measuredRow));
+      }
     };
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
     observer.observe(node);
+    const row = node.querySelector<HTMLElement>(".acpmux-slash-row");
+    if (row) observer.observe(row);
     return () => observer.disconnect();
-  }, [virtual]);
+  }, [virtual, matches.length]);
 
   useLayoutEffect(() => {
     const node = list.current;
@@ -2792,7 +2800,7 @@ function SlashMenu({
           ? (event) => {
               const top = event.currentTarget.scrollTop;
               setScrollTop(top);
-              const next = slashViewport(matches.length, top, viewportPx);
+            const next = slashViewport(matches.length, top, viewportPx, rowPx);
               const selected = slashActiveAfterScroll(active, matches.length, next);
               if (selected !== active) onHover(selected);
             }
