@@ -173,6 +173,9 @@ struct NotificationPopoverRow: View, Equatable {
                         // In the header, after the time, so it can never cover it.
                         if let shortcutHint {
                             ShortcutHintPill(text: shortcutHint, fontSize: 10, emphasis: 1.05)
+                                // The pill is taller than this line's text; lay it out at the text's
+                                // height so holding the modifier doesn't grow the row and jump the list.
+                                .padding(.vertical, -2)
                                 .padding(.trailing, 10)
                                 .shortcutHintTransition()
                                 // Decorative: a click on the hint must reach the row's Button underneath.

@@ -43,6 +43,35 @@ struct NotificationPopoverRowLayoutTests {
         #expect(pillEnd <= Self.rowWidth, "\(prefix)3: the hint ends at \(pillEnd), past the row")
     }
 
+    /// Holding the modifier must not change a row's height, or the whole list jumps on every
+    /// press and release of Cmd.
+    @Test("showing the shortcut hint keeps the row's height", arguments: ["⌘", "⌃⌥⇧⌘"])
+    func hintKeepsTheRowHeight(prefix: String) {
+        func height(showsHint: Bool) -> CGFloat {
+            _ = NSApplication.shared
+            let row = NotificationPopoverRow(
+                notification: TerminalNotification(
+                    id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+                    tabId: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+                    surfaceId: nil,
+                    title: "Agent finished",
+                    subtitle: "",
+                    body: "Ran the focused tests and pushed the branch",
+                    createdAt: Self.createdAt,
+                    isRead: false
+                ),
+                workspaceTitle: "main",
+                shortcut: prefix + "3",
+                showsShortcutHint: showsHint,
+                onOpen: {},
+                onClear: {},
+                onToggleRead: {}
+            )
+            return NSHostingView(rootView: row.frame(width: Self.rowWidth)).fittingSize.height
+        }
+        #expect(height(showsHint: true) == height(showsHint: false))
+    }
+
     private struct Rendered {
         let bitmap: NSBitmapImageRep
         /// Pixels per point.
