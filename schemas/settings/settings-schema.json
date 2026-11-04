@@ -40,6 +40,7 @@
               "tabs.cmdWClosesPinnedTabs",
               "tabs.verticalTabs",
               "tabs.verticalTabsExpandOnHover",
+              "tabs.hideLoneChatTab",
               "tabs.swapCmdTAndCmdN"
             ],
             "title" : {
@@ -6638,6 +6639,146 @@
       "title" : {
         "key" : "settings.tabs.verticalTabsExpandOnHover",
         "text" : "Expand Collapsed Vertical Tabs on Hover"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.hideLoneChatTab.help",
+        "text" : "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.hideLoneChatTab",
+      "keywords" : [
+        "tab",
+        "tabs",
+        "bar",
+        "strip",
+        "hide",
+        "lone",
+        "single",
+        "one",
+        "chat",
+        "top",
+        "row",
+        "minimal"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "hideLoneChatTab"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:tabs.hideLoneChatTab"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.tabs.hideLoneChatTab",
+        "text" : "Hide the Tab of a Chat Alone in Its Pane"
       },
       "validation" : "portable"
     },
