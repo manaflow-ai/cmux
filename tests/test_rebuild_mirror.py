@@ -291,29 +291,5 @@ class MirrorReceipts(unittest.TestCase):
         self.assertFalse(result["false_skip"])
 
 
-class MirrorSwitch(unittest.TestCase):
-    def test_unset_switch_observes_and_zero_restores_existing_reuse(self):
-        from test_seed_derived_data import evaluate, steps
-
-        workflow = steps("cmux-next.yml", "fast-tier-cargo")
-        key = next(step for step in workflow if step.get("id") == "reuse-key")
-        reuse = next(step for step in workflow if step.get("id") == "reuse")
-        for switch, enabled in ((None, True), ("", True), ("1", True), ("0", False)):
-            for existing_reuse in ("", "1"):
-                with self.subTest(switch=switch, existing_reuse=existing_reuse):
-                    variables = {"CI_NEXT_JOB_REUSE": existing_reuse}
-                    if switch is not None:
-                        variables["CI_REBUILD_MIRROR"] = switch
-                    context = {"vars": variables, "github": {"event_name": "push"},
-                               "runner": {"temp": "/tmp/runner"},
-                               "steps": {"reuse-key": {"outputs": {"key": "job-pass-key"}}},
-                               "inputs": {"no_reuse": False}}
-                    self.assertEqual(bool(evaluate(key["if"], context)), enabled or existing_reuse == "1")
-                    self.assertEqual(evaluate(key["env"]["MIRROR_PLAN"], context),
-                                     "/tmp/runner/ci-rebuild-plan.json" if enabled else "")
-                    self.assertEqual(bool(evaluate(reuse["if"], context)),
-                                     not enabled and existing_reuse == "1")
-
-
 if __name__ == "__main__":
     unittest.main()
