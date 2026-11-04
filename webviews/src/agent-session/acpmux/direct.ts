@@ -9985,6 +9985,10 @@ export class AcpmuxDirectClient {
       // A Send now still waiting for the cancel it causes is the live turn's, never the page's.
       interrupting: this.interrupting,
       awaiting: this.awaiting,
+      // The live chat's run of failed retries (`failedAttempts`): an older page's turns never join it.
+      lastFailure: this.lastFailure,
+      retrying: this.retrying,
+      openedRoot: this.openedRoot,
     };
     const held = new Map(this.rows);
     this.runningTurnId = undefined;

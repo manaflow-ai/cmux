@@ -194,3 +194,32 @@ async fn no_conversation_found_fails_one_turn_and_its_continuation_answers_fresh
     assert!(!session.meta().claude_conversation_lost, "the fresh start clears the mark");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Claude Code keeps one folder per working directory: a stub of the id in one folder beside the
+/// real conversation in another is no lost conversation. Only a store where no copy holds one is.
+#[test]
+fn a_stub_beside_the_real_conversation_in_another_folder_is_not_empty() {
+    let dir = scratch("claude-two-folders");
+    let sid = "0193a1c2-7b2e-7c3d-9e4f-5a6b7c8d9e0f";
+    let stub = format!("{{\"type\":\"last-prompt\",\"sessionId\":\"{sid}\"}}\n");
+    let real = format!(
+        "{{\"type\":\"user\",\"sessionId\":\"{sid}\",\"message\":{{\"role\":\"user\",\"content\":\"hi\"}}}}\n"
+    );
+    let write = |project: &str, body: &str| {
+        let folder = dir.join("projects").join(project);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join(format!("{sid}.jsonl")), body).unwrap();
+    };
+    assert!(!acpmux::adopt::claude_transcript_is_empty(&dir, sid), "no file is nothing to judge");
+    write("a-stub", &stub);
+    assert!(
+        acpmux::adopt::claude_transcript_is_empty(&dir, sid),
+        "a lone stub is a lost conversation"
+    );
+    write("b-real", &real);
+    assert!(
+        !acpmux::adopt::claude_transcript_is_empty(&dir, sid),
+        "the real conversation in another folder counts"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

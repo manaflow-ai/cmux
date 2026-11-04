@@ -25,9 +25,7 @@ const NO_CONVERSATION: &str = "No conversation found with session ID:";
 pub(super) fn no_conversation_found(tail: &[String], sid: &str) -> bool {
     !sid.is_empty()
         && tail.iter().any(|line| {
-            line.trim()
-                .strip_prefix(NO_CONVERSATION)
-                .is_some_and(|rest| rest.trim() == sid)
+            line.trim().strip_prefix(NO_CONVERSATION).is_some_and(|rest| rest.trim() == sid)
         })
 }
 

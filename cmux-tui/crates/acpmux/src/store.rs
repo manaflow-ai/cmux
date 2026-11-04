@@ -607,6 +607,10 @@ impl SessionMeta {
     /// Replace the native id, retaining only prior Claude ids as transcript authority.
     /// Explicit provenance prevents a non-Claude id entering history after a profile switch.
     pub fn set_agent_session_id(&mut self, next: Option<String>, family: &str) {
+        // The lost-conversation mark is the old conversation's: a new one is not lost.
+        if next != self.agent_session_id {
+            self.claude_conversation_lost = false;
+        }
         if let Some(next) = next.as_ref() {
             self.retired_agent_session_ids.retain(|id| id != next);
         }

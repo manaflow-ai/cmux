@@ -233,7 +233,27 @@ pub fn claude_transcript_is_empty(root: &Path, id: &str) -> bool {
     if !is_bare_id(id) {
         return false;
     }
-    let Some(file) = find_claude(root, id) else { return false };
+    // Claude Code keeps one folder per working directory: a stub in one may sit beside the real
+    // conversation in another, so the store is empty only when no copy holds a conversation.
+    let name = format!("{id}.jsonl");
+    let Ok(projects) = std::fs::read_dir(root.join("projects")) else { return false };
+    let mut found = false;
+    for project in projects.flatten() {
+        let file = project.path().join(&name);
+        if !file.is_file() {
+            continue;
+        }
+        found = true;
+        if !file_has_no_conversation(&file) {
+            return false;
+        }
+    }
+    found
+}
+
+/// Whether one Claude transcript file holds no `user` or `assistant` record in its first
+/// [`CONVERSATION_SCAN_LINES`] lines. False when it cannot be read or is longer.
+fn file_has_no_conversation(file: &Path) -> bool {
     let Ok(file) = std::fs::File::open(file) else { return false };
     let mut lines = 0usize;
     for line in BufReader::new(file).lines() {
