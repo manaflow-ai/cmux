@@ -925,7 +925,7 @@ mod tests {
     async fn recovery_finishes_persisted_verdict_after_reviewer_closed() {
         let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
         config.store.mode = crate::config::StoreMode::Memory;
-        let hub = Arc::new(Hub::new(config, Box::new(crate::store::MemoryStore::default())));
+        let hub = Hub::new(config, Box::new(crate::store::MemoryStore::default()));
         let parent = hub.insert_test_session(test_meta("parent", "idle", None));
         let reviewer = hub.insert_test_session(test_meta("reviewer", "closed", Some("parent")));
         hub.save_meta(&parent);
@@ -975,7 +975,7 @@ mod tests {
     async fn historical_cancelled_race_does_not_close_reopened_child() {
         let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
         config.store.mode = crate::config::StoreMode::Memory;
-        let hub = Arc::new(Hub::new(config, Box::new(crate::store::MemoryStore::default())));
+        let hub = Hub::new(config, Box::new(crate::store::MemoryStore::default()));
         let parent = hub.insert_test_session(test_meta("parent", "idle", None));
         let child = hub.insert_test_session(test_meta("cancel-child", "idle", Some("parent")));
         hub.save_meta(&parent);
