@@ -245,6 +245,37 @@ fn threads(_pid: u32) -> Vec<(u64, String, Duration)> {
     Vec::new()
 }
 
+/// The daemon threads that ran in EVERY window, and whether a new thread was made in every window:
+/// either is a periodic wake, however cheap each wake is (a 10 s timer passes a 5-switch budget).
+fn every_window(marks: &[Vec<(u64, String, Duration)>]) -> Vec<String> {
+    let windows: Vec<(Vec<u64>, bool)> = marks
+        .windows(2)
+        .map(|pair| {
+            let before: std::collections::HashMap<u64, Duration> =
+                pair[0].iter().map(|(h, _, t)| (*h, *t)).collect();
+            let ran = pair[1]
+                .iter()
+                .filter(|(h, _, t)| before.get(h).is_some_and(|was| t > was))
+                .map(|(h, _, _)| *h)
+                .collect();
+            let made = pair[1].iter().any(|(h, _, _)| !before.contains_key(h));
+            (ran, made)
+        })
+        .collect();
+    if windows.is_empty() {
+        return Vec::new();
+    }
+    let mut found: Vec<String> = marks[marks.len() - 1]
+        .iter()
+        .filter(|(h, _, _)| windows.iter().all(|(ran, _)| ran.contains(h)))
+        .map(|(h, name, _)| format!("thread {name}#{h:x} ran in every window"))
+        .collect();
+    if windows.iter().all(|(_, made)| *made) {
+        found.push("a new thread was made in every window".to_owned());
+    }
+    found
+}
+
 /// The threads of `pid` that ran in each window: name, handle, CPU, and whether the thread was
 /// new in that window.
 fn thread_report(marks: &[Vec<(u64, String, Duration)>]) -> String {
@@ -493,6 +524,10 @@ fn acpmux_daemon_with_finished_chats_has_no_periodic_wakeups() {
     }
     let sampled = busiest.map(|(p, _)| sample_of(p, &scratch)).unwrap_or_default();
     let ran = thread_report(&daemon_threads);
+    let periodic = every_window(&daemon_threads);
+    if !periodic.is_empty() {
+        report.push(format!("daemon: {}", periodic.join("; ")));
+    }
     println!("daemon threads that ran, per {WINDOW:?} window:\n{ran}");
     drop(streams);
     drop(daemon);
