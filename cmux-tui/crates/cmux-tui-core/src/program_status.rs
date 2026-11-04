@@ -12,9 +12,10 @@
 //! keyed by `updated_seq`. A record without `app` shows the app of its
 //! nearest ancestor that has one. A record that starts waiting on the user
 //! (`blocked`), fails (`error`) or finishes (`done`) raises one
-//! [`ProgramStatusAlert`], which the terminal's reader posts as a
-//! rate-limited terminal notification (the client shows a `done` only for a
-//! terminal the user cannot see).
+//! [`ProgramStatusAlert`], which the terminal's reader takes and rate-limits
+//! and the terminal publisher posts as a terminal notification, after the
+//! record's upsert (the client shows a `done` only for a terminal the user
+//! cannot see).
 //!
 //! Text is untrusted program output: display only, never interpreted.
 //! libghostty already removed control characters; this module also removes
