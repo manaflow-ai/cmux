@@ -6,6 +6,9 @@
 .acpmux-tray-grabber {
   --acpmux-grabber-band: 64px;
   --acpmux-grabber-height: 12px;
+  --acpmux-grabber-pill-height: 12px;
+  --acpmux-grabber-gap: 2px;
+  --acpmux-grabber-dot: 5px;
   position: absolute;
   z-index: 2;
   top: 0;
@@ -31,15 +34,15 @@
 .acpmux-tray-grabber__pill {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  height: 10px;
-  padding: 0 6px;
+  gap: var(--acpmux-grabber-gap);
+  height: var(--acpmux-grabber-pill-height);
+  padding: 0 var(--ds-space-1, 4px);
   border-radius: 0 0 6px 6px;
   background: color-mix(in srgb, var(--agent-text) 10%, transparent);
   box-shadow: inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 var(--acpmux-composer-edge, transparent);
-  font-size: 9px;
+  font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
-  line-height: 10px;
+  line-height: var(--acpmux-grabber-pill-height);
   opacity: 0;
   transition: opacity var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
 }
@@ -62,8 +65,8 @@
   transform: rotate(180deg);
 }
 .acpmux-tray-grabber__dot {
-  width: 5px;
-  height: 5px;
+  width: var(--acpmux-grabber-dot);
+  height: var(--acpmux-grabber-dot);
   border-radius: 50%;
   background: var(--agent-accent, var(--agent-text));
 }
@@ -88,9 +91,7 @@
    in the band, so the header under it keeps its words. */
 .acpmux-tray-band > .acpmux-tray-grabber {
   --acpmux-grabber-height: 8px;
-}
-.acpmux-tray-band > .acpmux-tray-grabber > .acpmux-tray-grabber__pill {
-  height: 8px;
+  --acpmux-grabber-pill-height: 8px;
 }
 @media (prefers-reduced-motion: reduce) {
   .acpmux-tray-grabber__pill {
