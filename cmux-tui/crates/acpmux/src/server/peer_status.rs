@@ -16,7 +16,9 @@ use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
-/// How long each peer may take to answer; they are asked at once.
+/// How long each peer may take to answer; they are asked at once. This is a status-response
+/// bound only: a timeout becomes an unreachable row and never gates a session wake.
+// timeout: status callers need a bounded fallback row for a dead peer.
 const PEER_BUDGET: Duration = Duration::from_secs(5);
 
 /// The next step an unreachable or unknown peer's row names.
