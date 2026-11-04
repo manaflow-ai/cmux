@@ -422,9 +422,7 @@
 }
 .acpmux-minimap__card[data-prompt] .acpmux-minimap__reply {
   height: auto;
-  /* Reply budgets are a settled 20px line even as body copy moves to 13/18. Keep the
-     fallback on the shared 20px title line token; callers can still provide the
-     measured per-card line height. */
+  /* Callers provide the measured body line height so a capped reply never exposes a partial row. */
   max-height: calc(var(--acpmux-minimap-reply-lines, 1) * var(--acpmux-minimap-reply-line-height, var(--text-title--line-height)));
   min-height: var(--acpmux-minimap-reply-line-height, var(--text-title--line-height));
 }

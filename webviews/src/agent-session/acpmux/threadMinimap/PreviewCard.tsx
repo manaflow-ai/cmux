@@ -242,10 +242,9 @@ export const PreviewCard = React.forwardRef<
         const oldTextLines = Math.min(2, promptLines) + naturalReplyLines;
         const lines = Math.max(1, Math.min(4, oldTextLines - promptLines));
         replyNode.style.setProperty("--acpmux-minimap-reply-lines", String(lines));
-        // Reply rows keep the settled 20px line budget even though prompt body copy measures at
-        // the denser 18px token. Store the shared token expression so max/min height stay aligned
-        // with the card's design scale without changing prompt wrapping.
-        replyNode.style.setProperty("--acpmux-minimap-reply-line-height", "var(--text-title--line-height)");
+        // The reply clamp must use the same measured row height as the prompt. Keeping the budget
+        // on the measured value prevents a partial next row when body copy uses the 18px token.
+        replyNode.style.setProperty("--acpmux-minimap-reply-line-height", `${lineHeight}px`);
       }
       // The budget sets the card's height, and with it where the card centers.
       place();
