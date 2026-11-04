@@ -1867,9 +1867,9 @@ function fallbackRowHeight(
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
   if (row.kind === "activity") {
     const items = visibleToolItems(row.items) ?? [];
-    // Successful discovery can leave no rendered steps; an originally empty activity keeps its
-    // legacy placeholder estimate. Find still has the original items and measures its opened row.
-    if (row.items?.length && !items.length) return 0;
+    // Successful discovery normally leaves no rendered steps, but keep a mountable slot so Find
+    // can reveal the original call before the row's ToolRows projection is expanded.
+    if (row.items?.length && !items.length) return finish(toolRowHeight());
     // The edited-files card (conversation/EditedFilesCard.tsx): a 58px head, and 34px for each of the first
     // three files and for "Show N more"; one file is named in the head. Otherwise tool rows
     // (`.cv-tools`: 2px above compact rows, with a small run gap), which is also how a copy inside

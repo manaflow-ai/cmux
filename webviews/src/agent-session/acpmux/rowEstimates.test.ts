@@ -605,7 +605,14 @@ test("hidden discovery contributes no compact height around coordination message
   const discovery: AcpmuxActivity = {
     kind: "tool",
     text: "ToolSearch",
-    tool: { id: "height-discovery", title: "ToolSearch", kind: "other", status: "completed", output: "Loaded 2 tools" },
+    tool: {
+      id: "height-discovery",
+      title: "ToolSearch",
+      kind: "other",
+      status: "completed",
+      provenance: { claudeTool: "ToolSearch" },
+      output: "Loaded 2 tools",
+    },
   };
   const activity = (items: AcpmuxActivity[], foldRun?: boolean): AcpmuxRow => ({
     id: "visible-run",
@@ -621,15 +628,16 @@ test("hidden discovery contributes no compact height around coordination message
     const failed = { ...discovery, tool: { ...discovery.tool!, status: "failed", output: "Discovery unavailable" } };
     expect(heightsOf([activity([failed, send], folded)])[0]).toBeGreaterThan(plain);
   }
-  expect(heightsOf([activity([discovery])])[0]).toBe(0);
-  expect(heightsOf([activity([discovery], true)])[0]).toBe(0);
+  expect(heightsOf([activity([discovery])])[0]).toBeGreaterThan(0);
+  expect(heightsOf([activity([discovery], true)])[0]).toBeGreaterThan(0);
   const answer = reply("discovery-answer", "Done.");
   const summary = footer("discovery-footer");
   const without = layoutConversation([answer, summary], 720);
   const withHidden = layoutConversation([answer, activity([discovery]), summary], 720);
   expect(withHidden.heights[0]).toBe(without.heights[0]);
-  expect(withHidden.tops[2]).toBe(without.tops[1]);
-  expect(withHidden.totalHeight).toBe(without.totalHeight);
+  expect(withHidden.heights[1]).toBeGreaterThan(0);
+  expect(withHidden.tops[2]).toBeGreaterThan(without.tops[1]);
+  expect(withHidden.totalHeight).toBeGreaterThan(without.totalHeight);
   // Preserve the pre-existing empty activity placeholder, rather than erasing unrelated rows.
   expect(heightsOf([activity([])])[0]).toBeGreaterThan(0);
 });

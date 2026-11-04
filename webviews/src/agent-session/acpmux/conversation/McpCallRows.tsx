@@ -152,9 +152,14 @@ export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActiv
     (typeof call.args === "object"
       ? Object.keys(call.args).some((key) => key !== "description")
       : String(call.args).trim().length > 0);
+  const hasDescription =
+    call.args != null &&
+    typeof call.args === "object" &&
+    !Array.isArray(call.args) &&
+    Object.prototype.hasOwnProperty.call(call.args, "description");
   const hasOutput = !isMcpLifecycleOutput(tool.output);
   const hasDetails = Boolean(
-    reveal > 0 || exec || hasArgs || hasOutput || images.length || video || failure || tool.diffs?.length,
+    reveal > 0 || exec || hasArgs || hasDescription || hasOutput || images.length || video || failure || tool.diffs?.length,
   );
   const labelRef = useRef<HTMLSpanElement>(null);
   const [clipped, setClipped] = useState(false);
