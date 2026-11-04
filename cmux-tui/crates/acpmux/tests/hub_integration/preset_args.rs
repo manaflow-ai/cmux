@@ -183,23 +183,17 @@ async fn context_inventory_follows_the_resolved_preset_at_each_real_start() {
             .and_then(|part| part.text.clone())
     };
     assert_eq!(text().as_deref(), Some(PROMPT_A));
-    c.request(
-        method::MUX_PRESETS,
-        json!({"name": "context", "set": {"systemPrompt": PROMPT_B}}),
-    )
-    .await
-    .unwrap();
+    c.request(method::MUX_PRESETS, json!({"name": "context", "set": {"systemPrompt": PROMPT_B}}))
+        .await
+        .unwrap();
     assert_eq!(text().as_deref(), Some(PROMPT_A), "an edit cannot rewrite the running launch");
     hub.kill(&session, false).await.unwrap();
     let got = argv_of(&hub, &mut c, id).await;
     assert_eq!(got[0], "--system-prompt-file", "{got:?}");
     assert_eq!(text().as_deref(), Some(PROMPT_B));
-    c.request(
-        method::MUX_PRESETS,
-        json!({"name": "context", "set": {"systemPrompt": null}}),
-    )
-    .await
-    .unwrap();
+    c.request(method::MUX_PRESETS, json!({"name": "context", "set": {"systemPrompt": null}}))
+        .await
+        .unwrap();
     hub.kill(&session, false).await.unwrap();
     c.request(
         method::SESSION_PROMPT,

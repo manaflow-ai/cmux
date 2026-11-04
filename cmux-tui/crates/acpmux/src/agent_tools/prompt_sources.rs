@@ -66,13 +66,10 @@ impl AgentTools {
     pub fn context_parts(&self, claude: bool) -> Vec<ContextPart> {
         let mut parts = Vec::new();
         let cmux = self.servers.iter().find(|server| server.name == "cmux");
-        let filtered = cmux.is_some_and(|server| {
-            server.env.iter().any(|(key, _)| key == MCP_TOOLS_ENV)
-        });
-        let code_mode = cmux.is_some_and(|server| {
-            !server.args.iter().any(|arg| arg == "--all-tools")
-                && !filtered
-        });
+        let filtered =
+            cmux.is_some_and(|server| server.env.iter().any(|(key, _)| key == MCP_TOOLS_ENV));
+        let code_mode = cmux
+            .is_some_and(|server| !server.args.iter().any(|arg| arg == "--all-tools") && !filtered);
         if cmux.is_some() {
             let (mode, instructions) = if code_mode {
                 ("code mode", CODE_MODE_INSTRUCTIONS)
@@ -93,11 +90,8 @@ impl AgentTools {
             ));
         }
         for server in &self.servers {
-            let placement = if server.name != "cmux" && cmux.is_some() {
-                "folded into cmux"
-            } else {
-                "stdio"
-            };
+            let placement =
+                if server.name != "cmux" && cmux.is_some() { "folded into cmux" } else { "stdio" };
             parts.push(source(
                 format!("mcp-server-{}", server.name),
                 "mcp-catalog",
@@ -197,7 +191,13 @@ mod tests {
             assert_eq!(base.channel.as_deref(), Some("mcp-instructions"));
             assert!(base.included && !base.editable);
             assert_eq!(base.measurement, "estimated");
-            assert_eq!(parts.iter().filter(|p| p.text.as_deref().is_some_and(|s| s.contains(ASKING_RULE))).count(), 1);
+            assert_eq!(
+                parts
+                    .iter()
+                    .filter(|p| p.text.as_deref().is_some_and(|s| s.contains(ASKING_RULE)))
+                    .count(),
+                1
+            );
         }
         let mut allowed = tools();
         allowed.servers[0].env.push((MCP_TOOLS_ENV.into(), "agents_snapshot".into()));
@@ -248,11 +248,15 @@ mod tests {
         let mut meta: crate::store::SessionMeta = serde_json::from_value(serde_json::json!({
             "schema":"acpmux.session.v1", "id":"s", "name":"s", "harness":"claude",
             "cwd":"/repo", "status":"idle", "createdAt":0, "updatedAt":0
-        })).unwrap();
+        }))
+        .unwrap();
         let cfg = crate::config::Config::default();
         let inspectable = |meta: &crate::store::SessionMeta| {
-            crate::context_inventory::inventory(meta, &cfg).parts.iter()
-                .filter(|p| p.id.starts_with("cmux-source-") && p.text.is_some()).count()
+            crate::context_inventory::inventory(meta, &cfg)
+                .parts
+                .iter()
+                .filter(|p| p.id.starts_with("cmux-source-") && p.text.is_some())
+                .count()
         };
         let before = inspectable(&meta);
         crate::context_inventory::record_tool_sources(&mut meta, parts.clone());
@@ -264,8 +268,11 @@ mod tests {
             parts.iter().filter(|p| p.text.is_some()).count(),
             serialized.len(),
             skills.iter().map(|p| p.tokens).sum::<u64>(),
-            SKILL_FILES.iter().filter(|(path, _)| path.ends_with("/SKILL.md"))
-                .map(|(_, text)| estimated_tokens(text)).sum::<u64>()
+            SKILL_FILES
+                .iter()
+                .filter(|(path, _)| path.ends_with("/SKILL.md"))
+                .map(|(_, text)| estimated_tokens(text))
+                .sum::<u64>()
         );
     }
 }

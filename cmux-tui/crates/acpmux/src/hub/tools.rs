@@ -54,7 +54,8 @@ impl Hub {
             crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
         let source_tools = tools.listing(all);
         // ACP receives its immutable server list without Claude's off switch.
-        let source_tools = if claude { source_tools.without_off(&profile.env) } else { source_tools };
+        let source_tools =
+            if claude { source_tools.without_off(&profile.env) } else { source_tools };
         let sources = source_tools.context_parts(claude);
         let preset = if !remote && claude {
             let argv = profile.argv.clone();

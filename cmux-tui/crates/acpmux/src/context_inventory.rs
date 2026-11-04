@@ -243,9 +243,10 @@ fn preset_part(text: String) -> ContextPart {
 /// Refresh only the preset part from the actual launch argv, after preset
 /// resolution. Reading later settings would describe a future launch instead.
 pub fn preset_source(argv: &[String]) -> Option<ContextPart> {
-    let file = argv.windows(2).rev().find_map(|words| {
-        (words[0] == "--system-prompt-file").then(|| &words[1])
-    })?;
+    let file = argv
+        .windows(2)
+        .rev()
+        .find_map(|words| (words[0] == "--system-prompt-file").then(|| &words[1]))?;
     std::fs::read_to_string(file).ok().map(preset_part)
 }
 
@@ -450,10 +451,12 @@ mod tests {
     #[test]
     fn preset_context_follows_actual_launch_file_after_edits_and_removal() {
         let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
-        let dir = std::env::temp_dir().join(format!("context-source-preset-{}", uuid::Uuid::now_v7()));
+        let dir =
+            std::env::temp_dir().join(format!("context-source-preset-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("prompt.md");
-        let argv = vec!["claude".into(), "--system-prompt-file".into(), path.to_string_lossy().into()];
+        let argv =
+            vec!["claude".into(), "--system-prompt-file".into(), path.to_string_lossy().into()];
         std::fs::write(&path, "first preset").unwrap();
         record_preset_source(&mut meta, preset_source(&argv));
         assert_eq!(meta.cmux_context.as_ref().unwrap()[0].text.as_deref(), Some("first preset"));
