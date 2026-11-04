@@ -117,6 +117,22 @@ extension SharedEdgeDuringSpringTests.Rig {
         }
     }
 
+    /// Every pane and divider frame shows `offset` along x from where it shows now and moves at `speed`, as a spring that
+    /// slides the whole strip does (its shared edges stay together); then the screen presents it.
+    func slideStrip(by offset: CGFloat, speed: CGFloat) throws {
+        let screen = try screen
+        for (pane, var frame) in screen.paneFrames {
+            (frame.x.value, frame.x.velocity) = (frame.x.value + offset, speed)
+            screen.paneFrames[pane] = frame
+        }
+        for (kind, var frame) in screen.dividerFrames {
+            (frame.x.value, frame.x.velocity) = (frame.x.value + offset, speed)
+            screen.dividerFrames[kind] = frame
+        }
+        screen.applyPresentation(force: true)
+        root.layoutSubtreeIfNeeded()
+    }
+
     /// Moves split x's line on the springs: b1's right edge, the divider and b2's left edge show `offset` from where
     /// they show now and move at `speed`, as a spring that carries the line does; then the screen presents it.
     func moveLine(by offset: CGFloat, speed: CGFloat) throws {

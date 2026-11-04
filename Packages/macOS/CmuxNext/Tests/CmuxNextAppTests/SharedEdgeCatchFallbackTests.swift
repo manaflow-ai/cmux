@@ -7,9 +7,12 @@ import Testing
 
 /// FRAME OWNER REFACTOR S2B, rule D's fallback (`DividerDrag.catchShown`): a press that cannot hold while the screen
 /// moves takes the drag from before S2B (`DividerDragState.sharedEdges` off: every frame it retargets snaps to its rest
-/// place). Two cases a real spring does not reach on cue, set up on the springs (#35036 and #35775 reviews):
+/// place). Cases a real spring does not reach on cue, set up on the springs (#35036 and #35775 reviews):
 /// - the strip camera still moves the line in view space (a focus scrolls the strip): stopping the line's own spring
 ///   cannot hold it where it is drawn;
+/// - a clamped press (the whole strip slides by more than a pane's minimum, b1 near its minimum): once the pointer takes
+///   the split off the clamp's spring, the split goes where the pointer puts it while b2's far edge still slides, so b2
+///   could show a negative width;
 /// - a pane whose size spring could carry it further under its rest size than a pane's minimum: b1 shrinks fast (its
 ///   divider flies toward B's left edge) when B's edge is pressed, and the drag then takes B to its minimum. Rule C
 ///   keeps each edge's spring through a drag, so b1 would show a negative width.
@@ -46,6 +49,33 @@ struct SharedEdgeCatchFallbackTests {
         #expect(keptRuleD == false, "the press kept rule D while the strip camera still moves the line")
         view.mouseUp(with: rig.event(.leftMouseUp, press))
         rig.root.syncWithModel()
+    }
+
+    @Test func aClampedPressWhoseReleaseCouldShowAPaneUnderZeroTakesTheOldDrag() throws {
+        // b1 13 pt above its minimum; the whole strip shows 100 pt more than a pane's minimum left of its rest and slides
+        // back: from b1's anchor's rest place the split's drawn line leaves b1 far under its minimum, so it clamps.
+        let rig = Rig()
+        defer { rig.window.closeAfterTest() }
+        let edges = try rig.sharedEdges()
+        let minimum = rig.root.context.style.minimumPaneSize.width
+        try rig.slideStrip(by: -(minimum + 100), speed: 20)
+
+        let view = try rig.handle(.split("x")), press = try rig.center(.split("x"))
+        view.mouseDown(with: rig.event(.leftMouseDown, press))
+        let keptRuleD = try rig.screen.activeDrag?.sharedEdges
+        #expect(keptRuleD == false, "the press kept rule D though taking the split off its clamp could show b2 under zero")
+        // The pointer far right in one move (the split stops at b2's minimum from b2's rest place), then held still.
+        var pointer = press
+        pointer.x += 600
+        view.mouseDragged(with: rig.event(.leftMouseDragged, pointer))
+        for tick in 1...12 { rig.frame(edges, "drag frame \(tick)") }
+        view.mouseUp(with: rig.event(.leftMouseUp, pointer))
+        rig.root.syncWithModel()
+        rig.land(edges, "landing")
+        // The old drag snaps the split's panes while a and c slide on: their shared edges open, as before S2B. No size
+        // may go under zero.
+        let negative = rig.misses.filter { $0.contains("negative size") }
+        #expect(negative.isEmpty, "\(negative.count) frames show a negative size (first 12):\n\(negative.prefix(12).joined(separator: "\n"))")
     }
 
     @Test func aPressWhoseDragCouldCarryAPaneUnderZeroBySpeedTakesTheOldDrag() throws {

@@ -43,7 +43,9 @@ import Testing
 /// - a whole column slides on a spring (A grows: B and C move as one) while B's edge or its split is dragged: the
 ///   dragged edge does not slide with its column, it stays where the pointer puts it;
 /// - a pane whose anchor moves toward the dragged edge (A's edge springs into B while b1's split is held): the edge
-///   stops at the anchor's place plus b1's minimum, never closer;
+///   stops at the anchor's place plus b1's minimum, never closer; a pointer that moves toward that place faster than
+///   the edge springs there, or past it, holds the edge: it never shows behind the pointer (the split, and B's column
+///   edge with B near its minimum width);
 /// - in every case the motion stops: within 2 s every pane and divider frame is at rest on its target.
 /// The test is the display clock (`driver.isManual`, 120 Hz) and checks every frame tick: the shared pane edges (side
 /// by side, and one above the other), the split divider against b1's edge, and that no pane or divider shows a
@@ -89,6 +91,11 @@ struct SharedEdgeDuringSpringTests {
         /// The same clamp; before the split reaches the clamp, the pointer moves past it: from that frame on the split is
         /// where the pointer puts it (the clamp's spring is dropped, not carried along).
         case pointerPassesTheClampBeforeItLands
+        /// The same clamp; the pointer moves toward it a quarter of the way each frame, faster than the split springs
+        /// there: the split never shows behind the pointer (the pointer takes over the part of the spring it passes).
+        case pointerChasesTheClamp
+        /// The same on B's column edge: A's edge springs into B by more than B has above its minimum width.
+        case pointerChasesTheColumnEdgeClamp
     }
 
     final class Panes: LayoutPaneContentProvider {
@@ -294,6 +301,8 @@ struct SharedEdgeDuringSpringTests {
         // minimum: the anchor's motion would clamp it, which anchorPushesSplitToMinimum tests on purpose).
         case .columnSlideThenSplitDrag, .keySpringThenSplitDrag, .keySpringThenPushDrag, .keySpringThenFlingRelease, .newPaneAtRelease:
             Rig(ratio: 0.5)
+        // B about 40 pt above its minimum width (b1 and b2 about 20 pt above theirs): A's growth clamps B's edge.
+        case .pointerChasesTheColumnEdgeClamp: Rig(widths: (0.3, 0.25, 0.2), ratio: 0.5)
         default: Rig()
         }
         defer { rig.window.closeAfterTest() }
@@ -436,6 +445,21 @@ struct SharedEdgeDuringSpringTests {
             let drawn = try rig.edge("b1", \.maxX), clamp = try rig.restEdge("b1", \.minX) + minimum
             try #require(clamp - drawn > 40, "the split is \(Rig.pt(clamp - drawn)) pt from the clamp: no clamp to pass")
             try rig.drag(.split("x"), dragged: "b1", moves: 1, step: (clamp - drawn + 30).rounded(), still: 12, floor: minimum, edges: edges)
+            rig.land(edges, "landing")
+        case .pointerChasesTheClamp, .pointerChasesTheColumnEdgeClamp:
+            // The clamp as above (on B's edge: B's minimum width from B's rest place); the pointer moves toward it a
+            // quarter of the way each frame for three frames, then holds still while the line goes on to the clamp.
+            let style = rig.root.context.style, onEdge = overlap == .pointerChasesTheColumnEdgeClamp
+            let column = try #require(rig.model.screens.first?.layout.columns.first { $0.id == "B" })
+            let floor = onEdge ? column.minimumSize(style: style).width : style.minimumPaneSize.width
+            let (kind, dragged): (DividerHandleView.Kind, PaneID) = onEdge ? (.columnEdge("B"), "b2") : (.split("x"), "b1")
+            let a = try #require(rig.model.screens.first?.layout.columns.first { $0.id == "A" }).width
+            rig.model.setColumnWidth("A", width: a + 0.07, transaction: .make(), phase: .ended)
+            rig.root.syncWithModel()
+            rig.frame(edges, "growth frame 1")
+            let drawn = try rig.edge(dragged, \.maxX), clamp = try rig.restEdge("b1", \.minX) + floor
+            try #require(clamp - drawn > 40, "the line is \(Rig.pt(clamp - drawn)) pt from the clamp: no clamp to chase")
+            try rig.drag(kind, dragged: dragged, moves: 3, step: ((clamp - drawn) / 4).rounded(), still: 12, floor: floor, edges: edges)
             rig.land(edges, "landing")
         case .clickDuringReleaseSpring:
             let room = try #require(try rig.screen.geometry.dividers.first { $0.id == "x" }).container.width

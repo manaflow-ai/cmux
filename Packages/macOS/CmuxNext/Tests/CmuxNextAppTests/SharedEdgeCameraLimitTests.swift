@@ -8,8 +8,9 @@ import Testing
 /// it. The strip's camera is a view offset, not the line's spring: when it starts to move after the press (a focus
 /// reveals another column during the drag), the held line goes with the strip. On screen it moves by the camera's
 /// travel, not with the still pointer, until the next pointer event puts it where the pointer says again (the press's
-/// drawn place plus the pointer's travel). The shared edges stay together all the way (the camera moves every strip
-/// frame alike). A press while the camera already moves takes the drag from before S2B (`SharedEdgeCatchFallbackTests`).
+/// drawn place plus the pointer's travel), within the split's limits as for any drag: past a limit the line stays at
+/// it. The shared edges stay together all the way (the camera moves every strip frame alike). A press while the camera
+/// already moves takes the drag from before S2B (`SharedEdgeCatchFallbackTests`).
 @MainActor
 @Suite(.closesItsWindows)
 struct SharedEdgeCameraLimitTests {
