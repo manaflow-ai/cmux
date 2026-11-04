@@ -420,7 +420,8 @@ struct ChiefDisabledHomeTests {
         #expect(manager.tabs.count == countBefore + 1)
         #expect(!manager.restoreClosedWorkspace(homeEntry))
         #expect(manager.tabs.count == countBefore + 1)
-        #expect(!manager.tabs.contains(where: \.holdsChiefPane))
+        let anyChief = manager.tabs.contains { $0.holdsChiefPane }
+        #expect(!anyChief)
     }
 
     @Test func removeHomeKeepsPanesTheUserAddedToHome() throws {
