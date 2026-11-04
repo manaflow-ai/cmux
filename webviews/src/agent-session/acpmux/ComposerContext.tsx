@@ -39,6 +39,14 @@ import {
   type OffloadKind,
 } from "./environments";
 import { FolderPopover } from "./FolderPopover";
+import { ExtraFolderList } from "./ExtraFolderList";
+import {
+  addExtraFolder,
+  draftFolders,
+  removeExtraFolder,
+  type ExtraFolderControl,
+  type ExtraFolderRows,
+} from "./extraFolders";
 import type { BrowseRequest, BrowseResult } from "./AddProjectPanel";
 import type { Project } from "./ProjectChooser";
 import { ProjectBadge } from "./ProjectBadge";
@@ -155,6 +163,7 @@ export function ComposerContext({
   runDetails,
   cloudWorksOn,
   cloudSignedIn: cloudSignedInSeam,
+  extraFolders,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -247,6 +256,11 @@ export function ComposerContext({
   cloudWorksOn?: string;
   /// Gallery seam; the app's Cloud account state (cloudMachines.ts) is used when omitted.
   cloudSignedIn?: boolean;
+  /// A new chat's extra folders (extraFolders.ts, acpmux `additionalDirectories`): the folder menu's
+  /// Add folder… adds one of the picked machine's folders, and each added one can be removed. The
+  /// list is the machine's: another machine picked starts over. `onBrowse` is this Mac's folder
+  /// chooser; another machine's folders are its listed ones or a typed path.
+  extraFolders?: ExtraFolderControl;
 }) {
   const t = useT();
   const composerSettings = useComposerSettings();
@@ -503,6 +517,8 @@ export function ComposerContext({
     if (pickCloudMachine(id)) return;
     if (waiting) setWaiting(undefined);
     if (!readOnly && id !== selectedComputer) {
+      // Folders are the machine's: another machine starts with none.
+      if (extraFolders?.draft && extraFolders.draft.machine !== id) extraFolders.onChange(undefined);
       setSelectedComputer(id);
       const folder = availableFolders(summary, sessions, id)[0]?.id;
       if (folder) onProject?.(folder, id === "local" ? undefined : id);
@@ -563,6 +579,26 @@ export function ComposerContext({
     pickComputer(id);
   };
   const folderShown = !savedPick && !(readOnly && !newChats && !currentFolder);
+  // The new chat's extra folders on the picked machine (a pick of the chat's own folder is never one).
+  const extraShown = extraFolders && !readOnly ? draftFolders(extraFolders.draft, selectedComputer) : undefined;
+  const extra: ExtraFolderRows | undefined =
+    extraFolders && extraShown
+      ? {
+          folders: extraShown,
+          onAdd: (path) => {
+            const next = addExtraFolder(extraShown, path, currentFolder);
+            if (next !== extraShown) extraFolders.onChange({ machine: selectedComputer, folders: next });
+          },
+          onRemove: (path) => {
+            const next = removeExtraFolder(extraShown, path);
+            if (next !== extraShown)
+              extraFolders.onChange(next.length > 0 ? { machine: selectedComputer, folders: next } : undefined);
+          },
+          ...(selectedComputer === "local" && extraFolders.onBrowse ? { onBrowse: extraFolders.onBrowse } : {}),
+        }
+      : undefined;
+  // The folder control says how many more folders the chat sees: "cmux +2".
+  const extraCount = extraShown && extraShown.length > 0 ? ` +${extraShown.length}` : "";
   // The strip's layout: a started chat (or one that cannot change) keeps the one combined control.
   const layout: StripLayout = readOnly || offload ? "combined" : stripLayout;
   // What every environment control shares: the list, the pick, setup and Cloud's run mode.
@@ -721,7 +757,11 @@ export function ComposerContext({
                     )
                   }
                   value={
-                    currentName ? currentName : noProject ? t(CONTEXT_LABELS.noProject) : t(CONTEXT_LABELS.chooseFolder)
+                    (currentName
+                      ? currentName
+                      : noProject
+                        ? t(CONTEXT_LABELS.noProject)
+                        : t(CONTEXT_LABELS.chooseFolder)) + extraCount
                   }
                   chevron
                   middle={currentFolder !== undefined}
@@ -738,18 +778,20 @@ export function ComposerContext({
               localName={localName}
               peers={peers}
               {...(folderNote && !currentFolder ? { note: folderNote } : {})}
+              {...(extra ? { extra } : {})}
             />
           ) : (
             <LocationPicker
               label={t(CONTEXT_LABELS.folder)}
               menu="Location"
-              value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
+              value={(currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)) + extraCount}
               options={folders}
               selected={currentFolder}
               disabled={readOnly && !newChats}
               icon={<FolderIcon />}
               middle={currentFolder !== undefined}
               allowPath
+              {...(extra ? { extra } : {})}
               onBrowse={newChats ? browseNewChat : undefined}
               extras={
                 newChats && currentFolder
@@ -1162,6 +1204,7 @@ function LocationPicker({
   onPick,
   onOpen,
   closeOnTrustAsk = false,
+  extra,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -1186,12 +1229,17 @@ function LocationPicker({
   onOpen?(): void;
   /// A trust question takes precedence over an open destination picker.
   closeOnTrustAsk?: boolean;
+  /// A new chat's extra folders on this machine (extraFolders.ts): Add folder… turns the list into a
+  /// pick of one more folder of it, and the ones added are listed under it.
+  extra?: ExtraFolderRows;
 }) {
   const [query, setQuery] = useState("");
+  const [addingExtra, setAddingExtra] = useState(false);
   const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
   const setOpen = (next: boolean) => {
     if (next && closeOnTrustAsk) return;
     setPopoverOpen(next);
+    if (!next) setAddingExtra(false);
   };
   const changeOpen = (next: boolean) => {
     setOpen(next);
@@ -1211,14 +1259,25 @@ function LocationPicker({
     () => (allowPath ? projectSuffixes(options.map((option) => ({ cwd: option.id, label: option.label }))) : undefined),
     [allowPath, options],
   );
+  const extraFolders = extra?.folders;
   const shown = useMemo(() => {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    return options.filter((option) =>
-      words.every((word) =>
-        [option.label, option.detail ?? "", suffixes?.get(option.id) ?? ""].join(" ").toLowerCase().includes(word),
-      ),
+    return options.filter(
+      (option) =>
+        // While adding, the chat's folder and the ones already added are not offered again.
+        !(addingExtra && (option.id === selected || extraFolders?.includes(option.id))) &&
+        words.every((word) =>
+          [option.label, option.detail ?? "", suffixes?.get(option.id) ?? ""].join(" ").toLowerCase().includes(word),
+        ),
     );
-  }, [options, query, suffixes]);
+  }, [options, query, suffixes, addingExtra, selected, extraFolders]);
+  // Add folder… gives the menu a fresh field (the Combobox's key): the keyboard stays in it.
+  useEffect(() => {
+    if (!addingExtra) return;
+    control.current?.ownerDocument
+      .querySelector<HTMLInputElement>(".acpmux-location-menu .acpmux-location-search")
+      ?.focus();
+  }, [addingExtra, control]);
   if (disabled)
     return (
       <span className="acpmux-location-picker" data-kind={kind}>
@@ -1232,7 +1291,8 @@ function LocationPicker({
       </span>
     );
   const pick = (id: string) => {
-    onPick(id);
+    if (addingExtra) extra?.onAdd(id);
+    else onPick(id);
     setOpen(false);
     setQuery("");
   };
@@ -1270,6 +1330,7 @@ function LocationPicker({
         flip={flip}
       >
         <Combobox
+          key={addingExtra ? "extra" : "pick"}
           suggestions={suggestions}
           onQuery={setQuery}
           onSubmit={(id) => {
@@ -1284,8 +1345,12 @@ function LocationPicker({
           onCommand={(event) => {
             if (event.key === "Escape") focusAfterEscape(trigger.current);
           }}
-          label={label}
-          placeholder={t(allowPath ? CONTEXT_LABELS.folderSearch : "composer.environmentSearch")}
+          label={addingExtra ? t("composer.addFolderSearch") : label}
+          placeholder={
+            addingExtra
+              ? t("composer.addFolderSearch")
+              : t(allowPath ? CONTEXT_LABELS.folderSearch : "composer.environmentSearch")
+          }
           inputClassName="acpmux-location-search block h-8 w-full min-w-60 appearance-none border-0 bg-transparent px-2 font-[inherit] text-fg outline-none placeholder:text-muted"
           listClassName="acpmux-location-folders m-0 list-none border-t-[0.5px] border-edge p-0 pt-1 [&:not([hidden])]:mt-1"
           itemClassName="acpmux-menu-item rounded-lg data-[highlighted]:bg-hover"
@@ -1294,7 +1359,7 @@ function LocationPicker({
             return allowPath ? [option?.label, id].filter(Boolean).join(" ") : (option?.label ?? id);
           }}
           completionText={(id) => (allowPath ? id : (options.find((option) => option.id === id)?.label ?? id))}
-          isItemCurrent={(id) => id === selected}
+          isItemCurrent={(id) => !addingExtra && id === selected}
           renderItem={(path) => {
             const folder = options.find((option) => option.id === path);
             const suffix = suffixes?.get(path);
@@ -1331,6 +1396,24 @@ function LocationPicker({
           inline
           keepHeight
         />
+        {extra && !addingExtra && (
+          <>
+            <ExtraFolderList folders={extra.folders} onRemove={extra.onRemove} />
+            <hr className="ui-separator" />
+            <button
+              type="button"
+              className="acpmux-menu-item acpmux-location-choose"
+              data-add-folder=""
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                setQuery("");
+                setAddingExtra(true);
+              }}
+            >
+              {t("composer.addFolder")}
+            </button>
+          </>
+        )}
         {extras && extras.length > 0 && <hr className="ui-separator" />}
         {extras?.map((extra) => (
           <button
