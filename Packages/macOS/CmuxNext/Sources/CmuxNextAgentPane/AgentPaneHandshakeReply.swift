@@ -15,6 +15,9 @@ enum AgentPaneHandshakeReply {
         }
         model.setCheckpointAvailable(false)
         model.pageCommands = []
+        // The store's start folder is read while acpmux connects, not after (Leo, 2026-11-03: "why does
+        // it even take time to read settings?"): ``AgentPaneStartFolders/apply(to:ready:model:)`` takes it.
+        model.startFolders.prefetch(for: model)
         do {
             var handshake = request == .ready
                 ? try await model.host.handshake(sessionId: model.sessionId)
@@ -24,10 +27,11 @@ enum AgentPaneHandshakeReply {
                 handshake.cwd = seed.cwd
                 handshake.draft = seed.draft
                 handshake.prompt = seed.prompt
+                handshake.promptAttachments = seed.promptAttachments
                 // A prompt a person's own action seeded goes out by itself with a single-use
                 // ticket bound to its promptId (cx-k21v gap 4, chief: person only). The seed hands
                 // its prompt out once, so a reload gets neither the prompt nor a ticket again.
-                if let prompt = seed.prompt, !prompt.isEmpty, seed.promptBy.sendsBySelf {
+                if (seed.prompt?.isEmpty == false || seed.promptAttachments?.isEmpty == false), seed.promptBy.sendsBySelf {
                     let issued = model.transport.gestures.issueSeedTicket()
                     handshake.promptTicket = AgentPaneHandshake.PromptTicket(promptId: issued.promptId, ticket: issued.ticket)
                 }
@@ -56,6 +60,7 @@ enum AgentPaneHandshakeReply {
             }
             if model.sessionId == nil, let folderNeeded = model.seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
             handshake.linkScheme = model.linkScheme
+            handshake.tab = model.tabKey()
             // A chat on another machine names that machine (its host set it), never this Mac.
             let localName = await AgentPaneModel.localMachineName?.value
             if handshake.machineName == nil { handshake.machineName = localName }

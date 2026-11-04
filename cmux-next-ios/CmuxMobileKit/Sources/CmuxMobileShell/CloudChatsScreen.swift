@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileAgentChat
+import CmuxMobileDesign
 import CmuxMobileLive
 import CmuxMobileNotifications
 import SwiftUI
@@ -167,7 +168,7 @@ private struct CloudMachineChatsScreen: View {
             } else if error != nil || relay?.error != nil || relay?.hub.lastError != nil {
                 ContentUnavailableView {
                     Label("Couldn't connect", systemImage: "cloud")
-                } actions: { Button("Retry") { refresh += 1 } }
+                } actions: { RetryButton { refresh += 1 } }
             } else {
                 ProgressView("Connecting…")
             }

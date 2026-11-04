@@ -108,6 +108,16 @@ class NewReds(unittest.TestCase):
         self.assertIn("webview test red step (base): test/a.test.ts > x", done.stdout)
         self.assertIn("::error title=Webview test red on this change::test/b.test.ts > y", done.stdout)
 
+    def test_a_named_pass_in_a_failed_rerun_clears_only_that_test(self):
+        done = self.run_rerun(
+            {"test/a.test.ts > passed": False, "test/a.test.ts > remains": False},
+            {"test/a.test.ts": True},
+            {"test/a.test.ts > passed": True, "test/a.test.ts > remains": False},
+        )
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("::warning title=Webview test passed again alone on the head::test/a.test.ts > passed", done.stdout)
+        self.assertIn("::error title=Webview test red on this change::test/a.test.ts > remains", done.stdout)
+
     def test_a_green_head_with_reds_only_on_the_base_is_green(self):
         done = self.run_it({"test/a.test.ts": True, "test/b.test.ts": True}, {"test/a.test.ts": False})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)

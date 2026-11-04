@@ -137,10 +137,24 @@ impl Hub {
         // The store an adopt reads: every Claude Code profile's is Claude's, whatever its family
         // (`claude-sr2`); the chat keeps `family` and the profile it was asked on.
         let store_family = crate::config::store_family(agent, &profile);
+        // The starter whose limits this chat takes (`start_mode.rs`, "Inherit"): a sub-session's
+        // parent, a starter in full access, or any starter under `holdAgentStartsToStarter`. Else
+        // the chat starts at the person's configured default, as a start with no starter does
+        // (user 2026-11-03: an agent in Manual left the chats it opened in Manual).
+        let held = self.config.read().await.hold_agent_starts_to_starter;
+        let limits_from = match starter.as_deref() {
+            Some(id) if !held && subsession.is_none() => {
+                let full = self.resolve(id).ok().is_some_and(|s| {
+                    self.caller_access(&s.meta()) == super::subsession_guard::Access::Full
+                });
+                full.then(|| id.to_owned())
+            }
+            _ => starter.clone(),
+        };
         // No policy asked: the defaults' when it is no wider than a starter's, else the starter's
         // own (`start_mode.rs`, "Inherit").
-        let inherits_policy = policy.is_none() && starter.is_some();
-        let policy = match (policy, starter.as_deref()) {
+        let inherits_policy = policy.is_none() && limits_from.is_some();
+        let policy = match (policy, limits_from.as_deref()) {
             (Some(asked), _) => Some(asked),
             (None, Some(id)) => {
                 let daemon = self.config.read().await.permission_policy;
@@ -234,6 +248,11 @@ impl Hub {
         });
         (meta.session_env, meta.chat_store, meta.adopted_cwd, meta.git_branch, meta.git_head) =
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
+        if !remote && adopt.is_none() {
+            let cfg = self.config.read().await;
+            meta.cmux_preset_prompt = crate::context_inventory::preset_override(&meta, &cfg);
+            meta.cmux_context = Some(crate::context_inventory::snapshot_session(&meta, &cfg));
+        }
         meta.workspace_id = workspace_id;
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
@@ -248,19 +267,16 @@ impl Hub {
         // disallowed tools, nor in a folder a sub-session start checked: a pooled harness started
         // wherever the path led. Never for an agent's create (`starter`): the warm agent is kept
         // for the person's next chat, which never waits behind a lane's start.
-        let pooled = match (&fixed_id, &adopt) {
-            (None, None)
-                if starter.is_none()
-                    && meta.session_env.is_empty()
-                    && route.is_none()
-                    && meta.tools.off.is_empty()
-                    && meta.additional_directories.is_empty()
-                    && checked_cwd.is_none() =>
-            {
-                self.pool_claim(&meta, &profile, &defaults.env).await
-            }
-            _ => None,
-        };
+        let claimable = fixed_id.is_none()
+            && adopt.is_none()
+            && starter.is_none()
+            && meta.session_env.is_empty()
+            && route.is_none()
+            && meta.tools.off.is_empty()
+            && meta.additional_directories.is_empty()
+            && checked_cwd.is_none();
+        let pooled =
+            if claimable { self.pool_claim(&meta, &profile, &defaults.env).await } else { None };
         // Every way out of here (an error, or this future dropped) before
         // `ensure_child` took the entry puts it back or ends it.
         let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));
@@ -441,14 +457,14 @@ impl Hub {
             // A proven agent starter's instead, never wider (`start_mode.rs`, "Inherit").
             let start_mode = if mode_eligible {
                 // Boxed, as the hold below: inline they outgrow a debug build's 2 MiB stack.
-                Box::pin(self.start_mode_for(&session, starter.as_deref())).await
+                Box::pin(self.start_mode_for(&session, limits_from.as_deref())).await
             } else {
                 None
             };
             if let Some(mode) = start_mode {
                 match self.set_mode(&session, &mode).await {
                     Ok(_) => {
-                        let starter = starter.as_deref();
+                        let starter = limits_from.as_deref();
                         self.inherited_full_access_is_cmux_only_if_theirs(&session, starter);
                     }
                     Err(err) => {
@@ -460,7 +476,7 @@ impl Hub {
             // Never asking less than the starter as it is now (it may have narrowed or left full
             // access meanwhile, or the child's family has no mode that asks): an inherited policy
             // is narrowed to the starter's, and the harness moved, else refused.
-            let starter = starter.as_deref();
+            let starter = limits_from.as_deref();
             Box::pin(self.hold_to_starter(&session, starter, inherits_policy, mode_eligible))
                 .await?;
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
@@ -477,7 +493,7 @@ impl Hub {
         }
         // An agent's create warms nothing: the pool is the person's (`pool/`).
         if adopt.is_none() && starter.is_none() {
-            self.pool_note_used(&session);
+            self.pool_note_used(&session, claimable);
         }
         creation_guard.disarm();
         Ok(session)
@@ -566,6 +582,11 @@ impl Hub {
         let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
+        // Harness startup can itself run repository hooks and write files.
+        let _repo_ready = super::repo_sync::wait(session, session.meta().cwd, || {
+            session.stops.load(Ordering::SeqCst) != stops
+        })
+        .await?;
         // One spawn at a time per session; a caller that waited here finds
         // the child the previous holder started. The idle pass never ends the harness meanwhile.
         self.touch(session);
@@ -1030,6 +1051,11 @@ impl Hub {
                 if resume.is_none() { Some(uuid::Uuid::now_v7().to_string()) } else { None };
             let effort = current_effort(&meta).unwrap_or_else(|| "default".into());
             let fast = current_option(&meta, "fast-mode").as_deref() == Some("on");
+            let suggestions = crate::claude_stdio::prompt_suggestions::chat_pick(current_option(
+                &meta,
+                crate::claude_stdio::prompt_suggestions::OPTION,
+            ));
+            let recap = current_option(&meta, crate::claude_stdio::RECAP_OPTION);
             let mode = meta
                 .modes
                 .as_ref()
@@ -1097,6 +1123,8 @@ impl Hub {
                     model: model.clone(),
                     effort: effort.clone(),
                     fast,
+                    prompt_suggestions: suggestions,
+                    recap: recap.clone(),
                     claude_session_id: known.clone(),
                 };
                 self.spawn_hosted_child(
@@ -1116,6 +1144,8 @@ impl Hub {
                     &effort,
                 );
                 *tr.fast.lock().await = fast;
+                tr.prompt_suggestions.store(suggestions, std::sync::atomic::Ordering::SeqCst);
+                tr.set_recap(recap.as_deref());
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);
                 }
@@ -1409,7 +1439,7 @@ impl Hub {
         }
         let opts: Vec<(String, Value)> = saved
             .config_options
-            .as_ref()
+            .as_deref()
             .and_then(Value::as_array)
             .map(|a| {
                 a.iter()
@@ -1473,7 +1503,7 @@ impl Hub {
     /// Remember the models an agent lists so the picker can show them for
     /// harnesses without a live session.
     pub(super) fn remember_models(&self, agent: &str, meta: &SessionMeta) {
-        self.remember_models_from(agent, meta.config_options.as_ref(), meta.models.as_ref());
+        self.remember_models_from(agent, meta.config_options.as_deref(), meta.models.as_ref());
     }
 
     fn remember_models_from(
@@ -1718,6 +1748,12 @@ impl Hub {
         session: &Arc<Session>,
         stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
+        // A live full-access harness may execute tools without permission RPCs.
+        // Wait before handing it a new prompt, including the already-live path.
+        let _repo_ready = super::repo_sync::wait(session, session.meta().cwd, || {
+            session.stops.load(Ordering::SeqCst) != stops
+        })
+        .await?;
         // A watched chat starts no agent until Take Over: every lazy start (warm, model, mode, fork).
         if session.meta().watching.is_some() {
             return Err(super::watch::read_only());

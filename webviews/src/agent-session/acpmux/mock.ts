@@ -39,6 +39,10 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockCapabilities?: string[];
   /** Gallery only: `session/new` refuses with `trust.pending` until `acp.trust.set` trusts a folder. */
   cmuxAcpmuxMockTrustPending?: boolean;
+  /** `?mock&slowDaemon` fixture: keep the socket open while one RPC answers slowly. */
+  cmuxAcpmuxMockSlowMethod?: string;
+  /** Delay for `cmuxAcpmuxMockSlowMethod`; tests use a short delay, the gallery uses six seconds. */
+  cmuxAcpmuxMockSlowMs?: number;
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -113,7 +117,7 @@ export function mockReply(prompt: string): string {
 
 type Update = Record<string, unknown>;
 /// One scripted step: an ACP `session/update`, or a daemon (mux) event.
-type Step = { update: Update } | { mux: string; msg?: Record<string, unknown> };
+type Step = { update: Update; meta?: Record<string, unknown> } | { mux: string; msg?: Record<string, unknown> };
 /// A recorded turn to replay instead of the scripted one (the screenshot harness,
 /// `webviews/scripts/agent-pane`). `atMs` stamps a step that far after the turn
 /// started, so durations read as recorded; steps are delivered without pacing.
@@ -403,6 +407,8 @@ export class MockAcpmuxSocket {
       method: `acpmux ${method}`,
       params,
     });
+    const { cmuxAcpmuxMockSlowMethod: slowMethod, cmuxAcpmuxMockSlowMs: slowMs } = globalThis as MockAuthGlobals;
+    if (slowMethod === method) await this.delay(typeof slowMs === "number" ? slowMs : 6_000);
     if (Object.values(HANDOFF_OPS).includes(method as any)) return this.handoffs.answer(method, params);
     switch (method) {
       // The mock serves forks, so the pane's fork action can be tried before acpmux ships it.
@@ -458,6 +464,13 @@ export class MockAcpmuxSocket {
       case "_acpmux/attach": {
         this.attached = target;
         const page = this.page(target, params, true);
+        // A chat whose last turn left a suggestion: acpmux sends it live, never in a page.
+        const suggestion = mockSessions.find((entry) => entry.sessionId === target)?.suggestion;
+        if (suggestion)
+          setTimeout(() => {
+            if (this.attached === target)
+              this.emit(target, { update: { sessionUpdate: "prompt_suggestion", suggestion } });
+          }, 0);
         // Opening a session reads it; it keeps its place in the list.
         if (this.sessions.find((entry) => entry.sessionId === target)?.unread)
           this.touch(target, { unread: false }, false);
@@ -884,7 +897,9 @@ export class MockAcpmuxSocket {
     const wanted = (event: EventRecord) =>
       kinds.length === 0 ||
       kinds.includes(event.kind) ||
-      (event.kind !== "available_commands_update" && kinds.includes("transcript"));
+      (event.kind !== "available_commands_update" &&
+        event.kind !== "prompt_suggestion" &&
+        kinds.includes("transcript"));
     const after = Number(params.afterSeq ?? 0);
     const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
     const newest = params.beforeSeq !== undefined || (attach && params.afterSeq === undefined);
@@ -929,7 +944,10 @@ export class MockAcpmuxSocket {
             at,
             dir: "in",
             kind: String(step.update.sessionUpdate),
-            msg: { method: "session/update", params: { sessionId: target, update: step.update } },
+            msg: {
+              method: "session/update",
+              params: { sessionId: target, update: step.update, ...(step.meta && { _meta: step.meta }) },
+            },
           }
         : { sessionId: target, seq: this.seq, at, dir: "mux", kind: step.mux, msg: step.msg ?? {} };
     this.events.push(event);

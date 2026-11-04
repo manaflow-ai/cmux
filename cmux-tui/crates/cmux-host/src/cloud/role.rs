@@ -293,7 +293,7 @@ pub fn resolve_daemon_info(paths: &Paths) -> Result<DaemonInfo, String> {
     let recorded = fs::read_to_string(paths.at(DAEMON_INFO_FILE))
         .map_err(|_| "no daemon identify and no recorded daemon.json".to_owned())?;
     let info: DaemonInfo = serde_json::from_str(&recorded).map_err(|e| e.to_string())?;
-    Ok(info.with_activity(false))
+    Ok(info.with_activity(false, false, false))
 }
 
 /// `wg genkey | wg pubkey` (wireguard-tools in the base image).
@@ -469,6 +469,9 @@ struct Worker {
     bootstrap: Option<super::bootstrap_role::WorkerBridge>,
     bootstrap_retry_at: Option<u64>,
     bootstrap_backoff: Backoff,
+    /// The Native receiving failure last logged, so a retry loop logs each
+    /// new reason once instead of failing silently or flooding the journal.
+    bootstrap_last_error: Option<String>,
     paths: Paths,
     store: FileStore,
     instance_id: String,
@@ -511,6 +514,7 @@ impl Worker {
             bootstrap: None,
             bootstrap_retry_at: None,
             bootstrap_backoff: Backoff::new(1_000, 30_000),
+            bootstrap_last_error: None,
             store: FileStore::new(paths.clone()),
             paths,
             instance_id,
@@ -1158,6 +1162,9 @@ fn agent_ask(line: &str) -> Option<Ask> {
     }
     if let Some(ask) = msg.get(super::github_repos::REQUEST_KEY) {
         return Some(super::github_repos::ReposAsk::from_json(ask).into());
+    }
+    if let Some(ask) = msg.get(super::github_status::REQUEST_KEY) {
+        return Some(Ask::GithubStatus(super::github_status::check_ask(ask)));
     }
     let report = msg.get(handoff::REQUEST_KEY)?;
     Some(HandoffReport::from_json(report).into())

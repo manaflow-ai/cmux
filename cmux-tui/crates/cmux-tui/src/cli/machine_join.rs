@@ -195,9 +195,8 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     };
     let options = RunOptions { interactive, every: WAIT_EVERY };
     let mut ask = confirm;
-    let mut read_value = |name: &str| {
-        acpmux::cli::harness_secret::read_value(name).map_err(|e| e.to_string())
-    };
+    let mut read_value =
+        |name: &str| acpmux::cli::harness_secret::read_value(name).map_err(|e| e.to_string());
     let mut ssh = bootstrap::run_ssh;
     let mut hooks = Hooks { confirm: &mut ask, read_value: &mut read_value, ssh: &mut ssh };
     let outcome = run(&command, &platform, global.output, options, stdout, &mut hooks, interrupt);
@@ -248,8 +247,10 @@ fn names_a_host(rest: &[String]) -> bool {
         if word == "--destination" || word.starts_with("--destination=") || !word.starts_with('-') {
             return true;
         }
-        if matches!(word.as_str(), "--name" | "--ttl" | "--platform" | "--cloud-token-file" | "--usb")
-        {
+        if matches!(
+            word.as_str(),
+            "--name" | "--ttl" | "--platform" | "--cloud-token-file" | "--usb"
+        ) {
             words.next();
         }
     }
@@ -683,7 +684,7 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 }
 
 /// The platform's machine-join refusal codes. Errors print only these, from this table.
-const KNOWN_CODES: [&str; 37] = [
+const KNOWN_CODES: [&str; 39] = [
     "auth.unauthenticated",
     "auth.forbidden",
     "auth.sso_required",
@@ -706,6 +707,8 @@ const KNOWN_CODES: [&str; 37] = [
     "vault.not_found",
     "vault.invalid",
     "vault.too_large",
+    "vault.no_entry",
+    "vault.invalid_hosts",
     // A workspace's machine (`POST /v1/workspaces/{w}/machine`, `link start-chat ensure`).
     "cloud_environment.not_found",
     "machine.conflict",

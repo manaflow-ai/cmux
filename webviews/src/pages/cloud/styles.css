@@ -723,6 +723,12 @@ select {
   overflow-wrap: anywhere;
 }
 
+.cloud-preview-share-status {
+  flex: 1 0 100%;
+  color: var(--cloud-text-2);
+  font-size: var(--text-caption);
+}
+
 .cloud-browser-refused {
   color: var(--cloud-bad);
 }
