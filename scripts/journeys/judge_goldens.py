@@ -1046,6 +1046,19 @@ def _expectation(result, expect):
         if expect["absent_check"] not in TRACE_ONLY_CHECKS and not result.get("motion"):
             raise Unchecked("video_judge judged no motion window of this film: its checks look only inside motion "
                             "windows, so an absence needs one")
+    if "absent_finding" in expect:  # judge_pixel: a row it judges, and no such finding for that row
+        want_row = expect["pixel_row"]
+        rows = [r for r in (result.get("summary") or {}).values()
+                if isinstance(r, dict) and all(r.get(k) == v for k, v in want_row.items())]
+        if len(rows) != 1:
+            raise Unchecked(f"{len(rows)} summary rows are {json.dumps(want_row)}: an absence needs the one row the judge "
+                            "judged")
+        r = rows[0]
+        where = f"{r.get('label')} ({r.get('kind')}) {r.get('side')} on {r.get('line')}"
+        hits = [f for f in result.get("findings") or [] if isinstance(f, dict)
+                and f.get("check") == expect["absent_finding"] and f.get("where") == where]
+        return (f"must not report {expect['absent_finding']!r} on {where}, reports: "
+                f"{'; '.join(str(f.get('detail'))[:120] for f in hits)}") if hits else None
     if "off_frames" in expect:  # judge_pixel: one summary row's off frames, exactly
         want_row = expect["pixel_row"]
         rows = [r for r in (result.get("summary") or {}).values()
@@ -1103,9 +1116,9 @@ def load_truth(manifest):
     return doc
 
 
-EXPECT_KINDS = ("check", "defect_frames", "absent_check", "kind", "absent_kind", "off_frames")
+EXPECT_KINDS = ("check", "defect_frames", "absent_check", "kind", "absent_kind", "off_frames", "absent_finding")
 EXPECT_KEYS = {"judge", "check", "frames", "defect_frames", "absent_check", "kind", "count", "absent_kind",
-               "pixel_row", "off_frames"}
+               "pixel_row", "off_frames", "absent_finding"}
 # judge_pixel's summary rows are named by these four fields; a judge_pixel fact names one row with all four.
 PIXEL_ROW_KEYS = ("label", "side", "line", "what")
 RULER_KEYS = {"line", "at", "class", "x", "frames", "min_run_px"}
@@ -1113,7 +1126,8 @@ FACT_KEYS = {"id", "film", "why", "ruler", "expect"}
 # The judge whose result each expectation kind reads (video_judge's findings; judge_trace's defects). An expectation
 # on any other judge would read a list that result does not have: it checks nothing (review 3 of #33930, finding A).
 KIND_JUDGE = {"check": "video_judge", "defect_frames": "video_judge", "absent_check": "video_judge",
-              "kind": "judge_trace", "absent_kind": "judge_trace", "off_frames": "judge_pixel"}
+              "kind": "judge_trace", "absent_kind": "judge_trace", "off_frames": "judge_pixel",
+              "absent_finding": "judge_pixel"}
 KIND_LIST = {"video_judge": "findings", "judge_trace": "defects"}
 # The names each judge reports (video_judge's finding checks; judge_trace's defect kinds), as their source writes them
 # (a test pins these sets to the source). A fact that names anything else checks nothing: NO VERDICT. A judge PR that
@@ -1207,10 +1221,19 @@ def truth_problems(manifest, films_doc):
                     problems.append(f"{fid}: defect_frames is empty: it checks nothing")
                 else:
                     problems += [f"{fid}: defect_frames {why}" for why in map(_span_problem, spans) if why]
-            pixel = (expect.get("judge") == "judge_pixel", kinds == ["off_frames"], "pixel_row" in expect)
+            pixel = (expect.get("judge") == "judge_pixel", kinds in (["off_frames"], ["absent_finding"]),
+                     "pixel_row" in expect)
             if any(pixel) and not all(pixel):
-                problems.append(f"{fid}: a judge_pixel fact is judge judge_pixel, pixel_row and off_frames together, "
-                                f"and only those: {json.dumps(expect)[:160]}")
+                problems.append(f"{fid}: a judge_pixel fact is judge judge_pixel and pixel_row with off_frames or "
+                                f"absent_finding (one of them): {json.dumps(expect)[:160]}")
+            elif all(pixel) and kinds == ["absent_finding"]:
+                row = expect["pixel_row"]
+                if not (isinstance(row, dict) and set(row) == set(PIXEL_ROW_KEYS)
+                        and all(isinstance(v, str) and v for v in row.values())):
+                    problems.append(f"{fid}: pixel_row names one summary row by {', '.join(PIXEL_ROW_KEYS)} (each a "
+                                    f"text): {json.dumps(row)[:160]}")
+                if not isinstance(expect["absent_finding"], str) or not expect["absent_finding"].strip():
+                    problems.append(f"{fid}: absent_finding names one finding check (a text)")
             elif all(pixel):
                 row = expect["pixel_row"]
                 if not (isinstance(row, dict) and set(row) == set(PIXEL_ROW_KEYS)
