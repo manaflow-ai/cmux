@@ -91,3 +91,24 @@ test("each guest of a share keeps its own outbox; an old by-share outbox moves t
   forgetPrompts(old, "share", "g1");
   expect(new GuestPrompts(guestScope("share", "g1"), old, random).list()).toEqual([]);
 });
+
+test("a storage too full to move the old outbox keeps it, and a later move merges both", async () => {
+  const { adoptUnscopedPrompts, guestScope } = await import("../src/agent-session/guest/guestPrompts");
+  const tab = memoryStorage();
+  new GuestPrompts("share", tab, random, () => 1).add("Written before the move");
+  const setItem = tab.setItem;
+  tab.setItem = () => {
+    throw new Error("QuotaExceededError");
+  };
+  adoptUnscopedPrompts(tab, "share", "g1");
+  tab.setItem = setItem;
+  expect(tab.getItem("cmux.guest.share.prompts")).not.toBeNull();
+  // The guest writes to its own outbox meanwhile; the next reload keeps both.
+  new GuestPrompts(guestScope("share", "g1"), tab, random, () => 2).add("Written after");
+  adoptUnscopedPrompts(tab, "share", "g1");
+  expect(tab.getItem("cmux.guest.share.prompts")).toBeNull();
+  expect(new GuestPrompts(guestScope("share", "g1"), tab, random).list().map((each) => each.text)).toEqual([
+    "Written before the move",
+    "Written after",
+  ]);
+});
