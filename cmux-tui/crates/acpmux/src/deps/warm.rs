@@ -100,6 +100,10 @@ async fn install(plan: &Plan, dir: &Path) -> bool {
 }
 
 pub async fn warm(dir: &Path, options: Options) -> Vec<Report> {
+    // Restore only (what a seed runs) never runs repository code, so no tool
+    // is asked from inside the project: a repo's yarnPath or plugins never
+    // load, and its config never picks where caches unpack.
+    detect::neutral_probes(!options.install);
     let remote = Remote::joined();
     let codec = Codec::here();
     let mut reports = Vec::new();

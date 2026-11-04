@@ -47,11 +47,14 @@ fn npm_index(rel: &Path) -> bool {
     parts.any(|c| c == "_cacache") && parts.next().is_some_and(|c| c == "index-v5")
 }
 
-/// npm files that can record a registry URL: its cache (`_cacache`, response
-/// bodies and tarballs) and the lockfile it keeps in node_modules.
+/// Files that can record a registry URL: npm's cache (`_cacache`, response
+/// bodies and tarballs) and the lockfiles kept in node_modules.
 fn npm_metadata(rel: &Path) -> bool {
+    // Lockfiles package managers keep beside the tree: npm's, Yarn Classic's
+    // integrity file (its `lockfileEntries` hold resolved URLs), pnpm's.
+    const LOCKS: &[&str] = &[".package-lock.json", ".yarn-integrity", ".modules.yaml", "lock.yaml"];
     rel.components().any(|c| c.as_os_str() == "_cacache")
-        || rel.file_name().is_some_and(|n| n == ".package-lock.json")
+        || rel.file_name().is_some_and(|n| LOCKS.iter().any(|l| n == *l))
 }
 
 /// Whether some URL in `bytes` carries a credential: userinfo
@@ -529,6 +532,10 @@ mod tests {
         write(&nm.join(".cache/babel/x.json"), "{}");
         write(&nm.join(".bin/.keep"), "");
         write(&nm.join("from-git/.git/config"), "url = https://user:token@example.com/r");
+        write(
+            &nm.join(".yarn-integrity"),
+            "{\"lockfileEntries\":{\"a\":\"https://r/a.tgz?token=x\"}}",
+        );
         let bare = nm.join("bare-db");
         write(&bare.join("HEAD"), "ref: refs/heads/main");
         write(&bare.join("FETCH_HEAD"), "abc https://user:token@example.com/r");
@@ -552,6 +559,7 @@ mod tests {
         assert_eq!(
             denied,
             [
+                "node_modules/.yarn-integrity",
                 "node_modules/bare-db",
                 "node_modules/from-git/.git",
                 "node_modules/left-pad/.npmrc",

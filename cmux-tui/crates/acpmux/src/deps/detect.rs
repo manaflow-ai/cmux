@@ -103,10 +103,27 @@ pub struct Plan {
     pub install: Vec<String>,
 }
 
+static NEUTRAL_PROBES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Ask tools from the home folder instead of the project, so no project
+/// config or project-pinned tool (`yarnPath`, plugins, `.npmrc` cache dirs)
+/// is read: what a restore-only warm uses.
+pub fn neutral_probes(on: bool) {
+    NEUTRAL_PROBES.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// The first line a command prints, or None when it cannot run.
 fn output(argv: &[&str], dir: &Path) -> Option<String> {
     let (program, args) = argv.split_first()?;
-    let out = Command::new(program).args(args).current_dir(dir).output().ok()?;
+    let neutral = NEUTRAL_PROBES.load(std::sync::atomic::Ordering::Relaxed);
+    let cwd = if neutral { home().unwrap_or_else(std::env::temp_dir) } else { dir.to_owned() };
+    let mut command = Command::new(program);
+    command.args(args).current_dir(cwd);
+    if neutral {
+        // Yarn Classic otherwise hands off to a yarnPath it finds.
+        command.env("YARN_IGNORE_PATH", "1");
+    }
+    let out = command.output().ok()?;
     if !out.status.success() {
         return None;
     }
@@ -131,12 +148,36 @@ fn split(path: PathBuf) -> Option<(PathBuf, PathBuf)> {
 /// dependencies: such a plan is refused.
 fn too_broad(plan: &Plan) -> bool {
     let home = home();
+    let bases = cache_bases();
     plan.include.iter().any(|rel| {
         let full = plan.root.join(rel);
         full.parent().is_none()
             || home.as_deref().is_some_and(|h| h.starts_with(&full))
             || rel.components().any(|c| super::archive::denied(&c.as_os_str().to_string_lossy()))
+            // A shared cache unpacks only inside a known cache folder: a repo
+            // that points uv's cache-dir at ~/.config never gets it overwritten.
+            || (!plan.replaces
+                && (full.components().any(|c| matches!(c, std::path::Component::ParentDir))
+                    || !bases.iter().any(|base| full.starts_with(base) && full != *base)))
     })
+}
+
+/// Folders a package manager's own cache lives under: the user's cache
+/// folders and each tool's home, from the environment (never from a repo).
+fn cache_bases() -> Vec<PathBuf> {
+    let mut bases: Vec<PathBuf> = ["XDG_CACHE_HOME", "CARGO_HOME", "UV_CACHE_DIR", "PNPM_HOME"]
+        .iter()
+        .filter_map(|name| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from))
+        .filter(|p| p.is_absolute())
+        .collect();
+    if let Some(home) = home() {
+        for rel in
+            [".cache", "Library/Caches", ".npm", ".cargo", ".local/share/pnpm", "Library/pnpm"]
+        {
+            bases.push(home.join(rel));
+        }
+    }
+    bases
 }
 
 pub fn plan(project: &Project) -> Option<Plan> {
@@ -311,5 +352,8 @@ mod tests {
         }
         assert!(too_broad(&plan(&home.to_string_lossy(), ".ssh")));
         assert!(!too_broad(&plan(&home.join(".cache").to_string_lossy(), "uv")));
+        // A shared cache outside every cache folder (a repo's uv cache-dir).
+        assert!(too_broad(&plan(&home.to_string_lossy(), ".config")));
+        assert!(too_broad(&plan(&home.join(".cache").to_string_lossy(), "../.config")));
     }
 }
