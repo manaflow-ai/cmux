@@ -26,6 +26,6 @@ for (const id of ids) {
   await openSubagentPane(async (_method, params) => {
     if (params.tone === agentTone(id)) tabs.add(params.tone as number);
     return { opened: true };
-  }, id, false);
+  }, id, false, undefined, agentTone(id));
 }
 console.log(JSON.stringify({ nativeRowTones: rows.size, nativeTabTones: tabs.size, agents: ids.length }));

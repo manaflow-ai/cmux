@@ -18,7 +18,6 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
 import type { Subagent } from "./subagentFold";
 import { subagentsIn } from "./subagentRows";
-import { agentTone } from "./agentTones";
 
 /// The `revealTurn` prefix that opens a pane on a subagent's view.
 export const SUBAGENT_REVEAL = "subagent:";
@@ -81,14 +80,14 @@ export async function openSubagentPane(
   id: string,
   focus: boolean,
   title?: string,
-  identity = true,
+  tone?: number,
 ): Promise<boolean> {
   try {
     const reply = await call("chat.subagentPane", {
       subagent: id,
       focus,
       ...(title ? { title } : {}),
-      ...(identity ? { tone: agentTone(id) } : {}),
+      ...(tone !== undefined ? { tone } : {}),
     });
     return (reply as { opened?: unknown } | null)?.opened === true;
   } catch {
@@ -110,12 +109,13 @@ export async function showSubagent(
     here: (id: string) => void;
     beforeOpen?: () => void;
     title?: string;
+    tone?: number;
   },
 ): Promise<void> {
   if (options.inSubagentPane) return options.here(id);
   if (!focus && !options.panes) return;
   options.beforeOpen?.();
-  const opened = await openSubagentPane(call, id, focus, options.title);
+  const opened = await openSubagentPane(call, id, focus, options.title, options.tone);
   if (!opened && focus) options.here(id);
 }
 
