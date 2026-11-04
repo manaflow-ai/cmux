@@ -70,9 +70,10 @@ struct CreationHoldReplyBoundTests {
 
     enum Which { case pressed, other }
 
-    /// What a read of a terminal's screen waits for (``cmdNNeverAnswered(then:check:)``), on the daemon's output-woken wait:
-    /// the first line's output `held` (deadline 15 s), the second line's own output line `also` (deadline 15 s: the second
-    /// command ran), or 3 s in which `held` must not show.
+    /// What a read of a terminal's screen waits for (``cmdNNeverAnswered(then:check:)``), on the daemon's output-woken wait
+    /// with a 15 s deadline: the first line's output `held`, the second line's own output line `also` (the second command
+    /// ran), or, for `held` that must not show, a marker command typed there after the hold ended: its output proves the
+    /// shell ran everything typed before it, then the screen is read once (no fixed wait for an absence).
     enum Wait { case held, alsoLine, noHeld }
 
     /// Whether screen line `line` is `word` alone (a command's output line, not its echo).
@@ -197,18 +198,30 @@ struct CreationHoldReplyBoundTests {
             let end = coordinator.lastHoldEnd(in: window).map { "\($0)" } ?? "none"
             coordinator.resolve(ticket, landed: false, in: window) // a reply after the bound belongs to no hold
             // What the person sees: a command's own output (`held`, `also`: only its run prints them, its typed line has quotes).
-            // The daemon's `wait-for` waits on the terminal's output with a deadline (woken by output, no sleep). It answers an
-            // error at its deadline: what must show and did not fails the test there, with the screen; what must not show
-            // waits its 3 s for a late run.
+            // The daemon's `wait-for` waits on the terminal's output with a deadline (woken by output, no sleep); it answers an
+            // error at the deadline, and the test fails there with the screen. An absence is read once, after a marker command
+            // typed into that terminal printed its output (`markP`/`markO`; its typed line has quotes): the shell ran what came
+            // before it.
             let (pressedSurface, otherSurface) = (pressed.surface, other.surface)
-            try await check(end) { terminal, wait in
-                let surface = terminal == .pressed ? pressedSurface : otherSurface
-                let (pattern, deadline) = wait == .alsoLine ? ("(?m)^\\s*also\\s*$", 15_000) : ("held", wait == .noHeld ? 3_000 : 15_000)
-                if let reply = try? await connection.request(WaitForTextRequest(surface: surface, pattern: pattern, timeoutMs: deadline),
-                                                             timeout: .milliseconds(deadline + 5_000)) {
+            @MainActor func waitFor(_ pattern: String, on surface: SurfaceID) async -> (matched: Bool, screen: String) {
+                if let reply = try? await connection.request(WaitForTextRequest(surface: surface, pattern: pattern, timeoutMs: 15_000),
+                                                             timeout: .seconds(20)) {
                     return (reply.matched == true, reply.text)
                 }
                 return (false, (try? await connection.request(ReadScreenRequest(surface: surface), timeout: .seconds(5)))?.text ?? "unreadable")
+            }
+            try await check(end) { terminal, wait in
+                let surface = terminal == .pressed ? pressedSurface : otherSurface
+                switch wait {
+                case .held: return await waitFor("held", on: surface)
+                case .alsoLine: return await waitFor("(?m)^\\s*also\\s*$", on: surface)
+                case .noHeld:
+                    let marker = terminal == .pressed ? "P" : "O"
+                    try await connection.send(surface, text: "echo mar''k\(marker)\r")
+                    let settled = await waitFor("(?m)^\\s*mark\(marker)\\s*$", on: surface)
+                    guard settled.matched else { return (true, "(the terminal never ran the marker) " + settled.screen) }
+                    return (settled.screen.contains("held"), settled.screen)
+                }
             }
         }
     }
