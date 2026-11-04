@@ -39,6 +39,8 @@ const SHAPES = new Set([
   ".acpmux-effort-track",
   ".acpmux-effort-fill",
   ".acpmux-context-card-bar",
+  // The plan usage card's 4 px limit bars (PlanUsageCard.tsx), drawn like the context card's bar.
+  ".acpmux-plan-usage-bar",
   ".acpmux-session-info-context__bar",
   // The workflow card's progress bar and its phase segments (4ad2cc9c8eff, #27019): 4 px bars.
   ".acpmux-workflow-card__progress",
@@ -52,6 +54,11 @@ const SHAPES = new Set([
   ".acpmux-access .acpmux-picker-button",
   '.nt-screen[data-template="cards"][data-pill] .nt-box',
   '.nt-screen[data-template="cards"] .nt-chats-tab.is-selected',
+  // The tucked running tray's pull tab (subagents/TrayPullTab.tsx): its grabber is a drawn 3 px line
+  // (a border on a 0-height box), and its needs-you dot is a circle sized square through
+  // --acpmux-tray-pull-dot, which this reader does not resolve.
+  ".acpmux-tray-pull__tab::before",
+  ".acpmux-tray-pull__dot",
 ]);
 
 const px = (value: string | undefined) => (value && /^-?[\d.]+px$/.test(value) ? parseFloat(value) : undefined);

@@ -5,6 +5,7 @@ import { MeshStore } from "../db/mesh.ts";
 import type { Principal } from "../domain/principal.ts";
 import { unavailable, vmNotFound } from "../errors.ts";
 import type { MeshId, VmId } from "../lib/ids.ts";
+import { MeshConfig } from "../mesh/config.ts";
 import { actorOf, ownerLease } from "../mesh/owner.ts";
 import { sha256Hex } from "../mesh/signed-request.ts";
 import { projectVmReceivers } from "../mesh/vm-receiver-policy.ts";
@@ -49,7 +50,7 @@ export const readVmReceiverPolicy = <C, M, V>(caller: Named<C, Principal>, mesh:
     }), { concurrency: 8 }));
     const peers = candidates.filter((p) => first.devices.some((d) => d.deviceId === p.deviceId && Option.isSome(leases.get(d.createdBy) ?? Option.none())));
     const expirations = [...leases.values()].flatMap((lease) => Option.isSome(lease) && lease.value !== null ? [lease.value] : []);
-    const expiresAt = Math.min(checkedAt + 30_000, ...expirations);
+    const expiresAt = Math.min(checkedAt + (yield* MeshConfig).budgets.receiverPolicyLeaseMs, ...expirations);
     const projection = { schemaVersion: 1 as const, tenantId: tenant, vmId: vm.value, meshId: mesh.value, ipv4: member.ipv4, aclVersion: version, peers };
     const policyDigest = yield* sha256Hex(`cmux-vm-receiver-policy-v1\n${JSON.stringify(projection)}`);
     // Fence identity rotation, deletion, attachment and ACL changes across owner lookups.
@@ -63,5 +64,5 @@ export const readVmReceiverPolicy = <C, M, V>(caller: Named<C, Principal>, mesh:
     const same = fingerprint === JSON.stringify(again) && aclFingerprint === JSON.stringify(currentAcl);
     const finished = yield* Clock.currentTimeMillis;
     if (!same || ownsVm === null || ownsMesh === null || finished < checkedAt || finished >= expiresAt || !Number.isSafeInteger(version)) return yield* Effect.fail(unavailable());
-    return yield* Schema.decodeUnknown(VmReceiverPolicy)({ ...projection, policyDigest, checkedAt, expiresAt }).pipe(Effect.mapError(() => unavailable()));
+    return yield* Schema.decodeUnknown(VmReceiverPolicy)({ ...projection, policyDigest, checkedAt, expiresAt }).pipe(Effect.mapError(unavailable));
   }).pipe(Effect.timeoutFail({ duration: Duration.seconds(15), onTimeout: unavailable }));

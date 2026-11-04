@@ -23,6 +23,8 @@ import {
   usageCost,
   usageTokens,
 } from "../usageStats";
+import type { AcpmuxUsageLimits } from "../model";
+import { planLimitRows } from "../usageLimits";
 import "./UsageSection.css";
 
 const ROW_ICON = rowIconSize(12);
@@ -127,6 +129,8 @@ export const UsageSection = memo(function UsageSection({
   expanded: initialExpanded = false,
   ownRowLayout = "slot",
   cacheLayout = "rows",
+  planLimits,
+  now,
 }: {
   /// This chat's (`summary.usageStats`).
   own?: SessionUsageStats;
@@ -148,6 +152,11 @@ export const UsageSection = memo(function UsageSection({
   ownRowLayout?: UsageOwnRowLayout;
   /// Gallery-only alternatives for the prompt cache's numbers: two rows (shipped) or one.
   cacheLayout?: UsageCacheLayout;
+  /// The account's plan usage limits this chat's harness reported (acpmux `usageLimits`): the
+  /// Plan limits rows, the same the composer ring's plan usage popover shows. None: no rows.
+  planLimits?: AcpmuxUsageLimits;
+  /// The clock the reset times read (the gallery pins it).
+  now?: () => number;
 }) {
   const t = useT();
   const [sort, setSort] = useState<UsageSort>(initialSort);
@@ -155,6 +164,7 @@ export const UsageSection = memo(function UsageSection({
   const ranked = useMemo(() => byUsage(sessions, sort), [sessions, sort]);
   const folds = ranked.length > USAGE_SHOWN;
   const shown = folds && !expanded ? ranked.slice(0, USAGE_SHOWN) : ranked;
+  const planRows = planLimitRows(planLimits, t, now?.(), locale);
   return (
     <div className="acpmux-session-info-usage" data-section="usage" data-own-row-layout={ownRowLayout}>
       {own && (
@@ -189,6 +199,24 @@ export const UsageSection = memo(function UsageSection({
             </li>
           ))}
         </ul>
+      )}
+      {planRows.length > 0 && (
+        <>
+          <div className="acpmux-session-info-usage__head" data-usage-head="plan">
+            <span className="acpmux-session-info-usage__title">{t("sessionInfo.usage.planLimits")}</span>
+          </div>
+          <ul className="acpmux-session-info-list" data-usage-list="plan">
+            {planRows.map(({ id, name, value }) => (
+              <li key={id} className="acpmux-session-info-row" data-plan-limit={id}>
+                {ownRowLayout === "slot" && (
+                  <span className="acpmux-session-info-usage__lead-slot" aria-hidden="true" />
+                )}
+                <span className="acpmux-session-info-row__name">{name}</span>
+                <span className="acpmux-session-info-row__end acpmux-session-info-usage__value">{value}</span>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
       {ranked.length > 0 && (
         <>

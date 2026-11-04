@@ -135,7 +135,7 @@ def on_info(sim):
 
 
 def open_info(sim):
-    # The header's name opens Chief's info (the trailing button is Invite to cmux).
+    # The header's name opens Chief's info (the trailing button is Chief's page menu).
     sim.tap_q(ident="conversation.header.name")
     found = sim.wait(timeout=10, ident="chief.settings")
     time.sleep(1.8)  # the push (or sheet) settles

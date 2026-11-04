@@ -51,6 +51,8 @@ public struct MacScreenPaneHandlers {
     public var closeTab: () -> Void = {}
     /// Open the Mac Screen home page in this tab.
     public var openHome: () -> Void = {}
+    /// Sign In pressed on a card that says this Mac is not signed in to cmux.
+    public var signIn: () -> Void = {}
     /// cmux shortcut matcher: true keeps the chord in this app.
     public var isLocalShortcut: (NSEvent) -> Bool = { _ in false }
     /// Whether this screen holds the keyboard may have changed (focus, the
@@ -147,6 +149,7 @@ public final class MacScreenPane {
         actions.disconnect = { [weak self] in self?.disconnectByPerson() }
         actions.closeTab = { [weak self] in self?.handlers.closeTab() }
         actions.openHome = { [weak self] in self?.handlers.openHome() }
+        actions.signIn = { [weak self] in self?.handlers.signIn() }
         actions.selectDisplay = { [weak self] index in
             session.selectDisplay(index)
             self?.model.currentDisplay = index

@@ -129,7 +129,8 @@ function genericOf(name: string): { action: (typeof GENERIC)[string]; noun: stri
 }
 
 /// One record of a script's `call_log` (code_mode.rs `exec`): the tool it called and how it went.
-export type ExecCall = { name: string; ok: boolean; state?: string };
+/// `shown` is what acpmux's `wrap_up` showed (code_mode.rs keeps it for that call only, wrapUp.ts).
+export type ExecCall = { name: string; ok: boolean; state?: string; shown?: Record<string, unknown> };
 
 /// What a `cmux_exec` call holds, read once per snapshot of the call.
 export type ExecView = {
@@ -220,6 +221,7 @@ export function readAnswer(output: string): ExecView["answer"] {
       name: record.name,
       ok: record.ok === true,
       ...(typeof record.state === "string" && { state: record.state }),
+      ...(isRecord(record.shown) && { shown: record.shown }),
     });
   }
   const logs = Array.isArray(found.logs) ? found.logs.filter((line): line is string => typeof line === "string") : [];

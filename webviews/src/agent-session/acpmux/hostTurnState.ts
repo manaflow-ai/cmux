@@ -28,6 +28,9 @@ export function hostTurnState(summary: Summary): "runs" | "ended" | "unknown" {
   if (!summary || summary.watching) return "unknown";
   const turn = hostTurn(summary);
   if (turn === undefined) return "unknown";
-  if (turn !== null || summary.status === "running") return "runs";
+  if (turn !== null) return "runs";
+  // A paused queue's "running" with no turn is from before its turn failed (queuePausedState.test.ts,
+  // direct.ts `staleRun`): acpmux runs none.
+  if (summary.status === "running" && summary.queuePaused !== true) return "runs";
   return "ended";
 }

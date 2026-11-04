@@ -14,6 +14,11 @@ const HIDDEN: &[(&str, &str)] = &[("new-machine", "cmux machine new")];
 /// (cloud_start_chat.rs).
 pub(super) const START_CHAT: &str = "start-chat";
 
+/// The CLI-owned runtime backend selector (available before app startup).
+pub(super) const ENV_USAGE: &str = "usage: cmux cloud env get [--json]\n       cmux cloud env set local|dev|preview-N|staging|prod [--json]\n\nThe selection is isolated to this app bundle. DEV and NEXT nightly may switch;\nRelease and RC always use prod. Switching requires a fresh Cloud sign-in.\n";
+
+pub(super) const ENV_USAGE_JA: &str = "使い方: cmux cloud env get [--json]\n        cmux cloud env set local|dev|preview-N|staging|prod [--json]\n\n選択はこのアプリのバンドルごとに保存されます。DEV と NEXT nightly は切り替え可能です。\nRelease と RC は常に prod を使用します。切り替え後は Cloud に再度サインインしてください。\n";
+
 /// A machine action's target flag.
 const TARGET: &str = "--target machine:MACHINE_ID";
 
@@ -277,6 +282,18 @@ const GROUPS: &[Group] = &[
                 "ポートの転送を停止",
             ),
             verb(
+                "preview-share",
+                "{target} --port PORT",
+                "Copy a one-day link anyone can open to a port",
+                "誰でも開けるポートへの 1 日有効なリンクをコピー",
+            ),
+            verb(
+                "preview-revoke",
+                "{target} --port PORT --link-id ID",
+                "Revoke a port's shared link",
+                "ポートの共有リンクを無効にする",
+            ),
+            verb(
                 "open-browser",
                 "{target} --port PORT [--path /PATH]",
                 "Open a port in a browser tab",
@@ -459,6 +476,11 @@ const INTRO_JA: &str = "\
 ";
 
 const OUTRO_EN: &str = "\
+BACKEND (per NEXT app bundle)
+  cmux cloud env get --json
+  cmux cloud env set local|dev|preview-N|staging|prod --json
+DEV and nightly may switch; Release and RC always use prod.
+
 SECRETS (stored in this Mac's Keychain)
   cmux cloud secret set NAME [--repo OWNER/NAME]
   cmux cloud secret ls
@@ -475,6 +497,11 @@ Run `cmux action list --category cloud --json` for the live catalog and
 ";
 
 const OUTRO_JA: &str = "\
+バックエンド（NEXT アプリのバンドルごと）
+  cmux cloud env get --json
+  cmux cloud env set local|dev|preview-N|staging|prod --json
+DEV と nightly は切り替え可能です。Release と RC は常に prod を使用します。
+
 シークレット（この Mac のキーチェーンに保存）
   cmux cloud secret set NAME [--repo OWNER/NAME]
   cmux cloud secret ls
@@ -521,8 +548,10 @@ FOLLOW-UPS (MACHINE_ID and SESSION_ID from the answer)
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
 
-Run from an agent chat, the app first asks the person with a card in that
-chat (Start, Not now); `cmux agents dialog list` lists it.
+Run from an agent chat, it starts at once, as from a terminal: no card asks
+the person. Only when they turned off cloud.agentsStartWithoutAsking does the
+app ask first with a card in that chat (Start, Not now); `cmux agents dialog
+list` lists it.
 ";
 
 /// The new spelling of a hidden old verb.
@@ -573,6 +602,9 @@ pub(super) fn overview(japanese: bool) -> String {
 /// a word that is not a Cloud verb, which gets the overview.
 #[cfg_attr(not(unix), allow(dead_code))]
 pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
+    if name == "env" {
+        return Some(if japanese { ENV_USAGE_JA } else { ENV_USAGE }.to_owned());
+    }
     if name == START_CHAT {
         return Some(START_CHAT_USAGE.to_owned());
     }

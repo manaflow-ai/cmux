@@ -80,7 +80,11 @@ await requireBrowserLane("transcript-live-line-left-edge-browser.test.ts", async
           for (let node = walker.nextNode(); node; node = walker.nextNode()) {
             if (!node.textContent?.trim()) continue;
             // The shimmer's lit layer repeats the words over them; measure the words themselves.
-            if ((node.parentElement as HTMLElement | null)?.closest(".cv-shimmer__lit, [aria-hidden='true']:not(.cv-worked__sep)"))
+            if (
+              (node.parentElement as HTMLElement | null)?.closest(
+                ".cv-shimmer__lit, [aria-hidden='true']:not(.cv-worked__sep)",
+              )
+            )
               continue;
             const range = document.createRange();
             range.selectNodeContents(node);

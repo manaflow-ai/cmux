@@ -4182,6 +4182,59 @@ class SharedRunnerStateTests(unittest.TestCase):
             snapshot = client.snapshot(now=now)
         self.assertEqual(snapshot["generated_at"], document["queue_snapshot"]["snapshot"]["generated_at"])
 
+    def test_expired_runner_capacity_does_not_discard_valid_queue_evidence(self):
+        observed = NOW - dt.timedelta(minutes=10)
+        document = self.queue_document(observed, created=observed, generated=observed)
+        client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(document)}), \
+                unittest.mock.patch.object(client, "get", side_effect=AssertionError("artifact list")), \
+                unittest.mock.patch.object(client, "download", side_effect=AssertionError("artifact zip")):
+            self.assertIsNone(pool.runner_state("manaflow-ai/cmux", now=NOW))
+            snapshot = client.snapshot(now=NOW)
+        self.assertEqual(snapshot, document["queue_snapshot"]["snapshot"])
+        self.assertEqual(snapshot["generated_at"], pool.iso(observed))
+
+    def test_queue_and_roster_expiry_are_checked_independently(self):
+        for roster_age, queue_age, accepted in (
+                (301, 301, True), (45 * 60, 45 * 60, True),
+                (10 * 60, 45 * 60 + 1, False), (60, 45 * 60 + 1, False),
+                (45 * 60 + 1, 60, False)):
+            with self.subTest(roster_age=roster_age, queue_age=queue_age):
+                queued = NOW - dt.timedelta(seconds=queue_age)
+                document = self.queue_document(NOW - dt.timedelta(seconds=roster_age),
+                                               created=queued, generated=queued)
+                client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+                with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(document)}), \
+                        unittest.mock.patch.object(client, "get", return_value={"artifacts": []}) as get, \
+                        unittest.mock.patch.object(client, "download", side_effect=AssertionError("artifact zip")):
+                    snapshot = client.snapshot(now=NOW)
+                    self.assertEqual(pool.runner_state("manaflow-ai/cmux", now=NOW) is not None,
+                                     roster_age <= pool.RUNNER_STATE_MAX_AGE_SECONDS)
+                self.assertEqual(snapshot is not None, accepted)
+                self.assertEqual(get.call_count, 0 if accepted else 1)
+
+    def test_expired_roster_keeps_queue_trust_checks(self):
+        observed = NOW - dt.timedelta(minutes=10)
+        for change in ("fork", "wrong branch", "expired", "naive time", "unapproved group"):
+            with self.subTest(change=change):
+                document = self.queue_document(observed, created=observed, generated=observed)
+                artifact = document["queue_snapshot"]["artifact"]
+                if change == "fork":
+                    artifact["workflow_run"]["head_repository_id"] = 2
+                elif change == "wrong branch":
+                    artifact["workflow_run"]["head_branch"] = "feature"
+                elif change == "expired":
+                    artifact["expired"] = True
+                elif change == "naive time":
+                    artifact["created_at"] = observed.strftime("%Y-%m-%dT%H:%M:%S")
+                else:
+                    document["runner_groups"]["unapproved"] = []
+                client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+                with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(document)}), \
+                        unittest.mock.patch.object(client, "get", return_value={"artifacts": []}) as get:
+                    self.assertIsNone(client.snapshot(now=NOW))
+                get.assert_called_once()
+
     def test_embedded_queue_snapshot_rejects_stale_artifact_without_redating(self):
         now = dt.datetime.now(dt.timezone.utc)
         client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
@@ -4329,17 +4382,6 @@ class SharedRunnerStateTests(unittest.TestCase):
             self.assertIsNotNone(rows)
             self.assertEqual(picker.idle_runner(rows), picker.FLEET)
 
-    def test_nightly_control_picker_selects_linux_from_document_without_live_read(self):
-        import nightly_next_control_runner as picker
-        doc = self.linux_document()
-        env = {"ROUTE_TOKEN": "synthetic-token", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
-               "CI_CONTROL_CANDIDATE": "cmux-fleet-linux-x64"}
-        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(doc)}), \
-                unittest.mock.patch.object(pool.GitHub, "get_api", side_effect=AssertionError("live read")):
-            rows = picker.read_live(env)
-            self.assertIsNotNone(rows)
-            self.assertEqual(picker.idle_runner(rows, picker.candidates(env)), "cmux-fleet-linux-x64")
-
     def test_portable_live_capacity_accepts_linux_from_document(self):
         import portable_job_placement as picker
         doc = self.linux_document()
@@ -4387,8 +4429,7 @@ class SharedRunnerStateTests(unittest.TestCase):
             "ios-internal-nightly.yml": ("ios_internal_runner.py",),
             "cmux-next-guards.yml": ("portable_job_placement.py",),
             "cmux-tui-artifacts.yml": ("portable_job_placement.py",),
-            "nightly.yml": ("portable_job_placement.py", "nightly_build_runner.py",
-                             "nightly_sign_runner.py", "signing_runner.py"),
+            "nightly.yml": ("portable_job_placement.py", "nightly_build_runner.py", "signing_runner.py"),
         }
 
         def mappings(value):

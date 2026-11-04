@@ -714,6 +714,8 @@ test("an interim stop goes onto its call: no line, no new mark, its reply inside
       turn: "bg-i",
       weight: "silent",
       text: "Still waiting on the suite.",
+      // An interim cause: its call is still waiting on its own background work.
+      interim: true,
     });
     // A second end of the same call keeps the first one's words before its own.
     daemon.push(

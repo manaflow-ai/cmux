@@ -342,10 +342,16 @@ export function cloudStartEnded(
 }
 
 /// The words for a Cloud start this Mac's pane refused: a folder that is not one of the tab's own
-/// asks the person to pick it (a pick grants it, `workspace.useFolder`); any other `transport.*`
-/// code reads as the pane's refusal text (transportErrors.ts).
+/// asks the person to pick it (a pick grants it, `workspace.useFolder`); a folder that is gone, home
+/// or above it, or a credential folder each says so (AgentPaneCloudFolderRefusal; the secret's host
+/// words are its `~/` spelling); any other `transport.*` code reads as the pane's refusal text
+/// (transportErrors.ts).
 export function cloudRefusalText(code: string, hostWords?: string): string {
   if (code === "transport.path_outside_roots") return translate("cloudStartup.folderNotOpen");
+  if (code === "cloud_folder_missing") return translate("cloudStartup.folderMissing");
+  if (code === "cloud_folder_home") return translate("cloudStartup.folderHome");
+  if (code === "cloud_folder_secret")
+    return translate("cloudStartup.folderSecret", { folder: line(hostWords, 120) ?? "~" });
   if (code.startsWith("transport.")) return errorMessage({ code });
   // The attachment refusal's words are the host's own sentence; the others carry only their code.
   if (code === "cloud_attachments")
@@ -355,4 +361,13 @@ export function cloudRefusalText(code: string, hostWords?: string): string {
 
 /// The codes the pane refuses a Cloud start with before it reaches Cloud, besides `transport.*`
 /// (AgentPaneHandOff.refusedHereCodes, the same list): no step ran, so none is marked failed.
-const REFUSED_HERE = new Set(["cloud_attachments", "unsupported", "unavailable_now", "sandbox_busy", "sandbox_spent"]);
+const REFUSED_HERE = new Set([
+  "cloud_attachments",
+  "unsupported",
+  "unavailable_now",
+  "sandbox_busy",
+  "sandbox_spent",
+  "cloud_folder_missing",
+  "cloud_folder_home",
+  "cloud_folder_secret",
+]);

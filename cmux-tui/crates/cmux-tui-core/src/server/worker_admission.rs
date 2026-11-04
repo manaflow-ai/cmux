@@ -110,13 +110,15 @@ impl ResourceWorkerAdmission {
 }
 
 #[derive(Default)]
-pub(super) struct ServerSurfaceOperationState {
-    pub(super) workers: usize,
+struct ServerSurfaceOperationState {
+    workers: usize,
     retained_bytes: usize,
 }
 
 /// Daemon-wide admission of surface operations: clear-history workers by count and queued requests by retained bytes.
-/// Every request of every connection reserves here before it is queued and releases after it ran.
+/// Every request a connection's surface scheduler queues reserves here before it is queued and releases after it ran
+/// (the person's `send` and `send-key` lines among them; pings, identify, v2 resource lines and the frame handlers
+/// that answer on the reader thread do not reserve).
 ///
 /// R-DAEMON-STATE stage S1 (`CMUX_TUI_RDS_INPUT`): with the lane on, the counters are atomics with compare-and-swap
 /// reservations, so no request, and no key of the person, waits for another connection's reservation. With it off,
@@ -124,7 +126,7 @@ pub(super) struct ServerSurfaceOperationState {
 #[derive(Default)]
 pub(crate) struct ServerSurfaceOperationAdmission {
     /// The old arm's counters (stage S1 off).
-    pub(super) state: Mutex<ServerSurfaceOperationState>,
+    state: Mutex<ServerSurfaceOperationState>,
     /// The lane's counters (stage S1 on).
     workers: AtomicUsize,
     retained_bytes: AtomicUsize,

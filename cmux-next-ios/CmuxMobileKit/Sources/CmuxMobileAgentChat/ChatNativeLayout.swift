@@ -365,6 +365,12 @@ struct ChatNativeLayout: @unchecked Sendable {
         return max(lines, 1)
     }
 
+    /// How every native row's label breaks lines: none of UILabel's default `.standard` strategy
+    /// (push-out of a last short line, hyphenation, Hangul word priority), which `measure` and
+    /// `lineCount` (TextKit, `boundingRect`) do not apply. With it, a long pasted log wrapped into
+    /// more lines than its row was laid out for and drew over the rows below.
+    static let labelLineBreakStrategy: NSParagraphStyle.LineBreakStrategy = []
+
     /// Text laid out at `width` as UILabel draws it, rounded up to the pixel grid.
     static func measure(_ text: NSAttributedString, width: CGFloat) -> CGSize {
         guard text.length > 0 else { return .zero }

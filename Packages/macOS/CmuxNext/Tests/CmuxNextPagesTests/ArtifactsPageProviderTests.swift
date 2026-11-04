@@ -26,6 +26,13 @@ struct ArtifactsPageProviderTests {
         }
     }
 
+    /// Signed out, the page's Sign In button runs the app's Sign In (msg 3790); the page may run no
+    /// other action.
+    @Test func signedOutPageMayRunSignInOnly() {
+        #expect(PageDescriptor.artifacts.nativeOps.contains(PageNativeOp.actionRun))
+        #expect(PageDescriptor.artifacts.actions == ["palette.auth.signIn"])
+    }
+
     @Test func opsBecomeTheExactReads() async throws {
         let log = ReadLog()
         let provider = Self.provider(log) { _ in ArtifactsReply(status: 200, body: Data(Self.tree.utf8)) }

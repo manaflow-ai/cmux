@@ -129,15 +129,22 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
             node.style.setProperty("--agent-motion-move", "1s");
             node.dispatchEvent(new WheelEvent("wheel", { deltaY: -20, deltaMode: 1, cancelable: true }));
             await window.cmuxPaintFrame();
+            // The wheel glide read its 1s step at the wheel; the send's ride reads the standard step.
+            node.style.setProperty("--agent-motion-move", "180ms");
             await window.cmuxAcpmuxActions!["chat.send"]!({ text: "Wheel ownership" });
             const gaps: number[] = [];
-            for (let i = 0; i < 30; i++) {
+            for (let i = 0; i < 60; i++) {
               await window.cmuxPaintFrame();
               gaps.push(node.scrollHeight - node.clientHeight - node.scrollTop);
             }
             return gaps;
           });
-          expect(Math.max(...gaps.slice(3))).toBeLessThanOrEqual(1);
+          // The send rides the view down to the latest message (Jump to latest's ride): the wheel's
+          // unfinished glide never pulls it back up, and it rests at the end.
+          for (let i = 4; i < gaps.length; i++) expect(gaps[i]!).toBeLessThanOrEqual(gaps[i - 1]! + 1);
+          // A ride, not a cut: the view is still on its way to the end over several painted frames.
+          expect(gaps.filter((gap) => gap > 1).length).toBeGreaterThanOrEqual(3);
+          expect(Math.max(...gaps.slice(-10))).toBeLessThanOrEqual(1);
         } finally {
           await page.close();
         }

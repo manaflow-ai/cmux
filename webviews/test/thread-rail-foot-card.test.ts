@@ -151,7 +151,10 @@ await requireBrowserLane("thread-rail-foot-card.test.ts", async () => {
     }
   });
 
-  for (const [name, variant] of [["a pane with a tab row band", "resting"]] as const) {
+  for (const [name, variant] of [
+    ["a pane with a tab row band", "resting"],
+    ["a one-tab pane", "solo-tab-hovered"],
+  ] as const) {
     test(`${name}: the rail ends above the stack and each card centers on its tick, at rest and over a tall draft`, async () => {
       const page = await open(variant);
       try {

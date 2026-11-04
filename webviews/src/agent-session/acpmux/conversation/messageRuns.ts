@@ -73,8 +73,16 @@ function member(row: AcpmuxRow): Member | undefined {
     return undefined;
   let lines = 0;
   for (const stretch of runStretches(row, groups)) lines += stretch.fold ? 1 : stretch.groups.length;
-  const sent = groups.filter(isSend).length;
-  const sentItems = new Set(groups.flatMap((group) => (isSend(group) && "item" in group ? [group.item] : [])));
+  // A group of sends counts each of its messages (toolGroups.ts `sendGroup`).
+  const sent = groups.reduce(
+    (sum, group) => sum + (group.type === "sendGroup" ? group.entries.length : isSend(group) ? 1 : 0),
+    0,
+  );
+  const sentItems = new Set(
+    groups.flatMap((group) =>
+      group.type === "sendGroup" ? group.items : isSend(group) && "item" in group ? [group.item] : [],
+    ),
+  );
   const work = row.items.filter((item) => item.tool && !sentItems.has(item));
   return {
     lines,

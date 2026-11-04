@@ -66,6 +66,45 @@ extension CloudHandlers {
                 return ["machine_id": .string(session.machineID), "port": .int(port), "closed": .bool(true)]
             }
         }
+        bind("cloudPreviewShare", registry, reason: reason) { invocation in
+            let invocation = effective(invocation)
+            let session = try machine(invocation, context), port = try port(invocation, session, verb: "preview-share")
+            let names = CloudPortNames(session, port: port)
+            guard session.appLink != nil else { throw ActionFailure(message: CloudPortStrings.classicLink(names)) }
+            answer("share machine preview", invocation, context, pendingAfter: answerWithin,
+                   pending: ["machine_id": .string(session.machineID), "port": .int(port)]) {
+                guard let api = context.services.cloud.previewAPI else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
+                let created = try await wrapped(names) { try await api.createPreviewShareLink(session.machineID, port: port) }
+                guard let url = URL(string: created.url), url.scheme == "https", url.user == nil, url.password == nil else {
+                    throw ActionFailure(message: CloudPortStrings.failed(names, detail: "the platform returned an invalid share URL"))
+                }
+                context.copy(created.url)
+                return CloudAnswer(title: CloudPortStrings.previewLinkCopied, text: created.url, fields: [
+                    "machine_id": .string(session.machineID), "port": .int(port),
+                    "linkId": .string(created.link.linkId), "url": .string(created.url),
+                    "expiresAt": .int(created.link.expiresAt), "redemptions": .int(created.link.redemptions),
+                ])
+            }
+        }
+        bind("cloudPreviewRevoke", registry, reason: reason) { invocation in
+            let invocation = effective(invocation)
+            let session = try machine(invocation, context), port = try port(invocation, session, verb: "preview-revoke")
+            guard let linkID = invocation["linkId"]?.stringValue, !linkID.isEmpty else {
+                throw ActionFailure(message: CloudPortStrings.failed(CloudPortNames(session, port: port), detail: "linkId is required"))
+            }
+            let names = CloudPortNames(session, port: port)
+            guard session.appLink != nil else { throw ActionFailure(message: CloudPortStrings.classicLink(names)) }
+            answer("revoke machine preview link", invocation, context, pendingAfter: answerWithin,
+                   pending: ["machine_id": .string(session.machineID), "port": .int(port), "linkId": .string(linkID)]) {
+                guard let api = context.services.cloud.previewAPI else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
+                let revoked = try await wrapped(names) { try await api.revokePreviewShareLink(session.machineID, port: port, linkID: linkID) }
+                return CloudAnswer(title: CloudPortStrings.previewLinkRevoked,
+                                   text: revoked.revoked ? CloudPortStrings.previewLinkRevoked : CloudPortStrings.previewLinkAlreadyRevoked,
+                                   fields: [
+                    "machine_id": .string(session.machineID), "port": .int(port), "linkId": .string(linkID), "revoked": .bool(true),
+                ])
+            }
+        }
         bind("cloudMachineLink", registry, reason: reason) { invocation in
             let invocation = effective(invocation)
             let session = try machine(invocation, context)

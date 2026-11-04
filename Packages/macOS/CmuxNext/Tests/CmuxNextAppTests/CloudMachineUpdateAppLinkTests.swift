@@ -49,7 +49,7 @@ struct CloudMachineUpdateAppLinkTests {
     }
 }
 
-/// How an app link connects after an update (``CloudMachineSession/afterUpdate(restarted:linkEnded:connected:connecting:)``);
+/// How an app link connects after an update (``CloudLinkAfterUpdate``, CmuxNextCloud);
 /// when its handshakes are offered is `HandshakeFollowerTests` (CmuxNextCloudTests).
 @MainActor @Suite
 struct CloudMachineUpdateFollowTests {
@@ -57,13 +57,13 @@ struct CloudMachineUpdateFollowTests {
     /// the old daemon's connection because its drop has not arrived yet: the old ticket goes, so
     /// that late drop changes nothing. One that restarted nothing leaves a healthy connection alone.
     @Test func anUpdateThatRestartedTheDaemonConnectsAfreshBeforeTheOldDropArrives() {
-        typealias Session = CloudMachineSession
-        #expect(Session.afterUpdate(restarted: true, linkEnded: false, connected: true, connecting: false) == .connect(dropTicket: true),
+        typealias After = CloudLinkAfterUpdate
+        #expect(After(restarted: true, linkEnded: false, connected: true, connecting: false) == .connect(dropTicket: true),
                 "the CLI answered before the old connection's drop")
-        #expect(Session.afterUpdate(restarted: true, linkEnded: true, connected: false, connecting: false) == .connect(dropTicket: true))
-        #expect(Session.afterUpdate(restarted: true, linkEnded: false, connected: false, connecting: true) == .connectAfterHop)
-        #expect(Session.afterUpdate(restarted: false, linkEnded: false, connected: true, connecting: false) == .connect(dropTicket: false))
-        #expect(Session.afterUpdate(restarted: false, linkEnded: false, connected: false, connecting: false) == .connect(dropTicket: true),
+        #expect(After(restarted: true, linkEnded: true, connected: false, connecting: false) == .connect(dropTicket: true))
+        #expect(After(restarted: true, linkEnded: false, connected: false, connecting: true) == .connectAfterHop)
+        #expect(After(restarted: false, linkEnded: false, connected: true, connecting: false) == .connect(dropTicket: false))
+        #expect(After(restarted: false, linkEnded: false, connected: false, connecting: false) == .connect(dropTicket: true),
                 "a refused daemon's link")
 
         #expect(CloudMachineUpdateTarget.mayHaveRestarted(CloudMoveCLI.Answer(ok: true, updated: true, build: "abc123def456")))

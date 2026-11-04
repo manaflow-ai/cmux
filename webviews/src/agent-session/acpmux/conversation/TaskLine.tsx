@@ -16,6 +16,7 @@ import { RowShimmer } from "./ShimmerText";
 import type { StartedTask } from "./taskLineKind";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
 import "./TaskLine.css";
+import { openSessionAttributes } from "./menuParts";
 
 /// The harness mark's size: a received message's sender logo's (IncomingMessageCard.tsx), so every
 /// agent mark in the transcript's icon column is one size.
@@ -63,7 +64,11 @@ function TaskLine({ task }: { task: StartedTask }) {
       }
       className={`cv-task-line${working ? " is-live" : ""}`}
       ariaLabel={title}
-      attributes={{ "data-task-line": state, "data-session-id": task.sessionId }}
+      attributes={{
+        "data-task-line": state,
+        "data-session-id": task.sessionId,
+        ...(open ? openSessionAttributes(task.sessionId) : {}),
+      }}
       onClick={open ? () => open(task.sessionId) : undefined}
     />
   );

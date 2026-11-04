@@ -479,6 +479,9 @@ struct FailureCard: View {
     var canRetry = true
     /// Retry with another model, beside Retry (the Mac's failed turn shows it there).
     var retryWith: RetryModelChoice?
+    /// The lead button's word: Continue when the turn had done work, Retry when nothing ran
+    /// (the Mac's error card, `errorRecovery.ts`). Both are acpmux's turn retry.
+    var leadsWithContinue = false
     let retry: () -> Void
 
     var body: some View {
@@ -498,8 +501,10 @@ struct FailureCard: View {
                 .tint(.secondary)
             }
             HStack(spacing: 8) {
-                Button("Retry", action: retry).buttonStyle(CmuxMobileCapsuleButtonStyle(.primary, size: .large))
+                Button(leadsWithContinue ? "Continue" : "Retry", action: retry)
+                    .buttonStyle(CmuxMobileCapsuleButtonStyle(.primary, size: .large))
                     .disabled(!canRetry)
+                    .accessibilityIdentifier("agentChat.failure.lead")
                 if let retryWith {
                     retryWith.menu
                         .labelStyle(.iconOnly)
@@ -510,6 +515,52 @@ struct FailureCard: View {
         }
         .padding(16)
         .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(uiColor: .separator), lineWidth: 1) }
+    }
+}
+
+/// The Mac's next-step card (#33269): a tagged ask a finished turn ended on, its question, a muted
+/// line, and its answers as buttons, the first filled. A tap sends the answer as the next prompt;
+/// once a prompt follows, the card folds to the question and the answer in grey.
+struct NextStepCard: View {
+    let ask: NextStepAsk
+    let answer: String?
+    let canAnswer: Bool
+    let send: (NextStepAsk.Option) -> Void
+    @State private var sent = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(ask.question)
+                .font(.headline)
+                .fixedSize(horizontal: false, vertical: true)
+            if let answer {
+                Label(answer, systemImage: "arrowshape.turn.up.left")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("agentChat.nextStep.answer")
+            } else {
+                if let detail = ask.detail {
+                    Text(detail).font(.subheadline).foregroundStyle(.secondary)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(ask.options.enumerated()), id: \.offset) { index, option in
+                        Button(option.title) {
+                            sent = true
+                            send(option)
+                        }
+                        .buttonStyle(CmuxMobileCapsuleButtonStyle(index == 0 ? .primary : .secondary, size: .large))
+                        .disabled(!canAnswer || sent)
+                        .accessibilityIdentifier("agentChat.nextStep.option.\(index)")
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(uiColor: .separator), lineWidth: 1) }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("agentChat.nextStep")
+        .onChange(of: answer) { _, _ in sent = false }
     }
 }
 #endif

@@ -96,6 +96,205 @@ impl RelaySource {
     }
 }
 
+/// Direct Cloud API credentials for headless Linux links. This source is
+/// enabled only when the caller explicitly supplies both an API origin and an
+/// install token (the token is never included in debug output or errors).
+#[derive(Clone)]
+pub(super) struct DirectSource {
+    api: String,
+    token: String,
+    token_file: Option<PathBuf>,
+    client: reqwest::Client,
+}
+
+impl std::fmt::Debug for DirectSource {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("DirectSource").field("api", &self.api).finish_non_exhaustive()
+    }
+}
+
+impl DirectSource {
+    pub(super) fn new(api: String, token: String) -> Result<Self, ConnectInfoError> {
+        Self::build(api, token, None)
+    }
+
+    pub(super) fn with_token_file(
+        api: String,
+        token: String,
+        token_file: PathBuf,
+    ) -> Result<Self, ConnectInfoError> {
+        Self::build(api, token, Some(token_file))
+    }
+
+    fn build(
+        api: String,
+        token: String,
+        token_file: Option<PathBuf>,
+    ) -> Result<Self, ConnectInfoError> {
+        let api = secure_origin(&api)?;
+        if token.trim().is_empty() {
+            return Err(ConnectInfoError::Unavailable("the Cloud install token is empty".into()));
+        }
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(DIAL_TIMEOUT)
+            .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|_| {
+                ConnectInfoError::Unavailable("the Cloud HTTP client is unavailable".into())
+            })?;
+        Ok(Self { api, token: token.trim().to_owned(), token_file, client })
+    }
+
+    fn current_token(&self) -> Result<String, ConnectInfoError> {
+        let Some(path) = &self.token_file else { return Ok(self.token.clone()) };
+        super::read_cloud_token_file(path).map_err(|_| {
+            ConnectInfoError::Unavailable("the Cloud install token file is unavailable".into())
+        })
+    }
+
+    async fn request(
+        &self,
+        path: &str,
+        body: serde_json::Value,
+        read_envelope: bool,
+    ) -> Result<serde_json::Value, ConnectInfoError> {
+        let token = self.current_token()?;
+        let response = self
+            .client
+            .post(format!("{}{}", self.api, path))
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|_| ConnectInfoError::Unavailable("the Cloud API did not answer".into()))?;
+        let status = response.status();
+        let value: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|_| ConnectInfoError::Unavailable("the Cloud API sent invalid JSON".into()))?;
+        if read_envelope && status.is_success() && value.get("value").is_some() {
+            return Ok(value.get("value").cloned().unwrap_or(serde_json::Value::Null));
+        }
+        if !read_envelope && value.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
+            return Ok(value.get("value").cloned().unwrap_or(serde_json::Value::Null));
+        }
+        let error = value.get("error").or_else(|| status.is_client_error().then_some(&value));
+        let field =
+            |name: &str| error.and_then(|e| e.get(name)).and_then(serde_json::Value::as_str);
+        Err(ConnectInfoError::from_code(
+            field("code").unwrap_or("owner.unreachable"),
+            field("message").unwrap_or("the Cloud API refused"),
+        ))
+    }
+}
+
+impl ConnectInfoSource for DirectSource {
+    async fn fetch(&self, host: &str) -> Result<ConnectInfo, ConnectInfoError> {
+        if !is_cloud_host(host) || !cmux_link::stamp::valid_id(host) {
+            return Err(ConnectInfoError::NotFound);
+        }
+        let value = self
+            .request(
+                "/v1/read",
+                serde_json::json!({
+                    "op":"cloud.machine.connect_info", "params":{"host":host}
+                }),
+                true,
+            )
+            .await?;
+        serde_json::from_value(value).map_err(|_| {
+            ConnectInfoError::Unavailable("the Cloud API sent invalid connect_info".into())
+        })
+    }
+
+    async fn mint_token(
+        &self,
+        host: &str,
+        services: &[Service],
+    ) -> Result<LinkTokenGrant, ConnectInfoError> {
+        if !is_cloud_host(host) || !cmux_link::stamp::valid_id(host) {
+            return Err(ConnectInfoError::NotFound);
+        }
+        let value = self
+            .request(
+                "/v1/ops",
+                serde_json::json!({
+                    "op":"cloud.machine.link_token", "params":{"host":host,"services":services}
+                }),
+                false,
+            )
+            .await?;
+        serde_json::from_value(value).map_err(|_| {
+            ConnectInfoError::Unavailable("the Cloud API sent invalid link_token".into())
+        })
+    }
+}
+
+fn secure_origin(raw: &str) -> Result<String, ConnectInfoError> {
+    let url = reqwest::Url::parse(raw.trim())
+        .map_err(|_| ConnectInfoError::Unavailable("the Cloud API URL is invalid".into()))?;
+    let local = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "::1"));
+    if url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || !matches!(url.path(), "" | "/")
+        || (url.scheme() != "https" && !(url.scheme() == "http" && local))
+    {
+        return Err(ConnectInfoError::Unavailable(
+            "the Cloud API URL must be a secure bare origin".into(),
+        ));
+    }
+    Ok(url.origin().ascii_serialization())
+}
+
+#[cfg(test)]
+mod direct_tests {
+    use super::*;
+
+    #[test]
+    fn direct_source_redacts_install_token() {
+        let source =
+            DirectSource::new("http://127.0.0.1:8787".into(), "secret-install-token".into())
+                .expect("local origins are allowed for tests");
+        let debug = format!("{source:?}");
+        assert!(!debug.contains("secret-install-token"));
+        assert_eq!(source.api, "http://127.0.0.1:8787");
+    }
+
+    #[test]
+    fn direct_source_rejects_insecure_remote_origin() {
+        let error = DirectSource::new("http://cloud.example".into(), "token".into()).unwrap_err();
+        assert!(
+            matches!(error, ConnectInfoError::Unavailable(message) if message.contains("secure"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn direct_source_reloads_a_rotated_token_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().expect("temporary token directory");
+        let path = directory.path().join("install-token");
+        std::fs::write(&path, "first-token\n").expect("write first token");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .expect("protect token file");
+        let source = DirectSource::with_token_file(
+            "http://127.0.0.1:8787".into(),
+            "first-token".into(),
+            path.clone(),
+        )
+        .expect("local origins are allowed for tests");
+        assert_eq!(source.current_token().expect("first token"), "first-token");
+        std::fs::write(&path, "rotated-token\n").expect("rotate token");
+        assert_eq!(source.current_token().expect("rotated token"), "rotated-token");
+    }
+}
+
 impl ConnectInfoSource for RelaySource {
     async fn fetch(&self, host: &str) -> Result<ConnectInfo, ConnectInfoError> {
         let value = self.request(serde_json::json!({"op":"connect_info","host":host})).await?;
@@ -128,6 +327,7 @@ impl ConnectInfoSource for RelaySource {
 pub(super) enum CloudSource {
     Relay(RelaySource),
     Broker(super::cloud_broker::BrokerSource),
+    Direct(DirectSource),
 }
 
 impl ConnectInfoSource for CloudSource {
@@ -135,6 +335,7 @@ impl ConnectInfoSource for CloudSource {
         match self {
             Self::Relay(source) => source.fetch(host).await,
             Self::Broker(source) => source.fetch(host).await,
+            Self::Direct(source) => source.fetch(host).await,
         }
     }
 
@@ -146,6 +347,7 @@ impl ConnectInfoSource for CloudSource {
         match self {
             Self::Relay(source) => source.mint_token(host, services).await,
             Self::Broker(source) => source.mint_token(host, services).await,
+            Self::Direct(source) => source.mint_token(host, services).await,
         }
     }
 }

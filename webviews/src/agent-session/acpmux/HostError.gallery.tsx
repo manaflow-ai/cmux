@@ -85,7 +85,7 @@ const details: Play = async (ctx) => {
 };
 
 const PEER_WORDS =
-  "peer_unreachable: box (reconnecting, last seen 3m ago: connect timed out); the request was not sent; run `acpmux host ls` and retry after the peer reconnects";
+  "peer_unreachable: box (reconnecting, last seen 3m ago: connect timed out); the request was not sent; run `acpmux machine ls` and retry after the peer reconnects";
 
 const restartService: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Restart agent service" });

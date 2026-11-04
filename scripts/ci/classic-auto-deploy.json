@@ -1,0 +1,104 @@
+{
+  "description": "What deploys classic cmux (cmux.com and its API) on its own when a commit lands, and which of those paths the classic API guard (scripts/ci/classic_api_guard.py, .github/workflows/classic-api-guard.yml) refuses without a reason. The one list: the guard, its test and the docs (cmuxterm-hq skills/infra/cloud-api-promote, leo-workspace design/cloud.md) read it. Leo, 2026-11-04: \"apparently the api if we change it it'll auto deploy so we wanna make extra sure we dont change it for clasisc\".",
+  "reason_line": "Classic API change: <reason>",
+  "deploys": [
+    {
+      "id": "vercel-cmux-com",
+      "branch": "main",
+      "trigger": "Vercel Git integration: web/vercel.json git.deploymentEnabled is {main: true, **: false}; web/tools/vercel-ignore-build.sh skips the build when no web build input changed",
+      "target": "Vercel project manaflow/cmux, production cmux.com: the classic app API (/api/vm, /api/runs, /api/account, /api/billing, /api/cron, /v1, the sign-in handler) and the site",
+      "guarded": true,
+      "paths": [
+        "web/app/api/**",
+        "web/app/v1/**",
+        "web/app/vm/**",
+        "web/app/handler/**",
+        "web/app/authorize/**",
+        "web/app/lib/**",
+        "web/app/env.ts",
+        "web/services/**",
+        "web/orpc/**",
+        "web/openapi/**",
+        "web/db/**",
+        "web/data/mobile-mac-compat.ts",
+        "web/data/agent-models.ts",
+        "web/proxy.ts",
+        "web/instrumentation.ts",
+        "web/next.config.ts",
+        "web/security-headers.ts",
+        "web/vercel.json",
+        "web/package.json",
+        "web/bun.lock",
+        "web/patches/**",
+        "config/iroh/managed-relay-catalog.json",
+        "web/data/model-catalog/**",
+        "workers/presence/src/generated/managedRelayCatalog.ts"
+      ],
+      "exclude": [
+        "**/*.md",
+        "**/*.test.ts",
+        "**/*.test.mjs"
+      ]
+    },
+    {
+      "id": "vercel-cmux-com-site",
+      "branch": "main",
+      "trigger": "the same Vercel deploy as vercel-cmux-com",
+      "target": "cmux.com pages, docs and messages (no API); listed, not guarded",
+      "guarded": false,
+      "paths": [
+        "web/**",
+        "CHANGELOG.md",
+        ".vercelignore"
+      ]
+    },
+    {
+      "id": "docs-channels",
+      "branch": "main",
+      "trigger": ".github/workflows/docs-channels.yml (push to main, web/** and CHANGELOG.md)",
+      "target": "Vercel docs channel projects (nightly docs); listed, not guarded",
+      "guarded": false,
+      "paths": [
+        "web/**",
+        "CHANGELOG.md"
+      ]
+    },
+    {
+      "id": "iroh-v2",
+      "branch": "main",
+      "trigger": ".github/workflows/iroh-v2.yml: a push to main only dry-runs staging and production; development deploys by workflow_dispatch",
+      "target": "Cloudflare Worker iroh-v2 (relay); no auto-deploy, listed, not guarded",
+      "guarded": false,
+      "paths": [
+        "workers/iroh-v2/**",
+        "Packages/Shared/CmuxIrxTransport/**"
+      ]
+    },
+    {
+      "id": "cloudflare-relay",
+      "branch": "main",
+      "trigger": ".github/workflows/cloudflare-relay.yml: a push to main only dry-runs",
+      "target": "Cloudflare Durable Object relay (cmux-tui/relays/cloudflare-do); no auto-deploy, listed, not guarded",
+      "guarded": false,
+      "paths": [
+        "cmux-tui/relays/cloudflare-do/**"
+      ]
+    },
+    {
+      "id": "fleet-artifact-cdn",
+      "branch": "main",
+      "trigger": ".github/workflows/fleet-artifact-cdn.yml: deploys only by workflow_dispatch on main",
+      "target": "CI artifact CDN Worker (internal, no customer API); no auto-deploy, listed, not guarded",
+      "guarded": false,
+      "paths": [
+        "workers/fleet-artifacts/**"
+      ]
+    }
+  ],
+  "next_deploys_not_classic": [
+    "backend.yml: push to feat-cmux-next deploys cmux-api development and staging (cloud-api-staging.cmux.dev); production only by the promote dispatch. Not on main's tree, so a push to main runs nothing from it.",
+    "cmux-vm.yml: feat-cmux-next and feat-cmux-vm-* pushes deploy the NEXT cmux-vm Worker; production by dispatch.",
+    "release-rails.yml, cloud-devbox-image-rebake.yml, app-ffi-release.yml: NEXT release rails and images from feat-cmux-next.",
+    "backend-migrations.yml: a labelled PR applies NEXT cmux-next Postgres migrations (staging, then production)."
+  ]
+}

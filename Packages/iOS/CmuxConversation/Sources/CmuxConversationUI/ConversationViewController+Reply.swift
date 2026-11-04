@@ -332,6 +332,7 @@ extension ConversationViewController {
             guard case var .message(model) = row, thread.contains(where: { $0.id == model.message.id }) else { return nil }
             // Inside the thread, replies render without their quote.
             model.replyQuote = nil
+            model.replyThread = nil
             model.showsTail = true
             // Names are a group's: a 1:1 thread shows none, as its transcript.
             model.showsSenderName = model.isGroup && !model.isOutgoing

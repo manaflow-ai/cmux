@@ -7,25 +7,34 @@ export const ACCENT_COLOR = "var(--agent-accent, currentColor)";
 /// Generous mask bounds: row icons crop the grid and draw with overflow visible.
 const MASK_BOUNDS = { x: -24, y: -24, width: 72, height: 72 } as const;
 
-const strokeProps = (layer: IconLayer) => ({
-  strokeWidth: layer.w ?? 1.5,
+const strokeProps = (layer: IconLayer, strokeWidth?: number) => ({
+  strokeWidth: strokeWidth ?? layer.w ?? 1.5,
   strokeLinecap: layer.cap ?? "round",
   strokeLinejoin: layer.join ?? "round",
   strokeDasharray: layer.dash?.join(" "),
   strokeDashoffset: layer.dashPhase,
 });
 
-function shape(layer: IconLayer, key: number): ReactNode {
+function shape(layer: IconLayer, key: number, strokeWidth?: number): ReactNode {
   const color = layer.accent ? ACCENT_COLOR : "currentColor";
   switch (layer.op) {
     case "fill":
       return <path key={key} d={layer.d} fill={color} fillRule={layer.rule} opacity={layer.alpha} />;
     case "stroke":
-      return <path key={key} d={layer.d} fill="none" stroke={color} opacity={layer.alpha} {...strokeProps(layer)} />;
+      return (
+        <path
+          key={key}
+          d={layer.d}
+          fill="none"
+          stroke={color}
+          opacity={layer.alpha}
+          {...strokeProps(layer, strokeWidth)}
+        />
+      );
     case "clearFill":
       return <path key={key} d={layer.d} fill="black" fillRule={layer.rule} />;
     case "clearStroke":
-      return <path key={key} d={layer.d} fill="none" stroke="black" {...strokeProps(layer)} />;
+      return <path key={key} d={layer.d} fill="none" stroke="black" {...strokeProps(layer, strokeWidth)} />;
   }
 }
 
@@ -34,17 +43,22 @@ const isClear = (layer: IconLayer) => layer.op === "clearFill" || layer.op === "
 /// The SVG children for a flat layer list. A run of clear layers erases only what came before it:
 /// everything drawn so far moves into a group masked by a white rect with the clear shapes in black,
 /// and later layers draw outside that mask. `idPrefix` keeps mask ids unique per icon instance.
-export function iconLayers(layers: IconLayer[], idPrefix: string): ReactNode[] {
+export function iconLayers(layers: IconLayer[], idPrefix: string, strokeWidth?: number): ReactNode[] {
   let drawn: ReactNode[] = [];
   let masks = 0;
+  const authoredStroke = layers.find((layer) => layer.op === "stroke")?.w ?? 1.5;
   for (let index = 0; index < layers.length; index += 1) {
     if (!isClear(layers[index])) {
-      drawn.push(shape(layers[index], index));
+      drawn.push(shape(layers[index], index, strokeWidth));
       continue;
     }
     const clears: ReactNode[] = [];
     while (index < layers.length && isClear(layers[index])) {
-      clears.push(shape(layers[index], index));
+      const layer = layers[index];
+      // Keep knockout gaps proportional when normalizing the visible line.
+      const clearWidth =
+        strokeWidth === undefined ? undefined : (strokeWidth * (layer.w ?? authoredStroke)) / authoredStroke;
+      clears.push(shape(layer, index, clearWidth));
       index += 1;
     }
     index -= 1;

@@ -13,7 +13,7 @@ import {
   acpmuxSendCallsParseCountForTests,
   resetAcpmuxSendCallsCacheForTests,
 } from "./acpmuxSends";
-import { toolGroups } from "./toolGroups";
+import { sendEntries, toolGroups } from "./toolGroups";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -140,11 +140,12 @@ describe("acpmuxSendBatch", () => {
     expect(acpmuxSendCalls(bash('for f in *.md; do wc -l "$f"; done'))).toBeUndefined();
   });
 
-  test("a batch draws one sent-message row per recipient, each on its own", () => {
+  test("a batch draws one group of sent messages that opens to a row per recipient", () => {
     const call = bash(FUNCTION_BATCH, { output: "queued\nsteered" });
     const groups = toolGroups([{ kind: "tool", text: call.title, tool: call }]);
-    expect(groups.map((group) => group.type)).toEqual(["send", "send"]);
-    expect(groups.map((group) => (group.type === "send" ? group.send.target : ""))).toEqual([
+    // Leo, 2026-11-04: "why arent these collapsed/collapsible".
+    expect(groups.map((group) => group.type)).toEqual(["sendGroup"]);
+    expect(sendEntries(groups).map((group) => group.send.target)).toEqual([
       "build-box/nightly",
       "gcp-lane/acpmux-owner",
     ]);

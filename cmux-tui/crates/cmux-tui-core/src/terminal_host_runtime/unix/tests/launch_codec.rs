@@ -519,6 +519,7 @@ fn clear_history_ack_preserves_known_not_delivered_failure() {
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
+        input_order: None,
     };
     let responder = thread::spawn(move || {
         let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();

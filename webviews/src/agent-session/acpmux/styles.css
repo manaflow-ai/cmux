@@ -99,12 +99,15 @@
 .acpmux-model-name{color:var(--agent-text)}
 .acpmux-model-effort{flex:none;margin-left:4px;padding:2px 6px;border-radius:4px;background:var(--acpmux-menu-hover);color:var(--agent-muted);font-size:12px;line-height:16px}
 .acpmux-effort .acpmux-picker-button,.acpmux-picker-button .acpmux-icon:last-child{color:var(--agent-muted)}
-/* The context ring is a button the size of the mic; resting on it or focusing it shows the context card (contextCard.css). */
+/* The context ring is a button the size of the mic; resting on it or focusing it shows the context card (contextCard.css). It always reads as a gauge, never a spinner: the remaining share is a clearly visible track (ComposerPickers.tsx CONTEXT_RING_LOOKS, test/context-ring-gauge.test.tsx). */
 .acpmux-context{flex:none}
 .acpmux-context-ring{flex:none;display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
 .acpmux-context-ring svg{width:12px;height:12px}
-.acpmux-context-ring:disabled{background:none;color:var(--agent-muted);opacity:.5}
+.acpmux-context-ring:disabled,.acpmux-context-ring[aria-disabled="true"]{background:none;color:var(--agent-muted);opacity:.5}
 .acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+/* The `percent` look of the context ring (experiment context-ring-look, not shipped): the percent used as a caption beside the ring. */
+.acpmux-context:has(.acpmux-context-caption){display:inline-flex;align-items:center}
+.acpmux-context-caption{font-size:var(--text-caption);line-height:1;color:var(--agent-muted);font-variant-numeric:tabular-nums}
 /* The right-click hosts around the context ring and, when it is hidden, the footer: no box of their own. */
 .acpmux-context-usage-menu,.acpmux-attachment-menu,.acpmux-plan-menu,.acpmux-mic-menu,.acpmux-chrome-area{display:contents}
 /* Send, Stop and ↵ are plain line glyphs in the secondary text color (--agent-muted), as the mic is (Leo 2026-10-21: "WHY ARE THERE CIRCLES ... no solid discs", Claude Code desktop's; then: the secondary text color, only a hover background): no fill, no ring; hover takes the mic's soft pill and keeps the glyph's color (composerStates.css). */

@@ -18,7 +18,7 @@ import type { StartedSession } from "../started/startedSessions";
 import type { BackgroundCommand } from "../session-info/processes";
 import { nestAgents } from "./AgentsPill";
 import { isRunGroup, isSubagentGroup, SUBAGENT_DONE, WORKFLOW_CARD } from "./subagentRows";
-import type { Subagent } from "./subagentFold";
+import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import { retrying, retryKey, sessionRetry, type RetryState } from "./retryState";
 
 let trayOn = true;
@@ -45,7 +45,13 @@ export const useSubagentTray = (): boolean => useSyncExternalStore(subscribe, sn
 /// background command, or a chat the agent started.
 export type TrayItem =
   | { kind: "agent"; id: string; agent: Subagent; depth: number }
-  | { kind: "command"; id: string; command: BackgroundCommand }
+  | {
+      kind: "command";
+      id: string;
+      command: BackgroundCommand;
+      /// The subagent whose call started it, when one did and the chat knows it: its line names it.
+      owner?: Subagent;
+    }
   | { kind: "session"; id: string; session: StartedSession };
 
 /// What the tray lists and its header counts: what runs or waits on the person, never what ended
@@ -77,14 +83,19 @@ export function trayItems(
     // sub-session's retry is on its own session row: its line carries it, to read "Retrying (2/4)".
     .flatMap((agent) => {
       if (agent.state === "running" && (working || agent.background === true)) return [agent];
+      // Stopped to wait on background work of its own: still live, its report still to come.
+      if (awaitsOwnWork(agent)) return [agent];
       const retry = retries(agent);
       return retry ? [agent.retry ? agent : { ...agent, retry }] : [];
     })
     .sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id));
   const items: TrayItem[] = nestAgents(live).map(({ agent, depth }) => ({ kind: "agent", id: agent.id, agent, depth }));
+  const byId = new Map(agents.map((agent) => [agent.id, agent]));
   for (const command of commands)
-    if (command.state === "running" && (working || command.processId !== undefined))
-      items.push({ kind: "command", id: command.id, command });
+    if (command.state === "running" && (working || command.processId !== undefined)) {
+      const owner = command.subagent === undefined ? undefined : byId.get(command.subagent);
+      items.push({ kind: "command", id: command.id, command, ...(owner ? { owner } : {}) });
+    }
   for (const session of sessions)
     if (session.subsession && liveSession(session)) items.push({ kind: "session", id: session.sessionId, session });
   return newestFirst(items);
@@ -122,7 +133,7 @@ const liveSession = (session: StartedSession) =>
 /// (their end is not known here), those with no creation time last.
 export function finishedTrayItems(agents: readonly Subagent[], sessions: readonly StartedSession[]): TrayItem[] {
   const retries = childRetries(sessions);
-  const ended = agents.filter((agent) => agent.state !== "running" && !retries(agent));
+  const ended = agents.filter((agent) => agent.state !== "running" && !awaitsOwnWork(agent) && !retries(agent));
   // Each subtree's latest end, in one pass over a parent-to-children map (a loop is cut where it
   // meets an agent already on the path).
   const ids = new Set(ended.map((agent) => agent.id));
@@ -300,7 +311,8 @@ export function withSubagentLines(
         workflows.map((node) => workflowCard(row, node, cache, made)),
       );
     for (const agent of row.subagents ?? []) {
-      if (agent.state === "running" || (workflowCards && isWorkflow(agent))) continue;
+      // One waiting on background work of its own has not finished: its line waits for its report.
+      if (agent.state === "running" || awaitsOwnWork(agent) || (workflowCards && isWorkflow(agent))) continue;
       const endedAt = agent.endedAt ?? agent.startedAt;
       let at = index + 1;
       while (at < rows.length && (isSubagentGroup(rows[at]!) || rows[at]!.at <= endedAt)) at += 1;
