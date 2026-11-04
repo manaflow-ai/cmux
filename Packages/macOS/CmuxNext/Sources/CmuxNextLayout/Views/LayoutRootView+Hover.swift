@@ -38,6 +38,25 @@ extension LayoutRootView {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
+    /// DEBUG (`debug.cursor`, control build): the cursor shown, the hover pointer, the topmost window and hover.
+    public static func debugCursorReport() -> [String: String] {
+        var report = ["app": NSCursor.current.debugName, "system": NSCursor.currentSystem?.debugName ?? "none"]
+        guard let window = NSApp.keyWindow else { return report.merging(["key_window": "none"]) { $1 } }
+        var stack: [NSView] = window.contentView.map { [$0] } ?? []
+        while let view = stack.popLast() {
+            guard let root = view as? LayoutRootView else { stack.append(contentsOf: view.subviews); continue }
+            report["pointer"] = root.context.hoverPointer(window).map { "\($0.x),\($0.y)" } ?? "none"
+            let top = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
+            let owner = NSApp.windows.first { $0.windowNumber == top }
+            report["topmost"] = "\(top) key=\(window.windowNumber) ours=\(owner.map { String(describing: type(of: $0)) } ?? "no")"
+            for (id, screen) in root.screenViews where !screen.isHidden {
+                let hovered = screen.dividerViews.values.filter(\.isHovered).map(\.kind.mouseAreaID).sorted()
+                report["screen.\(id.rawValue)"] = "hovered=\(hovered.joined(separator: "+"))"
+            }
+        }
+        return report
+    }
+
     /// DEBUG (`debug.mouse`): the synthesized pointer of `window` (window
     /// coordinates; nil: outside the window), shared with every chrome hover
     /// (`PointerHover`, which recomputes them), then every layout in the
