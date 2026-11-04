@@ -7267,8 +7267,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Leo, 2026-11-04: "Opening a subagent shows its result first". A running one opens on its latest
   // row, following it, as a chat does.
   const childOpenAt = useMemo((): ScrollAnchor | undefined => {
+    // Only a view that has the head: a Labs workflow agent's transcript has none and keeps its latest row.
     const pill = childRows?.[0];
-    const agent = pill?.kind === SUBAGENT_OF ? pill.subagents?.[0] : undefined;
+    const agent = pill?.kind === SUBAGENT_OF && childRows?.[1]?.kind === SUBAGENT_RESULT ? pill.subagents?.[0] : undefined;
     return pill && agent && agent.state !== "running" ? { rowId: pill.id, offset: 0 } : undefined;
   }, [childRows]);
   // The session's edit rows for the edited-files card, the same array while they are the same rows.
