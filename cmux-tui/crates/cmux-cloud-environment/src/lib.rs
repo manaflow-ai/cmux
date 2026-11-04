@@ -195,6 +195,7 @@ impl Deref for Selection {
 }
 
 /// Reads and atomically updates one bundle's selected environment.
+/// This is the sole resolver for the per-bundle Cloud selection state root.
 pub struct Resolver {
     bundle_id: String,
     home: PathBuf,

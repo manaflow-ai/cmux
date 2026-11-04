@@ -57,7 +57,7 @@ pub(super) fn after_exit(pid: i32, bundle: &Path) -> Result<(), String> {
             break;
         }
     }
-    let status = std::process::Command::new("/usr/bin/open")
+    let status = cmux_process::Command::new("/usr/bin/open")
         .arg("-g")
         .arg("-n")
         .arg(bundle)
