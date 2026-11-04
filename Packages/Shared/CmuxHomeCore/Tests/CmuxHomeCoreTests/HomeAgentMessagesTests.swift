@@ -386,6 +386,25 @@ struct HomeAgentMessagesTests {
         #expect(row.peerStates == [.told] && row.peerTitles == ["Nightly rebuild"])
     }
 
+    /// A pill's title (user 2026-11-03): the task's `Title:` line, else its first clause cut at a word edge to
+    /// about 32 characters with no trailing punctuation, never a fixed five words cut mid-phrase.
+    @Test(arguments: [
+        ("Add auto-archive: off by default, 3 days idle, in the Tidy Up dialog and Settings.", "Add auto-archive"),
+        ("Title: Fix caret blink\n\nUser msg 1: the caret blinks.", "Fix caret blink"),
+        ("Buttons respond first click: test every button with one click", "Buttons respond first click"),
+        ("Default picked: reserve one Mac mini's nightly slot", "Default picked"),
+        ("Hold the push until the nightly appcast builds - then land it", "Hold the push until the nightly"),
+        ("Check Text Size in the docs. Then fix the sidebar.", "Check Text Size in the docs"),
+        ("Rebuild the appcast; then push", "Rebuild the appcast"),
+        ("Audit every button for first-click response\nin both windows", "Audit every button for"),
+        ("**Please** check the `nightly` build and report back today", "Please check the nightly build"),
+        ("Fix the v1.2 release notes", "Fix the v1.2 release notes"),
+        ("Supercalifragilisticexpialidociousnessly long word", "Supercalifragilisticexpialidociousnessly"),
+    ])
+    func aTitleIsTheTitleLineElseTheFirstClauseAtAWordEdge(text: String, expected: String) {
+        #expect(HomeAgentMessageRow.title(of: text) == expected)
+    }
+
     /// A pill names an agent by its task's `Title:` line (the spawn task's first line), else the
     /// first words of the Chief's first message (user 2026-11-03, msg 19960: the ChatGPT-style pills).
     @Test func anAgentsTitleIsItsTasksTitleLineElseItsFirstWords() {
