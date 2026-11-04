@@ -348,7 +348,8 @@ export function cloudRefusalText(code: string, hostWords?: string): string {
   if (code === "transport.path_outside_roots") return translate("cloudStartup.folderNotOpen");
   if (code.startsWith("transport.")) return errorMessage({ code });
   // The attachment refusal's words are the host's own sentence; the others carry only their code.
-  if (code === "cloud_attachments") return line(hostWords, 240) ?? translate("composer.offloadNotRun", { action: translate("composer.cloud") });
+  if (code === "cloud_attachments")
+    return line(hostWords, 240) ?? translate("composer.offloadNotRun", { action: translate("composer.cloud") });
   return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
 }
 

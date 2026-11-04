@@ -258,17 +258,33 @@ button.cv-agentmsg__name:focus-visible {
    directly in the same line. likewise, idk why everything is grey other than the recieving message
    bubble. and idk why names are ellipses'd so early plus the weird chevron spacing thing".
    - The other agent's name takes its whole width: no percentage cap (#27312's 40%, AgentTag.css's
-     40%, a received sender's 45%). It never shrinks (flex shrink is weighted by width, so even a
-     shrink of 1 against the preview's 1000 shaved a pixel off the name and drew its ellipsis); it is
-     capped only at the line itself, so only a name wider than the line is cut. The preview gives way.
+     40%, a received sender's 45%). The preview gives way first. Flex shrink is weighted by width, so
+     a shrink of 1 against the preview's 1000 still shaved a pixel off the name and drew its
+     ellipsis: the name's shrink is a ten-thousandth, under a layout unit of any real overflow while
+     the preview has room, and all of it once the preview is gone. So a name is cut only when the
+     verb, the name, the count and the chevron don't fit, and the chevron and status always show.
    - The verb, the name and the count read in the transcript's text tone, as a received message's
      text does; the preview is the one muted span, a step down, never the dim activity grey (#27074).
    - The chevron comes right after the words (conversation.css "chevron right after its words"): the
      sentence and its preview take their words' width, never the line's free width.
    design/chat-transcript.md "Message rows: one line". */
 .cv-agentmsg__sentence > .cv-agentmsg__name {
-  flex: 0 0 auto;
+  flex: 0 0.0001 auto;
   max-width: 100%;
+}
+/* A received line's toggle holds the first line and the chevron: it gives way first (the sender's
+   0.0001 against its 1000, as a send's name against its preview), down to the chevron's own room and
+   never under it, so a long sender cuts its name and keeps the chevron in view. */
+.acpmux-row .cv-received .cv-disclosure__toggle {
+  flex-shrink: 1000;
+  min-width: calc(var(--cv-chevron-glyph) + var(--cv-chevron-gap));
+}
+/* A send whose words came from a file names it after the line: it is cut as the preview is. */
+.cv-agentmsg__sentence > .cv-sent__file {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .acpmux-row .cv-agentmsg__line .cv-agentmsg__sentence > .cv-agentmsg__toggle,
 .acpmux-row .cv-agentmsg__line .cv-agentmsg__toggle > .cv-agentmsg__preview,

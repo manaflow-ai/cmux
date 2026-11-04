@@ -2095,14 +2095,11 @@ pre.cv-math-source {
    keeps the footer's 4px meta gap) and 20px under a tool row, as the Codex and Claude desktop apps
    space it, never flush under the text (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE").
    The line reserves the normal turn gap below it, so the end-of-turn swap does not move anything. */
-/* The live line keeps the shared icon slot empty: its words start on the text column every iconed
-   status row's words start on, never 24px left of them on the icon column (Leo, 2026-11-03, on
-   "Writing a command" under "Subagent finished" and over "1 message from 1 session": "weird
-   indenting /cut off text?"; design/chat-transcript.md "One icon column"). A folded turn's
-   "Worked for" line keeps col-left. */
-.cv-worked.cv-worked--live {
-  padding-inline-start: var(--cv-tool-text-inset);
-}
+/* The live line has no icon slot: its words start on the icon column, the transcript's left edge,
+   as the shimmer stands in the Claude and ChatGPT apps, never indented under the row above it as
+   if it were that row's second line (Leo, 2026-11-03, on "Thinking · 1m 23s total" under "Sent a
+   message, finished 3 background tasks": "the indent looks bad"). It took the text column after
+   "weird indenting /cut off text?" earlier that day (#33157). */
 .cv-worked.is-below {
   /* The footer's slot (transcriptGrid.ts MARK_FOOTER_SLOT): its 32 line, 8 under a reply. */
   height: var(--cv-footer-row);
@@ -3710,7 +3707,7 @@ button.cv-video-frames__frame:focus-visible {
   display: inline-flex;
   /* Its whole name: the first line after it gives way first (`.cv-disclosure__label`, shrink 1000;
      Leo, 2026-11-03: "idk why names are ellipses'd so early"). Only a name wider than the line is cut. */
-  flex: 0 0 auto;
+  flex: 0 0.0001 auto;
   align-items: center;
   min-width: 0;
   max-width: 100%;
