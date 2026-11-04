@@ -188,6 +188,18 @@ or a 0600 key file on a headless box, reported as lower assurance).
   one, and never equal to its `signingKey` (400). The hub verifies an Allow
   with `approvalKey` (403 `approval_key_required` when the device has none)
   and a Deny with `signingKey` (400 `bad_decision_signature` otherwise).
+  The hub cannot tell that a registered key needs presence: registration is
+  signed only by the signing key, so code holding that key could register a
+  software approval key on a device that has none yet. The guarantee is the
+  asking machine's pin of a fingerprint the owner compared on the phone; a
+  machine that verifies Allows without pins trusts the hub.
+- One Face ID check signs one Allow, for the digest that was on screen: the
+  iPhone app re-reads the approval before signing and refuses one whose digest
+  changed, and the evaluated `LAContext` is invalidated after the signature.
+- Not built yet in the Rust client (`cmux-device-hub-client`,
+  `verify_decision`): it still checks every decision against `signingKey`,
+  so it refuses iPhone Allows until it reads `approvalKey` and checks the
+  owner's pins (Track 2).
 - **The fingerprint a box pins**: the lowercase hex SHA-256 of the approval
   key's 65 X9.63 bytes (the bytes `approvalKey` base64-decodes to), the same
   rule as `viewerKeyFingerprint` applied to the approval key. People compare

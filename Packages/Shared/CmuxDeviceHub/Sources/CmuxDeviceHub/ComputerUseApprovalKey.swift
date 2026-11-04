@@ -19,11 +19,26 @@ public protocol ComputerUseApprovalKeyMaterial: Sendable {
 
 /// One passed Face ID or passcode check: the evaluated `LAContext`, so the enclave
 /// key signs under it and the person sees one prompt. Nil context: the key asks itself.
-public final class ComputerUseApprovalPresence: @unchecked Sendable { // crash-allow: immutable after init
+/// It is good for one signature: the first use takes it and invalidates the context.
+public final class ComputerUseApprovalPresence: @unchecked Sendable { // crash-allow: `context` is immutable; `used` is behind its Mutex
     let context: LAContext?
+    private let used = Mutex(false)
 
     init(context: LAContext?) {
         self.context = context
+    }
+
+    /// Takes this check for one signature; false when it was already used.
+    func take() -> Bool {
+        used.withLock { used in
+            defer { used = true }
+            return !used
+        }
+    }
+
+    /// After the one signature: the enclave refuses the context from now on.
+    func spend() {
+        context?.invalidate()
     }
 
     /// No evaluated context (tests; an enclave key then prompts on its own).
@@ -100,6 +115,11 @@ public struct ComputerUseApprovalKey: Sendable {
     /// Usable only while the device is unlocked, never moved to another device.
     public static let protection = kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String
 
+    public enum Failure: Error, Equatable, Sendable {
+        /// One Face ID check signs one Allow: this authorization already signed.
+        case authorizationUsed
+    }
+
     let material: any ComputerUseApprovalKeyMaterial
     let factory: ComputerUseApprovalKeyFactory
 
@@ -134,7 +154,7 @@ public struct ComputerUseApprovalKey: Sendable {
             return ComputerUseApprovalKey(material: material, factory: factory)
         }
         let key = try ComputerUseApprovalKey(making: factory)
-        try keychain.write(key.material.stored, account: account)
+        try keychain.add(key.material.stored, account: account)
         return key
     }
 }
@@ -148,8 +168,11 @@ public struct ComputerUseApprovalAuthorization: Sendable {
     public var publicKey: String { material.publicKey.x963Representation.base64EncodedString() }
 
     /// base64 raw r||s over `"cmux-cu-approval-v1\n<digest>\n<decision>"` (the message is the same for every key).
+    /// One signature per authorization: a second call throws ``ComputerUseApprovalKey/Failure/authorizationUsed``.
     public func signApproval(digest: String, decision: ComputerUseDecision) throws -> String {
-        try material.signature(for: Data(decision.signatureMessage(digest: digest).utf8), presence: presence)
+        guard presence.take() else { throw ComputerUseApprovalKey.Failure.authorizationUsed }
+        defer { presence.spend() }
+        return try material.signature(for: Data(decision.signatureMessage(digest: digest).utf8), presence: presence)
             .rawRepresentation.base64EncodedString()
     }
 }

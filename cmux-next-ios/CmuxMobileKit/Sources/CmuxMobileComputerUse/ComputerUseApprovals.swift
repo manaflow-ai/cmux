@@ -358,7 +358,9 @@ public final class ComputerUseApprovals {
         // Fetched and checked again right before signing: it may have closed meanwhile.
         let fresh = try await fetchReview(id, client: client, environment: environment)
         guard fresh.offers(choice) else { throw ComputerUseApproval.Refusal.notPending }
-        _ = try await client.decide(id: id, decision: choice.decision, digest: fresh.digest, authorization: authorization)
+        // Face ID was for the request on screen: sign only that one.
+        guard fresh.digest == review.digest else { throw ComputerUseApproval.Refusal.digestMismatch }
+        _ = try await client.decide(id: id, decision: choice.decision, digest: review.digest, authorization: authorization)
         hub?.forgetApproval(id)
         environment.removeNotification(ComputerUseApprovalNotice.notificationIdentifier(approvalID: id))
     }

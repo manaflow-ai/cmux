@@ -46,11 +46,17 @@ import Testing
         let authorization = try await key.authorize(reason: "Allow Claude to use Text Editor")
         #expect(recorder.checks.withLock { $0 } == ["Allow Claude to use Text Editor"])
         #expect(authorization.publicKey == key.publicKey)
+        let first = try authorization.signApproval(digest: digest, decision: .once)
+        #expect(DeviceIdentity.verifyApproval(signature: first, digest: digest, decision: .once, signingKey: key.publicKey))
+        // One Face ID check signs one Allow: not a second, not another decision.
+        #expect(throws: ComputerUseApprovalKey.Failure.authorizationUsed) {
+            _ = try authorization.signApproval(digest: digest, decision: .always)
+        }
         for vector in vectors.approvalDecisions where vector.decision != .deny {
             // The canonical message is the one every device signs: "cmux-cu-approval-v1\n<digest>\n<decision>".
             #expect(vector.decision.signatureMessage(digest: digest) == vector.message)
             #expect(vector.message == "cmux-cu-approval-v1\n\(digest)\n\(vector.decision.rawValue)")
-            let sig = try authorization.signApproval(digest: digest, decision: vector.decision)
+            let sig = try await key.authorize(reason: "r").signApproval(digest: digest, decision: vector.decision)
             #expect(DeviceIdentity.verify(signature: sig, of: Data(vector.message.utf8), signingKey: key.publicKey))
         }
     }
