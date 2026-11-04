@@ -144,7 +144,8 @@ struct ChiefAvatarMotionTests {
         f.set("scout", .done)
         let badge = try #require(f.badge("scout"))
         #expect(badge.fillColor == NSColor.systemGreen.cgColor && f.ring("scout") == nil && !f.looping("scout"))
-        #expect(badge.frame.width < try #require(f.avatar("scout")).bounds.width / 2, "a small mark, not a disc over the face")
+        let face = try #require(f.avatar("scout")).bounds.width
+        #expect(badge.frame.width < face / 2, "a small mark, not a disc over the face")
         f.set("scout", .failed)
         let failed = try #require(f.ring("scout"))
         #expect(failed.strokeColor == NSColor.systemRed.cgColor && !f.looping("scout"))
