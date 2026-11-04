@@ -125,7 +125,7 @@ class Stream:
     as they are written, so an interrupted run leaves none on disk) go to `path`; wait() is woken per line."""
 
     def __init__(self, argv, path, env=None):
-        self.lines, self.cond = [], threading.Condition()
+        self.lines, self.times, self.cond = [], [], threading.Condition()
         self.file = open(path, "w")
         self.proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                      text=True, errors="replace", env=env)
@@ -138,15 +138,21 @@ class Stream:
             self.file.flush()
             with self.cond:
                 self.lines.append(line)
+                self.times.append(time.monotonic())
                 self.cond.notify_all()
 
     def wait(self, pattern, timeout):
+        hit = self.wait_at(pattern, timeout)
+        return hit[1] if hit else None
+
+    def wait_at(self, pattern, timeout, since=0.0):
+        """(the monotonic time its line arrived, the match) of the first line at or after `since`."""
         deadline = time.monotonic() + timeout
         with self.cond:
             while True:
-                for line in self.lines:
-                    if m := pattern.search(line):
-                        return m
+                for at, line in zip(self.times, self.lines):
+                    if at >= since and (m := pattern.search(line)):
+                        return at, m
                 left = deadline - time.monotonic()
                 if left <= 0:
                     return None
@@ -278,6 +284,10 @@ def main():
     teardown = TagTeardown(a.mac_app)
     teardown.install()
     streams, app, paired, url, uploaded = [], None, None, None, not probe
+    # CMUX_PAIR_E2E_DISCOVERY=1: the phone's Allow request reaches the running Mac in seconds, and a
+    # Mac restart with a second identity key beside its Keychain key heals with no action on the phone.
+    discovery = os.environ.get("CMUX_PAIR_E2E_DISCOVERY") == "1"
+    ask_ok = restart_ok = not discovery
     keychain = RigKeychain(a.mac_app)
     try:
         note(f"- Keychain: {keychain.start()}")
@@ -352,8 +362,11 @@ def main():
         streams.append(phone_log := Stream(
             simctl + ["spawn", a.udid, "log", "stream", "--level", "info", "--style", "compact",
                       "--predicate", 'subsystem == "dev.cmux.mobile"'], os.path.join(a.out, "phone-pairing.log")))
+        asked_from = time.monotonic()
         phone_launch()
         live = phone_log.wait(re.compile(r"live data on"), 90)
+        if discovery:
+            ask_ok = discovery_ask(mac_log, asked_from, status, rpc, note)
         time.sleep(5)  # bounded: the Devices list loads from the service after live data starts
         note(f"- phone: {'signed in, live data' if live else 'NO live data in 90 s'}; Settings > Devices "
              f"{phone_shot('phone-devices')}")
@@ -403,6 +416,9 @@ def main():
             phone_log.wait(re.compile(r"live data on"), 60)
             time.sleep(5)  # bounded, as above
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
+            if discovery and paired:
+                app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
+                                                    phone_shot, note)
             if paired and probe:
                 uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, last.get("macName"))
                 note(f"- upload: {line}")
@@ -443,7 +459,67 @@ def main():
             allowlist_public_cloud_artifact(a.out)
     if not url and not expects_code and proof is None:
         return 0  # the "before": this ref shows no code, and the Devices screen is its evidence
-    return 0 if paired and uploaded and cloud_ok else 1
+    if discovery:
+        note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
+             f"{'PASS' if restart_ok else 'FAIL'}")
+    return 0 if paired and uploaded and cloud_ok and ask_ok and restart_ok else 1
+
+
+ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
+LINK_REFUSED = re.compile(r"mac_identity_changed|bad_mac_proof")
+
+
+def discovery_ask(mac_log, since, status, rpc, note):
+    """The phone, signed in and never paired, opened while the Mac runs: hostd sends its pair request
+    and the Mac shows it (the Allow prompt, the page's waiting row) within seconds. Only the person
+    answers it (debug.dialog refuses a press on it); the run pairs with the code after."""
+    hit = mac_log.wait_at(ASKS, 60, since=since)
+    took = hit[0] - since if hit else None
+    pending = (status().get("host") or {}).get("pending") or []
+    dialogs = [d for d in (rpc("debug.dialog").get("dialogs") or []) if d.get("identifier") == "cmux.dialog.iphonePair"]
+    press = rpc("debug.dialog", {"id": dialogs[0]["id"], "press": "allow"}) if dialogs else {}
+    ok = bool(hit) and took <= 15 and bool(pending)
+    note(f"- discovery, Allow request: {'phone ' + hit.group(1) + ' asked (' + hit.group(2) + ')' if hit else 'NO request'}"
+         f"{f' {took:.1f} s after the phone app launched' if hit else ' in 60 s'}; the page lists "
+         f"{len(pending)} waiting phone(s); {len(dialogs)} pairing prompt(s) open"
+         f"{(': ' + repr(dialogs[0].get('title'))) if dialogs else ' (none on screen: no frontmost window in a step)'}; "
+         f"a scripted Allow is refused: {press.get('error') or press or 'no prompt to press'}"
+         f" -> {'PASS' if ok else 'FAIL (needs a request within 15 s and a waiting row)'}")
+    return ok
+
+
+def discovery_restart(app, exe, env, out, support, status, phone_log, streams, phone_shot, note):
+    """The paired Mac quits; a second identity key is put in its fallback file (what a refused Keychain
+    read used to mint) while the phone stays open; the Mac starts again. The phone reconnects by
+    itself, the Mac keeps its Keychain key (no `mac_identity_changed`) and sets the file key aside."""
+    app.terminate()  # the exact PID this script started
+    try:
+        app.wait(30)
+    except subprocess.TimeoutExpired:
+        app.kill()
+        app.wait(15)
+    homes = [d for d in glob.glob(os.path.join(support, "**/cmux-mobile-host"), recursive=True) if os.path.isdir(d)]
+    if not homes:
+        note("- discovery, restart: no cmux-mobile-host state directory -> FAIL")
+        return app, False
+    planted = os.path.join(homes[0], "mac-identity")
+    with os.fdopen(os.open(planted, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as f:
+        f.write(secrets.token_bytes(32))  # a P-256 private key's raw form: a second identity
+    refused_before = len([l for l in phone_log.lines if LINK_REFUSED.search(l)])
+    t = time.monotonic()
+    restarted = Stream([exe], os.path.join(out, "mac-app-restart.log"), env=env)
+    streams.append(restarted)
+    connected = wait_for(lambda: status().get("connectedPhones", 0) >= 1, 120, every=1)
+    took = time.monotonic() - t
+    refused = len([l for l in phone_log.lines if LINK_REFUSED.search(l)]) - refused_before
+    aside = os.path.exists(planted + ".superseded") and not os.path.exists(planted)
+    ok = bool(connected) and refused == 0 and aside
+    note(f"- discovery, restart with a second identity key in the file: phone "
+         f"{'reconnected %.0f s after the Mac started' % took if connected else 'NOT reconnected in 120 s'} "
+         f"with no action on it; phone refusals mac_identity_changed/bad_mac_proof: {refused}; file key "
+         f"{'set aside as mac-identity.superseded' if aside else 'NOT set aside'}; phone {phone_shot('phone-after-restart')}"
+         f" -> {'PASS' if ok else 'FAIL'}")
+    return restarted.proc, ok
 
 
 def upload_leg(simctl, udid, bundle_id, phone_env, root, mac_name):
