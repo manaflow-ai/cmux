@@ -187,6 +187,7 @@ test("a gone, home or credential folder each says why, naming the credential fol
   expect(ended("cloud_folder_missing", "cloud_folder_missing")).toEqual({
     ...begun(),
     state: "failed",
+    code: "cloud_folder_missing",
     message: "This folder no longer exists; pick another one to send to Cloud.",
     refusedHere: true,
   });

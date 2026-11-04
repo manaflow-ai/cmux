@@ -8786,8 +8786,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
   const composerHandle = useRef<ComposerHandle | null>(null);
   const cloudSignInNewTabDraft = useRef<{ text: string; attachments: ComposerAttachment[] } | undefined>(undefined);
-  const cloudSignInDraftReader = useRef<() => { text: string; attachments: ComposerAttachment[] } | undefined>(
-    () => composerHandle.current?.draft(),
+  const cloudSignInDraftReader = useRef<() => { text: string; attachments: ComposerAttachment[] } | undefined>(() =>
+    composerHandle.current?.draft(),
   );
   const cloudSignInSend = useRef<() => Promise<CloudStartAnswer> | undefined>(() => undefined);
   /// The card retries its preserved request once; native keeps the click across browser auth.
@@ -14999,7 +14999,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         ...(cloudStart
                           ? {
                               cloudStatus: (
-                                <CloudStartView start={cloudStart} bubble={cloudStart.state === "starting"} onSignIn={cloudSignInRetry} />
+                                <CloudStartView
+                                  start={cloudStart}
+                                  bubble={cloudStart.state === "starting"}
+                                  onSignIn={cloudSignInRetry}
+                                />
                               ),
                             }
                           : {}),
@@ -15011,12 +15015,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                           model: string | undefined,
                           attachments: ComposerAttachment[],
                         ) =>
-                          sendToCloud(text, attachments, {
-                            harness,
-                            ...cloudStartFolder(cwd),
-                            ...(model ? { model } : {}),
-                          },
-                          { text, attachments }),
+                          sendToCloud(
+                            text,
+                            attachments,
+                            {
+                              harness,
+                              ...cloudStartFolder(cwd),
+                              ...(model ? { model } : {}),
+                            },
+                            { text, attachments },
+                          ),
                         onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
                           const started = sandboxPickedNotOffered
                             ? sandboxNotNow
