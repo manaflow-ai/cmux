@@ -58,14 +58,16 @@ struct UpdatedCardFirstFrameTests {
         let first = Self.launch(before)
         try #require(before.islands.first).report(77)
         first.layoutSubtreeIfNeeded()
-        #expect(first.updatedCardView.frame.height == 77)
+        #expect(first.updatedCardView.height == 77)
+        let drawn = first.updatedCardView.frame
+        #expect(drawn.height >= 77, "the card is laid out at its page's height (whole points)")
 
         // The relaunch: the new page has not drawn yet, and the card already stands where it stays.
         let after = FakeSurfaces()
         let relaunched = Self.launch(after)
         #expect(relaunched.updatedCardView.height == 77, "the card took no room until its page drew")
         #expect(!relaunched.updatedCardView.isHidden)
-        #expect(relaunched.updatedCardView.frame.height == 77, "the card's first frame is not its final one")
+        #expect(relaunched.updatedCardView.frame == drawn, "the card's first frame is not its final one")
         let listBottom = relaunched.scrollView.frame.minY
 
         // The page draws at the same height: nothing moves.
@@ -89,6 +91,11 @@ struct UpdatedCardFirstFrameTests {
         island.report(64)
         sidebar.layoutSubtreeIfNeeded()
         #expect(!sidebar.cardSlotMotion.isMoving, "the list made room for the relaunched card on a spring")
-        #expect(sidebar.updatedCardView.frame.height == 64)
+        #expect(sidebar.updatedCardView.height == 64)
+        let landed = sidebar.updatedCardView.frame
+        #expect(landed.height >= 64)
+        sidebar.needsLayout = true
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(sidebar.updatedCardView.frame == landed, "the card moved after the frame its page's height landed in")
     }
 }
