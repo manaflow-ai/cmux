@@ -1803,5 +1803,56 @@ class SharedEdgeCaseTests(unittest.TestCase):
                                                   "title": f"clean-up: {SHARED} back to its default"})
 
 
+
+class LiveResizeSwitchTests(unittest.TestCase):
+    """gen_pixel.py --switch motion.frameOwner.liveResize --only px-window-resize-4 (stage S7, frame-owner-s7-live-resize):
+    the switch is latched per resize, read at its first held drag (LiveResizeDragInput), so px_film sets it before any
+    step of the film (px_film: speed, then switch, then the steps), and the film's first window drag (px_window_frame)
+    comes after. OFF then ON at x1 and under Reduce Motion; the switch back to its default in finally."""
+
+    KEY = "motion.frameOwner.liveResize"
+
+    def test_the_switch_is_set_before_the_films_first_drag(self):
+        out = tempfile.mkdtemp(prefix="gen-s7-")
+        gen("--out", out, "--switch", self.KEY, "--only", "px-window-resize-4")
+        specs = {p.stem: json.loads(p.read_text()) for p in sorted(Path(out).glob("*.json"))}
+        self.assertTrue(specs)
+        self.assertTrue(all(jid.startswith("px-window-resize-4-sw-liveresize") for jid in specs), sorted(specs))
+        labels = []
+        for jid, spec in specs.items():
+            for f in [st for st in spec["steps"] if st["do"] == "px_film"]:
+                self.assertEqual(f["switch"]["key"], self.KEY)
+                dos = [st["do"] for st in f["steps"]]
+                self.assertIn("px_window_frame", dos)
+                # No window drag before the recorder: the first drag of the film is the first held drag of its resize.
+                self.assertLess(dos.index("px_record_start"), dos.index("px_window_frame"), f["name"])
+                labels.append(f["name"].split("-sw-liveresize")[1].lstrip("-abc").lstrip("-"))
+            self.assertEqual(spec["finally"][0], {"do": "px_tunable", "key": self.KEY, "value": None,
+                                                  "title": f"clean-up: {self.KEY} back to its default"})
+        self.assertEqual(labels, ["off-s1", "on-s1", "off-reduce", "on-reduce"])
+
+    def test_px_film_sets_the_switch_before_its_first_step(self):
+        order = []
+
+        class App(FakeApp):
+            def rpc(self, method, params=None, timeout=None):
+                if method == "debug.tunables" and (params or {}).get("key") == LiveResizeSwitchTests.KEY:
+                    order.append(("switch", (params or {}).get("value")))
+                return super().rpc(method, params, timeout)
+
+        class J(FakeJourney):
+            def step_px_window_frame(self, step):
+                order.append(("drag", step["by"]))
+                return {}
+
+        app = App(switches=[self.KEY])
+        j = J(app, tempfile.mkdtemp())
+        f = film("w-on-s1", 1.0)
+        f["steps"] = [{"do": "px_window_frame", "by": [-300, -150]}] + f["steps"]
+        f["switch"] = {"key": self.KEY, "value": True}
+        self.assertEqual(X.step_px_film(j, f)["status"], "recorded")
+        self.assertEqual([o[0] for o in order if o[0] in ("switch", "drag")][:2], ["switch", "drag"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
