@@ -54,6 +54,7 @@ import {
   railFades,
   railClearHeight,
   railHeight,
+  railLiftTop,
   ROW_WIDTH,
   railScrollTop,
   railTop as railTopAt,
@@ -396,21 +397,27 @@ export function ThreadMinimap({
   /// index (`earlier`) give every prompt its tick from the first frame, so the box is full height and
   /// centered once, and history paging in neither grows nor re-centres it (Leo, 2026-11-03: "mostly i
   /// just don't like it when the thing shifts and whatnot trying to center itself").
-  /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
+  /// One height for a fixed arm; the others are never shorter than the prompts on screen (railHeight).
+  const heightConfig = railHeightConfig(heightArm);
   const boxRail = railHeight(
     turns.length,
     windowHeight,
     boxHeight,
     boxFoot,
     onScreen.last - onScreen.first + 1,
-    railHeightConfig(heightArm),
+    heightConfig,
   );
-  const boxTop = railTopAt(boxRail, boxHeight, boxFoot);
   /// The bottom stack's top as it is now (VirtualTranscript `railBox.live`): the rail's foot and the
   /// card's both stay above it, so the two never disagree on where the view ends.
   const liveFoot = railBox?.live ?? boxFoot ?? viewportHeight;
+  const restTop = railTopAt(boxRail, boxHeight, boxFoot);
+  /// A fixed rail keeps its height over a grown stack and rises clear of it (railLiftTop); the others
+  /// keep their top and shorten from the foot (railClearHeight).
+  const boxTop = heightConfig.fixed ? railLiftTop(boxRail, restTop, boxHeight, liveFoot) : restTop;
   /// The list's own height: the whole box, less what a stack grown since rest takes (railClearHeight).
-  const height = railClearHeight(boxRail, boxTop, boxHeight, boxFoot ?? boxHeight, liveFoot);
+  const height = heightConfig.fixed
+    ? boxRail
+    : railClearHeight(boxRail, restTop, boxHeight, boxFoot ?? boxHeight, liveFoot);
   /// Where the list's first row draws in the view.
   const railTop = boxTop;
   // The compact rail is pinned to the pane's left edge. It never follows the centered transcript or

@@ -85,11 +85,13 @@ export function railPlacement(
 /// all the way up and down. make it look like codex's size." and "the height of the left scroll rail
 /// should never be affected by anything"). Only a view too short to hold it still clips it
 /// (railRoom). `fixed-240` ships; the gallery compares the arms.
-export type RailHeightConfig = { initial: number; maxRows: number; maxShare: number };
+/// A `fixed` arm is one height whatever the chat, window or bottom stack (Leo, 2026-11-04: "the height
+/// of the left scroll rail should never be affected by anything"): only a view too short for it clips it.
+export type RailHeightConfig = { initial: number; maxRows: number; maxShare: number; fixed?: boolean };
 export const RAIL_HEIGHTS = {
-  "fixed-200": { initial: 200, maxRows: 20, maxShare: 1 },
-  "fixed-240": { initial: 240, maxRows: 24, maxShare: 1 },
-  "fixed-280": { initial: 280, maxRows: 28, maxShare: 1 },
+  "fixed-200": { initial: 200, maxRows: 20, maxShare: 1, fixed: true },
+  "fixed-240": { initial: 240, maxRows: 24, maxShare: 1, fixed: true },
+  "fixed-280": { initial: 280, maxRows: 28, maxShare: 1, fixed: true },
   "initial-240-max-80": { initial: 240, maxRows: 96, maxShare: 0.8 },
   "initial-320-max-92": { initial: 320, maxRows: 128, maxShare: 0.92 },
   "initial-400-max-96": { initial: 400, maxRows: 160, maxShare: 0.96 },
@@ -316,6 +318,9 @@ export function railHeight(
 ): number {
   if (count <= 0) return 0;
   const room = railRoom(viewportHeight, foot);
+  // A fixed rail does not grow for the band: its list scrolls to keep the band in view (railScrollTop).
+  if (config.fixed)
+    return viewportHeight > 0 ? Math.max(0, Math.min(config.initial, Math.floor(room.bottom - room.top))) : config.initial;
   const height = Math.min(
     Math.max(count * ROW_PITCH, config.initial),
     config.maxRows * ROW_PITCH,
@@ -359,6 +364,15 @@ export function railClearHeight(
   if (grown <= 0) return height;
   const clear = Math.floor(railRoom(viewportHeight, liveFoot).bottom - top);
   return Math.max(0, Math.min(height, Math.max(clear, height - Math.ceil(grown))));
+}
+
+/// A fixed rail's top over a bottom stack grown into it: its height never changes (railHeight), so it
+/// rises just enough to keep its foot clear of the stack (railRoom), and no higher than the room's top.
+/// A stack that does not reach it leaves it where railTop put it.
+export function railLiftTop(height: number, top: number, viewportHeight: number, liveFoot: number): number {
+  const room = railRoom(viewportHeight, liveFoot);
+  const over = top + height - room.bottom;
+  return over <= 0 ? top : Math.max(Math.min(top, room.top), Math.floor(top - over));
 }
 
 /// The fade a rail longer than its room draws at an edge with more rows past it: 2.5rem
