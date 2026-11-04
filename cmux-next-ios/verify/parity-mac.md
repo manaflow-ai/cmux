@@ -642,3 +642,25 @@ a file read's timeout racing its last chunk, a written-then-failed-edit file lab
 | Mac action | Mac sends | Phone | State | Notes |
 | --- | --- | --- | --- | --- |
 | Home Allow / Deny for a hidden local owner subagent | Person-proven local `_acpmux/permission_respond`, exact pending request, `allow_once` / `reject_once` | No new phone authority | not from a phone | This surface requires the Mac app's local person proof and a fresh native click. SECURITY.md's “phone acts for the person, but is not the app” rule excludes this proof; existing phone questions retain their separate asking-mode policy. Other-person `ask` children and cloud peers remain excluded. |
+
+## Chat polish (chat-polish batch, `feat-cmux-next-ios-chat-polish-parity`)
+
+Rows from the 2026-11-02 re-audit that need no Mac or host change. Each was checked against
+acpmux `server/remote_guard.rs` and the phone lanes first: every call below is a per-chat
+acpmux request the guard has no rule against, on a chat the phone may see.
+
+| Mac action | Mac sends | Phone | State | Notes |
+| --- | --- | --- | --- | --- |
+| Copy Agent Name / Harness Session ID / Session Details / Working Directory / Chat Host | `_acpmux/info` (AgentChatCopyHandlers) | page menu **Copy…**: one row each, plus Copy Session ID and Copy Conversation as Markdown | works | Session Details leaves out the session file paths: acpmux names them only over the Mac's own socket (`_acpmux/session_files` is local only). Conversation as Markdown follows webviews `header/copyRow.ts` (prompts, answers, tool titles only). |
+| Toggle Session Info | the pane's Session Info | page menu **Session Info** (pushed): environment, model and context, Agent Edits, Files and Artifacts, Subagents, Permissions, Replay, Event Inspector | works | Each value copies on a tap. |
+| Previous / Next Turn, Previous / Next Bookmarked Prompt | page scroll (thread minimap) | page menu **Jump to Turn…**: a bar under the header with up and down, and Bookmarked prompts only | works | No wrap at the ends, as on the Mac. |
+| Bookmark this turn (minimap), Pin (message row) | `_acpmux/bookmark_set {sessionId, seq, bookmarked}` (`user_message` / `turn_result` seq) | prompt menu **Bookmark** / **Remove Bookmark**; answer More **Pin** / **Unpin** | works | Marks made on the Mac show on the phone (the `bookmarks` record is read with the chat). |
+| Agent Chat: Zoom In / Zoom Out / Actual Size, Text & Width | `agentPane.zoom`, `agentPane.display.*` (global cmux.json) | page menu **Text and Width…**: text size steps and Full Width / Standard | works | Saved per chat on the phone (the newest 300 chats), as the re-audit asked; the Mac's keys are global and stay the Mac's. |
+| Read aloud (message row) | the app's `AVSpeechSynthesizer` | prompt menu and answer More: **Read Aloud** / **Stop Reading** | works | Same spoken text rules (code blocks dropped, markup removed); one message at a time; stops when the chat leaves the screen. |
+| Revoke Chat Permission, Refresh Permissions, Check and Retry Permission | `_acpmux/permission_chat_revoke`, `_acpmux/permission_groups`, a re-sent answer | Session Info > Permissions | works | Allow for This Chat itself stays the Mac's (a lasting grant needs the person, #13742). Check and Retry re-sends the phone's own last answer when it did not reach the Mac and the ask is still open. |
+| Toggle Event Inspector | the page's wire and session journal | Session Info > **Event Inspector**: the records this phone received for the chat (newest 500), filter, JSON, Copy as JSON Lines, Clear | works | The phone has no separate wire view: its records are the session journal. |
+| Replay Conversation | `_acpmux/events {kinds: [transcript]}` | Session Info > **Replay Conversation** | works | Play/pause, 0.5-16×, scrubber with tool-call ticks, Previous/Next tool call; pauses over 2 s are cut to 2 s. Continue from here is not on the phone. On the Mac the row is behind the `session-replay` experiment. |
+| Launch Claude Teams / Launch Codex Teams | `new-tab` + `send` of the team line | grid + menu **Launch Claude Teams** / **Launch Codex Teams** | works | The tab opens in the shown tab's pane and changes to its folder first. |
+| Message the Chief (from any app) | the Chief pet's reply box | App Intent **Message Chief** (Shortcuts, Siri, Spotlight, Action Button) with optional text | works | Opens the message box with the text; nothing is sent until Send. |
+| Attach photos to Cloud Chief | Cloud `/v1/home/attachments` intent, PUT, commit | Cloud Chief composer's photos | works | The Cloud service accepts them (home-messaging.md 10.1). |
+| Home: Reply to Selection, Chief: Zoom In / Out / Actual Size | Home transcript | none | missing (needs a CmuxConversation change) | The Chief conversation is CmuxConversation's `ConversationViewController`: its fonts are app-wide (`ConversationTheme`) and its bubble selection menu is internal, and this package must stay byte-identical to its upstream branch. |
