@@ -1711,6 +1711,12 @@ pre.cv-math-source {
   --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
   --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
 }
+/* Where Session Info lies over the chat, the transcript leaves its box out (session-info/chatCut.ts):
+   nothing scrolls behind its glass, so it never flickers under a scroll (Leo, 2026-11-03). Only the
+   chat's own transcript, under the shell the panel sets it on. */
+.acpmux-main .acpmux-scroll {
+  clip-path: var(--acpmux-session-info-cut, none);
+}
 /* The spacer runs across the scrollbar's lane (VirtualTranscript `lane`), so the column matches the
    composer's; the transcript never scrolls sideways. */
 .acpmux-scroll[data-cmux-shown-scroller] {
