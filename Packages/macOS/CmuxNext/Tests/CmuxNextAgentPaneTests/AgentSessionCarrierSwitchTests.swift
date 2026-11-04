@@ -346,23 +346,50 @@ struct AgentSessionCarrierSwitchTests {
         #expect(AgentSessionCarrierSwitch.covered(partial, by: AgentSessionPage(beforeSeq: 3)) == 2)
     }
 
-    /// Codex re-review of cmux#35770 at c74aa8f3, F1: a refused re-attach keeps the attachment the page
-    /// had live; its pushes still reach the page.
-    @Test func aRefusedReattachKeepsTheLiveAttachment() async throws {
+    /// Codex re-review of cmux#35770 at c74aa8f3, F1, and at 54f1272e, F1: a refused re-attach keeps
+    /// the attachment the page had live, whichever handler the client then pushes on. The real client
+    /// keeps the new handler after a refusal; one cancelled before sending keeps the old one.
+    @Test(arguments: [true, false])
+    func aRefusedReattachKeepsTheLiveAttachment(clientKeepsNewHandler: Bool) async throws {
         let relay = Carrier()
         let chat = AgentSessionCarrierSwitch(fallback: relay)
         let page = Page()
         _ = try await chat.attach(AgentSessionPage(), events: page.handler)
         relay.push(1)
-        // The old subscription stays on the fake (it keeps the first handler) while the re-attach fails.
-        let live = relay.state.withLock { $0.handler }
+        let old = relay.state.withLock { $0.handler }
         relay.state.withLock { $0.attachFails = true }
         await #expect(throws: AgentSessionRemoteError.self) {
             _ = try await chat.attach(AgentSessionPage(afterSeq: 1), events: page.handler)
         }
-        relay.state.withLock { $0.handler = live }
+        // The fake installs the new handler before it refuses, as AgentSessionAttachClient does.
+        if !clientKeepsNewHandler { relay.state.withLock { $0.handler = old } }
         relay.push(2)
         #expect(page.seqs == [1, 2])
+    }
+
+    /// Codex re-review at 54f1272e, F2: a fall-back waits for calls still running on the direct client,
+    /// so a prompt made during it never reaches the relay ahead of an older one.
+    @Test func aFallBackWaitsForDirectCallsInFlight() async throws {
+        let relay = Carrier()
+        let direct = Carrier()
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        _ = try await chat.attach(AgentSessionPage(), events: Page().handler)
+        #expect(await chat.move(to: direct))
+        direct.state.withLock { $0.holdPrompts = true }
+        let first = Task { try await chat.prompt(id: "a", text: "first") }
+        await Self.until { direct.heldCount == 1 }
+
+        direct.end("link.down")
+        await Self.until { relay.state.withLock { $0.attaches.count } == 2 }
+        let second = Task { try await chat.prompt(id: "b", text: "second") }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(relay.prompts.isEmpty, "the newer prompt waits for the one still running on the direct link")
+
+        direct.releasePrompts()
+        _ = try await first.value
+        _ = try await second.value
+        #expect(direct.prompts == ["a"])
+        #expect(relay.prompts == ["b"])
     }
 
     /// F2: a watch answer never moves the cursor, since the page never gets its record.

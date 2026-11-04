@@ -35,6 +35,10 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
         var preferred: (any AgentSessionRemoteClient)?
         /// The attachment whose events reach the page now; any other's are dropped.
         var live: UInt64 = 0
+        /// The attachment that was live before a refused re-attach: the client may still push to it
+        /// (`AgentSessionAttachClient` keeps the earlier handler when it never sent the attach), so
+        /// both reach the page until the next attach or cutover.
+        var alsoLive: UInt64?
         var nextGeneration: UInt64 = 0
         /// The attachment being brought up, whose events wait in ``buffer`` for the cutover.
         var buffering: UInt64?
@@ -131,6 +135,12 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
         await gone?.close()
         do {
             try await attach(fallback, from: from, kinds: page.kinds, generation: generation)
+            // Calls still running on the direct client end before held ones go to the relay, so a
+            // newer prompt, cancel or answer never overtakes an older one. The direct client is
+            // closed, so they end soon; past the limit the relay takes the chat anyway.
+            if !(await drained(within: Self.drainLimit)) {
+                Self.logger.info("carrier: direct calls still running after the drain limit; relay takes the chat")
+            }
             if cutover(to: fallback, generation: generation, preferred: false) { return }
         } catch {
             Self.logger.info("carrier: relay re-attach failed: \(String(describing: error), privacy: .public)")
@@ -182,6 +192,7 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
             state.buffer = []
             state.buffering = nil
             state.live = generation
+            state.alsoLive = nil
             state.current = client
             if preferred { state.preferred = client }
             state.moving = false
@@ -227,11 +238,12 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
                 if case .closed = event { state.bufferEnded = true } else { state.buffer.append(event) }
                 return .none
             }
-            guard generation == state.live, !state.ended else { return .none }
+            guard generation == state.live || generation == state.alsoLive, !state.ended else { return .none }
             if case .closed(let reason) = event {
                 // The chat is on the client that took over: it goes back to the relay instead.
                 if state.preferred != nil {
                     state.live = 0
+                    state.alsoLive = nil
                     state.holding = true
                     return .fallBack(reason)
                 }
@@ -343,18 +355,22 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
             if !watch || state.page == nil { state.page = page }
             state.nextGeneration += 1
             state.live = state.nextGeneration
+            state.alsoLive = nil
             return (state.current, state.live, before)
         }
         let answer: Data
         do {
             answer = try await client.attach(page, events: self.handler(for: generation))
         } catch {
-            // A refused re-attach leaves the attachment the page had live, unless another took over.
+            // A refused re-attach keeps the attachment the page had live, unless another took over.
+            // Its pushes may come on either handler: `AgentSessionAttachClient` installs the new one
+            // before it sends and keeps it when the daemon refuses, and keeps the old one when the
+            // attach was cancelled before it was sent. Both stay live; the page's handler and page too.
             state.withLock { state in
                 guard state.live == generation else { return }
                 state.handler = before.handler
                 state.page = before.page
-                state.live = before.live
+                state.alsoLive = before.live
             }
             throw error
         }
