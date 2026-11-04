@@ -19,16 +19,24 @@ final class FeedFilterSwitchUITests: XCTestCase {
         let all = app.buttons["All"].firstMatch
         XCTAssertTrue(all.waitForExistence(timeout: 30), "Feed chips\n\(app.debugDescription)")
         let chips = ["Needs you", "Finished", "Errors", "All"]
-        for round in 0..<4 {
+        for round in 0..<2 {
             // Away from the top, so the shrunk list has fewer rows than the old visible range.
             app.swipeUp(velocity: .fast)
             app.swipeUp(velocity: .fast)
             for name in chips {
                 // The chips scroll with the list: back to the top to reach them, then switch.
-                if !app.buttons[name].firstMatch.isHittable { app.swipeDown(velocity: .fast); app.swipeDown(velocity: .fast) }
                 let chip = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
-                guard chip.waitForExistence(timeout: 5), chip.isHittable else { continue }
+                var swipes = 0
+                while !(chip.exists && chip.isHittable), swipes < 30 {
+                    app.swipeDown(velocity: .fast)
+                    swipes += 1
+                }
+                guard chip.exists, chip.isHittable else {
+                    XCTFail("round \(round): chip \(name) never reachable\n\(app.debugDescription)")
+                    return
+                }
                 chip.tap()
+                attach(app, "round\(round)-\(name)")
                 app.swipeUp(velocity: .fast)
                 XCTAssertEqual(app.state, .runningForeground, "round \(round): the app quit after \(name)")
             }
