@@ -9,9 +9,480 @@
 # pixels than the full build (a silent wrong result). Each row's change moves one mechanism's term
 # from 0 to 16 pt, so the badge is 64 px wider at 2x when the new code runs and unchanged when the
 # old code still runs.
+# Evidence class: SUPPORTING only. These are controlled pixels in the Debug view-shell prototype: they
+# say which language mechanisms a patch gets right. They are not proof of either real-app experience
+# (an isolated real cmux instance with the PR applied, or an in-place swap into a running real cmux),
+# which need a real-app functional probe (hq#7111).
 #   scripts/measure/live-apply-matrix.sh OUT [ROW...]   (OUT: logs, PNGs, diffs, rows.jsonl, result.json)
+#   scripts/measure/live-apply-matrix.sh inplace OUT PR  (experience 2, a real cmux; see inplace() below)
 # LIVE_APPLY_MATRIX_DIFFS_ONLY=1 writes each row's change.diff and stops: no build, any host.
 set -euo pipefail
+# Experience 2 (hq#7111): the change applied IN PLACE to an already-running real cmux, a lab
+# instance (fresh home, own socket and tag; never the person's app), for a real merged PR:
+#   scripts/measure/live-apply-matrix.sh inplace OUT PR      (PR: one of the fixtures below)
+# 1. identity: the PR's squash commit (its tree is the PR as merged) and its parent, the base; the
+#    lab app is the real cmux app built at that base (reload.sh tagged Debug, as fresh-home-launch.sh),
+#    its executable's sha256, version and CMUXCommit recorded. The published NIGHTLY is not this base
+#    (each fixture is already in it), which the row records rather than skipping.
+# 2. the lab instance starts from a fresh home (scripts/ci/fresh_home_launch_smoke.py, mock agent
+#    pane) and is seeded: two terminal workspaces running a printing loop (scrollback grows), and an
+#    open agent chat. Its state is read: pid (system.identify), workspaces, windows and chat tabs
+#    (snapshot.get), each loop's shell pid and scrollback rows (the tag's cmux-tui daemon).
+# 3. the PR-specific probe runs on the base (it must fail there), then the change is applied in
+#    place by the only path a running app has for it (web: build the head's web bundles and install
+#    them as the web overlay; Swift: none, no in-app loader and a binary that exports nothing),
+#    then the same pid and state are checked, the probe runs again, the change is reverted (overlay
+#    off) and the probe runs a third time.
+# 4. parity and fallback: the head is built (incremental on the same tag) and launched fresh, and
+#    the probe runs there. For a change with no in-place path that build is the fallback, and its
+#    seconds are the row's.
+# Seconds count from the PR's selection (this script's start): fetch, build, launch, seed, apply, probe.
+# Writes OUT/inplace-PR.json and OUT/inplace-PR.tgz (logs, reports).
+inplace() {
+  local out="$1" pr="$2" sha base head_app status=0
+  # Globals, not locals: the EXIT trap reads them after this function returns.
+  base_app="" scratch="" srcdir=""
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  mkdir -p "$out"; out="$(cd "$out" && pwd)"
+  local t_select; t_select=$(python3 -c 'import time; print(f"{time.time():.3f}")')
+  # PR|squash commit on feat-cmux-next|stratum|probe
+  local fixtures=(
+    "30543|5a273091bbef97cbeaaee8346088a3499b0a1acc|web functional fix|chat_scroll_jumps"
+    "30861|c8d5bdf751d329a15f40202575b45278f0faf028|Swift functional fix|post_frame_feeds_mark"
+    "31874|64b25664427c1a79b0e8d9d5b0f03ce5cf7dc40a|invalidation (new conformance)|close_key_turn"
+    "30752|0e9e8dd0f1ed254d5a58e813b3baae5efc7ab5ab|N/A (daemon)|none"
+  )
+  local spec="" f
+  for f in "${fixtures[@]}"; do [[ "${f%%|*}" == "$pr" ]] && spec="$f"; done
+  [[ -n "$spec" ]] || { echo "inplace: no fixture for PR $pr" >&2; return 2; }
+  local stratum probe
+  IFS='|' read -r _ sha stratum probe <<<"$spec"
+  cd "$here"
+  if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
+    local depth=(); [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 2)
+    for remote in origin /Users/Shared/cmux-build-fleet/git/cmux.git https://github.com/manaflow-ai/cmux.git; do
+      git fetch --quiet ${depth[@]+"${depth[@]}"} "$remote" "$sha" 2>/dev/null && break
+    done
+  fi
+  git cat-file -e "$sha^{commit}" 2>/dev/null || { echo "inplace: cannot fetch $sha" >&2; return 3; }
+  git cat-file -e "$sha^^{commit}" 2>/dev/null || git fetch --quiet --deepen 1 origin "$sha" 2>/dev/null || true
+  base="$(git rev-parse "$sha^")"
+  python3 "$here/scripts/cmux-next/live_apply.py" --repo "$here" --json "$base" "$sha" >"$out/classifier-$pr.json" || true
+  scratch="$(mktemp -d)"
+  srcdir="$scratch/src"
+  local tag="liveapply-${pr}"
+  # Under set -e a failing step in the trap would become the script's exit status: none may fail it.
+  cleanup_inplace() {
+    local code=$?
+    set +e
+    [[ -n "${base_app:-}" ]] && python3 "$here/scripts/cmux-next/tag_teardown.py" "$base_app" >/dev/null 2>&1
+    if [[ -n "${scratch:-}" ]]; then
+      git -C "$here" worktree remove --force "$srcdir" >/dev/null 2>&1
+      git -C "$here" worktree remove --force "$scratch/head" >/dev/null 2>&1
+      rm -rf "$scratch"
+    fi
+    exit "$code"
+  }
+  trap cleanup_inplace EXIT
+  if [[ "$probe" == none ]]; then
+    python3 - "$out/inplace-$pr.json" "$pr" "$sha" "$base" "$stratum" "$t_select" <<'PY'
+import json, sys, time
+path, pr, sha, base, stratum, t0 = sys.argv[1:]
+json.dump({"label": "IMPLEMENTED", "experience": "2: in-place swap into a running real cmux", "pr": int(pr),
+           "applied_commit": sha, "base": base, "stratum": stratum, "verdict": "not_applicable",
+           "why": "a daemon (cmux-tui) change: no path ships a PR's daemon into an installed app; "
+                  "recorded in the N/A stratum, never counted as covered",
+           "total_s": round(time.time() - float(t0), 2)}, open(path, "w"), indent=2)
+PY
+    cat "$out/inplace-$pr.json"; return 0
+  fi
+  git worktree add --quiet --detach "$srcdir" "$base" || return 3
+  (
+    cd "$srcdir"
+    for sub in ghostty ghostty-next; do [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub" || exit 3; done
+    if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
+      rm -rf GhosttyKit.xcframework
+      [ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" ] && [ -n "${CI_SHARED_CACHE_DIR:-}" ] && export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
+      ./scripts/download-prebuilt-ghosttykit.sh || exit 3
+    fi
+  ) || return 3
+  # bun, node and Rust live under the account's home, as fresh-home-launch.sh finds them.
+  local account_home tool_dir work
+  account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+  for tool_dir in "$account_home/.bun/bin" "$account_home/.local/node/bin" "$account_home/.cargo/bin"; do
+    [ -n "$account_home" ] && [ -d "$tool_dir" ] && export PATH="$tool_dir:$PATH"
+  done
+  if [ -n "$account_home" ]; then
+    [ -z "${RUSTUP_HOME:-}" ] && [ -d "$account_home/.rustup" ] && export RUSTUP_HOME="$account_home/.rustup"
+    [ -z "${CARGO_HOME:-}" ] && [ -d "$account_home/.cargo" ] && export CARGO_HOME="$account_home/.cargo"
+  fi
+  work="$scratch/work"; mkdir -p "$work"
+  (cd "$srcdir" && RUNNER_TEMP="$work" GITHUB_PATH="$work/bun-path" ./scripts/cmux-next/private-bun.sh) || return 3
+  PATH="$(tail -n 1 "$work/bun-path"):$PATH"; export PATH
+  if [[ -z "${CMUX_TUI_CLIENT_LOCAL:-}" ]] && ! (cd "$srcdir" && ./scripts/cmux-next/pin-cmux-tui.sh probe 2>/dev/null | grep -q ': ready ('); then
+    export CMUX_TUI_CLIENT_TARGET_DIR="${CMUX_TUI_CLIENT_TARGET_DIR:-${CI_SHARED_CACHE_DIR:-/Users/Shared/cmux-build-fleet/cache}/live-apply-inplace/cmux-tui-target}"
+    mkdir -p "$CMUX_TUI_CLIENT_TARGET_DIR" "$srcdir/cmux-tui/target"
+    CMUX_TUI_CLIENT_LOCAL="$(cd "$srcdir" && CI=1 ./scripts/cmux-next/build-cmux-tui-client.sh --print-path 2>"$out/cmux-tui-build-$pr.log")" || { tail -40 "$out/cmux-tui-build-$pr.log" >&2; return 3; }
+    export CMUX_TUI_CLIENT_LOCAL
+  fi
+  local tb0 tb1
+  tb0=$(python3 -c 'import time; print(f"{time.time():.3f}")')
+  (cd "$srcdir" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links) >"$out/reload-base-$pr.log" 2>&1 || true
+  tb1=$(python3 -c 'import time; print(f"{time.time():.3f}")')
+  base_app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload-base-$pr.log" | tail -n 1)"
+  [[ -n "$base_app" && -d "$base_app" ]] || { echo "inplace: the base build printed no app path" >&2; grep -E "error:|BUILD FAILED" "$out/reload-base-$pr.log" | head -40 >&2; return 3; }
+  # The base app's identity, copied aside: the head build replaces the tag's app in place.
+  mkdir -p "$out/identity-$pr"
+  python3 - "$base_app" "$out/identity-$pr/base.json" <<'PY'
+import hashlib, json, plistlib, subprocess, sys
+app, path = sys.argv[1:]
+info = plistlib.load(open(f"{app}/Contents/Info.plist", "rb"))
+exe = f"{app}/Contents/MacOS/{info['CFBundleExecutable']}"
+exports = subprocess.run(["nm", "-gU", exe], capture_output=True, text=True).stdout.count("\n")
+fixups = subprocess.run(["otool", "-l", exe], capture_output=True, text=True).stdout
+json.dump({"bundle_id": info.get("CFBundleIdentifier"), "version": info.get("CFBundleShortVersionString"),
+           "build": info.get("CFBundleVersion"), "cmux_commit": info.get("CMUXCommit"),
+           "executable_sha256": hashlib.sha256(open(exe, "rb").read()).hexdigest(),
+           "exported_symbols": exports, "chained_fixups": "LC_DYLD_CHAINED_FIXUPS" in fixups,
+           "in_app_patch_loader": False}, open(path, "w"), indent=2)
+PY
+  # The lab driver: the launch, seeding, state reads, probes, apply and revert (Python, as
+  # nightly-ws-switch.py drives the app through fresh_home_launch_smoke.py's hooks).
+  cat >"$scratch/driver.py" <<'DRIVER'
+import json, os, socket, subprocess, sys, time
+from pathlib import Path
+HERE = Path(os.environ["LIVE_APPLY_HERE"])
+sys.path.insert(0, str(HERE / "scripts" / "ci"))
+import fresh_home_launch_smoke as smoke  # noqa: E402
+
+PHASE, PROBE, PR = os.environ["LIVE_APPLY_PHASE"], os.environ["LIVE_APPLY_PROBE"], os.environ["LIVE_APPLY_PR"]
+HEAD_TREE = os.environ["LIVE_APPLY_HEAD_TREE"]
+now = time.time
+
+
+def rpc(sock_path, method, params=None, timeout=30.0):
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(timeout)
+            conn.connect(str(sock_path))
+            conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+            buf = b""
+            while b"\n" not in buf:
+                chunk = conn.recv(1 << 22)
+                if not chunk:
+                    break
+                buf += chunk
+        reply = json.loads(buf.split(b"\n", 1)[0])
+        return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
+    except (OSError, ValueError) as error:
+        return {"error": str(error)}
+
+
+def action(sock, name, args=None, target=None, timeout=60.0):
+    params = {"action": name, "args": args or {}, "focus": True, "origin": "script"}
+    if target:
+        params["target"] = target
+    return rpc(sock, "action.run", params, timeout)
+
+
+class Daemon:
+    """The tag's headless cmux-tui (JSON lines), found as holder-dogfood.py finds it."""
+
+    def __init__(self, app):
+        tui = os.path.join(os.path.realpath(app), "Contents/Resources/bin/cmux-tui")
+        self.socket = None
+        ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+        for line in ps.splitlines():
+            _, _, command = line.strip().partition(" ")
+            words = command.split()
+            if command.startswith(tui + " --headless") and "--socket" in words:
+                self.socket = words[words.index("--socket") + 1]
+
+    def call(self, cmd, **params):
+        if not self.socket:
+            return None
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+                conn.settimeout(30)
+                conn.connect(self.socket)
+                conn.sendall((json.dumps(dict(params, cmd=cmd, id=1)) + "\n").encode())
+                for line in conn.makefile("r"):
+                    reply = json.loads(line)
+                    if reply.get("id") == 1 and "ok" in reply:
+                        return reply.get("data") if reply["ok"] else {"error": reply.get("error")}
+        except (OSError, ValueError) as error:
+            return {"error": str(error)}
+        return None
+
+
+def tabs_of(topo):
+    for w in topo.get("workspaces") or []:
+        for screen in w.get("screens") or []:
+            for pane in screen.get("panes") or []:
+                for tab in pane.get("tabs") or []:
+                    yield w.get("id"), pane.get("id"), tab
+
+
+def topology(sock):
+    return (rpc(sock, "snapshot.get") or {}).get("topology") or {}
+
+
+def state(sock, daemon, seeded):
+    ident = rpc(sock, "system.identify") or {}
+    topo = topology(sock)
+    loops = {}
+    for surface in seeded.get("loop_surfaces", []):
+        total = (daemon.call("read-scrollback", surface=surface, start=0, count=0) or {}).get("total")
+        res = daemon.call("terminal-resources", surfaces=[surface]) or {}
+        pids = [t.get("pid") for t in res.get("terminals", []) if t.get("surface") == surface]
+        alive = None
+        if pids and isinstance(pids[0], int):
+            try:
+                os.kill(pids[0], 0)
+                alive = True
+            except OSError:
+                alive = False
+        loops[str(surface)] = {"scrollback_rows": total, "shell_pid": pids[0] if pids else None, "shell_alive": alive}
+    return {"pid": ident.get("pid"), "workspaces": [w.get("id") for w in topo.get("workspaces") or []],
+            "windows": [w.get("id") for w in topo.get("windows") or []],
+            "chat_tabs": [t.get("id") for _, _, t in tabs_of(topo) if t.get("kind") == "conversation"],
+            "loops": loops, "debug_methods": any(str(m).startswith("debug.") for m in ident.get("methods") or [])}
+
+
+def seed(sock):
+    """Two terminal workspaces with a printing loop each (scrollback grows), and an agent chat (mock host)."""
+    seeded = {"workspaces": [], "loop_surfaces": [], "chat": None}
+    for _ in range(2):
+        before = {t.get("id") for _, _, t in tabs_of(topology(sock))}
+        action(sock, "workspace.newAtBottom")
+        time.sleep(1.0)  # harness: the new workspace's shell starts
+        action(sock, "terminal.sendText", {"text": "while :; do date; sleep 0.2; done\r"})
+        new = [(w, t) for w, _, t in tabs_of(topology(sock)) if t.get("id") not in before and t.get("kind") == "terminal"]
+        if new:
+            seeded["workspaces"].append(new[0][0])
+            if isinstance(new[0][1].get("surface"), int):
+                seeded["loop_surfaces"].append(new[0][1]["surface"])
+    target = f"workspace:{seeded['workspaces'][-1]}" if seeded["workspaces"] else None
+    seeded["chat"] = action(sock, "palette.newAgentChat", {}, target)
+    time.sleep(2.0)  # harness: the chat page loads
+    return seeded
+
+
+def probe(sock, report):
+    """PROBE's verdict on this app: ("pass" | "fail" | "error", detail)."""
+    if PROBE == "chat_scroll_jumps":
+        # #30543: folded runs with agent messages were estimated at other heights than they draw, so
+        # the transcript's scroll position jumps as rows measure. Seed a worked turn, observe at rest.
+        seeded = rpc(sock, "debug.agent_pane", {"action": "seed_rows", "count": 120, "fixture": "worked-turn"}, 60)
+        observed = rpc(sock, "debug.agent_pane", {"action": "layout_watch", "ms": 2500, "tolerance": 1}, 60) or {}
+        result = observed.get("result", observed) if isinstance(observed, dict) else {}
+        if not isinstance(result, dict) or "error" in result or "scroll_jumps" not in result:
+            return "error", {"seed": seeded, "layout": observed}
+        jumps = result.get("scroll_jumps") or []
+        return ("pass" if not jumps else "fail"), {"scroll_jumps": len(jumps), "shifts": len(result.get("shifts") or [])}
+    if PROBE == "post_frame_feeds_mark":
+        # #30861: acpmux feeds start after the first window frame (launch.post_frame_feeds after
+        # first_window_frame_committed). A launch-order behaviour: only a launch can show it.
+        marks = report.get("marks") or {}
+        mark, frame = marks.get("launch.post_frame_feeds"), marks.get("first_window_frame_committed")
+        if mark is None:
+            return "fail", {"post_frame_feeds": None, "first_frame": frame}
+        return ("pass" if frame is not None and mark >= frame else "fail"), {"post_frame_feeds": mark, "first_frame": frame}
+    if PROBE == "close_key_turn":
+        # #31874: Close Window closes in its own turn, without performClose's ~100 ms button flash.
+        before = [w.get("id") for w in topology(sock).get("windows") or []]
+        action(sock, "newWindow")
+        time.sleep(1.5)  # harness: the window opens
+        after = [w.get("id") for w in topology(sock).get("windows") or []]
+        new = [w for w in after if w not in before]
+        if not new:
+            return "error", {"why": "newWindow opened no window", "windows": after}
+        t0 = time.perf_counter()
+        reply = action(sock, "closeWindow", {}, f"window:{new[0]}")
+        ms = (time.perf_counter() - t0) * 1000
+        gone = new[0] not in [w.get("id") for w in topology(sock).get("windows") or []]
+        return ("pass" if gone and ms < 50 else "fail"), {"close_reply_ms": round(ms, 1), "closed": gone, "reply": reply}
+    return "error", {"why": f"no probe {PROBE}"}
+
+
+def overlay(env, verb, timeout):
+    e = dict(os.environ, CMUX_NEXT_CONFIG_FILE=env["CMUX_NEXT_CONFIG_FILE"], CMUX_WEB_OVERLAY_DIR=env["CMUX_WEB_OVERLAY_DIR"])
+    t0 = now()
+    if verb == "build" and not Path(HEAD_TREE, "webviews", "node_modules").is_dir():
+        subprocess.run(["bun", "install", "--frozen-lockfile"], cwd=f"{HEAD_TREE}/webviews", env=e,
+                       capture_output=True, text=True, timeout=900)
+    done = subprocess.run([f"{HEAD_TREE}/scripts/cmux-next/web-overlay.sh", verb], cwd=HEAD_TREE, env=e,
+                          capture_output=True, text=True, timeout=timeout)
+    Path(os.environ["LIVE_APPLY_OUT"], f"web-overlay-{verb}-{PR}.log").write_text(done.stdout + done.stderr)
+    return done.returncode == 0, round(now() - t0, 2)
+
+
+LAB = {}
+
+
+def prepare_home(env):
+    root = Path(env["HOME"]).parent
+    (root / "cfg").mkdir(parents=True, exist_ok=True)
+    (root / "cfg" / "cmux-next.json").write_text("{}\n")
+    (root / "tunables.json").write_text(json.dumps({"version": 1, "values": {"webDev.override": True}}))
+    env.update(CMUX_NEXT_CONFIG_FILE=str(root / "cfg" / "cmux-next.json"),
+               CMUX_NEXT_DEBUG_TUNABLES_FILE=str(root / "tunables.json"),
+               CMUX_WEB_OVERLAY_DIR=str(root / "overlay"), CMUX_NEXT_AGENT_PANE_MOCK="1")
+    LAB["env"] = dict(env)
+
+
+def after_render(process, socket_path, env, app, out, report):
+    rec = {"phase": PHASE, "launched_pid": process.pid}
+    t_render = now()
+    daemon = Daemon(app)
+    seeded = seed(socket_path)
+    rec["seeded"] = seeded
+    time.sleep(2.0)  # harness: the loops print into scrollback
+    rec["state_before"] = before = state(socket_path, daemon, seeded)
+    verdict, detail = probe(socket_path, report)
+    rec["probe"] = {"base": verdict}
+    rec["probe_detail"] = {"base": detail}
+    if verdict == "pass":
+        rec["probe_green_at"] = now()
+    rec["launch_to_probe_s"] = round(now() - t_render, 2)
+    if PHASE == "inplace":
+        if PROBE == "chat_scroll_jumps":
+            ok, secs = overlay(LAB["env"], "build", 1800)
+            time.sleep(1.0)  # harness: pages reload on the overlay's manifest.json
+            rec["apply"] = {"outcome": "applied" if ok else "failed", "path": "web overlay (the head's bundles, built)",
+                            "seconds": secs, "zero_compile": False, "why": None if ok else "web-overlay.sh build failed"}
+        else:
+            rec["apply"] = {"outcome": "refused", "path": None, "seconds": None, "zero_compile": False,
+                            "why": "Swift: the running app has no patch loader and its binary exports no symbols "
+                                   "(identity base.json); no in-place path exists: a full build and a relaunch"}
+        if rec["apply"]["outcome"] == "applied":
+            v2, d2 = probe(socket_path, report)
+            rec["probe"]["after_apply"] = v2
+            rec["probe_detail"]["after_apply"] = d2
+            if v2 == "pass":
+                rec["probe_green_at"] = now()
+            rec["state_after"] = after = state(socket_path, daemon, seeded)
+            rec["same_pid"] = before.get("pid") is not None and before.get("pid") == after.get("pid") == process.pid
+            grew = all(((after["loops"].get(k) or {}).get("scrollback_rows") or 0) >= (v.get("scrollback_rows") or 0)
+                       for k, v in before["loops"].items())
+            rec["state_intact"] = bool(rec["same_pid"] and set(before["workspaces"]) <= set(after["workspaces"])
+                                       and before["windows"] == after["windows"]
+                                       and set(before["chat_tabs"]) <= set(after["chat_tabs"]) and before["chat_tabs"]
+                                       and all((v or {}).get("shell_alive") for v in after["loops"].values()) and grew
+                                       and len(before["loops"]) >= 2)
+            reverted, _ = overlay(LAB["env"], "off", 120)
+            time.sleep(1.0)  # harness: pages reload on the overlay's removal
+            v3, d3 = probe(socket_path, report)
+            rec["revert"] = {"done": reverted, "probe_after_revert": v3}
+            rec["probe"]["after_revert"] = v3
+            rec["probe_detail"]["after_revert"] = d3
+        else:
+            rec["same_pid"] = None
+            rec["state_intact"] = None
+            rec["revert"] = {"done": None, "why": "nothing was applied"}
+    Path(out).mkdir(parents=True, exist_ok=True)
+    Path(out, "inplace.json").write_text(json.dumps(rec, indent=2, default=str))
+    return []
+
+
+smoke.PREPARE_HOME = prepare_home
+smoke.AFTER_RENDER = after_render
+if __name__ == "__main__":
+    sys.exit(smoke.main(sys.argv[1:] + ["--seconds", "5", "--startup-timeout", "150"]))
+DRIVER
+  # The head's tree beside it, for the web bundles (a web change) and the parity build.
+  git -C "$here" worktree add --quiet --detach "$scratch/head" "$sha" || return 3
+  export LIVE_APPLY_HEAD_TREE="$scratch/head" LIVE_APPLY_BASE_TREE="$srcdir" LIVE_APPLY_PROBE="$probe" \
+    LIVE_APPLY_PR="$pr" LIVE_APPLY_OUT="$out" LIVE_APPLY_PHASE=inplace LIVE_APPLY_HERE="$here" \
+    LIVE_APPLY_SCRIPT_BLOB="$(git -C "$here" rev-parse HEAD:scripts/measure/live-apply-matrix.sh 2>/dev/null || echo unknown)"
+  python3 "$scratch/driver.py" --app "$base_app" --out "$out/lab-$pr" >"$out/lab-$pr.log" 2>&1 || status=$?
+  python3 "$here/scripts/cmux-next/tag_teardown.py" "$base_app" >/dev/null 2>&1 || true
+  # Parity and fallback: the head built on the same tag (incremental), launched fresh, probed.
+  local th0 th1
+  th0=$(python3 -c 'import time; print(f"{time.time():.3f}")')
+  (cd "$srcdir" && git checkout --quiet --detach "$sha" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links) >"$out/reload-head-$pr.log" 2>&1 || true
+  th1=$(python3 -c 'import time; print(f"{time.time():.3f}")')
+  head_app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload-head-$pr.log" | tail -n 1)"
+  if [[ -n "$head_app" && -d "$head_app" ]]; then
+    LIVE_APPLY_PHASE=parity python3 "$scratch/driver.py" --app "$head_app" --out "$out/parity-$pr" >"$out/parity-$pr.log" 2>&1 || true
+    python3 "$here/scripts/cmux-next/tag_teardown.py" "$head_app" >/dev/null 2>&1 || true
+  fi
+  python3 - "$out" "$pr" "$sha" "$base" "$stratum" "$probe" "$t_select" "$tb0" "$tb1" "$th0" "$th1" "${head_app:-}" <<'PY'
+import json, os, sys, time
+out, pr, sha, base, stratum, probe, t0, tb0, tb1, th0, th1, head_app = sys.argv[1:]
+t0, tb0, tb1, th0, th1 = map(float, (t0, tb0, tb1, th0, th1))
+def load(p):
+    try:
+        return json.load(open(p))
+    except (OSError, ValueError):
+        return None
+lab = load(f"{out}/lab-{pr}/inplace.json") or {}
+parity = load(f"{out}/parity-{pr}/inplace.json") or {}
+ident = load(f"{out}/identity-{pr}/base.json") or {}
+cls = load(f"{out}/classifier-{pr}.json") or {}
+nightly_commit = "8a134ee405f83893b3950c45ee60305ffc20859f"
+p = lab.get("probe", {})
+inplace_ok = (p.get("base") == "fail" and p.get("after_apply") == "pass" and lab.get("same_pid") is True
+              and lab.get("state_intact") is True)
+parity_ok = (parity.get("probe") or {}).get("base") == "pass"
+if lab.get("apply", {}).get("outcome") == "applied" and inplace_ok and parity_ok:
+    verdict = "in_place_pass"
+elif lab.get("apply", {}).get("outcome") != "applied":
+    verdict = "fallback_full_build"
+else:
+    verdict = "in_place_fail"
+probe_discriminates = p.get("base") == "fail" and parity_ok
+# Whether a Release app (NIGHTLY, DEV) can read this probe at all. chat_scroll_jumps needs the
+# Debug-only debug.agent_pane: the lab build can run it, but its result says nothing about Release,
+# so that row is neither covered nor failed for Release.
+release_probe = {"chat_scroll_jumps": "unsupported", "post_frame_feeds_mark": "accessible",
+                 "close_key_turn": "accessible"}.get(probe, "unsupported")
+apply_s = lab.get("apply", {}).get("seconds")
+row = {
+  "label": "IMPLEMENTED",
+  "experience": "2: in-place swap into a running real cmux (lab instance, fresh home)",
+  "pr": int(pr), "applied_commit": sha, "base": base, "stratum": stratum, "probe_name": probe,
+  "identity": {"base_app": ident, "base_build_s": round(tb1 - tb0, 2),
+               "script_blob": os.environ.get("LIVE_APPLY_SCRIPT_BLOB"),
+               "published_nightly_commit": nightly_commit,
+               "published_nightly_is_base": base == nightly_commit,
+               "published_nightly_already_contains_pr": True,
+               "host": os.uname().nodename.split(".")[0]},
+  "classifier": {"label": "CLASSIFIER-ONLY", "verdict": cls.get("verdict"), "reasons": cls.get("reasons")},
+  "seeded_state": lab.get("seeded"), "state_before": lab.get("state_before"), "state_after": lab.get("state_after"),
+  "apply": lab.get("apply"), "same_pid": lab.get("same_pid"), "state_intact": lab.get("state_intact"),
+  "probe": {"base": p.get("base"), "after_apply": p.get("after_apply"), "after_revert": p.get("after_revert"),
+            "full_head_build": (parity.get("probe") or {}).get("base"), "discriminates": probe_discriminates,
+            "detail": lab.get("probe_detail"), "parity_detail": parity.get("probe_detail")},
+  "revert": lab.get("revert"),
+  "fallback": None if verdict == "in_place_pass" else {
+      "reason": (lab.get("apply") or {}).get("why") or "in place applied but a check failed",
+      "head_build_s": round(th1 - th0, 2), "head_app_built": bool(head_app),
+      "launch_to_probe_s": parity.get("launch_to_probe_s"),
+      "state_after_fallback": "not preserved: a relaunch from a fresh home (the harness starts each launch fresh)"},
+  "compile_checked": "pass" if head_app else "fail",
+  "runtime": "pass" if parity_ok else ("fail" if head_app else "not_run"),
+  "verdict": verdict,
+  "needs_full_build": verdict != "in_place_pass",
+  "release_probe": release_probe,
+  "counted_for_release": release_probe == "accessible",
+  "seconds": {
+      "selection_to_probe_green_in_place": lab.get("probe_green_at") - t0 if verdict == "in_place_pass" and lab.get("probe_green_at") else None,
+      "apply_only": apply_s,
+      "selection_to_probe_green_fallback": (parity.get("probe_green_at") - t0) if parity.get("probe_green_at") else None,
+      "total": round(time.time() - t0, 2)},
+}
+json.dump(row, open(f"{out}/inplace-{pr}.json", "w"), indent=2)
+print(json.dumps(row, indent=2))
+PY
+  tar -czf "$out/inplace-$pr.tgz" -C "$out" . 2>/dev/null || true
+  return $status
+}
+if [[ "${1:-}" == inplace ]]; then
+  [[ $# -eq 3 ]] || { echo "usage: live-apply-matrix.sh inplace OUT PR" >&2; exit 64; }
+  inplace "$2" "$3"
+  exit $?
+fi
 out="${1:?usage: live-apply-matrix.sh OUT [ROW...]}"; shift
 mkdir -p "$out"; out="$(cd "$out" && pwd)"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -214,6 +685,8 @@ ROWS=(
   "entry_point_file|native shell: main.swift (the loop and its options)|main.swift|edit_entry_point"
 )
 want=("$@")
+# ROW arguments pick rows; none picks every row. Both the diffs-only and the measured runs use it.
+wanted() { (( ${#want[@]} == 0 )) || [[ " ${want[*]} " == *" $1 "* ]]; }
 
 # The badge's rendered width for generation N in LOG (empty when it was not drawn).
 width_of() { grep "rendered .*generation-$2\.png" "$1" 2>/dev/null | sed -n 's/.*width=\([0-9]*\).*/\1/p' | tail -1; }
@@ -230,6 +703,7 @@ diffs_only="${LIVE_APPLY_MATRIX_DIFFS_ONLY:-}"
 if [[ -n "$diffs_only" ]]; then
   for spec in "${ROWS[@]}"; do
     IFS='|' read -r name category names edit <<<"$spec"
+    wanted "$name" || continue
     dir="$out/$name"; mkdir -p "$dir"; : >"$dir/change.diff"
     seed
     cp "$fixture" "$dir/MatrixFixture.before.swift"; cp "$badge" "$dir/Badge.before.swift"; cp "$main_swift" "$dir/main.before.swift"
@@ -259,7 +733,7 @@ export CMUX_VIEW_SHELL_BUILD="$work/prebuilt/debug"
 : >"$out/rows.jsonl"
 for spec in "${ROWS[@]}"; do
   IFS='|' read -r name category names edit <<<"$spec"
-  if (( ${#want[@]} )) && [[ " ${want[*]} " != *" $name "* ]]; then continue; fi
+  wanted "$name" || continue
   dir="$out/$name"; mkdir -p "$dir"; : >"$dir/change.diff"
   seed
   # Every row starts from the very tree the prebuilt was built from.
@@ -360,6 +834,7 @@ else:
     verdict = "error"; runtime = "fail"
 row = {
   "label": "IMPLEMENTED",
+  "evidence": "supporting: Debug view-shell prototype, controlled pixels; not a real-app proof",
   "row": name, "category": category, "files_named_to_inject": names.split(),
   "patch": {"outcome": outcome, "runtime": runtime, "width_before_px": base_w, "width_after_px": patch_w,
             "inject_s": fl(inject_s), "edit_to_pixels_s": fl(e2p), "stale_symbol_pointers": stale or None,
@@ -389,6 +864,7 @@ for r in rows:
     summary[r["verdict"]] = summary.get(r["verdict"], 0) + 1
 covered = sum(1 for r in rows if r["verdict"] == "match")
 result = {"label": "IMPLEMENTED", "harness": "Prototypes/ViewShell headless, seeded base",
+          "evidence": "supporting: controlled pixels in the Debug view-shell prototype. Not proof of an isolated real cmux instance or an in-place swap into a running real cmux; covered_by_patch is per mechanism, not real-app PR coverage",
           "base_sha": base_sha, "seeded_base_sha256": seeded_digest,
           "covered_by_patch": covered, "needs_full_build": len(rows) - covered,
           "note": "needs_full_build counts MISMATCH, detected_fallback, error and invalid_row: every row stays in the denominator",
