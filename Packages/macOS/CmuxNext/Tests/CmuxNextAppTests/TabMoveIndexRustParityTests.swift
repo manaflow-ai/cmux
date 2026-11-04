@@ -1,4 +1,4 @@
-import CmuxNextBridge
+import CmuxNextAppCore
 import Testing
 
 struct TabMoveIndexRustParityTests {
