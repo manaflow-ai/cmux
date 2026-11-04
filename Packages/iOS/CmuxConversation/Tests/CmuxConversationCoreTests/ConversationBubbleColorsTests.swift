@@ -30,7 +30,7 @@ import Testing
     @Test func savesAsHexAndSwatchesAreTheMacs() throws {
         let colors = ConversationBubbleColors(sent: ConversationColor(hex: "#34C759"))
         let json = String(decoding: try JSONEncoder().encode(colors), as: UTF8.self)
-        #expect(json == #"{"sent":"#34C759"}"#)
+        #expect(json == ##"{"sent":"#34C759"}"##)
         #expect(try JSONDecoder().decode(ConversationBubbleColors.self, from: Data(json.utf8)) == colors)
         #expect(ConversationBubbleColors.sentSwatches.map(\.hex) == ["#0A84FF", "#34C759", "#AF52DE", "#FF2D55", "#FF9500", "#FFD60A", "#30B0C7", "#8E8E93"])
         #expect(ConversationBubbleColors.receivedSwatches.count == 7)
