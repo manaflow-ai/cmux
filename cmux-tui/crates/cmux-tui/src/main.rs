@@ -2502,6 +2502,11 @@ fn run_server(
     #[cfg(windows)]
     mux.set_remote_host_acpmux_socket(windows_acpmux_socket());
     mux.configure_remote_host(&socket_path);
+    // Windows and Linux: tell the machine's acpmux where this daemon's cmux
+    // Remote host writes the Computer Use endpoint, so agents of an acpmux
+    // this daemon did not start (a standalone acpmux.exe) get the bridge too.
+    #[cfg(any(windows, target_os = "linux"))]
+    write_computer_use_pointer(&socket_path);
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
@@ -3375,6 +3380,21 @@ fn run_tui_once(
 fn usage_exit(msg: &str) -> ! {
     crate::client_log::stderr_log!("startup", "{BIN}: {msg}\n\n{}", usage());
     client_log::exit(2);
+}
+
+/// Names this daemon's Computer Use endpoint folder in the acpmux home the
+/// machine's acpmux reads (`ACPMUX_HOME`, else its default home). Best effort:
+/// without it, agents of an acpmux this daemon did not start get no bridge.
+#[cfg(any(windows, target_os = "linux"))]
+fn write_computer_use_pointer(socket_path: &Path) {
+    let home = std::env::var_os("ACPMUX_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(acpmux::config::default_home);
+    let dir = cmux_tui_core::remote_host::computer_use_endpoint_dir(socket_path);
+    if let Err(error) = acpmux::cua_v2::write_pointer(&home, &dir) {
+        crate::client_log::stderr_log!("startup", "cmux-tui: Computer Use endpoint pointer: {error}");
+    }
 }
 
 /// Windows: the socket of the standalone `acpmux.exe` daemon beside this one,

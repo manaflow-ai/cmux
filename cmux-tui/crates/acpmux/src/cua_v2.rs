@@ -97,9 +97,56 @@ impl std::fmt::Debug for Endpoint {
     }
 }
 
-/// The endpoint folder from this daemon's env, when the app set one.
+/// The file in this acpmux's home where a cmux-tui daemon on Windows or
+/// Linux names its cmux Remote host's endpoint folder, for an acpmux it did
+/// not start itself (a standalone `acpmux.exe`). One absolute path, private to
+/// this user like `endpoint.json`.
+pub const ENDPOINT_POINTER_FILE: &str = "cua-v2-dir";
+
+/// The endpoint folder: [`ENDPOINT_DIR_ENV`] when the app or the daemon that
+/// started this acpmux set it, else the folder a cmux-tui daemon named in
+/// [`ENDPOINT_POINTER_FILE`] (read on each session start, so a daemon that
+/// starts after this acpmux still reaches its agents). A pointer file that is
+/// not private, not one absolute path, or names a missing folder is ignored.
 pub fn dir_from_env() -> Option<PathBuf> {
-    std::env::var_os(ENDPOINT_DIR_ENV).filter(|v| !v.is_empty()).map(PathBuf::from)
+    if let Some(dir) = std::env::var_os(ENDPOINT_DIR_ENV).filter(|v| !v.is_empty()) {
+        return Some(PathBuf::from(dir));
+    }
+    pointer_dir(&crate::config::home().join(ENDPOINT_POINTER_FILE))
+}
+
+/// Names `dir` in acpmux home `home`'s [`ENDPOINT_POINTER_FILE`], private to
+/// this user, replaced atomically (a temporary file created owner-only, then
+/// renamed). The cmux-tui daemon calls it on Windows and Linux when it
+/// configures its cmux Remote host.
+pub fn write_pointer(home: &Path, dir: &Path) -> std::io::Result<()> {
+    use std::io::Write;
+    crate::owner_only::create_dir_all(home)?;
+    let target = home.join(ENDPOINT_POINTER_FILE);
+    let temporary = home.join(format!("{ENDPOINT_POINTER_FILE}.{}.tmp", std::process::id()));
+    let _ = std::fs::remove_file(&temporary);
+    let mut file = crate::owner_only::create_new(&temporary)?;
+    let written = file
+        .write_all(dir.as_os_str().to_string_lossy().as_bytes())
+        .and_then(|()| file.sync_all())
+        .and_then(|()| std::fs::rename(&temporary, &target));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    written
+}
+
+/// The folder [`ENDPOINT_POINTER_FILE`] at `path` names, when it is usable.
+pub fn pointer_dir(path: &Path) -> Option<PathBuf> {
+    if !path.exists() {
+        return None;
+    }
+    let text = read_private_text(path)
+        .map_err(|error| tracing::warn!(%error, "Computer Use endpoint pointer ignored"))
+        .ok()?;
+    let line = text.trim();
+    let dir = PathBuf::from(line);
+    (!line.is_empty() && !line.contains('\n') && dir.is_absolute() && dir.is_dir()).then_some(dir)
 }
 
 /// The folder, when the helper v2 runs now: its `endpoint.json` exists, the

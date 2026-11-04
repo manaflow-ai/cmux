@@ -203,6 +203,14 @@ fn run_acp_daemon(exe: &Path, home: &Path, socket: &Path, args: &[&str]) -> Resu
     for name in TERMINAL_IDENTITY_ENV {
         command.env_remove(name);
     }
+    // Windows and Linux: the cmux Remote host of this daemon writes the
+    // Computer Use worker's endpoint here, and agents get its bridge from it
+    // (docs/computer-use-approvals.md). On macOS the app names the folder.
+    #[cfg(not(target_os = "macos"))]
+    command.env(
+        acpmux::cua_v2::ENDPOINT_DIR_ENV,
+        cmux_tui_core::remote_host::computer_use_endpoint_dir(socket),
+    );
     let what = format!("acpmux daemon {}", args.join(" "));
     let status = command
         .env("ACPMUX_HOME", home)

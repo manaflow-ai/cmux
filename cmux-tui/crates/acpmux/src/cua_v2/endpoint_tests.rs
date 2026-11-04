@@ -288,3 +288,45 @@ mod windows {
         assert!(error.to_string().contains("cannot connect"), "{error:#}");
     }
 }
+
+/// The pointer a Windows or Linux cmux-tui daemon writes names the endpoint
+/// folder for an acpmux it did not start, privately.
+#[test]
+fn the_daemons_pointer_names_the_endpoint_folder() {
+    let home = tempfile::tempdir().unwrap();
+    let endpoint = tempfile::tempdir().unwrap();
+    write_pointer(home.path(), endpoint.path()).unwrap();
+    let pointer = home.path().join(ENDPOINT_POINTER_FILE);
+    assert_eq!(pointer_dir(&pointer).as_deref(), Some(endpoint.path()));
+    // Written again (a daemon restart), it is replaced, not appended.
+    let other = tempfile::tempdir().unwrap();
+    write_pointer(home.path(), other.path()).unwrap();
+    assert_eq!(pointer_dir(&pointer).as_deref(), Some(other.path()));
+}
+
+#[test]
+fn a_missing_relative_or_vanished_pointer_names_nothing() {
+    let home = tempfile::tempdir().unwrap();
+    let pointer = home.path().join(ENDPOINT_POINTER_FILE);
+    assert_eq!(pointer_dir(&pointer), None, "no file");
+    write_pointer(home.path(), Path::new("relative/cu")).unwrap();
+    assert_eq!(pointer_dir(&pointer), None, "a relative path");
+    let gone = home.path().join("gone");
+    write_pointer(home.path(), &gone).unwrap();
+    assert_eq!(pointer_dir(&pointer), None, "a folder that does not exist");
+}
+
+/// Another user (or anything) able to read or change the pointer could
+/// steer the bridge, and its secret, elsewhere: such a file is ignored.
+#[cfg(unix)]
+#[test]
+fn a_pointer_others_can_read_is_ignored() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    let endpoint = tempfile::tempdir().unwrap();
+    write_pointer(home.path(), endpoint.path()).unwrap();
+    let pointer = home.path().join(ENDPOINT_POINTER_FILE);
+    assert_eq!(std::fs::metadata(&pointer).unwrap().permissions().mode() & 0o077, 0, "written owner-only");
+    std::fs::set_permissions(&pointer, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(pointer_dir(&pointer), None);
+}

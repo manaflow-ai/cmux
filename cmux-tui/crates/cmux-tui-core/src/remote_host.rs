@@ -36,6 +36,17 @@
 /// Advertised by `identify` once `remote-host-status` and `remote-host-call` exist.
 pub(crate) const REMOTE_HOST_CAPABILITY: &str = "remote-host-v1";
 
+/// The folder where the cmux Remote host of the daemon on `daemon_socket`
+/// writes the Computer Use worker's `endpoint.json` (acpmux reads it from
+/// `CMUX_NEXT_CUA_V2_DIR`): `<runtime>/cu`, where the runtime folder is the one
+/// the daemon passes the host as `--layout-dir`. It depends only on the daemon
+/// socket path, so a process that knows that socket names the same folder. On
+/// macOS the app names the folder itself; Windows and Linux use this.
+#[cfg(any(unix, windows))]
+pub fn computer_use_endpoint_dir(daemon_socket: &std::path::Path) -> std::path::PathBuf {
+    imp::runtime_dir_for(daemon_socket).join("cu")
+}
+
 #[cfg(any(unix, windows))]
 #[path = "remote_host/supervisor.rs"]
 mod imp;
@@ -69,3 +80,22 @@ mod imp {
 }
 #[cfg(not(any(unix, windows)))]
 pub(crate) use imp::*;
+
+#[cfg(all(test, any(unix, windows)))]
+mod endpoint_dir_tests {
+    use std::path::Path;
+
+    /// The folder acpmux is told is the one the host writes `endpoint.json`
+    /// into: the host's `--layout-dir` (the runtime folder) plus `cu`.
+    #[test]
+    fn the_endpoint_folder_is_the_hosts_layout_cu_folder() {
+        let socket = Path::new("/tmp/cmux-test/daemon.sock");
+        let paths = super::imp::paths_for(socket, Path::new("/tmp/cmux-test/state"));
+        assert_eq!(super::computer_use_endpoint_dir(socket), paths.runtime.join("cu"));
+        assert_ne!(
+            super::computer_use_endpoint_dir(socket),
+            super::computer_use_endpoint_dir(Path::new("/tmp/cmux-test/other.sock")),
+            "each daemon has its own host"
+        );
+    }
+}

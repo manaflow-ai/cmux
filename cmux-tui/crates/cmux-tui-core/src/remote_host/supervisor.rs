@@ -137,20 +137,28 @@ impl Paths {
     }
 }
 
+/// The host's runtime folder for the daemon on `daemon_socket`: `rh-<digest>`
+/// beside the socket, or under the fallback runtime folder when a socket in it
+/// would not fit `sun_path`.
+pub(crate) fn runtime_dir_for(daemon_socket: &Path) -> PathBuf {
+    use sha2::{Digest, Sha256};
+    let socket_digest = format!("{:x}", Sha256::digest(daemon_socket.as_os_str().as_encoded_bytes()));
+    let leaf = format!("rh-{}", &socket_digest[..12]);
+    let runtime = daemon_socket.parent().unwrap_or_else(|| Path::new("/tmp")).join(&leaf);
+    #[cfg(unix)]
+    if !crate::server::unix_socket_path_fits(&runtime.join("w-screen.sock")) {
+        return crate::platform::fallback_runtime_dir().join(leaf);
+    }
+    runtime
+}
+
 /// The paths for the daemon on `daemon_socket` with durable state under `state_root`.
 pub(crate) fn paths_for(daemon_socket: &Path, state_root: &Path) -> Paths {
     use sha2::{Digest, Sha256};
     let digest = |bytes: &[u8]| format!("{:x}", Sha256::digest(bytes));
-    let socket_digest = digest(daemon_socket.as_os_str().as_encoded_bytes());
-    let leaf = format!("rh-{}", &socket_digest[..12]);
-    let mut runtime = daemon_socket.parent().unwrap_or_else(|| Path::new("/tmp")).join(&leaf);
-    #[cfg(unix)]
-    if !crate::server::unix_socket_path_fits(&runtime.join("w-screen.sock")) {
-        runtime = crate::platform::fallback_runtime_dir().join(leaf);
-    }
     let scope_digest = digest(state_root.as_os_str().as_encoded_bytes());
     Paths {
-        runtime,
+        runtime: runtime_dir_for(daemon_socket),
         state: state_root.join("remote"),
         scope: format!("s{}", &scope_digest[..16]),
         daemon_socket: daemon_socket.to_path_buf(),

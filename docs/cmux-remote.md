@@ -257,9 +257,17 @@ digits of the request digest, as on macOS (docs/computer-use-approvals.md,
   removed, as on macOS. The daemon names the standalone `acpmux.exe` daemon's
   socket (`ACPMUX_SOCKET`, else `ACPMUX_HOME` or `~\.acpmux`) to the host at
   start, so the worker registers it. Only a daemon running `acpmux.exe` (the
-  image beside the daemon the worker trusts) is admitted, not `cmux acp`, and
-  that daemon must be started with `CMUX_NEXT_CUA_V2_DIR` set to the host's
-  `<runtime>\cu` folder: nothing sets it for it yet on Windows or Linux.
+  image beside the daemon the worker trusts) is admitted, not `cmux acp`.
+- **Where acpmux finds the endpoint (Windows and Linux).** The endpoint folder
+  is the host's runtime folder plus `cu` (`remote_host::computer_use_endpoint_dir`,
+  a function of the daemon socket path only). An acpmux the daemon starts
+  itself (Linux, `cmux acp daemon start` from the session daemon) gets it as
+  `CMUX_NEXT_CUA_V2_DIR`. For an acpmux the daemon did not start (Windows'
+  standalone `acpmux.exe`), the daemon writes the folder's path into
+  `<acpmux home>/cua-v2-dir` at start (owner-only, replaced atomically), and
+  acpmux reads it at each session start when the variable is unset. A pointer
+  that is not private to the person, not one absolute path, or names a missing
+  folder is ignored, and the bridge still checks `endpoint.json` itself.
 
 ### Distro matrix
 
