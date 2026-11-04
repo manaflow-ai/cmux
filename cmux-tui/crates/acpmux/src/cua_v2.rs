@@ -34,6 +34,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow, bail};
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
+use std::sync::Arc;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 #[cfg(unix)]
 use tokio::net::UnixStream;
@@ -50,6 +51,67 @@ pub const ENDPOINT_DIR_ENV: &str = "CMUX_NEXT_CUA_V2_DIR";
 pub const ENDPOINT_FILE: &str = "endpoint.json";
 /// The MCP server name agents see (the same as the legacy server).
 pub const SERVER_NAME: &str = "cmux-cua";
+const EXTERNAL_ACCESS_ERROR: i64 = -32021;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ExternalAccess {
+    kind: String,
+    target: String,
+    operation: String,
+    platform: String,
+}
+
+fn external_access_error(text: &str) -> Option<ExternalAccess> {
+    let value: Value = serde_json::from_str(text).ok()?;
+    let object = value.as_object()?;
+    if object.get("code").and_then(Value::as_str) != Some("external_access") {
+        return None;
+    }
+    let access = object.get("externalAccess")?.as_object()?;
+    let kind = access.get("kind")?.as_str()?;
+    let target = access.get("target")?.as_str()?;
+    let operation = access.get("operation")?.as_str()?;
+    let platform = access.get("platform")?.as_str()?;
+    if !matches!(kind, "files_and_folders" | "full_disk_access")
+        || !target.starts_with('/')
+        || operation != "read_text_file"
+        || platform != "macos"
+    {
+        return None;
+    }
+    Some(ExternalAccess {
+        kind: kind.to_owned(),
+        target: target.to_owned(),
+        operation: operation.to_owned(),
+        platform: platform.to_owned(),
+    })
+}
+
+struct ExternalAccessRequester {
+    client: Arc<crate::client::Client>,
+    session_id: String,
+}
+
+impl ExternalAccessRequester {
+    async fn ask(&self, access: &ExternalAccess) -> Result<bool> {
+        let result = self
+            .client
+            .request(
+                crate::rpc::method::MUX_EXTERNAL_ACCESS_REQUEST,
+                json!({"sessionId": self.session_id, "externalAccess": {
+                    "kind": access.kind,
+                    "target": access.target,
+                    "operation": access.operation,
+                    "platform": access.platform,
+                }}),
+            )
+            .await?;
+        Ok(result
+            .pointer("/outcome/optionId")
+            .and_then(Value::as_str)
+            .is_some_and(|id| id.starts_with("allow")))
+    }
+}
 
 /// `endpoint.json`.
 #[derive(Clone, PartialEq, Eq)]
@@ -266,7 +328,12 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         if reply["ok"] == json!(true) {
             Ok(reply.get("result").cloned().unwrap_or(Value::Null))
         } else {
-            bail!("{}", reply["error"].as_str().unwrap_or("the Computer Use helper failed"))
+            let error = match &reply["error"] {
+                Value::String(text) => text.clone(),
+                Value::Null => "the Computer Use helper failed".to_owned(),
+                other => other.to_string(),
+            };
+            bail!("{error}")
         }
     }
 
@@ -295,13 +362,31 @@ pub async fn run_bridge() -> Result<()> {
 #[cfg(unix)]
 pub async fn run_bridge() -> Result<()> {
     let dir = dir_from_env().ok_or_else(|| anyhow!("{ENDPOINT_DIR_ENV} is not set"))?;
+    let requester = match (
+        std::env::var("ACPMUX_SESSION_ID").ok().filter(|id| !id.is_empty()),
+        std::env::var(crate::hub::person::CALLER_SOCKET_ENV).ok().filter(|path| !path.is_empty()),
+    ) {
+        (Some(session_id), Some(socket)) => {
+            let client = crate::client::Client::connect(std::path::Path::new(&socket)).await?;
+            if client.proven_caller_session() != Some(session_id.as_str()) {
+                bail!("Computer Use bridge caller authentication did not bind to its session");
+            }
+            Some(ExternalAccessRequester { client, session_id })
+        }
+        _ => None,
+    };
     let stdin = BufReader::new(tokio::io::stdin());
     let stdout = tokio::io::stdout();
-    serve(stdin, stdout, || async { Helper::connect(&read_endpoint(&dir)?).await }).await
+    serve(stdin, stdout, || async { Helper::connect(&read_endpoint(&dir)?).await }, requester).await
 }
 
 /// The MCP loop, generic over the transport and the helper connection.
-pub async fn serve<R, W, S, C, F>(input: R, mut output: W, connect: C) -> Result<()>
+pub async fn serve<R, W, S, C, F>(
+    input: R,
+    mut output: W,
+    connect: C,
+    requester: Option<ExternalAccessRequester>,
+) -> Result<()>
 where
     R: AsyncBufRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -341,9 +426,48 @@ where
                 let arguments =
                     message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
                 Ok(
-                    match forward(&mut helper, &connect, "tools/call", Some(&name), arguments).await
+                    match forward(
+                        &mut helper,
+                        &connect,
+                        "tools/call",
+                        Some(&name),
+                        arguments.clone(),
+                    )
+                    .await
                     {
                         Ok(result) => call_result(result),
+                        Err((code, text)) if code == EXTERNAL_ACCESS_ERROR => {
+                            let retried = external_access_error(&text).is_some();
+                            let allowed = if retried {
+                                if let (Some(requester), Some(access)) =
+                                    (requester.as_ref(), external_access_error(&text))
+                                {
+                                    requester.ask(&access).await.unwrap_or(false)
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            };
+                            if allowed {
+                                match forward(
+                                    &mut helper,
+                                    &connect,
+                                    "tools/call",
+                                    Some(&name),
+                                    arguments,
+                                )
+                                .await
+                                {
+                                    Ok(result) => call_result(result),
+                                    Err((_, text)) => {
+                                        json!({"content": [{"type":"text", "text":text}], "isError":true})
+                                    }
+                                }
+                            } else {
+                                json!({"content": [{"type":"text", "text":text}], "isError":true})
+                            }
+                        }
                         Err((_, text)) => {
                             json!({"content": [{"type":"text", "text":text}], "isError":true})
                         }
@@ -409,6 +533,18 @@ where
             Err(e) => {
                 if e.to_string() == crate::cli::cloud_join::CONSENT_REQUIRED {
                     return Err((-32020, crate::cli::cloud_join::CONSENT_REQUIRED.to_owned()));
+                }
+                if let Some(access) = external_access_error(&e.to_string()) {
+                    return Err((
+                        EXTERNAL_ACCESS_ERROR,
+                        json!({"code":"external_access", "externalAccess": {
+                            "kind": access.kind,
+                            "target": access.target,
+                            "operation": access.operation,
+                            "platform": access.platform,
+                        }})
+                        .to_string(),
+                    ));
                 }
                 *helper = None;
                 if attempt == 1 || !is_connection_error(&e) {

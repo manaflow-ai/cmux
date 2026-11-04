@@ -449,6 +449,8 @@ pub mod method {
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
+    /// A session's trusted Computer Use bridge asks for one OS-denied read.
+    pub const MUX_EXTERNAL_ACCESS_REQUEST: &str = "_acpmux/external_access_request";
     /// The signed app gives this launch's person key (`hub/person.rs`).
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
     /// The signed app gives the daemon its legacy Computer Use agent endpoint.

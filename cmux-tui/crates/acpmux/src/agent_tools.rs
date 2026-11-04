@@ -788,6 +788,7 @@ impl AgentTools {
                 || server.name == crate::forum_mcp::SERVER_NAME
                 || server.name == crate::acpmux_mcp::SERVER_NAME
                 || server.name == crate::cloud_repo_mcp::SERVER_NAME
+                || server.name == crate::cua_v2::SERVER_NAME
             {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![

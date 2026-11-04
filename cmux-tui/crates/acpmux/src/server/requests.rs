@@ -1039,7 +1039,7 @@ async fn dispatch_request_with_identity(
             let extensions: &[&str] = &[
                 method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                 method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT,
-                method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION,
+                method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_EXTERNAL_ACCESS_REQUEST, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION,
                 method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                 method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
             ];
@@ -2654,6 +2654,77 @@ async fn dispatch_request_with_identity(
         method::MUX_PERMISSION_CHAT_REVOKE => {
             let s = hub.resolve(session_key(&params)?)?;
             Ok(hub.revoke_permission_chat(&s))
+        }
+        method::MUX_EXTERNAL_ACCESS_REQUEST => {
+            let caller = conn.caller().ok_or_else(|| {
+                RpcError::invalid_params("external access requests require a session caller")
+            })?;
+            let s = hub.resolve(session_key(&params)?)?;
+            if caller != s.id {
+                return Err(RpcError::invalid_params(
+                    "external access requests may only be raised for the calling session",
+                ));
+            }
+            let access = params
+                .get("externalAccess")
+                .and_then(Value::as_object)
+                .ok_or_else(|| RpcError::invalid_params("externalAccess is required"))?;
+            let target = access
+                .get("target")
+                .and_then(Value::as_str)
+                .filter(|path| path.starts_with('/') && !path.chars().any(char::is_control))
+                .ok_or_else(|| {
+                    RpcError::invalid_params("externalAccess.target must be absolute")
+                })?;
+            let operation = access
+                .get("operation")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("externalAccess.operation is required"))?;
+            if operation != "read_text_file"
+                || access.get("platform").and_then(Value::as_str) != Some("macos")
+            {
+                return Err(RpcError::invalid_params(
+                    "only macOS read_text_file external access is supported",
+                ));
+            }
+            let kind = access
+                .get("kind")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("externalAccess.kind is required"))?;
+            if !matches!(kind, "files_and_folders" | "full_disk_access") {
+                return Err(RpcError::invalid_params("externalAccess.kind is invalid"));
+            }
+            let path = std::path::Path::new(target);
+            let expected =
+                crate::protected_folders::protected_kind_in(path, dirs::home_dir().as_deref())
+                    .ok_or_else(|| {
+                        RpcError::invalid_params("externalAccess.target is not protected")
+                    })?;
+            let expected_kind =
+                if expected == "appData" { "full_disk_access" } else { "files_and_folders" };
+            if kind != expected_kind {
+                return Err(RpcError::invalid_params("externalAccess.kind does not match target"));
+            }
+            let call = format!("external-cua-{}", uuid::Uuid::now_v7());
+            let request = json!({
+                "sessionId": s.meta().agent_session_id.clone().unwrap_or_else(|| s.id.clone()),
+                "toolCall": {
+                    "toolCallId": call,
+                    "kind": "read",
+                    "status": "pending",
+                    "title": format!("Read {target}"),
+                    "rawInput": {"path": target, "operation": operation},
+                    "locations": [{"path": target}],
+                    "_meta": {"acpmux": {"externalAccess": access}}
+                },
+                "options": [
+                    {"optionId": "allow_once", "name": "Allow once", "kind": "allow_once"},
+                    {"optionId": "reject_once", "name": "Skip", "kind": "reject_once"}
+                ]
+            });
+            let epoch = s.permission_epoch.load(std::sync::atomic::Ordering::SeqCst);
+            let turn = s.turn().map(|turn| turn.turn_id);
+            Ok(hub.handle_permission(&s, request, epoch, turn).await)
         }
         method::MUX_PERMISSION_RESPOND => {
             let s = hub.resolve(session_key(&params)?)?;
