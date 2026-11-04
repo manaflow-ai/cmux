@@ -4,7 +4,8 @@ import CoreGraphics
 import CoreText
 import Foundation
 
-/// cmux: an agent-message fold or notes row as a small muted caption line, not a bubble (user
+/// cmux: an agents row as one pill per agent (``HomeAgentPills``, user 2026-11-03, msg 19960), and a status
+/// note or Feed row as a small muted caption line. Before the pills, every row was that line (user
 /// 2026-10-31, msg 19414: the "▸ Agent messages (3) · a957" header, a blue underlined link in a gray
 /// pill, "is bad"), and each status note of an opened notes row. A drawn custom row (CustomRows.swift, `.fullWidth`) like the table cards
 /// (``HomeTableRowProvider``): a chevron, the label ("Agent messages (3)", "Disconnected (5)") and
@@ -120,13 +121,17 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
     func measure(_ part: CustomPart, maxWidth: CGFloat) -> CGSize { CGSize(width: maxWidth, height: Self.height(Self.payload(part))) }
     func estimate(_ part: CustomPart, maxWidth: CGFloat) -> CGSize { measure(part, maxWidth: maxWidth) }
 
-    /// The row's height: the shipped line's, or in DEBUG its playground style's.
+    /// The row's height: an agents row's pills, a note's or Feed row's caption line, or in DEBUG its playground style's.
     private static func height(_ payload: Payload?) -> CGFloat {
+        guard let payload else { return height }
         #if DEBUG
-        if let payload, let style = HomeAgentFoldStyle.drawing(payload) { return style.height(payload) }
+        if let style = HomeAgentFoldStyle.drawing(payload) { return style.height(payload) }
         #endif
-        return height
+        return drawsPills(payload) ? HomeAgentPills(payload, shape: .pill, width: .greatestFiniteMagnitude).height : height
     }
+
+    /// True for an agents row (a fold or notes row): the shipped look draws it as one pill per agent.
+    static func drawsPills(_ payload: Payload) -> Bool { payload.role == "fold" || payload.role == "notes" }
 
     func plainText(_ part: CustomPart) -> String? {
         guard let payload = Self.payload(part) else { return nil }
@@ -141,7 +146,11 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
             return
         }
         #endif
-        HomeAgentFoldLine(payload, width: rect.width).draw(ctx, at: rect.origin)
+        if Self.drawsPills(payload) {
+            HomeAgentPills(payload, shape: .pill, width: rect.width).draw(ctx, origin: rect.origin)
+        } else {
+            HomeAgentFoldLine(payload, width: rect.width).draw(ctx, at: rect.origin)
+        }
     }
 
     /// DEBUG pill styles: a click on a pill goes to ``onPill`` with that agent; elsewhere the row folds as before.

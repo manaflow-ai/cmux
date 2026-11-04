@@ -39,6 +39,13 @@ const READ_CAP: u64 = 1 << 30;
 const MAX_ANSWER_BYTES: u64 = 16 * 1024 * 1024;
 /// Most answers for other requests one call skips before it gives up.
 const MAX_OTHER_ANSWERS: usize = 16;
+/// Bytes of a file's first part that decide whether it is compressed: a
+/// file whose start does not shrink (a git pack, an image, an archive) is
+/// sent as it is, without spending time on the rest.
+const PROBE_BYTES: usize = 64 * 1024;
+/// The deflate level: about as fast as a link of hundreds of MB/s, and
+/// within a few percent of the best size on source text.
+const DEFLATE_LEVEL: u32 = 3;
 
 /// A listing named something other than one plain component.
 #[derive(Debug)]
@@ -82,6 +89,9 @@ impl std::error::Error for FsRefusal {}
 pub(super) struct Remote {
     reader: BufReader<UnixStream>,
     next_id: u64,
+    /// The machine takes deflate write bytes (`fs-write-deflate-v1`,
+    /// [`Remote::negotiate`]); otherwise every write is plain base64.
+    deflate: bool,
 }
 
 impl Remote {
@@ -92,7 +102,27 @@ impl Remote {
         // A machine that stops reading must not hold a write (and a
         // caller's lock) forever either.
         stream.set_write_timeout(Some(IO_DEADLINE))?;
-        Ok(Self { reader: BufReader::new(stream), next_id: 1 })
+        Ok(Self { reader: BufReader::new(stream), next_id: 1, deflate: false })
+    }
+
+    /// [`Remote::connect`], then asks the machine which write encodings it
+    /// takes ([`Remote::negotiate`]).
+    pub(super) fn connect_negotiated(socket: &Path) -> anyhow::Result<Self> {
+        let mut remote = Self::connect(socket)?;
+        remote.negotiate();
+        Ok(remote)
+    }
+
+    /// Writes compressed bytes from now on when the machine's `identify`
+    /// lists `fs-write-deflate-v1`. A machine that lacks it, or does not
+    /// answer `identify`, gets every write exactly as before.
+    pub(super) fn negotiate(&mut self) {
+        let capability = cmux_tui_core::fs_ops::FS_WRITE_DEFLATE_CAPABILITY;
+        self.deflate = self.call("identify", json!({})).is_ok_and(|identity| {
+            identity["capabilities"]
+                .as_array()
+                .is_some_and(|served| served.iter().any(|name| name.as_str() == Some(capability)))
+        });
     }
 
     /// Sends one request and returns its `data`; an `ok: false` answer is
@@ -300,27 +330,31 @@ impl Remote {
         progress: &mut dyn FnMut(),
     ) -> anyhow::Result<String> {
         let first = read_part(reader)?;
+        let compress = self.deflate && shrinks(&first);
         let second = if first.len() == PART_BYTES { read_part(reader)? } else { Vec::new() };
         if second.is_empty() {
+            let request = json!({ "path": path, "mode": "overwrite", "permissions": permissions });
             let entry = self.call_with_progress(
                 "fs.write",
-                json!({ "path": path, "bytes_base64": encode(&first), "mode": "overwrite", "permissions": permissions }),
+                with_bytes(request, &first, compress)?,
                 progress,
             )?;
             return revision_of(&entry);
         }
         let (parent, name) = split(path)?;
         let part = format!("{}/.{name}.cmux-sync-part", parent.trim_end_matches('/'));
+        let request = json!({ "path": part, "mode": "overwrite", "permissions": permissions });
         let mut revision = revision_of(&self.call_with_progress(
             "fs.write",
-            json!({ "path": part, "bytes_base64": encode(&first), "mode": "overwrite", "permissions": permissions }),
+            with_bytes(request, &first, compress)?,
             progress,
         )?)?;
         let mut chunk = second;
         while !chunk.is_empty() {
+            let request = json!({ "path": part, "mode": "append", "expected": revision });
             revision = revision_of(&self.call_with_progress(
                 "fs.write",
-                json!({ "path": part, "bytes_base64": encode(&chunk), "mode": "append", "expected": revision }),
+                with_bytes(request, &chunk, compress)?,
                 progress,
             )?)?;
             chunk = read_part(reader)?;
@@ -481,6 +515,39 @@ fn encode(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
+/// `request` with the bytes of `part`: deflate (with `decoded_size`) when
+/// `compress` and that is smaller, else plain base64 as before.
+fn with_bytes(mut request: Value, part: &[u8], compress: bool) -> anyhow::Result<Value> {
+    if compress {
+        let wire = deflate(part)?;
+        if wire.len() < part.len() {
+            request.set("bytes_base64", json!(encode(&wire)));
+            request.set("encoding", json!(cmux_tui_core::fs_ops::DEFLATE));
+            request.set("decoded_size", json!(part.len()));
+            return Ok(request);
+        }
+    }
+    request.set("bytes_base64", json!(encode(part)));
+    Ok(request)
+}
+
+/// Whether the start of `part` shrinks by more than a tenth (and by more
+/// than the fields that say it is compressed).
+fn shrinks(part: &[u8]) -> bool {
+    let probe = part.get(..PROBE_BYTES).unwrap_or(part);
+    deflate(probe).is_ok_and(|wire| {
+        wire.len().saturating_add(64) < probe.len()
+            && wire.len().saturating_mul(10) < probe.len().saturating_mul(9)
+    })
+}
+
+fn deflate(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
+    let level = flate2::Compression::new(DEFLATE_LEVEL);
+    let mut encoder = flate2::write::DeflateEncoder::new(Vec::new(), level);
+    encoder.write_all(bytes)?;
+    encoder.finish()
+}
+
 fn revision_of(data: &Value) -> anyhow::Result<String> {
     data["entry"]["revision"]
         .as_str()
@@ -529,7 +596,7 @@ mod tests {
             server.write_all(format!("{answer}\n").as_bytes()).unwrap();
             heard
         });
-        let mut remote = Remote { reader: BufReader::new(client), next_id: 1 };
+        let mut remote = Remote { reader: BufReader::new(client), next_id: 1, deflate: false };
         let data = vec![7u8; PART_BYTES];
         let mut progress = || {
             let _ = tick.send(());
@@ -562,7 +629,7 @@ mod tests {
                 json!({"id": request["id"], "ok": true, "data": {"entry": {"revision": "r1"}}});
             server.write_all(format!("{answer}\n").as_bytes()).unwrap();
         });
-        let mut remote = Remote { reader: BufReader::new(client), next_id: 1 };
+        let mut remote = Remote { reader: BufReader::new(client), next_id: 1, deflate: false };
         let data = vec![7u8; 256 * 1024];
         let revision = remote.write("/work/cmux-tui", &mut data.as_slice(), 0o755).unwrap();
         assert_eq!(revision, "r1");
@@ -601,7 +668,7 @@ mod tests {
             serve(&mut requests, &mut server);
             std::thread::sleep(Duration::from_secs(30));
         });
-        Remote { reader: BufReader::new(client), next_id: 1 }
+        Remote { reader: BufReader::new(client), next_id: 1, deflate: false }
     }
 
     /// An answer line that never ends is refused, not held in memory.
@@ -634,6 +701,90 @@ mod tests {
         });
         let error = remote.call("fs.stat", json!({"path": "/x"})).unwrap_err();
         assert!(format!("{error:#}").contains("other requests"), "{error:#}");
+    }
+
+    /// A machine whose `identify` lists `capabilities` and that answers every
+    /// `fs.write` with a revision; the returned channel gets each write.
+    fn recording(capabilities: Value) -> (Remote, std::sync::mpsc::Receiver<Value>) {
+        let (seen, writes) = std::sync::mpsc::channel();
+        let remote = hostile(move |requests, server| {
+            for request in requests {
+                let data = match request["cmd"].as_str() {
+                    Some("identify") => json!({"capabilities": capabilities}),
+                    Some("fs.write") => {
+                        let _ = seen.send(request.clone());
+                        json!({"entry": {"revision": "r1"}})
+                    }
+                    _ => json!({"entry": {"revision": "r1"}}),
+                };
+                let answer = json!({"id": request["id"], "ok": true, "data": data});
+                if server.write_all(format!("{answer}\n").as_bytes()).is_err() {
+                    return;
+                }
+            }
+        });
+        (remote, writes)
+    }
+
+    fn decoded(request: &Value) -> Vec<u8> {
+        use base64::Engine as _;
+        let wire = base64::engine::general_purpose::STANDARD
+            .decode(request["bytes_base64"].as_str().unwrap())
+            .unwrap();
+        if request["encoding"] != json!("deflate") {
+            return wire;
+        }
+        let mut out = Vec::new();
+        std::io::Read::read_to_end(
+            &mut flate2::read::DeflateDecoder::new(wire.as_slice()),
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(request["decoded_size"], json!(out.len()));
+        out
+    }
+
+    /// A machine without `fs-write-deflate-v1` (every image before it) gets
+    /// plain base64 writes, exactly the old request.
+    #[test]
+    fn a_machine_without_the_capability_gets_plain_base64() {
+        let (mut remote, writes) = recording(json!(["fs-v1"]));
+        remote.negotiate();
+        let text = "fn main() {}\n".repeat(10_000);
+        remote.write("/work/main.rs", &mut text.as_bytes(), 0o644).unwrap();
+        let request = writes.recv().unwrap();
+        assert!(request.get("encoding").is_none(), "{request}");
+        assert!(request.get("decoded_size").is_none(), "{request}");
+        assert_eq!(decoded(&request), text.as_bytes());
+    }
+
+    /// With the capability, text goes compressed and the parts of a file
+    /// over one part still decode to the file; bytes that do not shrink go
+    /// as they are.
+    #[test]
+    fn a_machine_with_the_capability_gets_deflate_for_what_shrinks() {
+        let (mut remote, writes) = recording(json!(["fs-v1", "fs-write-deflate-v1"]));
+        remote.negotiate();
+        let text: Vec<u8> = "let value = compute(input);\n".repeat(400_000).into_bytes();
+        assert!(text.len() > PART_BYTES);
+        remote.write("/work/big.rs", &mut text.as_slice(), 0o755).unwrap();
+        let mut rebuilt = Vec::new();
+        let mut wire = 0;
+        for _ in 0..text.len().div_ceil(PART_BYTES) {
+            let request = writes.recv().unwrap();
+            assert_eq!(request["encoding"], "deflate", "{}", request["mode"]);
+            wire += request["bytes_base64"].as_str().unwrap().len();
+            rebuilt.extend(decoded(&request));
+        }
+        assert!(rebuilt == text, "the parts do not decode to the file");
+        assert!(wire * 20 < text.len(), "{wire} wire bytes for {}", text.len());
+
+        let mut noise = vec![0u8; 256 * 1024];
+        getrandom::fill(&mut noise).unwrap();
+        remote.write("/work/blob.pack", &mut noise.as_slice(), 0o644).unwrap();
+        let request = writes.recv().unwrap();
+        assert!(request.get("encoding").is_none(), "noise was compressed");
+        assert_eq!(decoded(&request), noise);
     }
 
     /// A listing that cycles cursors is refused promptly.

@@ -462,6 +462,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       usageSection(
         {
           own: summary?.usageStats,
+          planLimits: typeof summary?.usageLimits === "object" ? summary.usageLimits : undefined,
           sessions: props.allSessions ?? [],
           chatId,
           onOpen: props.onOpenChat,

@@ -313,6 +313,14 @@ public final class HomeStore {
         return item
     }
 
+    /// The first page of the conversation's transcript is still being read for an open (``beginOpen(_:)``).
+    ///
+    /// Events committed meanwhile are buffered into the window, so a view may already show some of
+    /// its messages; it is not a settled transcript yet.
+    public func isLoadingTranscript(_ id: ConversationID) -> Bool {
+        pager.runningLoad(id) != nil
+    }
+
     public func hasOlderMessages(in id: ConversationID) -> Bool {
         guard let window = mirror.windows[id] else { return false }
         return !window.reachedStart

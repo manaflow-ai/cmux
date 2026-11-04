@@ -495,7 +495,7 @@ public enum DockEdge: String, CaseIterable, Hashable, Sendable {
 
 /// Where Fork Conversation opens the copy (the Mac's `AgentForkDestination`, less New Window).
 public enum ChatForkDestination: String, CaseIterable, Hashable, Sendable, Identifiable {
-    case right, left, up, down, tab, workspace
+    case right, left, up, down, column, tab, workspace
     public var id: String { rawValue }
 
     /// The choice in the phone's Fork Conversation list.
@@ -505,6 +505,7 @@ public enum ChatForkDestination: String, CaseIterable, Hashable, Sendable, Ident
         case .left: "To the Left"
         case .up: "Above"
         case .down: "Below"
+        case .column: "In a New Column"
         case .tab: "In a New Tab"
         case .workspace: "In a New Workspace"
         }
@@ -517,6 +518,7 @@ public enum ChatForkDestination: String, CaseIterable, Hashable, Sendable, Ident
         case .left: "Fork Conversation to the Left"
         case .up: "Fork Conversation Above"
         case .down: "Fork Conversation Below"
+        case .column: "Fork Conversation to New Column Right"
         case .tab: "Fork Conversation to New Tab"
         case .workspace: "Fork Conversation to New Workspace"
         }
@@ -530,7 +532,7 @@ public enum ChatForkDestination: String, CaseIterable, Hashable, Sendable, Ident
         case .left: .left
         case .up: .up
         case .down: .down
-        case .tab, .workspace: nil
+        case .column, .tab, .workspace: nil
         }
     }
 }
