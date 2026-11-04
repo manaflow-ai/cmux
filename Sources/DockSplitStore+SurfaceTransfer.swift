@@ -307,6 +307,8 @@ extension DockSplitStore {
             cachedTitle: titleMetadata.cachedTitle,
             customTitle: titleMetadata.customTitle,
             customTitleSource: titleMetadata.customTitleSource,
+            // The Dock doesn't show or persist badges, so a tab leaves it without one.
+            badge: nil,
             manuallyUnread: wasManuallyUnread,
             restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
             promptState: preservedTransfer?.promptState,

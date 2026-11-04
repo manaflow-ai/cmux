@@ -3,6 +3,7 @@ import Foundation
 import CMUXAgentLaunch
 import CmuxAgentJournal
 import CmuxControlSocket
+import CmuxCore
 import CmuxFoundation
 import CmuxSettings
 import CmuxSimulator
@@ -12351,8 +12352,9 @@ struct CMUXCLI {
         let (urlOpt, rem5) = parseOption(rem4, name: "--url")
         let (focusOpt, rem6) = parseOption(rem5, name: "--focus")
         let (windowOpt, rem7) = parseOption(rem6, name: "--window")
+        let (badgeOpt, rem8) = parseOption(rem7, name: "--badge")
 
-        var positional = rem7.filter { $0 != "--force" }
+        var positional = rem8.filter { $0 != "--force" }
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -12399,11 +12401,25 @@ struct CMUXCLI {
             allowFocused: allowFocusedFallback
         )
 
-        let inferredTitle = positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = (titleOpt ?? (inferredTitle.isEmpty ? nil : inferredTitle))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Trailing text is the badge for set-badge (`tab-action set-badge 🦀`)
+        // and the title for every other action.
+        let trailingText = positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let inferredText = trailingText.isEmpty ? nil : trailingText
+        let isSetBadge = action == "set_badge"
+        let title = (titleOpt ?? (isSetBadge ? nil : inferredText))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let badge = (badgeOpt ?? (isSetBadge ? inferredText : nil))?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if action == "rename", (title?.isEmpty ?? true) {
             throw CLIError(message: "tab-action rename requires --title <text> (or a trailing title)")
+        }
+        if isSetBadge, (badge?.isEmpty ?? true) {
+            throw CLIError(message: "tab-action set-badge requires --badge <text> (or trailing badge text)")
+        }
+        if isSetBadge, badgeOpt != nil, inferredText != nil {
+            throw CLIError(message: "tab-action set-badge takes the badge from --badge or trailing text, not both")
+        }
+        if !isSetBadge, badgeOpt != nil {
+            throw CLIError(message: "tab-action: --badge only applies to set-badge")
         }
 
         var params: [String: Any] = ["action": action]
@@ -12419,6 +12435,9 @@ struct CMUXCLI {
         if let title, !title.isEmpty {
             params["title"] = title
         }
+        if let badge, !badge.isEmpty {
+            params["badge"] = badge
+        }
         if let urlOpt, !urlOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             params["url"] = urlOpt.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -12430,6 +12449,11 @@ struct CMUXCLI {
         if let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) { summaryParts.append("workspace=\(workspaceHandle)") }
         if let closed = payload["closed"] { summaryParts.append("closed=\(closed)") }
         if let enabled = payload["full_width_tab_mode"] { summaryParts.append("full_width_tab_mode=\(enabled)") }
+        if let badge = payload["badge"] as? String {
+            summaryParts.append("badge=\(badge)")
+        } else if payload.keys.contains("badge") {
+            summaryParts.append("badge=none")
+        }
         if let created = formatCreatedTabHandle(payload, idFormat: idFormat) { summaryParts.append("created=\(created)") }
         appendCreatedWorkspaceSummaryParts(from: payload, idFormat: idFormat, to: &summaryParts)
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
@@ -22149,6 +22173,7 @@ struct CMUXCLI {
 
             Actions:
               rename | clear-name
+              set-badge | clear-badge
               close-left | close-right | close-others
               new-terminal-right | new-browser-right
               move-to-new-workspace
@@ -22161,7 +22186,8 @@ struct CMUXCLI {
               --surface <id|ref|index>     Alias for --tab (backward compatibility)
               --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
               --window <id|ref|index>      Window context for workspace/tab refs and indexes
-              --title <text>               Title for rename (or pass trailing title text)
+              --title <text>               Title for rename (or pass trailing title text; for set-badge, trailing text is the badge)
+              --badge <text>               Badge for set-badge, shown before the live title (or pass trailing badge text; up to \(PanelBadgeText.maximumCharacters) characters)
               --url <url>                  Optional URL for new-browser-right
               --focus <true|false>         Focus the destination when supported (default: false for move-to-new-workspace)
               --force                      Close even when a live process would be killed
@@ -22171,6 +22197,8 @@ struct CMUXCLI {
               cmux tab-action --action close-right
               cmux tab-action --tab tab:2 --action move-to-new-workspace
               cmux tab-action --tab tab:2 --action rename --title "build logs"
+              cmux tab-action set-badge 🦀
+              cmux tab-action --action clear-badge
             """
         case "move-tab-to-new-workspace", "detach-tab":
             return Self.moveTabToNewWorkspaceCommandHelp

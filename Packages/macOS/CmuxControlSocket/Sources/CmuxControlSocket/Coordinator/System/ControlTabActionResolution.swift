@@ -10,6 +10,8 @@ public enum ControlTabActionResolution: Sendable, Equatable {
         case none
         /// `rename` — the resulting `title`.
         case title(String)
+        /// `set_badge` / `clear_badge` — the resulting `badge`, `nil` once cleared.
+        case badge(String?)
         /// `pin` / `unpin` — the `pinned` flag.
         case pinned(Bool)
         /// `toggle_full_width_tab` — the resulting full-width tab mode flag.
@@ -77,6 +79,8 @@ public enum ControlTabActionResolution: Sendable, Equatable {
     case unknownAction
     /// `rename` without a usable `title`.
     case invalidTitle
+    /// `set_badge` without a usable `badge` (see the app's `PanelBadgeText`).
+    case invalidBadge(maximumCharacters: Int)
     /// `new_browser_right` with an unparsable `url`.
     case invalidURL(rawURL: String)
     /// `reload` on a non-browser surface.

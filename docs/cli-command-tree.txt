@@ -1417,6 +1417,7 @@ command  swap-pane  aliases=-
   arg  arguments  kind=argument  completion=-
 command  tab-action  aliases=-
   arg  --action  kind=option  completion=-
+  arg  --badge  kind=option  completion=-
   arg  --focus  kind=option  completion=-
   arg  --force  kind=flag  completion=-
   arg  --surface  kind=option  completion=custom

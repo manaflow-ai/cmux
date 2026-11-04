@@ -172,6 +172,28 @@ struct MobileWorkspaceListFidelityTests {
         #expect(before != after, "a terminal rename must change the mobile summary hash")
     }
 
+    @Test func badgingTerminalChangesObserverHashAndDisplayedTitle() throws {
+        let (workspace, ordered) = try makeWorkspaceWithTabTerminals(count: 2)
+        let panelId = try #require(ordered.last)
+        workspace.setPanelCustomTitle(panelId: panelId, title: "Build")
+
+        let before = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+
+        // A badge on an unfocused terminal changes neither panelTitles nor the
+        // workspace title; the observer must still see the badged title.
+        workspace.setPanelBadge(panelId: panelId, badge: PanelBadgeText("🦀"))
+        #expect(workspace.panelTitle(panelId: panelId) == "🦀 Build")
+
+        let after = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+        #expect(before != after, "a terminal badge must change the mobile summary hash")
+    }
+
     @Test func renamingWorkspaceChangesObserverHashAndDisplayedTitle() throws {
         let (workspace, _) = try makeWorkspaceWithTabTerminals(count: 1)
 

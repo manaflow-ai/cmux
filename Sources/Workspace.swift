@@ -542,7 +542,7 @@ extension Workspace {
             )
             : nil
 
-        let panelTitle = panelTitle(panelId: panelId)
+        let panelTitle = panelTitle(panelId: panelId, includesBadge: false)
         let customTitle = panelCustomTitles[panelId]
         let customTitleSource: CustomTitleSource? = customTitle != nil
             ? (panelCustomTitleSources[panelId] ?? .user)
@@ -860,6 +860,7 @@ extension Workspace {
             customTitle: customTitle,
             customTitleSource: customTitleSource == .remote ? .user : customTitleSource,
             customTitleWasRemote: customTitleSource == .remote ? true : nil,
+            badge: panelBadges[panelId]?.value,
             directory: directory,
             directoryIsTrustedRemoteReport: directoryIsTrustedRemoteReport,
             directoryRequiresRemoteTrust: directoryRequiresRemoteTrust ? true : nil,
@@ -2440,7 +2441,14 @@ extension Workspace {
             return nil
         }
     }
-    func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
+    /// - Parameter restoresBadge: Whether to apply the snapshot's badge. A
+    ///   deferred browser panel materializing later passes `false`, so a badge
+    ///   set or cleared since launch is not reverted.
+    func applySessionPanelMetadata(
+        _ snapshot: SessionPanelSnapshot,
+        toPanelId panelId: UUID,
+        restoresBadge: Bool = true
+    ) {
         adoptPersistedStableSurfaceId(from: snapshot, panelId: panelId)
 
         if let title = snapshot.automaticTitleForRestore?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
@@ -2448,6 +2456,12 @@ extension Workspace {
         }
 
         setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.effectiveCustomTitleSource ?? .user, propagateToCloud: false)
+        // Re-admit the persisted badge so a hand-edited snapshot cannot carry
+        // text the socket would reject; the tab refresh below picks it up.
+        if restoresBadge {
+            let restoredBadge = snapshot.badge.flatMap(PanelBadgeText.init)
+            if panelBadges[panelId] != restoredBadge { panelBadges[panelId] = restoredBadge }
+        }
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
 
         // The bonsplit tab header only refreshes when `updateTab` is called; the writes
@@ -3231,6 +3245,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Transient labels an automation session puts in front of a panel's
     /// title (`<label> · <title>`); never persisted, and a custom title wins.
     var panelAutomationLabels: [UUID: String] = [:]
+    /// Badges a client puts in front of a panel's title (`<badge> <title>`);
+    /// persisted, and unlike a custom title they keep the live title.
+    /// Published because the mobile workspace list re-emits on title inputs.
+    @Published var panelBadges: [UUID: PanelBadgeText] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
     var pinMutationTokensByPanelId: [UUID: UUID] = [:]
     let panelUnread = WorkspacePanelUnreadModel()
@@ -5706,7 +5724,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // persisted navigation/history state without touching a placeholder WebView.
         applySessionPanelMetadata(
             deferredPanel.sessionPanelSnapshot,
-            toPanelId: deferredPanel.id
+            toPanelId: deferredPanel.id,
+            restoresBadge: false
         )
         installBrowserPanelSubscription(browserPanel)
 
@@ -5762,6 +5781,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func resolvedPanelTitle(panelId: UUID, fallback: String) -> String {
+        let title = unbadgedPanelTitle(panelId: panelId, fallback: fallback)
+        return panelBadges[panelId]?.titled(title) ?? title
+    }
+
+    /// The panel title before its badge: a custom title wins outright, then an
+    /// automation label prefix, then the fallback.
+    private func unbadgedPanelTitle(panelId: UUID, fallback: String) -> String {
         let trimmedFallback = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackTitle = trimmedFallback.isEmpty ? "Tab" : trimmedFallback
         if let custom = panelCustomTitles[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -5784,6 +5810,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard panelAutomationLabels[panelId] != next else { return }
         panelAutomationLabels[panelId] = next
         _ = applyFocusedPanelTitle(panelId: panelId)
+        refreshTabTitle(panelId: panelId, panel: panel)
+    }
+
+    /// Pushes a panel's resolved title to its tab after a title prefix (an
+    /// automation label or a badge) changed.
+    func refreshTabTitle(panelId: UUID, panel: any Panel) {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
         let baseTitle = panelTitles[panelId] ?? panel.displayTitle
         bonsplitController.updateTab(tabId, title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle))
@@ -6005,13 +6037,22 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         scheduleTerminalGeometryReconcile()
     }
 
-    func panelTitle(panelId: UUID) -> String? {
+    /// The panel's resolved title.
+    ///
+    /// - Parameters:
+    ///   - panelId: The panel.
+    ///   - includesBadge: Whether to put the panel's badge in front. Session
+    ///     snapshots exclude it, since the badge is persisted separately and
+    ///     the restored title must not carry it twice.
+    func panelTitle(panelId: UUID, includesBadge: Bool = true) -> String? {
         if let remotePane = remoteTmuxControlPane(surfaceID: panelId) {
             return remotePane.pane.title
         }
         guard let panel = panels[panelId] else { return nil }
         let fallback = panelTitles[panelId] ?? panel.displayTitle
-        return resolvedPanelTitle(panelId: panelId, fallback: fallback)
+        return includesBadge
+            ? resolvedPanelTitle(panelId: panelId, fallback: fallback)
+            : unbadgedPanelTitle(panelId: panelId, fallback: fallback)
     }
 
     func setPanelPinned(panelId: UUID, pinned: Bool) {
@@ -6956,6 +6997,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitleSources = panelCustomTitleSources.filter { validSurfaceIds.contains($0.key) }
+        panelBadges = panelBadges.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
         pinMutationTokensByPanelId = pinMutationTokensByPanelId.filter { validSurfaceIds.contains($0.key) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
@@ -11774,6 +11816,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panelCustomTitles[detached.panelId] = customTitle
             panelCustomTitleSources[detached.panelId] = detached.customTitleSource ?? .user
         }
+        if let badge = detached.badge {
+            panelBadges[detached.panelId] = badge
+        }
         if detached.isPinned {
             pinnedPanelIds.insert(detached.panelId)
         } else {
@@ -11802,7 +11847,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let detachedBrowserPlayingAudio = (detached.panel as? BrowserPanel)?.isPlayingAudio ?? false
         let detachedIconImageData = detached.panel is TerminalPanel ? nil : detached.iconImageData
         guard let newTabId = bonsplitController.createTab(
-            title: detached.title,
+            title: detached.badge?.titled(detached.title) ?? detached.title,
             hasCustomTitle: detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
             icon: detached.icon,
             iconImageData: detachedIconImageData,
@@ -11833,6 +11878,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panelCustomTitles.removeValue(forKey: detached.panelId)
             panelCustomTitleSources.removeValue(forKey: detached.panelId)
             panelAutomationLabels.removeValue(forKey: detached.panelId)
+            panelBadges.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
             manualUnreadPanelIds.remove(detached.panelId)
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
@@ -14889,7 +14935,9 @@ extension Workspace: BonsplitDelegate {
                 sessionRestoreSourceWorkspaceId: remoteTTYReportOriginWorkspaceID ?? id,
                 panelId: panelId,
                 panel: panel,
-                title: resolvedPanelTitle(panelId: panelId, fallback: transferFallbackTitle),
+                // The badge travels in `badge`; a title carrying it would be
+                // stored by destinations that don't compose badges (the Dock).
+                title: unbadgedPanelTitle(panelId: panelId, fallback: transferFallbackTitle),
                 icon: panel.displayIcon,
                 iconImageData: browserPanel?.faviconPNGData,
                 kind: surfaceKind(for: panel),
@@ -14907,6 +14955,7 @@ extension Workspace: BonsplitDelegate {
                 customTitleSource: panelCustomTitles[panelId] != nil
                     ? (panelCustomTitleSources[panelId] ?? .user)
                     : nil,
+                badge: panelBadges[panelId],
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
                 restoredUnreadIndicator: restoredUnreadPanelIndicators[panelId],
                 promptState: panelPrompts[panelId],

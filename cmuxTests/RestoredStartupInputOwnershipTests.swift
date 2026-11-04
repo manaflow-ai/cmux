@@ -158,6 +158,7 @@ struct RestoredStartupInputOwnershipTests {
             cachedTitle: nil,
             customTitle: nil,
             customTitleSource: nil,
+            badge: nil,
             manuallyUnread: false,
             restoredUnreadIndicator: nil,
             restorableAgent: nil,

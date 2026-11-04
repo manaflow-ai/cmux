@@ -52,6 +52,7 @@ extension Workspace {
         let shouldFocus = focus ?? (selectedInPane && paneWasFocused)
         let customTitle = panelCustomTitles[panelId]
         let customTitleSource = panelCustomTitleSources[panelId]
+        let badge = panelBadges[panelId]
         let wasPinned = pinnedPanelIds.contains(panelId)
         let startCommand = tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let replacementTmuxStartCommand = (startCommand?.isEmpty == false) ? startCommand : trimmedCommand
@@ -139,6 +140,9 @@ extension Workspace {
         if let customTitle {
             panelCustomTitles[panelId] = customTitle
             panelCustomTitleSources[panelId] = customTitleSource ?? .user
+        }
+        if let badge {
+            panelBadges[panelId] = badge
         }
         if wasPinned {
             pinnedPanelIds.insert(panelId)
