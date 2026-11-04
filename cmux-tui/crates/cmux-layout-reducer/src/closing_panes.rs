@@ -533,7 +533,9 @@ impl ClosingPanes {
                 continue;
             }
             let Some(travel) = row(entry.row_column, rows) else { continue };
-            if (travel.target - travel.now).abs() < 0.5 {
+            // As Swift's `guard abs(...) >= 0.5 else { continue }`: a NaN travel is no travel.
+            let moves = (travel.target - travel.now).abs() >= 0.5;
+            if !moves {
                 continue;
             }
             entry.row_travel = Some(Travel { start: travel.now, target: travel.target });
@@ -548,7 +550,7 @@ impl ClosingPanes {
         self.rests.clear();
         self.placed.clear();
         for index in (0..self.order.len()).rev() {
-            let pane = self.order[index];
+            let Some(&pane) = self.order.get(index) else { continue };
             let (shown, rests, values) = (&self.shown, &self.rests, &mut self.values);
             let Some(entry) = self.entries.get_mut(&pane) else { continue };
             let facing = |neighbour: u64, edge: Edge| -> Option<f64> {
