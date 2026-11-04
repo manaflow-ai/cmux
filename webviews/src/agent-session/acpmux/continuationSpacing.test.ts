@@ -184,6 +184,24 @@ test("a run and the reply's prose sit the run gap apart, either way", () => {
   expect(transcriptGap(MARK_PROMPT, MARK_STEP)).toBe(TRANSCRIPT_TURN_GAP);
 });
 
+test("a finished work disclosure shares the activity rhythm when closed or opened", () => {
+  const worked = row("worked", "worked", { durationMs: 17_000 });
+  const run = row("run", "activity", {
+    items: [{ kind: "tool", text: "ls", tool: { id: "t", title: "ls", kind: "execute", status: "completed" } }],
+  });
+  for (const rows of [[worked, answer], [worked, run, answer]]) {
+    const layout = layoutConversation(rows, 720);
+    expect(layout.heights[0]).toBe(22);
+    const replyIndex = rows.length - 1;
+    expect(layout.gaps?.[replyIndex]).toBe(TRANSCRIPT_RUN_GAP);
+    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(22);
+    const placed = placeRows(layout, () => 22);
+    expect(placed.tops[replyIndex]! - placed.tops[replyIndex - 1]! - 22).toBe(TRANSCRIPT_RUN_GAP);
+  }
+  const prompt = row("prompt", "user", { text: "Go" });
+  expect(layoutConversation([prompt, worked, answer], 720).gaps?.[1]).toBe(TRANSCRIPT_TURN_GAP);
+});
+
 // Status lines ("Scheduled check", "Compacting the conversation…", a background task's end) and
 // tool runs in a row sit flush on the 22 pitch, never a block apart (design/transcript-spacing.md
 // rule 3; Leo, 2026-11-02, on a Claude chat where they did: "these are all so stupid looking").
