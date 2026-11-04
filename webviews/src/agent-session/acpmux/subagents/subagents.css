@@ -497,6 +497,8 @@ button.cv-subagent > :last-child {
   --acpmux-tray-time-width: calc(80px * var(--cmux-interface-scale, 1));
   --acpmux-tray-stop-width: var(--acpmux-composer-control, 28px);
   --acpmux-tray-status-width: 74px;
+  /* A two-row line's icon, centred on its title's row. */
+  --acpmux-tray-two-row-icon-top: 7px;
   --acpmux-tray-gap: var(--acpmux-composer-action-gap, 4px);
   --acpmux-tray-inset: var(--acpmux-composer-inset, calc(8px * var(--cmux-interface-scale, 1)));
   /* The one trailing column every chevron ends in: the header's and each line's. */
@@ -910,10 +912,11 @@ button.cv-subagent > :last-child {
   .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
     --acpmux-tray-status-width: clamp(0px, calc(100cqw - 160px - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - 2 * var(--acpmux-tray-inset)), 74px);
   }
-  /* Two rows only where one cannot hold the title: a line whose workflow progress wraps here, and
-     every line of a tray of 260px or less (below). The title goes above the same right-aligned
+  /* Two rows only where one cannot hold the title: a line whose workflow progress wraps here, a
+     line with its latest step on its own line (trayLatest.experiment.ts `below`), and every line of
+     a tray of 260px or less (below). The title goes above the same right-aligned
      controls, and the status track takes the title's room. */
-  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
+  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button {
     --acpmux-tray-status-width: clamp(0px, calc(100cqw - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - 2 * var(--acpmux-tray-inset)), 74px);
     position: relative;
     grid-template-rows: var(--ui-row-height, 28px) var(--ui-row-height, 28px);
@@ -921,29 +924,29 @@ button.cv-subagent > :last-child {
     height: calc(2 * var(--ui-row-height, 28px));
     padding-block: 0;
   }
-  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress):is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button {
+  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)):is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button {
     grid-template-rows: auto var(--ui-row-height, 28px);
     height: auto;
     align-items: center;
   }
-  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button > .acpmux-lineage__icon {
+  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button > .acpmux-lineage__icon {
     position: absolute;
     grid-area: auto;
-    top: 7px;
+    top: var(--acpmux-tray-two-row-icon-top);
     left: var(--acpmux-tray-inset);
   }
-  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button > .acpmux-summary-text {
+  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button > .acpmux-summary-text {
     grid-column: 1 / -1;
   }
-  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button > :is(.acpmux-agent-line__trail, .acpmux-agent-line__stop-track, .acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
+  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button > :is(.acpmux-agent-line__trail, .acpmux-agent-line__stop-track, .acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
     grid-row: 2;
   }
   /* The controls line has the title's track free: a long state word takes that room first. Stop's
      track stays its own, empty or not. */
-  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button > .acpmux-agent-line__trail {
+  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button > .acpmux-agent-line__trail {
     grid-column: 1 / 4;
   }
-  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__stop-slot {
+  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__stop-slot {
     top: auto;
     bottom: 0;
     height: var(--ui-row-height, 28px);
@@ -968,7 +971,7 @@ button.cv-subagent > :last-child {
   .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button > .acpmux-lineage__icon {
     position: absolute;
     grid-area: auto;
-    top: 7px;
+    top: var(--acpmux-tray-two-row-icon-top);
     left: var(--acpmux-tray-inset);
   }
   .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button > .acpmux-summary-text {

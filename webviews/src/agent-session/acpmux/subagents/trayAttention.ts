@@ -4,6 +4,7 @@
 // the rest keep their order (runningTray.ts: what runs newest first, then what ended, latest first).
 // A nested subagent moves with the top-level line it sits under, so a tree never breaks apart.
 import { subagentStatus } from "../summary/SubagentStatusList";
+import { sessionRetry } from "./retryState";
 import type { TrayItem } from "./runningTray";
 
 /// One line of the open list: the item, and whether it ended (its `data-finished` card).
@@ -15,7 +16,9 @@ export function needsPerson(item: TrayItem, waiting: ReadonlySet<string>): boole
     const status = subagentStatus(item.agent, waiting);
     return status === "waiting" || status === "failed";
   }
-  if (item.kind === "session") return item.session.state === "waiting" || item.session.state === "failed";
+  // A failed chat acpmux is retrying (or deciding to) is about to run again, as a retrying
+  // subagent reads "running" (retryState.ts): only one that stays failed needs the person.
+  if (item.kind === "session") return item.session.state === "waiting" || sessionRetry(item.session).kind === "failed";
   return false;
 }
 

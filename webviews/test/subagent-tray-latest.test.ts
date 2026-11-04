@@ -102,3 +102,19 @@ test("a failed or waiting line leads the open list, its nested lines with it; th
   // Nothing needs the person: the order is the lists' own.
   expect(ids(attentionFirst(items, finished.slice(0, 1), new Set()))).toEqual(["a", "b", "c", "d!"]);
 });
+
+test("a failed chat acpmux is retrying keeps its place; one that stays failed leads", () => {
+  const items = trayItems(
+    [agent("a", { background: true, startedAt: 3_000 })],
+    [],
+    [
+      { subsession: true, sessionId: "r", title: "Retrying", state: "failed", retry: { attempt: 2, of: 4 } },
+      { subsession: true, sessionId: "f", title: "Failed", state: "failed" },
+    ],
+    false,
+  );
+  const ids = (cards: readonly TrayCard[]) => cards.map((card) => card.item.id);
+  expect(items.map((item) => item.id)).toContain("r");
+  const ordered = ids(attentionFirst(items, [], new Set()));
+  expect(ordered.indexOf("r")).toBeGreaterThan(ordered.indexOf("a"));
+});
