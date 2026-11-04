@@ -486,6 +486,47 @@ fn a_save_between_the_flush_read_and_its_mutation_is_a_conflict_not_an_overwrite
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn a_linked_folder_root_is_refused_for_reads_and_flushes() {
+    let f = fixture(&[("a.txt", "one")]);
+    let outside = f._dir.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("a.txt"), "secret").unwrap();
+    let link = f._dir.path().join("link");
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+    let replica = DirReplica::new(&link, DirReplica::DEFAULT_MAX_FILE_BYTES);
+    assert!(replica.read("a.txt").is_err());
+    let machine = DirMachineFs::new(&link);
+    assert!(machine.read("a.txt").is_err());
+    assert!(machine.write("a.txt", b"x", &Version::of(Some(b"secret"))).is_err());
+    assert!(machine.remove("a.txt", &Version::of(Some(b"secret"))).is_err());
+    assert_eq!(std::fs::read_to_string(outside.join("a.txt")).unwrap(), "secret");
+}
+
+/// A store that keeps nothing: for numbering tests.
+struct NullStore;
+
+impl JournalStore for NullStore {
+    fn load(&self, _: &str) -> std::io::Result<JournalState> {
+        Ok(JournalState { cleared_through: u64::MAX - 2, entries: Vec::new() })
+    }
+    fn append(&self, _: &str, _: &Entry) -> std::io::Result<()> {
+        Ok(())
+    }
+    fn clear_through(&self, _: &str, _: u64) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn sequence_numbers_run_out_instead_of_repeating() {
+    let mut j = WriteJournal::open(Arc::new(NullStore), "m").unwrap();
+    assert_eq!(j.record("a", Op::Delete, Version::Absent, 1).unwrap(), u64::MAX - 1);
+    assert!(j.record("a", Op::Delete, Version::Absent, 2).is_err());
+    assert_eq!(j.entries().len(), 1);
+}
+
 #[test]
 fn an_entry_found_already_applied_is_made_durable_before_it_is_cleared() {
     let f = fixture(&[("a.txt", "one")]);

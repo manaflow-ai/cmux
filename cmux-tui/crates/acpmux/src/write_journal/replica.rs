@@ -79,6 +79,7 @@ impl ReplicaSource for DirReplica {
     }
 
     fn read(&self, path: &str) -> io::Result<ReplicaRead> {
+        super::check_root(&self.root)?;
         let full = self.root.join(path);
         // Walk every component without following a link: a link may point outside the snapshot.
         let mut at = self.root.clone();

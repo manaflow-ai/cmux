@@ -61,6 +61,7 @@ impl DirMachineFs {
     /// The file for `path`, refusing any link on the way, so a journal path never writes
     /// outside the folder.
     fn resolve(&self, path: &str) -> io::Result<PathBuf> {
+        super::check_root(&self.root)?;
         let mut at = self.root.clone();
         for part in path.split('/') {
             at.push(part);

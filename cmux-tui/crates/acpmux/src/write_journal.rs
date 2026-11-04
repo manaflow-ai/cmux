@@ -117,6 +117,19 @@ pub fn rel_path(raw: &str) -> Result<String, PathError> {
     Ok(parts.join("/"))
 }
 
+/// Refuses a folder root that is a link or not a folder: every path below it is checked for
+/// links, so the root must be checked too, or the whole folder could point anywhere.
+pub(crate) fn check_root(root: &std::path::Path) -> io::Result<()> {
+    let m = std::fs::symlink_metadata(root)?;
+    if m.file_type().is_symlink() || !m.is_dir() {
+        return Err(io::Error::other(format!(
+            "{}: the folder root is a link or not a folder",
+            root.display()
+        )));
+    }
+    Ok(())
+}
+
 /// The open journal of one machine.
 pub struct WriteJournal {
     machine: String,
@@ -172,6 +185,7 @@ impl WriteJournal {
             machine: machine.to_owned(),
             store,
             entries,
+            // u64::MAX + 1 is never issued: `record` refuses at that point.
             next_seq: last.saturating_add(1),
             poisoned: false,
         })
@@ -215,13 +229,17 @@ impl WriteJournal {
             ));
         }
         let path = rel_path(path).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+        // The last number is never handed out, so no number is ever issued twice.
+        let Some(after) = self.next_seq.checked_add(1) else {
+            return Err(io::Error::other("the journal has used every sequence number"));
+        };
         let entry = Entry { seq: self.next_seq, path, op, base, at_ms };
         if let Err(e) = self.store.append(&self.machine, &entry) {
-            self.next_seq = entry.seq.saturating_add(1);
+            self.next_seq = after;
             self.poisoned = true;
             return Err(e);
         }
-        self.next_seq = entry.seq.saturating_add(1);
+        self.next_seq = after;
         let seq = entry.seq;
         self.entries.push(entry);
         Ok(seq)
