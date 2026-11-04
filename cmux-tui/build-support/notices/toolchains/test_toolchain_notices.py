@@ -250,14 +250,14 @@ class ToolchainNoticesTest(unittest.TestCase):
         self.assertEqual(rust["1.95.0"].rustc_commit, "59807616e1fa2540724bfbac14d7976d7e4a3860")
         self.assertEqual(rust["1.95.0"].sha256, "90567e2718bf7fd65a71a3a43c5596488e80e5f51ed02bfea6fec54458b5f3d1")
         zig = {e.version: e for e in manifest.zig}
-        # 0.16.0 builds the shipped ghostty-next until its gitlink moves to the
-        # upstream sync (manaflow-ai/ghostty-next#74), which needs 0.17.0; 0.17.0 is
-        # reviewed so CI can install it, and takes "ghostty-next" in that pin commit.
+        # 0.17.0 builds the shipped ghostty-next since the upstream sync
+        # (manaflow-ai/ghostty-next#74); 0.16.0 stays reviewed for the classic
+        # ghostty submodule, which no cmux-next binary links.
         self.assertEqual(sorted(zig), ["0.16.0", "0.17.0"])
         for version, entry in zig.items():
             self.assertEqual(entry.ci_version, version)
-        self.assertIs(manifest.zig_for("ghostty-next"), zig["0.16.0"])
-        self.assertEqual(zig["0.17.0"].ghostty_sources, [])
+        self.assertIs(manifest.zig_for("ghostty-next"), zig["0.17.0"])
+        self.assertEqual(zig["0.16.0"].ghostty_sources, [])
         self.assertEqual(zig["0.17.0"].sha256, "5c537d6853e005298a285d508cff9ac7192cea23576c840d485b2b586a7ff177")
 
     def test_shipped_rust_ties_hold_for_this_checkout(self) -> None:

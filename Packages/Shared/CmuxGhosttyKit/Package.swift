@@ -111,6 +111,15 @@ import PackageDescription
 // embedder mode committed under the lock and deadlocked against main's
 // commit (cmux S4 films with the switch on, STATUS 9732).
 //
+// Since 7d43bb68b..a6b9048e9 (release/cmux-sync-20261104, ghostty-next PR
+// #74): the fork takes upstream Ghostty main c7f68a7f4 (2026-11-03, after
+// v1.4.0) and needs Zig 0.17.0. Upstream's main-thread CVDisplayLink start and
+// stop (ffaaf5d7a) ends the freeze where ghostty_surface_free joined a
+// renderer stuck in CVDisplayLinkStop (cmux #35300). Upstream also declares
+// pointer nullability in ghostty.h (0e067ded7, assume_nonnull); the fork's
+// declarations are annotated to match, and the Swift callers follow it. The
+// release line's PRs #72 and #73 (host-frame lock span, wake counters) are in.
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -134,8 +143,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-7d43bb68b05e1bad433267fe28cd7205041fc4f5-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "12f7ac05eec4a0e0a47daef29545cdaba102e4b02ecafcc825d898ff71f4be2f"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-a6b9048e90787a723d75bcf5a260614d0aae625f-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "4268d3d8d1c7591d71fddea13a108d99161961ae49abd38c21a15fbf51ce4aba"
         ),
     ]
 )
