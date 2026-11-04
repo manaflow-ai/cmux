@@ -150,17 +150,29 @@ async fn context_inventory_fresh_fork_of_a_legacy_chat_captures_local_guidance()
         meta.cmux_context_delivered = true;
         meta.status = SessionStatus::Running;
         // A working adapter without native forking reconstructs from the mux log.
-        meta.agent_capabilities = None;
+        meta.agent_capabilities = Some(json!({}));
     }
     let fork = hub.fork(&parent, None, None, Default::default(), None, None, true).await.unwrap();
     let meta = fork.meta();
     assert!(!meta.cmux_context_delivered);
     assert!(
         meta.cmux_context
+            .as_ref()
             .unwrap()
             .iter()
             .any(|part| part.text.as_deref() == Some("LEGACY-FORK-GUIDANCE"))
     );
+    hub.prompt(&fork, vec![json!({"type":"text", "text":"next"})], "test", false)
+        .await
+        .unwrap();
+    assert!(fork.meta().cmux_context_delivered);
+    let records = hub.events(&fork.id, 0, 1_000).unwrap();
+    let replies: String = records
+        .iter()
+        .filter(|e| e.kind == "agent_message_chunk")
+        .filter_map(|e| e.msg.pointer("/params/update/content/text").and_then(Value::as_str))
+        .collect();
+    assert!(replies.contains("LEGACY-FORK-GUIDANCE"), "{replies}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
