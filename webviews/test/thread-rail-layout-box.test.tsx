@@ -143,14 +143,21 @@ test("a composer that grows over the view, or a tray that opens in the stack, ke
       const box = railBox();
       expect({ left: box.left, top: box.top }).toEqual({ left: rest.left, top: rest.top });
       const bottom = Number.parseFloat(box.top) + Number.parseFloat(box.height);
-      expect(bottom).toBeLessThanOrEqual(VIEWPORT - stackHeight - 22);
-      expect(bottom).toBeGreaterThan(VIEWPORT - stackHeight - 22 - 1);
+      // A stack that stays under the rail's foot leaves its height alone too (Leo, 2026-11-04: "the
+      // height of the left scroll rail should never be affected by anything").
+      const foot = Math.min(restBottom, VIEWPORT - stackHeight - 22);
+      expect(bottom).toBeLessThanOrEqual(foot);
+      expect(bottom).toBeGreaterThan(foot - 1);
     };
+    const restBottom = Number.parseFloat(rest.top) + Number.parseFloat(rest.height);
     await stackResized(188);
     expect(scroller.style.getPropertyValue("--acpmux-dock-space")).toBe("188px");
     footAbove(188);
-    await stackResized(236);
-    footAbove(236);
+    // The rail's one height sits clear of a grown composer: only a stack that reaches it lifts its foot.
+    const reaching = VIEWPORT - restBottom - 22 + 40;
+    await stackResized(reaching);
+    footAbove(reaching);
+    expect(Number.parseFloat(railBox().height)).toBeLessThan(Number.parseFloat(rest.height));
     // Back to rest: the same box.
     await stackResized(120);
     expect(railBox()).toEqual(rest);

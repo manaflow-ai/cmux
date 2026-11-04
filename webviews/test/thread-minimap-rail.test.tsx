@@ -346,18 +346,22 @@ test("focus in the card keeps it; Escape there or focus leaving rail and card cl
 
 test("the rail never outgrows a short transcript", async () => {
   const { railHeight, RAIL_HEIGHTS } = await import("../src/agent-session/acpmux/threadMinimap/model");
-  // 60 prompts in an 820 px window over a 400 px transcript: the rail fits the transcript, less the
+  // 60 prompts in an 820 px window over a 200 px transcript: the rail fits the transcript, less the
   // mask's 18 px bands and 4 px past each.
-  expect(railHeight(60, 820, 400)).toBe(400 - 22 - 22);
-  expect(railHeight(60, 820, 820)).toBe(600);
+  expect(railHeight(60, 820, 200)).toBe(200 - 22 - 22);
   // Not measured yet: the window caps it alone.
   expect(railHeight(60, 820, 0)).toBe(railHeight(60, 820));
-  // The selected height arm starts a short thread tall and grows toward the cleared pane room.
-  expect(railHeight(4, 720, 720)).toBe(320);
-  expect(railHeight(70, 720, 720)).toBe(Math.floor(720 * 0.92));
   // The visible transcript band no longer controls the rail's initial height.
   expect(railHeight(18, 720, 720, 720, 1)).toBe(railHeight(18, 720, 720, 720, 4));
   expect(railHeight(18, 720, 720, 720, 4, RAIL_HEIGHTS["initial-240-max-80"])).toBe(240);
+});
+
+test("the rail is one height, the Codex rail's, whatever the prompt count or the pane's height", async () => {
+  const { railHeight } = await import("../src/agent-session/acpmux/threadMinimap/model");
+  // Leo, 2026-11-04: "make it look like codex's size" and "the height of the left scroll rail should
+  // never be affected by anything". Past 24 prompts the rail's own list scrolls.
+  for (const count of [1, 4, 12, 24, 70, 1000])
+    for (const view of [400, 720, 1100, 2100]) expect(railHeight(count, view, view)).toBe(240);
 });
 
 test("wheel browsing belongs to the rail and is not snapped back by transcript scrolling", async () => {
@@ -452,7 +456,7 @@ test("a wheel over a rail that scrolls itself is not the reader's: the transcrip
     input.mockClear();
     await act(async () => {
       list.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true }));
-      tick(40).dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -40, bubbles: true, cancelable: true }));
+      tick(10).dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -40, bubbles: true, cancelable: true }));
     });
     expect(captured).toEqual([-120, -40]);
     expect(input).not.toHaveBeenCalled();
