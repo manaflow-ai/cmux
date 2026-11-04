@@ -572,7 +572,7 @@ final class AppServices {
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil,
          agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
         self.work = work
-        bundledCLI = BundledExecutable(resources: Bundle.main.resourceURL, name: "cmux", work: work)
+        bundledCLI = BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work)
         (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain), .application(loginKeychain: loginKeychain))
         (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource, self.peerApprover, self.heldKeyReplay) = (launchImages, relaunchWake, keyWindowSource, appActiveSource, peerApprover, heldKeyReplay)
         self.agentPaneStateFiles = agentPaneStateFiles
@@ -635,7 +635,7 @@ final class AppServices {
         cache.onRestoredPageStart = { [weak crashRecovery] key in crashRecovery?.marker?.notePageStarted(key) }
         // Any browser tab, by any path, is a use of the browser: its tip never shows (feature tips).
         cache.onBrowserTab = { AgentPaneFeatureTipRecords().noteFeatureUsed(AgentPaneFeatureTipRecords.browserFeature) }
-        crashRecovery.observe(cache.cef.crashLog)
+        crashRecovery.observe(cache.cef, reporter: crashReporting.reporter)
         AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: cache.cef, reporter: crashReporting.reporter)
         cache.cef.openURLWithoutWindow = { [weak self] url, disposition, profile in
             // Chromium wanted a window and has none for that profile (a

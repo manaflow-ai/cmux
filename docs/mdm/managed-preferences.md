@@ -20,7 +20,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `history.commandRetentionDays` | real | `30` | 1 to 3650 | Keep Terminal Commands For. Each machine deletes recorded commands that are older. |
 | `history.closed.maxGroups` | real | `0` | 0 to 10000 | Recently Closed Items to Keep. Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all. |
 | `history.closed.maxAgeDays` | real | `0` | 0 to 3650 | Keep Recently Closed Items For. Each machine deletes closed items that are older. 0 keeps them however old they are. |
-| `window.titlebar` | string | `"standard"` | `minimal`, `standard` | Titlebar. Minimal has no titlebar strip; the top row moves the window. |
+| `window.titlebar` | string | `"minimal"` | `minimal`, `standard` | Titlebar. Minimal has no titlebar strip; the top row moves the window. |
 | `window.titlebarButtons` | string | `"hover"` | `hover`, `always` | Titlebar Buttons. With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show. |
 | `app.globalHotKey` | boolean | `false` |  | Global Hot Key. Show/Hide All Windows (⌃⌥⌘.) works while another app is in front. |
 | `app.startAgentGlobalHotKey` | boolean | `false` |  | Start Agent from Any App. Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts. |
@@ -45,6 +45,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `tabs.cmdWClosesPinnedTabs` | boolean | `true` |  | Cmd-W Closes Pinned Tabs. When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu. |
 | `tabs.verticalTabs` | boolean | `false` |  | Use Vertical Tabs for All Workspaces. Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu. |
 | `tabs.verticalTabsExpandOnHover` | boolean | `true` |  | Expand Collapsed Vertical Tabs on Hover. When the vertical tab list is collapsed to icons, show the titles while the pointer is over it. |
+| `tabs.hideLoneChatTab` | boolean | `false` |  | Hide the Tab of a Chat Alone in Its Pane. When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back. |
 | `tabs.swapCmdTAndCmdN` | boolean | `false` |  | Swap Cmd-T and Cmd-N. When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused. |
 | `app.warnBeforeClosingTab` | boolean | `true` |  | Warn Before Closing a Running Program |
 | `app.warnBeforeClosingAgentSession` | boolean | `true` |  | Warn Before Closing a Working Agent |
@@ -87,7 +88,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `cloud.newWorkspacesInCloud` | boolean | `false` |  | Run New Workspaces in Cloud. Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine. |
 | `cloud.newWorkspaceFolder` | string | `"inherit"` | `inherit`, `empty` | New Cloud Workspaces Start In. Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder. |
 | `cloud.useMyClaudeLoginOnMyCloudMachines` | boolean | `false` |  | Use My Claude Login on My Own Cloud Machines. Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead. |
-| `cloud.agentsStartWithoutAsking` | boolean | `false` |  | Let Agents Start Cloud Sessions Without Asking. An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on. |
+| `cloud.agentsStartWithoutAsking` | boolean | `true` |  | Let Agents Use Cloud Without Asking. Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this. |
 | `agents.subsessions.enabled` | boolean | `true` |  | Let Agents Start Sub-sessions. An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar. |
 | `agents.subsessions.answerQuestions` | boolean | `false` |  | Let Sessions Answer Their Sub-sessions' Questions. When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer. |
 | `agents.subsessions.maxChildren` | real | `1000` | 1 to 1000 | Open Sub-sessions per Session. The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot. |
@@ -284,6 +285,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.presentation` | string | `"transcript"` | `transcript`, `messages` | Chat Presentation |
 | `agentPane.display.harnessPlacement` | string | `"symbols"` | `symbols`, `left`, `top`, `compact` | Model Picker Harness Placement |
 | `agentPane.display.rail.side` | string | `"left"` | `left`, `right` | Prompt Rail Side. The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it. |
+| `agentPane.display.commandLabels` | string | `[]` |  | Command Labels. How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
 | `terminal.linkOpener.default` | string | `"cmux"` |  | Open Program Links In. Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins. |
@@ -618,6 +620,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.editedFiles.maxRows` | real | `5` | 1 to 50 | Edited Files Shown |
 | `agentPane.editedFiles.scope` | string | `"turn"` | `turn`, `session` | Edited Files Card Covers |
 | `agentPane.showContextUsage` | boolean | `true` |  | Show Context Usage. The ring beside the model that fills as the chat uses its context window. |
+| `agentPane.composerRing` | string | `"context"` | `context`, `planUsage` | Composer Ring. What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them. |
 | `agentPane.showDictation` | boolean | `true` |  | Show Dictation Button. The microphone beside Send in every composer, including the New Tab page. |
 | `agentPane.spellChecking` | boolean | `false` |  | Check Spelling While Typing. Underlines misspellings and offers system suggestions in the composer. |
 | `agentPane.attachmentView` | string | `"inline"` | `inline`, `strip`, `both` | Attachment View. How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same. |

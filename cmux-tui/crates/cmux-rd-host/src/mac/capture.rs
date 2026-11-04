@@ -5,8 +5,8 @@
 //! encoder reads the pixel buffer's IOSurface.
 
 use super::sys::{
-    self, block, cf, cg, cm, cv, msg, objc, sck, sel, AutoreleasePool, Block, CGRect, CMTime,
-    CMSampleBufferRef, Class, Id, Retained, Sel, CF_NUMBER_SINT64, CM_TIME_VALID,
+    self, block, cf, cg, cm, cv, msg, objc, sck, sel, AutoreleasePool, Block, CGRect,
+    CMSampleBufferRef, CMTime, Class, Id, Retained, Sel, CF_NUMBER_SINT64, CM_TIME_VALID,
 };
 use crate::fdwait::wait_readable;
 use crate::Res;
@@ -174,7 +174,11 @@ fn native_size(display: u32) -> (u32, u32) {
 
 type ContentAnswer = Result<Id, String>;
 
-extern "C" fn shareable_content_done(block: *mut Block<SyncSender<ContentAnswer>>, content: Id, error: Id) {
+extern "C" fn shareable_content_done(
+    block: *mut Block<SyncSender<ContentAnswer>>,
+    content: Id,
+    error: Id,
+) {
     let answer = if content.is_null() {
         Err(sys::error_text(error))
     } else {
@@ -220,7 +224,8 @@ fn shareable_displays() -> Res<(Id, Vec<(Id, u32)>)> {
             msg::<unsafe extern "C" fn(Id, Sel, usize) -> Id>()(list, sel(c"objectAtIndex:"), index)
         };
         // SAFETY: -[SCDisplay displayID] returns a CGDirectDisplayID.
-        let id = unsafe { msg::<unsafe extern "C" fn(Id, Sel) -> u32>()(display, sel(c"displayID")) };
+        let id =
+            unsafe { msg::<unsafe extern "C" fn(Id, Sel) -> u32>()(display, sel(c"displayID")) };
         displays.push((sys::send_id(display, c"retain"), id));
     }
     // SAFETY: display ids from ScreenCaptureKit.
@@ -286,7 +291,13 @@ fn number(dictionary: *const c_void, key: *const c_void) -> Option<i64> {
 }
 
 /// `-[CmuxRdCaptureOutput stream:didOutputSampleBuffer:ofType:]`, on the capture queue.
-extern "C" fn did_output(this: Id, _cmd: Sel, _stream: Id, sample: CMSampleBufferRef, kind: c_long) {
+extern "C" fn did_output(
+    this: Id,
+    _cmd: Sel,
+    _stream: Id,
+    sample: CMSampleBufferRef,
+    kind: c_long,
+) {
     if kind != OUTPUT_SCREEN || sample.is_null() {
         return;
     }
@@ -344,8 +355,11 @@ fn output_class() -> Res<Class> {
     let class = CLASS.get_or_init(|| {
         // SAFETY: registers a new NSObject subclass with one method, once per process.
         unsafe {
-            let class =
-                objc::objc_allocateClassPair(sys::class(c"NSObject"), c"CmuxRdCaptureOutput".as_ptr(), 0);
+            let class = objc::objc_allocateClassPair(
+                sys::class(c"NSObject"),
+                c"CmuxRdCaptureOutput".as_ptr(),
+                0,
+            );
             if class.is_null() {
                 return Err("could not create the capture output class".to_string());
             }
@@ -409,7 +423,10 @@ impl Capture {
             let (wake_read, wake_write) = wake_pipe()?;
             let class = output_class()?;
             let output = sys::send_id(sys::send_id(class, c"alloc"), c"init");
-            let queue = sys::system::dispatch_queue_create(c"com.cmuxterm.rd.capture".as_ptr(), std::ptr::null());
+            let queue = sys::system::dispatch_queue_create(
+                c"com.cmuxterm.rd.capture".as_ptr(),
+                std::ptr::null(),
+            );
             let empty = sys::send_id(sys::class(c"NSArray"), c"array");
             let filter = msg::<unsafe extern "C" fn(Id, Sel, Id, Id) -> Id>()(
                 sys::send_id(sys::class(c"SCContentFilter"), c"alloc"),
@@ -428,10 +445,23 @@ impl Capture {
             let set_size = msg::<unsafe extern "C" fn(Id, Sel, usize)>();
             set_size(config, sel(c"setWidth:"), size.0 as usize);
             set_size(config, sel(c"setHeight:"), size.1 as usize);
-            let interval = CMTime { value: 1, timescale: fps.max(1) as i32, flags: CM_TIME_VALID, epoch: 0 };
-            msg::<unsafe extern "C" fn(Id, Sel, CMTime)>()(config, sel(c"setMinimumFrameInterval:"), interval);
-            msg::<unsafe extern "C" fn(Id, Sel, u32)>()(config, sel(c"setPixelFormat:"), PIXEL_420V);
-            msg::<unsafe extern "C" fn(Id, Sel, c_long)>()(config, sel(c"setQueueDepth:"), QUEUE_DEPTH);
+            let interval =
+                CMTime { value: 1, timescale: fps.max(1) as i32, flags: CM_TIME_VALID, epoch: 0 };
+            msg::<unsafe extern "C" fn(Id, Sel, CMTime)>()(
+                config,
+                sel(c"setMinimumFrameInterval:"),
+                interval,
+            );
+            msg::<unsafe extern "C" fn(Id, Sel, u32)>()(
+                config,
+                sel(c"setPixelFormat:"),
+                PIXEL_420V,
+            );
+            msg::<unsafe extern "C" fn(Id, Sel, c_long)>()(
+                config,
+                sel(c"setQueueDepth:"),
+                QUEUE_DEPTH,
+            );
             msg::<unsafe extern "C" fn(Id, Sel, bool)>()(config, sel(c"setShowsCursor:"), true);
             msg::<unsafe extern "C" fn(Id, Sel, *const c_void)>()(
                 config,
@@ -456,7 +486,9 @@ impl Capture {
             let sink = Arc::new(Sink { shared: shared.clone(), wake: wake_write, scale, size });
             sinks().lock().unwrap_or_else(|p| p.into_inner()).push((output as usize, sink));
             let mut error: Id = null_mut();
-            let added = msg::<unsafe extern "C" fn(Id, Sel, Id, c_long, sys::DispatchQueue, *mut Id) -> bool>()(
+            let added = msg::<
+                unsafe extern "C" fn(Id, Sel, Id, c_long, sys::DispatchQueue, *mut Id) -> bool,
+            >()(
                 stream,
                 sel(c"addStreamOutput:type:sampleHandlerQueue:error:"),
                 output,
@@ -562,7 +594,10 @@ impl Drop for Capture {
             );
         }
         let _ = rx.recv_timeout(STOP_TIMEOUT);
-        sinks().lock().unwrap_or_else(|p| p.into_inner()).retain(|(object, _)| *object != self.output as usize);
+        sinks()
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .retain(|(object, _)| *object != self.output as usize);
         sys::release(self.stream);
         sys::release(self.output);
         // SAFETY: the queue this capture created; ScreenCaptureKit retains it while it uses it.

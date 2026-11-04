@@ -3,33 +3,49 @@ import CmuxNextDesign
 
 /// FRAME OWNER REFACTOR S3c: a springing close keeps the closed pane's host on the screen, showing only its own ground,
 /// on a frame that collapses on its neighbours' spring (``ClosingPanes``), so no frame of the close shows the shell where
-/// the pane was (the F2 hole: 710 px in a pane close, 530 px in a column close). `motion.frameOwner.contentPolicy` off
-/// (read at the close): the host hides in the close's turn, as before.
+/// the pane was (the F2 hole: 710 px in a pane close, 530 px in a column close). On a canvas the host hides in the close's
+/// turn, as before S3c.
 extension ScreenContentView {
     /// The panes `closing` left the layout in a close that springs (`reconcile`): each host retires, shown with its ground
-    /// on what its neighbours have not covered yet with the policy on (read now), else hidden. A pane that nothing closes
-    /// over (no neighbour on a spring beside it, directly or through another closing pane) hides, as before. `frame`:
-    /// where it showed, before this change carried the strip.
+    /// on what its neighbours and its row column's scroll have not covered yet (hidden on a canvas).
+    /// Which ones nothing closes over is known once the change's cameras are set (``settleClosing()``): the panes the strip
+    /// carries start moving only then. `frame`: where it showed, before this change carried the strip.
     func retireClosing(_ closing: [(pane: PaneID, frame: AnimatedFrame?)], before: ScreenGeometry, carried: Bool, offset: CGFloat) {
         guard !closing.isEmpty else { return }
-        guard context.followsContentPolicy, !isCanvas else {
+        guard !isCanvas else {
             for (pane, _) in closing { context.retire(pane, from: screenID) }
             return
         }
         let style = context.style, viewShift = carried ? baseGeometry.viewShift(offset: offset) : nil
+        let kept = ClosingPanes.handles(of: baseGeometry)
         for (pane, frame) in closing {
             guard let frame, context.hosts[pane]?.superview === self else { continue }
             // In the new layout's coordinates, as the live frames this change carried (`reconcile`).
             let drift = carried && before.scrolls(pane: pane) ? before.viewShift(offset: offset) - baseGeometry.viewShift(offset: offset) : 0
-            closingPanes.begin(pane, shown: frame.rect.offsetBy(dx: drift, dy: 0), before: before,
+            closingPanes.begin(pane, shown: frame.rect.offsetBy(dx: drift, dy: 0), before: before, kept: kept,
                                maxGap: max(style.columnGap, style.dividerHitThickness) + 1, rank: liveRank(of: pane, in: before), viewShift: viewShift)
         }
-        let still = closingPanes.still(Set(closing.map(\.pane)), frames: paneFrames)
-        for (pane, _) in closing {
-            let shows = closingPanes.entries[pane] != nil && !still.contains(pane)
-            if !shows { closingPanes.drop(pane) }
-            context.retire(pane, from: screenID, showsGround: shows)
+        for (pane, _) in closing { context.retire(pane, from: screenID, showsGround: closingPanes.entries[pane] != nil) }
+    }
+
+    /// The change's cameras are set (`syncScroll`, before the change's first frame: the strip's, with the panes it carried
+    /// from where they showed, and the row columns' scrolls): the panes it began closing take their row column's scroll
+    /// travel (``ClosingPanes/settle(frames:row:)``), the ones nothing moves over hide now, as before S3c, and with
+    /// nothing moving on the screen the hosts its closes retired go now (`reconcile` leaves that to this while closing panes
+    /// wait for the cameras).
+    func settleClosing() {
+        guard closingPanes.hasAwaiting else { return }
+        let still = closingPanes.settle(frames: paneFrames, row: rowScrollTravel)
+        for pane in still {
+            closingPanes.drop(pane)
+            context.closingHost(pane, of: screenID)?.isHidden = true
         }
+        if !hasMotion { releaseClosing() }
+    }
+
+    /// Where `column`'s row scroll is and where it rests (nil: its rows do not scroll).
+    func rowScrollTravel(_ column: ColumnID) -> ClosingPanes.Travel? {
+        rowScrolls[column].map { (now: $0.state.spring.value, target: $0.state.spring.target) }
     }
 
     /// A close taken back before it landed: the pane's live frame starts where its closing frame shows, with its sides'
@@ -49,7 +65,7 @@ extension ScreenContentView {
     func presentClosingPanes(strip: CGFloat, scale: CGFloat) -> (hosts: [(host: PaneHostView, scrolls: Bool)], changed: Bool) { // perf-hot: 4ms motion-frame
         guard !closingPanes.isEmpty else { return ([], false) }
         var hosts: [(host: PaneHostView, scrolls: Bool)] = [], changed = false
-        let rects = closingPanes.rects(frames: paneFrames)
+        let rects = closingPanes.rects(frames: paneFrames, row: rowScrollTravel)
         for (pane, entry) in closingPanes.entries {
             guard let host = context.closingHost(pane, of: screenID), host.superview === self, let rect = rects[pane] else {
                 closingPanes.drop(pane)
