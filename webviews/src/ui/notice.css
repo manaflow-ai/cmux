@@ -46,6 +46,14 @@
   --ui-notice-mark: var(--agent-accent, var(--cmux-accent, currentColor));
 }
 
+/* An inline notice is a card on the grid (leo-workspace design/grid.md 5.6): padding 12, radius 12,
+   its action row 8 under the text, all scaled by the interface scale. */
+.ui-notice[data-placement="inline"] {
+  gap: var(--grid-gap, var(--ds-space-2));
+  padding: var(--grid-cards-padding, var(--ds-space-3));
+  border-radius: var(--grid-cards-radius, var(--ds-radius-xl));
+}
+
 /* A toast over the surface lifts off it; an inline or banner notice sits on its surface. */
 .ui-notice[data-placement="stack"] {
   --glass-elevation: var(--elevation-2);
