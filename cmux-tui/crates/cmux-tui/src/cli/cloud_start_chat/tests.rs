@@ -890,7 +890,8 @@ fn a_timeout_shorter_than_the_relay_window_goes_the_link_way() {
     let mut fake = Fake::new(vec![
         signed_in(),
         started(),
-        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        // The send fails on the machine, so the link path ends without a wait.
+        exec_out("@@history\n\n@@send\nno such session\n@@exit 1\n"),
     ]);
     let asked =
         request(&["--prompt", "x", "--target", "machine:vm-1", "--wait", "--timeout", "30"]);
