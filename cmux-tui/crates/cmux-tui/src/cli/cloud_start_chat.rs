@@ -386,19 +386,12 @@ fn signed_out(error: &Value) -> bool {
         || message.contains("not signed in")
 }
 
-/// Whether this run comes from an agent chat (whose `cloud start-session` asks the person).
-fn from_agent_chat() -> bool {
-    ["CMUX_AGENT_SESSION", "ACPMUX_SESSION_ID"]
-        .iter()
-        .any(|name| std::env::var(name).is_ok_and(|value| !value.trim().is_empty()))
-}
-
 /// Runs the steps (module docs) and answers the outcome.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     // 1. Signed in, and the machine names in use.
     let listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
         Ok(listed) => listed,
-        Err(error) => return app_failure(error, request, &request.machine),
+        Err(error) => return app_failure(error),
     };
     if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
         return failed(
@@ -444,7 +437,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     start.push("--json".to_owned());
     let started = match step_result(&runner.cmux(&start)) {
         Ok(started) => started,
-        Err(error) => return app_failure(error, request, &machine),
+        Err(error) => return app_failure(error),
     };
     if at(&started, "pending").as_bool() == Some(true) {
         let again = again_command(request, &machine);
@@ -744,7 +737,7 @@ pub(super) fn upload_prompt(
 }
 
 /// A failure of a step before the chat existed.
-fn app_failure(error: Value, request: &Request, machine: &Machine) -> Outcome {
+fn app_failure(error: Value) -> Outcome {
     let message = at(&error, "message").as_str().unwrap_or("the cmux app refused").to_owned();
     if signed_out(&error) {
         return failed(
@@ -754,16 +747,10 @@ fn app_failure(error: Value, request: &Request, machine: &Machine) -> Outcome {
             1,
         );
     }
-    let mut details = json!({"app": error});
-    let mut message = message;
-    if from_agent_chat() {
-        let again = again_command(request, machine);
-        message.push_str(&format!(
-            ". From an agent chat the app asks the person first: they answer Start on the card \
-             in this chat (`cmux agents dialog list` lists it); then run {again}"
-        ));
-        details.set("again", json!(again));
-    }
+    // An agent chat's start asks nobody (`cloud.agentsStartWithoutAsking`, on by default), so a
+    // refusal here is the app's own; when the person turned asking back on, the app's refusal (Not
+    // now, or no answer) already names the command to run again.
+    let details = json!({"app": error});
     let code = at(&error, "code").as_str().unwrap_or("cloud.start_failed").to_owned();
     failed(&code, message, details, 1)
 }

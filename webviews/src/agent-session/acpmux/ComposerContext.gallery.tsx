@@ -431,10 +431,6 @@ const chatgptRunDetails = {
   local: "This chat stays on this computer",
   cloud: "Available on any device and can access your computer",
 };
-const openCloudChip: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: /^Machine/ });
-  await waitRows("cloud")(ctx);
-};
 function stripVariants(arm: StripArm) {
   const props = {
     ...stripMachines,
@@ -467,20 +463,20 @@ function stripVariants(arm: StripArm) {
     [`strip-${arm}-cloud`]: {
       note: note(
         arm === "where-machine" || arm === "where-machine-always"
-          ? "Cloud picked: the third chip is which Cloud machine, New machine by default (the workspace's own new machine); its project is picked in the same Project chip."
+          ? "Cloud picked: two chips, Project and Where, with no machine chip and no New machine step. Send reuses the person's Cloud machine or makes one, its progress in the chat (Leo, 2026-11-04: \"after you pick Cloud, like, you shouldn't be seeing the new machine situation\")."
           : "Cloud picked: Cloud gives the workspace its own new machine; its project is picked in the same Project chip.",
       ),
       props: { ...props, runMode: { mode: "cloud" as const, onMode: () => undefined } },
     },
-    ...(arm === "where-machine" || arm === "where-machine-always"
+    ...(arm === "where-machine"
       ? {
-          [`strip-${arm}-cloud-machines`]: {
-            height: 320,
+          [`strip-${arm}-cloud-where`]: {
+            height: 260,
             note: note(
-              "Cloud's chip open: New machine checked, the account's Cloud machines, then New Cloud Machine… and Open Cloud… under a hairline (Codex's Create and Manage environments).",
+              "Cloud picked, Where open: Cloud checked, one line, and nothing to choose after it: no New machine row, no machine chip, no create card on Send.",
             ),
             props: { ...props, runMode: { mode: "cloud" as const, onMode: () => undefined } },
-            play: openCloudChip,
+            play: whereOpen,
           },
         }
       : {}),
@@ -492,6 +488,64 @@ function stripVariants(arm: StripArm) {
     },
   };
 }
+
+// A Cloud machine that sleeps (cloudMachines.ts withCloudSleep). Cloud machines pause on their own
+// when idle and between tool calls (cmux-platform docs/agent-turn-sleep.md), so acpmux's lost link
+// to one the account says is paused reads Paused (the quiet ring), a resume a spinner, and only a
+// machine the account knows nothing about keeps Not connected. Leo, 2026-11-03: "it's all still
+// responsive on the ui side".
+const sleepingMachine = (stage?: string) => ({
+  ...stripMachines,
+  stripLayout: "where-machine-always" as const,
+  ...onMachine("Cloud machine"),
+  peerStates: { "studio-mini": "connected", "gpu-box": "connected", "Cloud machine": "reconnecting" },
+  cloudMachines: stage ? [{ id: "vm-cloud", name: "Cloud machine", stage }] : [],
+  onCloudMachine: () => undefined,
+});
+const chipSleep =
+  (sleep: "paused" | "resuming" | "none"): Play =>
+  async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-button .acpmux-env-live"));
+    const live = ctx.document.querySelector(".acpmux-location-button .acpmux-env-live");
+    const shown = live?.getAttribute("data-sleep") ?? "none";
+    if (shown !== sleep) throw new Error(`the machine chip reads ${shown}, not ${sleep}`);
+    const box = live?.getBoundingClientRect();
+    // The dot's own 6px box in every state: nothing in the strip moves as paused turns to resuming.
+    if (!box || Math.round(box.width) !== 6) throw new Error("the live dot's box changed size");
+    if (sleep === "resuming" && !live?.querySelector(".acpmux-env-live-spinner"))
+      throw new Error("a resuming machine draws no spinner");
+  };
+const sleepVariants = {
+  "machine-sleep-paused": {
+    note: "Picked: a Cloud machine the account says is paused while acpmux has no link to it. The chip keeps the quiet ring and says Paused (to screen readers), never Not connected or Reconnecting; a send wakes it.",
+    props: sleepingMachine("paused"),
+    play: chipSleep("paused"),
+  },
+  "machine-sleep-resuming": {
+    note: "The same machine on its way up (stage booting): a spinner turns in the dot's 6px box, so the strip does not move; it says Resuming.",
+    props: sleepingMachine("booting"),
+    play: chipSleep("resuming"),
+  },
+  "machine-sleep-unknown": {
+    note: "Before / control: a Cloud machine acpmux lost that the account does not list: the ring, Not connected, as before.",
+    props: sleepingMachine(),
+    play: chipSleep("none"),
+  },
+  "machine-sleep-paused-list": {
+    height: 320,
+    note: "Machines… with that machine paused: its row reads Paused · Resume and is a pick (it resumes the machine, and the chat moves there once it links), never a greyed Reconnecting row.",
+    props: { ...sleepingMachine("paused"), stripLayout: "combined" as const },
+    play: async (ctx: Parameters<Play>[0]) => {
+      await openMachineList(ctx);
+      const row = [...ctx.document.querySelectorAll(".acpmux-env-popover .acpmux-env-row")].find((candidate) =>
+        candidate.textContent?.includes("Cloud machine"),
+      );
+      if (!row) throw new Error("the paused machine is not listed");
+      if (row.getAttribute("aria-disabled") === "true") throw new Error("the paused machine is greyed");
+      if (!row.textContent?.includes("Paused")) throw new Error("the paused machine does not say Paused");
+    },
+  },
+};
 
 // Composer warning specimens use the same health shape emitted by the cached `_acpmux/status`
 // snapshot. Keep a quiet specimen beside the warning states so a capture shows the unchanged
@@ -964,6 +1018,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     ...stripVariants("where-machine-always"),
     ...stripVariants("cloud-toggle"),
     ...stripVariants("combined"),
+    ...sleepVariants,
     "strip-cloud-works-on": {
       note: "ChatGPT Work's model, for comparison only (not built in cmux: a Cloud chat's agent runs on its Cloud machine with its files there). Where says the agent lives in Cloud; the machine chip says the computer it works on, as ChatGPT's \"In the cloud\" chat whose files and shell are on the Mac.",
       props: {
