@@ -821,7 +821,7 @@ pub fn local_router_with(
         ))
     };
     let stream = UnixStream::connect(&socket).map_err(|e| unavailable(e.to_string()))?;
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+    let _ = stream.set_read_timeout(Some(crate::rpc::ANSWER_WAIT));
     let mut writer = stream.try_clone().map_err(|e| unavailable(e.to_string()))?;
     let mut reader = BufReader::new(stream);
     let mut ask = |line: Value| -> Result<Value, RouteError> {
