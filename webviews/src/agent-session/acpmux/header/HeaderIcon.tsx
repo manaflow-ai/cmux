@@ -14,21 +14,21 @@ export function HeaderIcon({ name, size = 16, selected = false }: { name: string
   }, [symbol]);
   const src = symbol ? symbols.get(symbol) : undefined;
   const color = selected ? "var(--agent-lit-glyph, var(--agent-accent))" : undefined;
-  if (!src) return <Icon name={name} size={size} selected={selected} color={color} />;
+  // Both paths carry acpmux-header-glyph: header.css sizes it from the icon box token, so the glyph
+  // grows with the interface size like the square around it (Leo 2026-11-04: "so all those things
+  // are proportional"). `size` stays the svg's attribute size where that sheet is not loaded.
+  if (!src) return <Icon name={name} size={size} selected={selected} color={color} className="acpmux-header-glyph" />;
   const mask = `url("${src}") center / contain no-repeat`;
   return (
     <span
-      className="acpmux-header-symbol"
+      className="acpmux-header-symbol acpmux-header-glyph"
       data-icon={name}
       data-symbol={symbol}
       aria-hidden="true"
       style={{
-        width: size,
-        height: size,
         color,
         mask,
         WebkitMask: mask,
-        rotate: name === "action.more.vertical" ? "90deg" : undefined,
       }}
     />
   );

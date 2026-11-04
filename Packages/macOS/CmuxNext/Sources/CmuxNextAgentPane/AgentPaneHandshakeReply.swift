@@ -15,6 +15,9 @@ enum AgentPaneHandshakeReply {
         }
         model.setCheckpointAvailable(false)
         model.pageCommands = []
+        // The store's start folder is read while acpmux connects, not after (Leo, 2026-11-03: "why does
+        // it even take time to read settings?"): ``AgentPaneStartFolders/apply(to:ready:model:)`` takes it.
+        model.startFolders.prefetch(for: model)
         do {
             var handshake = request == .ready
                 ? try await model.host.handshake(sessionId: model.sessionId)

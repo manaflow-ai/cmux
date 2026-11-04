@@ -26,6 +26,7 @@ import {
   turnFoldFor,
   turnFooterFrom,
   turnView,
+  SUPERSEDED,
   WORKED,
   WORKING,
   workedLabel,
@@ -197,7 +198,10 @@ test("once the chain ends, all its work folds under one stable disclosure", asyn
   expect(view.some((row) => row.id === steerRow.id)).toBe(true);
   expect(view.some((row) => row.text === "The retry races the session refresh.")).toBe(true);
   expect(view.indexOf(worked[0]!)).toBeLessThan(view.findIndex((row) => row.text === "Both paths are fixed."));
-  expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(1);
+  // The stretch before the steer ends on its own footer (turns.ts supersededFooters); the turn's
+  // own footer stays one, at its end.
+  expect(view.filter((row) => row.kind === "turnSummary" && !row.superseded)).toHaveLength(1);
+  expect(view.filter((row) => row.superseded)).toHaveLength(1);
   // Nothing is dropped: open, the fold holds every tool call and steer in recorded order.
   const open = turnView(rows, new Set(worked.map((row) => row.id)));
   const toolAt = (id: string) => open.findIndex((row) => row.items?.some((item) => item.tool?.id === id));
@@ -330,7 +334,12 @@ test("Find and a shell's row open the fold the turn draws, and the hover footer 
       footer = view[at]!;
       break;
     }
-  expect(turnFooterFrom(view, view.indexOf(first))).toBe(footer.id);
+  // Before the steer, the stretch the person came in on ends on its own footer (turns.ts
+  // supersededFooters); after it, the chain's.
+  const stretch = view.find((row) => row.superseded)!;
+  expect(turnFooterFrom(view, view.indexOf(first))).toBe(stretch.id);
+  const steer = view.find((row) => row.kind === "user" && row.continues)!;
+  expect(turnFooterFrom(view, view.indexOf(steer) + 1)).toBe(footer.id);
 });
 
 test("between the cancel and the steer's record, the turn does not read as stopped", async () => {
@@ -357,7 +366,10 @@ test("an older history page that ends at the steer leaves it a steer", async () 
   // One turn: one footer and one stable fold, including after history is paged in.
   const first = rows().find((row) => row.kind === "user" && row.text === "Fix the flaky login test")!;
   expect(view.filter((row) => row.kind === WORKED).map((row) => row.id)).toEqual([`${WORKED}-${first.id}`]);
-  expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(1);
+  // The stretch before the steer ends on its own footer (turns.ts supersededFooters); the turn's
+  // own footer stays one, at its end.
+  expect(view.filter((row) => row.kind === "turnSummary" && !row.superseded)).toHaveLength(1);
+  expect(view.filter((row) => row.superseded)).toHaveLength(1);
 });
 
 test("an edit before a sent-now cancel asks for its checkpoint only once the turn ends", () => {
@@ -464,7 +476,10 @@ test("a Send now that ends the turn with end_turn goes on as the same turn", asy
   const steer = view.find((row) => row.kind === "user" && row.text === "also check the logout path")!;
   expect(steer.continues).toBe(true);
   expect(view.filter((row) => row.kind === WORKED)).toHaveLength(0);
-  expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(0);
+  // The stretch before the steer ends on its own footer (turns.ts supersededFooters); the turn's
+  // own footer stays one, at its end.
+  expect(view.filter((row) => row.kind === "turnSummary" && !row.superseded)).toHaveLength(0);
+  expect(view.filter((row) => row.superseded)).toHaveLength(1);
   const working = view.filter((row) => row.kind === WORKING);
   expect(working).toHaveLength(1);
   expect(working[0]!.at).toBe(first.at);
@@ -664,7 +679,8 @@ test("a turn steered twice keeps every call under one completed-turn fold", () =
   const now = { now: START + 200_000, agentFamily: "codex" };
   const view = turnView(rows, new Set(), now);
   const ids = view.map((each) => each.id);
-  expect(ids).toEqual(["u", `${WORKED}-u`, "s1", "r1", "s2", "r2", "sum"]);
+  // The reply before the second steer ends on its stretch's footer (turns.ts supersededFooters).
+  expect(ids).toEqual(["u", `${WORKED}-u`, "s1", "r1", `${SUPERSEDED}-s2`, "s2", "r2", "sum"]);
   expect(view.filter((each) => each.kind === WORKED).map((each) => each.durationMs)).toEqual([90_000]);
   const open = turnView(rows, new Set([`${WORKED}-u`]), now);
   expect(open.map((each) => each.id)).toEqual([
@@ -674,6 +690,7 @@ test("a turn steered twice keeps every call under one completed-turn fold", () =
     "s1",
     "r1",
     "a-b2",
+    `${SUPERSEDED}-s2`,
     "s2",
     "a-b3",
     "a-b4",

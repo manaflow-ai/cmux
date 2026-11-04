@@ -969,6 +969,7 @@ impl Tracker {
                 return;
             }
             InputEffect::Focus { .. }
+            | InputEffect::FocusReduced { .. }
             | InputEffect::SinkEnded { .. }
             | InputEffect::SinkNew { .. } => {
                 return;

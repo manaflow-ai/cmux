@@ -165,3 +165,82 @@ test("a started chat offers no Add folder…", async () => {
     await act(async () => root.unmount());
   }
 });
+
+// cmux#34408: an outside dismiss after Add folder… ends add mode, so the next pick changes the project.
+test("an outside dismiss after Add folder… leaves the next pick changing the project", async () => {
+  const picked: string[] = [];
+  const { root, changes } = await renderTray({ onProject: (cwd: string) => picked.push(cwd) });
+  try {
+    await openFolderMenu();
+    await press(menuItem("Add folder…")!);
+    const outside = dom.window.document.body;
+    await act(async () => {
+      for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"])
+        outside.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, button: 0 }));
+    });
+    await settle();
+    expect(dom.window.document.querySelector(".acpmux-folder-popover")).toBeNull();
+    await openFolderMenu();
+    expect(menuItem("Add folder…")).toBeDefined();
+    await press(menuItem("notes")!);
+    expect(picked).toEqual(["/Users/me/notes"]);
+    expect(changes).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// cmux#34403: Cloud and Sandboxed starts carry no extra folders, so the composer offers none.
+for (const mode of ["cloud", "sandboxed"] as const) {
+  test(`${mode} run mode offers no Add folder… and shows no +N`, async () => {
+    const { root } = await renderTray(
+      { runMode: { mode, onMode: () => {} } },
+      { machine: "local", folders: ["/Users/me/notes"] },
+    );
+    try {
+      expect(face()).not.toContain("+1");
+      await openFolderMenu();
+      expect(menuItem("Add folder…")).toBeUndefined();
+      expect(dom.window.document.querySelectorAll(".acpmux-extra-folder").length).toBe(0);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+}
+
+// cmux#34527: a pick of an account Cloud machine that is still starting drops this machine's folders
+// at once, not only once it arrives (or never, when it fails to start).
+test("picking a starting Cloud machine drops this machine's extra folders at once", async () => {
+  const cloud: string[] = [];
+  const { root, changes } = await renderTray(
+    {
+      sessions: [],
+      onConnect: () => undefined,
+      onCloudMachine: (machine: { id: string }) => cloud.push(machine.id),
+      cloudMachines: [{ id: "vm-ready", name: "eval box", stage: "ready" }],
+    },
+    { machine: "local", folders: ["/Users/me/notes"] },
+  );
+  try {
+    expect(face()).toContain("+1");
+    const machine = [...dom.window.document.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find(
+      (button) => (button.getAttribute("aria-label") ?? "").includes(":"),
+    );
+    expect(machine).toBeDefined();
+    await act(async () => {
+      machine!.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+      machine!.click();
+    });
+    await settle();
+    const row = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].find(
+      (item) => item.textContent?.includes("eval box"),
+    );
+    expect(row).toBeDefined();
+    await press(row!);
+    expect(cloud).toEqual(["vm-ready"]);
+    expect(changes.at(-1)).toBeUndefined();
+    expect(changes.length).toBe(1);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

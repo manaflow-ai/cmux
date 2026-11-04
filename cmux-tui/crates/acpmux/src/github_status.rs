@@ -35,9 +35,12 @@ pub const TOOL: &str = "github_status";
 
 /// What a chat with the tool is told, in the server's instructions and `cmux_exec`'s description.
 pub const STEER: &str = "When the person asks about their GitHub (can you see my GitHub, which \
-account, is it connected), call github_status: it lists the GitHub accounts cmux can see for this \
-chat and how cmux checked each, with no token. Answer with those logins and say they are connected \
-through cmux; an organization account is the one their cmux team connected, not the person.";
+account, is it connected), call github_status first, instead of running gh (`gh auth status`, \
+`gh api user`) or reading git config: it also covers cmux Cloud machines and the GitHub account \
+their cmux team connected, which gh may not see with no repository picked. It lists the GitHub \
+accounts cmux can see for this chat and how cmux checked each, with no token. Answer with those \
+logins and say they are connected through cmux; an organization account is the one their cmux \
+team connected, not the person.";
 
 /// The Cloud agent's socket (`cmux_host::cloud::wire::AGENT_SOCKET`).
 pub const CLOUD_AGENT_SOCKET: &str = "/run/cmux-vm-agent/agent.sock";
@@ -294,6 +297,9 @@ async fn from_gh(gh: &OsString) -> Option<Value> {
     let mut command = std::process::Command::new(gh);
     command.args(["api", "user"]);
     crate::github_broker::login_env(&mut command, None);
+    // The Cloud gh shim would answer from cmux's connection, which the Cloud source already
+    // reports; this source is the person's own gh login only.
+    command.env(cmux_host::cloud::github_status::GH_OWN_LOGIN_ONLY_ENV, "1");
     command
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())

@@ -388,6 +388,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// Records that arrive while attaching are applied after the attach page.
     private var held: [JSONValue] = []
     private var questions: [String: AgentQuestion] = [:]
+    /// The raw records applied to this chat, newest 500 (the Event Inspector).
+    let journal = AgentEventJournal()
     /// The most records one history read returns.
     static let pageSize = 400
     /// The open's byte cap, as the Mac's agent pane opens: a long chat draws its newest records
@@ -401,9 +403,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The records a chat shows: acpmux's `transcript`, and by name the queue changes
     /// (Edit queued prompt, Move up / down, a held queue) that an older Mac's
     /// `transcript` leaves out, so the queue rows follow the Mac's queue; and Claude Code's API
-    /// retries (a harness record, never `transcript`), so a retrying turn says so.
+    /// retries (a harness record, never `transcript`), so a retrying turn says so; and its
+    /// `bookmarks` record, so a bookmark or pin made on the Mac shows here.
     static let chatKinds: JSONValue = .array(
-        ["transcript", "queue_updated", "queue_order", "queue_paused", "queue_resumed", "claude.system.api_retry"].map { .string($0) })
+        ["transcript", "queue_updated", "queue_order", "queue_paused", "queue_resumed", "claude.system.api_retry", "bookmarks"].map { .string($0) })
 
     init(hub: AcpmuxHub, sessionID: String, summary: AgentSessionSummary) {
         self.hub = hub
@@ -720,6 +723,116 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             .init(label: String(localized: "Usage limits"), value: limits.isEmpty ? notReported : limits.joined(separator: ", ")),
         ]
         return AgentSessionStatus(harness: text(info["harness"]) ?? fallbackHarness, fields: fields)
+    }
+
+    // MARK: Chat polish parity
+
+    /// Copy rows and Session Info: `_acpmux/info`, the same read `/status` makes.
+    public func sessionDetails() async throws -> AgentSessionDetails {
+        let info = try await call("_acpmux/info", ["sessionId": .string(sessionID)])
+        return Self.sessionDetails(info, sessionID: sessionID, macName: summary.macName, fallbackHarness: summary.agentName)
+    }
+
+    nonisolated static func sessionDetails(_ info: JSONValue, sessionID: String, macName: String, fallbackHarness: String) -> AgentSessionDetails {
+        func text(_ value: JSONValue?) -> String? {
+            guard let value = value?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+            return value
+        }
+        return AgentSessionDetails(
+            name: text(info["name"]),
+            sessionID: text(info["sessionId"]) ?? sessionID,
+            harnessSessionID: text(info["agentSessionId"]) ?? text(info["agent_session_id"]),
+            cwd: text(info["cwd"]),
+            // A chat on an acpmux peer runs there; otherwise on this Mac (`machine`, its name).
+            host: text(info["peer"]) ?? text(info["machine"]) ?? text(info["host"]) ?? macName,
+            status: sessionStatus(info, macName: macName, fallbackHarness: fallbackHarness))
+    }
+
+    public func bookmarks() async throws -> [Int] {
+        Self.marks(try await call("_acpmux/bookmark_get", ["sessionId": .string(sessionID)]))
+    }
+
+    public func setBookmark(seq: Int, bookmarked: Bool) async throws -> [Int] {
+        Self.marks(try await call("_acpmux/bookmark_set", [
+            "sessionId": .string(sessionID), "seq": .number(Double(seq)), "bookmarked": .bool(bookmarked),
+        ]))
+    }
+
+    nonisolated static func marks(_ reply: JSONValue) -> [Int] {
+        (reply["bookmarks"]?.arrayValue ?? []).compactMap { $0.numberValue.map { Int($0) } }
+    }
+
+    public func chatPermissions() async throws -> AgentChatPermissions {
+        Self.permissions(try await call("_acpmux/permission_groups", ["sessionId": .string(sessionID)]))
+    }
+
+    /// `_acpmux/permission_groups`: `chatAllowance.active` and the groups still waiting.
+    nonisolated static func permissions(_ reply: JSONValue) -> AgentChatPermissions {
+        let open = (reply["groups"]?.arrayValue ?? []).filter { group in
+            !["resolved", "cancelled"].contains(group["state"]?.stringValue ?? "")
+        }
+        return AgentChatPermissions(allowedForChat: reply["chatAllowance"]?["active"] == .bool(true), openGroups: open.count)
+    }
+
+    public func revokeChatPermission() async throws {
+        let reply = try await call("_acpmux/permission_chat_revoke", ["sessionId": .string(sessionID)])
+        // acpmux answers `{active: false}` and nothing else (the Mac's client checks the same).
+        guard reply["active"] == .bool(false) else {
+            throw AgentFeatureUnavailable(String(localized: "\(summary.macName) didn't confirm the revoke. Refresh and try again."))
+        }
+    }
+
+    /// Reads the open asks again: a reattach from the last record applied, whose reply lists
+    /// every permission still waiting (`applyState`).
+    public func refreshPermissions() { refill() }
+
+    public var eventJournal: AgentEventJournal? { journal }
+
+    /// The most records Replay reads (pages of `pageSize`).
+    static let replayLimit = 20_000
+
+    /// Replay Conversation: the chat's `transcript` records from its start, as the Mac's replay
+    /// reads them (`_acpmux/events {kinds: ["transcript"]}`), mapped to chat events.
+    public func replayRecording() async throws -> AgentReplayRecording {
+        var records: [JSONValue] = []
+        var after = 0
+        var more = true
+        while more, records.count < Self.replayLimit {
+            let page = try await call("_acpmux/events", [
+                "sessionId": .string(sessionID), "afterSeq": .number(Double(after)),
+                "limit": .number(Double(Self.pageSize)), "kinds": .array([.string("transcript")]),
+            ])
+            let events = page["events"]?.arrayValue ?? []
+            records += events
+            guard let newest = events.last?["seq"]?.numberValue else { break }
+            after = Int(newest)
+            more = page["hasMore"] == .bool(true)
+        }
+        let mapper = AcpmuxRecords(sessionID: sessionID)
+        let steps = records.map { record in
+            let events = mapper.map(record)
+            let at = record["at"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date()
+            let isTool = events.contains { event in
+                if case .update(.toolCall(_)) = event { return true }
+                return false
+            }
+            return (at: at, events: events, isToolCall: isTool)
+        }
+        return AgentReplayRecording.build(steps, truncated: more)
+    }
+
+    /// One request to this chat's acpmux, its refusal as the Mac's own words.
+    private func call(_ method: String, _ params: [String: JSONValue]) async throws -> JSONValue {
+        guard let hub, hub.isReady else {
+            throw AgentFeatureUnavailable(String(localized: "Agents on \(summary.macName) aren't connected. Try again in a moment."))
+        }
+        do {
+            return try await hub.request(method, .object(params))
+        } catch let error as AcpmuxConnection.RPCError {
+            throw AgentFeatureUnavailable(error.message)
+        } catch {
+            throw AgentFeatureUnavailable(Self.message(error))
+        }
     }
 
     public func handoffTargets() async throws -> [AgentHandoffTarget] {
@@ -1339,6 +1452,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let seq = Int(record["seq"]?.numberValue ?? 0)
         guard seq == 0 || seq > lastSeq else { return }
         if seq > 0 { lastSeq = seq }
+        journal.record(record)
         for event in records.map(record) {
             switch event {
             case .permissionRequest, .question:

@@ -178,8 +178,11 @@ public struct SidebarMapping {
             agentWorking: statuses.working,
             // A page in a split beside a chat or terminal leaves the row's icon to that work, as it
             // leaves its name (#22250; Leo 2026-10-21: "why did this turn into the githb favicon?").
+            // A site with no favicon (none, or not loaded yet) keeps the slot with a globe the favicon replaces
+            // (Lawrence default: "a site with no favicon gets a placeholder").
             icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: iconAsset)
-                ?? page?.favicon.map(WorkspaceIcon.favicon),
+                ?? page?.favicon.map(WorkspaceIcon.favicon)
+                ?? (Self.isSite(face, newTabPages: newTabPages) ? .pagePlaceholder : nil),
             color: color(workspace.color), kind: kind(face),
             kindBrand: face?.agentBrand,
             // A tab marked unread by hand (Mark Tab Unread) or by an agent that needs the person
@@ -516,6 +519,12 @@ public struct SidebarMapping {
 
     private static func isLoopback(_ host: String) -> Bool {
         host == "localhost" || host.hasSuffix(".localhost") || host.hasPrefix("127.") || host == "[::1]" || host == "::1" || host == "0.0.0.0"
+    }
+
+    /// Whether `tab` is a site page (a browser tab on a host, not a New Tab page): the tabs that show a favicon.
+    static func isSite(_ tab: TabModel?, newTabPages: Set<String>) -> Bool {
+        guard let tab, tab.kind == .browser, !newTabPages.contains(tab.id) else { return false }
+        return pageHost(tab.url) != nil
     }
 
     /// A page's host for the hover card's tab rows ("github.com"); nil for a blank or local page.

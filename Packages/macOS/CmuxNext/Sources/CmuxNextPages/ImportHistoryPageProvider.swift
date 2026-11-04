@@ -40,16 +40,25 @@ public final class ImportHistoryPageProvider: PageProvider {
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
         case "cmux.importHistory.detect":
-            // No --exports, including when this page is restored on screen at launch.
-            let result = try await run(command.detect(), .seconds(60))
-            let sources = (result["sources"]?.arrayValue ?? []).filter {
-                ["claude-code", "claude-memory", "codex"].contains($0["source"]?.stringValue ?? "")
+            // Passive page detection must stay TCC-safe. Export folders are scanned only after
+            // the person clicks Find exports in the open import page.
+            let includesExports = params["exports"]?.boolValue == true
+            if includesExports { try requireGesture(context) }
+            let result = try await run(command.detect(exports: includesExports), .seconds(60))
+            let sources = (result["sources"]?.arrayValue ?? []).filter { source in
+                includesExports || !(source["source"]?.stringValue ?? "").hasPrefix("zip:")
             }
             for source in sources {
-                if let name = source["source"]?.stringValue { admitted[name] = "" }
+                if let name = source["source"]?.stringValue {
+                    // Presence hints for no-export assistants are already text sources;
+                    // preserve their origin so the page can import the admitted path.
+                    let kind = source["kind"]?.stringValue ?? ""
+                    admitted[name] = ["grok-bot", "muse", "dots", "instinct"].contains(kind) ? kind : ""
+                }
             }
             return ["sources": .array(sources.map { source in
-                ["source": source["source"] ?? .null, "items": source["count"] ?? .null,
+                ["source": source["source"] ?? .null, "kind": source["kind"] ?? .null,
+                 "path": source["path"] ?? .null, "items": source["count"] ?? .null,
                  "bytes": source["bytes"] ?? .null]
             })]
         case "cmux.importHistory.begin":

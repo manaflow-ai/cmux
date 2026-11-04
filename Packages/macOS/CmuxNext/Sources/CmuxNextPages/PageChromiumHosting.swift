@@ -57,9 +57,10 @@ public protocol PageChromiumPage: AnyObject {
     /// before the first ``devTools(_:params:)`` call.
     var onEvent: ((PageChromiumEvent) -> Void)? { get set }
     /// Answers the page's requests for its dynamic paths (``PageDescriptor/dynamicPrefixes``):
-    /// Chromium asks it for every request under one, and a nil answerer is a 404. The host sets it
+    /// Chromium asks it for every request under one, with the request's `Range` header (nil when
+    /// none; a `<video>` asks one range at a time), and a nil answerer is a 404. The host sets it
     /// before the first ``load(_:)``.
-    var resources: (@MainActor (URL) async -> PageChromiumResponse)? { get set }
+    var resources: (@MainActor (URL, String?) async -> PageChromiumResponse)? { get set }
     /// Rects in ``contentView``'s coordinates where native UI of the host window shows over the
     /// page. A Chromium page is a child window above the whole host window, so the page window
     /// leaves these rects uncovered: the native view under them shows there and takes the mouse

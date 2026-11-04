@@ -34,6 +34,7 @@ enum AgentShareResults {
                      "surface": .int(Int(clamping: share.surface)), "created_at": .int(Int(clamping: share.createdAt)),
                      "expires_at": .int(Int(clamping: share.expiresAt)), "expires_in_secs": .int(Int(clamping: share.expiresInSecs)),
                      "uses_left": .int(Int(share.usesLeft)), "room": share.room.map(ActionResultValue.string) ?? .null,
+                     "invite_url": share.inviteUrl.map(ActionResultValue.string) ?? .null,
                      "guests": .array(share.guests.map(guest)),
                      "invitees": .array(share.invitees.map { invitee in
                          .object(["account": .string(invitee.account), "role": .string(invitee.role),

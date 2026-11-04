@@ -136,6 +136,132 @@ function renderBranch(context) {
 globalThis.__cmuxAppExports = { renderRecent, renderBranch }
 ```
 
+## Matching the app
+
+A pane looks like cmux when it is built only from the kit, which the app draws
+with its own controls, surfaces, fonts and spacing and redraws when the theme
+changes. Nothing in the script picks a color or a size.
+
+| Piece | Use it for |
+|---|---|
+| `Panel({ title?, style? }, [...])` | A group on the app's card surface, with its padding and radius. `style: "glass"` (default) is the sidebar cards' glass; `"card"` is opaque. |
+| `Row({ title, subtitle?, symbol?, badge?, tint?, accessory? })` | A list row, the same as the sidebar's own rows (hover, selection, `.onTap`). |
+| `Button(title, fn)`, `Menu(title, [Button(...), Divider()])` | Actions and a pull-down menu. |
+| `Toggle(value, { label?, onChange })` | A switch row: the label leading, the native switch trailing. |
+| `Slider(value, { min, max, step, onChange })` | A native slider; set `step` so a drag sends few changes. |
+| `TextField(value, { placeholder, onSubmit })`, `Badge`, `EmptyState`, `ProgressView`, `Text`, `Icon` | Input, counts, empty and loading states, labels, SF Symbols. |
+| `cmux.toast({ title, message?, tone? })` | A short notice in the app's own toast at the bottom of the window. One slot per app: a new toast replaces the app's last. The message shows when the pointer is on it, with the app's id. Needs no scope. |
+| `cmux.theme` | The tone names color props accept: `accent`, `text.primary`, `text.secondary`, `text.tertiary`, `success`, `warning`, `danger`, `separator`, `hover`, `selected`. |
+
+Rules:
+
+- No literal colors: pass a tone (`tint: cmux.theme.success`, `.color("secondary")`),
+  never `#RRGGBB`. A hex color stays the same in every theme, and the app's
+  colors do not.
+- No literal sizes: fonts by name (`.font("headline")`, `"caption"`), no point
+  sizes, no `.padding(13)` or `.cornerRadius(9)` on pieces the kit already
+  spaces. Put groups in a `Panel` instead of drawing a background.
+- `Toggle` and `Slider` are two-way: keep the value in a `signal`, pass the
+  signal, and set it in `onChange`.
+
+### Template: a focus timer
+
+A sidebar pane built only from the kit: a `Panel` with the time, a `Slider`
+for the length, a `Toggle`, a `Button` and a `Menu` of presets, a `Row` with
+today's count, and a toast when a session starts and ends. It needs no scopes.
+Copy both files as written, or use them as the starting point for "make me a
+pane that ...". `customize_example.rs` validates them too.
+
+#### Focus timer manifest
+
+`~/.config/cmux/customize/cmux-app.json`:
+
+```json
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "My views",
+  "version": "1.0.0",
+  "description": "A focus timer in the sidebar.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderFocus",
+      "title": "Focus timer",
+      "symbol": "timer",
+      "options": { "defaultRegion": "bottom" }
+    }
+  }
+}
+```
+
+#### Focus timer script
+
+`~/.config/cmux/customize/main.js`:
+
+```js
+const [minutes, setMinutes] = signal(25)
+const [left, setLeft] = signal(null) // seconds left while a session runs, else null
+const [total, setTotal] = signal(0) // the running session's length in seconds
+const [notify, setNotify] = signal(true)
+const [done, setDone] = signal(0)
+const running = computed(() => left() !== null) // the slots below rebuild on start and stop, not every second
+let tick = null
+
+const clock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
+
+function stop(finished) {
+  if (tick !== null) cmux.timer.clear(tick)
+  tick = null
+  setLeft(null)
+  if (finished) {
+    setDone((n) => n + 1)
+    if (notify()) cmux.toast({ title: "Focus session done", message: "Take a short break.", tone: "success" })
+  }
+}
+
+function start() {
+  stop(false)
+  setTotal(minutes() * 60)
+  setLeft(total())
+  tick = cmux.timer.every(1000, () => {
+    const next = (left() ?? 0) - 1
+    if (next <= 0) stop(true)
+    else setLeft(next)
+  })
+  cmux.toast({ title: `Focus for ${minutes()} minutes` })
+}
+
+function renderFocus() {
+  return VStack([
+    Panel({ title: "Focus" }, [
+      Text(() => clock(left() ?? minutes() * 60)).font("headline").monospaced(),
+      () => (!running()
+        ? Slider(minutes, { min: 5, max: 60, step: 5, onChange: setMinutes })
+        : ProgressView(() => 1 - (left() ?? 0) / total())),
+      Toggle(notify, { label: "Toast when done", onChange: setNotify }),
+      HStack([
+        () => (!running() ? Button("Start", start) : Button("Stop", () => stop(false))),
+        Spacer(),
+        Menu("Presets", [Button("15 minutes", () => setMinutes(15)), Button("25 minutes", () => setMinutes(25)), Button("50 minutes", () => setMinutes(50))])
+      ])
+    ]),
+    Row({
+      title: () => `${done()} done today`,
+      symbol: "checkmark.circle",
+      tint: () => (done() > 0 ? cmux.theme.success : cmux.theme.text.secondary)
+    })
+  ])
+}
+
+globalThis.__cmuxAppExports = { renderFocus }
+```
+
+To add it to a customize app that already has a sidebar section, keep that
+section and put `renderFocus()` inside its render (see "Adding a view" below).
+
 ## Where it shows, and errors
 
 The first time cmux sees the sidebar section it adds it to the end of its

@@ -378,7 +378,7 @@ export function ChatHeaderTools({
           {
             tool: {
               id: "chat-menu",
-              symbol: HEADER_SYMBOLS["action.more.vertical"]!,
+              symbol: HEADER_SYMBOLS["action.more"]!,
               label: t("chatMenu.open"),
               enabled: chatMenu.items.length > 0,
               toggled: false,
@@ -678,7 +678,7 @@ export function ChatMenu({
         title={triggerTitle}
         disabled={disabled}
       >
-        {trigger ?? <HeaderIcon name="action.more.vertical" size={HEADER_GLYPH} />}
+        {trigger ?? <HeaderIcon name="action.more" size={HEADER_GLYPH} />}
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end" onKeyDown={onMenuKeyDown}>
         {children

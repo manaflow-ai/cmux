@@ -10,7 +10,8 @@ use super::{CLOUD_TEMPLATE_ENV, CloudTemplateEnv};
 /// G3/G4). Also takes the brain's tools socket (`CMUX_TUI_CHIEF_TOOLS_SOCKET`,
 /// chief-inspect) the same way, so no shell, agent or hook the daemon spawns
 /// learns the path, and R-LIFECYCLE stage 1's switch (`CMUX_TUI_OWNER_KEEPERS`,
-/// headless.rs), which an `ensure` passes on only to the owner it spawns.
+/// headless.rs), which an `ensure` passes on, when off, only to the owner it
+/// spawns.
 ///
 /// # Safety
 ///

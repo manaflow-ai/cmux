@@ -83,10 +83,11 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         let id = ObjectIdentifier(task)
         active.insert(id)
         WebBundleServedViews.shared.add(webView)
+        let range = request.value(forHTTPHeaderField: "Range")
         // task-owner: one file read or dynamic lookup per scheme task; a stopped task is never answered
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let reply = await self.reply(to: url)
+            let reply = await self.reply(to: url, range: range)
             guard self.active.remove(id) != nil else { return }
             guard let reply else {
                 task.didFailWithError(URLError(.fileDoesNotExist))
@@ -103,8 +104,9 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// page file comes from that server instead. The live override (``WebDevOverride``) is read
     /// per request: its server's answers, else (a stopped server, a 4xx or 5xx) its overlay
     /// folder's file, else, with an active web update (``WebBundleOverlay``), the update's copy
-    /// of the page's folder, else the bundled one.
-    func reply(to url: URL) async -> Reply? {
+    /// of the page's folder, else the bundled one. `range` is the request's `Range` header, which
+    /// only a ranged dynamic source (``PageRangedResourceSource``) reads.
+    func reply(to url: URL, range: String? = nil) async -> Reply? {
         guard let served = served(url) else { return nil }
         if served.page.id.lowercased() == PageArtifactFrame.pageID, PageArtifactFrame.isFrame(url) {
             return Self.artifactReply(url: url)
@@ -131,6 +133,9 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
             guard let data = await Self.read(file) else { return nil }
             return Self.reply(url: url, page: served.page, status: 200, mimeType: Self.mimeType(forExtension: file.pathExtension), body: data)
         case .dynamic(let request):
+            if let ranged = served.dynamicSource as? any PageRangedResourceSource {
+                return await Self.rangedReply(url: url, page: served.page, request: request, range: range, source: ranged)
+            }
             let answer = await Self.dynamicResponse(to: request, source: served.dynamicSource)
             return Self.reply(url: url, page: served.page, status: answer.status, mimeType: answer.mimeType, body: answer.body)
         }
@@ -144,6 +149,28 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         let fallback = mimeType(forExtension: request.path.last.map { ($0 as NSString).pathExtension } ?? "")
         let type = resource.mimeType.flatMap(validMIMEType) ?? fallback
         return PageChromiumResponse(status: 200, mimeType: type, body: resource.data)
+    }
+
+    /// A ranged source's answer as it set it (206 and `Content-Range` for a range), else a 404 with
+    /// the page's headers.
+    static func rangedReply(url: URL, page: PageDescriptor, request: PageResourceRequest, range: String?,
+                            source: any PageRangedResourceSource) async -> Reply {
+        guard let resource = await source.rangedResource(for: request, range: range),
+              let response = HTTPURLResponse(url: url, statusCode: resource.status, httpVersion: "HTTP/1.1",
+                                             headerFields: resource.headers)
+        else { return reply(url: url, page: page, status: 404, mimeType: "text/plain", body: Data()) }
+        return Reply(response: response, body: resource.data)
+    }
+
+    /// A ranged source's byte range as Chromium takes it: the status, the type, the bytes and the
+    /// `Content-Range` and `Accept-Ranges` the source set; a 404 when it has none. Chromium adds the
+    /// page's CSP and the other page headers itself.
+    static func rangedResponse(to request: PageResourceRequest, range: String?,
+                               source: any PageRangedResourceSource) async -> PageChromiumResponse {
+        guard let resource = await source.rangedResource(for: request, range: range) else { return .notFound }
+        let type = resource.headers["Content-Type"].flatMap(validMIMEType) ?? "application/octet-stream"
+        let kept = resource.headers.filter { $0.key == "Content-Range" || $0.key == "Accept-Ranges" }
+        return PageChromiumResponse(status: resource.status, mimeType: type, body: resource.data, rangeHeaders: kept)
     }
 
     /// The dynamic request `url` makes of `page`, nil when it is not under one of the page's dynamic

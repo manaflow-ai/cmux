@@ -59,6 +59,27 @@ fn catalog() -> &'static HashMap<String, String> {
     })
 }
 
+/// The registry id prefix of the person's own cmux-next.json actions.
+const CONFIG_ACTION_PREFIX: &str = "cmuxConfig.";
+
+/// The decision for `action.run {id}` from `app`. The person's own config
+/// actions (`cmuxConfig.<name>`, which run the command they wrote) are not in
+/// the catalog; only their own customize folder app (`local/customize`) may
+/// run them, from a gesture in its pane, the same as any action. Any other
+/// app's click must not run a command the person wrote for themselves.
+pub fn decide_for(app: &str, id: Option<&str>) -> ActionDecision {
+    if app == super::catalog::CUSTOMIZE_APP
+        && let Some(name) = id.and_then(|id| id.strip_prefix(CONFIG_ACTION_PREFIX))
+    {
+        return if name.is_empty() {
+            ActionDecision::Unknown
+        } else {
+            ActionDecision::NeedsGesture
+        };
+    }
+    decide(id)
+}
+
 /// The decision for `action.run {id}` from an app.
 pub fn decide(id: Option<&str>) -> ActionDecision {
     let Some(mcp) = id.and_then(|id| catalog().get(id)) else { return ActionDecision::Unknown };
@@ -82,5 +103,20 @@ mod tests {
         assert_eq!(decide(Some("openSettings")), ActionDecision::NeedsGesture);
         assert_eq!(decide(Some("made.up")), ActionDecision::Unknown);
         assert_eq!(decide(None), ActionDecision::Unknown);
+    }
+
+    /// The person's own cmux-next.json actions (`cmuxConfig.<name>`) are not in the catalog: only
+    /// the customize app (the person's own folder) may run them, with a gesture like any action.
+    #[test]
+    fn only_the_customize_app_runs_the_persons_own_config_actions() {
+        assert_eq!(
+            decide_for("local/customize", Some("cmuxConfig.tests")),
+            ActionDecision::NeedsGesture
+        );
+        assert_eq!(decide_for("local/customize", Some("newWindow")), ActionDecision::NeedsGesture);
+        assert_eq!(decide_for("local/customize", Some("quit")), ActionDecision::Refused("endsApp"));
+        assert_eq!(decide_for("local/customize", Some("cmuxConfig.")), ActionDecision::Unknown);
+        assert_eq!(decide_for("local/spy", Some("cmuxConfig.tests")), ActionDecision::Unknown);
+        assert_eq!(decide_for("cmux/demo", Some("cmuxConfig.tests")), ActionDecision::Unknown);
     }
 }

@@ -49,6 +49,7 @@ import {
 import { flushSync } from "react-dom";
 import { useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
 import "../../../ui/controls.css";
+import { useChatCut } from "./chatCut";
 import { chatGlass, chatUnderGlass } from "../chatUnderGlass";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
@@ -1370,6 +1371,10 @@ export function SessionInfoPanel({
   // text never reads through the glass (Leo 2026-10-30: "I don't like the non-glassness"). Pushing,
   // or in the gutter, it covers nothing.
   useSeeThroughBlur(frame, glass, chatUnderGlass, chatGlass);
+  // The transcript leaves the panel's box out while it shows (chatCut.ts), so nothing scrolls under
+  // it: its pixels hold still while the chat scrolls (Leo, 2026-11-03: "the session info thing not
+  // flicker EVER when im scrolling"). Its place re-measures when it moves.
+  useChatCut(frame, !presence?.leaving, `${placement}:${width}:${foot ?? ""}:${side}:${overlap}:${under ?? ""}`);
   // The foot animates only once it has been drawn at its first measure: the open draws it at once.
   const footKnown = foot !== undefined && foot > 0;
   const [footSettled, setFootSettled] = useState(false);
@@ -1984,7 +1989,8 @@ export function SessionInfo({
   // Usage shows once acpmux reports what this chat or any listed chat spends.
   const ownUsage = summary?.usageStats;
   const usageValue = usageMeta(t, ownUsage, language);
-  const usageSection = (ownUsage || anyUsage) && (
+  const planLimits = typeof summary?.usageLimits === "object" ? summary.usageLimits : undefined;
+  const usageSection = (ownUsage || anyUsage || planLimits) && (
     <SessionInfoSection
       id="usage"
       title={t("sessionInfo.usage")}
@@ -1995,6 +2001,7 @@ export function SessionInfo({
     >
       <UsageSection
         own={ownUsage}
+        planLimits={planLimits}
         sessions={allSessions ?? []}
         chatId={chatId}
         onOpen={onOpenChat}

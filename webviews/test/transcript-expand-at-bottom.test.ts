@@ -8,7 +8,7 @@
 // Real Chromium from Playwright on the agent pane's gallery scene (ExpandAtBottom.gallery.ts).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, webkit, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
 import { installPaintedFrames } from "./support/paintedFrames";
@@ -99,9 +99,9 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     await page.mouse.click(point.x, point.y);
   };
 
-  async function open(variant = VARIANT, ready = GROUP): Promise<Page> {
+  async function open(variant = VARIANT, ready = GROUP, engine: Browser = browser!): Promise<Page> {
     const port = (vite!.httpServer!.address() as { port: number }).port;
-    const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
+    const page = await engine.newPage({ viewport: { width: 900, height: 640 } });
     await installPaintedFrames(page);
     await page.addInitScript(() => localStorage.clear());
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant })}`);
@@ -235,6 +235,131 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
       await page.close();
     });
   }
+
+  /// Leo, 2026-11-04: "how come there aren't animatiosn for expanding/collapsing tool calls
+  /// anymore???", and on the bottom case: "it's not a smooth eough/graceful enough/minimally shifting
+  /// animation". Opening and then closing "Ran 2 commands" at the very bottom glides: the line moves
+  /// over several painted frames, never most of the way in one, while the view stays at its end and
+  /// the rows under the line keep their pixels on every frame.
+  // In Chromium and in WebKit, the app's own engine (where the thread slide this replaced jumped).
+  for (const engineName of ["chromium", "webkit"] as const)
+    test(`at the very bottom (${engineName}), opening and closing a group glide the text above over several frames`, async () => {
+      let engine = browser!;
+      if (engineName === "webkit") {
+        try {
+          engine = await webkit.launch({ headless: true });
+        } catch (error) {
+          if (process.env.GITHUB_ACTIONS === "true") throw error;
+          console.warn("transcript-expand-at-bottom: WebKit glide skipped (run `bunx playwright install webkit`)");
+          return;
+        }
+        await warmGalleryFrame(vite!, ENTRY, { browser: engine, params: { variant: VARIANT } });
+      }
+      const page = await open(VARIANT, GROUP, engine);
+      await page.locator(".acpmux-scroll").evaluate((node, selector) => {
+        node.querySelector<HTMLElement>(selector)!.dataset.glideProbe = "true";
+        node.scrollTop = node.scrollHeight;
+      }, GROUP);
+      await settled(page);
+      const PROBE = "[data-glide-probe]";
+      for (const direction of ["open", "close"] as const) {
+        const before = (await watchOpen(page, PROBE, 0, false))[0]!;
+        const frames = await watchOpen(page, PROBE);
+        await settled(page);
+        const after = (await watchOpen(page, PROBE, 0, false))[0]!;
+        const total = after.line - before.line;
+        // Opening moves the line up, closing brings it back down, by what opened.
+        expect({ direction, moved: direction === "open" ? total < -40 : total > 40 }).toEqual({
+          direction,
+          moved: true,
+        });
+        const tops = [before.line, ...frames.map((frame) => frame.line)];
+        let largest = 0;
+        for (let index = 1; index < tops.length; index++)
+          largest = Math.max(largest, Math.abs(tops[index]! - tops[index - 1]!));
+        // Frames strictly between where it was and where it settles: the glide, not a jump.
+        const between = frames.filter(
+          (frame) => Math.abs(frame.line - before.line) > 1 && Math.abs(frame.line - after.line) > 1,
+        ).length;
+        expect({ direction, between: between >= 3 }).toEqual({ direction, between: true });
+        expect({ direction, largest, smooth: largest <= Math.abs(total) * 0.7 }).toEqual({
+          direction,
+          largest,
+          smooth: true,
+        });
+        for (const [index, frame] of frames.entries()) {
+          const at = { direction, index, ...frame };
+          expect({ at, end: frame.fromEnd <= 2 }).toEqual({ at, end: true });
+          expect({ at, last: Math.abs(frame.last - before.last) <= 1 }).toEqual({ at, last: true });
+        }
+      }
+      await page.close();
+      if (engine !== browser) await engine.close();
+    });
+
+  /// A control with no height fold of its own (a shell block's "Show all N lines", a failure's
+  /// Details) glides too at the very bottom: the thread slides to what it laid out in one step, over
+  /// several painted frames, never most of the way in one (router-review F1 on #34780).
+  test("at the very bottom, a shell block's Show all lines glides the text above over several frames", async () => {
+    // Its play opens and closes the group (three toggles at once mid-play): wait on the row itself.
+    const page = await open("collapse-tall-group", '[data-row-id="expand-at-bottom-run"]');
+    await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
+      timeout: 60_000,
+    });
+    await settled(page);
+    const scrollToEnd = async () => {
+      await page.locator(".acpmux-scroll").evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+      });
+      await settled(page);
+    };
+    await scrollToEnd();
+    await clickLine(page, GROUP);
+    await settled(page);
+    await page.evaluate(() => {
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-row-id="expand-at-bottom-run"] button.cv-tool.is-toggle[aria-expanded="false"]',
+        ),
+      ]
+        .at(-1)!
+        .setAttribute("data-shell-probe", "");
+    });
+    await scrollToEnd();
+    await clickLine(page, "[data-shell-probe]");
+    await settled(page);
+    await scrollToEnd();
+    const MORE = '[data-row-id="expand-at-bottom-run"] .cv-output-more[aria-expanded="false"]';
+    await page.locator(MORE).last().waitFor();
+    await page
+      .locator(MORE)
+      .last()
+      .evaluate((node) => node.setAttribute("data-more-probe", ""));
+    const PROBE = "[data-more-probe]";
+    const before = (await watchOpen(page, PROBE, 0, false))[0]!;
+    expect(before.fromEnd).toBeLessThanOrEqual(2);
+    const frames = await watchOpen(page, PROBE);
+    await settled(page);
+    const after = (await watchOpen(page, PROBE, 0, false))[0]!;
+    expect(await page.locator(PROBE).getAttribute("aria-expanded")).toBe("true");
+    const total = after.line - before.line;
+    expect(total).toBeLessThan(-40);
+    const tops = [before.line, ...frames.map((frame) => frame.line)];
+    let largest = 0;
+    for (let index = 1; index < tops.length; index++)
+      largest = Math.max(largest, Math.abs(tops[index]! - tops[index - 1]!));
+    const between = frames.filter(
+      (frame) => Math.abs(frame.line - before.line) > 1 && Math.abs(frame.line - after.line) > 1,
+    ).length;
+    expect({ between: between >= 3, largest, total }).toEqual({ between: true, largest, total });
+    expect({ largest, total, smooth: largest <= Math.abs(total) * 0.7 }).toEqual({ largest, total, smooth: true });
+    for (const [index, frame] of frames.entries()) {
+      const at = { index, ...frame };
+      expect({ at, end: frame.fromEnd <= 2 }).toEqual({ at, end: true });
+      expect({ at, last: Math.abs(frame.last - before.last) <= 1 }).toEqual({ at, last: true });
+    }
+    await page.close();
+  });
 
   /// The scene's own plays (ExpandAtBottom.gallery.ts) check where the bottom and the clicked line
   /// end up; each throws, and the stage reports it, when they are off. Leo, 2026-11-03: "it's weird

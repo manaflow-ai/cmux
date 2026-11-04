@@ -293,7 +293,8 @@ public final class CmuxDialogView: NSView {
         label.preferredMaxLayoutWidth = width
         label.isSelectable = true
         label.focusRingType = .none
-        label.ink = role == .primary ? .primary : .secondary
+        // Fitted to the dialog's glass card, as its buttons are (GlassTextEveryThemeTests).
+        label.themeColor = role == .primary ? { Palette.sheetText(.primary) } : { Palette.sheetText(.secondary) }
         label.widthAnchor.constraint(equalToConstant: width).isActive = true
         return label
     }

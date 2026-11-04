@@ -274,7 +274,11 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     let peers = status.as_ref().and_then(|s| s.get("peers")).and_then(Value::as_array).cloned();
     let view = View { all, wide };
     let now = crate::store::now_ms();
-    print!("{}", ls_table::render(&sessions, peers.as_deref(), view, filtered, now));
+    let pauses = ls_table::registry_pauses();
+    print!(
+        "{}",
+        ls_table::render_paused(&sessions, peers.as_deref(), view, filtered, now, &pauses)
+    );
     if let Some(line) = status.as_ref().and_then(outbox_line) {
         println!("{line}");
     }

@@ -161,6 +161,26 @@ fn cmux_next_memory_search_routes_a_scoped_read_to_the_verified_provider() {
     assert_eq!(update["ops"][0]["props"]["result"], json!({"ok":true,"body":{"value":value}}));
 }
 
+/// `cmux.toast(...)` reaches the Mac's toast presenter: `toast` is a provider
+/// family (registering it beside the others keeps them), and `toast.show`
+/// needs no grant, so an app that asked for no scope can still call it.
+#[test]
+fn a_toast_routes_to_the_provider_for_an_app_with_no_scopes() {
+    let root = temp_dir();
+    write_app(&root.0.join("bundled"), "demo", "cmux/demo", json!({}));
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    let rx = provider(&f, &["coderouter", "memory", "toast"]);
+    let params = json!({"title":"Focus for 25 minutes"});
+    f.supervisor
+        .dispatch(CLIENT, "m1", "n1", "tap", json!({"op":"toast.show", "params":params}), false)
+        .unwrap();
+    let request = next_request(&rx);
+    assert_eq!(request["op"], "toast.show");
+    assert_eq!(request["params"], params);
+}
+
 #[test]
 fn no_provider_fails_at_once_and_a_provider_leaving_fails_its_pending_calls() {
     let f = fixture();

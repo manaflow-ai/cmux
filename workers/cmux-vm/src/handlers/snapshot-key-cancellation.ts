@@ -22,8 +22,8 @@ export const cancelSnapshotCaptureKey = (rawKey: string, expectedId: SnapshotId 
     const principal = caller.value;
     if (principal.resourceAllowlist !== null) return yield* Effect.fail(new Forbidden({ message: "A key limited to specific resources must use id-addressed capture controls" }));
     const limits = yield* TenantLimits, key = yield* scopedSnapshotKey(rawKey);
-    const found = yield* limits.snapshotCapture(principal.tenantId, { op: "inspect", key }).pipe(Effect.mapError(() => unavailable()));
-    if (found.state === "absent" && !(yield* (yield* Entitlements).mayCreate(principal, "snapshot").pipe(Effect.mapError(() => unavailable()))))
+    const found = yield* limits.snapshotCapture(principal.tenantId, { op: "inspect", key }).pipe(Effect.mapError(unavailable));
+    if (found.state === "absent" && !(yield* (yield* Entitlements).mayCreate(principal, "snapshot").pipe(Effect.mapError(unavailable))))
       return yield* Effect.fail(new PaymentRequired({ message: "This team's plan does not include new capture key reservations" }));
     if (found.state === "legacy") return yield* Effect.fail(new Conflict({ message: "This legacy capture has no safe cancellation identity" }));
     if (found.state === "record") {
@@ -35,7 +35,7 @@ export const cancelSnapshotCaptureKey = (rawKey: string, expectedId: SnapshotId 
     } else if (expectedId !== null) return yield* Effect.fail(changed());
     if (found.state === "fenced" && !snapshotFenceAllowed(principal, found.fence)) return yield* Effect.fail(snapshotNotFound());
     const fenced = yield* limits.snapshotCapture(principal.tenantId, { op: "fence", key, expectedId,
-      createdBy: actorRef(principal.actor), labels: principal.requiredLabels ?? {} }).pipe(Effect.mapError(() => unavailable()));
+      createdBy: actorRef(principal.actor), labels: principal.requiredLabels ?? {} }).pipe(Effect.mapError(unavailable));
     if (fenced.state === "fenced" && fenced.granted) {
       if (!snapshotFenceAllowed(principal, fenced.fence)) return yield* Effect.fail(snapshotNotFound());
       return new SnapshotKeyCancellation({ state: "fenced", id: null });
@@ -49,10 +49,10 @@ export const cancelSnapshotCaptureKey = (rawKey: string, expectedId: SnapshotId 
       if (Option.isNone(parsed)) return yield* Effect.fail(unavailable());
       const status = yield* legacySnapshotCaptureStatus(caller, fenced.id);
       if (status.state !== "deleted") yield* name(parsed.value, (snapshot) => Effect.gen(function* () {
-        const owns = yield* tenantOwnsSnapshot(caller, snapshot).pipe(Effect.mapError(() => unavailable()));
+        const owns = yield* tenantOwnsSnapshot(caller, snapshot).pipe(Effect.mapError(unavailable));
         if (owns === null) return yield* Effect.fail(snapshotNotFound());
-        yield* (yield* UpstreamSnapshots).deleteSnapshot(snapshot, { owns, scope }).pipe(Effect.catchAll((e) => e.status === 404 ? Effect.void : Effect.fail(unavailable())));
-        yield* (yield* SnapshotStore).markDeleted(principal.tenantId, snapshot.value, new Date(yield* Clock.currentTimeMillis)).pipe(Effect.mapError(() => unavailable()));
+        yield* (yield* UpstreamSnapshots).deleteSnapshot(snapshot, { owns, scope }).pipe(Effect.catchAll((e) => e.status === 404 ? Effect.void : Effect.fail(unavailable(e))));
+        yield* (yield* SnapshotStore).markDeleted(principal.tenantId, snapshot.value, new Date(yield* Clock.currentTimeMillis)).pipe(Effect.mapError(unavailable));
       }));
       return new SnapshotKeyCancellation({ state: "cancelled", id: parsed.value, receipt: status.receipt });
     }

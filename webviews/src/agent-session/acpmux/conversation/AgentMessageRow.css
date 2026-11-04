@@ -320,3 +320,10 @@ button.cv-agentmsg__name:focus-visible {
 .acpmux-row :is(.cv-agentmsg__preview, .cv-message-group__senders, .cv-msgline__preview, .cv-sent__more) {
   color: var(--cv-text-muted);
 }
+/* A group of sent messages (SentMessageLine.tsx `SentMessageGroup`): its head is a message group's
+   (MessageGroupHead.css), the group its narrow-pane container; opened, its messages sit on the
+   head's icon and text columns, flush, as an opened "Received N messages" row's do. */
+.cv-sent-group {
+  container-type: inline-size;
+  min-width: 0;
+}

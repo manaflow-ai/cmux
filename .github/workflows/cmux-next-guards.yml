@@ -27,6 +27,8 @@ permissions:
 # freshness, the guard self-tests and the menu check still fail.
 env:
   CMUX_NEXT_STYLE_GUARDS: warn
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 concurrency:
   group: cmux-next-guards-${{ github.event.pull_request.number || github.sha }}
@@ -734,6 +736,11 @@ jobs:
       # feat-cmux-next unseen (#23430). A fake bun stands in; no web test runs.
       - name: The per-file webviews test runner (scripts/ci/run-webviews-tests.sh)
         run: python3 tests/test_webviews_tests_per_file.py
+
+      # The TAP health classifier and its base-red integration stay on the same
+      # tooling-tests PR lane as the producer's published snapshot contract.
+      - name: The TAP test-health classifier and base-red evidence
+        run: python3 tests/test_tap_test_health.py
 
       # A test no feat-cmux-next pull request runs lands red unseen: a2d6b35 broke
       # tests/test_webviews_tests_per_file.py, which only main pushes and the nightly ran (#23430).

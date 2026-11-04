@@ -425,7 +425,7 @@ impl Hub {
                                 admission_open=false;
                                 if value.is_err() {continue;}
                                 admitted=true; drop(gate.take());
-                                waiting = session.status() == SessionStatus::Waiting || session.meta().usage_limits.is_some();
+                                waiting = session.status() == SessionStatus::Waiting || crate::claude_stdio::usage_limit_reached(session.meta().usage_limits.as_ref(), (super::now_ms() / 1000) as i64);
                                 if automatic && recovery.waiting.is_some() {
                                     let admission_gate = self.workflow_runs.gate(&run.id).lock_owned().await;
                                     self.workflow_runs.store().authorize(&run.id,generation,&run.owner_session_id).map_err(workflow_error)?;
@@ -442,7 +442,7 @@ impl Hub {
                             event = events.recv() => {
                                 match event {
                                     Ok(event) if event.session_id == session.id => {
-                                        waiting = session.status() == SessionStatus::Waiting || session.meta().usage_limits.is_some();
+                                        waiting = session.status() == SessionStatus::Waiting || crate::claude_stdio::usage_limit_reached(session.meta().usage_limits.as_ref(), (super::now_ms() / 1000) as i64);
                                         if admitted && !waiting && !nudge_reconciled && let Some(nudge) = &state.nudge {nudge_reconciled=self.workflow_nudge(run,generation,nudge).await?;}
                                         deadline.as_mut().reset(tokio::time::Instant::now()+stall);
                                     }
@@ -451,7 +451,7 @@ impl Hub {
                                 }
                             }
                             _ = &mut deadline, if admitted && !waiting => {
-                                if session.status() == SessionStatus::Waiting || session.meta().usage_limits.is_some() {
+                                if session.status() == SessionStatus::Waiting || crate::claude_stdio::usage_limit_reached(session.meta().usage_limits.as_ref(), (super::now_ms() / 1000) as i64) {
                                     waiting = true;
                                     continue;
                                 }
@@ -722,7 +722,12 @@ impl Hub {
             return Ok(true);
         }
         let session = self.resolve(&intent.session_id)?;
-        if session.status() == SessionStatus::Waiting || session.meta().usage_limits.is_some() {
+        if session.status() == SessionStatus::Waiting
+            || crate::claude_stdio::usage_limit_reached(
+                session.meta().usage_limits.as_ref(),
+                (super::now_ms() / 1000) as i64,
+            )
+        {
             return Ok(false);
         }
         let known = self.knows_prompt(&session, &intent.prompt_id, true);

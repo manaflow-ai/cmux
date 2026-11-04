@@ -14,6 +14,12 @@ public enum AgentParityRoute: Hashable, Identifiable, Sendable {
     case handoff
     /// `/continue <harness>`: the review of a continuation to that agent, straight away.
     case handoffTo(AgentHandoffTarget)
+    /// Session Info (the Mac's Toggle Session Info).
+    case sessionInfo
+    /// The raw records this phone received (the Mac's Toggle Event Inspector).
+    case eventInspector
+    /// Replay Conversation.
+    case replay
 
     public var id: String {
         switch self {
@@ -22,6 +28,9 @@ public enum AgentParityRoute: Hashable, Identifiable, Sendable {
         case .checkpoints: "checkpoints"
         case .handoff: "handoff"
         case .handoffTo(let target): "handoff-\(target.id)"
+        case .sessionInfo: "session-info"
+        case .eventInspector: "event-inspector"
+        case .replay: "replay"
         }
     }
 }
@@ -61,6 +70,11 @@ struct AgentParityDestination: View {
         case .checkpoints: CheckpointsScreen(store: store, surface: surface)
         case .handoff: HandoffScreen(store: store, surface: surface)
         case .handoffTo(let target): HandoffReviewScreen(store: store, surface: surface, target: target)
+        case .sessionInfo: SessionInfoScreen(store: store, surface: surface)
+            // Popped together with the chat (to the list): what the chat was reading stops.
+            .onDisappear { if surface.parityRoute == .sessionInfo { ChatReadAloud.shared.stopIfReading(chat: store.summary.id) } }
+        case .eventInspector: EventInspectorScreen(journal: store.source.eventJournal, sessionID: store.summary.id)
+        case .replay: ReplayConversationScreen(store: store)
         }
     }
 }
@@ -347,7 +361,7 @@ struct CheckpointsScreen: View {
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("Try again") { Task { await reload() } }
+                    RetryButton("Try Again") { await reload() }
                 }
             case .loaded(let checkpoints):
                 List {
@@ -485,7 +499,7 @@ struct HandoffScreen: View {
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("Try again") { Task { await reload() } }
+                    RetryButton("Try Again") { await reload() }
                 }
             case .loaded(let targets):
                 List {

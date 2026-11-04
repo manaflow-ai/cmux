@@ -86,4 +86,41 @@ struct AgentPaneExtraFoldersRelayTests {
         }
         #expect(refusal.error == .pathInvalid)
     }
+
+    /// cmux#34407: two typed folders outside the pane's roots. The Send's gesture granted only the
+    /// first and checked once, so the second refused the start.
+    @Test func oneSendGrantsEveryTypedFolder() async throws {
+        let root = try Self.macFolder("extra-grant-root")
+        let first = try Self.macFolder("extra-grant-a")
+        let second = try Self.macFolder("extra-grant-b")
+        defer { for folder in [root, first, second] { try? FileManager.default.removeItem(atPath: folder) } }
+        var scope = AcpmuxPathPolicy.Scope(roots: [root], fillCwd: root)
+        let text = try Self.text(Self.frame(["cwd": root, "mcpServers": [Any](), "additionalDirectories": [first, second]]))
+        let check = { AcpmuxPathPolicy.checkNow(text, scope: scope).map(\.gestureRootsUsed) }
+        var granted: [String] = []
+        let result = await AgentPaneTransport.grantTypedFolders(check(), grant: { folder in
+            granted.append(folder)
+            scope.granted.append(folder)
+        }, recheck: { check() })
+        guard case .success = result else {
+            Issue.record("the second typed folder still refused the start: \(String(describing: result))")
+            return
+        }
+        #expect(granted == [first, second])
+    }
+
+    /// A folder whose grant does not let the frame pass is tried once, not again and again.
+    @Test func aFolderThatStaysRefusedEndsTheGrants() async {
+        let refusal = AcpmuxPathPolicy.Refusal(error: .pathOutsideRoots, requestID: nil, method: "session/new",
+                                               outsidePath: "/elsewhere")
+        var grants = 0
+        let result = await AgentPaneTransport.grantTypedFolders(.failure(refusal), grant: { _ in grants += 1 },
+                                                                recheck: { .failure(refusal) })
+        #expect(grants == 1)
+        guard case .failure(let left) = result else {
+            Issue.record("a folder that stays refused passed")
+            return
+        }
+        #expect(left.error == .pathOutsideRoots)
+    }
 }

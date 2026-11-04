@@ -31,7 +31,7 @@ const toSnapshot = (record: SnapshotCapture, created: CreatedSnapshot) => new Sn
 export const DEFINITE: ReadonlySet<string> = new Set(["NotFound", "Conflict", "Forbidden", "PaymentRequired", "QuotaExceeded"]);
 
 const slot = <C>(caller: Named<C, Principal>, resume?: SnapshotId) => Effect.gen(function* () {
-  const decision = yield* tenantMayCreate(caller, "snapshot", resume === undefined ? undefined : { snapshotId: resume }).pipe(Effect.mapError(() => unavailable()));
+  const decision = yield* tenantMayCreate(caller, "snapshot", resume === undefined ? undefined : { snapshotId: resume }).pipe(Effect.mapError(unavailable));
   if (decision._tag === "not_entitled") return yield* Effect.fail(new PaymentRequired({ message: "This team's plan does not include snapshots" }));
   if (decision._tag === "over_quota") return yield* Effect.fail(new QuotaExceeded({ message: `This team already has its limit of ${decision.limit} snapshots; delete one first`, budget: "snapshots", retryAfterSeconds: 60 }));
   return decision.proof;
@@ -58,10 +58,10 @@ const commit = <C, S>(caller: Named<C, Principal>, snapshot: Named<S, SnapshotId
 
 const replay = <C, S>(caller: Named<C, Principal>, snapshot: Named<S, SnapshotId>, scope: CaptureWriteScope<C, S>, capture?: AuthorizedSnapshotCapture<C, S>) => Effect.gen(function* () {
   const store = yield* SnapshotStore;
-  const owns = yield* (capture === undefined ? tenantOwnsSnapshot(caller, snapshot) : tenantOwnsCapturedSnapshot(caller, snapshot, capture)).pipe(Effect.mapError(() => unavailable()));
-  const row = yield* store.describe(caller.value.tenantId, snapshot.value).pipe(Effect.mapError(() => unavailable()));
+  const owns = yield* (capture === undefined ? tenantOwnsSnapshot(caller, snapshot) : tenantOwnsCapturedSnapshot(caller, snapshot, capture)).pipe(Effect.mapError(unavailable));
+  const row = yield* store.describe(caller.value.tenantId, snapshot.value).pipe(Effect.mapError(unavailable));
   if (owns === null || Option.isNone(row)) return yield* Effect.fail(snapshotNotFound());
-  const live = yield* (yield* UpstreamSnapshots).getSnapshot(snapshot, { owns, scope }).pipe(Effect.mapError((e) => e.status === 404 ? snapshotNotFound() : unavailable()));
+  const live = yield* (yield* UpstreamSnapshots).getSnapshot(snapshot, { owns, scope }).pipe(Effect.mapError((e) => e.status === 404 ? snapshotNotFound() : unavailable(e)));
   return new Snapshot({ ...row.value, createdAt: row.value.createdAt.toISOString(), lastUsedAt: live.lastUsedAt ?? null,
     ttlSeconds: live.ttlSeconds ?? null, autoDeleteSeconds: live.autoDeleteSeconds ?? null });
 });
@@ -88,11 +88,11 @@ export const resumeSnapshotCapture = <C, V, S>(caller: Named<C, Principal>, vm: 
   if (result.record.state === "claimed") {
     if (!result.granted) return yield* Effect.fail(new Conflict({ message: "This snapshot capture is being prepared; retry shortly", pendingSnapshotId: snapshot.value }));
     yield* Effect.gen(function* () {
-      const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(() => unavailable()));
+      const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(unavailable));
       if (owns === null) return yield* Effect.fail(vmNotFound());
       const mayCreate = yield* slot(caller);
       yield* Effect.gen(function* () {
-        const probe = yield* (yield* UpstreamSnapshots).prepareCapture(vm, { owns, scope }, result.record.intent).pipe(Effect.mapError(() => unavailable()));
+        const probe = yield* (yield* UpstreamSnapshots).prepareCapture(vm, { owns, scope }, result.record.intent).pipe(Effect.mapError(unavailable));
         const prepared = yield* limits.snapshotCapture(caller.value.tenantId, { op: "prepare", id: snapshot.value,
           nonce: result.record.nonce, probe, reservationId: mayCreate.reservationId }).pipe(Effect.mapError(() => retained(snapshot.value)));
         if (prepared.state !== "record" || !prepared.granted) return yield* Effect.fail(retained(snapshot.value));
@@ -111,10 +111,10 @@ export const createSnapshotCapture = (rawVm: string, payload: CreateSnapshotRequ
     const fingerprint = yield* digest({ operation: "createSnapshot", vmId: vm.value, displayName: payload.displayName ?? null,
       labels: Object.fromEntries(Object.entries(payload.labels ?? {}).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)),
       ttlSeconds: payload.ttlSeconds ?? null, autoDeleteSeconds: payload.autoDeleteSeconds ?? null });
-    const prior = yield* limits.snapshotCapture(caller.value.tenantId, { op: "inspect", key }).pipe(Effect.mapError(() => unavailable()));
+    const prior = yield* limits.snapshotCapture(caller.value.tenantId, { op: "inspect", key }).pipe(Effect.mapError(unavailable));
     if (prior.state === "record") yield* name(prior.record.intent.id, (snapshot) => authorizedSnapshotCapture(caller, snapshot).pipe(Effect.asVoid));
     if (prior.state === "absent") {
-      const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(() => unavailable()));
+      const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(unavailable));
       if (owns === null) return yield* Effect.fail(vmNotFound());
       if (!carriesRequiredLabels(caller.value, payload.labels ?? {})) return yield* Effect.fail(new Forbidden({ message: "Snapshot labels must include this credential's required labels" }));
     }
@@ -122,7 +122,7 @@ export const createSnapshotCapture = (rawVm: string, payload: CreateSnapshotRequ
       id, sourceVmId: vm.value, displayName: payload.displayName ?? null, labels: payload.labels ?? {},
       createdBy: actorRef(caller.value.actor), createdAt: new Date(yield* Clock.currentTimeMillis).toISOString(),
       ttlSeconds: payload.ttlSeconds ?? null, autoDeleteSeconds: payload.autoDeleteSeconds ?? null,
-    } }).pipe(Effect.mapError(() => unavailable()));
+    } }).pipe(Effect.mapError(unavailable));
     if (result.state === "fenced") {
       if (!snapshotFenceAllowed(caller.value, result.fence)) return yield* Effect.fail(snapshotNotFound());
       return yield* Effect.fail(new Conflict({ message: "This Idempotency-Key has been cancelled" }));
@@ -150,7 +150,7 @@ const withCapture = <A, E, R>(rawId: string, f: <C, S>(caller: Named<C, Principa
   }));
 
 export const inspectSnapshotCaptureByKey = (key: string) => withCaller("snapshot:read", "read", (caller) => Effect.gen(function* () {
-  const found = yield* (yield* TenantLimits).snapshotCapture(caller.value.tenantId, { op: "inspect", key: yield* scopedSnapshotKey(key) }).pipe(Effect.mapError(() => unavailable()));
+  const found = yield* (yield* TenantLimits).snapshotCapture(caller.value.tenantId, { op: "inspect", key: yield* scopedSnapshotKey(key) }).pipe(Effect.mapError(unavailable));
   if (found.state === "legacyDone") return yield* legacySnapshotCaptureStatus(caller, found.id);
   if (found.state === "fenced") {
     if (!snapshotFenceAllowed(caller.value, found.fence)) return yield* Effect.fail(snapshotNotFound());
@@ -168,7 +168,7 @@ export const inspectSnapshotCapture = (rawId: string) => withCaller("snapshot:re
 
 export const listSnapshotCaptures = (cursor: string | undefined, limit: number) => withCaller("snapshot:read", "read", (caller) => Effect.gen(function* () {
   if (caller.value.resourceAllowlist !== null) return yield* Effect.fail(new Forbidden({ message: "A key limited to specific resources cannot list capture history" }));
-  const page = yield* (yield* TenantLimits).snapshotCapture(caller.value.tenantId, { op: "list", limit, ...(cursor === undefined ? {} : { cursor }) }).pipe(Effect.mapError(() => unavailable()));
+  const page = yield* (yield* TenantLimits).snapshotCapture(caller.value.tenantId, { op: "list", limit, ...(cursor === undefined ? {} : { cursor }) }).pipe(Effect.mapError(unavailable));
   if (page.state !== "page") return yield* Effect.fail(unavailable());
   const items = yield* Effect.forEach(page.items, (record) => name(record.intent.id, (snapshot) => authorizedSnapshotCapture(caller, snapshot).pipe(
     Effect.flatMap((proof) => status(caller, snapshot, proof)), Effect.catchTag("NotFound", () => Effect.succeed(null)))), { concurrency: 4 });

@@ -28,25 +28,39 @@ export interface NativeDialPermit {
   readonly authorityVersion: string
   readonly grantExpiresAt: number | null
 }
-type Failure = { readonly ok: false; readonly code: string; readonly message: string }
+type Failure = { readonly ok: false; readonly code: string; readonly message: string; readonly details?: { readonly reason: NativeDialRefusal } }
 export type NativeDialReply = { readonly ok: true; readonly permit: NativeDialPermit } | Failure
-const forbidden = (): Failure => ({ ok: false, code: "auth.forbidden", message: "the current client network policy does not authorize this dial" })
+/**
+ * The check that refused a dial, in details.reason. It names only the caller's own install, host and
+ * request (never another member's state), so a client or the Cloud journey can say which step is missing.
+ */
+export type NativeDialRefusal =
+  | "principal" | "team" | "install_revoked" | "membership" | "host_missing" | "host_unconfirmed" | "host_grant"
+  | "origin" | "services" | "proof_missing" | "proof_invalid" | "target" | "target_mesh"
+  | "identity" | "binding_changed" | "tenant" | "vm_policy_invalid" | "vm_not_in_policy" | "vm_address" | "vm_services" | "recheck"
+const forbidden = (reason: NativeDialRefusal): Failure =>
+  ({ ok: false, code: "auth.forbidden", message: "the current client network policy does not authorize this dial", details: { reason } })
 const dialIdentity = (host: NetworkHost, own: NetworkIdentity | null, p: Principal, now: number): own is NetworkIdentity =>
   cloudClientIdentity(host, own, now) && (p.expires_at === undefined || p.expires_at > now)
     && (p.install_authority === undefined || p.install_authority === own.authority_version)
 
+type Binding = { readonly host: NetworkHost; readonly reason?: undefined } | { readonly host?: undefined; readonly reason: NativeDialRefusal }
 /** A historical confirmation is a locator. Current grant, key, membership and policy decide access. */
-const currentBinding = (d: NativeDialDeps, p: Principal) => {
+const bindingOf = (d: NativeDialDeps, p: Principal): Binding => {
   const state = d.state()
   if (p.kind !== "install" || p.agent !== undefined || !p.user || !p.install || !p.grant || p.team !== d.team
-    || !["mac", "ios", "cli"].includes(p.install_kind ?? "") || state.team?.id !== d.team
-    || state.team.deleted_at !== undefined || state.server_revocations?.[p.install]
-    || !can(state, d.rows, p.user, "team.resources")) return null
+    || !["mac", "ios", "cli"].includes(p.install_kind ?? "")) return { reason: "principal" }
+  if (state.team?.id !== d.team || state.team.deleted_at !== undefined) return { reason: "team" }
+  if (state.server_revocations?.[p.install]) return { reason: "install_revoked" }
+  if (!can(state, d.rows, p.user, "team.resources")) return { reason: "membership" }
   const host = hostByInstall(state, d.rows, p.install)
   if (!host || host.kind === "server" || host.orphaned || host.owner_user !== p.user || host.enrolled_by !== p.install
-    || !host.wg_public_key || host.network?.state !== "confirmed" || host.network.install_grant !== p.grant) return null
-  return host
+    || !host.wg_public_key) return { reason: "host_missing" }
+  if (host.network?.state !== "confirmed") return { reason: "host_unconfirmed" }
+  if (host.network.install_grant !== p.grant) return { reason: "host_grant" }
+  return { host }
 }
+const currentBinding = (d: NativeDialDeps, p: Principal) => bindingOf(d, p).host ?? null
 
 const servicesCurrent = (d: NativeDialDeps, services: ReadonlyArray<string>): boolean => {
   const allowed = d.allowed()
@@ -54,16 +68,18 @@ const servicesCurrent = (d: NativeDialDeps, services: ReadonlyArray<string>): bo
     && (!services.includes("daemon") || allowed.includes("ssh"))
 }
 
-/** Reject unsupported/ambiguous projections instead of inferring a service from transport reachability. */
-const vmServices = (policy: Record<string, unknown>, target: NativeDialTarget, services: ReadonlyArray<string>): boolean => {
+/** Reject unsupported/ambiguous projections instead of inferring a service from transport reachability. Null: allowed. */
+const vmServices = (policy: Record<string, unknown>, target: NativeDialTarget, services: ReadonlyArray<string>): NativeDialRefusal | null => {
   if (!Number.isSafeInteger(policy.aclVersion) || (policy.aclVersion as number) < 0
-    || typeof policy.policyDigest !== "string" || !/^[0-9a-f]{64}$/.test(policy.policyDigest) || !Array.isArray(policy.vms)) return false
+    || typeof policy.policyDigest !== "string" || !/^[0-9a-f]{64}$/.test(policy.policyDigest) || !Array.isArray(policy.vms)) return "vm_policy_invalid"
   const entries = policy.vms.filter((entry: unknown) => entry !== null && typeof entry === "object" && (entry as { id?: unknown }).id === target.vm)
-  if (entries.length !== 1) return false
+  if (entries.length !== 1) return "vm_not_in_policy"
   const vm = entries[0] as Record<string, unknown>
-  if (vm.kind !== "vm" || vm.address !== target.network.ipv4 || !Array.isArray(vm.allow) || vm.allow.length > 4096) return false
+  if (vm.kind !== "vm" || !Array.isArray(vm.allow) || vm.allow.length > 4096) return "vm_policy_invalid"
+  if (vm.address !== target.network.ipv4) return "vm_address"
   const available = vmRuleServices(vm.allow)
-  return available !== null && services.every((service) => available.includes(service))
+  if (available === null) return "vm_policy_invalid"
+  return services.every((service) => available.includes(service)) ? null : "vm_services"
 }
 
 /** Service rules shared by the signed dial issuer and VM receiving policy. */
@@ -88,29 +104,34 @@ export const vmRuleServices = (allow: ReadonlyArray<unknown>): string[] | null =
 export const authorizeNativeDial = async (
   d: NativeDialDeps, p: Principal, target: NativeDialTarget, proof: unknown, services: ReadonlyArray<string>
 ): Promise<NativeDialReply> => {
-  const host = currentBinding(d, p), origin = networkOrigin(d.origin)
-  if (!host?.network || !origin || target.origin !== origin || !servicesCurrent(d, services) || !Schema.is(ServerNetworkProof)(proof)
-    || !Schema.is(CloudVmNetwork)(target.network) || !/^vm_[a-z0-9]{26}$/.test(target.vm)
-    || target.network.tenant !== host.network.tenant || target.network.mesh !== host.network.mesh) return forbidden()
+  const binding = bindingOf(d, p), host = binding.host, origin = networkOrigin(d.origin)
+  if (!host?.network) return forbidden(binding.reason ?? "host_unconfirmed")
+  if (!origin || target.origin !== origin) return forbidden("origin")
+  if (!servicesCurrent(d, services)) return forbidden("services")
+  if (!Schema.is(ServerNetworkProof)(proof)) return forbidden(proof === undefined || proof === null ? "proof_missing" : "proof_invalid")
+  if (!Schema.is(CloudVmNetwork)(target.network) || !/^vm_[a-z0-9]{26}$/.test(target.vm)) return forbidden("target")
+  if (target.network.tenant !== host.network.tenant || target.network.mesh !== host.network.mesh) return forbidden("target_mesh")
   // The host and membership stamp is taken before the first await; a change during any read never becomes the baseline.
   const stamp = hostStamp(d, host)
   try {
     const [tenant, own] = await Promise.all([d.tenant(), d.identity(p.user!, p.install!, p.grant!)])
     const point = pointOf(own), current = currentBinding(d, p)
-    if (!point || !current || current.id !== host.id || hostStamp(d, current) !== stamp || !dialIdentity(current, own, p, d.now())
-      || tenant?.team !== d.team || tenant.project !== d.project || tenant.tenant !== target.network.tenant) return forbidden()
+    if (!current || current.id !== host.id || hostStamp(d, current) !== stamp) return forbidden("binding_changed")
+    if (!point || !dialIdentity(current, own, p, d.now())) return forbidden("identity")
+    if (tenant?.team !== d.team || tenant.project !== d.project || tenant.tenant !== target.network.tenant) return forbidden("tenant")
     const authorityVersion = peerAuthorityVersion(d, host, own)
     const identity = { ...host.network, wg: host.wg_public_key!, point }
     const read = await verifyNetworkIdentity(d.http, origin, "device", identity, proof, d.now())
     if (!read.ok) return read
-    if (!vmServices(read.policy, target, services)) return forbidden()
+    const refused = vmServices(read.policy, target, services)
+    if (refused) return forbidden(refused)
     const permit: NativeDialPermit = {
       team: d.team, user: p.user!, install: p.install!, grant: p.grant!, host: host.id,
       tenant: identity.tenant, mesh: identity.mesh, device: identity.device, wg: identity.wg, point, origin,
       services: [...services], aclVersion: read.policy.aclVersion as number, policyDigest: read.policy.policyDigest as string,
       authorityVersion, grantExpiresAt: own.expires_at
     }
-    return await recheckNativeDial(d, p, permit) ? { ok: true, permit } : forbidden()
+    return await recheckNativeDial(d, p, permit) ? { ok: true, permit } : forbidden("recheck")
   } catch { return { ok: false, code: "owner.unreachable", message: "current network authorization is unavailable" } }
 }
 

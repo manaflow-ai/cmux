@@ -15,6 +15,7 @@ name = "cmux-host"
 path = "src/main.rs"
 
 [dependencies]
+cmux-cloud-environment.workspace = true
 cmux-json.workspace = true
 base64.workspace = true
 cmux-cloud-wire.workspace = true
@@ -33,6 +34,8 @@ serde_json.workspace = true
 # Hand-off ids (`cloud/handoff.rs`), named as the Cloud API names them.
 sha2.workspace = true
 ring.workspace = true
+# gh's hosts.yml, read for the own-login check (`github_cli::parse_gh_hosts`).
+yaml-rust = "0.4.5"
 
 [dev-dependencies]
 # The composed bootstrap journey reuses cmux-server’s signed-channel fixtures.

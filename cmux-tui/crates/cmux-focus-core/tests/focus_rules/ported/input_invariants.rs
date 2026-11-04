@@ -333,6 +333,61 @@ fn w1_to_w3_the_platform_matches_the_model() {
     );
 }
 
+/// P0 INVERSE-KEY (5fe33a327ef): a window whose focus is on its way to another
+/// tab (a creation's new tab the window does not show yet) is unsettled: the
+/// page the person left gives up the keys meanwhile, so its content checks
+/// (W1, the Chromium key window) must not file a desync for it. The Swift world
+/// check had this rule; the Rust one, which the app now calls, must have it too.
+#[test]
+fn a_window_whose_focus_waits_for_another_tab_is_unsettled() {
+    // The Chromium page b1 has the keys; the person asked for a new terminal tab
+    // s9, which no topology shows yet, and the page already gave up its keys.
+    let mut window = terminal_window();
+    window.model = focused("b1");
+    window.model.expectation = Some(Expectation {
+        key: ExpectationKey::Tab { id: "s9".into() },
+        target: Target::Content {},
+        away_from: None,
+        generation: window.model.generation,
+    });
+    window.presented = HashMap::from([("p1".into(), "b1".into())]);
+    window.responder = Responder::WindowOrNone {};
+    window.responder_class = None;
+    window.ghostty_focused = Vec::new();
+    window.child_page = None;
+    let result = world(&observe(window.clone()));
+    assert_eq!(result.unsettled, ["w1".to_owned()]);
+    assert!(
+        !ids(&result.violations).contains(&Invariant::ResponderMatches),
+        "{:?}",
+        result.violations
+    );
+    // The same window with no wait is settled, and its responder is checked.
+    window.model.expectation = None;
+    let result = world(&observe(window));
+    assert!(result.unsettled.is_empty());
+    assert!(
+        ids(&result.violations).contains(&Invariant::ResponderMatches),
+        "{:?}",
+        result.violations
+    );
+}
+
+/// An expectation for the tab the focus already shows is no wait for another tab.
+#[test]
+fn a_wait_for_the_focused_tab_is_settled() {
+    let mut window = terminal_window();
+    window.model.expectation = Some(Expectation {
+        key: ExpectationKey::Tab { id: "t1".into() },
+        target: Target::Content {},
+        away_from: None,
+        generation: window.model.generation,
+    });
+    let result = world(&observe(window));
+    assert!(result.unsettled.is_empty());
+    assert_eq!(ids(&result.violations), []);
+}
+
 #[test]
 fn w8_and_settle_every_shown_pane_shows_its_selection() {
     let mut window = terminal_window();

@@ -210,7 +210,7 @@ test("the attach asks for no extra kind: the transcript stream carries it live",
   expect(attachParams.kinds).not.toContain("prompt_suggestion");
 });
 
-test("the mock chat with a suggestion (?mock) offers the Prompt suggestions option and pages none", async () => {
+test("the mock chat with a suggestion (?mock) carries acpmux's Prompt suggestions option and pages none", async () => {
   const scene = mockSessions.find((session) => session.sessionId === PROMPT_SUGGESTION_SESSION)!;
   expect(scene.suggestion).toBe(PROMPT_SUGGESTION);
   expect(scene.extraOptions?.map((option) => option.id)).toEqual(["prompt-suggestions"]);

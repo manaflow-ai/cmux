@@ -43,16 +43,28 @@ impl std::fmt::Display for Mismatch {
 
 impl std::error::Error for Mismatch {}
 
-fn path_of(local: &Path, remote_root: &str) -> anyhow::Result<PathBuf> {
-    let Some(state) = cmux_tui_core::platform::workspace_state_dir() else {
-        bail!("this Mac has no state folder to keep the sync record in");
-    };
+/// The name this Mac keeps `local` synced to `remote_root` under: the
+/// SHA-256 of the folder, a NUL and the machine folder.
+pub(super) fn key(local: &Path, remote_root: &str) -> String {
     let mut key = Sha256::new();
     key.update(local.as_os_str().as_encoded_bytes());
     key.update([0]);
     key.update(remote_root.as_bytes());
-    let name: String = key.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+    key.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn path_of(local: &Path, remote_root: &str) -> anyhow::Result<PathBuf> {
+    let Some(state) = cmux_tui_core::platform::workspace_state_dir() else {
+        bail!("this Mac has no state folder to keep the sync record in");
+    };
+    let name = key(local, remote_root);
     Ok(state.join("link-sync").join(format!("{name}.json")))
+}
+
+/// The folder this Mac keeps the packs a push of `local` to `remote_root`
+/// made in ([`super::packs`]): next to the record, as `<...>.packs`.
+pub(super) fn packs_dir(local: &Path, remote_root: &str) -> anyhow::Result<PathBuf> {
+    Ok(path_of(local, remote_root)?.with_extension("packs"))
 }
 
 /// Keeps `manifest` as the base of `local` synced to `remote_root`.

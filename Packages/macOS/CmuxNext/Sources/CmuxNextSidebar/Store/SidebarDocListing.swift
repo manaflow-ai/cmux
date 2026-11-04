@@ -72,7 +72,29 @@ extension SidebarDocProjection {
         let at = arranged.firstIndex { $0.machine != nil } ?? arranged.count
         arranged.insert(contentsOf: before, at: at)
         arranged += after
-        return Self.markingArchived(Self.withMemberItems(arranged, projection, drag: drag), projection, drag: drag)
+        let marked = Self.markingArchived(Self.withMemberItems(arranged, projection, drag: drag), projection, drag: drag)
+        return Self.sortingGroups(marked, projection, drag: drag)
+    }
+
+    /// `sections` with each sorted group's workspaces in its sort (`SidebarGroupSort`); its links, tabs and
+    /// apps follow the workspace they follow. The document keeps its order: Manual lists it again.
+    @MainActor private static func sortingGroups(_ sections: [SidebarSection], _ projection: SidebarDocProjection,
+                                                 drag: SidebarDocDrag) -> [SidebarSection] {
+        let pinned = projection.pinnedInGroup
+        return sections.map { section in
+            var section = section
+            section.nodes = section.nodes.map { node in
+                guard case .group(var group) = node else { return node }
+                // Every group, manual too: a list arranged before (a fold) may carry an old sort.
+                group.sort = projection.groupSorts[group.id.rawValue] ?? .manual
+                guard group.sort != .manual else { return .group(group) }
+                group.workspaces = group.sort.ordered(group.workspaces) { workspace in
+                    drag.item(.workspace(workspace.id)).map { pinned.contains($0) } ?? false
+                }
+                return .group(group)
+            }
+            return section
+        }
     }
 
     /// `sections` with each archived row marked (`isArchived`): it draws dimmed (archiving-DESIGN.md); and each

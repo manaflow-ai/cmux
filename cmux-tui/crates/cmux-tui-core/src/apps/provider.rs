@@ -65,6 +65,8 @@ pub const FAMILIES: &[&str] = &[
     // from the agent memory index (`optchat-chief agent-memory`).
     "memory",
     "credential",
+    // `toast.show` (`cmux.toast`), shown by the Mac app's toast presenter.
+    "toast",
 ];
 
 /// Ops that wait for the user (a file panel) get the long deadline.

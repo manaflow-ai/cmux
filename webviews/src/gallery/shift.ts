@@ -15,10 +15,10 @@
 //   - the step's target, its ancestors and descendants (the tool row that expands);
 //   - a box after the target in document order that moves straight down: the expansion pushes it;
 //   - a box before the target that moves straight up while the target's transcript row opens at the
-//     very bottom (`BOTTOM_FOLD`, set by the transcript for the length of that fold): there the
-//     opening pushes the text above up by design (Leo, 2026-11-02: "YOU EXPAND UP WHILE YOUR SCCROLL
-//     IS AT THE VERY BOTTOM AKA YOU ... PUSH THE TEXT UP VISUALLY INSTEAD OF EXPANDING DOWN LIKE
-//     USUAL / JUST THAT CASE", #32644). Anywhere else a row rising is still a shift;
+//     very bottom (`BOTTOM_FOLD`, `data-bottom-stack-fold`, set by the transcript for the length of
+//     that fold): there the opening pushes the text above up by design (Leo, 2026-11-02: "YOU
+//     EXPAND UP WHILE YOUR SCCROLL IS AT THE VERY BOTTOM AKA YOU ... PUSH THE TEXT UP VISUALLY
+//     INSTEAD OF EXPANDING DOWN LIKE USUAL / JUST THAT CASE", #32644). Anywhere else a row rising is still a shift;
 //   - a box's first move after a resize (`firstMoveFree`): the new width lays it out once; a second
 //     move is the bounce a sidebar toggle must not have;
 //   - moves under half a CSS px (layout rounding), and boxes outside the viewport.
@@ -36,8 +36,9 @@ export type BoxFrame = Map<number, BoxSample>;
 export type BoxMove = { label: string; frame: number; dx: number; dy: number };
 export type BoxShift = { score: number; moves: BoxMove[] };
 
-/** The transcript row that is opening at the very bottom, so the text above it rises (App.tsx). */
-export const BOTTOM_FOLD = "[data-bottom-fold]";
+/** The transcript row that is opening or closing at the very bottom, so the text above it rises or
+ *  falls (App.tsx `beginBottomStackFold`, `data-bottom-stack-fold`, set for every bottom stack). */
+export const BOTTOM_FOLD = "[data-bottom-stack-fold]";
 
 /** Frames a box must hold still before its moves count. */
 export const REST_FRAMES = 2;

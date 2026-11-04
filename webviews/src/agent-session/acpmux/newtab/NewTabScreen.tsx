@@ -6,8 +6,10 @@ import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
+import type { CloudMachine } from "../cloudMachines";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
+import { acpmuxPerf } from "../perf";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
@@ -264,6 +266,7 @@ type Props = NewTabScreenActions & {
   /// can copy it (cloud.startChat copies only the pane's own folders, AgentPaneHandOff), while the
   /// Return that sends keeps its own gesture for the start.
   onProjectPicked?(cwd: string): void;
+  onCloudMachinePicked?(machine: CloudMachine | undefined): void;
   /// true until this page's daemon connection has listed the chats (`listedSessions`), while no
   /// chat is known: the recent project may still come, so the folder chip holds its place.
   chatsPending?: boolean;
@@ -606,6 +609,11 @@ export function NewTabScreen(props: Props) {
   const envFolder = none
     ? undefined
     : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // The start the folder chip shows (none, holding its place, or a folder), first frame to final
+  // (perf.ts noteStartState, read by scripts/cmux-next/new-pane-start-state-bench.py).
+  const startShown = none ? "none" : projectPending ? "pending" : (askFolder ?? "");
+  // Every commit, a string compare: an adopt that keeps the screen mounted is measured again too.
+  useEffect(() => acpmuxPerf.noteStartState(`newTab:${startShown}`));
   // Cloud copies a folder on this Mac (cloudRun.ts): picking it drops a saved environment or a
   // machine picked before, so the folder it sends is the one the chip names.
   const runMode = props.runMode && {
@@ -1439,6 +1447,9 @@ export function NewTabScreen(props: Props) {
   const pickProject = (cwd?: string) => {
     projectChoice.current += 1;
     setBrowseError(undefined);
+    // A folder choice starts this draft on this Mac. Drop any account Cloud target selected
+    // earlier so the next keystroke cannot wake that stale machine.
+    props.onCloudMachinePicked?.(undefined);
     // A folder picked anywhere on the page (a widget card's project) replaces a saved environment,
     // and is on this Mac.
     saved.pick(undefined);
@@ -1459,6 +1470,8 @@ export function NewTabScreen(props: Props) {
     // A newer choice than any worktree still on its way (`projectChoice`).
     projectChoice.current += 1;
     setBrowseError(undefined);
+    // Choosing a local or SSH machine replaces an account Cloud target for this draft.
+    props.onCloudMachinePicked?.(undefined);
     saved.pick(undefined);
     touch();
     // A machine picked with a folder there (the location row picks its first known folder) is a
@@ -1639,6 +1652,7 @@ export function NewTabScreen(props: Props) {
         {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
         {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
+        {...(props.onCloudMachinePicked ? { onCloudMachinePicked: props.onCloudMachinePicked } : {})}
         {...(props.machineName ? { localName: props.machineName } : {})}
         projectChoices={props.projects ?? []}
         onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}
@@ -1659,6 +1673,8 @@ export function NewTabScreen(props: Props) {
                   projectChoice.current += 1;
                   setBrowseError(undefined);
                   touch();
+                  // Saved environments are local/SSH destinations, never account Cloud machines.
+                  props.onCloudMachinePicked?.(undefined);
                   // A local one starts on this Mac: a machine picked before is no longer where.
                   if (saved.list.find((other) => other.id === id)?.kind === "local") setMachine(undefined);
                   saved.pick(id);
@@ -1667,6 +1683,7 @@ export function NewTabScreen(props: Props) {
                 onClear: () => {
                   projectChoice.current += 1;
                   setBrowseError(undefined);
+                  props.onCloudMachinePicked?.(undefined);
                   saved.pick(undefined);
                 },
                 onCreate: () => saved.edit(null),
@@ -1700,7 +1717,10 @@ export function NewTabScreen(props: Props) {
       machines={sshMachines}
       machineFolders={machineFolders}
       {...(props.onConnect ? { onConnectSSH: () => props.onConnect!("ssh") } : {})}
-      onSave={saved.save}
+      onSave={async (draft) => {
+        await saved.save(draft);
+        props.onCloudMachinePicked?.(undefined);
+      }}
       onRemove={saved.remove}
       onClose={() => {
         saved.edit(undefined);
@@ -1819,6 +1839,7 @@ export function NewTabScreen(props: Props) {
       <div
         ref={setComposer}
         className="nt-composer"
+        data-cloud-starting={props.cloudStarting === true ? "true" : undefined}
         data-composer-look={look === "codex" ? "codex" : undefined}
         data-trailing-gap={trailingGap}
         data-attachment-view={attachmentView}

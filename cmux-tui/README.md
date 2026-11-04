@@ -122,3 +122,17 @@ cargo build -p cmux-tui
 python3 scripts/smoke-tui.py
 python3 scripts/smoke-attach.py
 ```
+
+### Try a CLI change without an app build
+
+A cmux-tui change needs no new app, DEV build or nightly. Run the binary you built straight from your
+checkout (`./target/debug/cmux-tui link sync push ...`, or `cargo run -p cmux-tui -- ...`). To make the
+installed cmux NEXT use it too, for its own CLI calls (Start Chat in Cloud, Move to Cloud, Bring Back Local,
+machine IO, Automations) and as its daemon, point `CMUX_NEXT_TUI_BIN` at it and restart the app:
+
+```bash
+cargo build -p cmux-tui
+launchctl setenv CMUX_NEXT_TUI_BIN "$PWD/target/debug/cmux-tui"
+# Quit cmux NEXT and open it again. To go back to the bundled binary:
+# launchctl unsetenv CMUX_NEXT_TUI_BIN, then restart the app.
+```

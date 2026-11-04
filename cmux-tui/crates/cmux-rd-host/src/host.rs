@@ -69,6 +69,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         upstream_record_max_bytes: opts
             .num_or::<u64>("upstream-record-max-mb", 1024)?
             .saturating_mul(1 << 20),
+        frames_in_flight: 1,
         max_width: opts
             .get("max-width")
             .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))

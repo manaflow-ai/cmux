@@ -93,7 +93,7 @@ extension ControlMethod {
         let detail: JSONValue? = refusal.detail.map { ["detail": .string($0)] }
         let message: String = switch refusal.code {
         case "not_signed_in":
-            ControlStrings.text("control.authToken.notSignedIn", "Sign in to cmux in the cmux app first.")
+            ControlStrings.text("control.authToken.notSignedIn", "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.")
         case "no_team":
             ControlStrings.text("control.authToken.noTeam", "Choose a cmux team in the cmux app first, or pass --team.")
         case "invalid_params":

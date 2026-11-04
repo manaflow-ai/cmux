@@ -190,7 +190,7 @@ pub fn verdict(
             if !(allow || bundled(exe) || why == Unstable::Temp && verified_clone) =>
         {
             Verdict::Refuse(format!(
-                "{line}. Refused for {}: install acpmux (`acpmux host setup HOST` from another machine, \
+                "{line}. Refused for {}: install acpmux (`acpmux machine setup HOST` from another machine, \
              or copy it to ~/.local/bin/acpmux) and run that, give this one its own ACPMUX_HOME, \
              or set {ALLOW_ENV}=1",
                 home.display()

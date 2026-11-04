@@ -97,6 +97,25 @@ describe("hover wave model", () => {
       expect(zipSettled(motions, 1000 + ZIP_MS)).toBe(true);
     });
 
+    test("a sweep keeps the bump whole: the rows ahead of the pointer grow as fast as it arrives", () => {
+      // Leo, 2026-11-04: "the missing chunks of the wave bother me". A sweep down a row every 16 ms:
+      // each frame, the hovered row's neighbours on both sides are already most of their way up, so no
+      // hole opens between the hovered tick and the rows it moves onto.
+      const motions = new Map<number, ZipMotion>();
+      const frame = 1000 / 60;
+      let now = 0;
+      for (let row = 10; row <= 30; row += 1, now += frame) {
+        zipRetarget(motions, row, 60, now);
+        const values = zipStep(motions, row, now + frame);
+        // One frame in, the row ahead has at least half its length (0.7) and the next at least a third
+        // of its (0.4): over ZIP_MS they had 30% and 18%.
+        expect(values.get(row + 1)!).toBeGreaterThan(0.7 * 0.5);
+        expect(values.get(row + 2)!).toBeGreaterThan(0.4 * 0.33);
+        // Shrinking ticks behind the pointer keep the zipper's tail and never outgrow the hovered one.
+        for (const [index, value] of values) if (index !== row) expect(value).toBeLessThan(values.get(row)!);
+      }
+    });
+
     test("a tick already heading to its target keeps its own motion", () => {
       const motions = new Map<number, ZipMotion>();
       zipRetarget(motions, 10, 30, 0);
@@ -114,7 +133,8 @@ describe("hover wave model", () => {
       const motions = new Map<number, ZipMotion>();
       zipRetarget(motions, 10, 30, 0);
       expect(motions.get(10)!.ms).toBe(ZIP_HOVER_MS);
-      expect(motions.get(11)!.ms).toBe(ZIP_MS);
+      // Its neighbours grow over the same quick step; only shrinking ticks take ZIP_MS.
+      expect(motions.get(11)!.ms).toBe(ZIP_HOVER_MS);
       zipStep(motions, 10, 1000);
       zipRetarget(motions, undefined, 30, 1000);
       for (const motion of motions.values()) expect(motion).toMatchObject({ to: 0, ms: ZIP_RELEASE_MS });

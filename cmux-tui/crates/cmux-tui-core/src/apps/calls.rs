@@ -76,7 +76,7 @@ impl Supervisor {
         // action.run: the inner action decides (refused classes, gesture).
         let mut view_op = needs_gesture(&op);
         if op == "action.run" {
-            match actions::decide(params.get("id").and_then(Value::as_str)) {
+            match actions::decide_for(&key.app, params.get("id").and_then(Value::as_str)) {
                 ActionDecision::Unknown => {
                     return reject(error(
                         "operation.unsupported",

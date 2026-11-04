@@ -346,6 +346,26 @@ export default agentPaneEntry({
         summary(2.5, { status: "completed" }),
       ]),
     },
+    "message-after-list": {
+      note: "A message to a sub-session whose chat has left the session list: the row names it from the call that started it (perf-audit), never its bare id; the id stays in the call's Raw.",
+      snapshot: withChildren([
+        user("Start a perf audit lane, then tell it to look at the transcript first.", 4),
+        activity([started("perf-audit", "sub-perf-audit-7f3a9c2e41d0")], 3.9),
+        assistant("Started perf-audit.", 3.85),
+        activity(
+          [
+            sent(
+              "sub-perf-audit-7f3a9c2e41d0",
+              "Start with the transcript's scroll.",
+              "Sent: it started a turn with it.",
+            ),
+          ],
+          3.5,
+        ),
+        assistant("Sent.", 3.4),
+        summary(3.4, { status: "completed" }),
+      ]),
+    },
     replies: {
       note: "A wait's result: lint's reply (its first lines), docs still waiting on its question, and tests still running when the wait timed out.",
       snapshot: withChildren([

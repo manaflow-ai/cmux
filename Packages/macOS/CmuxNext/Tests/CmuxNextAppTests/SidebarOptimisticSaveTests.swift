@@ -156,8 +156,9 @@ struct SidebarOptimisticSaveTests {
         await launched.stop()
     }
 
-    /// Group rename on the personal path already held as a pending edit; its failed save now also says so.
-    @Test func groupRenameRollsBackWithAnError() async throws {
+    /// Group rename on the personal path, with no daemon to answer: an unanswered save is not a refusal, so the new
+    /// name stays and no error shows while it is sent again (Leo, 2026-11-03: "THEN WE UNDO IT!!! WHICH IS BAD!!!").
+    @Test func groupRenameWithNoAnswerKeepsTheNameAndShowsNoError() async throws {
         let window = try Self.window()
         let bridge = window.bridge
         let group = try #require(bridge.model.sections.flatMap(\.nodes).compactMap { node -> GroupID? in
@@ -166,9 +167,10 @@ struct SidebarOptimisticSaveTests {
         bridge.handle(.renameGroup(group, "Renamed"))
         bridge.resync()
         #expect(Self.groups(bridge) == ["Renamed"], "Rename did not hold through a recompute")
-        await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !window.notices.shown.isEmpty }
-        #expect(Self.groups(bridge) == ["Work"], "the name stayed after its save failed")
-        #expect(window.notices.shown.count == 1, "the failed rename showed no error: \(window.notices.shown)")
+        await RapidWorkspaceCreateTests.wait(within: .seconds(3)) { !window.notices.shown.isEmpty }
+        bridge.resync()
+        #expect(Self.groups(bridge) == ["Renamed"], "an unanswered save undid the rename")
+        #expect(window.notices.shown.isEmpty, "an unanswered save showed an error: \(window.notices.shown)")
         withExtendedLifetime(window.state) {}
     }
 }

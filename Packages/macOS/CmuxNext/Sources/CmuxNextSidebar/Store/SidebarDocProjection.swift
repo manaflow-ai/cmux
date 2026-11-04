@@ -104,8 +104,10 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
     public var hostGroups: Set<String> = []
     /// The items whose rows draw archived: archived, or under an archived group (archiving-DESIGN.md).
     public var archived: Set<String> = []
-    /// The group members pinned inside their group (`extra.pinned`, pinning-DESIGN.md): their rows draw
-    /// `sidebar.groupPinMark`.
+    /// Each group's sort other than manual, by group item (the group editor's Sort).
+    public var groupSorts: [String: SidebarGroupSort] = [:]
+    /// The group members pinned inside their group (`extra.pinned`, pinning-DESIGN.md): a sorted group keeps
+    /// them first, and their rows draw `sidebar.groupPinMark`.
     public var pinnedInGroup: Set<String> = []
 
     /// What `arrange` marks on rows beyond their order: a change here redraws rows that did not move.
@@ -127,11 +129,10 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         var sectionIndex: [String: Int] = [:]
         var bandGroups: [Group] = []
         var machineOrder: [String] = []
-        var archivedItems: Set<String> = [], pinnedMembers: Set<String> = []
+        var archivedItems: Set<String> = []
 
         for row in rows {
             if row.archived, let id = row.item { archivedItems.insert(id) }
-            if let id = row.item, records.items[id]?.pinnedInGroup == true { pinnedMembers.insert(id) }
             // A live machine without a stored section yet (`sec_m_<session>`) still lists, unplaced.
             let record = records.sections[row.section]
                 ?? SidebarDocSection(id: row.section, kind: .machine(session: row.ref?.sessionID ?? SidebarDocWire.Section.session(fromID: row.section)))
@@ -187,8 +188,11 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         self.unplaced = unplaced
         self.bandGroups = bandGroups
         archived = archivedItems
-        pinnedInGroup = pinnedMembers
         hostGroups = Set(records.sections.values.filter(\.hostGroup).map(\.id))
+        for item in records.items.values {
+            if item.sort != .manual, item.body.isGroup { groupSorts[item.id] = item.sort }
+            if item.pinnedInGroup { pinnedInGroup.insert(item.id) }
+        }
     }
 
     private static func place(_ row: SidebarDocRow, session: String, records: SidebarDocRecords, into machines: inout SidebarDocMachineNodes,

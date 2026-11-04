@@ -68,7 +68,7 @@ public nonisolated struct AcpmuxPeerList: Sendable {
 
     public init(socketPath: String) { self.socketPath = socketPath }
 
-    @concurrent public func peers(deadline: Duration = .seconds(2)) async throws -> [Peer] {
+    @concurrent public func peers(deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> [Peer] {
         let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/peers", deadline: deadline)
         return Self.peers(result)
     }

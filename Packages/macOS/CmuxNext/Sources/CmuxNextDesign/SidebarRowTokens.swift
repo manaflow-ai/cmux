@@ -48,6 +48,13 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     public var extraHeight: CGFloat { (isComfortable ? base.space2 : 0) + textSize.rowStep }
     /// A one-line workspace row, group header or band row.
     public var rowHeight: CGFloat { base.rowHeight + extraHeight }
+    /// The tokens of the bands above the list (Home, pinned rows) and of the workspace hover card: at
+    /// Expanded, Comfortable's, since Expanded keeps the app's one-line row and grows only the list's
+    /// workspace rows by a detail line (pinned rows were too short, Lawrence 2026-11-04). Compact and
+    /// Comfortable keep their own.
+    public var band: SidebarRowTokens {
+        density == .expanded ? SidebarRowTokens(density: .comfortable, textSize: textSize, base: base) : self
+    }
     /// Rows inset from the sidebar edge, and their content from the row edge.
     public var horizontalInset: CGFloat { isComfortable ? base.space4 : base.space3 }
     /// A row title's and a detail line's text size.

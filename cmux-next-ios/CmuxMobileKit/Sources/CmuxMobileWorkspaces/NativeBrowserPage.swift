@@ -67,6 +67,9 @@ struct NativeBrowserPage: View {
                         .accessibilityIdentifier("browser.native.mirror")
                 }
             }
+            // Both actions are capsules of one height, whatever the title length.
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
             .padding(.top, 4)
         }
         .padding(24)

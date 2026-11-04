@@ -13,7 +13,7 @@ use std::sync::{Arc, Condvar, Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 
 /// How long a host may take to answer a translator query.
-pub const QUERY_BUDGET: Duration = Duration::from_secs(5);
+pub const QUERY_BUDGET: Duration = crate::rpc::ANSWER_WAIT;
 
 /// A wait on an agent host ran past its deadline.
 #[derive(Debug, Clone, PartialEq, Eq)]

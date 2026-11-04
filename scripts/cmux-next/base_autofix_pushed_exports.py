@@ -50,6 +50,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from collections import OrderedDict
 from pathlib import Path
 
 SCHEMA = "cmux-next-base-autofix-exports/v1"
@@ -67,6 +68,10 @@ UPLOAD_STEP = "Upload the exports for the base autofix"
 ACTION_EXPORTS = ("plans/cmux-next/action-surfaces.json", "plans/cmux-next/actions.md", "plans/cmux-next/links.json")
 OID = re.compile(r"^[0-9a-f]{40}$")
 MAX_JSON_BYTES = 8 * 1024**2
+# Only this lookup's validated REST bodies, never persisted or shared between tokens/jobs. Eviction
+# merely makes the next read unconditional; every retained response is revalidated before reuse.
+JSON_CACHE_BYTES = MAX_JSON_BYTES
+JSON_CACHE_ENTRIES = 32
 MAX_PACK_BYTES = 64 * 1024**2
 # cmux-next.yml's base tier dispatch (cmux-next-base-tier-kick.yml): a feat-cmux-next push leaves its
 # generated files and daemon tests to one such run on the tip at most every 15 minutes, named after the
@@ -138,6 +143,8 @@ class Api:
 
     def __init__(self, token: str, repo: str, base: str, deadline: float):
         self.token, self.repo, self.base, self.deadline = token, repo, base.rstrip("/"), deadline
+        self._json_cache: OrderedDict[str, tuple[str, bytes]] = OrderedDict()
+        self._json_cache_bytes = 0
 
     def left(self) -> float:
         return self.deadline - time.monotonic()
@@ -146,20 +153,42 @@ class Api:
         time.sleep(max(0.0, min(seconds, self.left())))
 
     def json(self, path: str) -> dict:
-        request = urllib.request.Request(f"{self.base}/repos/{self.repo}/{path}", headers={
+        cached = self._json_cache.get(path)
+        headers = {
             "Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28"})
+            "X-GitHub-Api-Version": "2022-11-28"}
+        if cached:
+            headers["If-None-Match"] = cached[0]
+        request = urllib.request.Request(f"{self.base}/repos/{self.repo}/{path}", headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
                 body = response.read(MAX_JSON_BYTES + 1)
+                etag = response.headers.get("ETag")
+        except urllib.error.HTTPError as error:
+            error.close()
+            if error.code == 304 and cached:
+                self._json_cache.move_to_end(path)
+                # Parse anew so a caller's mutation cannot change the retained server response.
+                return json.loads(cached[1])
+            raise Miss(f"GET {path.split('?')[0]} failed: {error}") from error
         except (OSError, urllib.error.URLError) as error:
             raise Miss(f"GET {path.split('?')[0]} failed: {error}") from error
         if len(body) > MAX_JSON_BYTES:
             raise Miss(f"GET {path.split('?')[0]} answered over {MAX_JSON_BYTES} bytes")
         try:
-            return json.loads(body.decode())
+            parsed = json.loads(body.decode())
         except ValueError as error:
             raise Miss(f"GET {path.split('?')[0]} answered no JSON: {error}") from error
+        previous = self._json_cache.pop(path, None)
+        if previous:
+            self._json_cache_bytes -= len(previous[1])
+        if etag and len(body) <= JSON_CACHE_BYTES:
+            self._json_cache[path] = (etag, body)
+            self._json_cache_bytes += len(body)
+            while len(self._json_cache) > JSON_CACHE_ENTRIES or self._json_cache_bytes > JSON_CACHE_BYTES:
+                _, (_, evicted) = self._json_cache.popitem(last=False)
+                self._json_cache_bytes -= len(evicted)
+        return parsed
 
     def download(self, url: str, dest: Path) -> None:
         # curl, not urllib: the artifact URL redirects to blob storage, which refuses the GitHub

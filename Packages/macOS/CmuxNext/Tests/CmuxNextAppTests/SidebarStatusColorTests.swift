@@ -14,12 +14,14 @@ import Testing
     enum Meaning: String, CustomStringConvertible {
         case unread, attention, error
         var description: String { rawValue }
-        /// The one system color this meaning draws in.
+        /// The one color this meaning draws in: its system color's hue at 3:1 on the theme's rows
+        /// (c0230efd501, user 2026-11-03: "we need to make sure every single theme, all the UI elements
+        /// are colored properly"), read in the scope that draws it.
         var color: NSColor {
             switch self {
-            case .unread: .systemBlue
-            case .attention: .systemOrange
-            case .error: .systemRed
+            case .unread: Palette.statusUnread
+            case .attention: Palette.statusAttention
+            case .error: Palette.statusError
             }
         }
     }
@@ -134,9 +136,9 @@ import Testing
         return found
     }
 
-    static func matches(_ ink: NSColor, _ meaning: Meaning, appearance: NSAppearance) -> Bool {
+    static func matches(_ ink: NSColor, _ meaning: Meaning, in view: NSView, appearance: NSAppearance) -> Bool {
         var expected: NSColor?
-        appearance.performAsCurrentDrawingAppearance { expected = meaning.color.usingColorSpace(.sRGB) }
+        appearance.performAsCurrentDrawingAppearance { expected = view.performWithTheme { meaning.color }.usingColorSpace(.sRGB) }
         guard let expected else { return false }
         return abs(ink.redComponent - expected.redComponent) < 0.02 && abs(ink.greenComponent - expected.greenComponent) < 0.02
             && abs(ink.blueComponent - expected.blueComponent) < 0.02
@@ -171,7 +173,7 @@ import Testing
             print("STATUSCOLOR|\(label)|\(name)|want \(meaning)|\(inks.map { String(format: "%.3f,%.3f,%.3f", $0.redComponent, $0.greenComponent, $0.blueComponent) })")
             #expect(inks.count == 1, "\(label) \(name): \(inks.count) status glyphs, want one")
             for ink in inks {
-                #expect(Self.matches(ink, meaning, appearance: appearance), "\(label) \(name): draws \(ink), want \(meaning) (\(meaning.color))")
+                #expect(Self.matches(ink, meaning, in: row, appearance: appearance), "\(label) \(name): draws \(ink), want \(meaning)")
             }
         }
     }
