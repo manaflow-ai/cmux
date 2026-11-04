@@ -498,6 +498,17 @@ export function loginBearer(provider: "claude" | "codex", value: string): string
 const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
+/** The ids of `cloud list-machines --json` rows that are not deleted. */
+export function machineIds(rows: any[]): string[] {
+  return rows.filter((m) => m && m.status !== "deleted").map((m) => String(m.id ?? m.machine_id ?? "")).filter(Boolean);
+}
+
+/** The ids in `after` that `before` lacks. */
+export function newMachineIds(before: string[], after: string[]): string[] {
+  const seen = new Set(before);
+  return [...new Set(after.filter((id) => !seen.has(id)))];
+}
+
 /**
  * --app-cli PATH: the commands a person runs, through a NEXT build's own CLI (cmux#35086). The `cloud`
  * verbs go to that app's control socket (--socket PATH or CMUX_SOCKET_PATH), so the app must be running
@@ -522,16 +533,19 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
     return r;
   };
   const where = (j: any) => j?.api_base_url ?? j?.backend ?? j?.api ?? j?.origin ?? j?.host ?? "app";
-  // A plain name (CloudMachineRequest.isPlainName refuses spaces), unique to this run, so a create that
-  // answered `pending` without an id can still be found and deleted.
-  const appName = `journey-${J.meta.tag}`;
-  const findByName = async (): Promise<string | null> => {
+  // The backend refuses a create with a name ("can't create a machine with a size, idle pause, name or
+  // bootstrap yet"), so the create takes no flags, and a `pending` answer (no id) names nothing this run
+  // could match. Only the id the create answered is ever deleted; after a `pending` answer the machines
+  // that appeared since the create are named for a person to check, never deleted (another create in the
+  // same account may be one of them).
+  // null when the list could not be read (exit code, or the app's list not loaded yet): never diffed as empty.
+  const listIds = (): string[] | null => {
     const r = run(["cloud", "list-machines", "--json"], 60_000);
-    const rows: any[] = r.json?.machines ?? r.json?.items ?? (Array.isArray(r.json) ? r.json : []);
-    // `cloud list-machines --json` rows carry `title` (the app's CloudMachine), the API's `name`.
-    const row = rows.find((m) => (m?.title ?? m?.name) === appName && m.status !== "deleted");
-    return row ? String(row.id ?? row.machine_id) : null;
+    if (r.code !== 0 || r.json?.loaded === false) return null;
+    return machineIds(r.json?.machines ?? r.json?.items ?? (Array.isArray(r.json) ? r.json : []));
   };
+  let before: string[] | null = null;
+  let createRan = false;
   let machine: string | null = null;
   try {
     await J.step("app cli: signed in (cloud list-machines)", async () => {
@@ -544,9 +558,11 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
       return { value: null, detail: `issuer ${where(r.json)}` };
     });
     machine = await J.step("app cli: cloud new-machine", async () => {
-      const r = must("cloud new-machine", run(["cloud", "new-machine", "--name", appName, "--json"], 600_000));
-      const id = r.json?.machine_id ?? r.json?.machine?.id ?? r.json?.id ?? (await findByName());
-      if (!id) throw new Error(`no machine id in ${short(r.json)}`);
+      before = listIds();
+      createRan = true;
+      const r = must("cloud new-machine", run(["cloud", "new-machine", "--json"], 600_000));
+      const id = r.json?.machine_id ?? r.json?.machine?.id ?? r.json?.id;
+      if (!id) throw new Error(`no machine id in ${short(r.json)}${r.json?.status === "creating" ? " (pending: the create goes on; this run deletes nothing it did not get an id for)" : ""}`);
       return { value: String(id), detail: `${id} via ${where(r.json)}` };
     });
     const target = `machine:${machine}`;
@@ -572,8 +588,17 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
       return { value: null, detail: reply.slice(0, 280) };
     });
   } finally {
-    // Creation continues after a `pending` answer: look for the machine by name for a bounded while.
-    for (let t0 = Date.now(); !machine && Date.now() - t0 < 180_000; await sleep(5000)) machine = await findByName();
+    if (!machine && createRan) {
+      const prior = before as string[] | null; // set inside the create step's closure
+      await J.step("app cli: no machine id to delete", async () => {
+        const after = listIds();
+        if (!prior || !after) throw new Error(`the machine list could not be read ${prior ? "after" : "before"} the create; check the account's machines by hand`);
+        const fresh = newMachineIds(prior, after);
+        throw new Error(fresh.length
+          ? `machines new since the create, not deleted (another create may own one): ${fresh.join(", ")}`
+          : "no machine is new since the create");
+      }).catch(() => undefined);
+    }
     if (machine) {
       const id = machine;
       await J.step("app cli: cloud kill-machine", async () => {
