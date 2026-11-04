@@ -46,6 +46,7 @@ impl RemoteGate for FsGate {
     fn admit(&self, _peer: &RemotePeer, frame: &str) -> bool {
         frame_command(frame).is_some()
             || crate::git_seed::frame_command(frame).is_some()
+            || crate::blob_fetch::frame_command(frame).is_some()
             || crate::cloud_repos::frame_command(frame).is_some_and(|cmd| {
                 !matches!(cmd.as_str(), "cloud.repo.local" | "cloud.repo.remember")
             })
@@ -68,6 +69,14 @@ pub(super) fn try_handle(
         // and writes under the same roots.
         let allowed = transport_allows_fs(mux, client) && mux.frame_principal(client).is_some();
         let reply = crate::git_seed::answer_line(crate::git_seed::installed(), allowed, message);
+        return Some(writer.send_control(&reply).is_ok());
+    }
+    if message.contains("\"blob.fetch.") && crate::blob_fetch::frame_command(message).is_some() {
+        // The same transports and principal as the fs ops: the fetch writes
+        // under the same roots.
+        let allowed = transport_allows_fs(mux, client) && mux.frame_principal(client).is_some();
+        let reply =
+            crate::blob_fetch::answer_line(crate::blob_fetch::installed(), allowed, message);
         return Some(writer.send_control(&reply).is_ok());
     }
     if !message.contains("\"fs.") {

@@ -49,6 +49,9 @@ pub(super) use seed_pull::{
     SeedBase, SeedPulled, failure_code as seed_pull_failure_code, is_sha, seed_pull,
 };
 mod skips;
+mod store;
+
+pub(crate) use store::{Config as StoreConfig, configure as configure_store};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read as _;
@@ -63,7 +66,7 @@ use sha2::{Digest as _, Sha256};
 use local::{LocalFile, Source};
 use remote::{Remote, RemoteEntry};
 
-const USAGE: &str = "usage: cmux link sync push|pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER";
+const USAGE: &str = "usage: cmux link sync push|pull --socket PATH [--store PLATFORM|default] LOCAL_FOLDER REMOTE_FOLDER\n       (--store: through the content-addressed store, the cmux credential on stdin)";
 
 /// What the machine holds of earlier pushes; this Mac keeps a copy
 /// ([`base`]), which is what a pull trusts.
@@ -95,11 +98,13 @@ pub(super) struct Summary {
     pub(super) skipped_files: serde_json::Value,
     /// How many were skipped of each kind (`other`: counted, not named).
     pub(super) skipped_counts: serde_json::Value,
+    /// The content-addressed store's part ([`store`]), when one was asked for.
+    pub(super) store: Option<serde_json::Value>,
 }
 
 impl Summary {
     pub(super) fn json(&self) -> serde_json::Value {
-        json!({
+        let mut line = json!({
             "written": self.written,
             "unchanged": self.unchanged,
             "deleted": self.deleted,
@@ -107,7 +112,11 @@ impl Summary {
             "bytes": self.bytes,
             "skipped_files": if self.skipped_files.is_null() { json!([]) } else { self.skipped_files.clone() },
             "skipped_counts": if self.skipped_counts.is_null() { json!({}) } else { self.skipped_counts.clone() },
-        })
+        });
+        if let Some(store) = &self.store {
+            line.set("store", store.clone());
+        }
+        line
     }
 }
 
@@ -172,10 +181,16 @@ pub(super) fn run(args: &[String]) -> i32 {
         println!("{USAGE}");
         return 0;
     }
-    let Some((action, socket, local, remote)) = parse(args) else {
+    let Some((action, socket, local, remote, store)) = parse(args) else {
         eprintln!("{USAGE}");
         return 64;
     };
+    if let Some(store) = store
+        && let Err(error) = store_from_stdin(&store, &mut std::io::stdin().lock())
+    {
+        println!("{}", json!({ "ok": false, "error": error, "error_code": "unauthorized" }));
+        return 1;
+    }
     // A machine too old for `fs-v1` says so before anything is copied.
     if let Some(outdated) =
         super::machine_gate::outdated(&socket, &[cmux_tui_core::fs_ops::FS_CAPABILITY])
@@ -381,7 +396,28 @@ enum Action {
     Pull,
 }
 
-fn parse(args: &[String]) -> Option<(Action, PathBuf, PathBuf, String)> {
+/// Turns the store on for this process ([`store::configure`]): `platform`
+/// is the cmux platform's origin, or `default` for the usual one
+/// ([`crate::cli::platform_origin`]); the cmux credential is the first line
+/// of `stdin`.
+pub(crate) fn store_from_stdin(
+    platform: &str,
+    stdin: &mut dyn std::io::BufRead,
+) -> Result<(), String> {
+    let mut credential = String::new();
+    if stdin.read_line(&mut credential).is_err() || credential.trim().is_empty() {
+        return Err("--store needs the cmux credential on stdin".into());
+    }
+    let env = |name: &str| std::env::var(name).ok();
+    let flag = (platform != "default").then_some(platform);
+    let origin = crate::cli::platform_origin(flag, &env)?;
+    configure_store(StoreConfig { origin, credential: credential.trim().to_string() });
+    Ok(())
+}
+
+type Parsed = (Action, PathBuf, PathBuf, String, Option<String>);
+
+fn parse(args: &[String]) -> Option<Parsed> {
     let [action, rest @ ..] = args else { return None };
     let action = match action.as_str() {
         "push" => Action::Push,
@@ -389,11 +425,13 @@ fn parse(args: &[String]) -> Option<(Action, PathBuf, PathBuf, String)> {
         _ => return None,
     };
     let mut socket = None;
+    let mut store = None;
     let mut positional = Vec::new();
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
         match arg.as_str() {
             "--socket" => socket = Some(PathBuf::from(rest.next()?)),
+            "--store" if action == Action::Push => store = Some(rest.next()?.clone()),
             flag if flag.starts_with('-') => return None,
             value => positional.push(value),
         }
@@ -402,7 +440,7 @@ fn parse(args: &[String]) -> Option<(Action, PathBuf, PathBuf, String)> {
     if !remote.starts_with('/') {
         return None;
     }
-    Some((action, socket?, PathBuf::from(local), remote.trim_end_matches('/').to_string()))
+    Some((action, socket?, PathBuf::from(local), remote.trim_end_matches('/').to_string(), store))
 }
 
 /// A chat's copy (`cmux link sync push`, `cmux link start-chat copy`), its
@@ -524,6 +562,10 @@ fn push_inner(
     let mut next = Manifest { version: 1, files: BTreeMap::new(), git };
     let save_every_files = SAVE_EVERY_FILES.max(done.files_total / 20);
     let (mut files_since_save, mut bytes_since_save) = (0u64, 0u64);
+    // Through the store, the files to write are gathered and the machine
+    // fetches them after the loop; otherwise each is written here.
+    let via_store = store::usable(socket);
+    let mut deferred: Vec<(&String, &LocalFile, String, u64)> = Vec::new();
     for (relative, file) in &set.files {
         let target = format!("{remote_root}/{relative}");
         let (parent, _) = remote::split(&target)?;
@@ -539,6 +581,10 @@ fn push_inner(
         } else {
             if made.insert(parent.to_string()) {
                 remote.mkdir_all(parent)?;
+            }
+            if via_store {
+                deferred.push((relative, file, sha256, bytes));
+                continue;
             }
             let revision = write(&mut remote, &target, file)?;
             summary.written += 1;
@@ -561,6 +607,18 @@ fn push_inner(
         }
     }
 
+    if via_store {
+        summary.store = Some(push_through_store(
+            &mut remote,
+            remote_root,
+            &deferred,
+            &mut next,
+            &mut summary,
+            &mut done,
+            &mut progress,
+        )?);
+    }
+
     let manifest = serde_json::to_vec(&next)?;
     remote
         .write(&manifest_path, &mut manifest.as_slice(), 0o600)
@@ -568,6 +626,108 @@ fn push_inner(
     // A pull's base is this copy, never the machine's.
     base::save(&local, remote_root, &next).context("cannot keep the sync record on this Mac")?;
     Ok(summary)
+}
+
+/// Writes the `deferred` files through the store ([`store::send`]): the
+/// machine fetches them, and any it could not write, or all of them when the
+/// store failed before the machine wrote, go over the link as before. Records
+/// each in `next` and answers the summary's `store` part.
+fn push_through_store(
+    remote: &mut Remote,
+    remote_root: &str,
+    deferred: &[(&String, &LocalFile, String, u64)],
+    next: &mut Manifest,
+    summary: &mut Summary,
+    done: &mut Progress,
+    progress: &mut Option<&mut dyn FnMut(Progress)>,
+) -> anyhow::Result<serde_json::Value> {
+    let pending: Vec<store::Pending<'_>> = deferred
+        .iter()
+        .map(|(relative, file, sha256, size)| store::Pending {
+            target: format!("{remote_root}/{relative}"),
+            file,
+            sha256: sha256.clone(),
+            size: *size,
+        })
+        .collect();
+    let base = *done;
+    let total: u64 = pending.iter().map(|pending| pending.size).sum();
+    if total < STORE_MIN_BYTES {
+        // A store round trip costs more than these bytes over the link.
+        let part = json!({"used": false, "reason": "small"});
+        return finish_deferred(
+            remote, deferred, &pending, None, part, next, summary, done, progress,
+        );
+    }
+    let sent = if pending.is_empty() {
+        Ok(store::Sent::default())
+    } else {
+        store::send(remote, &pending, &mut |bytes| {
+            if let Some(report) = progress.as_mut() {
+                report(Progress { bytes_done: base.bytes_done + bytes, ..base });
+            }
+        })
+    };
+    let (part, refused) = match &sent {
+        Ok(sent) => (
+            json!({"used": true, "uploaded_bytes": sent.uploaded, "reused_bytes": sent.reused,
+                   "fetched_files": pending.len() - sent.refused.len()}),
+            Some(&sent.refused),
+        ),
+        Err(error) => (json!({"used": false, "error": format!("{error:#}")}), None),
+    };
+    finish_deferred(remote, deferred, &pending, refused, part, next, summary, done, progress)
+}
+
+/// Below this many bytes to write, a push goes over the link: the store's
+/// plan, grant and fetch round trips cost more than the bytes themselves.
+const STORE_MIN_BYTES: u64 = 1024 * 1024;
+
+/// Records each deferred file: its revision on the machine when the store
+/// fetched it, or a write over the link when it did not (`refused` is `None`
+/// when the store wrote nothing).
+#[allow(clippy::too_many_arguments)]
+fn finish_deferred(
+    remote: &mut Remote,
+    deferred: &[(&String, &LocalFile, String, u64)],
+    pending: &[store::Pending<'_>],
+    refused: Option<&std::collections::BTreeSet<String>>,
+    mut part: serde_json::Value,
+    next: &mut Manifest,
+    summary: &mut Summary,
+    done: &mut Progress,
+    progress: &mut Option<&mut dyn FnMut(Progress)>,
+) -> anyhow::Result<serde_json::Value> {
+    let mut listings = Listings::default();
+    let mut direct = 0u64;
+    for ((relative, file, sha256, bytes), pending) in deferred.iter().zip(pending) {
+        let fetched = match refused {
+            Some(refused) if !refused.contains(&pending.target) => {
+                listings.revision(remote, &pending.target)?
+            }
+            _ => None,
+        };
+        let revision = match fetched {
+            Some(revision) => revision,
+            None => {
+                direct += 1;
+                write(remote, &pending.target, file)?
+            }
+        };
+        summary.written += 1;
+        summary.bytes += bytes;
+        next.files.insert(
+            (*relative).clone(),
+            Pushed { sha256: sha256.clone(), permissions: file.permissions, revision },
+        );
+        done.files_done += 1;
+        done.bytes_done += bytes;
+        if let Some(report) = progress.as_mut() {
+            report(*done);
+        }
+    }
+    part.set("direct_files", json!(direct));
+    Ok(part)
 }
 
 /// Saves the manifest of a push still going on the machine: what it wrote
