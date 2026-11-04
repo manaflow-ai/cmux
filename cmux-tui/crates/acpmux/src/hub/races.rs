@@ -282,7 +282,9 @@ impl Hub {
                                 c.session_id = Some(child.id.clone());
                                 c.cwd = Some(child.read_meta(|m| m.cwd.clone()));
                                 c.turn_id = started["turnId"].as_str().map(str::to_owned);
-                                c.base = started["worktree"]["base"].as_str().map(str::to_owned);
+                                // `gitHead` is the commit captured when the child folder was
+                                // admitted; the worktree display's `base` may be a branch label.
+                                c.base = child.read_meta(|m| m.git_head.clone());
                                 c.target.model = child.read_meta(super::model_options::current_model).or_else(|| c.target.model.clone());
                                 c.state = "running".into();
                             })?;
