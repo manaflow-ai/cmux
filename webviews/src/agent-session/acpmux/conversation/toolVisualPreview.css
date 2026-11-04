@@ -11,13 +11,13 @@
 .cv-tool-visual {
   flex: 0 0 34px;
   width: 34px;
-  height: 22px;
+  height: 24px;
   overflow: hidden;
   border-radius: 4px;
 }
 .cv-tool-visual .cv-thumb {
   width: 34px;
-  height: 22px;
+  height: 24px;
   min-width: 0;
   min-height: 0;
   margin: 0;
