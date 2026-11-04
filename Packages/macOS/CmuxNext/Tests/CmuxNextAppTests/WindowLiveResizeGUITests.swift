@@ -83,8 +83,11 @@ struct WindowLiveResizeGUITests {
         try WindowLiveResizeFrameTickTests.withSwitch(on) {
             // AppKit's window resize gesture runs in a launched application (the films' app is one).
             let app = NSApplication.shared
+            // A regular, active application with a key window, as the films' app is: AppKit's resize gesture runs
+            // only there.
+            _ = app.setActivationPolicy(.regular)
             if !app.isRunning { app.finishLaunching() }
-            NSApp.activate()
+            app.activate(ignoringOtherApps: true)
             let layout = ScreenLayout.splits(.split("v", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))
             let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: "p1")
             model.followsDesignMetrics = false
@@ -97,6 +100,7 @@ struct WindowLiveResizeGUITests {
             defer { window.close() }
             let visible = try #require(NSScreen.main?.visibleFrame)
             window.setFrame(NSRect(x: visible.midX - 400, y: visible.midY - 250, width: 800, height: 500), display: true)
+            window.makeKeyAndOrderFront(nil)
             window.orderFrontRegardless()
             root.layoutSubtreeIfNeeded()
             root.driver.isManual = true
