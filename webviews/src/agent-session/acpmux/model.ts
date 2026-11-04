@@ -353,6 +353,19 @@ export type QueuedPromptImage = PromptImage & { src?: string; local?: boolean };
 /// model call's (direct.ts `turnTokenSplit`); a finished turn's comes from its `turn_result`.
 export type TurnTokenSplit = { output: number; input: number; cacheRead: number; cacheWrite: number };
 
+/// One retry of a turn's failed model request, as acpmux logs it (`turn_retrying`): Claude Code's
+/// `system/api_retry` (attempt of maxRetries, error, errorStatus) or Codex's stream error.
+export type AcpmuxTurnRetry = {
+  attempt?: number;
+  maxRetries?: number;
+  error?: string;
+  errorStatus?: number;
+};
+
+/// The client's row that carries the running turn's retries (direct.ts): kind "typing", so no
+/// view draws it; the live line reads it (conversation/turns.ts `withRetry`).
+export const TURN_RETRY = "turn-retry";
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -510,6 +523,13 @@ export type AcpmuxRow = {
   /// A running turn's status line before the turn's first output: it reads "Thinking" beside the
   /// turn's time (WorkingFor.tsx).
   thinkingNow?: boolean;
+  /// The running turn's harness retries a model request that failed (acpmux `turn_retrying`,
+  /// hub/turn_retry.rs): on the client's `TURN_RETRY` row while it retries, and on the live line,
+  /// which then says the model cannot be reached instead of "Thinking" (conversation/Thinking.tsx).
+  retry?: AcpmuxTurnRetry;
+  /// On the `TURN_RETRY` row: how long the turn's finished retries took, which the live line's
+  /// "Thinking" time leaves out (conversation/turns.ts `withRetry`).
+  retriedMs?: number;
   /// A running turn's status line drawn as the turn's last row (Debug Settings
   /// `agentPane.debug.liveLineBelow`, conversation/turns.ts): no rule under it, and its clock
   /// never stops while the turn runs.

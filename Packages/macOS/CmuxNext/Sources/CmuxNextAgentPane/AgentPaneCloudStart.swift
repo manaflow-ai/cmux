@@ -2,6 +2,7 @@ public import CmuxNextCloud
 import CmuxNextCompat
 public import CmuxNextSettings
 public import Foundation
+import os
 
 /// `cloud.startChat {task, cwd?, harness?, model?, key}`: a new chat's first send with Cloud picked
 /// as where it runs (the environment picker's Cloud row, Labs). The App picks or makes a Cloud
@@ -174,7 +175,27 @@ struct AgentPaneHandOff {
         }
     }
 
+    private static let cloudLog = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
+
+    /// `cloud.startChat`, and a refusal made here, before the App's start ran (the folder check, the
+    /// gesture, an attachment), logged under `app.cloud` beside the App's own start failures: such a
+    /// refusal never reaches CloudStartChat, so without this the log said nothing at all.
     func cloud(_ start: AgentPaneCloudStart) async -> [String: Any] {
+        let reply = await cloudChecked(start)
+        if let code = Self.refusedHere(reply) {
+            Self.cloudLog.error("cloud start chat refused on this Mac before it started: \(code, privacy: .public)")
+        }
+        return reply
+    }
+
+    /// The reply's code when this pane refused the start itself (`transport.*`, `cloud_attachments`,
+    /// `unsupported`); nil for a success or the App's own failure.
+    nonisolated static func refusedHere(_ reply: [String: Any]) -> String? {
+        guard reply["ok"] as? Bool == false, let code = (reply["error"] as? [String: Any])?["code"] as? String else { return nil }
+        return code.hasPrefix("transport.") || code == "cloud_attachments" || code == "unsupported" ? code : nil
+    }
+
+    private func cloudChecked(_ start: AgentPaneCloudStart) async -> [String: Any] {
         // The folder is a path on this Mac: a chat on another machine never names one to copy.
         guard let run = model.onCloudStartChat, !model.chatIsElsewhere else { return AgentPaneModel.unsupported("cloud.startChat") }
         guard AgentPaneCloudAttachments(start.attachments) != nil else {
