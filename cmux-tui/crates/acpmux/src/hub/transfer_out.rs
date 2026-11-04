@@ -571,7 +571,8 @@ impl Hub {
         transfer_id: &str,
         to: Value,
     ) -> Result<Value, RpcError> {
-        self.transfer_commit_with_epoch(session, transfer_id, to, None).await
+        self.transfer_commit_with_epoch(session, transfer_id, to, Some(session.ownership_epoch()))
+            .await
     }
 
     pub(super) async fn transfer_commit_with_epoch(
@@ -641,7 +642,12 @@ impl Hub {
         transfer_id: &str,
         reason: Option<&str>,
     ) -> Result<Value, RpcError> {
-        self.transfer_abort_with_epoch(session, transfer_id, reason, None)
+        self.transfer_abort_with_epoch(
+            session,
+            transfer_id,
+            reason,
+            Some(session.ownership_epoch()),
+        )
     }
 
     pub(super) fn transfer_abort_with_epoch(

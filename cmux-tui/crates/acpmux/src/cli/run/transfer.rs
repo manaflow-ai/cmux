@@ -62,7 +62,12 @@ pub(super) async fn begin_move(
     }
     let begin = src.request("_acpmux/transfer_begin", begin_params).await?;
     let transfer_id = begin["transferId"].as_str().unwrap_or_default().to_owned();
-    let epoch = begin["epoch"].as_u64().unwrap_or(0);
+    let epoch = match begin.get("epoch") {
+        None => 0,
+        Some(value) => value
+            .as_u64()
+            .ok_or_else(|| anyhow!("transfer_begin: epoch must be an unsigned integer"))?,
+    };
     Ok(Begun { begin, transfer_id, epoch })
 }
 
@@ -221,7 +226,8 @@ async fn copy(
             }
         }
     }
-    let mut finish = json!({"receiveId": receive_id, "from": {"sessionId": begin["sessionId"]}, "epoch": begin["epoch"]});
+    let mut finish =
+        json!({"receiveId": receive_id, "from": {"sessionId": begin["sessionId"]}, "epoch": epoch});
     if let Some(cwd) = cwd {
         finish.set("cwd", json!(cwd));
     }
