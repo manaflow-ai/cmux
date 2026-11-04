@@ -134,6 +134,12 @@ rusqlite.workspace = true
 # `cmux machine add|list`: the platform's RFC 3339 times; already in the graph via acpmux.
 cmux-chat-index.workspace = true
 
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+# `cmux computer-use setup --approver`: reads the account's devices as this
+# machine's device and pins the chosen approvers' keys (system_config.rs).
+cmux-device-hub-client = { path = "../cmux-device-hub-client" }
+url.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 tokio.workspace = true
 windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }

@@ -51,9 +51,14 @@ read, lower trust, or ask the person.
   cmux computer-use approvals deny ID      Deny question ID
   cmux computer-use setup --mode ask|standard|bounded|unrestricted [--manifest FILE]
                           [--i-understand-unrestricted]
+                          [--device-hub URL --hub-token-command PROGRAM [--hub-allow-always]
+                           --approver DEVICE_ID...]
                                            Set this machine's mode (macOS: in the cmux app, which
                                            confirms a raise; Linux and Windows: the system config,
-                                           with sudo or UAC from a terminal)
+                                           with sudo or UAC from a terminal). --approver pins a
+                                           Mac or iPhone of your account that may answer this
+                                           machine's questions: setup shows its name, platform and
+                                           key fingerprint and asks you to confirm
 
 Modes: ask (default; each app is asked for), standard (routine use runs, risky
 steps ask), bounded (the apps in --manifest run, others ask), unrestricted
@@ -99,6 +104,8 @@ impl Mode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+// The device hub fields are read by the Linux and Windows setup only.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub(super) struct Setup {
     pub mode: Mode,
     pub manifest: Option<std::path::PathBuf>,
@@ -106,6 +113,18 @@ pub(super) struct Setup {
     /// The elevated run of `setup` (sudo or UAC started it): write the system
     /// config and nothing else. Never typed by a person.
     pub elevated: bool,
+    /// The device hub this machine asks through (`https://`).
+    pub device_hub: Option<String>,
+    /// The program that prints the account's access token for the hub.
+    pub hub_token_command: Option<std::path::PathBuf>,
+    /// Whether a pinned phone or Mac may answer Always for this machine.
+    pub hub_allow_always: bool,
+    /// `--approver ID`: devices to look up on the hub and confirm on the terminal.
+    pub approvers: Vec<String>,
+    /// `--approver-pin JSON`: pins already confirmed (the elevated run) or
+    /// given by root's provisioning. Linux and Windows only.
+    #[cfg(not(target_os = "macos"))]
+    pub approver_pins: Vec<system_config::Pin>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,8 +179,8 @@ pub(super) fn parse(args: &[String]) -> Result<Command, String> {
 fn parse_setup(rest: &[&str]) -> Result<Setup, String> {
     let flags = Flags::parse(
         rest,
-        &["--mode", "--manifest"],
-        &["--i-understand-unrestricted", ELEVATED_FLAG],
+        &["--mode", "--manifest", "--device-hub", "--hub-token-command", "--approver", "--approver-pin"],
+        &["--i-understand-unrestricted", "--hub-allow-always", ELEVATED_FLAG],
     )?;
     let word =
         flags.value("--mode").ok_or("setup needs --mode ask|standard|bounded|unrestricted")?;
@@ -172,13 +191,47 @@ fn parse_setup(rest: &[&str]) -> Result<Setup, String> {
     if manifest.is_some() && mode != Mode::Bounded {
         return Err("--manifest goes with --mode bounded only".into());
     }
+    let device_hub = flags.value("--device-hub").map(str::to_owned);
+    if device_hub.as_deref().is_some_and(|url| !url.starts_with("https://")) {
+        return Err("--device-hub takes an https:// URL".into());
+    }
+    let hub_token_command = flags.value("--hub-token-command").map(std::path::PathBuf::from);
+    if hub_token_command.as_deref().is_some_and(|program| !program.is_absolute()) {
+        return Err("--hub-token-command takes the program's absolute path".into());
+    }
+    if device_hub.is_some() != hub_token_command.is_some() {
+        return Err("--device-hub and --hub-token-command go together".into());
+    }
+    let approvers: Vec<String> = flags.values("--approver").into_iter().map(str::to_owned).collect();
+    let pin_words = flags.values("--approver-pin");
+    if (!approvers.is_empty() || !pin_words.is_empty()) && device_hub.is_none() {
+        return Err("--approver needs --device-hub URL and --hub-token-command PROGRAM".into());
+    }
+    if flags.has("--hub-allow-always") && device_hub.is_none() {
+        return Err("--hub-allow-always goes with --device-hub".into());
+    }
+    #[cfg(not(target_os = "macos"))]
+    let approver_pins =
+        pin_words.iter().map(|text| system_config::Pin::parse(text)).collect::<Result<Vec<_>, _>>()?;
+    if cfg!(target_os = "macos") && (device_hub.is_some() || !pin_words.is_empty()) {
+        return Err("device hub approvers are pinned on Linux and Windows; the Mac pairs in the app".into());
+    }
     Ok(Setup {
         mode,
         manifest,
         understand_unrestricted: flags.has("--i-understand-unrestricted"),
         elevated: flags.has(ELEVATED_FLAG),
+        device_hub,
+        hub_token_command,
+        hub_allow_always: flags.has("--hub-allow-always"),
+        approvers,
+        #[cfg(not(target_os = "macos"))]
+        approver_pins,
     })
 }
+
+/// Flags that may be given more than once.
+const REPEATABLE: [&str; 2] = ["--approver", "--approver-pin"];
 
 /// `--flag VALUE` options and bare switches, each at most once, in any order.
 struct Flags<'a> {
@@ -191,8 +244,8 @@ impl<'a> Flags<'a> {
         let mut flags = Flags { values: Vec::new(), switches: Vec::new() };
         let mut index = 0;
         while let Some(word) = words.get(index).copied() {
-            let seen =
-                flags.values.iter().any(|(k, _)| *k == word) || flags.switches.contains(&word);
+            let seen = (flags.values.iter().any(|(k, _)| *k == word) && !REPEATABLE.contains(&word))
+                || flags.switches.contains(&word);
             if seen {
                 return Err(format!("{word} is given twice"));
             }
@@ -213,6 +266,11 @@ impl<'a> Flags<'a> {
 
     fn value(&self, flag: &str) -> Option<&'a str> {
         self.values.iter().find(|(k, _)| *k == flag).map(|(_, v)| *v)
+    }
+
+    /// Every value of a repeatable flag, in order.
+    fn values(&self, flag: &str) -> Vec<&'a str> {
+        self.values.iter().filter(|(k, _)| *k == flag).map(|(_, v)| *v).collect()
     }
 
     fn has(&self, flag: &str) -> bool {
