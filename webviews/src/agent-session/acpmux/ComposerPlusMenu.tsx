@@ -124,7 +124,6 @@ export function ComposerPlusMenu({
       className={className ? `acpmux-composer-plus ${className}` : "acpmux-composer-plus"}
       button={<PlusIcon />}
       align="start"
-      overBackdrop
       sections={sections}
       {...(onOpen ? { onOpen } : {})}
     />

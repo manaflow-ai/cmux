@@ -1708,7 +1708,6 @@ export function Picker({
   warnUnrestricted = false,
   heading,
   tooltip,
-  overBackdrop = false,
   onOpen,
 }: {
   label: string;
@@ -1719,8 +1718,6 @@ export function Picker({
   warnUnrestricted?: boolean;
   heading?: string;
   tooltip?: string;
-  /** Kept for callers that opened above the backdrop; MenuPopup owns the shared portal now. */
-  overBackdrop?: boolean;
   onOpen?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1759,7 +1756,7 @@ export function Picker({
           // different field, Menu's focusAfterClose detects that and leaves it there; keeping the
           // shared policy here also preserves prompt focus when a native capture is cancelled.
           finalFocus={undefined}
-          className={cx("acpmux-menu acpmux-picker-menu", className, overBackdrop && "acpmux-menu-over-backdrop")}
+          className={cx("acpmux-menu acpmux-picker-menu", className)}
         >
           {heading && (
             <div className="acpmux-menu-heading" aria-hidden="true">

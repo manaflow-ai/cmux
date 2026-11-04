@@ -131,8 +131,8 @@
    and in the composer it's ass"), shaped as ChatGPT's: a short list in untitled groups split by the
    menu hairline (below), one width, and a bounded height that scrolls inside (useUiAnchor still caps
    it to the room the pane has). --popup-scroll-cap is that bound for popupHost.ts, so a list longer
-   than it scrolls here rather than going past the window's edge as a flat native list. It draws
-   outside the composer's glass (Picker overBackdrop), so its own glass frosts the pills behind it. */
+   than it scrolls here rather than going past the window's edge as a flat native list. MenuPopup's
+   shared portal keeps it above the composer's glass, so its own glass frosts the pills behind it. */
 .acpmux-composer-plus .acpmux-menu{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh)}
 .acpmux-menu.acpmux-composer-plus{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh)}
 /* WebKit treats any CSS mask on this surface as part of hit testing, including an opaque mask.
@@ -202,7 +202,7 @@
 .acpmux-composer-list-layer{position:absolute;pointer-events:none}
 .acpmux-composer-list-layer>*{pointer-events:auto}
 .acpmux-slash-menu{--popup-scroll-cap:296px;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:3;max-height:min(296px,50vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);font-size:13px;transform-origin:bottom}
-.acpmux-slash-row{display:flex;align-items:center;gap:8px;height:31px;padding:0 8px;border-radius:8px;white-space:nowrap}
+.acpmux-slash-row{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);white-space:nowrap}
 .acpmux-slash-active{background:var(--acpmux-menu-hover)}
 .acpmux-slash-menu .ui-listbox-row[aria-selected="true"]{background:var(--acpmux-menu-hover)}
 .acpmux-slash-name{flex:none;color:var(--agent-text)}
