@@ -83,8 +83,12 @@ import Testing
         content.contentView.layoutSubtreeIfNeeded()
         var frames = 0
         while frames < 600, root.advanceFrame(Self.dt) { frames += 1 }
-        // Frames committed and the main actor went idle: what the window prepares ahead of a key is ready now.
-        for _ in 0..<4 { await Self.nextCommittedPass() }
+        // Frames committed and the main actor went idle: what the window prepares ahead of a key is ready now. The app's
+        // scheduler runs its background work on display frames; the test is its frame (the first task of a frame runs).
+        for _ in 0..<4 {
+            await Self.nextCommittedPass()
+            services.mainWork.frameDidFire()
+        }
         await Self.drainMain()
         let before = Self.subtree(window.contentView ?? content.contentView)
         try #require(content.panes.count == 1, "fixture: one pane")
