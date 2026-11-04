@@ -8,6 +8,7 @@ struct RemoteAcpmuxWireContextTests {
     private actor Client: AgentSessionRemoteClient {
         nonisolated let isReadOnly: Bool
         var edits: [(String, String?)] = []
+        var parts: [String?] = []
         var reads = 0
 
         init(readOnly: Bool = false) { isReadOnly = readOnly }
@@ -15,8 +16,9 @@ struct RemoteAcpmuxWireContextTests {
             reads += 1
             return Data(#"{"parts":[{"source":"cmux","text":"Read early.","tokens":3}]}"#.utf8)
         }
-        func setContextOverride(scope: String, text: String?) async throws -> Data {
+        func setContextOverride(scope: String, text: String?, partId: String?) async throws -> Data {
             edits.append((scope, text))
+            parts.append(partId)
             return Data(#"{"saved":true}"#.utf8)
         }
         func attach(_ page: AgentSessionPage, events: @escaping @Sendable (AgentSessionRemoteEvent) -> Void) async throws -> Data { Data("{}".utf8) }
@@ -37,7 +39,7 @@ struct RemoteAcpmuxWireContextTests {
         let read = await inbox.frame(containing: "\"id\":1")
         #expect(read.contains("Read early."))
         for (id, text) in [(2, Optional("Read concurrently.\nReport briefly.")), (3, Optional("")), (4, nil)] as [(Int, String?)] {
-            var params: [String: Any] = ["sessionId": "s", "scope": "project", "cwd": "/forged"]
+            var params: [String: Any] = ["sessionId": "s", "scope": "project", "cwd": "/forged", "partId": "cmux-system-prompt"]
             if let text { params["text"] = text }
             let frame: [String: Any] = ["id": id, "method": "_acpmux/context_override", "params": params]
             let data = try JSONSerialization.data(withJSONObject: frame)
@@ -51,6 +53,7 @@ struct RemoteAcpmuxWireContextTests {
         let edits = await client.edits
         #expect(edits.map(\.0) == ["project", "project", "project"])
         #expect(edits.map(\.1) == ["Read concurrently.\nReport briefly.", "", nil])
+        #expect(await client.parts == ["cmux-system-prompt", "cmux-system-prompt", "cmux-system-prompt"])
         #expect(await client.reads == 1)
         wire.cancel(code: 1000, reason: "test complete")
     }

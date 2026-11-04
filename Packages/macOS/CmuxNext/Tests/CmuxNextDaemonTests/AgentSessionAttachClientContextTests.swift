@@ -11,15 +11,18 @@ import Testing
         _ = try await client.setContextOverride(scope: "user", text: "Read early.\nRead concurrently.")
         _ = try await client.setContextOverride(scope: "project", text: "")
         _ = try await client.setContextOverride(scope: "project", text: nil)
+        _ = try await client.setContextOverride(scope: "project", text: "Edited preset.", partId: "cmux-system-prompt")
         await client.close()
         let sent = daemon.frames.filter { $0["cmd"] as? String == "agent-session-context" }
-        #expect(sent.count == 4)
+        #expect(sent.count == 5)
         #expect(sent.allSatisfy { $0["surface"] as? Int == 7 && $0["sessionId"] == nil && $0["cwd"] == nil })
         #expect(sent[0]["op"] as? String == "get")
         #expect(sent[1]["op"] as? String == "set" && sent[1]["scope"] as? String == "user")
         #expect(sent[1]["text"] as? String == "Read early.\nRead concurrently.")
         #expect(sent[2]["text"] as? String == "")
         #expect(sent[3]["text"] == nil)
+        #expect(sent[4]["text"] as? String == "Edited preset.")
+        #expect(sent[4]["partId"] as? String == "cmux-system-prompt")
     }
 
     @Test func olderDaemonsGetAnUpdateErrorAndNoContextVerb() async throws {

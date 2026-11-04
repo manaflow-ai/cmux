@@ -35,7 +35,7 @@ fn context_reads_reach_the_wire_without_a_gesture() {
 fn context_edits_empty_overrides_and_resets_wait_for_the_persons_click() {
     for scope in ["user", "project"] {
         for text in [json!("Read independent sources concurrently."), json!(""), Value::Null] {
-            let params = json!({"sessionId":"own", "scope":scope, "text":text});
+            let params = json!({"sessionId":"own", "scope":scope, "text":text, "partId":"cmux-system-prompt"});
             let Checked::Frame { frame, facts } =
                 check("_acpmux/context_override", params.clone(), false)
             else {

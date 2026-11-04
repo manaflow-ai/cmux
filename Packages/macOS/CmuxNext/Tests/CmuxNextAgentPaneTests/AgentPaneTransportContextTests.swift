@@ -33,7 +33,7 @@ struct AgentPaneTransportContextTests {
     func editsEmptyOverridesAndResetsWaitForThePersonsClick(scope: String) throws {
         let values: [Any] = ["Read independent sources concurrently.", "", NSNull()]
         for text in values {
-            let params: [String: Any] = ["sessionId": "own", "scope": scope, "text": text]
+            let params: [String: Any] = ["sessionId": "own", "scope": scope, "text": text, "partId": "cmux-system-prompt"]
             let frame = try Self.text("_acpmux/context_override", params)
             guard case .frame(let facts, let box) = AgentPaneTransport.checkOne(frame, Self.snapshot()) else {
                 Issue.record("Context edit was refused before reaching the wire")

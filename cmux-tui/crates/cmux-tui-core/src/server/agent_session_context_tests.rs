@@ -53,6 +53,15 @@ fn session_context_reads_and_overrides_are_pinned_to_the_attachment() {
     }
     eprintln!("Context owner operations: {passed}/4");
     assert_eq!(passed, 4, "read, user edit, project edit and reset must all reach acpmux");
+    assert_eq!(
+        client.request(json!({"cmd":"agent-session-context", "surface":surface, "op":"set",
+                              "scope":"project", "partId":"cmux-system-prompt", "text":"Edited preset."}))["ok"],
+        true,
+    );
+    assert_eq!(
+        fake.frame()["params"],
+        json!({"sessionId":SESSION, "scope":"project", "partId":"cmux-system-prompt", "text":"Edited preset."}),
+    );
     assert_code(
         &client
             .request(json!({"cmd":"agent-session-context", "surface":surface + 1000, "op":"get"})),
@@ -72,6 +81,7 @@ fn session_context_reads_and_overrides_are_pinned_to_the_attachment() {
         json!({"cmd":"agent-session-context", "surface":surface, "op":"get", "text":"ignored"}),
         json!({"cmd":"agent-session-context", "surface":surface, "op":"set", "scope":"machine"}),
         json!({"cmd":"agent-session-context", "surface":surface, "op":"set", "scope":"user", "text":7}),
+        json!({"cmd":"agent-session-context", "surface":surface, "op":"set", "scope":"user", "partId":"provider-prompt"}),
         json!({"cmd":"agent-session-context", "surface":surface, "op":"set"}),
         json!({"cmd":"agent-session-context", "surface":surface, "op":"run"}),
     ] {
