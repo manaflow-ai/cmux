@@ -205,70 +205,36 @@
    ]
   },
   {
-   "id": "3b-reduce-row-drag-divider-p1p2-col1916",
+   "id": "3b-reduce-row-drag-divider-p1p2",
    "film": "px-77e9a45-120x2/px-row-drag-3r-s1r-reduce",
-   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, judge_pixel item 3b): a FALSE POSITIVE of v7 (c22403233dd7), which reports 'divider off' for divider p1|p2 on col@1916, frames 507-511 and 513-520 (+10/+20 px). judge_pixel derives the shown divider from the middle of the two content edges beside it, so a content edge that lags or is off its pane moves the 'divider' while the cmux divider layer (drawn in the same transaction as the pane layout) is on time. R-HARNESS checked the stored film: every one of those frames has p1 hi or p2 lo content edge off or late in the same frame, which carries the defect.",
+   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, judge_pixel item 3b): a FALSE POSITIVE of v7 (c22403233dd7), which reports 'divider off' for divider p1|p2 on col@1916, frames 507-511 and 513-520 (+10/+20 px). judge_pixel derives the shown divider from the middle of the two content edges beside it, so a content edge that lags or is off its pane moves the 'divider' while the cmux divider layer (drawn in the same transaction as the pane layout) is on time. R-HARNESS checked the stored film: every one of those frames has p1 hi or p2 lo content edge off or late in the same frame, which carries the defect. Pair C (FRAME OWNER, 2026-11-04): the film never shows the divider layer (its band shows the shell), so judge_pixel no longer derives a film divider (the middle of two content edges only restated them); the divider is judged from the trace, against the gap between the two panes it separates. This fact now holds on that trace row: the trace's divider is centred on its panes' gap in every sample, so the judge reports no divider defect on this film.",
    "expect": [
     {
      "judge": "judge_pixel",
      "pixel_row": {
       "label": "divider p1|p2",
       "side": "mid",
-      "line": "col@1916",
-      "what": "divider"
+      "line": "trace",
+      "what": "divider rect"
      },
-     "absent_finding": "divider off"
+     "absent_finding": "divider rect not centred on its panes' gap"
     }
    ]
   },
   {
-   "id": "3b-reduce-row-drag-divider-p1p2-col2376",
-   "film": "px-77e9a45-120x2/px-row-drag-3r-s1r-reduce",
-   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, judge_pixel item 3b): a FALSE POSITIVE of v7 (c22403233dd7), which reports 'divider off' for divider p1|p2 on col@2376, frames 507-511 and 513-520 (+10/+20 px). judge_pixel derives the shown divider from the middle of the two content edges beside it, so a content edge that lags or is off its pane moves the 'divider' while the cmux divider layer (drawn in the same transaction as the pane layout) is on time. R-HARNESS checked the stored film: every one of those frames has p1 hi or p2 lo content edge off or late in the same frame, which carries the defect.",
-   "expect": [
-    {
-     "judge": "judge_pixel",
-     "pixel_row": {
-      "label": "divider p1|p2",
-      "side": "mid",
-      "line": "col@2376",
-      "what": "divider"
-     },
-     "absent_finding": "divider off"
-    }
-   ]
-  },
-  {
-   "id": "3b-col-drag-2-divider-p0p1-row514",
+   "id": "3b-col-drag-2-divider-p0p1",
    "film": "px-77e9a45-120x2/px-col-drag-2-s1r-s1",
-   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, judge_pixel item 3b): a FALSE POSITIVE of v7 (c22403233dd7), which reports 'divider off' for divider p0|p1 on row@514, frames 513-515 (+18.5/+23/+48 px). judge_pixel derives the shown divider from the middle of the two content edges beside it, so a content edge that lags or is off its pane moves the 'divider' while the cmux divider layer (drawn in the same transaction as the pane layout) is on time. R-HARNESS checked the stored film: every one of those frames has p0 hi or p1 lo content edge off or late in the same frame, which carries the defect.",
+   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, judge_pixel item 3b): a FALSE POSITIVE of v7 (c22403233dd7), which reports 'divider off' for divider p0|p1 on row@514, frames 513-515 (+18.5/+23/+48 px). judge_pixel derives the shown divider from the middle of the two content edges beside it, so a content edge that lags or is off its pane moves the 'divider' while the cmux divider layer (drawn in the same transaction as the pane layout) is on time. R-HARNESS checked the stored film: every one of those frames has p0 hi or p1 lo content edge off or late in the same frame, which carries the defect. Pair C (FRAME OWNER, 2026-11-04): the film never shows the divider layer (its band shows the shell), so judge_pixel no longer derives a film divider (the middle of two content edges only restated them); the divider is judged from the trace, against the gap between the two panes it separates. This fact now holds on that trace row: the trace's divider is centred on its panes' gap in every sample, so the judge reports no divider defect on this film.",
    "expect": [
     {
      "judge": "judge_pixel",
      "pixel_row": {
       "label": "divider p0|p1",
       "side": "mid",
-      "line": "row@514",
-      "what": "divider"
+      "line": "trace",
+      "what": "divider rect"
      },
-     "absent_finding": "divider off"
-    }
-   ]
-  },
-  {
-   "id": "3b-col-drag-2-divider-p0p1-row1126",
-   "film": "px-77e9a45-120x2/px-col-drag-2-s1r-s1",
-   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, judge_pixel item 3b): a FALSE POSITIVE of v7 (c22403233dd7), which reports 'divider off' for divider p0|p1 on row@1126, frames 513-515 (+18.5/+23/+48 px). judge_pixel derives the shown divider from the middle of the two content edges beside it, so a content edge that lags or is off its pane moves the 'divider' while the cmux divider layer (drawn in the same transaction as the pane layout) is on time. R-HARNESS checked the stored film: every one of those frames has p0 hi or p1 lo content edge off or late in the same frame, which carries the defect.",
-   "expect": [
-    {
-     "judge": "judge_pixel",
-     "pixel_row": {
-      "label": "divider p0|p1",
-      "side": "mid",
-      "line": "row@1126",
-      "what": "divider"
-     },
-     "absent_finding": "divider off"
+     "absent_finding": "divider rect not centred on its panes' gap"
     }
    ]
   },
@@ -345,6 +311,28 @@
     {
      "judge": "judge_pixel",
      "clock_offset": 0
+    }
+   ]
+  },
+  {
+   "id": "c-close-pane-3-divider-rect-off-its-gap",
+   "film": "px-5fe33a3-120x2/px-close-pane-3-s1r-s1",
+   "why": "Pair C (FRAME OWNER, 2026-11-04): the trace check 'divider rect not centred on its panes' gap' (|the divider rect's centre - the middle of the gap between the two panes it separates| >= 1 device px, from the trace only). Red case named by the owner: frame 181 of this film, where both content edges are on their panes and v7 reported 'divider off' +2.5 px. R-HARNESS read the trace (2026-11-04, /work/tmp/r-harness/3b-compare/divider_centre.py): during the close the gap between p0 (hi edge 1560-1567 device px) and p2 (lo edge 1578-1571) closes from 18 px to 4 px around a fixed middle (1569 px), while the divider rect keeps 6 px from p0's edge (centre 1561-1568): off by 1-13 px in samples 181-192 and centred in every other sample. A base build without S3 (no closing slot), so the two outer pane rects are its panes. The off spans of a trace row are samples.",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "pixel_row": {
+      "label": "divider p0|p2",
+      "side": "mid",
+      "line": "trace",
+      "what": "divider rect"
+     },
+     "off_frames": [
+      [
+       181,
+       192
+      ]
+     ]
     }
    ]
   }

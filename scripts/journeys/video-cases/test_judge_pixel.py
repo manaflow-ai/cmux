@@ -23,7 +23,11 @@ samples under Reduce Motion: a finding). The clock films (3d): clock-late shows 
 fixed clock (offset +1), clock-early one refresh earlier (-1), clock-late2 two refreshes later (no offset of -1, 0, +1
 fits: clock not found, judged on the fixed clock), clock-late-inset is clock-late with both edges 1 px inside their pane
 edges while they move (device-pixel rounding: still the sample they show), strip-clock-late is clock-late with the tab strips, and still has no motion. blip: B's page 4 px right of its pane edge in frames 35-36 and 1 px in frame 40,
-after the divider has landed (B's own defect; the divider is not read there and does not settle late).
+after the divider has landed (B's own defect). Pair C: the film never shows the divider layer (its band shows the shell),
+so only the trace's divider is judged, against the gap between its two panes: divider-off-centre moves the trace's
+divider rect 2 pt right of that gap's middle in samples 30-35, 0.5 pt (1 px) in sample 40 and 0.25 pt in sample 45 (the
+film unchanged; and a pane below the window whose edge is in the gap); closing-slot puts a closing pane's
+rect (pc, not a fixture pane, its slot drawn as its black ground) between A and B, with a divider on each side of it.
 """
 import collections
 import json
@@ -79,6 +83,7 @@ def touching(variant):
     return variant == "strip-touch"
 
 
+SLOT_PX = 20               # closing-slot: the closing pane's width (device px)
 SIDEBAR_PX = 40            # strip-scrolled: the sidebar's width (device px), the main pane area's left edge
 SCROLL_PX = 256            # strip-scrolled: pane A starts this far left of the window (under the sidebar)
 
@@ -176,6 +181,9 @@ def frame(k, variant):
             # A's right rings and ground strip gone (its view shrank before the program redrew): the shell after the fill.
             img[:, int(round(aw)) - 60:int(round(aw))] = MAGENTA
     b_x = aw + DIV_PX + (1 if inset else 0)  # and B's 1 px inside its own
+    if variant == "closing-slot":
+        img[:, int(round(aw)) + DIV_PX:int(round(aw)) + DIV_PX + SLOT_PX] = BLACK  # the closing pane's ground
+        b_x = aw + DIV_PX + SLOT_PX + DIV_PX
     if variant == "lag1":
         b_x = a_width(max(k - 2, 0), variant) + DIV_PX  # B's page one frame late
     if variant == "hidden" and 30 <= k <= 32:
@@ -250,13 +258,25 @@ def build(root, name, variant):
             ax = -SCROLL_PX / SCALE  # A's column scrolled left: its rect starts under the sidebar, off the window
             a = ["pa", ax, 0, aw - ax, 150, 1, 0, ax, 0, aw - ax, 150, aw - ax, 150 - cy, 0, ax, cy, aw - ax, 150 - cy]
         bx = aw + DIV_PX / SCALE
+        nudge = {**{j: 2.0 for j in range(30, 36)}, 40: 0.5, 45: 0.25}.get(k, 0.0) if variant == "divider-off-centre" else 0.0
+        dividers = [["d0", aw + nudge, 0, DIV_PX / SCALE, 150, 1, 2]]
+        closing = []
+        if variant == "divider-off-centre":
+            # A pane below the window (y 150-200) whose left edge is in the divider's gap: it shares no part of the
+            # divider's extent (y 0-150), so it is no neighbour of the divider.
+            closing = [["py", aw + 1, 150, 50, 50, 1, 2, aw + 1, 150, 50, 50, 50, 50, 0, aw + 1, 150, 50, 50]]
+        if variant == "closing-slot":
+            cx, cw = bx, SLOT_PX / SCALE
+            closing = [["pc", cx, 0, cw, 150, 0.4, 2, cx, 0, cw, 150, cw, 150, 0, cx, 0, cw, 150]]  # fading out
+            dividers.append(["d1", cx + cw, 0, DIV_PX / SCALE, 150, 1, 2])
+            bx = cx + cw + DIV_PX / SCALE
         bw = 300 - bx
         b = ["pb", bx, 0, bw, 150, 1, 1, bx, 0, bw, 150, bw, 150 - cy, 0, bx, cy, bw, 150 - cy]
         # B's Chromium host fills its content view; d4-cover: its page window 0.5 pt left (and 0.5 pt wider) after the motion.
         shift = 0.5 if variant == "d4-cover" and k >= 30 else 0.0
         page = [bw, 150 - cy, bw + shift, 150 - cy, 0, WINDOW_X + bx, WINDOW_X + bx - shift, bw]
-        samples.append({"t": k * P * 1000, "window": [300, 150], "panes": [a, b],
-                        "dividers": [["d0", aw, 0, DIV_PX / SCALE, 150, 1, 2]], "page": [page]})
+        samples.append({"t": k * P * 1000, "window": [300, 150], "panes": [a] + closing + [b],
+                        "dividers": dividers, "page": [page]})
     # Sample k is taken 1 ms before refresh k is displayed.
     Path(f"{base}.trace.json").write_text(json.dumps({"t0_s": T0 - 0.001, "refresh_ms": P * 1000, "samples": samples}))
     note = {"scale": SCALE, "panes": {"pa": {"kind": "tui", "fill": "#FFFF00", "label": "p0"},
@@ -303,11 +323,15 @@ def entries(report, label, line, which):
             if e["label"] == label and e["line"] == line and e["side"] == which}
 
 
-def divider(report, line):
+def divider(report, label="divider p0|p1"):
+    """The trace row of the divider between LABEL's panes (pair C: a divider is judged from the trace only)."""
     for s in report["summary"].values():
-        if s["what"] == "divider" and s["line"] == line:
+        if s["what"] == "divider rect" and s["line"] == "trace" and s["label"] == label:
             return s
-    raise AssertionError(f"no divider on {line} in {sorted(report['summary'])}")
+    raise AssertionError(f"no trace row {label!r} in {sorted(report['summary'])}")
+
+
+DIVIDER_RECT = "divider rect not centred on its panes' gap"
 
 
 class JudgeInsideTests(unittest.TestCase):
@@ -352,7 +376,8 @@ class JudgePixelTests(unittest.TestCase):
                                                                     "backdrop", "strip", "strip-lag", "pill-lag", "d4-cover", "glyph",
                                                                     "samefill", "cue", "held", "reduce-drag", "reduce-keys",
                                                                     "strip-touch", "strip-scrolled", "wide-ground",
-                                                                    "neighbour-gap", "blip")}
+                                                                    "neighbour-gap", "blip", "divider-off-centre",
+                                                                    "closing-slot")}
 
     @classmethod
     def tearDownClass(cls):
@@ -432,24 +457,47 @@ class JudgePixelTests(unittest.TestCase):
         self.assertGreater(slow["spring_trace"]["max_px"], 3.0)
         self.assertIn("off the spring curve", [f["check"] for f in self.reports["spring-slow"]["findings"]])
 
-    def test_divider_follows_the_trace(self):
-        clean = divider(self.reports["clean"], "row@110")
-        self.assertEqual(clean["label"], "divider p0|p1")
-        self.assertEqual(clean["max_edge_dev_px"], 0.0)
-        self.assertEqual(clean["max_lag_frames"], 0)
-        self.assertEqual([m["travel_px"] for m in clean["motions"]], [40.0])
-        # B over A's ring 1 (frames 30-32): A's and B's content edges are off there, and they carry it (content edge
-        # off, hidden ring). The divider is read only from two content edges that are on their panes (FRAME OWNER's 3b:
-        # a derived divider moves with a content edge while the cmux divider is on time), so it is not read in 30-32.
+    def test_the_film_has_no_derived_divider(self):
+        # Pair C (FRAME OWNER): the divider band shows the shell, so the film never shows a divider layer; the middle of
+        # the two content edges only restated them (each content defect counted twice). No film row and no finding of a
+        # divider, on any film; the content edges carry their own defects.
+        for v in ("clean", "hidden", "lag1", "gap2", "blip", "samefill", "glyph", "spring", "cue"):
+            with self.subTest(film=v):
+                r = self.reports[v]
+                self.assertFalse([k for k, row in r["summary"].items() if row["what"] == "divider"], v)
+                self.assertFalse([f for f in r["findings"] if f["where"].startswith("divider")
+                                  and f["check"] != DIVIDER_RECT], v)
+                self.assertNotIn("divider not read", [f["check"] for f in r["info"]])
         hidden = self.reports["hidden"]
-        self.assertNotIn("divider off", [f["check"] for f in hidden["findings"]])
         self.assertIn(("content edge off", "p1 (page) lo on row@110"), [(f["check"], f["where"]) for f in hidden["findings"]])
-        self.assertEqual(divider(hidden, "row@110")["max_edge_dev_px"], 0.0)
-        # Nor does the divider settle late on those frames: its settle counts from the first frame that reads it.
-        self.assertNotIn("settle", [f["check"] for f in hidden["findings"] if f["where"].startswith("divider")])
-        good = divider(self.reports["spring"], "row@110")["motions"][0]
-        self.assertLessEqual(good["spring_trace"]["max_px"], 0.05)
-        self.assertLessEqual(good["spring_film"]["max_px"], 0.75)
+        self.assertIn(("content edge off", "p1 (page) lo on row@110"),
+                      [(f["check"], f["where"]) for f in self.reports["blip"]["findings"]])
+        self.assertIn("divider cue", [f["check"] for f in self.reports["cue"]["info"]])  # the cue stays information
+
+    def test_the_trace_divider_is_centred_on_its_panes_gap(self):
+        # The trace alone: each sample's divider rect against the middle of the gap between the two panes it separates.
+        row = divider(self.reports["clean"])
+        self.assertEqual((row["side"], row["kind"], row["frames"], row["off_frames"]), ("mid", "divider", N, 0))
+        self.assertNotIn(DIVIDER_RECT, [f["check"] for f in self.reports["clean"]["findings"]])
+
+    def test_a_divider_rect_off_its_panes_gap_is_a_trace_finding(self):
+        r = self.reports["divider-off-centre"]
+        row = divider(r)
+        # 4 px in 30-35 and exactly 1 px in 40 are off; 0.5 px in 45 is not (1 device px is the tolerance).
+        self.assertEqual((row["off_frames"], row["off_ranges"], row["max_edge_dev_px"]), (7, "30-35,40", 4.0))
+        found = {(f["check"], f["where"]): f["detail"] for f in r["findings"]}
+        detail = found[(DIVIDER_RECT, "divider p0|p1 (divider) mid on trace")]
+        self.assertIn("7 of 60 trace samples", detail)
+        self.assertIn("samples 30-35,40", detail)
+        self.assertIn("+4.0 px", detail)
+
+    def test_a_closing_panes_rect_counts_as_the_neighbour(self):
+        # S3 (frame-owner-s3b): a closing pane keeps its rect in its slot during the close, and a divider separates it
+        # from its neighbour; the divider's panes are the two it separates in the trace at that sample (the closing
+        # pane's rect too, faded or not, fixture or not), never the next fixture pane past it.
+        r = self.reports["closing-slot"]
+        self.assertEqual((divider(r, "divider p0|pc")["off_frames"], divider(r, "divider pc|p1")["off_frames"]), (0, 0))
+        self.assertNotIn(DIVIDER_RECT, [f["check"] for f in r["findings"]])
 
     def test_rings_found_past_a_page_backdrop(self):
         r = self.reports["backdrop"]
@@ -592,7 +640,6 @@ class JudgePixelTests(unittest.TestCase):
         self.assertLessEqual(abs(a_hi["max_edge_dev_px"]), 1.0)  # was -1283 px on cmux22
         self.assertEqual(side(r, "p0", "row@110", "lo")["max_edge_dev_px"], 0.0)
         self.assertEqual(side(r, "p0", "row@110", "lo")["not_found_frames"], 0)
-        self.assertLessEqual(abs(divider(r, "row@110")["max_edge_dev_px"]), 1.0)
 
     def test_a_neighbour_of_the_same_fill_is_never_found(self):
         r = self.reports["samefill"]
@@ -602,11 +649,9 @@ class JudgePixelTests(unittest.TestCase):
             self.assertLessEqual(abs(b["max_edge_dev_px"]), 1.0, which)
         self.assertEqual(side(r, "p1", "row@110", "lo")["rest"]["rings"], [16.0, 16.0, 16.0])
         self.assertLessEqual(side(r, "p0", "row@110", "hi")["max_gap_px"], 18.0)
-        # B shows nothing in 30-32, the first frames that show the landed sample. B's own content has not landed there
-        # (its settle counts them: 3 frames); the divider (the middle of A's and B's content edges) is not read there,
-        # so they do not count against its settle (3b: B's row carries them).
+        # B shows nothing in 30-32, the first frames that show the landed sample: B's own content has not landed there
+        # (its settle counts them: 3 frames).
         self.assertEqual([mv["settle_frames"] for mv in side(r, "p1", "row@110", "lo")["motions"]], [3])
-        self.assertEqual([mv["settle_frames"] for mv in divider(r, "row@110")["motions"]], [0])
 
     def test_the_divider_cue_is_a_cue(self):
         r = self.reports["cue"]
@@ -622,33 +667,13 @@ class JudgePixelTests(unittest.TestCase):
         self.assertIn("divider cue", [f["check"] for f in r["info"]])
 
     def test_a_late_content_edge_is_its_own_finding_not_the_dividers(self):
-        # 3b (FRAME OWNER): B's page one frame late (lag1) moves the middle of the two content edges, the derived
-        # divider, while the trace divider is on time. B's own row carries it (content edge off, lag); the divider is
-        # not read in those frames, so it reports no divider off.
+        # 3b, then pair C: B's page one frame late (lag1) is B's own finding (content edge off, lag); the divider is
+        # judged from the trace, where it is centred on its panes' gap.
         r = self.reports["lag1"]
         found = [(f["check"], f["where"]) for f in r["findings"]]
-        self.assertNotIn(("divider off", "divider p0|p1 (divider) mid on row@110"), found)
         self.assertIn(("lag", "p1 (page) lo on row@110"), found)
-        self.assertEqual(divider(r, "row@110")["off_frames"], 0)
-        # The late edge also shows the landed sample one frame late; that is B's, not a divider settle.
-        self.assertNotIn("settle", [c for c, w in found if w.startswith("divider")])
-        # A's content 2 px short of its edge (gap2, frames 20-25): the left side's edge is off; the divider is not read.
-        gap2 = divider(self.reports["gap2"], "row@180")
-        self.assertEqual((gap2["off_frames"], gap2.get("not_read_ranges")), (0, "20-25"))
-
-    def test_a_divider_settle_counts_only_the_frames_it_reads(self):
-        # blip: the divider lands at frame 30 and rests; B's page is 4 px off its pane edge in frames 35-36 and 1 px (just
-        # off) in frame 40 (B's own content edge off). The divider is not read in those frames, so they neither show it
-        # off nor restart its settle; the information names them.
-        r = self.reports["blip"]
-        found = [(f["check"], f["where"]) for f in r["findings"]]
-        self.assertIn(("content edge off", "p1 (page) lo on row@110"), found)
-        d = divider(r, "row@110")
-        self.assertEqual((d["off_frames"], d.get("not_read_ranges")), (0, "35-36,40"))
-        info = {(f["check"], f["where"]): f["detail"] for f in r["info"]}
-        self.assertIn("3 frame(s)", info[("divider not read", "divider p0|p1 (divider) mid on row@110")])
-        self.assertEqual([mv["settle_frames"] for mv in d["motions"]], [0])
-        self.assertNotIn("settle", [c for c, w in found if w.startswith("divider")])
+        self.assertFalse([w for c, w in found if w.startswith("divider")])
+        self.assertEqual(divider(r)["off_frames"], 0)
 
     def test_the_shell_past_the_divider_is_the_neighbours_not_a_gap(self):
         # 3a (FRAME OWNER): a pane's gap is measured to its pane edge and the divider band to the next pane, never
@@ -831,6 +856,33 @@ class ClockTests(unittest.TestCase):
         r = self.reports["still"]
         self.assertEqual(r["clock"]["offset"], 0)
         self.assertIn("no edge moved", r["clock"]["why"])
+
+
+class TraceDividerTests(unittest.TestCase):
+    """Pair C: judge_divider_rects on hand-made trace samples (no film)."""
+
+    @staticmethod
+    def pane(pid, lo, hi):
+        return [pid, lo, 0, hi - lo, 100, 1]
+
+    def rows(self, samples):
+        film = types.SimpleNamespace(scale=2.0, panes={"pa": {"label": "p0"}, "pb": {"label": "p1"}, "pc": {"label": "p2"}},
+                                     samples=[types.SimpleNamespace(panes={p[0]: p for p in panes},
+                                                                    dividers={"d": ["d", x, 0, 7, 100, 1, 2]})
+                                              for x, panes in samples])
+        summary = {}
+        jp.judge_divider_rects(film, {"d": jp.divider_series(film, "d")}, summary)
+        return summary
+
+    def test_the_row_is_labelled_by_the_panes_of_the_last_sample(self):
+        # A closes: the divider first separates A and B, then C and B (as the old film rows were labelled).
+        summary = self.rows([(97, [self.pane("pa", 0, 100), self.pane("pb", 104, 300)]),
+                             (97, [self.pane("pc", 0, 100), self.pane("pb", 104, 300)])])
+        self.assertEqual([row["label"] for row in summary.values()], ["divider p2|p1"])
+
+    def test_one_pane_on_both_sides_is_no_gap(self):
+        # A pane that runs under the whole divider is on both sides of it: there is no gap to judge, so no row.
+        self.assertEqual(self.rows([(97, [self.pane("pa", 96, 102)])]), {})
 
 
 class TuiBorderFrameTest(unittest.TestCase):
