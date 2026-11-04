@@ -66,6 +66,12 @@ public final class ConversationViewController: UIViewController {
     public var textSize: ConversationTextSize? {
         didSet { if textSize != oldValue { applyTextSize() } }
     }
+    /// This conversation's own bubble colours (Chat Colors): my bubbles'
+    /// and theirs, fill and text. nil (or empty), the default, keeps
+    /// Messages' colours. A change redraws every row.
+    public var bubbleColors: ConversationBubbleColors? {
+        didSet { if bubbleColors != oldValue { ConversationThemeOwners.changed(self) } }
+    }
     let options: ConversationPresentationOptions
 
     let layout = ConversationTranscriptLayout()
@@ -398,7 +404,7 @@ public final class ConversationViewController: UIViewController {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
         // In front: the theme takes this conversation's text size.
-        ConversationTextSizeOwners.appeared(self)
+        ConversationThemeOwners.appeared(self)
     }
 
     public override func viewDidAppear(_ animated: Bool) {
@@ -447,7 +453,7 @@ public final class ConversationViewController: UIViewController {
 
     public override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        ConversationTextSizeOwners.disappeared(self)
+        ConversationThemeOwners.disappeared(self)
         // A send still in the air when the conversation goes lands now:
         // other people's changes wait for it (`ConversationLiveChangeGate`).
         landAllFlights()
@@ -503,14 +509,14 @@ public final class ConversationViewController: UIViewController {
         // Bold Text with a host size: the theme takes the new weight first
         // (and re-measures); otherwise rows re-measure here as before.
         if textSize != nil, previousTraitCollection?.legibilityWeight != traitCollection.legibilityWeight {
-            ConversationTextSizeOwners.changed(self)
+            ConversationThemeOwners.changed(self)
         }
         if traitCollection.changesTextMetrics(from: previousTraitCollection) {
             relayoutForTextMetrics()
         }
     }
 
-    /// Dynamic Type, Bold Text or the host's text size changed: every row
+    /// Dynamic Type, Bold Text, the host's text size or colours changed: every row
     /// re-measures at the new size.
     func relayoutForTextMetrics() {
         let followsNewest = isPinnedToBottom && hasPositionedInitially
@@ -952,7 +958,7 @@ public final class ConversationViewController: UIViewController {
         // the measuring ends, these rows are still the store's rows.
         let serial = rebuildSerial
         let traits = collectionView.traitCollection
-        let themeEpoch = ConversationTheme.textSizeEpoch
+        let themeEpoch = ConversationTheme.themeEpoch
         let work = MeasureWork(models: pending)
         liveGate.beginMeasuring()
         Task { [weak self] in
@@ -968,8 +974,8 @@ public final class ConversationViewController: UIViewController {
             }.value
             guard let self else { return }
             let probeStart = self.probeClock()
-            // Measured under a text size that has changed since: measured again in place.
-            if themeEpoch == ConversationTheme.textSizeEpoch {
+            // Measured under a text size or colours that changed since: measured again in place.
+            if themeEpoch == ConversationTheme.themeEpoch {
                 self.layoutCache.adopt(measured.items, width: width, margin: margin)
             }
             self.probeSection(.measured, since: probeStart)

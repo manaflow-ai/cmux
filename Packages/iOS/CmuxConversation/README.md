@@ -38,3 +38,13 @@ theme's fonts follow the conversation in front; one under a sheet or a push
 re-measures when it is in front again.
 `stepped(by:)` and `percent(of:)` give a host Zoom In, Zoom Out and Actual
 Size. nil, the default, follows the system.
+
+## Chat Colors
+
+`bubbleColors` (a `ConversationBubbleColors`: my bubbles' fill and text,
+theirs) draws this conversation's bubbles in the colours a person picked for
+it, as the Mac's Chat Colors… does. A fill without a text colour gets white or
+black text, whichever reads on it; a chosen fill drops Messages' blue gradient
+(mine) or the background-tinted grey (theirs). The colours follow the
+conversation in front, like `textSize`. nil, the default, keeps Messages'
+colours. `sentSwatches` and `receivedSwatches` are the Mac's swatches.

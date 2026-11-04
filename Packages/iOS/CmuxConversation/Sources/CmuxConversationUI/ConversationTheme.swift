@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CmuxConversationCore
 import CmuxConversationGeometry
 import os
 import UIKit
@@ -24,16 +25,24 @@ enum ConversationTheme {
     /// has a text size from its host (`ConversationViewController.textSize`):
     /// that size and the controller's legibility weight (Bold Text). nil,
     /// the default, leaves every font exactly as the system sizes it. Only
-    /// `ConversationTextSizeOwners` sets it (main thread); rows measured
+    /// `ConversationThemeOwners` sets it (main thread); rows measured
     /// ahead read it off the main thread, so the slot is behind a lock.
     static var textSizeTraits: UITraitCollection? {
         get { textSizeSlot.withLockUnchecked { $0 } }
         set { textSizeSlot.withLockUnchecked { $0 = newValue } }
     }
     private static let textSizeSlot = OSAllocatedUnfairLock<UITraitCollection?>(uncheckedState: nil)
-    /// Counts `textSizeTraits` changes (main thread), so work measured
-    /// under an older size is not kept.
-    nonisolated(unsafe) static var textSizeEpoch = 0
+    /// The bubble colours of the conversation in front, from its host
+    /// (`ConversationViewController.bubbleColors`, Chat Colors). nil, the
+    /// default, keeps Messages' colours. Set like `textSizeTraits`.
+    static var bubbleColors: ConversationBubbleColors? {
+        get { bubbleColorsSlot.withLock { $0 } }
+        set { bubbleColorsSlot.withLock { $0 = newValue } }
+    }
+    private static let bubbleColorsSlot = OSAllocatedUnfairLock<ConversationBubbleColors?>(initialState: nil)
+    /// Counts `textSizeTraits` and `bubbleColors` changes (main thread), so
+    /// work measured under older ones is not kept.
+    nonisolated(unsafe) static var themeEpoch = 0
 
     /// `style`'s font at the host's size, or the system's when none is set.
     private static func preferredFont(_ style: UIFont.TextStyle) -> UIFont {
@@ -425,6 +434,21 @@ enum ConversationTheme {
 
     static let failedBubble = outgoingBubble
 
+    // MARK: Chat Colors (the host's `bubbleColors`; each unset role keeps the colour above)
+
+    /// My bubbles' fill.
+    static var sentFill: UIColor { bubbleColors?.sent.map(UIColor.init(conversation:)) ?? outgoingBubble }
+    /// The other side's bubbles' fill.
+    static var receivedFill: UIColor { bubbleColors?.received.map(UIColor.init(conversation:)) ?? incomingBubble }
+    /// My bubbles take Messages' screen-fixed gradient only in its own blue.
+    static var sentFillGradient: ScreenGradient? { bubbleColors?.sent == nil ? iMessageGradient : nil }
+    /// Their bubbles follow a conversation background only in their own grey.
+    static var receivedFillAdaptsToBackdrop: Bool { bubbleColors?.received == nil }
+    /// My bubbles' text.
+    static var sentTextColor: UIColor { bubbleColors?.resolvedSentText.map(UIColor.init(conversation:)) ?? outgoingText }
+    /// The other side's text.
+    static var receivedTextColor: UIColor { bubbleColors?.resolvedReceivedText.map(UIColor.init(conversation:)) ?? incomingText }
+
     static let outgoingText = UIColor.white
     static let incomingText = UIColor.label
     static let background = UIColor.systemBackground
@@ -530,6 +554,12 @@ extension UIColor {
     /// entry point instead of the bare trailing-closure initializer.
     nonisolated static func resolving(_ provider: @escaping @Sendable (UITraitCollection) -> UIColor) -> UIColor {
         UIColor(dynamicProvider: provider)
+    }
+}
+extension UIColor {
+    /// A Chat Colors colour (sRGB).
+    convenience init(conversation color: ConversationColor) {
+        self.init(red: color.red, green: color.green, blue: color.blue, alpha: 1)
     }
 }
 #endif
