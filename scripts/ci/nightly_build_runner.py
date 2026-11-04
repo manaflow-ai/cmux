@@ -432,6 +432,39 @@ def nightly_only_builder_route(builder: str, fallback: str,
 # glaeda's nightly-only admission admits these light, secret-free nightly.yml jobs.
 
 
+def runner_host(runner: Mapping[str, Any]) -> str:
+    """The mini a glaeda runner is on: its name before `-glaeda` (cmux15-glaeda-1 -> cmux15), or ""."""
+    name = str(runner.get("name") or "")
+    return name.split("-glaeda", 1)[0] if "-glaeda" in name else ""
+
+
+def off_signing_verify_route(nightly_only: str, signing_label: str,
+                             runners: Sequence[Mapping[str, Any]] | None) -> tuple[list[str], str]:
+    """(one `glaeda-runner-<name>` label per verify job, off every mini with a `signing_label` runner, or [], why).
+
+    The signing runner's hook takes a whole-Mac claim for each sign, and the mini's nightly-only runners yield to
+    it for up to 3 h. The verify pick is made before this run's sign, while the claim that holds them comes from a
+    newer run's sign: run 41896773873's Verify final nightly DMG waited 35 min on cmux15-glaeda-nightly-only-5
+    and was then cancelled. So the verify jobs never take a signing mini's runner: idle runners first, then busy
+    ones (a light nightly job frees a runner in minutes), and two jobs take two runners while two exist."""
+    if runners is None:
+        return [], "runners could not be read, so the verify jobs keep the reservation"
+    signing = {runner_host(runner) for runner in runners if signing_label in pool.runner_labels(runner)}
+    signing.discard("")
+    if not signing:
+        return [], f"no runner carries `{signing_label}`, so the verify jobs keep the reservation"
+    free = sorted((bool(runner.get("busy")), str(runner.get("name") or ""), label)
+                  for runner in runners
+                  if runner.get("status") == "online" and nightly_only in pool.runner_labels(runner)
+                  and runner_host(runner) and runner_host(runner) not in signing
+                  for label in sorted(pool.runner_labels(runner)) if label.startswith(pool.RUNNER_LABEL_PREFIX))
+    labels = list(dict.fromkeys(label for _, _, label in free))[:2]
+    if not labels:
+        return [], (f"no online `{nightly_only}` runner is off the signing mini(s) {', '.join(sorted(signing))}, "
+                    "so the verify jobs keep the reservation")
+    return labels, f"off the signing mini(s) {', '.join(sorted(signing))}"
+
+
 def write_output(env: Mapping[str, str], values: Mapping[str, str], lines: Sequence[str]) -> None:
     for line in lines:
         print(f"nightly build runner: {line}")
@@ -490,8 +523,26 @@ def main(env: Mapping[str, str] = os.environ,
         # max age, so its read went live, hit the spent routing-App budget (403) and sent both jobs to the shared
         # slot pool, where they waited 6-15 min for units (run 41400519218). The reservation admits only nightly
         # jobs and holds no shared capacity, so it needs no idle check; a re-run (attempt 2) keeps the owned pick.
-        write_output(env, {"owned": nightly_only},
-                     [f"verify: {nightly_only} (the all-nightly reservation, taken without a runner read)"])
+        # The only read here is the bounded one below for the per-job verify runners off the signing mini, and any
+        # failure of it leaves `owned` (this reservation) as the jobs' route.
+        values, lines = {"owned": nightly_only}, [f"verify: {nightly_only} (the all-nightly reservation)"]
+        signing_label = (env.get("SIGN_RUNNER_LABEL") or "").strip()
+        if signing_label:
+            # One bounded read for the signing mini only; any failure leaves the reservation as before.
+            runners = None
+            if env.get("ROUTE_TOKEN"):
+                try:
+                    runners = within(BUILDER_READ_SECONDS, lambda: (
+                        read_runners or (lambda token, name: pool.GitHub(token, name).runners()))(
+                        env["ROUTE_TOKEN"], repo))
+                except Exception as error:  # noqa: BLE001 - never fail the job; the reservation takes it
+                    print(f"::warning title=nightly build runner::could not list the verify runners ({str(error)[:200]})")
+            picked, picked_why = off_signing_verify_route(nightly_only, signing_label, runners)
+            values["verify_signed"] = picked[0] if picked else ""
+            values["verify_dmg"] = picked[-1] if picked else ""
+            lines.append(f"verify signed: {values['verify_signed'] or nightly_only}, final DMG: "
+                         f"{values['verify_dmg'] or nightly_only} ({picked_why})")
+        write_output(env, values, lines)
         return 0
     dedicated_label = (env.get("DEDICATED_LABEL") or "").strip()
     only_dedicated = list(argv[:1]) == ["dedicated"]
