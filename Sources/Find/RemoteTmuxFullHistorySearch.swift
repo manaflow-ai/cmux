@@ -7,8 +7,8 @@ import Observation
 /// arrived live, so find stops short of older tmux history. ``load()`` repaints
 /// the surface with the whole history and then runs the open search again, so
 /// the match count and Return/Shift-Return (and copy mode's `n`/`N`) cover it.
-/// The find-bar button, Command-Return in the find field, and find-window's jump
-/// all go through this one path.
+/// The find-bar button and Option-Return in the find field both go through this
+/// one path.
 @MainActor
 @Observable
 final class RemoteTmuxFullHistorySearch {
