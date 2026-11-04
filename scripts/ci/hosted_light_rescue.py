@@ -14,8 +14,10 @@ An independent scheduled workflow wakes that same concurrency owner when it is n
 cancels or re-runs target jobs itself. Each pass:
 
 - lists the in-flight (`queued`, `in_progress`) pull request runs of every workflow file that declares a hosted
-  light job, created STALL_SECONDS to WINDOW ago (one listing page per workflow and status);
-- reads the jobs of at most MAX_RUNS of them (plus one re-read per rescue, so at most MAX_RUNS + MAX_RESCUES) (attempt 1 only, at the pull request's current head), oldest first;
+  light job, created STALL_SECONDS to WINDOW ago (the newest listing page plus one rotating overflow page per workflow and status);
+- retains discovered candidates within WINDOW and reads the jobs of at most MAX_RUNS of them (plus one re-read
+  per rescue, so at most MAX_RUNS + MAX_RESCUES) (attempt 1 only, at the pull request's current head); the first
+  pass is oldest first and later passes rotate from an in-memory cursor;
 - finds a stalled job: queued, no runner id or name, every label a GitHub-hosted `ubuntu-*` label (in this repo only
   declared hosted light jobs may ask for one, tests/test_ci_self_hosted_guard.sh), created STALL_SECONDS or more ago;
 - when every unfinished job of the run is such a stalled job (so the cancel stops nothing that is running), cancels
@@ -42,6 +44,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +57,7 @@ STALL_SECONDS = 180
 WINDOW = dt.timedelta(minutes=90)
 MAX_RUNS = 40
 MAX_RESCUES = 10
+MAX_RUN_LIST_PAGES = 10
 SETTLE_BUDGET_S = 90.0
 SETTLE_INTERVAL_S = 5.0
 RERUN_TRIES = 3
@@ -173,9 +177,9 @@ class GitHub:
                 return cached[1]
             raise RuntimeError(f"{method} {path}: HTTP {error.code}") from error
 
-    def runs(self, workflow: str, status: str, start: dt.datetime, end: dt.datetime) -> list[dict[str, Any]]:
+    def runs(self, workflow: str, status: str, start: dt.datetime, end: dt.datetime, *, page: int = 1) -> list[dict[str, Any]]:
         # Filtered to pull_request runs server-side, so push and dispatch runs never fill the one page.
-        query = urllib.parse.urlencode({"status": status, "event": "pull_request", "per_page": 100,
+        query = urllib.parse.urlencode({"status": status, "event": "pull_request", "per_page": 100, "page": page,
                                         "created": f">={iso(start.replace(minute=0, second=0, microsecond=0))}"})
         return list(self.request("GET", f"/actions/workflows/{workflow}/runs?{query}").get("workflow_runs") or [])
 
@@ -306,9 +310,41 @@ def verdict(jobs: Sequence[Mapping[str, Any]], now: dt.datetime) -> tuple[str, l
     return ("gated" if others else "rescue"), stuck
 
 
+def run_key(run: Mapping[str, Any]) -> tuple[str, int]:
+    """The stable ordering key shared by the bounded scan and its in-memory cursor."""
+    return str(run.get("created_at") or ""), int(run["id"])
+
+
+@dataclass
+class ScanState:
+    """Process-local discovery and progress; expired candidates are removed on every pass."""
+
+    cursor: tuple[str, int] | None = None
+    pages: dict[tuple[str, str], int] = field(default_factory=dict)
+    candidates: dict[int, Mapping[str, Any]] = field(default_factory=dict)
+
+
+def scan_slice(runs: Sequence[Mapping[str, Any]], cursor: tuple[str, int] | None) -> tuple[
+        list[Mapping[str, Any]], tuple[str, int] | None]:
+    """Select one bounded rotating slice and return the key after which the next pass starts.
+
+    The cursor is intentionally only process-local. A new sweeper starts from the oldest run, while the
+    minute passes in one sweeper visit every candidate even when old runs stay gated. If the run at the
+    cursor disappears, the first remaining run after it (or the oldest run after a full wrap) is safe.
+    """
+    if not runs:
+        return [], cursor
+    start = 0 if cursor is None else next(
+        (index for index, run in enumerate(runs) if run_key(run) > cursor), 0)
+    ordered = list(runs[start:]) + list(runs[:start])
+    selected = ordered[:MAX_RUNS]
+    return selected, run_key(selected[-1])
+
+
 def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: bool,
           sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
-          pending: set[int] | None = None, log: Callable[[str], None] = print) -> list[str]:
+          pending: set[int] | None = None, log: Callable[[str], None] = print,
+          scan_state: ScanState | None = None) -> list[str]:
     lines: list[str] = []
     pending = set() if pending is None else pending
     recovering = set(pending)
@@ -324,22 +360,44 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         rescued += int(reran)
         lines.append(f"run {run_id}: {outcome}")
     start, end = now - WINDOW, now - dt.timedelta(seconds=STALL_SECONDS)
-    listed: dict[int, Mapping[str, Any]] = {}
+    state = scan_state if scan_state is not None else ScanState()
+    # Overflow pages rotate independently of the job-read cursor. Retain the discovered union so a page
+    # disappearing from the next listing cannot discard candidates before their turn. Metadata never
+    # authorizes a mutation: the run, PR head and jobs are still re-read immediately before cancellation.
+    listed = state.candidates
+    for run_id, run in list(listed.items()):
+        created = parse_time(run.get("created_at"))
+        if (created is None or created < start or run.get("_workflow") not in workflows
+                or run_id in recovering):
+            del listed[run_id]
     for workflow in workflows:
         for status in IN_FLIGHT:
-            try:
-                page = client.runs(workflow, status, start, end)
-            except Exception as error:  # noqa: BLE001 - an unread listing only narrows this pass
-                lines.append(f"could not list {status} runs of {workflow} ({error})")
-                continue
-            for run in page:
-                if (isinstance(run, Mapping) and isinstance(run.get("id"), int) and candidate(run)
-                        and run["id"] not in recovering):
-                    listed[run["id"]] = {**run, "_workflow": workflow}
-    runs = sorted(listed.values(), key=lambda run: (str(run.get("created_at")), run["id"]))
-    if len(runs) > MAX_RUNS:
-        lines.append(f"{len(runs)} candidate runs; read the oldest {MAX_RUNS}")
-        runs = runs[:MAX_RUNS]
+            key = workflow, status
+            overflow = state.pages.get(key, 2)
+            pages = (1, overflow)
+            full_overflow = False
+            for listing_page in pages:
+                try:
+                    page = client.runs(workflow, status, start, end, page=listing_page)
+                except Exception as error:  # noqa: BLE001 - an unread listing only narrows this pass
+                    lines.append(f"could not list {status} runs of {workflow} ({error})")
+                    continue
+                if listing_page == overflow:
+                    full_overflow = len(page) >= 100
+                for run in page:
+                    if (isinstance(run, Mapping) and isinstance(run.get("id"), int) and candidate(run)
+                            and run["id"] not in recovering
+                            and (created := parse_time(run.get("created_at"))) is not None and created >= start):
+                        listed[run["id"]] = {**run, "_workflow": workflow}
+            if full_overflow:
+                state.pages[key] = 2 if overflow >= MAX_RUN_LIST_PAGES else overflow + 1
+            else:
+                state.pages[key] = 2
+    runs = sorted(listed.values(), key=run_key)
+    candidate_count = len(runs)
+    runs, state.cursor = scan_slice(runs, state.cursor)
+    if candidate_count > MAX_RUNS:
+        lines.append(f"{candidate_count} candidate runs; read a rotating slice of {MAX_RUNS}")
     for run in runs:
         try:
             jobs = client.jobs(run["id"])
@@ -397,11 +455,11 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         settled = False
         while True:
             try:
-                state = client.run(run["id"])
+                current = client.run(run["id"])
             except Exception:  # noqa: BLE001 - read again until the budget runs out
-                state = {}
-            if state.get("status") == "completed":
-                settled = state.get("run_attempt") == 1
+                current = {}
+            if current.get("status") == "completed":
+                settled = current.get("run_attempt") == 1
                 break
             if clock() >= deadline:
                 break
@@ -414,7 +472,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
                                        sleep=sleep, clock=clock, log=log)
         rescued += int(reran)
         lines.append(f"{where}: {names} stalled; cancelled; {outcome}")
-    lines.append(f"{len(listed)} candidate runs, {min(len(runs), MAX_RUNS)} read, {rescued} failed over")
+    lines.append(f"{len(listed)} candidate runs, {len(runs)} read, {rescued} failed over")
     return lines
 
 
@@ -447,6 +505,7 @@ def from_env(env: Mapping[str, str], repo: str, *, now: Callable[[], dt.datetime
     runners = json.loads((directory / "runners.json").read_text(encoding="utf-8"))
     workflows = with_callers(declared_workflows(runners), directory / "workflows")
     client = GitHub(token, repo)
+    scan_state = ScanState()
     pending: set[int] = set()
     restored = False
     def once() -> None:
@@ -457,7 +516,8 @@ def from_env(env: Mapping[str, str], repo: str, *, now: Callable[[], dt.datetime
                 restored = True
             except Exception as error:  # noqa: BLE001 - incomplete journal cannot authorize a rerun
                 log(f"hosted light recovery journal unavailable ({error}); existing cancellations left alone")
-        for line in sweep(client, workflows, now=now(), dry_run=False, pending=pending, log=log):
+        for line in sweep(client, workflows, now=now(), dry_run=False, pending=pending, log=log,
+                          scan_state=scan_state):
             log(f"[hosted light] {line}")
     return once
 
