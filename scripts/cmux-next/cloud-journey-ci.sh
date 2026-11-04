@@ -27,7 +27,12 @@ run() { # label, extra args...
   if bun "$here/cloud-journey.ts" --backend "$TARGET" --out "$dir" "$@"; then :; else status=1; fi
   { printf '### %s%s\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
   if [ "$phase" = after ]; then
-    if ! bun "$here/cloud-journey.ts" --compare "$out/baseline-$label/journey.json" "$dir/journey.json" | tee -a "$summary"; then regressed=1; fi
+    # Only exit 3 is a proven green-to-red step; any other nonzero exit is the compare itself failing,
+    # which is reported and never rolls the Worker back.
+    local rc=0
+    bun "$here/cloud-journey.ts" --compare "$out/baseline-$label/journey.json" "$dir/journey.json" > "$dir/compare.txt" 2>&1 || rc=$?
+    cat "$dir/compare.txt" >> "$summary"
+    if [ "$rc" = 3 ]; then regressed=1; elif [ "$rc" != 0 ]; then echo "::warning title=Cloud journey::compare failed (exit $rc); not rolling back"; fi
   fi
 }
 run test-team
