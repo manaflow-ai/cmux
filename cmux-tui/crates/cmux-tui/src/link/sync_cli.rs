@@ -301,7 +301,7 @@ pub(super) fn copy_file_with_progress(
         source: Source::File(local.to_path_buf()),
         permissions: local::permissions_of(meta.permissions().mode()),
     };
-    let mut remote = Remote::connect(socket)?;
+    let mut remote = Remote::connect_negotiated(socket)?;
     let (parent, _) = remote::split(target)?;
     remote.mkdir_all(parent)?;
     write_with_progress(&mut remote, target, &file, progress).map(|_| ())
@@ -337,7 +337,7 @@ pub(super) fn upload(
     }
     let read = std::rc::Rc::new(std::cell::Cell::new(0));
     let mut reader = Counted { inner: file, read: read.clone() };
-    let mut remote = Remote::connect(socket)?;
+    let mut remote = Remote::connect_negotiated(socket)?;
     let (parent, _) = remote::split(target)?;
     remote.mkdir_all(parent)?;
     remote.write_with_progress(target, &mut reader, 0o600, &mut || progress(read.get()))?;
@@ -491,7 +491,7 @@ fn push_inner(
     }
     // What a pull compares the machine's branch and staged changes with.
     let git = if git_record { Some(git_back::base_of(&local)?) } else { None };
-    let mut remote = Remote::connect(socket)?;
+    let mut remote = Remote::connect_negotiated(socket)?;
     remote.mkdir_all(remote_root)?;
     let manifest_path = format!("{remote_root}/{manifest_name}");
     let mut previous: Manifest = remote

@@ -9,6 +9,7 @@
 //! atomic ([`write`]), and transfers larger than one line use the byte
 //! streams of [`stream`].
 
+mod encoding;
 mod entry;
 mod error;
 mod listing;
@@ -21,6 +22,7 @@ mod write;
 
 use std::sync::OnceLock;
 
+pub use encoding::{DEFLATE, FS_WRITE_DEFLATE_CAPABILITY};
 pub use entry::{Entry, EntryKind, StatResult, revision};
 pub use error::FsError;
 pub use listing::Page;
@@ -50,10 +52,14 @@ pub fn installed() -> Option<&'static FsService> {
     SERVICE.get()
 }
 
-/// The capability to advertise in `identify`, when served.
+/// The capabilities to advertise in `identify`, when served: `fs-v1` and
+/// `fs-write-deflate-v1` (compressed `fs.write` bytes, [`encoding`]).
 #[must_use]
-pub fn advertised() -> Option<&'static str> {
-    installed().map(|_| FS_CAPABILITY)
+pub fn advertised() -> Vec<&'static str> {
+    match installed() {
+        Some(_) => vec![FS_CAPABILITY, FS_WRITE_DEFLATE_CAPABILITY],
+        None => Vec::new(),
+    }
 }
 
 /// The `cmd` of `line` when it is one of [`FS_COMMANDS`], exactly.

@@ -10441,6 +10441,17 @@ then reads exactly `size` raw bytes (at most 64 GiB) and answers `{entry}`.
 A write stream that closes or stays idle for 60 seconds before `size` bytes
 leaves no file at `path`.
 
+A server that also advertises `fs-write-deflate-v1` takes compressed write
+bytes. An `fs.write` line or write stream may carry `"encoding":"deflate"`
+with `decoded_size`: the wire bytes (the line's `bytes_base64`, or the
+stream's `size` raw bytes) are one raw deflate stream (RFC 1951) that must
+decode to exactly `decoded_size` bytes. The free-space check and the
+single-write limit apply to `decoded_size`; decoding stops at it, and more
+or fewer decoded bytes, or bytes that are not deflate, are `params.invalid`
+and leave no file. A write stream there also takes `permissions`, as the
+line op does. Without these fields every write is as above, and a client
+sends them only to a server that advertises the capability.
+
 ## Guest browser opening
 
 ### url-open
