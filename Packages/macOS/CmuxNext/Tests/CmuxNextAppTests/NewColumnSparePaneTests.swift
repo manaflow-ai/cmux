@@ -66,6 +66,8 @@ import Testing
         window.contentView = content.contentView
         window.orderFrontRegardless()
         let root = content.layoutView
+        // Pins the pane springs on without touching the shared settings (as ClosedPaneContentStaysUntilLandingTests).
+        root.context.reduceMotionOverride = false
         root.driver.isManual = true
         root.driver.detach()
         root.driver.attach(to: root)
