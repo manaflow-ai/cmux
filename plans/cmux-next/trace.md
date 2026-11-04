@@ -221,15 +221,17 @@ open press as unfinished (`--key-interval` keeps keys apart).
   set-attach-visibility, detach-attached-view, scroll-surface), every other as `other`.
 - A traced key comes on its terminal view's own connection (only the view's `send` carries a flow id). Its queue
   and dispatcher are that connection's. On that thread, the begin and end records before the key's own
-  `daemon.req.begin.send` name the requests it waited behind: those that ended between the key's
-  `daemon.send.read` and its own begin, including one that began before the read. A late key (a long gap from its
-  `daemon.send.read` to its own `daemon.req.begin.send`) with no begin and end pair in that gap waited for the
-  dispatcher thread to wake up. A gap between its own begin and its `daemon.send.write` is in the `send`
-  handler before the write (the terminal lookup, and the creating-input wait while a terminal is being created).
-- Creates, `wait-for` and `clear-history` come on other connections (the app's control connection, a CLI), never
-  on a Mac terminal view's (`TerminalAttachment`); an iOS view sends clear-history on its own attach connection. There the dispatcher records nothing while it hands one off, or while it runs a create
-  inline because the terminal work pool is full. A clear-history also holds later requests to its surface on that
-  connection until it ends.
+  `daemon.req.begin.send` name the requests it waited behind: those that ended between the key's `daemon.send.read`
+  and its own begin, including one that began before the read. A late key (a long gap from its `daemon.send.read`
+  to its own `daemon.req.begin.send`) with no `daemon.req.end.*` record in that gap waited for its hand-off to the
+  queue and for the dispatcher thread to wake up. A gap between its own begin and its `daemon.send.write` is in the
+  `send` handler before the write (the terminal lookup, and the creating-input wait while a terminal is being
+  created).
+- Creates, `wait-for` and `clear-history` come on other connections (the app's control connection, a CLI), never on
+  a Mac terminal view's (`TerminalAttachment`). On those connections the dispatcher records nothing while it hands
+  one off, or while it runs a create inline because the terminal work pool is full. A `clear-history` also holds
+  later requests to its surface on that connection until it ends. An iOS view sends `clear-history` on its own
+  attach connection (its keys carry no flow id, so no traced key waits behind it).
 
 ## How to open it
 
