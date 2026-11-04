@@ -554,6 +554,15 @@ public final class HomeNativeTranscriptView: NSView {
         windowStateChanged()
         // A theme change while the tab was hidden (equal palettes return early).
         applyTheme()
+        // Opened, or returned to (its tab shown again, the docked Home shown again): the chat
+        // rests at its newest message, wherever it was left (https://github.com/manaflow-ai/cmux/issues/34562).
+        transcript.showNewest()
+    }
+
+    /// Shown again in the same window (a hidden tab or container unhidden): at the newest message too.
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        transcript.showNewest()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
