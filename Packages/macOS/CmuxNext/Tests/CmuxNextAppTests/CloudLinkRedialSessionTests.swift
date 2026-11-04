@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextWakeups
 import Foundation
+import Observation
 import Testing
 
 /// A running Cloud machine's app link that ends is dialed again without a click (hq#7060): on Leo's NIGHTLY a new
@@ -11,7 +12,8 @@ import Testing
 /// again, so `start-chat` failed after 190 s with the receiver up and listening.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudLinkRedialSessionTests {
-    @MainActor
+    /// Observable: the waits below re-read their condition on each change.
+    @MainActor @Observable
     final class Dials {
         var refused = 0
         var answered = 0
