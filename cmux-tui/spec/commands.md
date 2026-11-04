@@ -2871,6 +2871,36 @@ Example:
 {"id":12,"ok":true,"data":{"width":0.5}}
 ```
 
+### set-layout-sizes
+
+| Field | Value |
+| --- | --- |
+| name | `set-layout-sizes` |
+| status | implemented |
+| since | protocol 12 additive capability `layout-sizes-batch-v1` |
+
+Applies the divider values one resize gesture ends with (a keyboard trade's two column widths, a drag release's widths and ratios) as one change of the resize transaction `transaction`: one commit, one layout revision and one undo entry, shared with the values the same connection sent earlier under the same transaction (`set-split-ratio`, `set-viewport-pane-width` while the gesture moved). Every value means what its single command means, with the same clamping and ranges; a split ratio's implied column width is computed from the batch's own earlier values. If any value is refused, nothing changes.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `values` | array of `LayoutSizeValue` | required | 1 to 64 values, all on one screen, applied in order |
+| `transaction` | `uint64` | required | The gesture's resize transaction on this connection |
+
+`LayoutSizeValue` is `{"split": Id, "ratio": float32}` (as `set-split-ratio`) or `{"pane": Id, "width": float32}` (as `set-viewport-pane-width`, the column holding `pane`).
+
+Result: `{}`. The commit's `layout-changed` event carries `transaction`.
+
+Errors: a refused value answers with its single command's error and `error_code` (`layout-ratio-target-missing`, `layout-ratio-out-of-range`, `row-split-compat-readonly`, `viewport-width-out-of-range`, `viewport-column-not-found`), its message prefixed with `value <index>: `. A value on another screen than the first returns `error_code:"layout-sizes-other-screen"`; no value or more than 64 returns `error_code:"invalid-argument"`; a value that is not exactly `{split, ratio}` or `{pane, width}` (both pairs, or another field) is refused as a malformed request; a commit the store refuses returns `error_code:"layout-sizes-not-persisted"`. In every error case nothing changed.
+
+Example:
+
+```json
+{"id":12,"cmd":"set-layout-sizes","values":[{"pane":2,"width":0.4},{"pane":5,"width":0.6}],"transaction":31}
+{"id":12,"ok":true,"data":{}}
+```
+
 ### set-column-dock
 
 | Field | Value |
@@ -9331,6 +9361,8 @@ Protocol v9 adds `new-pane`; its implemented result is `{surface}`. A future res
 
 `viewport-column-resize-v1` is additive within protocol v9. Clients must require the capability before sending `set-viewport-pane-width` or interpreting `Screen.viewport_base_width`.
 
+`layout-sizes-batch-v1` is additive within protocol v12. Clients must require the capability before sending `set-layout-sizes`; without it they send one `set-split-ratio` or `set-viewport-pane-width` per value under the same transaction (separate commits).
+
 `dock-columns-v1` is additive within protocol v12. Clients must require the capability before sending `set-column-dock`. Clients without it ignore `Screen.columns[].dock` and render every column in order. The flag is stored in the screen's durable viewport record only while set; a daemon that predates the capability cannot open a registry that holds a docked column, so roll back only before any column was pinned.
 
 `layout-undo-v1` is additive within protocol v9. Clients must require the capability before sending `undo-layout`. A binding must preserve both result variants and must not set `confirm_close` without the exact revision returned by the confirmation preview.
@@ -10448,6 +10480,26 @@ answers `{"ready":true}` after the path, mode and free space are checked,
 then reads exactly `size` raw bytes (at most 64 GiB) and answers `{entry}`.
 A write stream that closes or stays idle for 60 seconds before `size` bytes
 leaves no file at `path`.
+
+A server that also advertises `fs-write-deflate-v1` takes compressed write
+bytes. An `fs.write` line or write stream may carry `"encoding":"deflate"`
+with `decoded_size`: the wire bytes (the line's `bytes_base64`, or the
+stream's `size` raw bytes) are one raw deflate stream (RFC 1951) that must
+decode to exactly `decoded_size` bytes. The free-space check and the
+single-write limit apply to `decoded_size`; decoding stops at it, and more
+or fewer decoded bytes, or bytes that are not deflate, are `params.invalid`
+and leave no file. A write stream there also takes `permissions`, as the
+line op does. Without these fields every write is as above, and a client
+sends them only to a server that advertises the capability.
+
+A server that also advertises `fs-write-nofollow-v1` takes `"no_follow":true`
+on an `fs.write` line (any mode, `append` included) or write stream: a
+symlink as any component of `path` below its root, the last included, is
+refused with `fs.symlink_in_path` and nothing is written. The check is made
+on the walk to the folder, again on the target when the write begins, and
+once more right before the rename. A copy that listed a folder can then
+write its files without an `fs.stat` of each one first: a symlink the
+machine put there since stops that file with this code.
 
 ## Guest browser opening
 

@@ -6,6 +6,7 @@ import { useT } from "./i18n";
 import { ContextRing } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
 import { compactingUsage } from "./usageStats";
+import { contextRingLook } from "./contextRingLook.experiment";
 
 type Props = {
   used?: number;
@@ -118,7 +119,22 @@ export default componentEntry<Props>({
     },
   },
   load: async () => GalleryContextRing,
+  // Leo (2026-11-03) read the ring at 68% as a loading spinner. Compare its looks at 25, 68 and 95%
+  // (variants gauge-*); `track` shipped: a visible remaining-share track and flat arc ends.
+  experiment: {
+    definition: contextRingLook,
+    script: [{ name: "Rest", run: async () => {} }],
+  },
   variants: {
+    ...Object.fromEntries(
+      ([25, 68, 95] as const).map((percent) => [
+        `gauge-${percent}`,
+        {
+          note: `${percent}% used, the quiet row's resting ring: the remaining share is a visible track, so the circle reads as a gauge and never as a spinner (compare the context-ring-look arms).`,
+          props: { used: percent * 2_000, size: 200_000 },
+        },
+      ]),
+    ),
     "unknown-usage": {
       note: "Before the first usage report the ring keeps its place, and automation cannot open an empty 0% surface.",
       props: {},
@@ -236,19 +252,19 @@ export default componentEntry<Props>({
       props: { used: 111_000, size: 475_000, wheel: "minimal" },
     },
     "usage-empty": {
-      note: "A fresh chat: usage is known but nothing is used, so only the 1px track shows.",
+      note: "A fresh chat: usage is known but nothing is used, so only the track shows.",
       props: { used: 0, size: 200000 },
     },
     "usage-30": {
-      note: "About a third used: a filled wedge from twelve o'clock, read as a share rather than a spinner.",
+      note: "About a third used: an arc from twelve o'clock over the visible track, read as a share rather than a spinner.",
       props: { used: 60000, size: 200000 },
     },
     "usage-75": {
-      note: "Three quarters used: the wedge covers most of the disc, still in the quiet text color.",
+      note: "Three quarters used: the arc runs most of the way round, the rest of the circle still drawn as track.",
       props: { used: 150000, size: 200000 },
     },
     "usage-full": {
-      note: "The window is full: the wedge is a whole disc inside the track.",
+      note: "The window is full: the arc is the whole ring.",
       props: { used: 200000, size: 200000 },
     },
   },

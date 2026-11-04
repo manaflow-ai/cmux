@@ -10,6 +10,9 @@ snapshot_explicit=0
 if [[ -n "${CMUX_UI_LAYER_SNAPSHOT:-}" ]]; then snapshot_explicit=1; fi
 attach=""
 watch=0
+host_flags=()
+# The checkout's shipped themes, for an app theme the installed app does not have.
+export CMUX_UI_LAYER_THEMES="${CMUX_UI_LAYER_THEMES:+$CMUX_UI_LAYER_THEMES:}$root/Resources/ghostty/themes"
 
 timestamp_ns() {
   # Timing is opt-in so the normal host launch has no Python dependency.
@@ -28,12 +31,20 @@ timestamp_ns() {
 usage() {
   cat <<'EOF'
 Usage: Prototypes/UiLayerHost/launch.sh [--snapshot PATH | --attach SOCKET] [--watch]
+                                        [--sizes WxH,WxH... | --sizes all] [--animate]
+                                        [--cycle-sizes] [--no-app-look]
 
 Launches the Debug UI-layer host against a read-only JSON projection or an
 explicit cmux NEXT control socket. --attach establishes events.stream first,
 then reads system.identify and snapshot.get; it never sends mutation verbs.
 --watch uses the checked-in Swift vnode watcher to restart the host after
 source saves with no third-party watcher dependency.
+
+The windows wear the installed cmux NEXT's look (~/.config/cmux/cmux-next.json,
+the Ghostty config and its theme file) and follow saves; --no-app-look keeps
+Ghostty's default colors. --sizes opens one draggable window per size (all:
+1512x982, 1120x720, 760x560, 520x420). --animate plays the windows on their own;
+--cycle-sizes steps every window through the sizes. The Window menu has the same.
 EOF
 }
 
@@ -48,6 +59,10 @@ while (($#)); do
       [[ -z "$attach" && $snapshot_explicit -eq 0 ]] || { echo "use exactly one of --attach or --snapshot" >&2; exit 2; }
       attach="$2"; shift 2 ;;
     --watch) watch=1; shift ;;
+    --sizes)
+      [[ $# -ge 2 ]] || { echo "--sizes needs WxH[,WxH...] or all" >&2; exit 2; }
+      host_flags+=(--sizes "$2"); shift 2 ;;
+    --animate|--cycle-sizes|--no-app-look) host_flags+=("$1"); shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -68,9 +83,9 @@ fi
 run_host() {
   host_started="$(timestamp_ns)"
   if [[ -n "$attach" ]]; then
-    swift run --package-path "$package" cmux-ui-layer --attach "$attach" &
+    swift run --package-path "$package" cmux-ui-layer --attach "$attach" ${host_flags[@]+"${host_flags[@]}"} &
   else
-    swift run --package-path "$package" cmux-ui-layer --snapshot "$snapshot" &
+    swift run --package-path "$package" cmux-ui-layer --snapshot "$snapshot" ${host_flags[@]+"${host_flags[@]}"} &
   fi
   host_pid=$!
 }
@@ -98,6 +113,7 @@ if (( watch )); then
   else
     watch_args+=(--snapshot "$snapshot")
   fi
+  watch_args+=(${host_flags[@]+"${host_flags[@]}"})
   exec swift run --package-path "$package" cmux-ui-layer-watch -- "${watch_args[@]}"
 fi
 

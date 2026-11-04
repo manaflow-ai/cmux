@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextLayout
 import os
 
@@ -21,6 +22,9 @@ extension AppActionContext {
     func observeRefusals() {
         let registry = registry
         let services = services
+        // A refusal that says to sign in to cmux offers Sign In on its toast (msg 3790).
+        let signIn = CmuxSignInOffer(registry: registry, isSignedIn: { services.cloud.isSignedIn })
+        services.refusalHUD.signInOffer = { signIn.offer(for: $0) }
         registry.refusalObserver = { reason, quiet in
             Self.logger.notice("action refused: \(reason, privacy: .public)")
             guard Self.showsNotice(quiet: quiet, hasCaller: registry.refusalHasCaller) else { return }
@@ -83,13 +87,8 @@ extension AppActionContext {
     /// Runs an action's asynchronous work and reports its failure: a capturing caller (the CLI,
     /// MCP) awaits it and answers it; a palette, menu or keyboard run shows it when it comes.
     func report(_ work: @escaping @MainActor () async -> ActionWorkFailure?) {
-        let task = Task { @MainActor in await work() }
-        if registry.isCapturingWork {
-            registry.track(task)
-        } else {
-            // task-owner: a run nobody awaits; the refusal shows when the work ends.
-            Task { @MainActor [weak registry] in if let failure = await task.value, !failure.shown { registry?.refuse(failure.message) } }
-        }
+        // task-owner: the action's work, awaited by a capturing caller; else its refusal shows when it ends (trackOrRefuse).
+        registry.trackOrRefuse(Task { @MainActor in await work() })
     }
 
     /// Statement form: `guard ... else { return ctx.refuse("why") }`.

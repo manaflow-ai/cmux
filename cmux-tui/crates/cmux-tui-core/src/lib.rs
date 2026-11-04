@@ -34,6 +34,8 @@ mod conversation_search;
 mod conversation_store;
 pub mod daemon_env;
 use cmux_tui_util::debug_spans;
+#[cfg(unix)]
+pub mod blob_fetch;
 mod browser_profile_ops;
 mod browser_site_engines;
 pub mod diagnostics;
@@ -71,7 +73,7 @@ mod pty_input_room;
 #[cfg(unix)]
 mod pty_write;
 /// A mutex-guarded value whose readers load a published projection without the lock (R-DAEMON-STATE).
-mod published;
+use cmux_tui_util::published;
 mod terminal_title;
 use cmux_tui_remote_access::remote_relay_state;
 mod login_shell;
