@@ -251,7 +251,7 @@ export function UserBubble({
                     disabled={branch.index === 0}
                     onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
                   >
-                    <ChevronLeft size={12} />
+                    <ChevronLeft size={ROW_ICON} />
                   </button>
                   <span
                     className="cv-user__version-count"
@@ -271,7 +271,7 @@ export function UserBubble({
                     disabled={branch.index === branch.sessions.length - 1}
                     onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
                   >
-                    <ChevronRight size={12} />
+                    <ChevronRight size={ROW_ICON} />
                   </button>
                 </span>
               )}
@@ -502,7 +502,7 @@ export function PromptEditor({
     void onSend(value).finally(() => setSending(false));
   };
   return (
-    <div className="cv-user__edit">
+    <div className="ui-glass cv-user__edit">
       <textarea
         ref={field}
         className="cv-user__edit-field selectable"
