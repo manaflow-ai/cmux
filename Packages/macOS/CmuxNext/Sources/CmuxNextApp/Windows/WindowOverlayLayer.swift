@@ -353,7 +353,7 @@ final class WindowOverlayLayer {
     }
 
     /// The live resize ended (`didEndLiveResize`): the catchers move and the pages hear it, as after any resize.
-    func liveResizeDidEnd() { liveResize.end { parentGeometryDidChange(forcing: $0) } }
+    func liveResizeDidEnd() {} // nomerge mutant: the resize's end does nothing (WindowOverlayLiveResizeEndTests must fail)
 
     /// A `setFrame` returned (`ShellWindow.setFrame`): a live resize's held page update goes now, once.
     func windowFrameDidApply() { if layoutDepth == 0, let held = liveResize.take() { postPageUpdate(force: held.force, geometryOnly: held.geometryOnly) } }
