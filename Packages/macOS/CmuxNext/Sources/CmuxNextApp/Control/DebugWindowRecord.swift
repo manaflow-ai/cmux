@@ -197,7 +197,7 @@ final class DebugWindowRecord {
             let frame = window.frame
             windowFrames.append([frame.minX, frame.minY, frame.width, frame.height].map { $0.rounded() })
             let now = WindowViewGeometry(window: window)
-            let change = geometry.map { now.changes(since: $0) } ?? (0, [])
+            let change: (total: Int, lines: [String]) = geometry.map { now.changes(since: $0) } ?? (0, [])
             geometry = now
             moved.append(change.total)
             movedViews.append(change.lines)
