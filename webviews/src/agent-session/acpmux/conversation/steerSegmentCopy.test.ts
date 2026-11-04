@@ -44,11 +44,10 @@ test("the person's steer carries the copy of the part of the turn before it, its
 });
 
 test("a second steer copies only what came after the first", () => {
-  const rows = turnView(
-    [...source, row("s2", "user", 4_500, { text: "and the packs", steer: "landed" })],
-    new Set(),
-    { now: 10_000, working: true },
-  );
+  const rows = turnView([...source, row("s2", "user", 4_500, { text: "and the packs", steer: "landed" })], new Set(), {
+    now: 10_000,
+    working: true,
+  });
   const parts = rows.find((one) => one.id === "s2")!.segmentCopy!;
   expect(parts.length).toBe(2);
   expect("tools" in parts[0]! && parts[0].tools.map((item) => item.tool?.id)).toEqual(["c3"]);
@@ -57,7 +56,11 @@ test("a second steer copies only what came after the first", () => {
 
 test("no copy where nothing was said, nor on a prompt or another agent's message", () => {
   const quiet = turnView(
-    [row("u1", "user", 0, { text: "go" }), row("t1", "activity", 1_000, { items: [run("c1")], toolCount: 1 }), source[3]!],
+    [
+      row("u1", "user", 0, { text: "go" }),
+      row("t1", "activity", 1_000, { items: [run("c1")], toolCount: 1 }),
+      source[3]!,
+    ],
     new Set(),
     { now: 10_000, working: true },
   );
@@ -65,11 +68,15 @@ test("no copy where nothing was said, nor on a prompt or another agent's message
   const rows = turnView(ended, new Set(), { now: 10_000 });
   expect(copyOf(rows, "u1")).toBeUndefined();
   const message = turnView(
-    source.map((one) => (one.id === "s1" ? {
+    source.map((one) =>
+      one.id === "s1"
+        ? {
             ...one,
             steer: undefined,
             incoming: { kind: "message", message: { name: "lane-12", sessionId: "lane-12", text: "ofc", raw: "ofc" } },
-          } : one)) as AcpmuxRow[],
+          }
+        : one,
+    ) as AcpmuxRow[],
     new Set(),
     { now: 10_000, working: true },
   );

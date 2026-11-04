@@ -4299,6 +4299,7 @@ a.cv-sha:focus-visible {
    starts on the column (inset-inline below), so the ink lands on it exactly. Nothing comes before the
    buttons (Leo, 2026-11-02: "those buttons should always just be there left aligned"). */
 .cv-reply-actions > .cv-turn-action-group:first-child > .cv-iconbtn:first-child,
+.cv-segment-actions > .cv-turn-action-group:first-child > .cv-iconbtn:first-child,
 .cv-turn-actions:not(.cv-turn-actions--empty) .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-iconbtn:first-child {
   margin-inline-start: calc(-1 * var(--cv-footer-overhang));
 }
@@ -4456,11 +4457,11 @@ a.cv-sha:focus-visible {
 /* The Copy of the part of a turn the person's steer ended (MessageActions.tsx SegmentActions): an ended
    turn's footer row, laid in the turn gap over the steer (transcriptGrid.ts: a message or a step over a
    prompt is the turn gap) and centred in it, so it takes no room and moves nothing. The row
-   (`contain: layout`) is its box. It starts on the prose's left edge, as a footer does, and shows while
+   (`contain: layout`) is its box; it comes after the row above, so it paints over that row's gap
+   target. It starts on the prose's left edge, as a footer does, and shows while
    the reader points at the steer or the row above it, or a button in it has keyboard focus. */
 .cv-segment-actions {
   position: absolute;
-  z-index: 1;
   inset-inline: 0 auto;
   top: calc(-1 * (var(--grid-gap-turn) + var(--cv-footer-row)) / 2);
   margin: 0;
