@@ -659,12 +659,14 @@ export function ComposerContext({
   // picked); in `where-machine-always` the machine chip on this Mac too. Cloud has no third chip:
   // Cloud is one pick, and Send reuses the person's machine or makes one (cmux-tui cloud.startChat),
   // with its progress in the chat (CloudStartView). Leo, 2026-11-04: "after you pick Cloud, like,
-  // you shouldn't be seeing the new machine situation. Like, we can just get rid of that".
+  // you shouldn't be seeing the new machine situation. Like, we can just get rid of that". Only a
+  // Cloud machine picked by name (Machines…) gets the machine chip, naming it, with no New machine.
+  const cloudMachinePicked = cloudSide && !cloudPicked && !sandboxPicked;
   const machineShown =
     layout === "where-machine"
-      ? offMac || savedPick !== undefined || (machineAsked && !cloudSide && !sandboxPicked)
+      ? offMac || savedPick !== undefined || cloudMachinePicked || (machineAsked && !cloudSide && !sandboxPicked)
       : layout === "where-machine-always"
-        ? !cloudSide && !sandboxPicked
+        ? (!cloudSide && !sandboxPicked) || cloudMachinePicked
         : true;
   const runToggle = environmentsShown && layout === "cloud-toggle";
   // The machine and Cloud chips' face: a server, the machine's name and its live dot (Codex desktop's
@@ -885,7 +887,7 @@ export function ComposerContext({
                     face={machineFace}
                     rows="machines"
                     includeLocal={layout === "where-machine-always"}
-                    ownOnly
+                    ownOnly={!cloudMachinePicked}
                     digits={false}
                     setupMenu={false}
                     {...(machineRequest !== undefined ? { openRequest: machineRequest } : {})}
