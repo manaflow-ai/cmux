@@ -171,7 +171,7 @@ final class CloudService {
         configuration = selectedConfiguration ?? CloudConfiguration.current(isDebugBuild: isDebugBuild) // a capture build's bench hooks: CloudConfiguration.benchHooksCompiled
         auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture)
         let basePaths = CloudPaths.standard(bundleID: configuration.bundleID)
-        paths = configuration.runtimeSelection.map { CloudPaths(root: basePaths.root.appendingPathComponent($0.name, isDirectory: true)) } ?? basePaths
+        paths = configuration.runtimeSelection.map { CloudPaths(root: basePaths.root.appendingPathComponent($0.authNamespace, isDirectory: true)) } ?? basePaths
         deviceID = CloudDeviceID(paths: paths, work: work)
         let auth = auth
         api = CloudAPIClient(
@@ -183,7 +183,7 @@ final class CloudService {
         let install = { @Sendable (api: URL, folder: String) in
             MacInstallIdentity(
                 store: .forApp(directory: paths.root.appendingPathComponent(folder, isDirectory: true),
-                               service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.runtimeSelection?.name ?? "default").\(api.host ?? "unknown")",
+                               service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.runtimeSelection?.authNamespace ?? "default").\(api.host ?? "unknown")",
                                team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild, loginKeychain: loginKeychain),
                 transport: InstallHTTPTransport(baseURL: api), deviceName: deviceName, clientVersion: clientVersion)
         }

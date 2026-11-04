@@ -258,7 +258,14 @@ extension AppControl {
                 let task = try services.cloudEnvironmentSwitch.apply(selected: selected, name: name, namespace: namespace,
                     bootstrap: CloudEnvironmentBootstrap(work: services.work), signOut: { await services.cloud.signOut() },
                     stopServices: { services.cloud.stop(); services.feed.stop(); services.iphone.stop() },
-                    stopDaemon: { try await services.daemon.stopKeepingHosts() }, quit: { services.quit.requestQuit(.signal) })
+                    stopDaemon: { try await services.daemon.stopKeepingHosts() })
+                // The CLI reads the acknowledgement then closes its connection. Quit only after
+                // that EOF, so even a fast teardown cannot drop restart_scheduled's response.
+                _ = ControlConnectionClosures.shared.add(call.connection) {
+                    Task { @MainActor in
+                        if (try? await task.value) == true { services.quit.requestQuit(.signal) }
+                    }
+                }
                 return .followUp { [task] in
                     let scheduled = try await task.value
                     return .object(["restart_scheduled": .bool(scheduled), "name": .string(name)])

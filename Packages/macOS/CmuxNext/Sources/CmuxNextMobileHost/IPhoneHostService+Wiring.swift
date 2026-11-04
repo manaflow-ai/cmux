@@ -59,7 +59,7 @@ extension IPhoneHostService {
         let stateRoot = DaemonLauncher.applicationSupportDirectory()
             .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)
         let state = MobileHostStateDirectory(parent: auth.configuration.runtimeSelection.map {
-            stateRoot.appendingPathComponent($0.name, isDirectory: true)
+            stateRoot.appendingPathComponent($0.authNamespace, isDirectory: true)
         } ?? stateRoot).resolve()
         // The phone's browser tabs stream from this build's own remote browser host
         // (Contents/Helpers, every configuration on arm64).
