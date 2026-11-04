@@ -19,9 +19,19 @@
 //! queues it here. The publisher runs the queue in order on its own thread. A
 //! terminal has at most one publication queued: changes that arrive while it
 //! waits are published with it, as the latest state, which is what every
-//! publication commits. Notifications and bell marks queue one by one, in
-//! output order. Callers on other threads (adoption, a reconnect's
-//! settlement, a terminal read) still publish directly.
+//! publication commits. The reader still takes and rate-limits the
+//! notifications itself (OSC 9, 777 and 99, OSC 7501 alerts, bell marks), at
+//! the output that asked for them; they queue one by one, in output order,
+//! each after the publication of the records it names. Adoption, the first
+//! view of an app terminal, a terminal read (`terminal.get`), the topology
+//! commits and a hosted terminal's exit (which must commit its last
+//! directory first) still publish directly on their own threads.
+//!
+//! The queue is unbounded, but bounded in practice: one publication per
+//! terminal, and a terminal's notifications are rate-limited (at most one a
+//! second, a bell mark one per 10 s).
+
+use std::io::Write as _;
 
 use super::*;
 use crate::terminal_metadata::TerminalNotification;
@@ -56,9 +66,10 @@ struct PublisherQueue {
 
 enum PublisherJob {
     /// The terminal's pending directory, progress, activity and program
-    /// status (`Surface::publish_pending_directory`, `publish_pending_progress`).
+    /// status (`Surface::publish_pending_directory`, `publish_pending_state`).
     Publish(Arc<Surface>),
-    /// The notifications its output asked for (OSC 9, OSC 777, OSC 99).
+    /// The notifications its output asked for (OSC 9, OSC 777, OSC 99, and
+    /// the alerts of its OSC 7501 records).
     Notify(SurfaceId, Vec<TerminalNotification>),
     /// The attention mark of a bell.
     Bell(SurfaceId),
@@ -74,7 +85,7 @@ impl PublisherJob {
         match self {
             Self::Publish(surface) => {
                 surface.publish_pending_directory();
-                surface.publish_pending_progress();
+                surface.publish_pending_state();
             }
             Self::Notify(surface, notifications) => {
                 if let Some(mux) = mux.upgrade() {
@@ -115,7 +126,11 @@ impl TerminalPublisher {
             Ok(worker) => queue.worker = Some(worker.thread().id()),
             Err(error) => {
                 // No thread: publish here, as the reader did before.
-                eprintln!("cmux-tui: terminal publisher did not start: {error}");
+                // Not eprintln: a failed stderr write must not end this reader.
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "cmux-tui: terminal publisher did not start: {error}"
+                );
                 let jobs = std::mem::take(&mut queue.jobs);
                 drop(queue);
                 let weak = Arc::downgrade(mux);
@@ -181,9 +196,10 @@ impl PublisherShared {
                     queue = self.changed.wait(queue).unwrap_or_else(PoisonError::into_inner);
                 }
             };
-            // A panicking publication must not stop the publications after it.
+            // A panicking publication must not stop the publications after it,
+            // nor may its report (not eprintln, which panics when stderr fails).
             if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job.run(mux))).is_err() {
-                eprintln!("cmux-tui: a terminal publication panicked");
+                let _ = writeln!(std::io::stderr(), "cmux-tui: a terminal publication panicked");
             }
             let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
             queue.busy = false;

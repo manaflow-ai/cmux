@@ -161,6 +161,11 @@ impl Mux {
         let Some(identity) = self.resource_terminal_host_identity(surface) else {
             return Ok(());
         };
+        // The directory the shell reported last commits before the exit: once
+        // the terminal ended, a publication commits nothing, and the reader
+        // queued this one for the terminal publisher (`cd x; exit` would keep
+        // the old directory on the exited tab, its exit record and restart).
+        surface.publish_pending_directory();
         // Output stays on the bounded asynchronous ingress path. Exit is the
         // one terminal transition that fences it, preserving byte order and
         // full topology subjects before the atomic detach transaction.

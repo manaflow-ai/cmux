@@ -307,12 +307,11 @@ impl ProgramStatusRecords {
     }
 
     /// Whether a terminal publication would take something now: a visible
-    /// change (`take_change`), a new shown value (`take_shown_change`) or an
-    /// alert (`take_alerts`). Marks nothing.
+    /// change (`take_change`) or a new shown value (`take_shown_change`).
+    /// Marks nothing. Alerts are not counted: the output reader takes them
+    /// itself (`Surface::queue_pending_publications`).
     pub(crate) fn has_publication_change(&self, running: bool) -> bool {
-        self.revision != self.published
-            || self.shown(running) != self.shown_published
-            || !self.alerts.is_empty()
+        self.revision != self.published || self.shown(running) != self.shown_published
     }
 
     /// The records a terminal host hands to the daemon that attaches.
