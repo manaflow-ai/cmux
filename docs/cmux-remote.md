@@ -127,3 +127,161 @@ Every control exists in the command palette, the CLI and MCP:
 | A viewer's access | Mac Screen: Set Device Access… | `cmux remote access <device> none\|ask\|view\|full` | `remote_set_access` |
 | Keep sharing when cmux is quit (`remote.headless`, default on) | Settings | `cmux settings set remote.headless` | `settings_set` |
 | Computer Use engine (`computerUse.driver`: `remote` default, `legacy` opt-out for one release) | Settings | `cmux settings set computerUse.driver` | `settings_set` |
+
+## Windows and Linux
+
+The same architecture runs on Windows and Linux (decision D10): the daemon's
+`remote_host` supervises a cmux Remote host, the host supervises a Computer Use
+worker, and the worker runs upstream Cua Driver in process
+(`cua-driver-sdk`, the same commit `b0968e1b12834e485dda68789541a3cc57664a9f`
+as the macOS pin), over the same `remote-host-v1` supervisor wire. Only the host
+executable differs: `cmux-remote-host` is Rust
+(`cmux-tui/crates/cmux-remote-host`, its own Cargo workspace pinned to
+upstream's toolchain), because the Swift host is AppKit and macOS only. Screen
+Sharing stays macOS only; its worker reports `unsupported`.
+
+```
+cmux-tui daemon            (remote_host/linux.rs, remote_host/windows.rs)
+  └─ cmux-remote-host host         (in the person's desktop session)
+       └─ cmux-remote-host worker computer-use   (upstream Cua Driver in process)
+```
+
+### Starting the host in the desktop session
+
+| | Linux | Windows |
+| --- | --- | --- |
+| Shipped binary | `cmux-remote-host` beside the daemon (or `../lib/cmux/`), optional `cmux-remote-host.sha256` pin beside it | `cmux-remote-host.exe` beside the daemon, same optional pin |
+| Staged copy | `~/.local/state/cmux-tui/remote/bin/<sha256[..16]>/` (0700), re-hashed before every start; two newest kept | `%LOCALAPPDATA%\cmux-tui\remote\bin\<sha256[..16]>\` |
+| Started as | a transient user unit, `systemd-run --user --unit cmux-remote-host-<rh-leaf> Type=notify`, so it runs with the graphical session's environment even when the daemon runs over SSH; without a user manager (containers, headless Xvfb) a direct spawn in its own session | from inside the interactive session: a direct child; from Session 0 (SSH, services): the on-demand task `cmux Remote <rh-leaf>` with an interactive logon (`schtasks /Create /XML`, then `/Run`), never Session 0 |
+| Bootstrap (secret, switches, acpmux) | fd 3 (direct) or `<runtime>/bootstrap.json` (0600, deleted once read) | `<runtime>\bootstrap.json`, deleted once read |
+| Ready | `READY=1` to systemd, or `ready` on stdout | the event `Global\cmux-remote-<rh-leaf>-ready` |
+| Supervisor endpoint | `<runtime>/rh-<digest>/s.sock` (0600 in 0700) | `\\.\pipe\cmux-remote-<rh-leaf>`, DACL `D:P(A;;GA;;;<user SID>)`, remote clients rejected |
+| Host checks the daemon | `SO_PEERCRED` uid, and the peer is the process serving the daemon socket | the client's token SID is this user's and its image is the daemon executable |
+| Daemon checks the host | pid and start time (`/proc/<pid>/stat` field 22) match `host.json`, peer pid from `SO_PEERCRED` | pid and creation time match, server pid from `GetNamedPipeServerProcessId` |
+
+Adoption, backoff, drain and the 60 s orphan grace are the macOS rules
+(Lifecycle above); `host.json` keeps the same fields (`start_sec` holds the
+Linux start ticks or the Windows creation FILETIME, `start_usec` is 0).
+A daemon in an SSH session reaches the host in the desktop session over its
+endpoint, as upstream's SSH proxy does (`cua-driver` guides, "Windows over SSH").
+
+The unit and task templates ship in `cmux-tui/crates/cmux-remote-host/dist/`:
+`cmux-remote-host@.service` (for packagers who prefer an installed unit to the
+transient one) and `cmux-remote-host-task.xml` (the daemon fills in the user
+SID and paths).
+
+### The Computer Use worker
+
+- **Socket**: `<runtime>/w-cu.sock` (Linux) or `\\.\pipe\cmux-remote-<rh-leaf>-cu`
+  (Windows); `endpoint.json` (socket, secret, pid) in `<runtime>/cu/`, the
+  folder acpmux reads as `CMUX_NEXT_CUA_V2_DIR`.
+- **Admission** (as the macOS helper): same user; the peer's running image is
+  this build's acpmux by SHA-256 (`/proc/<pid>/exe`, or the image file on
+  Windows); a registered acpmux daemon (pid and start time) is an ancestor; then
+  the per-launch secret. The daemon passes its acpmux path and socket at start;
+  the worker registers the process serving that socket when it runs the trusted
+  image (`computer_use.register_acpmux` does the same on request).
+- **Sessions**: one admitted connection is one trusted upstream session
+  (`CuaDriver::create_trusted_session`), closed with the connection. The
+  approval contract (docs/computer-use-approvals.md) is implemented in the
+  worker: a call on an app outside the session asks the host
+  (`app_approval` on the worker's control lines), waits 2 minutes, and a late
+  Allow still grows the session or the saved list.
+- **Linux display**: X11 (XTest, MIT-SHM) or Wayland (xdg-desktop-portal
+  RemoteDesktop and libei, upstream's `portal-libei` features), chosen by
+  upstream at runtime from `WAYLAND_DISPLAY` and `DISPLAY`. The worker runs with
+  `XDG_CONFIG_HOME` inside the host's private state, so upstream keeps the
+  portal's restore token there (0600): the person grants the portal once.
+- **Status permissions**: Linux `{"display":"wayland","portal":"granted|ask"}`
+  or `{"display":"x11","x11":"granted"}`; Windows `{"interactive-session":true}`.
+
+### Mode and collectors
+
+The mode comes only from configuration the machine's owner controls
+(`dist/computer-use.toml.example`):
+
+| | Linux | Windows |
+| --- | --- | --- |
+| File | `/etc/cmux/computer-use.toml` | `%ProgramData%\cmux\computer-use.toml` |
+| Trusted when | a regular root-owned file not writable by group or others, in root-owned directories no one else can write | owned by SYSTEM or Administrators; no ACE grants anyone else write on the file, or delete-child, delete, DAC or owner rights on `%ProgramData%\cmux` (the "create files" every user inherits there cannot replace an existing file) |
+| Unrestricted | `mode = "unrestricted"` plus both `CUA_DRIVER_PERMISSION_MODE = "unrestricted"` and `CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS = "1"` under `[environment]` in that file; the host passes exactly these to the worker and the unit unsets them from everything else | same |
+
+No file means `ask`; a file that is present but untrusted or invalid refuses
+every call. Local collectors:
+
+- **Linux**: polkit actions `com.cmux.computer-use.approve` and
+  `com.cmux.computer-use.approve-always` (`dist/com.cmux.computer-use.policy`,
+  installed to `/usr/share/polkit-1/actions/`, `auth_self`). The host calls
+  `CheckAuthorization` for itself with `AllowUserInteraction` and the details
+  `agent`, `workspace`, `app`, `executable`, `tool`, `scope`, `client`, which
+  the policy's messages show. Offered only in a graphical session
+  (`XDG_SESSION_TYPE` x11 or wayland), where the desktop runs a polkit agent.
+  Authenticating answers the offered scope (this session by default); dismissing
+  answers deny.
+- **Windows**: Windows Hello (`UserConsentVerifier`, through
+  `IUserConsentVerifierInterop::RequestVerificationForWindowAsync` on a small
+  host-owned "cmux Remote" window), when Hello is available.
+- **Device hub**: the `RemoteApprover` trait in `cmux-remote-host`
+  (`approver.rs`), which the hub client implements; the first answer with the
+  request's digest wins.
+
+`cmux computer-use approvals approve <id>` sends
+`computer_use.approvals.prompt`, which opens the local collector (offering
+Allow for This Session); it never decides by itself. `computer_use.status`,
+`computer_use.approvals.list`, `.pending`, `.deny` and `.revoke` are open to any
+local caller (they read or lower trust). Question ids are the first 16 hex
+digits of the request digest, as on macOS (docs/computer-use-approvals.md,
+"Controls").
+
+### Known limits
+
+- **Same user.** As upstream documents, this protects against agents limited to
+  cmux's tools. The saved approvals (`remote/worker/approvals/<client>.json`,
+  0600) and `endpoint.json` are files of the person's user; a process that
+  already runs arbitrary code as that user can change them or drive the desktop
+  directly. Isolate such agents with a VM, a separate user or a second device.
+- **Targets.** A call is gated on the app its `pid` or `window_id` names; an
+  input call with neither (screen coordinates, the focused window) is refused
+  in every mode (`target_unresolved`) so it cannot land on a never-allowed app.
+  The never-allowed list matches the running executable: a terminal that runs
+  under an interpreter (terminator and guake are `python3`) is matched as
+  `python3`, so do not approve an interpreter app on a machine where agents run.
+- **Windows bridge.** `acpmux cua-mcp` serves Unix sockets only today, so on
+  Windows the worker runs and answers status and approvals, but agents reach it
+  once acpmux's bridge speaks to a named pipe (the worker's endpoint is already
+  `\\.\pipe\cmux-remote-<rh-leaf>-cu`).
+
+### Distro matrix
+
+| Environment | Display path | Collector | Notes |
+| --- | --- | --- | --- |
+| Ubuntu 24.04, GNOME, Wayland | portal RemoteDesktop + libei, portal capture | polkit (gnome-shell agent) | the portal asks once; the restore token stays in the host's state |
+| Ubuntu 24.04, GNOME on Xorg | XTest, MIT-SHM | polkit | |
+| Fedora (GNOME, Wayland) | portal + libei | polkit | SELinux: the user unit runs unconfined_t like other user services |
+| KDE Plasma 6, Wayland | portal (xdg-desktop-portal-kde) + libei | polkit (polkit-kde-agent-1) | Plasma 5.27 is rejected by upstream |
+| Headless Xvfb (CI, VMs) | XTest on the Xvfb display | none (device hub only) | direct spawn when no systemd user manager |
+| Windows 11, console or RDP | UI Automation | Windows Hello | from SSH the daemon starts the interactive task; `query session` must show the user Active or Disc |
+
+Build dependencies (Debian and Ubuntu package names): `pkg-config clang
+libclang-dev libx11-dev libxi-dev libxtst-dev libxext-dev libxcb1-dev
+libxkbcommon-dev libpipewire-0.3-dev libdbus-1-dev libwayland-dev`; Fedora:
+`pkgconf clang-devel libX11-devel libXi-devel libXtst-devel libxkbcommon-devel
+pipewire-devel dbus-devel wayland-devel`. Runtime: the same libraries plus
+`xdg-desktop-portal` with the desktop's backend and a polkit agent.
+`cargo build --no-default-features` builds a host without Cua Driver (no
+system libraries; every tool call answers `driver_unavailable`), which the
+protocol tests use.
+
+### Conformance
+
+`schemas/remote-host/v1-conformance.json` is the supervisor exchange every
+host passes: hello negotiation and its refusals (wrong secret, a peer that is
+not the daemon, a first line that is not a hello, no common protocol), status,
+config and its `status` push, error codes, drain. The Rust host replays it in
+`cmux-tui/crates/cmux-remote-host/tests/conformance.rs` over an in-memory
+stream. The Swift host replays it the same way: create `HostCore(secret:,
+daemonBuild:, daemonSocket:)` with the file's `secret` and `bootstrap`, open a
+socket pair as a `LineChannel`, run `serveSupervisor` with `isDaemon` forced to
+the case's `peer_is_daemon`, and play the steps with the matching rules in the
+file's `description` (skip `{"type":"event"}` lines unless the step is
+`expect_event`).

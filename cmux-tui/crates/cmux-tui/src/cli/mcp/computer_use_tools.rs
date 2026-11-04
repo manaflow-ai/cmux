@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
-use super::transport::CallFailure;
+use super::transport::{CallFailure, FailureKind};
 use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
 
 /// The acpmux method that runs one MCP request through the daemon's own
@@ -140,8 +140,15 @@ pub(in crate::cli) fn app_ref(word: &str) -> Value {
     }
 }
 
+/// One Computer Use control. On macOS the cmux app owns approvals (its card,
+/// saved list and phone path), so the call goes to the app; on Windows and
+/// Linux the daemon forwards it to the cmux Remote host.
 fn host(backend: &impl Backend, method: &str, params: Value) -> Result<Value, CallFailure> {
-    backend.daemon(json!({"cmd": "remote-host-call", "method": method, "params": params}))
+    if cfg!(target_os = "macos") {
+        backend.app(method, params, PROMPT_TIMEOUT, None, false)
+    } else {
+        backend.daemon(json!({"cmd": "remote-host-call", "method": method, "params": params}))
+    }
 }
 
 /// Mode, sessions, grants and collectors (`computer_use.status`).
@@ -165,10 +172,44 @@ pub(in crate::cli) fn revoke(
     what: Revoke<'_>,
 ) -> Result<Value, CallFailure> {
     let params = match what {
-        Revoke::All => json!({"scope": "all"}),
-        Revoke::App(word) => json!({"scope": "app", "app": app_ref(word)}),
+        Revoke::All => json!({"all": true}),
+        Revoke::App(word) => json!({"app": saved_app(backend, word)?}),
     };
     host(backend, "computer_use.approvals.revoke", params)
+}
+
+/// The saved entry `word` names. The host and the app match a revoke only by
+/// bundle id or executable, so a display name ("Safari") is looked up in the
+/// saved list first; an unknown name is an error, never a guess.
+fn saved_app(backend: &impl Backend, word: &str) -> Result<Value, CallFailure> {
+    let wanted = app_ref(word);
+    let Some(name) = wanted.get("name").and_then(Value::as_str) else { return Ok(wanted) };
+    let saved = approvals_list(backend)?;
+    let apps = saved["apps"].as_array().cloned().unwrap_or_default();
+    let mut matches = apps.into_iter().filter(|app| {
+        app["name"].as_str().is_some_and(|saved| saved.eq_ignore_ascii_case(name))
+    });
+    match (matches.next(), matches.next()) {
+        (Some(app), None) => {
+            let mut entry = serde_json::Map::new();
+            for key in ["bundle_id", "executable", "name"] {
+                if let Some(value) = app.get(key).filter(|value| value.is_string()) {
+                    entry.insert(key.to_owned(), value.clone());
+                }
+            }
+            Ok(Value::Object(entry))
+        }
+        (Some(_), Some(_)) => Err(CallFailure::local(
+            FailureKind::Rejected,
+            "ambiguous",
+            format!("more than one saved app is named {name}; pass its bundle id or executable path"),
+        )),
+        (None, _) => Err(CallFailure::local(
+            FailureKind::Rejected,
+            "not_found",
+            format!("no saved app is named {name}"),
+        )),
+    }
 }
 
 /// Answers pending question `id` with Deny (lowers trust).
@@ -179,11 +220,7 @@ pub(in crate::cli) fn deny(backend: &impl Backend, id: &str) -> Result<Value, Ca
 /// Shows pending question `id` again on this machine's collector: the cmux
 /// app's card on macOS, polkit or Windows Hello elsewhere. It decides nothing.
 pub(in crate::cli) fn prompt(backend: &impl Backend, id: &str) -> Result<Value, CallFailure> {
-    if cfg!(target_os = "macos") {
-        backend.app("computer_use.approvals.prompt", json!({"id": id}), PROMPT_TIMEOUT, None, false)
-    } else {
-        host(backend, "computer_use.approvals.prompt", json!({"id": id}))
-    }
+    host(backend, "computer_use.approvals.prompt", json!({"id": id}))
 }
 
 /// One MCP request (`tools/list`, `tools/call`) to the driver's tools,
@@ -209,7 +246,7 @@ mod tests {
     use std::time::Instant;
 
     use super::super::browser_tools;
-    use super::super::transport::{FailureKind, Prefix};
+    use super::super::transport::Prefix;
     use super::*;
     use crate::cli::command::RequestPlan;
 
@@ -295,18 +332,28 @@ mod tests {
         assert!(find("cua_approvals_deny").is_none());
     }
 
+    /// The method and params of a recorded control, wherever it went
+    /// (the app on macOS, the daemon's host call elsewhere).
+    fn control(sent: &Value) -> (Value, Value) {
+        if cfg!(target_os = "macos") {
+            (sent["method"].clone(), sent["params"].clone())
+        } else {
+            assert_eq!(sent["request"]["cmd"], "remote-host-call");
+            (sent["request"]["method"].clone(), sent["request"]["params"].clone())
+        }
+    }
+
     #[test]
     fn revoke_sends_only_the_lowering_method() {
         let (result, sent) = call("cua_approvals_revoke", json!({"app": "com.apple.Safari"}));
         assert_ne!(result["isError"], true, "{result}");
+        assert_eq!(sent.len(), 1);
         assert_eq!(
-            sent,
-            [json!({"kind": "daemon", "request": {"cmd": "remote-host-call",
-                "method": "computer_use.approvals.revoke",
-                "params": {"scope": "app", "app": {"bundle_id": "com.apple.Safari"}}}})]
+            control(&sent[0]),
+            (json!("computer_use.approvals.revoke"), json!({"app": {"bundle_id": "com.apple.Safari"}}))
         );
         let (_, sent) = call("cua_approvals_revoke", json!({"all": true}));
-        assert_eq!(sent[0]["request"]["params"], json!({"scope": "all"}));
+        assert_eq!(control(&sent[0]).1, json!({"all": true}));
     }
 
     #[test]
@@ -326,9 +373,9 @@ mod tests {
     #[test]
     fn reads_go_to_the_host() {
         let (_, sent) = call("cua_status", json!({}));
-        assert_eq!(sent[0]["request"]["method"], "computer_use.status");
+        assert_eq!(control(&sent[0]).0, "computer_use.status");
         let (_, sent) = call("cua_approvals_list", json!({}));
-        assert_eq!(sent[0]["request"]["method"], "computer_use.approvals.list");
+        assert_eq!(control(&sent[0]).0, "computer_use.approvals.list");
     }
 
     #[test]
@@ -360,12 +407,7 @@ mod tests {
         prompt(&backend, "q7").unwrap();
         let sent = backend.sent.take();
         assert_eq!(sent.len(), 1);
-        let method = if cfg!(target_os = "macos") {
-            sent[0]["method"].clone()
-        } else {
-            sent[0]["request"]["method"].clone()
-        };
-        assert_eq!(method, "computer_use.approvals.prompt");
+        assert_eq!(control(&sent[0]).0, "computer_use.approvals.prompt");
         assert!(!sent[0].to_string().contains("decision"));
     }
 }

@@ -1,0 +1,106 @@
+{
+  "schema": "cmux-cu-approval-digest-v1",
+  "description": "Canonical JSON (keys sorted by UTF-8 bytes, no whitespace, minimal escapes, integers only) and SHA-256 digest of approval requests without their digest field (docs/computer-use-approvals.md). Generated independently of the Rust code (Python json.dumps sort_keys, separators, ensure_ascii=False).",
+  "cases": [
+    {
+      "name": "linux executable target",
+      "request": {
+        "v": 1,
+        "nonce": "00112233445566778899aabbccddeeff",
+        "client": "com.cmuxterm.app.debug.cu1",
+        "machine": "box-1",
+        "session": "cu-0011223344556677",
+        "agent": "Claude",
+        "workspace": "api-server",
+        "target": {
+          "bundle_id": null,
+          "executable": "/usr/lib/firefox/firefox",
+          "name": "Firefox"
+        },
+        "tool": "click",
+        "risk": "R1",
+        "created_ms": 1793400000000,
+        "wait_until_ms": 1793400120000,
+        "answerable_until_ms": 1793400600000,
+        "digest": "781a2ec15b7e97795b9b94f03e66ffe384e7720a3d52b974bbe45c77691a1dec"
+      },
+      "canonical": "{\"agent\":\"Claude\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app.debug.cu1\",\"created_ms\":1793400000000,\"machine\":\"box-1\",\"nonce\":\"00112233445566778899aabbccddeeff\",\"risk\":\"R1\",\"session\":\"cu-0011223344556677\",\"target\":{\"bundle_id\":null,\"executable\":\"/usr/lib/firefox/firefox\",\"name\":\"Firefox\"},\"tool\":\"click\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"api-server\"}",
+      "digest": "781a2ec15b7e97795b9b94f03e66ffe384e7720a3d52b974bbe45c77691a1dec"
+    },
+    {
+      "name": "macOS bundle target",
+      "request": {
+        "v": 1,
+        "nonce": "00112233445566778899aabbccddeeff",
+        "client": "com.cmuxterm.app.debug.cu1",
+        "machine": "Aziz's Mac",
+        "session": "cu-0011223344556677",
+        "agent": "Claude",
+        "workspace": "api-server",
+        "target": {
+          "bundle_id": "com.apple.Safari",
+          "executable": null,
+          "name": "Safari"
+        },
+        "tool": "click",
+        "risk": "R1",
+        "created_ms": 1793400000000,
+        "wait_until_ms": 1793400120000,
+        "answerable_until_ms": 1793400600000,
+        "digest": "ff29ec8afeec33dde8cf28590c564eac396763160053411cc0151a2c562e66db"
+      },
+      "canonical": "{\"agent\":\"Claude\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app.debug.cu1\",\"created_ms\":1793400000000,\"machine\":\"Aziz's Mac\",\"nonce\":\"00112233445566778899aabbccddeeff\",\"risk\":\"R1\",\"session\":\"cu-0011223344556677\",\"target\":{\"bundle_id\":\"com.apple.Safari\",\"executable\":null,\"name\":\"Safari\"},\"tool\":\"click\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"api-server\"}",
+      "digest": "ff29ec8afeec33dde8cf28590c564eac396763160053411cc0151a2c562e66db"
+    },
+    {
+      "name": "escapes and non-ASCII",
+      "request": {
+        "v": 1,
+        "nonce": "00112233445566778899aabbccddeeff",
+        "client": "com.cmuxterm.app.debug.cu1",
+        "machine": "box-1",
+        "session": "cu-0011223344556677",
+        "agent": "Codex \"β\"\n\t/\u0001",
+        "workspace": "ünïcode ✓",
+        "target": {
+          "bundle_id": null,
+          "executable": "/usr/lib/firefox/firefox",
+          "name": "Firefox"
+        },
+        "tool": "click",
+        "risk": "R1",
+        "created_ms": 1793400000000,
+        "wait_until_ms": 1793400120000,
+        "answerable_until_ms": 1793400600000,
+        "digest": "1ac9fb420aff88f751853643eee2d0436fc56bbe48454c95694abbd1f7bbd11a"
+      },
+      "canonical": "{\"agent\":\"Codex \\\"β\\\"\\n\\t/\\u0001\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app.debug.cu1\",\"created_ms\":1793400000000,\"machine\":\"box-1\",\"nonce\":\"00112233445566778899aabbccddeeff\",\"risk\":\"R1\",\"session\":\"cu-0011223344556677\",\"target\":{\"bundle_id\":null,\"executable\":\"/usr/lib/firefox/firefox\",\"name\":\"Firefox\"},\"tool\":\"click\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"ünïcode ✓\"}",
+      "digest": "1ac9fb420aff88f751853643eee2d0436fc56bbe48454c95694abbd1f7bbd11a"
+    },
+    {
+      "name": "windows path",
+      "request": {
+        "v": 1,
+        "nonce": "00112233445566778899aabbccddeeff",
+        "client": "com.cmuxterm.app.debug.cu1",
+        "machine": "box-1",
+        "session": "cu-0011223344556677",
+        "agent": "Claude",
+        "workspace": "api-server",
+        "target": {
+          "bundle_id": null,
+          "executable": "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
+          "name": "Firefox"
+        },
+        "tool": "click",
+        "risk": "R1",
+        "created_ms": 1793400000000,
+        "wait_until_ms": 1793400120000,
+        "answerable_until_ms": 1793400600000,
+        "digest": "2bcd2a5cdfe6a487fd1d4f2fd9f1813570120da354b10f6feb818bd5fff36d66"
+      },
+      "canonical": "{\"agent\":\"Claude\",\"answerable_until_ms\":1793400600000,\"client\":\"com.cmuxterm.app.debug.cu1\",\"created_ms\":1793400000000,\"machine\":\"box-1\",\"nonce\":\"00112233445566778899aabbccddeeff\",\"risk\":\"R1\",\"session\":\"cu-0011223344556677\",\"target\":{\"bundle_id\":null,\"executable\":\"C:\\\\Program Files\\\\Mozilla Firefox\\\\firefox.exe\",\"name\":\"Firefox\"},\"tool\":\"click\",\"v\":1,\"wait_until_ms\":1793400120000,\"workspace\":\"api-server\"}",
+      "digest": "2bcd2a5cdfe6a487fd1d4f2fd9f1813570120da354b10f6feb818bd5fff36d66"
+    }
+  ]
+}

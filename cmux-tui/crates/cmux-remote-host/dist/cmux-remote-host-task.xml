@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<!--
+  cmux Remote host on Windows: an on-demand task in the person's interactive
+  session (LogonType InteractiveToken, never Session 0, which has no desktop).
+  The cmux-tui daemon registers it as "cmux Remote <scope>" with
+  `schtasks /Create /XML` and starts it with `schtasks /Run` when it runs outside
+  that session (an SSH session); from inside the session it starts the host
+  directly. The daemon fills in the user SID and the paths (XML-escaped) and
+  drops this comment.
+-->
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>cmux Remote (Computer Use host)</Description>
+  </RegistrationInfo>
+  <Principals>
+    <Principal id="Author">
+      <UserId>USER_SID</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Hidden>true</Hidden>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>HOST_EXE</Command>
+      <Arguments>host --layout-dir "LAYOUT_DIR" --state-dir "STATE_DIR" --scope SCOPE --bootstrap-file "BOOTSTRAP"</Arguments>
+    </Exec>
+  </Actions>
+</Task>

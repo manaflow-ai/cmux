@@ -21,6 +21,8 @@ public nonisolated enum ComputerUseApprovalVia: String, Sendable, Codable {
     case mac
     /// The owner's iPhone (Face ID signed, through cmux-mobile-host).
     case phone
+    /// `cmux computer-use approvals deny` or MCP: a deny only, which lowers trust.
+    case cli
 }
 
 /// The JSON lines this app writes on the worker's host consent link for approvals, and the

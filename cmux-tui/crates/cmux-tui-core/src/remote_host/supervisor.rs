@@ -1,4 +1,4 @@
-#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#![cfg_attr(not(any(target_os = "macos", target_os = "linux", windows)), allow(dead_code))]
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -13,6 +13,19 @@ use crate::backoff::Backoff;
 #[cfg(target_os = "macos")]
 #[path = "macos.rs"]
 mod platform;
+#[cfg(target_os = "linux")]
+#[path = "linux.rs"]
+mod platform;
+#[cfg(windows)]
+#[path = "windows.rs"]
+mod platform;
+
+/// The host's supervisor link: a Unix socket on macOS and Linux, the host's
+/// owner-only named pipe on Windows.
+#[cfg(unix)]
+type HostStream = std::os::unix::net::UnixStream;
+#[cfg(windows)]
+type HostStream = platform::PipeStream;
 
 /// Advertised by `identify` once `remote-host-status` and `remote-host-call` exist.
 /// The supervisor protocol range this daemon speaks (the host picks one in it).
@@ -53,6 +66,26 @@ impl RemoteConfig {
     }
 }
 
+/// Windows and Linux have no app to turn Computer Use on: the machine owner's
+/// Computer Use file (`/etc/cmux/computer-use.toml`,
+/// `%ProgramData%\cmux\computer-use.toml`) turns it on. The host checks that
+/// the file is the owner's before it uses any of it (docs/cmux-remote.md).
+fn owner_enabled_computer_use() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        Path::new("/etc/cmux/computer-use.toml").is_file()
+    }
+    #[cfg(windows)]
+    {
+        std::env::var_os("ProgramData")
+            .is_some_and(|data| PathBuf::from(data).join("cmux").join("computer-use.toml").is_file())
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
+    {
+        false
+    }
+}
+
 /// The adoption record (`host.json`, 0600), written by the daemon that started the host.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct HostRecord {
@@ -73,6 +106,9 @@ pub(crate) struct Paths {
     pub(crate) runtime: PathBuf,
     /// Persistent: the staged bundle, `config.json`, the worker's device state.
     pub(crate) state: PathBuf,
+    /// This machine's acpmux socket (`Mux::set_acpmux_socket`), for the
+    /// Computer Use worker's admission (Windows and Linux).
+    pub(crate) acpmux_socket: Option<PathBuf>,
     /// This app build's scope (the worker's Keychain items, one device per build).
     pub(crate) scope: String,
     /// The daemon's own socket: the host admits a supervisor only when it is the process serving it.
@@ -83,12 +119,19 @@ impl Paths {
     fn record(&self) -> PathBuf {
         self.runtime.join("host.json")
     }
+    /// The host's supervisor endpoint (the same rule as the host's `Layout::supervisor`).
     fn supervisor_socket(&self) -> PathBuf {
-        self.runtime.join("s.sock")
+        if cfg!(windows) {
+            let leaf = self.runtime.file_name().map(|leaf| leaf.to_string_lossy().into_owned()).unwrap_or_default();
+            PathBuf::from(format!(r"\\.\pipe\cmux-remote-{leaf}"))
+        } else {
+            self.runtime.join("s.sock")
+        }
     }
     fn config(&self) -> PathBuf {
         self.state.join("config.json")
     }
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     fn log(&self) -> PathBuf {
         self.runtime.join("host.log")
     }
@@ -111,6 +154,7 @@ pub(crate) fn paths_for(daemon_socket: &Path, state_root: &Path) -> Paths {
         state: state_root.join("remote"),
         scope: format!("s{}", &scope_digest[..16]),
         daemon_socket: daemon_socket.to_path_buf(),
+        acpmux_socket: None,
     }
 }
 
@@ -132,6 +176,8 @@ struct Inner {
     unavailable: Mutex<Option<String>>,
     /// A newer embedded build waits for the running host to become idle.
     upgrade_pending: Mutex<bool>,
+    /// The acpmux socket, kept for paths configured after it was set.
+    acpmux_socket: Mutex<Option<PathBuf>>,
 }
 
 #[derive(Default)]
@@ -147,7 +193,7 @@ struct Connection {
     record: HostRecord,
     adopted: bool,
     started: Instant,
-    writer: Mutex<std::os::unix::net::UnixStream>,
+    writer: Mutex<HostStream>,
     pending: Mutex<HashMap<u64, SyncSender<Value>>>,
     next_id: std::sync::atomic::AtomicU64,
     /// The latest `status` the host reported (its hello, then each event).
@@ -159,8 +205,14 @@ struct Connection {
 impl RemoteHostSupervisor {
     /// Lets this daemon run cmux Remote: reads the person's last choices and
     /// adopts or starts the host when one is wanted.
-    pub(crate) fn configure(&self, paths: Paths) {
-        let config = read_config(&paths.config());
+    pub(crate) fn configure(&self, mut paths: Paths) {
+        if paths.acpmux_socket.is_none() {
+            paths.acpmux_socket.clone_from(&lock(&self.inner.acpmux_socket));
+        }
+        let mut config = read_config(&paths.config());
+        if owner_enabled_computer_use() {
+            config.computer_use = true;
+        }
         *lock(&self.inner.paths) = Some(paths);
         *lock(&self.inner.config) = config.clone();
         if config.wanted() {
@@ -266,12 +318,12 @@ impl Inner {
     }
 
     fn adopt_or_start(this: &Arc<Self>, paths: &Paths) -> Result<Arc<Connection>, String> {
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
         {
             let _ = (this, paths);
-            Err("cmux Remote runs on macOS only".into())
+            Err("cmux Remote runs on macOS, Windows and Linux".into())
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux", windows))]
         {
             let staged = platform::stage(&paths.state)?;
             if let Some(record) = read_record(&paths.record()) {
@@ -302,6 +354,14 @@ impl Inner {
                 "screen_sharing": config.screen_sharing,
                 "headless": config.headless,
                 "daemon_socket": paths.daemon_socket.display().to_string(),
+                // Windows and Linux hosts (the Swift host ignores them): the daemon's
+                // executable (a supervisor must run it on Windows), this build's acpmux
+                // and its socket (the Computer Use worker admits only its bridges), and
+                // the client whose saved approvals apply.
+                "daemon_exe": std::env::current_exe().ok().map(|exe| exe.display().to_string()),
+                "acpmux": platform::acpmux_executable().map(|exe| exe.display().to_string()),
+                "acpmux_socket": paths.acpmux_socket.as_ref().map(|socket| socket.display().to_string()),
+                "client": paths.scope,
             }), READY_TIMEOUT)?;
             let (start_sec, start_usec) = platform::process_start(pid).ok_or("the new host exited at once")?;
             let record = HostRecord {
@@ -309,7 +369,7 @@ impl Inner {
                 start_sec,
                 start_usec,
                 secret,
-                bundle_digest: staged.digest.clone(),
+                bundle_digest: staged.digest,
                 socket: paths.supervisor_socket(),
             };
             write_record(&paths.record(), &record);
@@ -320,7 +380,7 @@ impl Inner {
 
     /// Adopts a recorded host: the same process (pid and start time) and the record's secret.
     fn adopt(this: &Arc<Self>, record: &HostRecord) -> Result<Arc<Connection>, String> {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux", windows))]
         if platform::process_start(record.pid) != Some((record.start_sec, record.start_usec)) {
             return Err("the recorded host is not running".into());
         }
@@ -329,9 +389,9 @@ impl Inner {
 
     /// Connects, says hello, and starts reading the host's answers and events.
     fn connect(this: &Arc<Self>, record: HostRecord, adopted: bool) -> Result<Arc<Connection>, String> {
-        let stream = std::os::unix::net::UnixStream::connect(&record.socket)
+        let stream = connect_host(&record.socket)
             .map_err(|error| format!("cannot connect to {}: {error}", record.socket.display()))?;
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux", windows))]
         if platform::peer_pid(&stream) != Some(record.pid) {
             return Err("the supervisor socket's peer is not the recorded host".into());
         }
@@ -370,7 +430,7 @@ impl Inner {
         Ok(connection)
     }
 
-    fn read(this: &Weak<Self>, connection: &Arc<Connection>, mut reader: BufReader<std::os::unix::net::UnixStream>) {
+    fn read(this: &Weak<Self>, connection: &Arc<Connection>, mut reader: BufReader<HostStream>) {
         let mut line = String::new();
         loop {
             line.clear();
@@ -508,8 +568,18 @@ impl Connection {
     }
 }
 
-fn stream_timeout(stream: &std::os::unix::net::UnixStream, timeout: Option<Duration>) {
+fn stream_timeout(stream: &HostStream, timeout: Option<Duration>) {
     let _ = stream.set_read_timeout(timeout);
+}
+
+#[cfg(unix)]
+fn connect_host(socket: &Path) -> std::io::Result<HostStream> {
+    HostStream::connect(socket)
+}
+
+#[cfg(windows)]
+fn connect_host(socket: &Path) -> std::io::Result<HostStream> {
+    platform::PipeStream::connect(socket)
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -542,22 +612,28 @@ fn write_record(path: &Path, record: &HostRecord) {
     }
 }
 
-/// Writes `bytes` to `path` atomically, mode 0600, in a 0700 directory.
-fn write_private(path: &Path, bytes: &[u8]) {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+/// Writes `bytes` to `path` atomically, mode 0600, in a 0700 directory (on
+/// Windows, under the user's profile, private by inheritance).
+pub(super) fn write_private(path: &Path, bytes: &[u8]) {
     let Some(dir) = path.parent() else { return };
     if std::fs::create_dir_all(dir).is_err() {
         return;
     }
-    let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+    }
     let temporary = path.with_extension("tmp");
     let _ = std::fs::remove_file(&temporary);
-    let written = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&temporary)
-        .and_then(|mut file| file.write_all(bytes));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let written = options.open(&temporary).and_then(|mut file| file.write_all(bytes));
     if written.is_ok() {
         let _ = std::fs::rename(&temporary, path);
     }
@@ -567,6 +643,27 @@ fn write_private(path: &Path, bytes: &[u8]) {
 #[cfg(target_os = "macos")]
 pub(crate) fn process_stamp(pid: u32) -> Option<(u64, u64)> {
     platform::process_start(pid)
+}
+
+impl RemoteHostSupervisor {
+    /// This machine's acpmux socket: the Computer Use worker of a Windows or
+    /// Linux host admits only the bridges of the acpmux daemon serving it.
+    pub(crate) fn set_acpmux_socket(&self, socket: Option<PathBuf>) {
+        if let Some(paths) = lock(&self.inner.paths).as_mut() {
+            paths.acpmux_socket.clone_from(&socket);
+        }
+        *lock(&self.inner.acpmux_socket) = socket.clone();
+        // The Swift host has no such method: only Windows and Linux hosts get it.
+        if cfg!(target_os = "macos") {
+            return;
+        }
+        if let (Some(socket), State::Running(connection)) = (socket, &*lock(&self.inner.state)) {
+            let connection = Arc::clone(connection);
+            let _ = std::thread::Builder::new().name("remote-host-acpmux".into()).spawn(move || {
+                let _ = connection.call("computer_use.register_acpmux", json!({"socket": socket.display().to_string()}));
+            });
+        }
+    }
 }
 
 impl crate::mux::Mux {

@@ -1,0 +1,22 @@
+# cmux Remote host, in the graphical session's systemd user manager
+# (docs/cmux-remote.md, "Windows and Linux"). The cmux-tui daemon normally starts
+# the same thing as a transient unit, `systemd-run --user --unit
+# cmux-remote-host-<scope>`, so nothing needs installing; packagers who prefer a
+# unit file install this one to /usr/lib/systemd/user/ and the daemon starts
+# `cmux-remote-host@<scope>.service` instead. %i is the host's runtime leaf
+# (rh-<digest>), %t the user's runtime directory.
+[Unit]
+Description=cmux Remote (Computer Use host) %i
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+# The daemon writes the bootstrap (0600) before it starts the unit; the host deletes it.
+ExecStart=/usr/lib/cmux/cmux-remote-host host --layout-dir %t/cmux-tui/%i --state-dir %h/.local/state/cmux-tui/remote/worker --scope %i --bootstrap-file %t/cmux-tui/%i/bootstrap.json
+# The host keeps serving across a daemon handoff and exits by itself without one.
+Restart=no
+TimeoutStartSec=15
+# Never read Computer Use's mode from here: only /etc/cmux/computer-use.toml (root's) sets it.
+UnsetEnvironment=CUA_DRIVER_PERMISSION_MODE CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS

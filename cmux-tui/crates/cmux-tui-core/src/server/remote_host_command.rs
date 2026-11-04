@@ -15,7 +15,9 @@
 //!   `computer_use.approvals.list`, `computer_use.approvals.pending`), lower
 //!   trust (`computer_use.approvals.revoke`, `computer_use.approvals.deny`)
 //!   and ask the local collector to show a pending question again
-//!   (`computer_use.approvals.prompt`, which decides nothing). No method
+//!   (`computer_use.approvals.prompt`, which decides nothing until the person
+//!   confirms in polkit or Windows Hello). On macOS the cmux app serves these
+//!   itself (its card and saved list), so the CLI calls the app there. No method
 //!   approves, saves an app or raises the mode: only a protected collector
 //!   answers, and only the box owner sets the mode.
 //! - `remote-host-config {computer_use, screen_sharing, headless}`: the
@@ -183,25 +185,22 @@ fn computer_use_method(method: &str, params: &Value) -> Result<(), RemoteRefused
                 _ => Err(bad(&format!("{method} needs the pending question's id"))),
             }
         }
-        "computer_use.approvals.revoke" => match params.get("scope").and_then(Value::as_str) {
-            Some("all") => Ok(()),
-            Some("app") => {
-                let app = params.get("app").and_then(Value::as_object);
-                let named = app.is_some_and(|app| {
-                    ["bundle_id", "executable", "name"].iter().any(|key| {
-                        app.get(*key).and_then(Value::as_str).is_some_and(|v| !v.is_empty())
-                    })
-                });
-                if named {
-                    Ok(())
-                } else {
-                    Err(bad(
-                        "computer_use.approvals.revoke needs app.bundle_id, app.executable or app.name",
-                    ))
-                }
+        "computer_use.approvals.revoke" => {
+            if params.get("all").and_then(Value::as_bool) == Some(true) {
+                return Ok(());
             }
-            _ => Err(bad("computer_use.approvals.revoke needs scope: all or app")),
-        },
+            let app = params.get("app").and_then(Value::as_object);
+            let named = app.is_some_and(|app| {
+                ["bundle_id", "executable"].iter().any(|key| {
+                    app.get(*key).and_then(Value::as_str).is_some_and(|v| !v.is_empty())
+                })
+            });
+            if named {
+                Ok(())
+            } else {
+                Err(bad("computer_use.approvals.revoke needs all: true or app.bundle_id or app.executable"))
+            }
+        }
         _ => Err(RemoteRefused {
             code: ORIGIN_FORBIDDEN,
             message: format!(
@@ -252,12 +251,13 @@ mod tests {
         assert_eq!(code("computer_use.status", json!({})), None);
         assert_eq!(code("computer_use.approvals.list", json!({})), None);
         assert_eq!(code("computer_use.approvals.pending", json!({})), None);
-        assert_eq!(code("computer_use.approvals.revoke", json!({"scope": "all"})), None);
+        assert_eq!(code("computer_use.approvals.revoke", json!({"all": true})), None);
         assert_eq!(
-            code(
-                "computer_use.approvals.revoke",
-                json!({"scope": "app", "app": {"bundle_id": "com.apple.Safari"}})
-            ),
+            code("computer_use.approvals.revoke", json!({"app": {"bundle_id": "com.apple.Safari"}})),
+            None
+        );
+        assert_eq!(
+            code("computer_use.approvals.revoke", json!({"app": {"executable": "/usr/bin/firefox"}})),
             None
         );
         assert_eq!(code("computer_use.approvals.deny", json!({"id": "7"})), None);
@@ -284,10 +284,12 @@ mod tests {
     #[test]
     fn malformed_lowering_is_a_bad_request() {
         assert_eq!(code("computer_use.approvals.revoke", json!({})), Some("bad_request"));
+        assert_eq!(code("computer_use.approvals.revoke", json!({"app": {}})), Some("bad_request"));
         assert_eq!(
-            code("computer_use.approvals.revoke", json!({"scope": "app", "app": {}})),
+            code("computer_use.approvals.revoke", json!({"app": {"name": "Safari"}})),
             Some("bad_request")
         );
+        assert_eq!(code("computer_use.approvals.revoke", json!({"all": false})), Some("bad_request"));
         assert_eq!(code("computer_use.approvals.deny", json!({})), Some("bad_request"));
     }
 }

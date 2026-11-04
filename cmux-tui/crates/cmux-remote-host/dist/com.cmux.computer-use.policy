@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  cmux Computer Use approvals on a Linux desktop (docs/computer-use-approvals.md).
+  Install to /usr/share/polkit-1/actions/. The cmux Remote host asks with
+  CheckAuthorization(AllowUserInteraction) and details agent, workspace, app,
+  executable, tool, scope and client; polkit substitutes them below.
+  auth_self: the person at the desktop confirms with their own password or
+  fingerprint every time (no _keep: each question is answered once).
+-->
+<policyconfig>
+  <vendor>cmux</vendor>
+  <vendor_url>https://cmux.com</vendor_url>
+  <icon_name>cmux</icon_name>
+
+  <action id="com.cmux.computer-use.approve">
+    <description>Allow an agent to use an app with cmux Computer Use</description>
+    <message>$(agent) in $(workspace) wants to use $(app) $(scope). Authenticate to allow it.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+  </action>
+
+  <action id="com.cmux.computer-use.approve-always">
+    <description>Always allow agents to use an app with cmux Computer Use</description>
+    <message>Always allow agents in $(client) to use $(app)? $(agent) in $(workspace) asked. Authenticate to allow it.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

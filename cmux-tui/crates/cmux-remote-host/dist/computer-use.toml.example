@@ -1,0 +1,18 @@
+# /etc/cmux/computer-use.toml (Linux) or %ProgramData%\cmux\computer-use.toml (Windows).
+# Owned by root (Linux) or SYSTEM/Administrators (Windows) and writable by no one else;
+# otherwise cmux Computer Use refuses every call. No file means mode = "ask".
+# See docs/computer-use-approvals.md.
+
+# ask (personal desktops) | standard | bounded (user-owned boxes) | unrestricted (disposable VMs)
+mode = "ask"
+
+# bounded: the owner's capability manifest (written by `cmux computer-use setup`), same ownership rules.
+# manifest = "/etc/cmux/computer-use.manifest.yaml"
+
+# Terminals are never controlled unless listed here (file names or full paths).
+# allow_terminals = ["konsole"]
+
+# unrestricted needs upstream's two-part opt-in, both lines, in this file only:
+# [environment]
+# CUA_DRIVER_PERMISSION_MODE = "unrestricted"
+# CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS = "1"

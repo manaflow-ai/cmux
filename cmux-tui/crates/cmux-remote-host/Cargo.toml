@@ -1,0 +1,84 @@
+[package]
+name = "cmux-remote-host"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+readme = "README.md"
+publish = false
+description = "cmux Remote on Windows and Linux: the daemon-supervised host for Computer Use (docs/cmux-remote.md, docs/computer-use-approvals.md), with its worker on upstream Cua Driver"
+
+# Own workspace, like cmux-rd-host: upstream Cua Driver brings its platform
+# crates (AT-SPI, X11, Wayland portals and libei, UI Automation) and their system
+# libraries, and builds with upstream's toolchain (rust-toolchain.toml here, the
+# same 1.97.1 as scripts/cmux-next/cua-driver-sdk.pin.json). The cmux-tui workspace
+# and its Cargo.lock stay untouched.
+[workspace]
+
+[[bin]]
+name = "cmux-remote-host"
+path = "src/main.rs"
+
+[lib]
+name = "cmux_remote_host"
+path = "src/lib.rs"
+
+[features]
+default = ["driver", "wayland-portal"]
+# Upstream Cua Driver in the Computer Use worker. Without it the worker answers
+# every tool call with `driver_unavailable` (the protocol tests need no desktop).
+driver = ["dep:cua-driver-sdk"]
+# Wayland input and capture through xdg-desktop-portal and libei (GNOME, KDE).
+# Needs libxkbcommon and libpipewire-0.3 headers at build time.
+wayland-portal = ["driver", "cua-driver-sdk?/portal-libei"]
+
+[dependencies]
+async-trait = "0.1"
+getrandom = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml_ng = "0.10"
+sha2 = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "io-std", "net", "sync", "time", "process", "fs"] }
+toml = "0.8"
+# trycua/cua cua-driver-rs-v0.34.0, the commit scripts/cmux-next/cua-driver-sdk.pin.json pins for macOS.
+cua-driver-sdk = { git = "https://github.com/trycua/cua", rev = "b0968e1b12834e485dda68789541a3cc57664a9f", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# polkit (org.freedesktop.PolicyKit1) on the system bus; the same zbus major as upstream.
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Pipes",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }
+# Windows Hello (UserConsentVerifier) for a host-owned window; the same major as upstream.
+windows = { version = "0.58", features = [
+    "Foundation",
+    "Security_Credentials_UI",
+    "Win32_Foundation",
+    "Win32_System_WinRT",
+] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+
+[profile.release]
+opt-level = 3
+debug = 1
+lto = "thin"

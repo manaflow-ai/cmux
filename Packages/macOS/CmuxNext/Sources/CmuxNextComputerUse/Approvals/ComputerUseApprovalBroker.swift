@@ -179,6 +179,16 @@ public final class ComputerUseApprovalBroker {
         return true
     }
 
+    /// Denies `id` from the CLI or MCP (`computer_use.approvals.deny`). A deny only lowers trust, so
+    /// it needs no protected collector. False: no such question, or it is no longer answerable.
+    @discardableResult
+    public func deny(_ id: String) -> Bool {
+        guard let entry = pending.first(where: { $0.id == id || $0.request.digest == id }),
+              entry.request.isAnswerable(nowMs: nowMs()) else { return false }
+        settle(entry, answer: (.deny, .cli))
+        return true
+    }
+
     /// Revokes saved approvals (nil: all) and tells every worker. Returns how many were removed.
     @discardableResult
     public func revoke(_ app: ComputerUseApprovalApp?) -> Int {

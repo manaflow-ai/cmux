@@ -67,7 +67,7 @@ enum ComputerUseApprovalActions {
 
     // MARK: Socket
 
-    /// `computer_use.approvals.list|revoke|pending|prompt`, `computer_use.mode.set`, `computer_use.status`.
+    /// `computer_use.approvals.list|revoke|pending|deny|prompt`, `computer_use.mode.set`, `computer_use.status`.
     static func methods(service: ComputerUseApprovalService, window: @escaping @MainActor () -> NSWindow?) -> [ControlMethod] {
         [
             .mainActor("computer_use.approvals.list") { _ in .value(list(service)) },
@@ -78,6 +78,13 @@ enum ComputerUseApprovalActions {
                     throw ControlError.invalidParams("pass app {bundle_id|executable} or all: true")
                 }
                 return .value(["revoked": JSONValue(service.broker.revoke(app))])
+            },
+            .mainActor("computer_use.approvals.deny") { call in
+                guard let id = call.params["id"]?.stringValue, !id.isEmpty else { throw ControlError.invalidParams("pass id") }
+                guard service.broker.deny(id) else {
+                    throw ControlError(code: "not_found", message: "no waiting Computer Use question \(id)")
+                }
+                return .value(["ok": true])
             },
             .mainActor("computer_use.approvals.prompt") { call in
                 guard let id = call.params["id"]?.stringValue, !id.isEmpty else { throw ControlError.invalidParams("pass id") }
