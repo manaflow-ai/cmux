@@ -552,7 +552,6 @@ body {
   background: var(--glass-tint, var(--cmux-diff-bg));
   -webkit-backdrop-filter: var(--surface-blur, none);
   backdrop-filter: var(--surface-blur, none);
-  box-shadow: var(--elevation-2);
   z-index: 120;
   overflow: hidden;
 }
@@ -1970,7 +1969,6 @@ svg[data-icon-fill] {
   background: var(--glass-tint, color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg)));
   -webkit-backdrop-filter: var(--surface-blur, none);
   backdrop-filter: var(--surface-blur, none);
-  box-shadow: var(--elevation-2);
   color: var(--cmux-diff-fg);
 }
 .toolbar-menu-section {
@@ -2220,7 +2218,6 @@ svg[data-icon-fill] {
 .base-picker-popover {
   border-radius: var(--ds-radius-lg);
   background: var(--glass-tint, color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg)));
-  box-shadow: var(--elevation-2);
 }
 .base-picker-search {
   padding: 9px 12px;
