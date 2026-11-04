@@ -228,8 +228,8 @@ extension CEFRuntime {
             register(tab, browser: browser)
             return
         }
-        // The spare page (CEFSpareWindow): no tab's until a new tab takes it.
-        if CEFSpareWindow.shared.isMakingPage { return }
+        // Inside the spare page's tab_add: held until it returns, to tell the page from Chromium's own tabs.
+        if CEFSpareWindow.shared.holdIfMakingPage(browser, window: window, created: created) { return }
         // Chromium created the tab itself (target=_blank, chrome.tabs.create).
         orphans.adopt(browser: browser, window: window, created: created)
     }
@@ -255,7 +255,7 @@ extension CEFRuntime {
         } else {
             // Never registered: drop a pending adoption of it, or the spare page.
             orphans.closedUnregistered(browser)
-            CEFSpareWindow.shared.browserClosed(browser)
+            CEFSpareWindow.shared.browserClosed(browser, runtime: self)
         }
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         unawaitedDevTools = unawaitedDevTools.filter { $0.key.browser != browser }
