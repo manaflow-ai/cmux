@@ -91,6 +91,26 @@ describe("Bring your history", () => {
     expect(row?.title).toBe("Dot export (.zip)");
     expect(row?.selected).toBe(true);
   });
+  test("retry replaces old detections and preserves manually picked archives", async () => {
+    let sources = [
+      { source: "zip:/Downloads/dot.zip", kind: "dots-export" },
+      { source: "zip:/Downloads/chatgpt.zip", kind: "chatgpt-export" },
+    ];
+    const client = host(({ op }) => (op === OPS.detect ? { sources } : undefined));
+    const store = new ImportHistoryStore(client);
+    await store.start();
+    await store.retryDetection();
+    expect(store.getSnapshot().rows.filter((row) => row.id.startsWith("detected-"))).toHaveLength(1);
+    await store.pickZip("claude");
+    await store.pickZip("chatgpt");
+    await store.retryDetection();
+    expect(store.getSnapshot().rows.find((row) => row.id === "chatgpt")?.source).toBe("zip:/selected/chatgpt.zip");
+    sources = [];
+    await store.retryDetection();
+    expect(store.getSnapshot().rows.some((row) => row.id.startsWith("detected-"))).toBe(false);
+    expect(store.getSnapshot().rows.find((row) => row.id === "codex")?.source).toBeUndefined();
+    expect(store.getSnapshot().rows.find((row) => row.id === "claude")?.source).toBe("zip:/selected/claude.zip");
+  });
   test("app hints require pasted text and prepare a text source before import", async () => {
     const client = host(({ op }) => (op === OPS.detect ? { sources: [{ source: "muse", kind: "muse" }] } : undefined));
     const store = new ImportHistoryStore(client);

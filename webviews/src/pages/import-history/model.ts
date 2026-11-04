@@ -135,7 +135,9 @@ export class ImportHistoryStore {
       this.set({
         phase: "ready",
         rows: this.snapshot.rows
+          .filter((row) => !row.id.startsWith("detected-"))
           .map((row) => {
+            if (row.kind === "zip" && row.source && !row.detected) return row;
             const found = detected.find((source) => source.source === row.id || source.kind === row.id);
             const exportKind =
               row.id === "chatgpt" ? "chatgpt-export" : row.id === "claude" ? "claude-ai-export" : undefined;
@@ -150,7 +152,9 @@ export class ImportHistoryStore {
                   detected: true,
                   name: match.title ?? match.path,
                 }
-              : row;
+              : row.detected
+                ? { ...row, selected: false, detected: false, source: undefined, name: undefined }
+                : row;
           })
           .concat(
             detected
@@ -227,6 +231,7 @@ export class ImportHistoryStore {
       } else
         this.row(id, {
           ...result,
+          detected: false,
           selected: true,
           report: undefined,
           phase: "idle",

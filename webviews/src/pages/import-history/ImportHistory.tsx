@@ -30,9 +30,19 @@ export function ImportHistory({ store, strings, layout = "list" }: ImportHistory
         <h1>{t("history.title")}</h1>
         <p className="history-lead">{t("history.subtitle")}</p>
       </header>
-      <output className="history-notice" aria-live="polite">
-        {t(`history.state.${snapshot.phase}`)}
-      </output>
+      <div className="history-scan-status">
+        <output className="history-notice" aria-live="polite">
+          {t(`history.state.${snapshot.phase}`)}
+        </output>
+        <button
+          type="button"
+          className="history-link"
+          disabled={busy || snapshot.phase === "detecting" || Boolean(snapshot.picking)}
+          onClick={() => void store.pickZip("dot")}
+        >
+          {strings.format("history.chooseFor", t("history.source.dot"))}
+        </button>
+      </div>
       <div className="history-sources" aria-label={t("history.sources")}>
         {snapshot.rows.map((row) => (
           <SourceRow

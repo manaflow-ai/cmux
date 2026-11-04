@@ -213,3 +213,11 @@
 .history-source-title:disabled {
   cursor: default;
 }
+
+.history-scan-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
