@@ -50,6 +50,7 @@ name = "cmux-tui-host"
 path = "src/bin/cmux-tui-host.rs"
 
 [dependencies]
+tempfile = "3"
 cmux-json.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
@@ -70,7 +71,7 @@ cmux-tui-machine-protocol.workspace = true
 cmux-server.workspace = true
 cmux-server-core.workspace = true
 ratatui.workspace = true
-crossterm.workspace = true
+crossterm = { workspace = true, features = ["serde"] }
 crossbeam-channel.workspace = true
 anyhow.workspace = true
 bytes.workspace = true
@@ -90,6 +91,7 @@ base64.workspace = true
 getrandom.workspace = true
 glob.workspace = true
 libc.workspace = true
+fs4.workspace = true
 smallvec.workspace = true
 zeroize.workspace = true
 terminput.workspace = true
@@ -135,6 +137,7 @@ tokio.workspace = true
 # Cloud VM. chatmux-relay already uses reqwest for pairing bootstrap.
 # `stream`: attachment files upload from disk, never read whole.
 reqwest = { workspace = true, features = ["stream"] }
+tempfile = "3"
 rustls.workspace = true
 url.workspace = true
 async-trait.workspace = true
@@ -159,5 +162,4 @@ serde_json.workspace = true
 [dev-dependencies]
 cmux-pty.workspace = true
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
-tempfile = "3"
 rusqlite.workspace = true

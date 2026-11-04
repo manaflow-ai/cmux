@@ -91,7 +91,7 @@ import Testing
 
     func close() {
         _ = strip.newTabHold.end()
-        window.orderOut(nil)
+        window.closeAfterTest()
     }
 }
 

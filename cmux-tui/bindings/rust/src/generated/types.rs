@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8.
+// cmux-tui mux protocol 12, IR bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -307,6 +307,63 @@ pub struct CellPixelSurface {
     pub height_px: u16,
     pub surface: Id,
     pub width_px: u16,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChiefWorkAgentState {
+    #[serde(rename = "working")]
+    Working,
+    #[serde(rename = "waiting")]
+    Waiting,
+    #[serde(rename = "idle")]
+    Idle,
+    #[serde(rename = "failed")]
+    Failed,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefWorkAgent {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "startedAt")]
+    pub started_at: Nullable<u64>,
+    pub state: ChiefWorkAgentState,
+    pub task: Nullable<String>,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: Nullable<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChiefWorkTaskStatus {
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "done")]
+    Done,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefWorkTask {
+    pub command: String,
+    pub detail: Nullable<String>,
+    #[serde(rename = "endedAt")]
+    pub ended_at: Nullable<u64>,
+    pub id: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "startedAt")]
+    pub started_at: Nullable<u64>,
+    pub status: ChiefWorkTaskStatus,
+    pub title: String,
 }
 
 #[rustfmt::skip]
@@ -1668,6 +1725,23 @@ pub struct Screen {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
     pub zoomed_pane: Nullable<Id>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SelectionPane {
+    pub active_tab: u64,
+    pub focused_at: u64,
+    pub id: Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SelectionScreen {
+    pub active: bool,
+    pub active_pane: Id,
+    pub id: Id,
+    pub panes: Vec<SelectionPane>,
 }
 
 #[rustfmt::skip]

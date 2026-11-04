@@ -3,7 +3,10 @@
 
 use super::*;
 
+mod created_views;
 mod effect_commit;
+
+pub(crate) use created_views::CreatedViewCommit;
 
 impl Mux {
     /// The registry's id and generation. Both are fixed when the registry

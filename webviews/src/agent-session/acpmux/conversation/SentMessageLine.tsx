@@ -4,7 +4,8 @@
 // and the message's first line, muted, while the row is shut. The row opens to the whole message as
 // Markdown, its first line then gone from the row (Leo 2026-10-29, on the line and the body under it
 // saying the same thing: "this rendering can be better for sent stuff"), and, behind Raw, the call itself (its command and output, or its MCP request and response); a failed send
-// opens to its output. Both ways of sending draw this one row: a cmux-subsessions `send_message`
+// opens to its output. A send whose words the transcript does not hold opens straight to the call,
+// with no Raw toggle. Both ways of sending draw this one row: a cmux-subsessions `send_message`
 // (SubsessionCallCard.tsx) and a shell `acpmux send` (acpmuxSends.ts, `AcpmuxSendLine` below).
 // Whether a row is open lasts across the virtualized transcript (transcriptDisclosure.tsx). The
 // target opens its chat beside this one when the session list knows it (by id, or by `name`,
@@ -35,6 +36,7 @@ import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
 import { ShellBlock } from "./ShellBlock";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useMessageLineLook } from "./messageLineLook";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import "./AgentMessageRow.css";
 import "./SubsessionCallCard.css";
@@ -136,6 +138,11 @@ export function SentMessageLine({
 }) {
   const t = useT();
   const shape = useSyncExternalStore(subscribe, snapshot, snapshot);
+  // Stacked (the default, messageLineLook.ts): the line holds the verb, the recipient, the count and
+  // the chevron; the first line goes under it, on a line of its own. `quiet` draws no first line
+  // until the row opens. The arrow and quote shapes keep their one line.
+  const lineLook = useMessageLineLook();
+  const stacked = shape === "sentence" && lineLook !== "single";
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
   const [rawShown, setRawShown] = useState(rawOpen);
   // A send that fails while it shows opens its Raw then: the output says why.
@@ -159,9 +166,13 @@ export function SentMessageLine({
   const chat = useSyncExternalStore(store.subscribeNames, readChat, readChat);
   const preview = text ? messagePreview(text) : "";
   // The open row shows the whole message under it: its first line on the row would say it twice.
-  const trailing = preview && state !== "failed" && !(open && text) ? preview : "";
+  const shown = preview && state !== "failed" && !(open && text) ? preview : "";
   // No words to show, only where they came from: the file's path, as code, after the line.
-  const source = !text && file && state !== "failed" ? file : "";
+  const fileShown = !text && file && state !== "failed" ? file : "";
+  // Stacked, they take the line under the row instead (`below`); `quiet` shows neither while shut.
+  const trailing = stacked ? "" : shown;
+  const source = stacked ? "" : fileShown;
+  const below = stacked && lineLook === "stacked" && !open ? shown || fileShown : "";
   const label =
     shape === "arrow" && (state === "sending" || state === "sent") && preview
       ? t(state === "sending" ? "subsession.sending" : "subsession.to", { name: MARK, text: preview })
@@ -231,10 +242,11 @@ export function SentMessageLine({
           )}
         </span>
         {/* Copy takes the message's text, shown while the row is pointed at, as a SendMessage
-            row's is (MessageCard.tsx); its click never toggles the row. */}
-        {text && (
+            row's is (MessageCard.tsx); its click never toggles the row. Stacked, it sits with Raw
+            under the opened message instead, never beside the chevron. */}
+        {text && !stacked && (
           // oxlint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
-          <span onClick={(event) => event.stopPropagation()}>
+          <span className="cv-sent__actions" onClick={(event) => event.stopPropagation()}>
             <SentActions text={text} />
           </span>
         )}
@@ -252,16 +264,34 @@ export function SentMessageLine({
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </div>
+      {below && (
+        // The first line, on its own line at the text column, cut there; it toggles as the row does.
+        // Its words are the opened message's, so a screen reader and Find read them there.
+        // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+        <div className="cv-msgline__preview cv-sent__below" aria-hidden data-find-skip="" onClick={toggle}>
+          {text ? below : <code className="cv-sent__file">{below}</code>}
+        </div>
+      )}
       {open && (
         <div id={id} className="cv-subsession__under">
-          {text && (
-            <div className="cv-subsession__markdown selectable">
-              <AgentMessageBody text={text} commits="quiet" />
-            </div>
+          {text ? (
+            <>
+              <div className="cv-subsession__markdown selectable">
+                <AgentMessageBody text={text} commits="quiet" />
+              </div>
+              <RawToggle
+                open={rawShown}
+                onOpenChange={setRawShown}
+                actions={stacked ? <SentActions text={text} /> : undefined}
+              >
+                {raw(reveal)}
+              </RawToggle>
+            </>
+          ) : (
+            // No words to render: the call is all there is, so it shows at once, not behind a
+            // second "Raw" click (Leo 2026-10-26: "EITHER SHOW IT DIRECT WITHOUT OR ... RENDER IT").
+            <div className="cv-subsession__raw">{raw(reveal)}</div>
           )}
-          <RawToggle open={rawShown} onOpenChange={setRawShown}>
-            {raw(reveal)}
-          </RawToggle>
         </div>
       )}
     </>
@@ -271,11 +301,16 @@ export function SentMessageLine({
 /// "Raw" and the call under it while open: its own state, or the caller's (`open`, `onOpenChange`).
 export function RawToggle({
   children,
+  icon,
+  actions,
   startOpen = false,
   open: shown,
   onOpenChange,
 }: {
   children: ReactNode;
+  icon?: ReactNode;
+  /// Quiet actions on the opened message (its Copy), on Raw's line before it.
+  actions?: ReactNode;
   startOpen?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -285,18 +320,29 @@ export function RawToggle({
   const open = shown ?? own;
   const setOpen = (next: (value: boolean) => boolean) => (onOpenChange ? onOpenChange(next(open)) : setOwn(next));
   const id = useId();
+  const button = (
+    <button
+      type="button"
+      className="cv-subsession__toggle"
+      aria-expanded={open}
+      aria-controls={open ? id : undefined}
+      onClick={() => setOpen((value) => !value)}
+    >
+      {icon}
+      {t("subsession.raw")}
+      <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
+    </button>
+  );
   return (
     <div className="cv-subsession__raw">
-      <button
-        type="button"
-        className="cv-subsession__toggle"
-        aria-expanded={open}
-        aria-controls={open ? id : undefined}
-        onClick={() => setOpen((value) => !value)}
-      >
-        {t("subsession.raw")}
-        <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
-      </button>
+      {actions ? (
+        <div className="cv-subsession__actions">
+          {actions}
+          {button}
+        </div>
+      ) : (
+        button
+      )}
       {open && <div id={id}>{children}</div>}
     </div>
   );

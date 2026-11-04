@@ -7,15 +7,17 @@
 // In gallery entry agent-pane.transcript-row-alignment (a reply, a tool call, a reply, a subagent
 // that finished, a reply, a background command that ended, a reply, another agent's message, a
 // reply; above them a folded
-// turn's "Worked for" line and a footer with its time, tokens and actions), measured from the
+// turn's "Worked for" line and a footer with its actions and time), measured from the
 // transcript column's left edge (`col-left`, design/grid.md 5.5) in light and dark:
-// - every reply's first glyph, a "Worked for" line's first glyph, the footer's "Worked for" label
-//   and the first glyph of every action row (a reply's, a footer's) start on col-left;
+// - every reply's first glyph, a "Worked for" line's first glyph and the first glyph of every action
+//   row (a reply's, a footer's) start on col-left; nothing comes before a footer's buttons
+//   (reply-footer.test.ts);
 // - every row with a leading icon (a tool row, a subagent's end, a background command's end,
 //   another agent's message) has its 16px icon box on col-left and its words at one shared x;
 // - each status row between two replies has the same room above it as every other, and the same
-//   below; the room above is the reply's kept room (model.ts `keepsReplyRoom`), 26px more than below
-//   (design/chat-transcript.md "Rows between replies").
+//   below; the room above is the stack's gap from a message to a step, the room below its gap from
+//   a step to a message (transcriptGrid.ts `transcriptGap`). #30865's 26px more above went with
+//   #27580, which set `--cv-reply-room` to 0 (design/grid.md 5.5: the stack owns every gap).
 //
 // CMUX_ROW_ALIGNMENT_ARTIFACT_DIR=DIR (or fast-checks' FAST_CHECKS_OUT) also writes each theme's
 // 2x stills and measurements to DIR.
@@ -25,6 +27,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MARK_MESSAGE, MARK_STEP, transcriptGap } from "../src/agent-session/acpmux/transcriptGrid";
 
 await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -36,10 +39,10 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
   /** How far apart two edges may be, in CSS px. */
   const TOLERANCE = 0.5;
   /**
-   * How much more room a status row has above than below when a reply is over it: the reply's kept
-   * room (`--cv-reply-room`, 36px) against the plain share it replaces over a status row (10px).
+   * How much more room a status row has above than below when a reply is over it: the stack's gap
+   * from the reply to the row against the one from the row to the next reply (26 before #27580).
    */
-  const REPLY_ROOM_EXTRA = 26;
+  const REPLY_ROOM_EXTRA = transcriptGap(MARK_MESSAGE, MARK_STEP) - transcriptGap(MARK_STEP, MARK_MESSAGE);
 
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -105,9 +108,7 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
       };
       for (const prose of document.querySelectorAll(".acpmux-row.acpmux-assistant .cv-md")) lead("reply", prose);
       for (const worked of document.querySelectorAll(".cv-worked.is-toggle")) lead("worked-for", worked);
-      for (const label of document.querySelectorAll(".cv-turn-summary")) lead("footer label", label);
       // An action row's first glyph: its 16px box, where Codex and Claude start the copy glyph.
-      // A footer that says its time first leads with that label instead (measured above).
       for (const actions of document.querySelectorAll(".cv-turn-actions .cv-turn-action-group")) {
         if (actions.previousElementSibling) continue;
         const glyph = actions.querySelector(".cv-iconbtn svg");
@@ -158,11 +159,15 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
           const line = rows[index]!.querySelector(selector);
           if (!line) continue;
           const box = line.getBoundingClientRect();
+          // A message row's first line is on its own line right under the row's line
+          // (messageLineLook.ts `stacked`): the row ends under it, so the room below starts there.
+          const first = line.parentElement?.querySelector(":scope > .cv-msgline__preview")?.getBoundingClientRect();
+          const bottom = first && first.height > 0 && first.top >= box.bottom - 0.5 ? first.bottom : box.bottom;
           gaps.push({
             kind,
             label: line.textContent?.trim().slice(0, 40) ?? "",
             above: box.top - before.getBoundingClientRect().bottom,
-            below: after.getBoundingClientRect().top - box.bottom,
+            below: after.getBoundingClientRect().top - bottom,
           });
         }
       }
@@ -250,7 +255,6 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
         for (const kind of [
           "reply",
           "worked-for",
-          "footer label",
           "footer actions",
           "tool",
           "subagent finished",

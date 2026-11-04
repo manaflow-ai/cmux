@@ -1,10 +1,8 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
-// A reply's footer is one quiet row, as Claude Code desktop's (Leo 2026-10-20): Copy, Fork, Pin and
-// Read aloud, then the reply's age, at the column's left edge under the reply (the Debug menu can
-// move it right). It shows only while the reader points at the turn (or a key reaches it), the last
-// turn's too, and keeps its height while hidden.
-//
-// Before: every reply's footer showed at rest, with the time after the buttons.
+// A reply's footer (Copy, Fork, Pin, Read aloud) shows while the reader points at its turn; once the
+// chat has finished, the last reply's footer also stays in sight at rest (#31503, #31609), and an
+// earlier reply's shows only while pointed at. Its layout (buttons first on the prose's left edge,
+// the time after them on hover) is reply-footer.test.ts's.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -162,33 +160,13 @@ await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
     return footers(page);
   };
 
-  test("no footer shows at rest; pointing at a reply shows its own only", async () => {
+  test("only the last reply's footer shows at rest; pointing at an earlier reply shows its own too", async () => {
     const page = await open();
-    expect(await footers(page)).toEqual(["0", "0"]);
+    expect(await footersReach(page, ["0", "1"])).toEqual(["0", "1"]);
     await page.getByText("Not yet: the hosted test run").hover();
-    expect(await footersReach(page, ["1", "0"])).toEqual(["1", "0"]);
+    expect(await footersReach(page, ["1", "1"])).toEqual(["1", "1"]);
     await page.mouse.move(0, 0);
-    expect(await footersReach(page, ["0", "0"])).toEqual(["0", "0"]);
-    await page.close();
-  });
-
-  test("the footer is one row at the column's left edge: muted Worked for, the actions, then the age", async () => {
-    const page = await open();
-    const footer = await page.evaluate(() => {
-      const actions = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions")].at(-1)!;
-      const row = actions.closest(".acpmux-row")!.getBoundingClientRect();
-      const box = (selector: string) => actions.querySelector(selector)!.getBoundingClientRect();
-      const summary = box(".cv-turn-summary");
-      const time = box(".cv-turn-time");
-      const group = box(".cv-turn-action-group");
-      return {
-        // The row starts at the reply's left edge.
-        startsLeft: summary.left - row.left <= 4,
-        order: summary.right <= group.left && group.right <= time.left,
-        oneRow: Math.abs(summary.top + summary.height / 2 - (group.top + group.height / 2)) <= 2,
-      };
-    });
-    expect(footer).toEqual({ startsLeft: true, order: true, oneRow: true });
+    expect(await footersReach(page, ["0", "1"])).toEqual(["0", "1"]);
     await page.close();
   });
 });

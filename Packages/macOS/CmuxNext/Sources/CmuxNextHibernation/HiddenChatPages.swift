@@ -69,6 +69,8 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     package static var minimumHidden: Double { 10 }
     /// How soon a due page still in its window is first looked at again.
     package static var onScreenRecheck: Double { 1 }
+    /// How soon a due page its release kept (it held prompts, or said nothing in time) is asked again.
+    package static var keptRecheck: Double { 15 }
 
     /// The App's side; it owns this planner (weak: no cycle).
     private weak var host: Host?
@@ -79,6 +81,8 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     private var hiddenAt: [String: ContinuousClock.Instant] = [:]
     private var shown: Set<String> = []
     private var releasing: Set<String> = []
+    /// Pages a release kept, and when each is asked again (``keptForNow(_:)``).
+    private var retryAt: [String: ContinuousClock.Instant] = [:]
     /// Hidden pages whose workspace hibernates (``releaseForWorkspace(_:)``): they go without
     /// `browser.hibernation`, still only when nothing else keeps them; cleared when shown or closed.
     private var workspaceDue: Set<String> = []
@@ -142,6 +146,7 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
             thaw(key)
             shown.insert(key)
             hiddenAt[key] = nil
+            retryAt[key] = nil
             workspaceDue.remove(key)
             host.dropReleasedFrame(key)
         } else if host.hibernationPage(key) != nil {
@@ -156,6 +161,7 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
         shown.remove(key)
         workspaceDue.remove(key)
         hiddenAt[key] = nil
+        retryAt[key] = nil
         host?.dropReleasedFrame(key)
     }
 
@@ -177,8 +183,18 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
             return
         }
         let current = host.pageClock()
+        retryAt = retryAt.filter { hiddenAt[$0.key] != nil }
         var next: Double?
         for (key, at) in hiddenAt where !releasing.contains(key) && keepsPage(key, onScreen: false) == nil {
+            // Its release kept it a moment ago: it is asked again once its recheck comes.
+            if let retry = retryAt[key] {
+                let wait = (retry - current).seconds
+                if wait > 0 {
+                    next = min(next ?? wait, wait)
+                    continue
+                }
+                retryAt[key] = nil
+            }
             let remaining = threshold - (current - at).seconds
             if remaining > 0 {
                 next = min(next ?? remaining, remaining)
@@ -227,6 +243,15 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     /// The release of tab `key` asked the page what it holds; it no longer counts as running.
     package func endRelease(_ key: String) { releasing.remove(key) }
 
+    /// The release of tab `key` kept its page (it held prompts, or said nothing in time): it is
+    /// asked again after ``keptRecheck``, on the planner's own deadline, as nothing else may plan
+    /// again (cmux#32277). Its hide or show resets that.
+    package func keptForNow(_ key: String) {
+        guard let host, hiddenAt[key] != nil else { return }
+        retryAt[key] = host.pageClock() + .seconds(Self.keptRecheck)
+        replan()
+    }
+
     /// Tab `key` still shows `page`, hidden, and nothing keeps it: the release may go on.
     package func isDue(_ key: String, page: Host.Page) -> Bool {
         guard let host else { return false }
@@ -236,6 +261,7 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     /// Tab `key`'s page was let go.
     package func released(_ key: String) {
         hiddenAt[key] = nil
+        retryAt[key] = nil
         releasedCount += 1
     }
 

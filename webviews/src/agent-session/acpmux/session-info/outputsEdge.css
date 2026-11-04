@@ -1,0 +1,68 @@
+/* Only Outputs: the list still owns its native scroll and every row keeps its click target.
+   These decorative bands use the shared scroll-edge tokens from #26720, with its subtle variant.
+   useScrollEdges tracks overflow; no animation, timer or new per-frame work. */
+.acpmux-outputs-edges {
+  --outputs-edge-visible: 1;
+  --cmux-scroll-edge-band: 12px;
+  --cmux-scroll-edge-blur: 5px;
+  --cmux-scroll-edge-opacity: 0.58;
+  position: relative;
+  min-width: 0;
+}
+.acpmux-outputs-edges::before,
+.acpmux-outputs-edges::after {
+  content: "";
+  position: absolute;
+  z-index: var(--layer-raised);
+  inset-inline: 0;
+  height: var(--cmux-scroll-edge-band);
+  pointer-events: none;
+  opacity: 0;
+  background: color-mix(in srgb, var(--glass-surface, var(--agent-page-bg)) calc(var(--cmux-scroll-edge-opacity) * 100%), transparent);
+  -webkit-backdrop-filter: blur(var(--cmux-scroll-edge-blur));
+  backdrop-filter: blur(var(--cmux-scroll-edge-blur));
+}
+.acpmux-outputs-edges::before {
+  top: 0;
+  mask-image: linear-gradient(to bottom, black, transparent);
+}
+.acpmux-outputs-edges::after {
+  bottom: 0;
+  mask-image: linear-gradient(to top, black, transparent);
+}
+.acpmux-outputs-edges:has(> [data-fade-top])::before,
+.acpmux-outputs-edges:has(> [data-fade-bottom])::after {
+  opacity: var(--outputs-edge-visible);
+}
+/* Comparison variants stay in the gallery; the app uses the restrained treatment above. */
+[data-outputs-edge-variant="balanced"] .acpmux-outputs-edges {
+  --cmux-scroll-edge-band: 16px;
+  --cmux-scroll-edge-blur: 8px;
+  --cmux-scroll-edge-opacity: 0.82;
+}
+[data-outputs-edge-variant="roomy"] .acpmux-outputs-edges {
+  --cmux-scroll-edge-band: 24px;
+  --cmux-scroll-edge-blur: 12px;
+  --cmux-scroll-edge-opacity: 0.9;
+}
+/* Respect the same transparency switch as the summary cards: decoration disappears entirely. */
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-outputs-edges {
+    --outputs-edge-visible: 0;
+  }
+  .acpmux-outputs-edges::before,
+  .acpmux-outputs-edges::after {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    mask-image: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-outputs-edges {
+  --outputs-edge-visible: 0;
+}
+:root[data-reduce-transparency] .acpmux-outputs-edges::before,
+:root[data-reduce-transparency] .acpmux-outputs-edges::after {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  mask-image: none;
+}

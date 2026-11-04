@@ -850,8 +850,7 @@ final class LongTextStore: @unchecked Sendable {
         let id = ObjectIdentifier(idx)
         tick += 1
         recent.updateValue(tick, forKey: id) // dictionary write
-        // cmux: a zoomed Chief chat's column also follows its zoom (Metrics.columnZoom), not the width alone.
-        if let l = layouts[id]?[wk], l.column == Metrics(width: width).maxTextWidth { lock.unlock(); return l }
+        if let l = layouts[id]?[wk] { lock.unlock(); return l }
         let carry = layouts[id]?.values.first { $0.markdown == md }
         lock.unlock()
         let l = LongTextLayout(index: idx, width: width, carry: carry?.column == Metrics(width: width).maxTextWidth ? carry : nil, markdown: md)

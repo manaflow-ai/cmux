@@ -12,8 +12,19 @@
 // Fork forks the chat through the prompt's own turn, as its right-click Fork does. The images a
 // prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished
 // once sent). A long prompt opens collapsed on its first ten lines with Show more, and a pasted
-// block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt.
-import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+// block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt. A video
+// it sent with its frames is its poster and length among them, playing on a click (SentVideoTile.tsx).
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
@@ -41,6 +52,8 @@ import {
 import { TurnActionsContext } from "./turnActions";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
 import { SkillWordsContext } from "./skillWords";
+import { SentVideoTile } from "./SentVideoTile";
+import { sentVideoOf, sentVideosOf, type SentVideo } from "./sentVideos";
 
 /// The files a recorded prompt sent (its `inlineParts`: documents, audio, resource links), drawn
 /// as a sent prompt draws them; a file that is an image's companion, a video, or an image's
@@ -72,6 +85,8 @@ export function UserBubble({
   // Only a skill of the chat's list reads so (skillWords.ts).
   const skills = useContext(SkillWordsContext);
   const row = useMemo(() => shownSkills(withoutVideoFrames(given), skills), [given, skills]);
+  // Read before the frames go: a video's note and first frame are its tile (sentVideos.ts).
+  const videos = useMemo(() => sentVideosOf(given), [given]);
   const text = useMemo(
     () =>
       withoutSkillDollars(
@@ -94,13 +109,15 @@ export function UserBubble({
   // The ordered bubble below skips them by the same rule.
   const originals = imageOriginals(row);
   const recorded = recordedFiles(row.inlineParts, originals);
-  const files = recorded?.length
-    ? recorded
-    : row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
-        file.kind === "link" && !file.mimeType.startsWith("video/")
-          ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
-          : [],
-      );
+  const files = (
+    recorded?.length
+      ? recorded
+      : row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
+          file.kind === "link" && !file.mimeType.startsWith("video/")
+            ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
+            : [],
+        )
+  )?.filter((file) => !videos.some((video) => video.name === file.name && video.path === file.path));
   // A prompt that went out with an image as `data:` text (before the composer stopped making them)
   // reads each one as its name: a bubble never draws base64 (inlineImages.ts, Leo 2026-10-20).
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
@@ -129,6 +146,17 @@ export function UserBubble({
   const stripMedia = orderedParts?.filter(isStripMedia).filter(banded) ?? [];
   const shownParts = orderedParts?.filter((part) => !banded(part));
   const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
+  const renderFile = useCallback(
+    (part: Exclude<PromptContentPart, { kind: "text" | "image" }>) => {
+      const video = sentVideoOf(part, videos);
+      return video ? (
+        <span className="cv-user__inline-image">
+          <SentVideoTile video={video} width={sentImageWidth(video)} />
+        </span>
+      ) : undefined;
+    },
+    [videos],
+  );
   const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
@@ -151,7 +179,9 @@ export function UserBubble({
   }
   return (
     <>
-      {!hasInterleaved && row.images && row.images.length > 0 && <SentImages images={row.images} />}
+      {!hasInterleaved && (Boolean(row.images?.length) || videos.length > 0) && (
+        <SentImages images={row.images ?? []} leading={videos.length > 0 ? <SentVideoTiles videos={videos} /> : null} />
+      )}
       {!hasInterleaved && Boolean(files?.length) && (
         <div className="cv-user__files">
           {files!.map((file, index) => (
@@ -167,7 +197,9 @@ export function UserBubble({
                 {renderImage(part)}
               </span>
             ) : (
-              <PromptFile key={`${part.kind}-${part.id ?? part.name}-${index}`} part={part} />
+              <Fragment key={`${part.kind}-${part.id ?? part.name}-${index}`}>
+                {renderFile(part) ?? <PromptFile part={part} />}
+              </Fragment>
             ),
           )}
         </div>
@@ -178,7 +210,13 @@ export function UserBubble({
         {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim()) && (
           <div className="ui-glass cv-user__bubble selectable">
             {hasInterleaved ? (
-              <InlinePromptContent rowId={row.id} parts={shownParts!} show={show} renderImage={renderImage} />
+              <InlinePromptContent
+                rowId={row.id}
+                parts={shownParts!}
+                show={show}
+                renderImage={renderImage}
+                renderFile={renderFile}
+              />
             ) : (
               <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
             )}
@@ -299,21 +337,32 @@ function UserFooter({
 }
 
 /// A prompt's images, each opening the image viewer; IncomingMessageCard shows another agent's.
+/// `leading` goes first in the same row: the prompt's videos (SentVideoTile.tsx).
 export const SentImages = memo(function SentImages({
   images,
   className,
+  leading,
 }: {
   images: readonly PromptImage[];
   className?: string;
+  leading?: ReactNode;
 }) {
   return (
     <div className={className ? `cv-user__images ${className}` : "cv-user__images"}>
+      {leading}
       {images.map((image) => (
         <SentImage key={image.id} image={image} />
       ))}
     </div>
   );
 });
+
+/// A prompt's videos, each at a sent image's height in its own shape.
+function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
+  return videos.map((video) => (
+    <SentVideoTile key={`${video.name}\n${video.path}`} video={video} width={sentImageWidth(video)} />
+  ));
+}
 
 /// The sent thumbnail's height (conversation.css), and the narrowest and
 /// widest it draws as a share of that: a tall phone shot or a wide screenshot is cropped to fill

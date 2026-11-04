@@ -50,6 +50,9 @@ public final class MockBrowserTab: BrowserTab {
     @ObservationIgnored public private(set) var restoredSessions: [BrowserSavedSession] = []
     /// How far the page says it is scrolled (tests set it; it may never answer).
     @ObservationIgnored public var scrollPosition: @MainActor () async -> Double? = { nil }
+    /// Where the chrome said native UI covers the page, as a child-window page is told (`BrowserOcclusionHosting`).
+    @ObservationIgnored public var occlusionRects: [CGRect] = []
+    @ObservationIgnored var roundedOcclusions: [CEFClipShape.RoundedRect] = []
     public enum Command: Hashable, Sendable {
         case load(URL)
         case goBack
@@ -79,7 +82,12 @@ public final class MockBrowserTab: BrowserTab {
     public let presentation: BrowserPresentation = .inView
     public var completesNavigationsImmediately: Bool
 
-    public var state: BrowserTabState { machine.state }
+    public var state: BrowserTabState {
+        stateReads += 1
+        return machine.state
+    }
+    /// How many times `state` was read (tests count the work a path does per page).
+    @ObservationIgnored public private(set) var stateReads = 0
     public var favicon: NSImage?
     public private(set) var pendingPrompts: [BrowserPrompt] = []
     public private(set) var commands: [Command] = []
@@ -89,7 +97,14 @@ public final class MockBrowserTab: BrowserTab {
     @ObservationIgnored public private(set) var snapshotCount = 0
     /// `thumbnail()` calls (each also counts as a snapshot).
     @ObservationIgnored public private(set) var thumbnailCount = 0
+    /// Thumbnails asked for while the content lifecycle had the page hidden (`setContentVisible(false)`): an engine
+    /// that cannot picture a hidden page (Chromium) gets no picture of those.
+    @ObservationIgnored public private(set) var hiddenThumbnailCount = 0
+    /// What the last `setContentVisible` said (shown until then).
+    @ObservationIgnored public private(set) var isContentHidden = false
 
+    /// The hovered link's text (`BrowserTab.linkStatus`); tests set it.
+    public var linkStatus: String?
     /// Page text used by `find`.
     public var pageText = ""
     /// Canned result for `evaluate`.
@@ -206,11 +221,17 @@ public final class MockBrowserTab: BrowserTab {
 
     public func setFocused(_ focused: Bool) { commands.append(.focus(focused)) }
 
-    public func setContentVisible(_ visible: Bool) { commands.append(.occlude(!visible)) }
+    public func setContentVisible(_ visible: Bool) {
+        isContentHidden = !visible
+        commands.append(.occlude(!visible))
+    }
 
-    public func thumbnail() async throws -> CGImage {
+    public func thumbnail() async throws -> CGImage { try await beginThumbnail().image() }
+
+    public func beginThumbnail() -> BrowserPictureRequest {
         thumbnailCount += 1
-        return try await snapshot()
+        if isContentHidden { hiddenThumbnailCount += 1 }
+        return BrowserPictureRequest { [self] in try await snapshot() }
     }
 
     public func snapshot() async throws -> CGImage {

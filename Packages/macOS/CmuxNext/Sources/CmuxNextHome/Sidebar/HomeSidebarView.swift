@@ -67,6 +67,12 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// The Unread toggle's glass circle, under it in the header (Messages' round glass filter
     /// button, the user 2026-10-28): Liquid Glass on macOS 26 and later, the frosted material before.
     let filterGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderLayout.side / 2)
+    /// The avatar-only list's search: Messages' magnifier on a glass circle (`searchGlass`) beside
+    /// the Unread toggle; a click opens the search over the band, as ⌘F does.
+    let searchButton = HomeHeaderButton(symbol: "magnifyingglass", label: CmuxSidebarView.searchTitle,
+                                        identifier: "cmux.home.sidebar.searchIcon", glass: true)
+    /// The search circle's glass, under it in the header.
+    let searchGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderLayout.side / 2)
     /// Compose at the chat's top-left at every list width, as in Messages (`HomeChatColumnView`,
     /// which `HomeSidebarSplitView` places beside this list); the list's `compose` stays hidden.
     let chatCompose = HomeChatComposeButton(label: HomeConversationStrings.newMessage)
@@ -247,7 +253,15 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
                          people: item.people.map { CmuxSidebarEntry.Person(id: $0.id, name: $0.name, initials: $0.initials) },
                          preview: item.preview, previewSender: nil, lastAt: item.lastAt, unreadCount: item.unreadCount,
                          pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.listBadge ?? item.backendBadge,
-                         avatarMotion: item.chiefAvatar == nil ? nil : item.chiefIsWorking ? .working : .idle)
+                         avatarMotion: item.chiefAvatar == nil ? nil : avatarState(item))
+    }
+
+    /// The state a Chief's avatar shows (the Codex pet's states): a failed send first, then its turn
+    /// running, then an unread reply waiting for the person, else idle.
+    static func avatarState(_ item: HomeSidebarItem) -> CmuxSidebarEntry.AvatarMotion {
+        if item.chiefSendFailed { return .failed }
+        if item.chiefIsWorking { return .working }
+        return item.unread ? .waiting : .idle
     }
 
     /// The Chief's avatar as the list draws it: the picture, else its text
@@ -304,7 +318,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         list.selectionColor = .labelColor
         list.neutralSelectionFill = performWithTheme { Palette.selectionFill }
         layer?.backgroundColor = performWithTheme { Palette.fill(for: .home, default: Palette.paneFill).cgColor }
-        for button in [compose, unreadToggle] { button.applyTint() }
+        for button in [compose, unreadToggle, searchButton] { button.applyTint() }
         applySearchColors()
     }
 
@@ -337,8 +351,11 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         chatCompose.contextMenu = { [weak self] in self?.composeMenu() }
         unreadToggle.target = self
         unreadToggle.action = #selector(toggleUnread)
+        searchButton.target = self
+        searchButton.action = #selector(openSearch)
         host.addSubview(filterGlass)
-        for button in [unreadToggle, compose] { host.addSubview(button) }
+        host.addSubview(searchGlass)
+        for button in [unreadToggle, searchButton, compose] { host.addSubview(button) }
         list.layoutHeader = { [weak self] bounds in self?.layoutHeader(bounds) ?? HomeSidebarHeaderLayout.band }
     }
 
@@ -387,10 +404,15 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         }
         unreadToggle.frame = h.filter
         compose.frame = h.compose
-        unreadToggle.isHidden = h.compact
+        unreadToggle.isHidden = h.filter.isEmpty
         filterGlass.frame = h.filter
         filterGlass.cornerRadius = h.filter.height / 2
-        filterGlass.isHidden = h.compact
+        filterGlass.isHidden = h.filter.isEmpty
+        searchButton.frame = h.searchIcon
+        searchButton.isHidden = h.searchIcon.isEmpty
+        searchGlass.frame = h.searchIcon
+        searchGlass.cornerRadius = h.searchIcon.height / 2
+        searchGlass.isHidden = h.searchIcon.isEmpty
         // Compose is the chat's (`chatCompose`) at every width.
         compose.isHidden = true
         return h.listTop
@@ -461,7 +483,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// (`HomeHeaderButton.debugState`) as the call found it (`before`) and after its layout.
     public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?) -> [String: Any]? {
         if let select, !model.rows.indices.contains(select) { return nil }
-        let before = [compose, unreadToggle].map(\.debugState)
+        let before = [compose, unreadToggle, searchButton].map(\.debugState)
         // The header as it stood before this call lays anything out, and the traffic lights it
         // used then and sees now (a stale header under the lights shows here).
         func rect(_ r: CGRect?) -> Any { r.map { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) } ?? NSNull() }
@@ -486,15 +508,16 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
             chat = CGRect(x: r.minX, y: height - r.maxY, width: r.width, height: r.height)
         }
         return ["width": Double(split?.sidebarWidth ?? bounds.width),
-                "header": ["search": frame(h.search), "filter": frame(h.filter), "compose": frame(h.compose),
+                "header": ["search": frame(h.search), "searchIcon": frame(h.searchIcon), "filter": frame(h.filter),
+                           "compose": frame(h.compose),
                            "compact": h.compact, "buttonsCovered": h.buttonsCovered,
                            "chatCompose": frame(chat)] as [String: Any],
                 "beforeLayout": stale,
-                "buttons": ["before": before, "after": [compose, unreadToggle].map(\.debugState)]]
+                "buttons": ["before": before, "after": [compose, unreadToggle, searchButton].map(\.debugState)]]
     }
     #endif
 
-    /// The search capsule's click: the field takes the keyboard.
+    /// The search capsule's or the search circle's click: the field takes the keyboard.
     @objc func openSearch() {
         // An edit already under way keeps its caret and selection.
         guard !list.searchField.isEditing else { return }

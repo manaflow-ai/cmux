@@ -101,7 +101,7 @@ jobs:
     name: Real keychain import (throwaway identity)
     needs: real-import-plan
     if: ${{ needs.real-import-plan.outputs.run == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 10
     permissions:
       contents: read

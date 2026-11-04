@@ -52,7 +52,34 @@ type Props = {
   span?: ReleaseNotes[];
   wallpaper?: boolean;
   maxHeight?: number;
+  /** The card in one theme's tokens over that theme's sidebar (Leo 2026-11-02: "why is the update
+   *  thing unthemed"): a light, a dark and a custom (purple) theme. */
+  theme?: keyof typeof themes;
 };
+
+// Three themes as WebTheme sends them (the page's --page-* and the glass's surface), each over its
+// own sidebar color, so the card's surface shows it takes the theme and not a neutral gray.
+const themes = {
+  light: { scheme: "light", surface: "#ffffff", sidebar: "#ecebe8", text: "#24292f" },
+  dark: { scheme: "dark", surface: "#1e1e1e", sidebar: "#2a2a2a", text: "#d4d4d4" },
+  purple: { scheme: "dark", surface: "#2b1650", sidebar: "#3a2468", text: "#f4e3ff" },
+} as const;
+
+function themeStyle(name: keyof typeof themes): Record<string, string> {
+  const { scheme, surface, sidebar, text } = themes[name];
+  return {
+    colorScheme: scheme,
+    background: sidebar,
+    color: text,
+    "--glass-surface": surface,
+    "--page-text": text,
+    "--page-text-2": `color-mix(in srgb, ${text} 70%, transparent)`,
+    "--page-text-3": `color-mix(in srgb, ${text} 50%, transparent)`,
+    "--page-separator": `color-mix(in srgb, ${text} 12%, transparent)`,
+    "--page-hover": `color-mix(in srgb, ${text} 6%, transparent)`,
+    "--page-selection": `color-mix(in srgb, ${text} 10%, transparent)`,
+  };
+}
 
 // Ten real nightly-next builds (2026-10-18), newest first, and what the host sent for the newest
 // one alone: its one summary line, which the card used to show as its whole headline.
@@ -157,7 +184,14 @@ const longNotes: UpdateHighlights = {
 // A stand-in wallpaper: a busy photo-like gradient, so the card's translucency shows.
 const wallpaper = "linear-gradient(160deg, #3b5b7a 0%, #c98b5a 45%, #e7c9a0 60%, #2f4a3a 100%)";
 
-function UpdateSurfacesGallery({ surface, data, span: notes, wallpaper: onWallpaper = false, maxHeight }: Props) {
+function UpdateSurfacesGallery({
+  surface,
+  data,
+  span: notes,
+  wallpaper: onWallpaper = false,
+  maxHeight,
+  theme,
+}: Props) {
   const [strings] = useState(() => createStrings(table));
   const noop = () => undefined;
   return (
@@ -167,6 +201,7 @@ function UpdateSurfacesGallery({ surface, data, span: notes, wallpaper: onWallpa
         width: surface === "card" ? 260 : 360,
         padding: 10,
         ...(onWallpaper ? { backgroundImage: wallpaper } : {}),
+        ...(theme ? themeStyle(theme) : {}),
       }}
     >
       {surface === "card" ? (
@@ -241,8 +276,20 @@ export default componentEntry<Props>({
       },
     },
     card: {
-      note: 'Short card (2026-10-31, "too much text"): "Updated to Nightly", the update\'s one top change and What\'s New; the x on hover only. A click on Nightly copies the full build. The composer\'s surface on a plain page.',
+      note: 'Short card (2026-10-31, "too much text"): "Updated to Nightly", the update\'s one top change and What\'s New; the x on hover only. A click on Nightly copies the full build. The theme\'s surface on a plain page.',
       props: { surface: "card", data: base },
+    },
+    "card-theme-light": {
+      note: "Leo 2026-11-02, \"why is the update thing unthemed\": the card's surface is the theme's (its surface at the card veil's 42%, as the sidebar draws it natively), here a light theme over its sidebar.",
+      props: { surface: "card", data: base, theme: "light" },
+    },
+    "card-theme-dark": {
+      note: "The same in a dark theme.",
+      props: { surface: "card", data: base, theme: "dark" },
+    },
+    "card-theme-custom": {
+      note: "The same in a custom purple theme: the card takes the theme's purple, never a neutral gray over it.",
+      props: { surface: "card", data: base, theme: "purple" },
     },
     "card-span": {
       note: "An update across ten skipped nightlies (real nightly-next notes, 2026-10-18): every build counts, one line per area, internal work left out, +N more. It used to show the newest build's one line as the whole card.",
@@ -265,7 +312,7 @@ export default componentEntry<Props>({
       props: { surface: "card", data: { ...spanData, items: [], source: "none" }, span: internalOnly },
     },
     "card-wallpaper": {
-      note: "The same card on a wallpaper: the liquid glass (.ui-glass); under plain glass the composer's surface, the text at 13% over it (Leo 2026-10-13).",
+      note: "The same card on a wallpaper: the liquid glass (.ui-glass); under plain glass the theme's surface at the card veil's 42% (Leo 2026-11-02).",
       props: { surface: "card", data: base, wallpaper: true },
     },
     "card-one-change": {

@@ -12,10 +12,15 @@ import Testing
                           accessibilityLabel: "Effort", style: style)
     }
 
+    /// A key for the slider. Its arrow keys move it through `NSControl.sendAction(_:to:)`, which
+    /// AppKit routes through `NSApp`: in a test process that made no NSApplication (the lane runs
+    /// each suite in its own process) the action goes nowhere and the slider never publishes, so
+    /// the application exists before any key, as in the app.
     private func key(_ code: UInt16) -> NSEvent {
-        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                        windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "",
-                        isARepeat: false, keyCode: code)!
+        _ = NSApplication.shared
+        return NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                               windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "",
+                               isARepeat: false, keyCode: code)!
     }
 
     @Test func namedStopsRestWithoutCommittingAndEnterCommitsOnce() throws {
@@ -41,6 +46,24 @@ import Testing
         #expect(values == ["1", "0"])
         #expect(view.currentLabel.stringValue == "Low")
         #expect(closes == 2)
+    }
+
+    /// The slider's parts and a slider row's accessory keep to the padded box of the popup's other
+    /// rows (``PopupRowView/contentGuide``), not to insets of their own.
+    @Test func partsSpanThePopupRowsPaddedBox() {
+        let spec = descriptor()
+        let row = NativePopupRow(id: "effort", kind: .slider, label: "Reasoning", value: "1", minimum: 0, maximum: 1, step: 1, slider: spec)
+        let view = NativePopupSliderView(row: row, descriptor: spec)
+        view.frame = NSRect(x: 0, y: 0, width: 240, height: view.preferredHeight)
+        view.layout()
+        let box = PopupRowView.Layout()
+        #expect(view.slider.frame.minX == box.leading)
+        #expect(view.slider.frame.maxX == 240 - box.trailing)
+        let rowView = PopupRowView(leading: nil, title: "Row")
+        rowView.frame = NSRect(x: 0, y: 0, width: 240, height: box.minHeight)
+        rowView.layoutSubtreeIfNeeded()
+        #expect(rowView.contentGuide.frame.minX == box.leading)
+        #expect(rowView.contentGuide.frame.maxX == 240 - box.trailing)
     }
 
     @Test func numericPositionOverridesNamedRestingIdentity() {

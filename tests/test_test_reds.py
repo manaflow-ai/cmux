@@ -71,6 +71,44 @@ class Replay26346(unittest.TestCase):
         self.assertIn("crashed (signal 6)", json.loads(done.stdout)["reasons"][0])
 
 
+def objc_line(path="Sources/A.swift", line=12, member="viewDidMove", cls="NSView", sel="viewDidMove"):
+    return (f"objc-selectors: {path}:{line}: super.{member} ({cls} call:{sel}/0): probe needed; "
+            "run scripts/cmux-next/check-objc-selectors.py --probe --write on a Mac and commit table.json")
+
+
+class CrashClassRuleLines(unittest.TestCase):
+    # cmux#33113 added an unprobed `super` call; the rule printed this line and the job had no test name to match.
+    def test_the_line_is_a_named_failure_keyed_by_rule_site_and_selector(self):
+        found = reds.read(log(objc_line()))
+        self.assertEqual(found.failed, {"objc-selectors Sources/A.swift:12 super.viewDidMove (NSView call:viewDidMove/0)"})
+        self.assertTrue(reds.is_test_red(found))
+
+    def test_the_same_diagnostic_on_head_and_base_is_a_base_red(self):
+        verdict = reds.classify(log(objc_line()), log(objc_line()))
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(len(verdict.shared), 1)
+
+    def test_error_annotation_prefix_and_timestamp_still_match(self):
+        verdict = reds.classify(log("##[error]" + objc_line()), log(objc_line()))
+        self.assertFalse(verdict.own, verdict.reasons)
+
+    def test_a_different_file_line_or_selector_is_the_heads_own(self):
+        for other in (objc_line(path="Sources/B.swift"), objc_line(line=13),
+                      objc_line(member="mouseDown", sel="mouseDown")):
+            with self.subTest(other=other):
+                verdict = reds.classify(log(other), log(objc_line()))
+                self.assertTrue(verdict.own)
+                self.assertIn("pass or do not run", " ".join(verdict.reasons))
+
+    def test_no_base_log_excuses_nothing(self):
+        self.assertTrue(reds.classify(log(objc_line()), None).own)
+
+    def test_the_cef_contract_rule_is_keyed_by_its_detail(self):
+        line = "cef-objc-contract: NSApp foo:: verdict 'x' (review it: a, b)"
+        self.assertFalse(reds.classify(log(line), log(line)).own)
+        self.assertTrue(reds.classify(log(line), log(line.replace("foo", "bar"))).own)
+
+
 class KnownIssueSuiteCompletion(unittest.TestCase):
     # Reduced from the #27127 comparison: a completed ClassicUpgradeSimulationTests suite
     # was treated as unfinished even though its known-issue test and run summary were read.
@@ -333,6 +371,25 @@ class PerTest(unittest.TestCase):
                   "━ Test run with 1 test in 1 suite passed after 9.5 seconds with 1 known issue.")
         self.assertEqual(reds.read(run).truncated, [])
 
+    def test_a_pass_line_another_stream_cut_into_finished(self):
+        # cmux-next swift test, run 41665450504 shard 14: the runtime's stderr cut into a pass line and the helper was
+        # killed before the rest was written. It passed; the run is still cut short (no summary), never a base red.
+        run = log("◇ Test run started.", "◇ Test aFailureNothingRetriesShowsAtOnce() started.",
+                  "✔ Test aFailureNothingRetriesShowsAtOnceswift runtime: backtrace-on-crash is not supported for "
+                  "privileged executables.")
+        self.assertFalse(any("never finished" in why for why in reds.read(run).truncated))
+        # foo() is not closed by fooBar()'s pass.
+        other = log("◇ Test run started.", "◇ Test foo() started.", "◇ Test fooBar() started.",
+                    "✔ Test fooBar() passed after 0.1 seconds.")
+        self.assertIn("1 test(s) started and never finished: foo", reds.read(other).truncated)
+        # A cut-into pass closes the longest name it fits, once: fooBar(), never foo() as well.
+        both = log("◇ Test run started.", "◇ Test foo() started.", "◇ Test fooBar() started.",
+                   "✔ Test fooBarswift runtime: backtrace-on-crash is not supported for privileged executables.")
+        self.assertIn("1 test(s) started and never finished: foo", reds.read(both).truncated)
+        # A run's own summary does not close a test named run().
+        named_run = log("◇ Test run started.", "◇ Test run() started.", "✔ Test run with 1 test in 1 suite passed after 0.1 seconds.")
+        self.assertIn("1 test(s) started and never finished: run", reds.read(named_run).truncated)
+
     def test_the_bundle_runners_exited_line_is_a_crash_after_a_shared_failure(self):
         crash = log("◇ Test run started.", failed("a()"), "✘ Test a() failed after 0.1 seconds with 1 issue.",
                     "error: Exited with unexpected signal code 6")
@@ -575,6 +632,20 @@ class GalleryHealth(unittest.TestCase):
                       slow=[("agent-pane.streaming-text#jump-during-stream", 17342, 2000)], known=[("x.y#z", WAIT)])
         self.assertEqual(reds.gallery_entries(head), ["agent-pane.narrow", "agent-pane.streaming-text"])
 
+    def test_a_state_red_in_any_base_render_is_the_bases(self):
+        head = health(shifted=[{"state": "a.b#c", "score": 0.08, "limit": 0.05}])
+        self.assertTrue(reds.gallery_classify(head, [health(), health()]).own)
+        self.assertFalse(reds.gallery_classify(head, [health(), health(shifted=[{"state": "a.b#c"}])]).own)
+        # Any base render with no verdict leaves nothing excused.
+        self.assertTrue(reds.gallery_classify(head, [health(shifted=[{"state": "a.b#c"}]), None]).own)
+
+    def test_the_base_replays_only_the_heads_red_states(self):
+        # Replaying whole entries re-rendered 1,308 cases for one shard's ~40 red states and ran past the job's timeout.
+        head = health(fresh=[("agent-pane.narrow#model-menu", WAIT), ("agent-pane.narrow#effort", WAIT)],
+                      slow=[("agent-pane.streaming-text#jump-during-stream", 17342, 2000)], known=[("x.y#z", WAIT)])
+        self.assertEqual(reds.gallery_states(head), ["agent-pane.narrow#effort", "agent-pane.narrow#model-menu",
+                                                     "agent-pane.streaming-text#jump-during-stream"])
+
     def test_the_command_line_warns_on_base_reds_and_fails_on_its_own(self):
         with tempfile.TemporaryDirectory() as tmp:
             head, base = Path(tmp, "head.json"), Path(tmp, "base.json")
@@ -584,6 +655,8 @@ class GalleryHealth(unittest.TestCase):
             head.write_text(health(fresh=[("agent-pane.narrow#model-menu", WAIT)]))
             found = run("--entries")
             self.assertEqual((found.returncode, found.stdout.strip()), (0, "agent-pane.narrow"))
+            found = run("--states")
+            self.assertEqual((found.returncode, found.stdout.strip()), (0, "agent-pane.narrow#model-menu"))
             found = run("--base", str(base), "--annotate")
             self.assertEqual(found.returncode, 0, found.stdout + found.stderr)
             self.assertIn("::warning title=gallery health: base red::agent-pane.narrow#model-menu", found.stdout)
@@ -594,6 +667,7 @@ class GalleryHealth(unittest.TestCase):
             # A crash needs no replay: it is the head's whatever the base shows.
             head.write_text(health(fresh=[("a.b#c", "did not render: Target crashed")]))
             self.assertEqual(run("--entries").returncode, 1)
+            self.assertEqual(run("--states").returncode, 1)
             head.write_text(health())
             self.assertEqual(run("--entries").returncode, 2)
             head.unlink()
@@ -1101,6 +1175,63 @@ class ClassifyAny(unittest.TestCase):
         crashed = log(failed("a()"), ABORT)
         verdict = reds.classify_any(crashed, [("run 2", log(SUMMARY)), ("run 1", crashed)], "cmux-next swift test")
         self.assertTrue(verdict.own)
+
+
+# cmux#33162's `web / react-apps-base-check (3)`, job 126154996598 (run 41698414997 attempt 1, 2026-11-03), as GitHub
+# serves it: its runner lost communication mid-step, so the job failed with that annotation, its "Run base reds and
+# compare" step still in_progress, and no log stored (the logs endpoint answers BlobNotFound).
+LOST_JOB = FIXTURES / "lost-runner-job-126154996598.json"
+LOST_NOTES = FIXTURES / "lost-runner-annotations-126154996598.json"
+LOST_LOG = FIXTURES / "lost-runner-log-126154996598.txt"
+
+
+class LostRunner(unittest.TestCase):
+    """A job whose runner was lost is infra, not a verdict: never the PR's own red, it needs a re-run."""
+
+    def setUp(self):
+        self.job = json.loads(LOST_JOB.read_text())
+        self.notes = json.loads(LOST_NOTES.read_text())
+
+    def test_the_real_lost_job_is_infra_from_any_one_signal(self):
+        self.assertIn("lost communication", reds.lost_runner(self.job, self.notes))
+        self.assertIn("still in_progress", reds.lost_runner(self.job))  # its steps alone, no read
+        steps_done = dict(self.job, steps=[dict(s, status="completed") for s in self.job["steps"][:14]])
+        self.assertIn("BlobNotFound", reds.lost_runner(steps_done, (), LOST_LOG.read_text()))
+        # As cmuxterm-hq's next-autoland asks: the check run's conclusion and its annotations only.
+        self.assertTrue(reds.lost_runner({"conclusion": "failure"}, self.notes))
+        self.assertTrue(reds.lost_runner({"conclusion": "failure"}, [n["message"] for n in self.notes]))
+
+    def test_a_real_test_failure_keeps_its_verdict(self):
+        failed = dict(self.job, steps=[dict(s, status="completed", conclusion="success") for s in self.job["steps"]])
+        failed["steps"][14]["conclusion"] = "failure"
+        self.assertIsNone(reds.lost_runner(failed))
+        self.assertIsNone(reds.lost_runner(failed, [{"annotation_level": "failure",
+                                                     "message": "Process completed with exit code 1."}], "log"))
+        # A failed step decides even beside an unread log.
+        self.assertIsNone(reds.lost_runner(failed, (), LOST_LOG.read_text()))
+        # Only a failure is judged: a cancelled or passed job has no lost-runner red.
+        self.assertIsNone(reds.lost_runner(dict(self.job, conclusion="cancelled"), self.notes))
+        # A notice that quotes the words is not the runner's failure.
+        self.assertIsNone(reds.lost_runner({"conclusion": "failure"},
+                                           [{"annotation_level": "notice", "message": self.notes[0]["message"]}]))
+
+    def test_the_cli_marks_the_real_job_infra_needing_a_re_run(self):
+        script = ROOT / "scripts/ci/test_reds.py"
+        done = subprocess.run([sys.executable, str(script), "runner", "--job", str(LOST_JOB), "--annotations",
+                               str(LOST_NOTES), "--log", str(LOST_LOG)], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("infra, not a verdict: 'web / react-apps-base-check (3)' (job 126154996598)", done.stdout)
+        self.assertIn("never the PR's own red; re-run it", done.stdout)
+        with tempfile.TemporaryDirectory() as tmp:
+            failed = json.loads(LOST_JOB.read_text())
+            failed["steps"] = [dict(s, status="completed", conclusion="success") for s in failed["steps"]]
+            failed["steps"][14]["conclusion"] = "failure"
+            path = Path(tmp) / "job.json"
+            path.write_text(json.dumps(failed))
+            done = subprocess.run([sys.executable, str(script), "runner", "--job", str(path)],
+                                  capture_output=True, text=True)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertIn("a verdict", done.stdout)
 
 if __name__ == "__main__":
     unittest.main()

@@ -214,12 +214,14 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::DaemonRun {
             listen,
             token,
+            insecure_network_listen,
             memory,
             log,
             ready_fd,
             person_key_fd,
             allow_dev_origin,
             dev,
+            take_over,
         }) => {
             tracing_subscriber::fmt()
                 .with_env_filter(
@@ -231,11 +233,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             let result = crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
+                insecure_network_listen,
                 memory,
                 ready_fd,
                 person_key_fd,
                 dev_origins: allow_dev_origin,
                 dev,
+                take_over,
             })
             .await;
             if let Err(error) = result {
@@ -243,7 +247,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 // this home. Keep its lock refusal a distinct, prevented
                 // restart status; detached clients still use the readiness
                 // line and retry through `connect`.
-                if error.to_string().starts_with("another acpmux daemon holds ") {
+                // A supervised owner (`--take-over`) exits 1 instead: the unit restarts it
+                // (`Restart=always`) until the home is its own, never leaving the unit failed.
+                if !take_over && error.to_string().starts_with("another acpmux daemon holds ") {
                     let error: anyhow::Error = crate::cli::errors::AppError::new(
                         crate::cli::errors::Code::Runtime,
                         "daemon_lock_held",

@@ -21,6 +21,10 @@ extension WorkspaceContentController {
         rekeySurfaceWait() // a tab this topology adds may be the one a surface wait names
     }
 
+    /// Maps each pane strip that lags its record (a tab moved out or in) inside this apply, before its one topology:
+    /// else a moved tab stayed listed in its old pane a job longer and focus did not follow it (dogfood v2.1).
+    func syncStaleStrips() { for pane in panes.values where pane.stripIsStale { pane.syncStripFromStore() } }
+
     /// Topologies name tabs by id only: a wait by a daemon surface takes its tab's id (same target, pane, generation)
     /// once the store has it: at each topology send (a new tab) and at a split's confirm (`terminalConfirmed`).
     func rekeySurfaceWait() {
@@ -137,6 +141,9 @@ extension FocusTopology.Kind {
 }
 
 extension PaneController {
+    /// The strip lags the pane record's tabs (a tab moved out or in since its last apply).
+    var stripIsStale: Bool { !isSuspended && !pane.tabs.lazy.map(\.id).elementsEqual(appliedRecordTabs) }
+
     /// This pane as the focus topology sees it: strip order (pending closes
     /// hidden, session browser tabs included) and the selected tab.
     var focusPane: FocusTopology.Pane {

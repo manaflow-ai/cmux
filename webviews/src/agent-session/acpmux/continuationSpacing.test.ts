@@ -1,7 +1,19 @@
 // l10n-allow-file: transcript geometry fixtures.
 import { expect, test } from "bun:test";
+import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { layoutConversation, placeRows, type AcpmuxRow, type RowHeights } from "./model";
-import { TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP } from "./transcriptGrid";
+import {
+  TRANSCRIPT_BLOCK_GAP,
+  TRANSCRIPT_FOOTER_CONTROL,
+  TRANSCRIPT_FOOTER_GAP,
+  TRANSCRIPT_RUN_GAP,
+  TRANSCRIPT_TURN_GAP,
+  MARK_MESSAGE,
+  MARK_PROMPT,
+  MARK_STATUS,
+  MARK_STEP,
+  transcriptGap,
+} from "./transcriptGrid";
 
 const row = (id: string, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -14,7 +26,11 @@ const answer = row("answer", "assistant", { text: "Done." });
 const footer = row("footer", "turnSummary", { text: "Done.", durationMs: 1000, status: "completed" });
 const hidden = row("hidden", "user", { incoming: { kind: "hidden" } });
 
-test("container gaps cross hover footers and bookkeeping without adding a second gap", () => {
+// A reply's footer is a row of its own, as ChatGPT's (design/transcript-spacing.md "Reply footer";
+// Leo, 2026-11-02: "didn't i always say we can do it like chatgpt"): its 32 line of buttons 8 under
+// the reply, then the block gap (a prompt's turn gap) to what follows, past bookkeeping that draws
+// nothing, never a second gap.
+test("a reply's footer row sits 8 under it, and the next row 24 (a prompt 32) under the footer", () => {
   for (const next of [
     row("reply", "assistant", { text: "Next." }),
     row("prompt", "user", { text: "Next." }),
@@ -22,13 +38,22 @@ test("container gaps cross hover footers and bookkeeping without adding a second
   ]) {
     const rows = [answer, footer, hidden, next];
     const layout = layoutConversation(rows, 720);
-    expect(layout.heights[1]).toBe(0);
+    expect(layout.tops[1]! - layout.heights[0]!).toBe(TRANSCRIPT_FOOTER_GAP);
+    expect(layout.heights[1]).toBe(TRANSCRIPT_FOOTER_CONTROL);
     expect(layout.heights[2]).toBe(0);
     const gap = next.id === "prompt" ? TRANSCRIPT_TURN_GAP : TRANSCRIPT_BLOCK_GAP;
-    expect(layout.tops[3]! - layout.heights[0]!).toBe(gap);
+    expect(layout.tops[3]! - (layout.tops[1]! + layout.heights[1]!)).toBe(gap);
     const measured = placeRows(layout, (index) => (index === 0 ? 100 : undefined));
-    expect(measured.tops[3]).toBe(100 + gap);
+    expect(measured.tops[3]).toBe(100 + TRANSCRIPT_FOOTER_GAP + TRANSCRIPT_FOOTER_CONTROL + gap);
   }
+});
+
+test("an empty footer still lies over the gap: no height, one gap from the reply to the next row", () => {
+  const empty = row("empty", "turnSummary", { durationMs: 1000, status: "completed" });
+  const next = row("prompt", "user", { text: "Next." });
+  const layout = layoutConversation([answer, empty, next], 720);
+  expect(layout.heights[1]).toBe(0);
+  expect(layout.tops[2]! - layout.heights[0]!).toBe(TRANSCRIPT_TURN_GAP);
 });
 
 test("incremental placement matches fresh placement when a continuation becomes a prompt", () => {
@@ -44,8 +69,8 @@ test("incremental placement matches fresh placement when a continuation becomes 
   );
 });
 
-test("failure and Continue controls remain content; completed footer copy is an overlay", () => {
-  expect(layoutConversation([footer], 720).totalHeight).toBe(0);
+test("failure and Continue controls remain content; a reply's footer is a row of its own", () => {
+  expect(layoutConversation([footer], 720).totalHeight).toBe(TRANSCRIPT_FOOTER_CONTROL);
   for (const fields of [{ status: "failed", error: "Retry" }, { resumable: true }])
     expect(layoutConversation([{ ...footer, ...fields }], 720).heights[0]).toBeGreaterThan(0);
 });
@@ -53,9 +78,9 @@ test("failure and Continue controls remain content; completed footer copy is an 
 test("measured empty rows do not leave a gap at the beginning or the end", () => {
   const rows = [hidden, answer, footer];
   const estimate = layoutConversation(rows, 720);
-  const measured = placeRows(estimate, (index) => (index === 1 ? 40 : 0));
-  expect([...measured.tops]).toEqual([0, 0, 40]);
-  expect(measured.totalHeight).toBe(40);
+  const measured = placeRows(estimate, (index) => (index === 1 ? 40 : index === 2 ? undefined : 0));
+  expect([...measured.tops]).toEqual([0, 0, 40 + TRANSCRIPT_FOOTER_GAP]);
+  expect(measured.totalHeight).toBe(40 + TRANSCRIPT_FOOTER_GAP + TRANSCRIPT_FOOTER_CONTROL);
 });
 
 // Review at 1691838: a placement kept from 100% must not survive a change to 125% Interface Size,
@@ -125,4 +150,57 @@ test("estimated grid rows follow the Interface Size", () => {
     g.document = saved.document;
     g.getComputedStyle = saved.getComputedStyle;
   }
+});
+
+test("the live line sits flush under a run of one-line rows: 22 apart top to top (#29965)", () => {
+  const run = row("run", "activity", {
+    items: [{ kind: "tool", text: "", tool: { id: "c", title: "ls", kind: "execute", status: "completed" } }],
+  } as Partial<AcpmuxRow>);
+  const next = row("next", "activity", {
+    items: [{ kind: "tool", text: "", tool: { id: "d", title: "cat x", kind: "execute", status: "completed" } }],
+  } as Partial<AcpmuxRow>);
+  const live = row("live", "thinking", { below: true } as Partial<AcpmuxRow>);
+  const layout = layoutConversation([run, next, live], 720);
+  expect(layout.heights[0]).toBe(22);
+  expect(layout.tops[1]! - layout.tops[0]!).toBe(22);
+  expect(layout.tops[2]! - layout.tops[1]!).toBe(22);
+  // The same live line right under its prompt still waits a block gap under it (grid.md 5.5).
+  const prompt = row("p", "user", { text: "Go" });
+  const waiting = layoutConversation([prompt, live], 720);
+  expect(waiting.tops[1]! - waiting.heights[0]!).toBe(TRANSCRIPT_BLOCK_GAP);
+});
+
+// A run of one-line rows sits 16 from the prose over and under it, as chatgpt.com draws it
+// (design/transcript-spacing.md rule 4; Leo, 2026-11-02: "now there's sometimes too much spacing
+// between tool calls"); a prompt keeps its turn gap and the run's own rows stay flush.
+test("a run and the reply's prose sit the run gap apart, either way", () => {
+  expect(TRANSCRIPT_RUN_GAP).toBe(16);
+  expect(transcriptGap(MARK_STEP, MARK_MESSAGE)).toBe(TRANSCRIPT_RUN_GAP);
+  expect(transcriptGap(MARK_MESSAGE, MARK_STEP)).toBe(TRANSCRIPT_RUN_GAP);
+  expect(transcriptGap(MARK_STATUS, MARK_MESSAGE)).toBe(TRANSCRIPT_RUN_GAP);
+  expect(transcriptGap(MARK_MESSAGE, MARK_STATUS)).toBe(TRANSCRIPT_RUN_GAP);
+  expect(transcriptGap(MARK_STEP, MARK_STEP)).toBe(0);
+  expect(transcriptGap(MARK_STEP, MARK_PROMPT)).toBe(TRANSCRIPT_TURN_GAP);
+  expect(transcriptGap(MARK_PROMPT, MARK_STEP)).toBe(TRANSCRIPT_TURN_GAP);
+});
+
+// Status lines ("Scheduled check", "Compacting the conversation…", a background task's end) and
+// tool runs in a row sit flush on the 22 pitch, never a block apart (design/transcript-spacing.md
+// rule 3; Leo, 2026-11-02, on a Claude chat where they did: "these are all so stupid looking").
+test("status rows and step rows in a row sit flush", () => {
+  expect(transcriptGap(MARK_STATUS, MARK_STEP)).toBe(0);
+  expect(transcriptGap(MARK_STEP, MARK_STATUS)).toBe(0);
+  expect(transcriptGap(MARK_STATUS, MARK_STATUS)).toBe(0);
+  const lines = [
+    row("bg", BACKGROUND_TURN, {
+      background: { id: "bg", trigger: "scheduled", running: false, quiet: true },
+    }),
+    row("run", "activity", {
+      items: [{ kind: "tool", text: "ls", tool: { id: "t", title: "ls", kind: "execute", status: "completed" } }],
+    }),
+    row("compact", "compaction", { compaction: { state: "running" } }),
+  ];
+  const layout = layoutConversation(lines, 720);
+  expect(layout.tops[1]! - layout.tops[0]!).toBe(22);
+  expect(layout.tops[2]! - layout.tops[1]!).toBe(22);
 });

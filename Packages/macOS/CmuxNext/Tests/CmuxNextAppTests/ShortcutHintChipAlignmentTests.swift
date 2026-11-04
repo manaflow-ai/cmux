@@ -11,8 +11,9 @@ import Testing
 /// view, not to the pill. In the titlebar the ⌘B ⌘[ ⌘] chips sat 4 pt from the traffic lights and 4 pt apart, so
 /// their glass edges ran together and crowded the lights.
 ///
-/// Every sidebar chip now ends on the rows' one trailing content edge (the trailing mark column's right edge,
-/// `horizontalInset` inside the drawn fill) and centers on its row; titlebar chips keep the traffic lights' own gap
+/// Every sidebar chip now ends on the rows' one trailing content edge (the trailing mark column's right edge: since
+/// #27598 the control slot around the grid's trailing line, `LayoutGrid.sidebarTrailCenter` from the sidebar's right
+/// edge) and centers on its row; titlebar chips keep the traffic lights' own gap
 /// between each other, twice that after the lights, and center on the lights' line.
 @MainActor @Suite(.closesItsWindows, .serialized)
 struct ShortcutHintChipAlignmentTests {
@@ -137,7 +138,12 @@ struct ShortcutHintChipAlignmentTests {
             for item in items {
                 let fill = try #require(harness.drawnFill(item), "\(c.testDescription): \(item) draws no fill")
                 let chip = try #require(chips[item], "\(c.testDescription): \(item) has no chip; chips \(chips.keys)")
-                let edge = fill.maxX - SidebarStyle.horizontalInset
+                // The trailing column sits on the grid's line, 24 pt from the sidebar's right edge (#27598), and its
+                // control slot (the hover close's, `trailingSlotSide`) ends half a slot past it.
+                let column = fill.minX + SidebarStyle.trailingColumnCenterX(rowWidth: fill.width)
+                #expect(abs(harness.sidebar.bounds.maxX - column - LayoutGrid.sidebarTrailCenter) <= Self.tolerance,
+                        "\(c.testDescription): \(item)'s trailing column is \(harness.sidebar.bounds.maxX - column) pt from the sidebar's edge")
+                let edge = column + SidebarStyle.trailingSlotSide / 2
                 #expect(abs(chip.maxX - edge) <= Self.tolerance,
                         "\(c.testDescription): \(item)'s chip ends at \(chip.maxX), the rows' trailing content edge is \(edge) (fill \(fill))")
                 #expect(abs(chip.midY - fill.midY) <= Self.tolerance,

@@ -191,6 +191,8 @@ test("New Tab + offers Search chats and Search pages as app actions, and no Sear
 });
 
 const firstRunProps = {
+  // The stage's environment card and create row are the Default template's; an unset template is Minimal.
+  template: "default" as const,
   snapshot: noChat([], { catalog: [] }),
   onAsk: () => {},
   onOpen: (_url: string) => {},
@@ -571,6 +573,78 @@ test("a /word anywhere in the text loads the agent's command list, not only one 
   expect(asked.length).toBe(1);
 });
 
+test("shell mode asks for no command list and starts no chat for a path in its command", async () => {
+  const asked: string[] = [];
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat()}
+        onCommands={(harness) => asked.push(harness)}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    );
+  });
+  await typePrompt("!");
+  await typePrompt("cat /etc/hosts");
+  expect(container.querySelector(".nt-shell-glyph")).not.toBeNull();
+  expect(asked).toEqual([]);
+  expect(asks).toEqual([]);
+  expect(container.querySelector(".nt-field .acpmux-slash-token")).toBeNull();
+});
+
+test("a cleared draft forgets the row the arrows chose: the same word typed again and Return sends", async () => {
+  const asks: unknown[][] = [];
+  const skill = { name: "review-pr", description: "", source: "skill" as const };
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([], { commands: [skill] })}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    );
+  });
+  let field = await typePrompt("fix /pr");
+  expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
+  await press(field, "ArrowDown");
+  await typePrompt("");
+  field = await typePrompt("fix /pr");
+  // The same word typed again opens the list again.
+  expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
+  await press(field, "Enter");
+  expect(promptValue()).not.toContain("/review-pr");
+  expect(asks.map((ask) => ask[1])).toEqual(["fix /pr"]);
+});
+
+test("an Escape on the list is forgotten once the text changes: the same word typed again shows it", async () => {
+  // The host's list sends the field an Escape as it closes (ui/popupHost.ts), as a person's Escape.
+  const skill = { name: "review-pr", description: "", source: "skill" as const };
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat([], { commands: [skill] })} />);
+  });
+  const menu = () => container.querySelector("#acpmux-slash-menu");
+  let field = await typePrompt("fix /pr");
+  await press(field, "ArrowDown");
+  await press(field, "Escape");
+  expect(menu()).toBeNull();
+  // Cleared, then the same word again: the list is back.
+  await typePrompt("");
+  field = await typePrompt("fix /pr");
+  expect(menu()).not.toBeNull();
+  // Escape, then more typing on the word, then back to it: back each time.
+  await press(field, "Escape");
+  expect(menu()).toBeNull();
+  await typePrompt("fix /pre");
+  await typePrompt("fix /pr");
+  expect(menu()).not.toBeNull();
+  // Cleared, then `/` at the start: every command.
+  await typePrompt("");
+  await typePrompt("/");
+  expect(menu()).not.toBeNull();
+});
+
 test("a chosen document uses the New Tab upload path and becomes sendable", async () => {
   const uploaded: File[][] = [];
   const asks: unknown[][] = [];
@@ -748,11 +822,13 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
 
 test("picking Cloud drops a saved environment picked before: the send names the folder chip's folder, not the tab's inherited one", async () => {
   const clouded: unknown[][] = [];
+  // A worktree environment: one that is only a folder is the folder menu's, not a Machines… row.
   const repoB: SavedEnvironment = {
     id: "b",
     name: "Repo B",
     kind: "local",
     folder: "/repo/B",
+    worktree: true,
     updatedAt: 1,
   };
   function Page() {
@@ -801,6 +877,59 @@ test("picking Cloud drops a saved environment picked before: the send names the 
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect(clouded.length).toBe(1);
   expect((clouded[0] as unknown[])[2]).toBe("/repo/A");
+});
+
+test("with Cloud picked, a folder that is a saved folder-only environment is the folder Cloud sends", async () => {
+  const clouded: unknown[][] = [];
+  const repoC: SavedEnvironment = { id: "c", name: "Repo C", kind: "local", folder: "/repo/C", updatedAt: 1 };
+  function Page() {
+    const [mode, setMode] = useState<RunMode>("persistent");
+    return (
+      <NewTabScreen
+        snapshot={noChat()}
+        cwd="/Users/me"
+        startCwd="/repo/A"
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        environments
+        savedEnvironments={{
+          list: async () => [repoC],
+          save: async () => repoC,
+          remove: async () => {},
+        }}
+        runMode={{ mode, onMode: setMode }}
+        onCloud={(...args) => (clouded.push(args), false)}
+      />
+    );
+  }
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const computer = () =>
+    container.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button')!;
+  const choose = async (selector: string, machines = false) => {
+    if (machines) await openMachines(computer());
+    else await act(async () => computer().click());
+    await settle();
+    const row = document.querySelector<HTMLElement>(`.acpmux-env-popover ${selector}`)!;
+    await act(async () => (row.closest<HTMLElement>('[role="option"]') ?? row).click());
+    await settle();
+  };
+  await act(async () => root!.render(<Page />));
+  await settle();
+  await choose('[data-mode="cloud"]');
+  // The saved environment is only a folder: the folder menu lists it, and Cloud sends it.
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
+  const row = document.querySelector<HTMLElement>('.acpmux-location-row[title="/repo/C"]')!;
+  await act(async () => (row.closest<HTMLElement>('[role="option"]') ?? row).click());
+  await settle();
+  await typePrompt("fix the flaky test");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(clouded.length).toBe(1);
+  expect((clouded[0] as unknown[])[2]).toBe("/repo/C");
 });
 
 test.each(

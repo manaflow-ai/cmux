@@ -66,7 +66,6 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
             .action("palette.quickAgentChat", title: nil, symbol: "bubble.left.and.text.bubble.right"),
         ]
         let help: [Item] = [
-            .action("help.setupGuide", title: nil, symbol: "book"),
             .action("sendFeedback", title: nil, symbol: "envelope"),
             .action("help.documentation", title: nil, symbol: "book"),
             .action("help.troubleshooting", title: nil, symbol: "lifepreserver"),

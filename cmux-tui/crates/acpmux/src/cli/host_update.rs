@@ -350,9 +350,12 @@ fn version_build(version: &str) -> Option<&str> {
 }
 
 /// The build id an acpmux binary carries, read from its bytes, so a binary
-/// for another platform is not run: clap's version text
-/// `<version> (<hash>[+dirty.<fp>] <date>)` is one string in it.
+/// for another platform is not run: its stamp `acpmux <version> (<hash>[+dirty.<fp>]
+/// <date>)` is one string in it (acpmux-build-id's `STAMP`). Without that
+/// marker (a binary from before it), the first `<version> (<build id>)`, but
+/// never rustc's own `rustc version <version> (<hash> <date>)`.
 fn embedded_build(bytes: &[u8]) -> Option<String> {
+    let mut first = None;
     let mut from = 0;
     while let Some(i) = bytes[from..].windows(2).position(|w| w == b" (") {
         let at = from + i;
@@ -363,11 +366,25 @@ fn embedded_build(bytes: &[u8]) -> Option<String> {
         let rest = &bytes[from..bytes.len().min(from + 80)];
         let Some(end) = rest.iter().position(|&b| b == b')') else { continue };
         let Ok(text) = std::str::from_utf8(&rest[..end]) else { continue };
-        if is_build_id(text) {
+        if !is_build_id(text) {
+            continue;
+        }
+        // The version before " (": back to the space (or other byte) before it.
+        let prefix = bytes.get(..at).unwrap_or_default();
+        let start = prefix
+            .iter()
+            .rposition(|&b| !(b.is_ascii_alphanumeric() || b == b'.' || b == b'-' || b == b'+'))
+            .map_or(0, |p| p.saturating_add(1));
+        let before = prefix.get(..start).unwrap_or_default();
+        if before.ends_with(b"acpmux ") {
             return Some(text.to_owned());
         }
+        if before.ends_with(b"rustc version ") || before.ends_with(b"rustc ") {
+            continue;
+        }
+        first.get_or_insert_with(|| text.to_owned());
     }
-    None
+    first
 }
 
 /// `<7-40 hex>[+dirty.<8 hex>] <YYYY-MM-DD>`, as build.rs writes it.
@@ -706,7 +723,13 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
         Ok(version) => version,
         // The install checks the pushed binary runs before it replaces
         // anything, so the installed one is still the old one.
-        Err(e) => return up.end(Outcome::Failed, lock_lost_or(&e, "pushFailed"), e.to_string()),
+        // A host that went away during the push (a GCP VM stopped while
+        // idle) is unreachable, not broken: nothing was restarted, and the
+        // app retries it quietly once it connects.
+        Err(e) => {
+            let reason = if lost_the_host(&e) { "unreachable" } else { "pushFailed" };
+            return up.end(Outcome::Failed, lock_lost_or(&e, reason), e.to_string());
+        }
     };
     let pushed = version_build(&version).map(str::to_owned);
     up.version = Some(version);
@@ -811,6 +834,32 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
             up.end(Outcome::Failed, &reason, format!("{why}; the rollback failed too: {again}"))
         }
     }
+}
+
+/// Whether `e`, from a step of the push, is ssh or scp losing the host on
+/// the way there (`ssh H failed: Timeout, server H not responding.`, a
+/// connect that timed out or found no route, a dropped copy), rather than
+/// the host refusing the step. Read from ssh's own words: the script's exit
+/// status cannot tell them apart (ssh exits 255 for both).
+fn lost_the_host(e: &anyhow::Error) -> bool {
+    let text = format!("{e:#}").to_lowercase();
+    [
+        "ssh: connect to host ",
+        "ssh: could not resolve hostname",
+        "connection timed out during banner exchange",
+        "kex_exchange_identification:",
+        "timeout, server ",
+        "closed by remote host",
+        "connection closed by ",
+        "connection reset by ",
+        "client_loop: send disconnect",
+        "broken pipe",
+        "lost connection",
+        "network is unreachable",
+        "no route to host",
+    ]
+    .iter()
+    .any(|words| text.contains(words))
 }
 
 /// `lockLost` for an update whose lease went ([`LockLost`]), else `reason`.

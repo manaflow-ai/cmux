@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import base64
+import contextlib
 import datetime as dt
+import gzip
+import io
+import json
+import os
 import sys
 import unittest
 from unittest import mock
@@ -60,6 +66,29 @@ class ControlRunnerPickerTests(unittest.TestCase):
         self.assertFalse(picker.fresh_snapshot({"generated_at": "2026-10-31T00:00:00Z", "pools": {}}, now))
         self.assertTrue(picker.fresh_snapshot({"generated_at": "2026-11-01T00:30:00Z", "pools": {}}, now))
 
+    def test_busy_document_is_rechecked_live_after_waiting(self):
+        idle = dict(id=1, name="synthetic-control", os="macOS", status="online", busy=False,
+                    labels=[{"name": self.ENV["CI_SIDE_LANE_RUNNER"]}])
+        doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
+                   generated_at=dt.datetime.now(dt.timezone.utc).isoformat(), repository_runners=[],
+                   runner_groups={"glaeda-minis": [dict(idle, busy=True)]}, scale_sets={})
+        env = dict(self.ENV, ROUTE_TOKEN="synthetic-token",
+                   CI_RUNNER_STATE=base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode())
+        paths, clock = [], [0.0]
+        def api(path):
+            paths.append(path)
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": "glaeda-minis", "id": 10}]}
+            return {"runners": [idle]} if "/10/runners" in path else {}
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(picker.pr_runner_pool.GitHub, "get_api", side_effect=api), \
+             contextlib.redirect_stderr(io.StringIO()):
+            selected = picker.choose(env, sleep=lambda s: clock.__setitem__(0, clock[0] + s), clock=lambda: clock[0])
+        self.assertEqual(selected, self.ENV["CI_SIDE_LANE_RUNNER"])
+        self.assertEqual(clock[0], picker.POLL_SECONDS)
+        self.assertEqual(sum("/10/runners" in path for path in paths), 1)
+        self.assertEqual(len(paths), 3)
+
     def test_runner_and_snapshot_reads_use_their_declared_tokens(self):
         tokens = []
 
@@ -67,7 +96,7 @@ class ControlRunnerPickerTests(unittest.TestCase):
             def __init__(self, token, repo):
                 tokens.append(token)
 
-            def runners(self):
+            def runners(self, *, use_state=True):
                 return []
 
             def snapshot(self, *, now):
@@ -90,7 +119,7 @@ class ControlRunnerPickerTests(unittest.TestCase):
             def __init__(self, token, repo):
                 pass
 
-            def runners(self):
+            def runners(self, *, use_state=True):
                 return [{"status": "online", "busy": False, "os": "Linux",
                           "labels": [{"name": "cmux-fleet-linux-x64"}]}]
 

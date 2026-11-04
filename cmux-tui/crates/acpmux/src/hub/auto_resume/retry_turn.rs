@@ -217,6 +217,8 @@ impl Hub {
             resend: true,
             control: by.control,
             trust_gate: by.trust_gate,
+            // A retry inherits the durable floor of the failed Cloud-mobile turn.
+            cloud_mobile: session.floor.cloud_mobile_turn.load(std::sync::atomic::Ordering::SeqCst),
             full_access_device: by.full_access_device,
             provenance: Some(provenance),
             after_turn: Some(cut_turn.clone()),

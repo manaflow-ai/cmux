@@ -65,7 +65,7 @@ public final class IPhoneHostService {
         var browserHosts: (any MobileHostBrowserHosting)?
         /// The app's simulator surface sources for the phone's streamed phone tabs; nil when it cannot stream simulators.
         var surfaceHosts: (any MobileHostSurfaceHosting)?
-        var cloudLinks: @Sendable () async -> [MobileHostCloudLink] = { [] }
+        var cloudLinks: @Sendable () async -> MobileHostCloudLinks = { MobileHostCloudLinks() }
         /// Test-only (DEBUG): phones this tagged test instance trusts without the prompt.
         var pairingSeed: IPhonePairingSeed?
         /// This app's own Chief owner: its session (from the app's `ChiefHome`, always known)
@@ -97,6 +97,7 @@ public final class IPhoneHostService {
             stackProjectID: dependencies.stackProjectID, agentTabHost: dependencies.agentTabHost())
         launch.browserHosts = dependencies.browserHosts != nil
         launch.surfaceHosts = dependencies.surfaceHosts != nil
+        launch.simulatorSurfaces = dependencies.surfaceHosts?.streamsSimulators ?? false
         launch.chiefSession = chief?.session
         launch.chiefSocket = chief?.socket
         return launch
@@ -104,6 +105,14 @@ public final class IPhoneHostService {
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.
     private(set) var allowed = false
+    /// Host-owned per-chat Remote Control policy. These are observed from the Rust host's replayable
+    /// supervisor state; the App never reads or writes the policy file itself.
+    private(set) var sessionExposureConfigured = false
+    private(set) var exposedSessionIDs: Set<String> = []
+    private(set) var blockedSessionIDs: Set<String> = []
+    private(set) var sessionExposureAvailable = false
+    private(set) var sessionExposureKnown = false
+    private(set) var sessionExposureRevision = 0
     /// Session Info's Remote Control switch every chat page shows (the App gives it to each page's model).
     public let remoteControl = AgentPaneRemoteControl()
     /// The service is wired and this build bundles hostd, so this Mac can serve cmux on iPhone
@@ -206,6 +215,18 @@ public final class IPhoneHostService {
                 guard let self else { return }
                 let before = self.state
                 self.state = next
+                sessionExposureConfigured = next.sessionExposureConfigured
+                exposedSessionIDs = next.exposedSessionIDs
+                blockedSessionIDs = next.blockedSessionIDs
+                sessionExposureAvailable = next.sessionExposureAvailable
+                sessionExposureKnown = next.sessionExposureKnown
+                if next.sessionExposureKnown != before.sessionExposureKnown
+                    || next.sessionExposureConfigured != before.sessionExposureConfigured
+                    || next.exposedSessionIDs != before.exposedSessionIDs
+                    || next.blockedSessionIDs != before.blockedSessionIDs
+                    || next.sessionExposureAvailable != before.sessionExposureAvailable {
+                    sessionExposureRevision &+= 1
+                }
                 if next.phase == .removed, before.phase != .removed { self.recordRemoval() }
                 // The list follows what hostd reports: online, and each phone that comes or goes.
                 if next.phase == .online, before.phase != .online || before.phones.map(\.sessionID) != next.phones.map(\.sessionID) {
@@ -220,6 +241,12 @@ public final class IPhoneHostService {
                 self?.pairingEvent(event)
             }
         }
+    }
+
+    /// The app Feed's open requests for the phones (#33818): handed to hostd, which serves and
+    /// pushes them (`needs_you.rs`). One hop to the supervisor; it keeps the newest set.
+    public func setNeedsYou(_ requests: [MobileHostNeedsYouRequest]) async {
+        await supervisor.setNeedsYou(requests)
     }
 
     /// Reads the account's phones from the mobile service (latest read wins).

@@ -26,6 +26,7 @@ import os
 @MainActor
 final class AgentPageHibernation: HiddenChatPagesHost {
     static var minimumHidden: Double { HiddenChatPages<AgentPageHibernation>.minimumHidden }
+    static var keptRecheck: Double { HiddenChatPages<AgentPageHibernation>.keptRecheck }
 
     /// The agent tab store once the App made it (no agent tab yet: nothing to release).
     private let store: () -> AgentTabStore?
@@ -169,11 +170,9 @@ final class AgentPageHibernation: HiddenChatPagesHost {
             let frame = await Self.frame(view)
             guard let self else { return }
             pages.endRelease(key)
-            // A connected page that did not say what it holds (a large attachment still encoding)
-            // stays: letting it go would drop its chips. The next plan asks again.
-            if wake == nil, view.model.hasHandshake {
-                logger.info("agent page \(key, privacy: .public) kept: no wake state in time")
-                return
+            if let reason = AgentPaneWakeState.keepReason(wake, hasHandshake: view.model.hasHandshake) {
+                logger.info("agent page \(key, privacy: .public) kept: \(reason, privacy: .public)")
+                return pages.keptForNow(key)
             }
             // The page may have shown, changed or got busy (a turn started) while it was asked
             // for its frame or the frame was encoded: then it stays, and the next plan decides.

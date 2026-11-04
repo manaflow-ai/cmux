@@ -1,3 +1,4 @@
+public import CmuxNextSettings
 public import Foundation
 
 /// The versioned host handshake: the one value Swift hands the React agent
@@ -23,7 +24,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
 
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
-        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, model, peer, adopt, surface,
+        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptAttachments, promptTicket, harness, model, peer, adopt, surface,
              linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, localMachineName, githubRepository, harnesses, wake,
              workspaceContext, sandboxState, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable, cloudTeamMachine, cloudHandoffs, cloudRepositoryAvailable
     }
@@ -48,6 +49,8 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// A new chat's first prompt, sent by the page once it connects.
     /// Pages that predate it ignore it (the chat just stays empty).
     public var prompt: String?
+    /// The seeded prompt's attachments after the host copied any referenced files to this machine.
+    public var promptAttachments: [JSONValue]?
     /// The single-use gesture ticket of ``prompt`` when a person's own action (or onboarding's
     /// first task) seeded it (cx-k21v gap 4): the page sends the prompt with this promptId and
     /// ticket (`_meta.cmuxGesture`), as a prompt held for the trust answer. Nil for a prompt the
@@ -125,8 +128,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?
-    /// This Mac's name, always, even when ``machineName`` names the machine a seeded chat runs on
-    /// (a peer or a Cloud machine): the environment picker's This Mac row. Pages that predate it ignore it.
+    /// The name of the machine whose acpmux the page talks to, where the environment picker's local row
+    /// starts a chat: this Mac, even when ``machineName`` names the machine a seeded chat runs on (a peer
+    /// or a Cloud machine), or the machine a remote route attaches the page to. Pages that predate it ignore it.
     public var localMachineName: String?
     /// The local workspace's GitHub `origin`, used to link bare issue references in prose.
     public var githubRepository: String?

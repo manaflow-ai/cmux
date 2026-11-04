@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 547,
+  "count": 564,
   "sections": [
     {
       "id": "general",
@@ -157,6 +157,40 @@
           }
         },
         {
+          "key": "agents.autoRetry.attempts",
+          "title": "Retries per Error",
+          "help": "How many times the chat tries again before it stops and waits for you.",
+          "kind": "number",
+          "default": 4,
+          "group": "Retry After Errors",
+          "range": {
+            "min": 1,
+            "max": 12,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "agents.autoRetry.enabled",
+          "title": "Retry Automatically",
+          "help": "When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Retry After Errors"
+        },
+        {
+          "key": "agents.autoRetry.intervalSeconds",
+          "title": "Seconds Between Retries",
+          "help": "How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes.",
+          "kind": "number",
+          "default": 0,
+          "group": "Retry After Errors",
+          "range": {
+            "min": 0,
+            "max": 3600,
+            "unit": "seconds"
+          }
+        },
+        {
           "key": "agents.chats.discovery",
           "title": "Discover Chat Folders",
           "help": "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -178,6 +212,14 @@
           "help": "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders.",
           "kind": "folder_list",
           "default": [],
+          "group": "Chats"
+        },
+        {
+          "key": "agents.chats.sessionRecap",
+          "title": "Session Recap",
+          "help": "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage.",
+          "kind": "toggle",
+          "default": true,
           "group": "Chats"
         },
         {
@@ -205,6 +247,18 @@
             "deepseek/deepseek-v4.1-flash",
             "deepseek/deepseek-v4-flash",
             "deepseek/deepseek-v4-pro"
+          ]
+        },
+        {
+          "key": "agents.promptCache",
+          "title": "Prompt Cache",
+          "help": "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more.",
+          "kind": "choice",
+          "default": "1h",
+          "group": "Agent Chat",
+          "values": [
+            "1h",
+            "5m"
           ]
         },
         {
@@ -1276,6 +1330,22 @@
           "group": "Tabs"
         },
         {
+          "key": "tabs.verticalTabs",
+          "title": "Use Vertical Tabs for All Workspaces",
+          "help": "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.verticalTabsExpandOnHover",
+          "title": "Expand Collapsed Vertical Tabs on Hover",
+          "help": "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Tabs"
+        },
+        {
           "key": "tasks.layout",
           "title": "Tasks Layout",
           "help": "Inbox lists what needs you first, with the task beside it. Changes apply at once.",
@@ -1628,15 +1698,17 @@
           "group": "Agent Chat"
         },
         {
-          "key": "agentPane.display.inspector.placement",
-          "title": "Session Info",
-          "help": "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+          "key": "agentPane.display.harnessPlacement",
+          "title": "Model Picker Harness Placement",
+          "help": "",
           "kind": "choice",
-          "default": "overlay",
+          "default": "symbols",
           "group": "Agent Chat",
           "values": [
-            "push",
-            "overlay"
+            "symbols",
+            "left",
+            "top",
+            "compact"
           ]
         },
         {
@@ -1674,6 +1746,18 @@
           "values": [
             "left",
             "right"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.placement",
+          "title": "Session Info",
+          "help": "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+          "kind": "choice",
+          "default": "overlay",
+          "group": "Agent Chat",
+          "values": [
+            "push",
+            "overlay"
           ]
         },
         {
@@ -2154,12 +2238,36 @@
           ]
         },
         {
+          "key": "appearance.displayBackgroundRotations",
+          "title": "Per-display Background Rotation",
+          "help": "Map stable display identifiers to 15m, hourly, or daily. Unset displays use the global rotation.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
+          "key": "appearance.displayBackgrounds",
+          "title": "Per-display Backgrounds",
+          "help": "Map stable display identifiers to daily, folder:<absolute path>, desktop, a fixed background, or none.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
           "key": "appearance.experimentalControls",
           "title": "Experimental Appearance Controls",
           "help": "Applies Hue and Saturation to the window's tint. Off, they have no effect.",
           "kind": "toggle",
           "default": false,
           "group": "Window Background"
+        },
+        {
+          "key": "appearance.favoriteThemes",
+          "title": "Starred Themes",
+          "help": "Themes starred in a theme picker. The picker lists them first.",
+          "kind": "string_list",
+          "default": [],
+          "group": "App Theme"
         },
         {
           "key": "appearance.focusIndicator",
@@ -2297,6 +2405,19 @@
           "values": [
             "shared",
             "perPane"
+          ]
+        },
+        {
+          "key": "appearance.rotateFavoriteThemes",
+          "title": "Rotate Starred Themes",
+          "help": "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on.",
+          "kind": "choice",
+          "default": "off",
+          "group": "App Theme",
+          "values": [
+            "off",
+            "launch",
+            "daily"
           ]
         },
         {
@@ -5369,8 +5490,8 @@
         },
         {
           "key": "feed.github.enabled",
-          "title": "Connect GitHub",
-          "help": "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first.",
+          "title": "GitHub Inbox",
+          "help": "Inbox shows your GitHub notifications",
           "kind": "toggle",
           "default": false,
           "group": "GitHub Inbox"
@@ -5408,6 +5529,14 @@
             "title",
             "full"
           ]
+        },
+        {
+          "key": "feed.needsYouInChief",
+          "title": "Pin Needs You in Chief",
+          "help": "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Feed"
         },
         {
           "key": "notifications.attention.agentChatBlinkCount",
@@ -5489,6 +5618,14 @@
           "key": "notifications.attention.moveToTop",
           "title": "Move the Workspace to the Top",
           "help": "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Attention Ring"
+        },
+        {
+          "key": "notifications.attention.moveToTopOnAgentFinish",
+          "title": "Move the Workspace to the Top When Its Agent Finishes",
+          "help": "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
           "kind": "toggle",
           "default": false,
           "group": "Attention Ring"
@@ -5854,6 +5991,14 @@
           "group": "Machine Colors"
         },
         {
+          "key": "cloud.agentsStartWithoutAsking",
+          "title": "Let Agents Start Cloud Sessions Without Asking",
+          "help": "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
+        },
+        {
           "key": "cloud.newWorkspaceFolder",
           "title": "New Cloud Workspaces Start In",
           "help": "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
@@ -5874,9 +6019,25 @@
           "group": "Cloud Workspaces"
         },
         {
+          "key": "cloud.useMyClaudeLoginOnMyCloudMachines",
+          "title": "Use My Claude Login on My Own Cloud Machines",
+          "help": "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
+        },
+        {
           "key": "phone.allowConnections",
           "title": "Let Your Phone Use This Mac",
           "help": "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Phone Access"
+        },
+        {
+          "key": "phone.cloudDesktop",
+          "title": "Show Your Cloud Machine's Screen on Your Phone",
+          "help": "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open.",
           "kind": "toggle",
           "default": false,
           "group": "Phone Access"

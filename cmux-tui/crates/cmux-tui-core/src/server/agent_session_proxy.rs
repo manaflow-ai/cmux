@@ -29,6 +29,15 @@ const GUEST_VERBS: [&str; 7] = [
     "agent-session-detach",
 ];
 
+/// An invitee with the `view` role: watch only (no prompt, no typing).
+const VIEWER_VERBS: [&str; 5] = [
+    "agent-session-attach",
+    "agent-session-observe",
+    "agent-session-events",
+    "agent-session-view",
+    "agent-session-detach",
+];
+
 /// Whether `author` is a link guest's (`guest:<share_id>.<guest_id>`).
 pub(super) fn is_guest(author: &Value) -> bool {
     author["id"].as_str().is_some_and(|id| id.starts_with(shares::GUEST_PREFIX))
@@ -54,7 +63,11 @@ pub(super) fn scope(
     let cmd = object.get("cmd").and_then(Value::as_str).unwrap_or_default().to_owned();
     if let Some(author) = author {
         let guest = is_guest(author);
-        let verbs: &[&str] = if guest { &GUEST_VERBS } else { &TEAMMATE_VERBS };
+        let verbs: &[&str] = match (guest, shares::view_only(author)) {
+            (true, true) => &VIEWER_VERBS,
+            (true, false) => &GUEST_VERBS,
+            (false, _) => &TEAMMATE_VERBS,
+        };
         if !verbs.contains(&cmd.as_str()) {
             let refusal = if guest { Refusal::ScopeNotGranted } else { Refusal::NotTrusted };
             return Some(refuse(writer, object.remove("id"), refusal));
@@ -203,7 +216,10 @@ pub(super) fn session_of(
     writer: &MessageWriter,
 ) -> bool {
     let id = object.remove("id");
-    if bound || !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+    if bound
+        || (!mux.control_clients.is_unix(client) || mux.is_remote_client(client))
+            && !mux.cloud_mobile_client(client)
+    {
         return refuse(writer, id, Refusal::NotTrusted);
     }
     let Some(surface) = object.get("surface").and_then(Value::as_u64) else {
@@ -255,6 +271,10 @@ mod tests {
             "prompt_id":"p1", "text":"hello", "_host_author":author, "_host_session":SESSION});
         assert_eq!(client.request(prompt)["ok"], true);
         assert_eq!(fake.frame()["params"]["_meta"]["acpmux"]["author"], author);
+        let media = json!({"cmd":"agent-session-prompt", "surface":surface, "prompt_id":"media",
+            "content":[{"type":"resource_link", "uri":"file:///etc/passwd", "name":"passwd"}],
+            "_host_author":author, "_host_session":SESSION});
+        assert_code(&client.request(media), "agent_session.not_trusted");
         let mut other = Client::connect(&mux, "proxy-unbound");
         assert_code(
             &other.request(json!({"cmd":"agent-session-observe", "surface":surface,

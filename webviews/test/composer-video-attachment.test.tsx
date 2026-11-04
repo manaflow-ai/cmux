@@ -99,6 +99,16 @@ function Harness({ initial, local }: { initial: ComposerAttachment[]; local: boo
   return <AttachmentStrip attachments={attachments} onRemove={remove} />;
 }
 
+/// A video with no poster: the image tile's square with the play glyph, its name only in the tooltip.
+function expectUnreadVideoTile() {
+  const tile = host.querySelector(".acpmux-attachment-video.acpmux-attachment-video-unread");
+  expect(tile?.classList.contains("acpmux-attachment-image")).toBe(true);
+  expect(tile?.getAttribute("title")).toBe(video().name);
+  expect(tile?.querySelector("img")).toBeNull();
+  expect(tile?.querySelector(".acpmux-attachment-video-play")).not.toBeNull();
+  expect(host.querySelector(".acpmux-attachment-link-name")).toBeNull();
+}
+
 async function render(initial: ComposerAttachment[], local = true, key: string = crypto.randomUUID()) {
   calls = [];
   await act(async () => {
@@ -157,7 +167,11 @@ try {
     // Its × still removes it.
     expect(tile.querySelector(".acpmux-attachment-remove")).not.toBeNull();
 
+    // A click asks the host for the file's streamed URL; one it will not grant plays in Quick Look.
     await act(async () => play.click());
+    expect(calls.at(-1)?.method).toBe("media.load");
+    expect(calls.at(-1)?.params).toEqual({ src: PATH });
+    await act(async () => calls.at(-1)!.answer(undefined));
     expect(calls.at(-1)?.method).toBe("video.quickLook");
     expect(calls.at(-1)?.params).toEqual({ src: PATH });
     // Read once: a later render asks nothing again.
@@ -170,13 +184,46 @@ try {
     expect(keptChips([video()])).toEqual([video()]);
   });
 
-  test("a video the host cannot read stays a file chip and holds nothing", async () => {
+  // Leo, 2026-10-26: "not for screen recordings. Don't do it for screen recordings. We know it's a
+  // video. ... Just do the square. Why do we have these long-ass rectangles anyway?"
+  test("a video the host cannot read keeps its square tile with the play glyph and holds nothing", async () => {
     await render([video()]);
     await act(async () => calls[0]!.answer(undefined));
     expect(state?.reading).toBe(0);
     expect(state?.attachments[0]?.video).toBeUndefined();
-    expect(host.querySelector(".acpmux-attachment-video")).toBeNull();
-    expect(host.querySelector(".acpmux-attachment-link-name")?.textContent).toBe(video().name);
+    expectUnreadVideoTile();
+    // A click still plays it from its path.
+    await act(async () => (host.querySelector(".acpmux-attachment-video-open") as HTMLElement).click());
+    expect(calls.at(-1)?.method).toBe("media.load");
+    await act(async () => calls.at(-1)!.answer(undefined));
+    expect(calls.at(-1)?.method).toBe("video.quickLook");
+    expect(calls.at(-1)?.params).toEqual({ src: PATH });
+  });
+
+  test("a screen recording still loading or failed is a square tile, never a strip with its name", async () => {
+    const chip = { id: "rec", name: "Screen Recording 2026-10-26 at 13.30.01.mov", image: false, video: true };
+    calls = [];
+    await act(async () => {
+      root.render(<AttachmentStrip attachments={[]} pending={[chip]} onCancel={() => {}} onRemove={() => {}} />);
+    });
+    const loading = host.querySelector(".acpmux-attachment-pending")!;
+    expect(loading.classList.contains("acpmux-attachment-image")).toBe(true);
+    expect(loading.textContent).not.toContain(chip.name);
+    await act(async () => {
+      root.render(
+        <AttachmentStrip
+          attachments={[]}
+          pending={[{ ...chip, failed: "The upload timed out" }]}
+          onCancel={() => {}}
+          onRetry={() => {}}
+          onRemove={() => {}}
+        />,
+      );
+    });
+    const failed = host.querySelector(".acpmux-attachment-failed")!;
+    expect(failed.classList.contains("acpmux-attachment-image")).toBe(true);
+    expect(failed.querySelector(".acpmux-attachment-failed-name")).toBeNull();
+    expect(failed.querySelector(".acpmux-attachment-retry")).not.toBeNull();
   });
 
   test("a rejected video.info request ends the spinner and leaves the file ready to send", async () => {
@@ -191,14 +238,14 @@ try {
     expect(state?.attachments).toHaveLength(1);
     expect(state?.attachments[0]?.video).toBeUndefined();
     expect(host.querySelector(".acpmux-attachment-pending")).toBeNull();
-    expect(host.querySelector(".acpmux-attachment-link-name")?.textContent).toBe(video().name);
+    expectUnreadVideoTile();
   });
 
   test("a chat on another machine asks nothing: its videos are not this Mac's", async () => {
     await render([video()], false);
     expect(calls).toEqual([]);
     expect(state?.reading).toBe(0);
-    expect(host.querySelector(".acpmux-attachment-link-name")?.textContent).toBe(video().name);
+    expectUnreadVideoTile();
   });
 
   test("a chat that turns out to be on this Mac reads the video it already holds", async () => {
@@ -496,6 +543,41 @@ try {
     await render([video()]);
     await act(async () => calls[0]!.answer(INFO));
     expect(calls.map((call) => call.method)).toEqual(["video.info", "video.transcript"]);
+  });
+  // Leo, 2026-11-02: "this i can't play a video preview inside cmux next? i feel like i should be able to".
+  test("a click on a video's ▶ plays it in the pane: the player opens with controls on the host's streamed URL and plays", async () => {
+    const path = "/Users/dev/Desktop/Screen Recording 2026-11-02 at 23.40.00.mov";
+    const src = "cmux-agent://pane/__media/0123456789abcdef.mov";
+    const played: HTMLMediaElement[] = [];
+    const proto = dom.window.HTMLMediaElement.prototype;
+    const original = proto.play;
+    proto.play = function (this: HTMLMediaElement) {
+      played.push(this);
+      return Promise.resolve();
+    };
+    try {
+      await render([{ ...linkAttachment(path, false), mimeType: "video/quicktime", size: 9_000_000_000 }]);
+      await act(async () => calls[0]!.answer(INFO));
+      await act(async () => calls.at(-1)!.answer(SPEECH));
+      const play = host.querySelector(".acpmux-attachment-video-open") as HTMLElement;
+      await act(async () => play.click());
+      expect(calls.at(-1)?.method).toBe("media.load");
+      expect(calls.at(-1)?.params).toEqual({ src: path });
+      await act(async () => calls.at(-1)!.answer({ src }));
+      const player = dom.window.document.querySelector<HTMLVideoElement>(".acpmux-image-viewer video");
+      expect(player).not.toBeNull();
+      expect(player!.getAttribute("src")).toBe(src);
+      expect(player!.hasAttribute("controls")).toBe(true);
+      expect(player!.muted).toBe(false);
+      expect(played).toEqual([player!]);
+      // Quick Look is not asked: the pane plays it.
+      expect(calls.some((call) => call.method === "video.quickLook")).toBe(false);
+      // The tile keeps its poster and length behind the player.
+      expect(host.querySelector(".acpmux-attachment-video img")?.getAttribute("src")).toBe(POSTER);
+      expect(host.querySelector(".acpmux-attachment-video-length")?.textContent).toBe("0:42");
+    } finally {
+      proto.play = original;
+    }
   });
 } finally {
   afterAll(() => {

@@ -9,6 +9,7 @@
 // chips it passes slide out of its way, and on release it settles into its slot. Reduce Motion keeps
 // the chip under the pointer and the jump, with no slide or settle.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { MOTION_MS } from "../../../motion/scale.generated";
 import { reducedMotion } from "../threadMinimap/scrollMotion";
 
 /// How far the pointer moves before a press becomes a drag; less is a click (open, remove).
@@ -26,7 +27,7 @@ export function dropIndex(x: number, centers: readonly number[], rtl = false): n
 }
 
 /// How long a passed chip slides to its new slot, and the dragged one settles into its own.
-export const SLIDE_MS = 160;
+export const SLIDE_MS = MOTION_MS.standard;
 const SLIDE_EASING = "cubic-bezier(0.2, 0, 0, 1)";
 
 /// How far the dragged chip sits from its slot so it stays under the pointer: the pointer at

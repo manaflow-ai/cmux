@@ -223,6 +223,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var nativeNewTabPage: Bool = NativeNewTabPageSetting.fallback
     /// `tabs.overflow`; shrink when unset or invalid.
     public var tabOverflow: TabOverflow = TabOverflowSetting.fallback
+    /// `tabs.verticalTabs`; off when unset or invalid.
+    public var verticalTabs: Bool = VerticalTabsSetting.fallback
+    /// `tabs.verticalTabsExpandOnHover`; on when unset or invalid.
+    public var verticalTabsExpandOnHover: Bool = VerticalTabsSetting.expandOnHoverFallback
     /// `tabs.swapCmdTAndCmdN`; off when unset or invalid.
     public var swapCmdTAndCmdN: Bool = SwapCmdTAndCmdNSetting.fallback
     /// `tabs.commandDigits`; workspaces when unset or invalid.
@@ -276,6 +280,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var sessions = SessionSettings()
     /// `agents.subsessions.*`: sub-session limits; the acpmux daemon enforces them.
     public var subsessions = SubsessionSettings()
+    /// `agents.autoRetry.*`: the retry loop after a rate limit or lost connection; the acpmux
+    /// daemon runs it.
+    public var agentRetry = AgentRetrySettings()
     /// `agents.trust.*`: which folders start an agent without the trust question; the acpmux daemon reads the same file.
     public var trust = TrustSettings()
     /// `mobile.*`: whether the app runs its iPhone host.
@@ -311,7 +318,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
             return snapshot
         }
         snapshot.retiredKeys = SettingsSchema.retiredKeys.keys.filter { root.value(at: $0.split(separator: ".").map(String.init)) != nil }.sorted()
-        snapshot.diagnostics += Self.chatDiagnostics(root)
+        snapshot.diagnostics += Self.chatDiagnostics(root) + Self.imessageDiagnostics(root)
         let tabBar = SurfaceTabBarParser.parse(root, configDirectory: configDirectory)
         snapshot.tabBar = tabBar.tabBar
         snapshot.commandActions = tabBar.actions
@@ -425,6 +432,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let cmdWClosesPinnedTabsDiagnostic { snapshot.diagnostics.append(cmdWClosesPinnedTabsDiagnostic) }
         snapshot.take(NativeNewTabPageSetting.parse(root), \.nativeNewTabPage)
         snapshot.take(TabOverflowSetting.parse(root), \.tabOverflow)
+        snapshot.take(VerticalTabsSetting.parse(root), \.verticalTabs)
+        snapshot.take(VerticalTabsSetting.parseExpandOnHover(root), \.verticalTabsExpandOnHover)
         let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
         snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN
         if let swapCmdTAndCmdNDiagnostic { snapshot.diagnostics.append(swapCmdTAndCmdNDiagnostic) }
@@ -453,6 +462,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.freeModel = FreeModelSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sessions = SessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.subsessions = SubsessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.agentRetry = AgentRetrySettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.trust = TrustSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.mobile = MobileSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.macScreen = MacScreenSettings.parse(root, diagnostics: &snapshot.diagnostics)

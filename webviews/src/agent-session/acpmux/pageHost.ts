@@ -14,6 +14,7 @@ import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { setReadAloudState } from "./conversation/readAloud";
+import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
 import { receiveNativeRowToolInvocation } from "./header/nativeRowTools";
@@ -25,6 +26,7 @@ import { setComputerUsePreview } from "./computerUse/computerUsePreview";
 import { setMachineLink } from "./machineLink";
 import { setRemoteControl } from "./remoteControl";
 import { setPaneNotices } from "./paneNoticeStore";
+import { runNativeSessionInfoAction, setNativeSessionInfoHost } from "./session-info/native/host";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -88,6 +90,13 @@ export function applyHostEvent(event: HostEvent): void {
   const bridge = window.cmuxAcpmuxBridge;
   const value = event.value as never;
   switch (event.kind) {
+    case "imessage.changed":
+      window.dispatchEvent(new Event("cmux-imessage-changed"));
+      return;
+    case "sessionInfoHost":
+      return setNativeSessionInfoHost(event.value);
+    case "sessionInfoAction":
+      return runNativeSessionInfoAction(event.value);
     case "uploads.state":
       return receivePromptUploadState(event.value);
     case "theme": {
@@ -139,6 +148,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "readAloud":
       // The app's voice (conversation/readAloud.ts): which message it reads, on every change.
       return setReadAloudState(event.value);
+    case "attentionTabs":
+      // Keep a push that arrives before the Needs you header mounts.
+      return setAttentionTabs(event.value);
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);

@@ -14,6 +14,7 @@ import WebKit
 final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.bridge")
     weak var view: AgentPaneView?
+    private let tailGeneration = AgentPaneTailCache.shared.generation
 
     init(view: AgentPaneView) {
         self.view = view
@@ -45,7 +46,12 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // chat's text).
         if let body = message.body as? [String: Any], let method = body["method"] as? String,
            AgentPaneTailCache.handles(method: method) {
-            return replyHandler(AgentPaneTailCache.reply(to: method, params: body["params"] as? [String: Any]), nil)
+            let params = body["params"] as? [String: Any]
+            let host = view?.model.host
+            let generation = tailGeneration
+            // task-owner: one trusted page request, completed by its reply handler
+            Task { replyHandler(await AgentPaneTailCache.reply(to: method, params: params, host: host, pageGeneration: generation), nil) }
+            return
         }
         let request = AgentPaneRequest(body: message.body)
         if case .uiPointerReport(let text) = request, let value = try? JSONSerialization.jsonObject(with: Data(text.utf8)),
@@ -111,6 +117,8 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             AgentPaneDeviceChat.push(view.deviceChats, to: view)
             AgentPaneClosedItem.push(view.recentlyClosed, to: view)
             AgentPaneNowPlaying.shared.push(to: view)
+            view.model.attentionTabs?.push(to: view)
+            view.announceSessionInfo()
             view.model.readAloud?.push(to: view)
             view.pushPaneNotices()
         }

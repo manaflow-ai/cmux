@@ -504,7 +504,10 @@ class TriggerRunnerTests(unittest.TestCase):
         # (tests/test_ci_linux_single_size.py).
         self.assertNotIn("32vcpu", runs_on)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
-        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
+        # Only a member of the Linux pool, so the nightly runner label policy can read it (HQ
+        # tests/test_runner_label_policy.py); a stale or unset pool takes the 4 vCPU member.
+        self.assertIn("contains(fromJSON('[\"cmux-fleet-linux-x64\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux", runs_on)
+        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runs_on)
 
 if __name__ == "__main__":
     unittest.main()

@@ -13,6 +13,7 @@ fn start(role: Role, local: &KeyPair, remote: [u8; 32]) -> Net {
         expected_remote: remote,
         stun: Vec::new(),
         bind: "127.0.0.1:0".parse().unwrap(),
+        turn: Vec::new(),
     })
     .unwrap()
 }

@@ -8,12 +8,6 @@ nonisolated enum HelpLinkActionCatalog: ActionCatalogGroup {
         let gui = ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
         return [
             ActionDescriptor(
-                id: "help.setupGuide",
-                title: String(localized: "action.help.setupGuide", defaultValue: "Setup Guide", bundle: .module),
-                keywords: ["setup", "onboarding", "sign in", "accounts", "agent", "help"], category: .settings,
-                symbol: "book", surfaces: [.palette, .menu], mainMenu: .help, surfacePlan: gui
-            ),
-            ActionDescriptor(
                 id: "help.troubleshooting",
                 title: String(localized: "action.help.troubleshooting", defaultValue: "Troubleshooting and Support", bundle: .module),
                 keywords: ["help", "support", "problem", "bug", "contact", "email"], category: .settings,

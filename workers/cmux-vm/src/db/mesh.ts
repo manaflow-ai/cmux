@@ -505,8 +505,12 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
         sql
           .query(
             "mesh.listMembers",
-            `SELECT mesh_cmux_id, vm_cmux_id, ipv4, attached_at FROM cmux_vm.mesh_members
-              WHERE mesh_cmux_id = $1 AND tenant_id = $2 AND detached_at IS NULL ORDER BY attached_at, vm_cmux_id`,
+            // A VM deleted before its delete detached it (rows from before that fix) is not a member.
+            `SELECT m.mesh_cmux_id, m.vm_cmux_id, m.ipv4, m.attached_at FROM cmux_vm.mesh_members m
+              WHERE m.mesh_cmux_id = $1 AND m.tenant_id = $2 AND m.detached_at IS NULL
+                AND NOT EXISTS (SELECT 1 FROM cmux_vm.resources r
+                  WHERE r.cmux_id = m.vm_cmux_id AND r.tenant_id = m.tenant_id AND r.deleted_at IS NOT NULL)
+              ORDER BY m.attached_at, m.vm_cmux_id`,
             [meshId, tenantId],
           )
           .pipe(Effect.flatMap(decode(MemberRow, "mesh.listMembers")), Effect.map((rows) => rows.map(toMember))),
@@ -553,7 +557,7 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             "mesh.insertAcl",
             `WITH claimed AS (
                INSERT INTO cmux_vm.mesh_acl_versions (mesh_cmux_id, tenant_id, version, document, sha256, author, created_at)
-               VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7::timestamptz)
+               VALUES ($1, $2, $3, $4::text::jsonb, $5, $6, $7::timestamptz)
                ON CONFLICT DO NOTHING RETURNING 1)
              SELECT count(*)::int AS claimed FROM claimed`,
             [meshId, tenantId, acl.version, JSON.stringify(acl.document), acl.sha256, acl.author, acl.createdAt.toISOString()],

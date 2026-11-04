@@ -170,6 +170,16 @@
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
+/* A video the host could not read (no poster): the same square tile, the play glyph on the tile's
+   neutral backing, never a file chip's long name strip (Leo, 2026-10-26: "Just do the square."). */
+.acpmux-attachment-video-unread .acpmux-attachment-video-open {
+  width: 104px;
+  height: var(--acpmux-attach-height);
+  border-radius: var(--acpmux-attach-radius);
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
+  outline-offset: -1px;
+}
 /* The triangle's visual center is right of its box's. */
 .acpmux-attachment-video-play svg {
   transform: translateX(1px);
@@ -703,7 +713,7 @@ button.acpmux-attachment-pasted-open:hover {
   aspect-ratio: 1;
   pointer-events: none;
   filter: drop-shadow(0 0 0.5px color-mix(in srgb, var(--agent-text) 40%, transparent))
-    drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.22));
+    drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.16));
   transition: opacity 120ms ease-out;
 }
 .acpmux-source-badge > img,

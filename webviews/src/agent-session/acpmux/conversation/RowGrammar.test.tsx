@@ -11,6 +11,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { SubagentHarnessContext } from "../subagents/SubagentGroup";
 import { SubagentDoneLine } from "../subagents/SubagentDoneLine";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { agentMessage } from "./agentMessages";
@@ -218,16 +219,21 @@ test("a send reads Sent to <recipient>, the recipient one chip, its status in th
   expect(rows["acpmux-send"]!.querySelector(".cv-recipient")!.textContent).toBe("fanout-infra");
 });
 
-test("every message preview is cut by the one rule: one muted span that ellipsizes", async () => {
-  const { rows } = await fourRows();
+test("every message preview is cut by the one rule: one muted line under the row that ellipsizes", async () => {
+  const { container, rows } = await fourRows();
   for (const kind of ["send-message", "acpmux-send"]) {
-    const previews = rows[kind]!.querySelectorAll(".cv-agentmsg__preview");
-    expect({ kind, previews: previews.length }).toEqual({ kind, previews: 1 });
+    // Stacked (the default look), the first line sits on its own line under the row, never inline.
+    const scope = container.querySelector(`[data-kind="${kind}"]`)!;
+    const previews = [...scope.querySelectorAll(".cv-msgline__preview")].filter((node) => node.textContent);
+    const inline = [...rows[kind]!.querySelectorAll(".cv-agentmsg__preview")].filter((node) => node.textContent);
+    expect({ kind, previews: previews.length, inline: inline.length }).toEqual({ kind, previews: 1, inline: 0 });
   }
   const css = readFileSync(new URL("./AgentMessageRow.css", import.meta.url), "utf8");
-  const rule = /\.cv-agentmsg__preview \{([^}]*)\}/.exec(css)?.[1] ?? "";
-  expect(rule).toContain("text-overflow: ellipsis");
-  expect(rule).toContain("white-space: nowrap");
+  for (const name of ["cv-agentmsg__preview", "cv-msgline__preview"]) {
+    const rule = new RegExp(`\\.${name} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
+    expect(rule).toContain("text-overflow: ellipsis");
+    expect(rule).toContain("white-space: nowrap");
+  }
 });
 
 test("the subagent line's duration is in the trailing column, not the sentence", async () => {
@@ -239,6 +245,39 @@ test("the subagent line's duration is in the trailing column, not the sentence",
   expect(row.querySelector("button.cv-subagent-done")!.getAttribute("aria-label")).toBe(
     "Subagent finished: Audit agent friction · 2m 28s",
   );
+});
+
+// Leo, 2026-10-28: "Shouldn't the subagent icon be different?" A subagent's line never draws the
+// chat bubble every chat and session list carries.
+test("a subagent's line with no harness known draws the subagent mark, not the chat bubble", async () => {
+  const { rows } = await fourRows();
+  const icon = rows.subagent!.querySelector(".cv-tool__icon")!;
+  expect(icon.querySelector('[data-icon="agent.session"]')).toBeNull();
+  expect(icon.querySelector('[data-icon="task.ai"]')).not.toBeNull();
+});
+
+test("a subagent naming no harness draws the chat's harness mark when the chat has one", async () => {
+  const container = await render(
+    <SubagentHarnessContext.Provider value="claude">
+      <SubagentDoneLine row={subagentRow} />
+    </SubagentHarnessContext.Provider>,
+  );
+  const icon = container.querySelector(".cv-tool__icon")!;
+  expect(icon.querySelector('[data-icon="agent.session"]')).toBeNull();
+  expect(icon.querySelector('[data-icon="task.ai"]')).toBeNull();
+  expect(icon.children.length).toBeGreaterThan(0);
+});
+
+test("a subagent that names its own harness draws that harness's mark", async () => {
+  const codexRow = {
+    ...subagentRow,
+    subagents: [{ ...subagentRow.subagents![0]!, harness: "codex" }],
+  } as AcpmuxRow;
+  const container = await render(<SubagentDoneLine row={codexRow} />);
+  const icon = container.querySelector(".cv-tool__icon")!;
+  expect(icon.querySelector('[data-icon="agent.session"]')).toBeNull();
+  expect(icon.querySelector('[data-icon="task.ai"]')).toBeNull();
+  expect(icon.children.length).toBeGreaterThan(0);
 });
 
 test("an opened send shows its message once, under the row, not again on the line", async () => {
@@ -254,15 +293,23 @@ test("an opened send shows its message once, under the row, not again on the lin
   }
 });
 
-test("the trailing column and chevron use the shared flex row contract", () => {
+test("the chevron follows the words and the trailing column ends the line", () => {
+  // Leo, 2026-11-03: "this how chatgpt does their chevrons". In the transcript a row's chevron
+  // sits right after its words and its status or duration ends the line
+  // (test/transcript-chevron-after-label.test.ts measures it in Chromium).
   const css = readFileSync(new URL("./conversation.css", import.meta.url), "utf8");
-  const block = (selector: string) =>
-    new RegExp(`(?:^|\\n)${selector.replace(/[.]/g, "\\.")} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
-  expect(block(".cv-tool")).toContain("display: flex");
+  const block = (selector: string) => {
+    const at = css.indexOf(`\n${selector} {`);
+    return at < 0 ? "" : css.slice(at, css.indexOf("}", at));
+  };
+  expect(css).toMatch(/\n\.cv-tool \{[^}]*display: flex/);
   expect(block(".cv-tool__chevron")).toContain("order: 3");
+  expect(block(".acpmux-row .cv-tool > .cv-tool__trail")).toContain("order: 5");
+  expect(block(".acpmux-row .cv-tool > .cv-tool__trail")).toContain("margin-inline-start: auto");
   expect(css).toContain(".cv-tool:not(.cv-agentmsg__line) > .cv-command__meta,");
-  expect(css).toContain("  order: 4;");
-  // Message rows use the same shared flex sentence, with the trailing status outside it.
+  // A message line's sentence joins the line in the transcript, so the chevron can precede Copy;
+  // outside it (Home's run ledger) the sentence keeps the free width.
+  expect(block(".acpmux-row .cv-agentmsg__line > .cv-agentmsg__sentence")).toContain("display: contents");
   const agentCss = readFileSync(new URL("./AgentMessageRow.css", import.meta.url), "utf8");
   const sentence = /\.cv-agentmsg__sentence \{([^}]*)\}/.exec(agentCss)?.[1] ?? "";
   expect(sentence).toContain("flex: 1 1 0");

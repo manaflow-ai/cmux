@@ -4,7 +4,7 @@ name: cmux-next fast gates
 # (scripts/ci/cmux_next_fast_gates.py). On 2026-10-21 four base reds landed
 # through checks that only warn on a pull request or only run on push: webviews
 # lint/format and switch-fetches (ci-web's react-apps-check warns on a pull
-# request; `web lint (fast)` in cmux-next-web.yml fails only on push), a
+# request; `web lint (fast)` in cmux-next-web-lint.yml fails only on push), a
 # self-merge past its own red defaults-snapshot, and direct pushes that tripped
 # the crash ratchet. feat-cmux-next has no required checks.
 #
@@ -65,7 +65,10 @@ jobs:
     # before overflow, and emits move receipts for queued-only rescue. Never
     # default directly to a fleet label that may have no registered workers.
     # An explicit rerun replaces the queued run in this PR-only concurrency group.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    # A declared light job (.github/runners.json hosted_light_jobs): hosted Ubuntu on attempt 1, the
+    # reconciled Linux pool on a re-run (it holds no secret). On 2026-11-02 this queued on RUNNER_POOLS.linux's
+    # saturated blacksmith-4vcpu-ubuntu-2404 (hundreds of jobs deep) for a few seconds of work.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -328,7 +331,10 @@ jobs:
     name: post cmux-next/fast-gates
     needs: [resolve, fast-gates, panic-ratchet]
     if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    # A declared light job (.github/runners.json hosted_light_jobs): hosted Ubuntu on attempt 1, the
+    # reconciled Linux pool on a re-run (it holds no secret). On 2026-11-02 this queued on RUNNER_POOLS.linux's
+    # saturated blacksmith-4vcpu-ubuntu-2404 (hundreds of jobs deep) for a few seconds of work.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
       statuses: write

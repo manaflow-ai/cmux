@@ -64,7 +64,26 @@ done < <(CMUX_CI_DISABLE_COMPILATION_CACHE="${DECIDE_COLD_CACHE_DISABLE}" bash s
 # failing may fall back to a local cache.
 # shellcheck source=scripts/cmux-next/lib/compilation-cache.sh
 source scripts/cmux-next/lib/compilation-cache.sh
-run_release_build() {
+# The CAS size limit. The CAS starts a new primary generation whenever one ends a build above half
+# the limit and keeps one generation behind it, so with 3 GiB (1.5 GiB per generation, under one
+# build's 3.3 GB) every build rotated and two builds of other keys emptied it (16 nightly-next runs,
+# 2026-11-02). 10 GiB keeps about three builds when the CAS's volume has room for it beside the
+# build root and the nightly's other work (60 GiB free); glaeda's prune empties a CAS past 20 GiB.
+cas_limit_bytes=3221225472
+cas_dir=/Users/Shared
+for setting in "${fleet_cache_settings[@]}"; do
+  case "$setting" in COMPILATION_CACHE_CAS_PATH=*) cas_dir="${setting#*=}" ;; esac
+done
+while [[ ! -d "$cas_dir" && "$cas_dir" == /?* ]]; do cas_dir="${cas_dir%/*}"; done
+cas_free_kib="$(df -Pk "${cas_dir:-/}" 2>/dev/null | awk 'NR==2 {print $4}')" || cas_free_kib=""
+if [[ "${BUILD_TRACK:-}" == nightly-next && "$cas_free_kib" =~ ^[0-9]+$ ]] && (( cas_free_kib >= 60 * 1024 * 1024 )); then
+  cas_limit_bytes=10737418240
+fi
+echo "compilation cache limit: $cas_limit_bytes bytes (${cas_free_kib:-unknown} KiB free under ${cas_dir:-/})" >&2
+# One build root per nightly Mac when this slot keeps build state (app-host-build-root.sh).
+# shellcheck source=scripts/ci/nightly-steps/app-host-build-root.sh
+source scripts/ci/nightly-steps/app-host-build-root.sh
+run_release_build() (
   local disable_fleet_cache="${1:-0}"
   local settings=()
   if [[ "$disable_fleet_cache" != 1 ]]; then
@@ -72,11 +91,12 @@ run_release_build() {
   else
     settings=("${local_cache_settings[@]}")
   fi
+  cd "$build_root"
   python3 scripts/ci/run-with-helper-prebuild.py \
-    --derived-data build-universal --configuration Release --archs "$archs" \
+    --derived-data "$derived_data" --configuration Release --archs "$archs" \
     --log "$RUNNER_TEMP/helper-prebuild.log" -- \
   ./scripts/ci/run-xcodebuild-with-diagnostics.sh -- \
-    env CMUX_NEXT_TUI_MODE=deferred CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+    env CMUX_NEXT_TUI_MODE=deferred CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath "$derived_data" \
     -destination 'generic/platform=macOS' \
     -clonedSourcePackagesDirPath .spm-cache \
     -packageCachePath "$PWD/.spm-cache/.package-cache" \
@@ -84,11 +104,15 @@ run_release_build() {
     ARCHS="$archs" \
     ONLY_ACTIVE_ARCH="$only_active" \
     COMPILATION_CACHE_ENABLE_CACHING=YES \
-    COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
+    COMPILATION_CACHE_LIMIT_SIZE="$cas_limit_bytes" \
     ${settings[@]+"${settings[@]}"} \
     COMPILER_INDEX_STORE_ENABLE=NO \
     CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME="$CHANNEL_ICON_NAME" \
     "${notary_test_flags[@]}"
+)
+# The host root's products go to this workspace while the lock is still held.
+finish_host_build() {
+  [[ -z "$host_root" ]] || python3 scripts/ci/nightly_build_state.py finish-host "$host_root"
 }
 # A live CAS failure is recoverable: preserve the build's incremental inputs,
 # then retry once with Xcode's local cache. Other compile failures remain red.
@@ -99,6 +123,9 @@ set -e
 if [[ "$release_status" -ne 0 ]] && cmux_next_runtime_cas_failed "$RUNNER_TEMP/nightly-release-build.log"; then
   echo "::warning::managed fleet compilation cache failed; retrying the Release build with the local cache"
   run_release_build 1
+  finish_host_build
+elif [[ "$release_status" -eq 0 ]]; then
+  finish_host_build
 else
   exit "$release_status"
 fi
