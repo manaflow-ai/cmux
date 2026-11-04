@@ -97,6 +97,7 @@ await requireBrowserLane("thread-rail-pending-load.test.ts", async () => {
         state.__setPromptIndex(() => {
           state.__indexReads += 1;
           return new Promise<boolean>((done) =>
+            // fixed-wait: the fake client's index read takes a moment, as acpmux's does, so the card opens pending first.
             setTimeout(() => {
               state.__extra = { earlier: index };
               state.__showRows(state.__rows, state.__extra);
@@ -107,6 +108,7 @@ await requireBrowserLane("thread-rail-pending-load.test.ts", async () => {
         state.__setLoadThrough((seq) => {
           state.__loads.push(seq);
           return new Promise<boolean>((done) =>
+            // fixed-wait: the read's rows reach the transcript in a later task, as a snapshot does.
             setTimeout(() => {
               state.__rows = all.slice((seq - 1) * 3);
               state.__extra = seq > 1 ? { earlier: index.slice(0, seq - 1) } : {};
