@@ -62,6 +62,8 @@ pub(crate) struct Shared {
     /// Wakes waiters: the durable LSN moved, or the writer ended.
     pub(crate) durable: Condvar,
     pub(crate) listeners: Mutex<Vec<Listener>>,
+    /// Called with the new written LSN after each batch's write, before its sync.
+    pub(crate) written_listeners: Mutex<Vec<Listener>>,
 }
 
 impl Shared {
@@ -215,6 +217,7 @@ impl Journal {
             wake: Condvar::new(),
             durable: Condvar::new(),
             listeners: Mutex::new(Vec::new()),
+            written_listeners: Mutex::new(Vec::new()),
         });
         let report = recovered.report;
         let lock = recovered.lock;
@@ -298,6 +301,20 @@ impl Journal {
     /// caller's thread: call it off any request path.
     pub fn clear_damage(&self) -> std::io::Result<()> {
         recovery::clear_damage(self.storage.as_ref(), &self.dir)
+    }
+
+    /// Calls `listener` with the new written LSN after each batch is written, before it is synced,
+    /// on the writer thread. A written record survives a kill of any or all processes (it is in
+    /// the page cache), not an OS crash. A daemon's projector writes its compaction output from
+    /// here, so it never holds a record the journal never held. It must return quickly and never
+    /// wait. A batch written again into a new segment (after a failed sync) is not heard twice.
+    /// When the writer stops, the listeners are dropped.
+    pub fn on_written(&self, listener: impl Fn(Lsn) + Send + Sync + 'static) {
+        self.shared
+            .written_listeners
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(Arc::new(listener));
     }
 
     /// Blocks until record `lsn` is durable. For tests and tools: a daemon's request path
