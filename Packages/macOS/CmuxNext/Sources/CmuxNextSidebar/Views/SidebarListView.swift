@@ -127,6 +127,8 @@ final class SidebarListView: NSView {
     let groupEditor = SidebarGroupEditor()
     var groupEditorItems: ((GroupID) -> [[SidebarGroupEditorItem]])?
     var onGroupEditorItem: ((GroupID, String) -> Void)?
+    /// The group editor's Sort menu for a group: the App's `workspaceGroup.setSort` choices, the group's sort checked.
+    var groupSortMenu: ((GroupID) -> NSMenu?)?
     var groupEditing: SidebarGroupEditing { SidebarGroupEditing(list: self) }
     /// Drag autoscroll frames from the window's FrameScheduler.
     lazy var autoscroll = SidebarDragAutoscroll(list: self)
