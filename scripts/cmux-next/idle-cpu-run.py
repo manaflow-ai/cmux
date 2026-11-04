@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import signal
@@ -85,6 +86,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--minutes", type=float, default=10.0)
     ap.add_argument("--chats", type=int, default=0)
     ap.add_argument("--history", type=int, default=0, help="Claude and Codex chats seeded in the fresh home")
+    ap.add_argument("--history-prompt-kb", type=int, default=0, help="each seeded Codex row's prompt size in KB")
+    ap.add_argument("--writers", type=float, default=0.0,
+                    help="outside agents: one Codex DB write and one Claude line every this many seconds (0: none)")
     ap.add_argument("--windows", type=int, default=3)
     ap.add_argument("--window", type=float, default=60.0)
     ap.add_argument("--sample-each-window", action="store_true", help="`sample` the busiest process after each window")
@@ -97,8 +101,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", action="store_true",
                     help="with --wait: the last stdout line is the step's IDLE-CPU-JSON object (or a one-line reason)")
     a = ap.parse_args(argv)
-    if a.windows < 1 or a.window <= 0 or a.minutes < 0 or a.chats < 0 or a.history < 0:
-        print("idle-cpu-run: --windows >= 1, --window > 0, --minutes, --chats and --history >= 0", file=sys.stderr)
+    if (a.windows < 1 or a.window <= 0 or a.minutes < 0 or a.chats < 0 or a.history < 0 or a.history_prompt_kb < 0
+            or a.writers < 0 or not all(math.isfinite(x) for x in (a.window, a.minutes, a.writers))
+            or (a.writers > 0 and a.history <= 0)):
+        print("idle-cpu-run: --windows >= 1, --window > 0; --minutes, --chats, --history, --history-prompt-kb and "
+              "--writers >= 0 and finite; --writers needs --history", file=sys.stderr)
         return 2
     if a.mini and a.mini not in MINIS:
         print(f"idle-cpu-run: --mini must be one of {', '.join(MINIS)}", file=sys.stderr)
@@ -122,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
         "minis": [a.mini] if a.mini else list(MINIS),
         "cmux_ci_args": ["--measurement", "--label", "measure", "--label", "gui-session-v1",
                          "--script", SCRIPT, f"--arg=artifact={build['artifact']}", f"--arg=minutes={a.minutes:g}",
-                         f"--arg=chats={a.chats}", f"--arg=history={a.history}", f"--arg=windows={a.windows}", f"--arg=window={a.window:g}", f"--arg=sample={'each' if a.sample_each_window else 1}",
+                         f"--arg=chats={a.chats}", f"--arg=history={a.history}", f"--arg=prompt_kb={a.history_prompt_kb}", f"--arg=writers={a.writers:g}", f"--arg=windows={a.windows}", f"--arg=window={a.window:g}", f"--arg=sample={'each' if a.sample_each_window else 1}",
                          "--artifact", ".build/idle-cpu/report.tgz", "--timeout", str(minutes_total * 60)],
         "verdict": str(VERDICT),
         "note": f"build {build['id']} commit {build['ref']}; scripts/cmux-next/idle-cpu-run.py",

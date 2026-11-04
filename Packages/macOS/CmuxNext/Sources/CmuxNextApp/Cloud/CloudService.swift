@@ -170,8 +170,8 @@ final class CloudService {
         self.machines = machines
         self.mainWork = mainWork
         self.work = work
-        configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild) // a capture build's bench hooks: CloudConfiguration.benchHooksCompiled
-        auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture)
+        configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild, nightlyIsRunning: { SessionHandoffClient.nightly().isListening() }) // bench hooks: benchHooksCompiled
+        auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture, nightlySession: { await SessionHandoffClient.nightly().fetchTokens() })
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
         deviceID = CloudDeviceID(paths: paths, work: work)
         let auth = auth
