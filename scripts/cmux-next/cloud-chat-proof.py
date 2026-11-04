@@ -36,14 +36,14 @@ from pathlib import Path
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True, help="the tagged app bundle")
 parser.add_argument("--tag", required=True)
-parser.add_argument("--prompt", default="")
+parser.add_argument("--prompt", default=None)
 parser.add_argument("--agent", default="claude")
 parser.add_argument("--evidence", required=True)
 parser.add_argument("--cleanup-machine", default="", help="vm_<hex>: inspect and kill this machine, no chat")
 args = parser.parse_args()
 if args.cleanup_machine and not re.fullmatch(r"vm_[0-9a-f]{1,64}", args.cleanup_machine):
     parser.error("--cleanup-machine must look like vm_<lowercase hex>")
-if not args.cleanup_machine and not args.prompt:
+if not args.cleanup_machine and args.prompt is None:
     parser.error("--prompt is required without --cleanup-machine")
 
 CLI = str(Path(args.app) / "Contents/Resources/bin/cmux")
@@ -71,8 +71,8 @@ SECRET_PATTERNS = (
 evidence = {
     "tag": None,
     "agent": args.agent,
-    "prompt_sha256": hashlib.sha256(args.prompt.encode("utf-8")).hexdigest(),
-    "prompt_bytes": len(args.prompt.encode("utf-8")),
+    "prompt_sha256": hashlib.sha256((args.prompt or "").encode("utf-8")).hexdigest(),
+    "prompt_bytes": len((args.prompt or "").encode("utf-8")),
     "steps": [],
 }
 
@@ -226,7 +226,8 @@ IDLE_PAUSE_FIELDS = ("minutes", "last_checked_at", "idle_since", "last_api_activ
 
 def scalar(value: object) -> object:
     if isinstance(value, str):
-        return clean(value, 300)
+        # Left out, not redacted: a `token=[withheld]` would still trip the workflow's evidence scan.
+        return "[left out]" if EVIDENCE_SCAN.search(value) else clean(value, 300)
     return value if isinstance(value, (int, float, bool)) or value is None else None
 
 

@@ -158,6 +158,7 @@ class CloudChatProofCleanupTests(unittest.TestCase):
             done = self.run_proof(tmp_path, "--cleanup-machine", "vm_abc123")
             self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
             text = (tmp_path / "evidence.json").read_text()
+            self.assertNotIn("token=", text)
             for leaked in ("abcdef123456", "10.0.0.9", "a@b.c"):
                 self.assertNotIn(leaked, text)
                 self.assertNotIn(leaked, done.stdout)
