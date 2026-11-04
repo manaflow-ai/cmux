@@ -1276,3 +1276,147 @@ fn a_chat_deleted_after_its_failed_repair_does_not_get_its_old_lines() {
         .collect();
     assert_eq!(kinds, vec!["created-again".to_owned()], "the new chat got the old chat's lines");
 }
+
+// ---------------------------------------------------------------- the open's checkpoint in flight
+
+/// A record whose long text a retention rewrite cuts (`store/compact.rs`).
+fn long_line(seq: u64) -> EventRecord {
+    EventRecord {
+        seq,
+        at: 1_000 + seq,
+        dir: "in".into(),
+        kind: "claude.assistant".into(),
+        msg: json!({ "text": "x".repeat(8 * 1024) }),
+        host_seq: None,
+    }
+}
+
+/// The names in `journal-unapplied/` that start with `id`.
+fn kept_aside(home: &Path, id: &str) -> Vec<String> {
+    std::fs::read_dir(home.join("journal-unapplied"))
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .filter(|name| name.starts_with(id))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A retention rewrite of a chat whose records are all checkpointed (retention takes a chat
+/// untouched for days) runs no checkpoint of its own. Its caller holds the chat's append lock for
+/// the commit (`hub/retention.rs`), so a checkpoint in flight, such as the one the checkpointer
+/// runs right after a restart's replay (seconds with many chats), must not hold that lock: a
+/// person's first message to that chat would wait for it.
+#[test]
+fn a_retention_rewrite_of_a_checkpointed_chat_does_not_wait_for_a_checkpoint() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(83);
+    let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &long_line(2)).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let staged = store
+        .stage_compaction(CHAT, CompactMode::Write { archive: None })
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .unwrap_or_else(|| panic!("nothing to compact"));
+    // A checkpoint in flight: chat-b's record waits in a 2 s sync, and the checkpoint for it.
+    journal.set_sync_delay(Duration::from_secs(2));
+    store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    let flusher = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || store.flush())
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    let started = std::time::Instant::now();
+    let committed = store.commit_compaction(CHAT, staged).unwrap_or_else(|e| panic!("{e:#}"));
+    let took = started.elapsed();
+    journal.set_sync_delay(Duration::ZERO);
+    flusher
+        .join()
+        .unwrap_or_else(|_| panic!("the flush panicked"))
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(committed, "the rewrite was refused");
+    assert!(
+        took < Duration::from_millis(500),
+        "the retention rewrite of a checkpointed chat waited {took:?} for a checkpoint in flight"
+    );
+}
+
+/// The other way: a retention rewrite of a chat with a record past the checkpoint checkpoints
+/// first, so a kill right after it replays no line the rewrite cut, and keeps no copy aside.
+#[test]
+fn a_retention_rewrite_of_a_chat_with_records_past_the_checkpoint_checkpoints_first() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(84);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &long_line(2)).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let staged = store
+        .stage_compaction(CHAT, CompactMode::Write { archive: None })
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .unwrap_or_else(|| panic!("nothing to compact"));
+    assert!(store.commit_compaction(CHAT, staged).unwrap_or_else(|e| panic!("{e:#}")));
+    let log = home.path().join("sessions").join(CHAT).join("events/000001.ndjson");
+    let cut = std::fs::read(&log).unwrap_or_else(|e| panic!("{e}"));
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let store = open(home.path(), &killed);
+    assert_eq!(seqs(store.as_ref(), CHAT), vec![1, 2]);
+    assert!(
+        std::fs::read(&log).unwrap_or_else(|e| panic!("{e}")) == cut,
+        "a replay wrote lines a retention rewrite cut back into the log"
+    );
+    assert!(
+        kept_aside(home.path(), CHAT).is_empty(),
+        "a replay kept a rewritten chat's journaled lines aside: {:?}",
+        kept_aside(home.path(), CHAT)
+    );
+}
+
+/// The same after a restart: a chat the replay wrote has records past the checkpoint until the
+/// checkpoint after the open, so its retention rewrite checkpoints first too. (A guard of the
+/// outcome: the checkpointer may finish the open's checkpoint before the rewrite, and then the
+/// rewrite needs none.)
+#[test]
+fn a_retention_rewrite_of_a_replayed_chat_checkpoints_first() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(85);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &long_line(2)).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    // The checkpoint after the open waits in a 2 s sync of chat-b's line: the replayed records
+    // stay past the checkpoint while the rewrite runs.
+    let store = open(home.path(), &killed);
+    killed.set_sync_delay(Duration::from_secs(2));
+    store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    let staged = store
+        .stage_compaction(CHAT, CompactMode::Write { archive: None })
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .unwrap_or_else(|| panic!("nothing to compact"));
+    assert!(store.commit_compaction(CHAT, staged).unwrap_or_else(|e| panic!("{e:#}")));
+    killed.set_sync_delay(Duration::ZERO);
+    let log = home.path().join("sessions").join(CHAT).join("events/000001.ndjson");
+    let cut = std::fs::read(&log).unwrap_or_else(|e| panic!("{e}"));
+    let again = killed.restart(Crash::Process);
+    drop(store);
+    let store = open(home.path(), &again);
+    assert_eq!(seqs(store.as_ref(), CHAT), vec![1, 2]);
+    assert!(
+        std::fs::read(&log).unwrap_or_else(|e| panic!("{e}")) == cut,
+        "a replay wrote lines a retention rewrite cut back into the log"
+    );
+    assert!(
+        kept_aside(home.path(), CHAT).is_empty(),
+        "a replay kept a rewritten chat's journaled lines aside: {:?}",
+        kept_aside(home.path(), CHAT)
+    );
+}
