@@ -17,10 +17,14 @@ import UIKit
         let store = ConversationStore(backend: backend)
         let controller = ConversationViewController(store: store, options: .chief)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.overrideUserInterfaceStyle = .light
         window.rootViewController = controller
-        window.isHidden = false
+        window.makeKeyAndVisible()
+        controller.beginAppearanceTransition(true, animated: false)
+        controller.endAppearanceTransition()
         window.layoutIfNeeded()
         try await until { store.hasLoadedNewest }
+        try await settle(window)
 
         let batches = 32
         let perBatch = 50
@@ -36,9 +40,9 @@ import UIKit
             try await until { store.messages.last?.seq == expected }
             // The bound runs on the turn after the arrival lands.
             for _ in 0..<4 { await Task.yield() }
-            window.layoutIfNeeded()
+            try await settle(window)
             maxLoaded = max(maxLoaded, store.messages.count)
-            print("CHIEF_WINDOW batch=\(batch) arrived=\(seq) loaded=\(store.messages.count)")
+            print("CHIEF_WINDOW batch=\(batch) arrived=\(seq) loaded=\(store.messages.count) cells=\(Self.visibleCells(in: window))")
             record(window: window, frame: batch, arrived: seq, loaded: store.messages.count)
         }
         print("CHIEF_WINDOW final arrived=\(seq) loaded=\(store.messages.count) max=\(maxLoaded) threshold=\(ConversationStore.windowTrimThreshold)")
@@ -59,6 +63,19 @@ import UIKit
         }
     }
 
+    /// Lets the view's own next-turn work (row landing, cell layout) run, then lays it out.
+    private func settle(_ window: UIWindow) async throws {
+        for _ in 0..<6 {
+            try await Task.sleep(for: .milliseconds(16))
+            window.layoutIfNeeded()
+        }
+    }
+
+    private static func visibleCells(in view: UIView) -> Int {
+        if let collection = view as? UICollectionView { return collection.visibleCells.count }
+        return view.subviews.reduce(0) { $0 + visibleCells(in: $1) }
+    }
+
     /// One frame: the conversation as drawn, with a banner of the counts.
     private func record(window: UIWindow, frame: Int, arrived: Int, loaded: Int) {
         let size = window.bounds.size
@@ -67,9 +84,7 @@ import UIKit
         let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
             UIColor.systemBackground.setFill()
             context.fill(window.bounds)
-            if !window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) {
-                window.layer.render(in: context.cgContext)
-            }
+            window.layer.render(in: context.cgContext)
             let banner = CGRect(x: 0, y: size.height - 132, width: size.width, height: 132)
             let over = loaded > ConversationStore.windowTrimThreshold
             (over ? UIColor.systemRed : UIColor.systemGreen).withAlphaComponent(0.92).setFill()
