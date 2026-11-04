@@ -47,9 +47,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Switches a bench run sets (`CMUX_NEXT_BENCH_CEF_SWITCHES`, development and bench bundles of a
     /// Debug or bench build only): only the names in ``benchSwitchNames``.
     var benchSwitches: [String] = []
-    /// The agent site's main-frame cap from the default-off feature `agentPageRendererSharing` (its
-    /// `mainFrames` param); nil while the feature is off.
-    var agentPageMainFrameCap: Int?
     /// PL-memory's cmux page sharing table (``pageSchemeProcessPerSite``): each cmux page host that may
     /// share a renderer, with its cap (``CEFPageSchemes/siteCaps(_:)``). Empty: no switch.
     var pageSiteCaps: [PageSiteCap] = []
@@ -137,7 +134,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // fewer main frames than the cap and no DevTools agent (cmux_page_groups.cc).
         // A host with no entry keeps Chromium's process per origin. Without the renderer paths every
         // page talks through DevTools and the fork shares none, so the switch needs them too.
-        let siteCaps = pageSiteTable
+        let siteCaps = pageSiteCaps
         if rendererPaths, forkAPIVersion >= Self.pageSiteSharingForkAPI, !siteCaps.isEmpty {
             result.append(Self.pageSchemeProcessPerSiteArgument(siteCaps))
         }
@@ -264,22 +261,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         String(entry.prefix { $0 != "=" })
     }
 
-    /// The one cmux page sharing table the switch carries: ``pageSiteCaps``, with the agent site's entry
-    /// set to ``agentPageMainFrameCap`` when that feature gives one.
-    var pageSiteTable: [PageSiteCap] {
-        guard let agentCap = agentPageMainFrameCap else { return pageSiteCaps }
-        let others = pageSiteCaps.filter { $0.site != Self.agentPageSite }
-        return (others + [PageSiteCap(site: Self.agentPageSite, mainFrames: agentCap)]).sorted { $0.site < $1.site }
-    }
-
     /// PL-memory's switch for the cmux page scheme (p07-memory 049: ShouldUseProcessPerSite in the fork).
     /// Its value lists the cmux-page sites that share a renderer, each with the most main frames one
     /// renderer takes; a cmux-page site with no entry keeps Chrome's process reuse.
     static let pageSchemeProcessPerSite = "cmux-page-scheme-process-per-site"
-
-    /// The New Tab and every agent chat are this one site (`cmux-page://cmux.agent`), shared the way Chrome
-    /// shares one process for every NTP (ChromeContentBrowserClient::ShouldUseProcessPerSite).
-    static let agentPageSite = "cmux.agent"
 
     /// One cmux-page site and its main-frame cap. Chrome has one cap for every site, the
     /// ProcessPerSiteMainFrameThreshold param (2) of kProcessPerSiteUpToMainFrameThreshold
@@ -390,7 +375,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         builtInExtensions: [String] = [],
         builtInExtensionsAtFirstTab: Bool = false,
         keepsUnpackedEnabled: Bool = false,
-        agentPageMainFrameCap: Int? = nil,
         pageSiteCaps: [PageSiteCap] = [],
         sharedRendererMemoryCaps: CEFSharedRendererMemoryCaps? = nil
     ) -> CEFSwitches {
@@ -428,7 +412,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             keepsUnpackedEnabled: keepsUnpackedEnabled,
             extraSwitches: extra,
             benchSwitches: bench,
-            agentPageMainFrameCap: agentPageMainFrameCap,
             pageSiteCaps: pageSiteCaps,
             sharedRendererMemoryCaps: sharedRendererMemoryCaps
         )
