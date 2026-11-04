@@ -2383,9 +2383,21 @@ unset CMUX_MERGED_SETTINGS_PATH cmux_merge_status CMUX_SETTINGS_INPUTS_PATH
 # the inline JSON here as a second ARG_MAX multiplier.
 if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
     if [[ "$CMUX_SETTINGS_MERGE_SUCCEEDED" == true ]]; then
-        # A successful merge has replaced settings with the private file path,
-        # so the filtered argv is the authoritative compact launch snapshot.
-        export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "${CMUX_FILTERED_ARGS[@]}")"
+        # A successful merge folded the user's settings into the private file,
+        # which is not in the filtered argv. Record the user's own values so a
+        # restore merges them again: paths as given, inline JSON as a durable
+        # file so the snapshot stays compact.
+        cmux_restore_settings_args=()
+        for cmux_user_settings_value in "${CMUX_USER_SETTINGS[@]}"; do
+            cmux_user_settings_trimmed="${cmux_user_settings_value#"${cmux_user_settings_value%%[![:space:]]*}"}"
+            if [[ "$cmux_user_settings_trimmed" == \{* || "$cmux_user_settings_trimmed" == \[* ]] &&
+               cmux_user_settings_durable="$(cmux_claude_wrapper_create_durable_settings_file "$cmux_user_settings_value")"; then
+                cmux_user_settings_value="$cmux_user_settings_durable"
+            fi
+            cmux_restore_settings_args+=("--settings" "$cmux_user_settings_value")
+        done
+        export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "${cmux_restore_settings_args[@]}" "${CMUX_FILTERED_ARGS[@]}")"
+        unset cmux_restore_settings_args cmux_user_settings_value cmux_user_settings_trimmed cmux_user_settings_durable
     else
         # Preserve the caller's original settings in restore metadata when the
         # merge is unavailable; the argument-size guard keeps this bounded.
