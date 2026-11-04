@@ -305,7 +305,8 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
   const findByName = async (): Promise<string | null> => {
     const r = run(["cloud", "list-machines", "--json"], 60_000);
     const rows: any[] = r.json?.machines ?? r.json?.items ?? (Array.isArray(r.json) ? r.json : []);
-    const row = rows.find((m) => m?.name === appName && m.status !== "deleted");
+    // `cloud list-machines --json` rows carry `title` (the app's CloudMachine), the API's `name`.
+    const row = rows.find((m) => (m?.title ?? m?.name) === appName && m.status !== "deleted");
     return row ? String(row.id ?? row.machine_id) : null;
   };
   let machine: string | null = null;
@@ -360,6 +361,16 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
   }
 }
 
+/**
+ * Steps that passed on the version before a deploy and fail after it: the deploy's own reds. A step that
+ * was already red before (a known backend bug) is not the deploy's fault and never triggers a rollback.
+ * With no baseline (the first run, or it could not sign in), every failed step counts.
+ */
+export function newReds(before: Step[] | null, after: Step[]): Step[] {
+  const passed = new Set((before ?? []).filter((s) => s.status === "pass").map((s) => s.step));
+  return after.filter((s) => s.status === "fail" && (before === null || passed.has(s.step)));
+}
+
 function argValue(flag: string, argv: string[]): string | undefined {
   const i = argv.indexOf(flag);
   return i >= 0 ? argv[i + 1] : undefined;
@@ -369,6 +380,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
     console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split("*/")[0]);
     return 0;
+  }
+  // --compare BEFORE.json AFTER.json: exit 3 when the deploy made a step red (newReds), 0 otherwise.
+  const compare = argv.indexOf("--compare");
+  if (compare >= 0) {
+    const load = (f: string | undefined): Step[] | null => {
+      try { return f ? (JSON.parse(readFileSync(f, "utf8")).steps as Step[]) : null; } catch { return null; }
+    };
+    const before = load(argv[compare + 1]);
+    const after = load(argv[compare + 2]) ?? [];
+    const reds = newReds(before, after);
+    for (const r of reds) console.log(`NEW RED ${r.step}: ${r.detail.slice(0, 300)}`);
+    console.log(reds.length ? `${reds.length} step(s) red after the deploy that were green before it` : "no new reds");
+    return reds.length ? 3 : 0;
   }
   const backend = resolveBackend(argValue("--backend", argv) ?? (argValue("--api", argv) ? "custom" : "staging"), argValue("--api", argv), argValue("--stack", argv), Number(argValue("--local-port", argv) ?? 8787));
   const outArg = argValue("--out", argv);
@@ -553,9 +577,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
     // POST /v1/handoffs {sessionId, machine} (backend/apps/api/src/handoffs/routes.ts). Production leaves the
     // hand-off bindings unbound until it ships there and answers 404: that is a SKIP, not a red.
-    const handoff = await api.raw("POST", "/v1/handoffs", { sessionId: session, machine: created.id });
-    if (handoff.status === 404) J.skip("handoff record", "hand-off is not deployed on this backend (404)");
+    // A transport error is recorded as this step's failure; the journey goes on to its next steps.
+    const handoff = await api.raw("POST", "/v1/handoffs", { sessionId: session, machine: created.id }).catch((error: Error) => error);
+    if (!(handoff instanceof Error) && handoff.status === 404) J.skip("handoff record", "hand-off is not deployed on this backend (404)");
     else await J.step("handoff record", async () => {
+      if (handoff instanceof Error) throw new Error(`/v1/handoffs: ${handoff.message}`);
       if (handoff.status >= 300) throw new Error(`/v1/handoffs: HTTP ${handoff.status} ${short(handoff.body.error ?? handoff.body)}`);
       return { value: null, detail: `HTTP ${handoff.status} ${short(handoff.body.value?.id ?? handoff.body.id ?? handoff.body)}` };
     }).catch(() => undefined);
