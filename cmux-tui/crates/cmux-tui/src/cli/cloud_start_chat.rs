@@ -856,8 +856,9 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
             None => (
                 "chat.relay_pending".to_owned(),
                 format!(
-                    "the machine took the chat but has not started it yet; do not send it again. See its sessions \
-                     with: cmux cloud exec --target machine:{machine_id} --command '{GUEST_CMUX} acp ls'"
+                    "the chat is on its way to the machine or waiting for it, and has not started yet; do not \
+                     send it again. See its sessions with: cmux cloud exec --target machine:{machine_id} \
+                     --command '{GUEST_CMUX} acp ls'"
                 ),
                 75,
             ),
