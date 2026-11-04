@@ -20,7 +20,8 @@ pub struct Owner {
     pub pid: i32,
     /// `proc_bsdinfo.pbi_start_tvsec` / `pbi_start_tvusec` (macOS), or
     /// `(start, 0)` from a cmux Remote host's `start` (Windows: the
-    /// process creation FILETIME; Linux: start ticks, not compared).
+    /// process creation FILETIME; Linux: start ticks since boot, compared with
+    /// `/proc/<pid>/stat` by `server_is_owner`).
     pub start: Option<(u64, u64)>,
 }
 
@@ -32,7 +33,7 @@ impl Owner {
         let start = value["start_sec"]
             .as_u64()
             .zip(value["start_usec"].as_u64())
-            .or_else(|| value["start"].as_u64().filter(|start| *start != 0).map(|start| (start, 0)));
+            .or_else(|| value.get("start").and_then(serde_json::Value::as_u64).filter(|start| *start != 0).map(|start| (start, 0)));
         Some(Owner { pid, start })
     }
 }

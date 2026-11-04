@@ -137,6 +137,9 @@ pub async fn check(
         checked.arguments = Value::Object(rewrite_launch(object, &launched, cfg!(windows))?);
         return Ok(checked);
     }
+    if tool == "browser_navigate" {
+        check_navigate_url(object)?;
+    }
     if let Some(value) = present(object, "app_name") {
         let reference = value.as_str().filter(|text| !text.is_empty()).ok_or_else(|| unresolved("app_name"))?;
         let app = resolver.app_named(reference).await;
@@ -157,6 +160,27 @@ fn check_selector_keys(tool: &str, object: &Map<String, Value>) -> Result<(), Ca
     }
 }
 
+/// Whether `url` opens cmux (`cmux:`, `cmux-…:`, `cmux+…:`).
+fn opens_cmux(url: &str) -> bool {
+    url.split_once(':').is_some_and(|(scheme, _)| {
+        let scheme = scheme.trim().to_ascii_lowercase();
+        scheme == "cmux" || scheme.starts_with("cmux-") || scheme.starts_with("cmux+")
+    })
+}
+
+fn cmux_refused() -> CallError {
+    CallError::new("target_refused", "Computer Use is not allowed to use cmux for safety reasons")
+}
+
+/// `browser_navigate`'s `url` never opens cmux through the browser's protocol handler
+/// (review 3 #4); the browser itself is the call's checked target.
+fn check_navigate_url(object: &Map<String, Value>) -> Result<(), CallError> {
+    match present(object, "url").and_then(Value::as_str) {
+        Some(url) if opens_cmux(url) => Err(cmux_refused()),
+        _ => Ok(()),
+    }
+}
+
 /// `launch_app`'s `urls`: the Swift guard's `cmux:`, `cmux-…:`, `cmux+…:`
 /// refusal, then every other URL (opened in an app this guard cannot resolve).
 fn check_urls(object: &Map<String, Value>) -> Result<(), CallError> {
@@ -164,11 +188,8 @@ fn check_urls(object: &Map<String, Value>) -> Result<(), CallError> {
     let urls = urls.as_array().ok_or_else(|| CallError::new("bad_request", "launch_app urls must be a list of strings"))?;
     for url in urls {
         let url = url.as_str().ok_or_else(|| CallError::new("bad_request", "launch_app urls must be a list of strings"))?;
-        if let Some((scheme, _)) = url.split_once(':') {
-            let scheme = scheme.to_ascii_lowercase();
-            if scheme == "cmux" || scheme.starts_with("cmux-") || scheme.starts_with("cmux+") {
-                return Err(CallError::new("target_refused", "Computer Use is not allowed to use cmux for safety reasons"));
-            }
+        if opens_cmux(url) {
+            return Err(cmux_refused());
         }
     }
     if urls.is_empty() {

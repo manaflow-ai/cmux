@@ -63,7 +63,7 @@ struct DesktopDiscovery: Sendable {
     /// What the result tells the agent about the missing titles.
     static let titlesHidden = "hidden until you are allowed to use the app"
     static let howToTarget = "Titles, screenshots and input need the person's approval of that app: "
-        + "call the tool you need with its pid (and window_id); the first call on an app asks the person."
+        + "call the tool you need with its pid (and window_id); the first call on an app asks the person (on a box set up by its owner, an app outside the owner's list is refused instead)."
 
     /// The discovery call the worker answers.
     enum Call: Equatable {
@@ -135,10 +135,13 @@ struct DesktopDiscovery: Sendable {
 struct OwnerManifestFacts: Sendable, Equatable {
     let bundleIDs: Set<String>
     let display: Bool
+    /// The manifest's `allow.tools`: discovery is answered only for those (review 3 #2).
+    let tools: Set<String>
 
-    init(bundleIDs: Set<String>, display: Bool) {
+    init(bundleIDs: Set<String>, display: Bool, tools: Set<String> = ["list_apps", "list_windows"]) {
         self.bundleIDs = bundleIDs
         self.display = display
+        self.tools = tools
     }
 
     init?(data: Data) {
@@ -147,6 +150,7 @@ struct OwnerManifestFacts: Sendable, Equatable {
         let apps = resources["apps"] as? [[String: Any]] ?? []
         bundleIDs = Set(apps.compactMap { ($0["bundle_id"] as? String)?.lowercased() })
         display = ((resources["desktop"] as? [String: Any])?["display"] as? Bool) == true
+        tools = Set(((object["allow"] as? [String: Any])?["tools"] as? [String]) ?? [])
     }
 
     init?(path: String?) {

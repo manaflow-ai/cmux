@@ -5,8 +5,8 @@ import CmuxNextDesign
 /// The approval cards (docs/computer-use-approvals.md, Collectors): one cmux dialog per waiting
 /// question, each in its own floating, non-activating panel at the top right of the main screen,
 /// stacked downward. A card shows over every app and never takes the frontmost app or the
-/// keyboard by itself; once the person clicks it, its keys work (Return: Allow Once, Escape:
-/// Deny, Command-S: Allow for This Session, Command-A: Always Allow). Only a press on a card
+/// keyboard by itself; once the person clicks it, Escape denies. No key allows: Return has no
+/// default and no allow has a Command key, so a stray keystroke never grants. Only a press on a card
 /// answers from here, and none in the first ``ComputerUseApprovalPressGuard/delay`` after the card
 /// shows or moves (a click or key meant for what was there a moment ago never answers it).
 @MainActor

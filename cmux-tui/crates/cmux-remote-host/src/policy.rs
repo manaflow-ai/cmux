@@ -14,7 +14,8 @@ const CMUX: &[&str] = &[
 ];
 const PASSWORD_MANAGERS: &[&str] = &[
     "keepassxc", "keepass", "1password", "bitwarden", "enpass", "seahorse", "kwalletmanager5", "kwalletmanager",
-    "gnome-keyring-daemon", "credentialuibroker",
+    "gnome-keyring-daemon", "credentialuibroker", "pinentry", "pinentry-gnome3", "pinentry-qt", "pinentry-gtk-2",
+    "pinentry-curses", "pinentry-tty", "ssh-askpass", "ksshaskpass", "x11-ssh-askpass", "lxqt-openssh-askpass",
 ];
 const AUTHENTICATION: &[&str] = &[
     "gcr-prompter", "gcr4-prompter", "polkit-gnome-authentication-agent-1", "polkit-kde-authentication-agent-1",
@@ -30,7 +31,9 @@ const TERMINALS: &[&str] = &[
     "gnome-terminal", "gnome-terminal-server", "kgx", "ptyxis", "konsole", "xterm", "uxterm", "alacritty", "kitty",
     "wezterm", "wezterm-gui", "foot", "footclient", "tilix", "terminator", "xfce4-terminal", "lxterminal",
     "mate-terminal", "urxvt", "st", "ghostty", "windowsterminal", "wt", "openconsole", "conhost", "cmd", "powershell",
-    "pwsh", "powershell_ise", "mintty", "bash", "sh", "zsh", "fish",
+    "pwsh", "powershell_ise", "mintty", "bash", "sh", "zsh", "fish", "guake", "yakuake", "tilda", "terminology",
+    "qterminal", "tabby", "hyper", "rio", "warp", "warp-terminal", "dash", "ksh", "tcsh", "csh", "nu", "tmux", "screen",
+    "cool-retro-term", "sakura", "termite", "contour", "wave", "waveterm",
 ];
 
 /// The executable's comparable name: its file name, lower case, no `.exe`.

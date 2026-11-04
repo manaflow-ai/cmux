@@ -30,6 +30,9 @@ driver = ["dep:cua-driver-sdk"]
 # Wayland input and capture through xdg-desktop-portal and libei (GNOME, KDE).
 # Needs libxkbcommon and libpipewire-0.3 headers at build time.
 wayland-portal = ["driver", "cua-driver-sdk?/portal-libei"]
+# The scratch live check (`.cmux-scratch/computer-use/linux-live`): a detached worker and a
+# grant with no question. Never in a shipped build.
+live-check = []
 
 [dependencies]
 async-trait = "0.1"

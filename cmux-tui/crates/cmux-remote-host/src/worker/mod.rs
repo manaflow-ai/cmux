@@ -139,6 +139,9 @@ pub struct Worker {
     owner_apps: OnceLock<Vec<Target>>,
     /// Whether the owner's bounded manifest grants desktop display observation.
     owner_display: OnceLock<bool>,
+    /// The tools a bounded owner's manifest allows (`allow.tools`); discovery is
+    /// answered only for those (review 3 #2).
+    owner_tools: OnceLock<Vec<String>>,
     /// The desktop as the worker lists it before an app is allowed (D21).
     discovery: Arc<dyn Enumerator>,
     manifest_dir: PathBuf,
@@ -355,6 +358,14 @@ fn merged_manifest(owner: &Value, apps: &[Target]) -> Value {
 /// Whether an owner's manifest grants desktop display observation (upstream then answers discovery).
 fn manifest_grants_display(manifest: &Value) -> bool {
     manifest.pointer("/resources/desktop/display").and_then(Value::as_bool) == Some(true)
+}
+
+fn tools_of_manifest(manifest: &Value) -> Vec<String> {
+    manifest
+        .pointer("/allow/tools")
+        .and_then(Value::as_array)
+        .map(|tools| tools.iter().filter_map(|tool| tool.as_str().map(str::to_owned)).collect())
+        .unwrap_or_default()
 }
 
 fn apps_of_manifest(manifest: &Value) -> Vec<Target> {
@@ -586,7 +597,11 @@ impl Worker {
         }
         match self.mode().ok()? {
             Mode::Ask => {}
-            Mode::Bounded if !self.owner_display.get().copied().unwrap_or(false) => {}
+            // A bounded owner decides which tools exist at all: a tool the owner's manifest
+            // does not allow goes to upstream, which refuses it.
+            Mode::Bounded
+                if !self.owner_display.get().copied().unwrap_or(false)
+                    && self.owner_tools.get().is_some_and(|tools| tools.iter().any(|name| name == tool)) => {}
             _ => return None,
         }
         let pid = arguments.get("pid").and_then(Value::as_u64).and_then(|pid| u32::try_from(pid).ok());
@@ -614,7 +629,9 @@ impl Worker {
         session
     }
 
-    /// What "Allow for This Session" does to `session` (the broker's grant sink).
+    /// What "Allow for This Session" does to `session` (the broker's grant sink). It grants
+    /// with no question, so only tests and the scratch live check reach it (review 3 #6).
+    #[cfg(any(test, feature = "live-check"))]
     pub fn allow_for_session(&self, session: &Session, target: Target) {
         let mut grants = lock(&session.grants);
         if !grants.iter().any(|granted| granted.key() == target.key()) {
@@ -934,6 +951,7 @@ impl Worker {
         Worker {
             owner_apps: OnceLock::new(),
             owner_display: OnceLock::new(),
+            owner_tools: OnceLock::new(),
             discovery,
             config,
             driver,
@@ -966,11 +984,13 @@ impl Worker {
         let _ = self.tools.set(tools);
         let _ = self.owner_apps.set(owner.as_ref().map(apps_of_manifest).unwrap_or_default());
         let _ = self.owner_display.set(owner.as_ref().is_some_and(manifest_grants_display));
+        let _ = self.owner_tools.set(owner.as_ref().map(tools_of_manifest).unwrap_or_default());
     }
 
     /// A worker with no host link and no socket (tests and the live check):
     /// nobody can answer a question, so an app outside a session is refused
     /// `approval_unavailable`.
+    #[cfg(any(test, feature = "live-check"))]
     pub async fn detached(
         config: Result<ComputerUseConfig, String>,
         driver: Arc<dyn Driver>,

@@ -225,3 +225,15 @@ fn an_owner_manifest_with_the_display_leaves_discovery_upstream() {
     assert!(crate::worker::manifest_grants_display(&with));
     assert!(!crate::worker::manifest_grants_display(&without));
 }
+
+/// Review 3 #2: a bounded owner decides which tools exist. Discovery the owner's manifest
+/// does not allow is not answered by the worker (upstream refuses it).
+#[test]
+fn a_bounded_owner_manifest_lists_the_tools_discovery_may_answer() {
+    let allows: Value =
+        serde_yaml_ng::from_str("version: 3\nallow:\n  tools: [list_apps, click]\nresources:\n  apps: []\n").unwrap();
+    let narrow: Value = serde_yaml_ng::from_str("version: 3\nallow:\n  tools: [click]\n").unwrap();
+    assert_eq!(crate::worker::tools_of_manifest(&allows), vec!["list_apps".to_owned(), "click".to_owned()]);
+    assert_eq!(crate::worker::tools_of_manifest(&narrow), vec!["click".to_owned()]);
+    assert!(crate::worker::tools_of_manifest(&json!({"version": 3})).is_empty());
+}

@@ -220,7 +220,9 @@ final class AgentSession: AgentSessionServing {
             let keys = Set(owner.broker.allowedApps(id).map(\.key))
             granted = { keys.contains(ApprovalApp(bundleID: $0.bundleID, name: $0.name).key) }
         case .bounded:
-            guard let manifest = owner.ownerManifest, !manifest.display else { return nil }
+            // A bounded owner decides which tools exist: one its manifest does not allow goes to
+            // upstream, which refuses it.
+            guard let manifest = owner.ownerManifest, !manifest.display, manifest.tools.contains(name) else { return nil }
             granted = { manifest.bundleIDs.contains($0.bundleID.lowercased()) }
         case .standard, .unrestricted:
             return nil

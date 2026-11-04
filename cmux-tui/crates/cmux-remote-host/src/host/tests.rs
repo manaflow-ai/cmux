@@ -127,6 +127,19 @@ fn a_revoke_all_is_never_undone_by_a_concurrent_always() {
     }
 }
 
+/// Review 3 #3: an answer whose digest is another question's (a late dialog after a
+/// worker restart reused the id) never saves an app.
+#[test]
+fn an_answer_for_another_question_saves_nothing() {
+    let core = core_named("digest-mismatch");
+    let _to_worker = core.worker.attach_for_test(1);
+    core.write_saved(&[]);
+    let _request = pending(&core, 7, "/usr/bin/gedit");
+    let stale = ApproverDecision { decision: Decision::Always, digest: "0".repeat(64), via: "polkit".into() };
+    core.deliver(7, Some(stale));
+    assert!(core.saved_apps().is_empty(), "a mismatched Always was saved");
+}
+
 /// The worker that starts gets the saved list as it is under the lock.
 #[test]
 fn a_starting_worker_gets_the_saved_list() {

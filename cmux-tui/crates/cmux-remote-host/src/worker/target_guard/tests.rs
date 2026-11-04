@@ -377,3 +377,13 @@ async fn unknown_selector_keys_are_refused_per_tool() {
     // A null selector is no selector.
     passes("click", r#"{"pid":102,"window_id":9001,"tab_id":null}"#).await;
 }
+
+/// Review 3 #4: a browser the session may use never navigates to cmux.
+#[tokio::test]
+async fn browser_navigate_refuses_cmux_urls() {
+    for url in ["cmux://workspace/1", "CMUX-dev:open", " cmux+ssh://box"] {
+        let error = run("browser_navigate", &format!(r#"{{"pid":102,"url":"{url}"}}"#)).await.unwrap_err();
+        assert!(error.contains("cmux"), "{url}: {error}");
+    }
+    assert_eq!(passes("browser_navigate", r#"{"pid":102,"url":"https://example.com"}"#).await, vec![gedit()]);
+}

@@ -59,6 +59,17 @@ import Testing
         }
     }
 
+    /// Review 3 #4: an allowed browser never navigates to cmux.
+    @Test(arguments: ["cmux://workspace/1", "CMUX-dev:open", " cmux+ssh://box"])
+    func browserNavigateToCmuxIsRefused(url: String) async throws {
+        _ = try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+            .check(name: "browser_navigate", arguments: Data(#"{"pid":102,"url":"https://example.com"}"#.utf8))
+        await #expect(throws: ToolError.self) {
+            try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+                .check(name: "browser_navigate", arguments: Data(#"{"pid":102,"url":"\#(url)"}"#.utf8))
+        }
+    }
+
     @Test(arguments: [
         #"{"pid":999}"#, #"{"window_id":999}"#, #"{"pid":true}"#,
         #"{"pid":-1}"#, #"{"pid":4294967296}"#, #"{"pid":"100"}"#,

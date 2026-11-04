@@ -54,15 +54,12 @@ struct CuaTargetGuard: Sendable {
                 }
             }
         }
-        if name == "launch_app", let urls = object["urls"] as? [String] {
-            for url in urls {
-                let parts = url.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-                guard parts.count == 2 else { continue }
-                let scheme = parts[0].lowercased()
-                if scheme == "cmux" || scheme.hasPrefix("cmux-") || scheme.hasPrefix("cmux+") {
-                    throw ToolError("Computer use is not allowed to use cmux for safety reasons.")
-                }
-            }
+        // A URL never opens cmux: launch_app's urls, and browser_navigate's url through the
+        // browser's protocol handler (review 3 #4).
+        var urls = name == "launch_app" ? (object["urls"] as? [String] ?? []) : []
+        if name == "browser_navigate", let url = object["url"] as? String { urls.append(url) }
+        for url in urls where Self.opensCmux(url) {
+            throw ToolError("Computer use is not allowed to use cmux for safety reasons.")
         }
         // Unchanged calls keep their original wire bytes.
         if name != "launch_app" { return arguments }
@@ -232,6 +229,14 @@ struct CuaTargetGuard: Sendable {
         guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
               let result = Int64(number.stringValue) else { return nil }
         return result
+    }
+
+    /// Whether `url` opens cmux (`cmux:`, `cmux-…:`, `cmux+…:`).
+    static func opensCmux(_ url: String) -> Bool {
+        let parts = url.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return false }
+        let scheme = parts[0].trimmingCharacters(in: .whitespaces).lowercased()
+        return scheme == "cmux" || scheme.hasPrefix("cmux-") || scheme.hasPrefix("cmux+")
     }
 
     /// Tools that run other tools from content outside their arguments.

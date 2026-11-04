@@ -26,7 +26,7 @@ use crate::policy;
 /// What the result tells the agent about the missing titles.
 pub const TITLES_HIDDEN: &str = "hidden until you are allowed to use the app";
 const HOW_TO_TARGET: &str = "Titles, screenshots and input need the person's approval of that app: \
-call the tool you need with its pid (and window_id); the first call on an app asks the person.";
+call the tool you need with its pid (and window_id); the first call on an app asks the person (on a box set up by its owner, an app outside the owner's list is refused instead).";
 
 /// One running app, as the OS names it (never the agent's words).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -262,6 +262,19 @@ mod platform {
 
         use super::Window;
 
+        /// This machine's host name, as X clients write it in `WM_CLIENT_MACHINE`.
+        #[allow(unsafe_code)]
+        fn local_host_name() -> Option<String> {
+            let mut buffer = [0_u8; 256];
+            // SAFETY: gethostname writes at most `buffer.len()` bytes into the buffer.
+            let status = unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) };
+            if status != 0 {
+                return None;
+            }
+            let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(buffer.len());
+            buffer.get(..end).map(|name| String::from_utf8_lossy(name).into_owned())
+        }
+
         /// The window manager's client list with each window's pid. Reads no
         /// title property.
         pub fn windows() -> Result<Vec<Window>, String> {
@@ -277,6 +290,8 @@ mod platform {
             };
             let client_list = atom(b"_NET_CLIENT_LIST")?;
             let wm_pid = atom(b"_NET_WM_PID")?;
+            let wm_client_machine = atom(b"WM_CLIENT_MACHINE")?;
+            let host = local_host_name();
             let clients: Vec<u32> = connection
                 .get_property(false, root, client_list, AtomEnum::WINDOW, 0, 16_384)
                 .map_err(|error| error.to_string())?
@@ -287,18 +302,35 @@ mod platform {
                 .unwrap_or_default();
             let mut windows = Vec::new();
             for window in clients {
-                let declared = connection
-                    .get_property(false, window, wm_pid, AtomEnum::CARDINAL, 0, 1)
-                    .ok()
-                    .and_then(|cookie| cookie.reply().ok())
-                    .and_then(|reply| reply.value32().and_then(|mut values| values.next()));
-                // The server's own record of the client's pid when the window declares none.
-                let pid = declared.filter(|pid| *pid > 0).or_else(|| {
+                // The X server's own record of the connection's pid first: a client cannot
+                // write it, and a remote (ssh -X) client has none.
+                let server = {
                     let spec = ClientIdSpec { client: window, mask: ClientIdMask::LOCAL_CLIENT_PID };
-                    let reply = connection.res_query_client_ids(&[spec]).ok()?.reply().ok()?;
-                    reply.ids.first()?.value.first().copied()
-                });
-                if let Some(pid) = pid.filter(|pid| *pid > 0) {
+                    connection
+                        .res_query_client_ids(&[spec])
+                        .ok()
+                        .and_then(|cookie| cookie.reply().ok())
+                        .and_then(|reply| reply.ids.first().and_then(|id| id.value.first().copied()))
+                };
+                // `_NET_WM_PID` is what the client says about itself: trusted only when the
+                // window also says it runs on this machine. A forwarded window carries a pid of
+                // another machine, which could name an app this session may use (review 3 #1).
+                let declared = || {
+                    let machine = connection
+                        .get_property(false, window, wm_client_machine, AtomEnum::STRING, 0, 256)
+                        .ok()
+                        .and_then(|cookie| cookie.reply().ok())
+                        .map(|reply| String::from_utf8_lossy(&reply.value).trim_end_matches('\0').to_owned())?;
+                    if host.as_deref() != Some(machine.as_str()) {
+                        return None;
+                    }
+                    connection
+                        .get_property(false, window, wm_pid, AtomEnum::CARDINAL, 0, 1)
+                        .ok()
+                        .and_then(|cookie| cookie.reply().ok())
+                        .and_then(|reply| reply.value32().and_then(|mut values| values.next()))
+                };
+                if let Some(pid) = server.filter(|pid| *pid > 0).or_else(|| declared().filter(|pid| *pid > 0)) {
                     windows.push(Window { pid, window_id: u64::from(window) });
                 }
             }

@@ -809,6 +809,9 @@ impl HostCore {
     /// The first answer for question `id` (or none): to the worker, once.
     fn deliver(&self, id: u64, answer: Option<ApproverDecision>) {
         let Some(question) = lock(&self.questions).remove(&id) else { return };
+        // An answer for another question (a late dialog after a worker restart reused the
+        // id) is no answer: it never saves an app (review 3 #3).
+        let answer = answer.filter(|answer| answer.digest == question.request.digest);
         lock(&self.prompted).remove(&id);
         if let Some(task) = &question.task {
             task.abort();
