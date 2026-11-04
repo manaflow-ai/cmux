@@ -225,10 +225,16 @@ def git_oldest_after(head: str, tip: str, git=None):
     if not ancestor(head, tip):
         return UNKNOWN
     try:
-        first = run("rev-list", "--reverse", "--topo-order", f"{head}..{tip}").split()[0]
-        landed = run("show", "-s", "--format=%cI", first).strip()
-        return first, dt.datetime.fromisoformat(landed.replace("Z", "+00:00"))
-    except (OSError, subprocess.SubprocessError, IndexError, ValueError) as error:
+        # The oldest landing by committer date (squash merges set it at landing), not the first in
+        # topological order: in a merge history a newer mainline commit can sort before an older
+        # side-branch one.
+        commits = []
+        for line in run("log", "--format=%H %cI", f"{head}..{tip}").splitlines():
+            sha, landed = line.split()
+            commits.append((dt.datetime.fromisoformat(landed.replace("Z", "+00:00")), sha))
+        landed, first = min(commits)
+        return first, landed
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
         raise LookupError(f"could not read the commits after {head[:12]}") from error
 
 

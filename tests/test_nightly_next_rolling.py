@@ -436,6 +436,19 @@ class LocalGapTests(unittest.TestCase):
         self.assertEqual(sha, self.shas[1])
         self.assertEqual(landed, NOW - dt.timedelta(minutes=30))
 
+    def test_the_oldest_landing_is_by_date_not_topological_order(self):
+        """A merge of an older side commit: the side commit landed first, whatever rev-list's order."""
+        self.git("checkout", "-q", "-b", "merged", self.shas[3])
+        self.git("merge", "-q", "--no-ff", "-m", "merge side", self.shas[4], when=at(1))
+        # A side commit older than every mainline commit after shas[2].
+        self.git("checkout", "-q", "-b", "older", self.shas[2])
+        self.git("commit", "-q", "--allow-empty", "-m", "older side", when=at(15))
+        self.git("checkout", "-q", "merged")
+        self.git("merge", "-q", "--no-ff", "-m", "merge older", "older", when=at(0.5))
+        sha, landed = self.gap(self.shas[2], self.git("rev-parse", "HEAD").strip())
+        self.assertEqual(sha, self.git("rev-parse", "older").strip())
+        self.assertEqual(landed, NOW - dt.timedelta(minutes=15))
+
     def test_nothing_waits_at_or_behind_head(self):
         self.assertIsNone(self.gap(self.shas[3], self.shas[3]))
         self.assertIsNone(self.gap(self.shas[3], self.shas[1]))
