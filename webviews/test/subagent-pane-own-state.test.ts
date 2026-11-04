@@ -152,6 +152,8 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
       via: document.querySelector(".cv-subagent-composer-via")?.textContent?.trim() ?? "",
       text: document.body.textContent ?? "",
     }));
+  /// A message whose relay acpmux takes and whose turn never ends (the stand-in daemon never answers it).
+  const RUNNING_TURN = "Keep an eye on the flaky test";
   /// Every prompt the stand-in daemon was sent, as its text.
   const prompts: string[] = [];
   /// Resolves with the first prompt sent after it was made that holds `text`.
@@ -171,6 +173,19 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
             const sent = JSON.stringify(message.params ?? null);
             prompts.push(sent);
             if (awaited && sent.includes(awaited.text)) awaited.resolve(sent);
+          }
+          // A prompt whose turn keeps running: acpmux takes it at once and answers when the turn ends,
+          // which here is never.
+          const params = message.params as { promptId?: string } | undefined;
+          if (/prompt/i.test(message.method) && JSON.stringify(params ?? null).includes(RUNNING_TURN)) {
+            ws.send(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                method: "_acpmux/prompt_accepted",
+                params: { promptId: params?.promptId },
+              }),
+            );
+            return;
           }
           if (message.id !== undefined)
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
@@ -250,6 +265,29 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     // A steer: the chat's turn runs and its agent steers, so its next step reads it, not after the
     // turn (an idle chat gets a prompt of its own: subagentMessage.test.ts subagentRelaySteers).
     expect(sent).toContain('"steer":true');
+    await page.close();
+  });
+
+  test("a message the chat took is no longer held by the pane while the chat's turn runs on", async () => {
+    const page = await open();
+    await page.evaluate(() =>
+      (window as { cmuxAcpmuxBridge?: { revealTurn?(value: string): void } }).cmuxAcpmuxBridge?.revealTurn?.(
+        "subagent:a1",
+      ),
+    );
+    await page.locator(".acpmux-subagent-composer").waitFor({ timeout: 10_000 });
+    const arrived = promptWith(RUNNING_TURN);
+    await page.locator('.acpmux-subagent-composer [aria-label="Message Reviewer"]').click();
+    await page.keyboard.type(RUNNING_TURN);
+    await page.keyboard.press("Enter");
+    await arrived;
+    // The chat's send settles when the turn ends, which it never does here; the relay settled when
+    // acpmux took it, so a web update or a page release no longer waits on it.
+    await page.waitForFunction(
+      () => (window as { cmuxWebSwap?: { hold(): string | null } }).cmuxWebSwap?.hold() !== "subagents.draft-unsaved",
+      undefined,
+      { timeout: 10_000 },
+    );
     await page.close();
   });
 });
