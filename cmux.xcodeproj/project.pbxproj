@@ -286,6 +286,7 @@
 		8777A0018777A0018777A001 /* AppDelegate+DockAttentionRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8777A0028777A0028777A002 /* AppDelegate+DockAttentionRouting.swift */; };
 		DCDC3000000000000000E001 /* AppDelegate+DockShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC3000000000000000E002 /* AppDelegate+DockShortcutRouting.swift */; };
 		DCDC1000000000000000C000 /* AppDelegate+DockSurfaceMove.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000C001 /* AppDelegate+DockSurfaceMove.swift */; };
+		43768731F5A748DA7085439F /* AppDelegate+DragOutWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C603684F0A9B29B1CF6F7059 /* AppDelegate+DragOutWindow.swift */; };
 		E3309A01 /* AppDelegate+EqualizeSplitsShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */; };
 		A5F100000000000000000013 /* AppDelegate+FocusedNotificationSeam.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F100000000000000000014 /* AppDelegate+FocusedNotificationSeam.swift */; };
 		C4160A040000000000000001 /* AppDelegate+FocusHistoryContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A040000000000000002 /* AppDelegate+FocusHistoryContextMenu.swift */; };
@@ -2132,6 +2133,8 @@
 		904090409040904090409045 /* DockUnreadProjectionContextBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 904090409040904090409046 /* DockUnreadProjectionContextBridge.swift */; };
 		D86860000000000000000001 /* DockWorkingDirectoryInheritanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86860000000000000000002 /* DockWorkingDirectoryInheritanceTests.swift */; };
 		D0F00D01A1B2C3D4E5F60719 /* DogfoodScenarioUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F00D00A1B2C3D4E5F60719 /* DogfoodScenarioUITests.swift */; };
+		C6AB71418EFC8C87B02B98C1 /* DragOutWindowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DEC42101ED15F3B1D75CEE4 /* DragOutWindowCoordinator.swift */; };
+		E9674430F06492687AB0134A /* DragOutWindowTransferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35078FA1D3E96F7B27FF7969 /* DragOutWindowTransferTests.swift */; };
 		D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */; };
 		D10799040000000000000001 /* DragPasteboardCapabilityCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10799030000000000000001 /* DragPasteboardCapabilityCleaner.swift */; };
 		0BD2AA506F906B6A5382A280 /* DuplicateInstanceHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5647CF47CFF9FE064EB0A704 /* DuplicateInstanceHandlerTests.swift */; };
@@ -5159,6 +5162,7 @@
 		8777A0028777A0028777A002 /* AppDelegate+DockAttentionRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+DockAttentionRouting.swift"; sourceTree = "<group>"; };
 		DCDC3000000000000000E002 /* AppDelegate+DockShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+DockShortcutRouting.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000C001 /* AppDelegate+DockSurfaceMove.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+DockSurfaceMove.swift"; sourceTree = "<group>"; };
+		C603684F0A9B29B1CF6F7059 /* AppDelegate+DragOutWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+DragOutWindow.swift"; sourceTree = "<group>"; };
 		E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+EqualizeSplitsShortcut.swift"; sourceTree = "<group>"; };
 		A5F100000000000000000014 /* AppDelegate+FocusedNotificationSeam.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+FocusedNotificationSeam.swift"; sourceTree = "<group>"; };
 		C4160A040000000000000002 /* AppDelegate+FocusHistoryContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+FocusHistoryContextMenu.swift"; sourceTree = "<group>"; };
@@ -6829,6 +6833,8 @@
 		904090409040904090409046 /* DockUnreadProjectionContextBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockUnreadProjectionContextBridge.swift; sourceTree = "<group>"; };
 		D86860000000000000000002 /* DockWorkingDirectoryInheritanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockWorkingDirectoryInheritanceTests.swift; sourceTree = "<group>"; };
 		D0F00D00A1B2C3D4E5F60719 /* DogfoodScenarioUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DogfoodScenarioUITests.swift; sourceTree = "<group>"; };
+		1DEC42101ED15F3B1D75CEE4 /* DragOutWindowCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOutWindowCoordinator.swift; sourceTree = "<group>"; };
+		35078FA1D3E96F7B27FF7969 /* DragOutWindowTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DragOutWindowTransferTests.swift"; sourceTree = "<group>"; };
 		D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOverlayRoutingPolicy.swift; sourceTree = "<group>"; };
 		D10799030000000000000001 /* DragPasteboardCapabilityCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragPasteboardCapabilityCleaner.swift; sourceTree = "<group>"; };
 		5647CF47CFF9FE064EB0A704 /* DuplicateInstanceHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DuplicateInstanceHandlerTests.swift"; sourceTree = "<group>"; };
@@ -12673,6 +12679,8 @@
 				9EEA4A95E38F9F819B101793 /* Workspace+SharedLiveAgentIndex.swift */,
 				C2452EDA6ED2355F908EE912 /* AppDelegate+KiroAgentMessages.swift */,
 				D4D9700C7689786CCDB82CAE /* TerminalController+AgentMessageClaim.swift */,
+				C603684F0A9B29B1CF6F7059 /* AppDelegate+DragOutWindow.swift */,
+				1DEC42101ED15F3B1D75CEE4 /* DragOutWindowCoordinator.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14320,6 +14328,7 @@
 				A6FA6CA3BD8C6FB44634D416 /* WorkspaceContentViewVisibilityTests+AgentIndex.swift */,
 				C978CC3C2D3FCCE66696C72C /* CLIKiroGlobalHooksTests.swift */,
 				B88325A2907EB7D69739349B /* ClaudeBackgroundWorkDrainTests.swift */,
+				35078FA1D3E96F7B27FF7969 /* DragOutWindowTransferTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15365,6 +15374,7 @@
 				8777A0018777A0018777A001 /* AppDelegate+DockAttentionRouting.swift in Sources */,
 				DCDC3000000000000000E001 /* AppDelegate+DockShortcutRouting.swift in Sources */,
 				DCDC1000000000000000C000 /* AppDelegate+DockSurfaceMove.swift in Sources */,
+				43768731F5A748DA7085439F /* AppDelegate+DragOutWindow.swift in Sources */,
 				E3309A01 /* AppDelegate+EqualizeSplitsShortcut.swift in Sources */,
 				A5F100000000000000000013 /* AppDelegate+FocusedNotificationSeam.swift in Sources */,
 				C4160A040000000000000001 /* AppDelegate+FocusHistoryContextMenu.swift in Sources */,
@@ -16173,6 +16183,7 @@
 				DCDC1000000000000000B00F /* DockTrustRequest.swift in Sources */,
 				904090409040904090409041 /* DockUnreadPanelProjection.swift in Sources */,
 				904090409040904090409045 /* DockUnreadProjectionContextBridge.swift in Sources */,
+				C6AB71418EFC8C87B02B98C1 /* DragOutWindowCoordinator.swift in Sources */,
 				D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */,
 				D10799040000000000000001 /* DragPasteboardCapabilityCleaner.swift in Sources */,
 				D75280040000000000000001 /* DynamicTracingSignpostInterval.swift in Sources */,
@@ -18976,6 +18987,7 @@
 				A9042D0C0000000000000001 /* DockTerminalPointerFocusTests.swift in Sources */,
 				D7054D0C0000000000000001 /* DockTerminalReattachTests.swift in Sources */,
 				D86860000000000000000001 /* DockWorkingDirectoryInheritanceTests.swift in Sources */,
+				E9674430F06492687AB0134A /* DragOutWindowTransferTests.swift in Sources */,
 				0BD2AA506F906B6A5382A280 /* DuplicateInstanceHandlerTests.swift in Sources */,
 				D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */,
 				DA3DCBDE094DF34AA5CF264F /* ExitingProcessCensusReader.swift in Sources */,

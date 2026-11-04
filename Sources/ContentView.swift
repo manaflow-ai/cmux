@@ -12781,6 +12781,12 @@ struct VerticalTabsSidebar: View, Equatable {
                 }
             )
         )
+        actions.completeWorkspaceDrag = { sessionId, capabilityValue, point, operation, beganAt in
+            AppDelegate.shared?.sidebarWorkspaceDragRegistry.completeNativeDrag(
+                sessionId: sessionId, capabilityValue: capabilityValue,
+                point: point, operation: operation, beganAt: beganAt
+            )
+        }
         actions.workspaceGroupAnchorIdsForDrag = { [weak tabManager] in
             guard let tabManager else { return [:] }
             let liveWorkspaceIds = Set(tabManager.tabs.map(\.id))

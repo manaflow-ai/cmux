@@ -593,6 +593,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         WorkspaceTerminalFontSizeArbiter()
     /// Owns the one process-local Vault drag capability registry.
     let sessionDragRegistry = SessionDragRegistry()
+    lazy var dragOutWindowCoordinator = DragOutWindowCoordinator(windows: { NSApp.windows })
+
     /// Owns pane-transfer capabilities shared by every window, workspace, and Dock.
     private var tabDragTransferRegistryStorage: TabDragTransferRegistry?
     var tabDragTransferRegistry: TabDragTransferRegistry {
@@ -600,8 +602,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return tabDragTransferRegistryStorage
         }
         let registry = TabDragTransferRegistry()
+        installDragOutCompletionHandler(on: registry)
         tabDragTransferRegistryStorage = registry
         return registry
+    }
+
+    private func installDragOutCompletionHandler(on registry: TabDragTransferRegistry) {
+        _ = dragOutWindowCoordinator
+        registry.onUnhandledNativeDragEnd = { [weak self] transfer, point, operation, beganAt in
+            guard let self,
+                  self.dragOutWindowCoordinator.shouldDetach(beganAt: beganAt, point: point, operation: operation) else { return }
+            guard let source = self.locateBonsplitSurface(tabId: transfer.tab.id.uuid),
+                  self.moveSurfaceToNewWindow(panelId: source.panelId, at: point) != nil else {
+                self.showDragOutWindowFailure()
+                return
+            }
+        }
     }
     /// Caches live pane-transfer resolution for pointer hit-testing paths.
     lazy var liveTabDragCapabilityResolver = LiveTabDragCapabilityResolver(
@@ -983,7 +999,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// any window. Owned here (the composition root) and injected into every
     /// window's `SidebarDragState` so cross-window drops resolve a single drag.
     // TODO(de-singletonize): move SidebarWorkspaceDragRegistry off AppDelegate.shared when AppDelegate is decomposed.
-    let sidebarWorkspaceDragRegistry = SidebarWorkspaceDragRegistry()
+    lazy var sidebarWorkspaceDragRegistry: SidebarWorkspaceDragRegistry = {
+        let registry = SidebarWorkspaceDragRegistry()
+        _ = dragOutWindowCoordinator
+        registry.onUnhandledNativeDragEnd = { [weak self] session, point, operation, beganAt in
+            guard let self,
+                  self.dragOutWindowCoordinator.shouldDetach(beganAt: beganAt, point: point, operation: operation) else { return }
+            guard let windowId = self.moveWorkspaceToNewWindow(workspaceId: session.workspaceId),
+                  let window = self.mainWindow(for: windowId) else {
+                self.showDragOutWindowFailure()
+                return
+            }
+            self.dragOutWindowCoordinator.place(window, near: point)
+        }
+        return registry
+    }()
     #if DEBUG
     /// Debug-only registry mapping each mounted sidebar's window id to its live
     /// `SidebarDragState`, read by the `debug.sidebar.simulate_drag` handler.
@@ -2673,6 +2703,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
         tabDragTransferRegistryStorage = tabManager.tabDragTransferRegistry
+        installDragOutCompletionHandler(on: tabManager.tabDragTransferRegistry)
         // Adopt the bootstrap manager's coordinators so later windows share them.
         pullRequestProbeService = tabManager.pullRequestProbeService
         self.settingsRuntime = settingsRuntime
@@ -5807,12 +5838,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func moveWorkspaceToNewWindow(workspaceId: UUID, focus: Bool = true) -> UUID? {
+        guard let sourceWorkspace = tabManagerFor(tabId: workspaceId)?.tabs.first(where: { $0.id == workspaceId }),
+              !sourceWorkspace.isChiefHome else { return nil }
         // Resolve the owner before creating the destination. The active/fallback
         // window may differ from the workspace's source, especially when moving
         // a workspace out of a native fullscreen window.
         let sourceWindow = mainWindowContainingWorkspace(workspaceId)
-        let windowId = createMainWindow(sourceWindow: sourceWindow)
-        guard let destinationManager = tabManagerFor(windowId: windowId) else { return nil }
+        let windowId = createMainWindow(shouldActivate: false, sourceWindow: sourceWindow)
+        guard let destinationManager = tabManagerFor(windowId: windowId) else {
+            _ = closeMainWindow(windowId: windowId, recordHistory: false)
+            return nil
+        }
         let bootstrapWorkspaceId = destinationManager.tabs.first?.id
 
         guard moveWorkspaceToWindow(workspaceId: workspaceId, windowId: windowId, focus: focus) else {
@@ -5858,7 +5894,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         targetIndex: Int? = nil,
         splitTarget: (orientation: SplitOrientation, insertFirst: Bool)? = nil,
         focus: Bool = true,
-        focusWindow: Bool = true
+        focusWindow: Bool = true,
+        preserveSourcePaneOnFailure: Bool = false
     ) -> Bool {
 #if DEBUG
         let moveStart = ProcessInfo.processInfo.systemUptime
@@ -5973,11 +6010,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let sourcePane = sourceWorkspace.paneId(forPanelId: panelId)
         let sourceIndex = sourceWorkspace.indexInPane(forPanelId: panelId)
+        let originalFocusedPanelId = sourceWorkspace.focusedPanelId
+        var didCommitTransfer = false
+        defer {
+            if preserveSourcePaneOnFailure, !didCommitTransfer, let originalFocusedPanelId {
+                sourceWorkspace.focusPanel(originalFocusedPanelId)
+            }
+        }
 #if DEBUG
         let detachStart = ProcessInfo.processInfo.systemUptime
 #endif
 
-        guard let detached = sourceWorkspace.detachSurface(panelId: panelId) else {
+        guard let detached = sourceWorkspace.detachSurface(panelId: panelId, preservingEmptyPane: preserveSourcePaneOnFailure) else {
 #if DEBUG
             cmuxDebugLog(
                 "surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=detachFailed " +
@@ -6053,6 +6097,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let cleanupStart = ProcessInfo.processInfo.systemUptime
 #endif
+        didCommitTransfer = true
+        if preserveSourcePaneOnFailure, let sourcePane,
+           sourceWorkspace.bonsplitController.allPaneIds.count > 1,
+           sourceWorkspace.bonsplitController.tabs(inPane: sourcePane).isEmpty {
+            _ = sourceWorkspace.bonsplitController.closePane(sourcePane)
+        }
         cleanupEmptySourceWorkspaceAfterSurfaceMove(
             sourceWorkspace: sourceWorkspace,
             sourceManager: source.tabManager,
