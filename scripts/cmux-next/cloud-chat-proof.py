@@ -313,7 +313,7 @@ def raw_output(text: str, limit: int = 2048) -> dict:
 # `--confirm --json` made `--json` the confirm's value, the CLI answered in human text, and a
 # failed kill's error was dropped as not JSON (run 41867887577).
 def kill_command(machine: str) -> tuple[int, str, str]:
-    return cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--json", "--confirm", timeout=120)
+    return cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json", timeout=120)
 
 
 def kill_failure(code: int, out: str, err: str) -> dict:
