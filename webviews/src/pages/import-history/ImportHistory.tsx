@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { AgentMark, MonogramMark } from "../../agent-session/shared/AgentMark";
 import { DialogButton } from "../../ui/DialogButton";
 import type { Strings } from "../shared/i18n";
 import { canImport, type HistoryRow, type ImportHistoryStore, type Origin } from "./model";
@@ -125,7 +126,9 @@ function SourceRow({
               if (row.kind === "text" && Boolean(row.expanded) !== checked) store.expand(row.id);
             }}
           />
-          <span className={`history-source-icon icon-${row.id}`} aria-hidden="true">{row.icon ?? iconFor(row.id)}</span>
+          <span className={`history-source-icon icon-${row.id}`}>
+            {row.icon ? row.icon : <AgentMark agent={markFor(row.id)} size={24} label={title} fallback={<MonogramMark name={title} size={24} label={title} />} />}
+          </span>
           {row.kind === "zip" && !row.detected ? (
             <button
               type="button"
@@ -206,14 +209,11 @@ function SourceRow({
   );
 }
 
-function iconFor(id: string): string {
-  if (id === "chatgpt" || id === "dots" || id === "dot") return "✳";
-  if (id === "claude" || id === "claude-code" || id === "claude-memory") return "✦";
-  if (id === "codex" || id === "codex-sessions") return "⌘";
-  if (id === "grok-bot") return "G";
-  if (id === "muse") return "M";
-  if (id === "instinct") return "I";
-  return "↗";
+function markFor(id: string): string {
+  if (id === "claude" || id === "claude-code" || id === "claude-memory") return "claude";
+  if (id === "codex" || id === "codex-sessions") return "codex";
+  if (id === "chatgpt" || id === "dots" || id === "dot") return "chatgpt";
+  return id;
 }
 
 function titleFor(id: string): string {
