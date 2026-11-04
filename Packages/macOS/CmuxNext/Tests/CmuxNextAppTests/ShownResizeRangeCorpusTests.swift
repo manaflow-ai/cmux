@@ -90,16 +90,25 @@ struct ShownResizeRangeCorpusTests {
         case let .width(isColumns, isDocked, strip, minimum, gap):
             fields = ["width", flag(isColumns), flag(isDocked), hex(strip), hex(minimum), hex(gap)]
         case let .dock(sides, viewport, gap, minimum):
-            fields = ["dock", hex(viewport), hex(gap), hex(minimum), "\(sides.count)"]
-                + sides.flatMap { [flag($0.isTarget), flag($0.isBand), flag($0.isDocked), hex($0.width)] }
+            let head: [String] = ["dock", hex(viewport), hex(gap), hex(minimum), "\(sides.count)"]
+            let each: [String] = sides.flatMap { side -> [String] in
+                [flag(side.isTarget), flag(side.isBand), flag(side.isDocked), hex(side.width)]
+            }
+            fields = head + each
         case let .trade(t):
-            fields = ["trade", flag(t.isColumns), hex(t.stripWidth), hex(t.gap), hex(t.scale), hex(t.delta),
-                      hex(t.leftMinX), hex(t.leftMaxX), hex(t.leftWidth), hex(t.rightMinX), hex(t.rightMaxX), hex(t.rightWidth),
-                      hex(t.leftMinimumWidth), hex(t.rightMinimumWidth), hex(t.leftFraction), hex(t.rightFraction),
-                      t.stripOffset.map(hex) ?? "-", hex(t.uncoveredMinX), hex(t.uncoveredMaxX), hex(t.stripMinX)]
+            let frames: [String] = [hex(t.leftMinX), hex(t.leftMaxX), hex(t.leftWidth), hex(t.rightMinX), hex(t.rightMaxX),
+                                    hex(t.rightWidth)]
+            let columns: [String] = [hex(t.leftMinimumWidth), hex(t.rightMinimumWidth), hex(t.leftFraction), hex(t.rightFraction)]
+            let offset: String = t.stripOffset.map { hex($0) } ?? "-"
+            let strip: [String] = [offset, hex(t.uncoveredMinX), hex(t.uncoveredMaxX), hex(t.stripMinX)]
+            let head: [String] = ["trade", flag(t.isColumns), hex(t.stripWidth), hex(t.gap), hex(t.scale), hex(t.delta)]
+            fields = head + frames + columns + strip
         case let .rows(r):
-            fields = ["rows", "\(r.heights.count)"] + r.heights.map { "\($0)" } + r.minimumHeights.map(hex)
-                + ["\(r.paneRow)", flag(r.rowsEnabled), hex(r.columnHeight), hex(r.gap), hex(r.scale), hex(r.delta)]
+            let count: [String] = ["rows", "\(r.heights.count)"]
+            let heights: [String] = r.heights.map { "\($0)" }
+            let minimums: [String] = r.minimumHeights.map { hex($0) }
+            let rest: [String] = ["\(r.paneRow)", flag(r.rowsEnabled), hex(r.columnHeight), hex(r.gap), hex(r.scale), hex(r.delta)]
+            fields = count + heights + minimums + rest
         }
         return fields.joined(separator: " ") + " => " + output(input)
     }
@@ -118,12 +127,15 @@ struct ShownResizeRangeCorpusTests {
         }
 
         mutating func double() throws -> Double {
-            let word = try word()
-            let bits = try #require(UInt64(word, radix: 16), "not a float: \(word)")
+            let text = try word()
+            let bits = try #require(UInt64(text, radix: 16), "not a float: \(text)")
             return Double(bitPattern: bits)
         }
 
-        mutating func int() throws -> Int { try #require(Int(try word()), "not an int") }
+        mutating func int() throws -> Int {
+            let text = try word()
+            return try #require(Int(text), "not an int: \(text)")
+        }
         mutating func bool() throws -> Bool { try word() == "1" }
     }
 
@@ -153,7 +165,7 @@ struct ShownResizeRangeCorpusTests {
         let rMin = try f.double(), rMax = try f.double(), rW = try f.double()
         let lMinimum = try f.double(), rMinimum = try f.double(), lFrac = try f.double(), rFrac = try f.double()
         let offsetWord = try f.word()
-        let offset = offsetWord == "-" ? nil : UInt64(offsetWord, radix: 16).map { Double(bitPattern: $0) }
+        let offset: CGFloat? = offsetWord == "-" ? nil : UInt64(offsetWord, radix: 16).map { CGFloat(Double(bitPattern: $0)) }
         let uMin = try f.double(), uMax = try f.double(), sMin = try f.double()
         return ShownResizeRange.tradeRule(.init(
             isColumns: isColumns, stripWidth: strip, gap: gap, scale: scale, delta: delta, leftMinX: lMin, leftMaxX: lMax,
@@ -174,8 +186,8 @@ struct ShownResizeRangeCorpusTests {
 
     // MARK: Answers
 
-    static func hex(_ value: Double) -> String { String(value.bitPattern, radix: 16) }
-    static func flag(_ value: Bool) -> String { value ? "1" : "0" }
+    nonisolated static func hex(_ value: Double) -> String { String(value.bitPattern, radix: 16) }
+    nonisolated static func flag(_ value: Bool) -> String { value ? "1" : "0" }
 
     static func answer(_ bounds: ShownResizeRange.Bounds?) -> String {
         bounds.map { "\(hex($0.lower)) \(hex($0.upper))" } ?? "-"
@@ -273,7 +285,8 @@ struct ShownResizeRangeCorpusTests {
             let rightMinX = r.int(0 ... 9) == 0 ? r.value(-500 ... 5000) : leftMaxX + gap
             let rightWidth = r.value(0 ... 2200)
             let rightMaxX = r.int(0 ... 9) == 0 ? r.value(-500 ... 7000) : rightMinX + rightWidth
-            let offset: CGFloat? = r.int(0 ... 2) == 0 ? nil : r.value(-200 ... 3000)
+            let anyOffset = CGFloat(r.value(-200 ... 3000))
+            let offset: CGFloat? = r.int(0 ... 2) == 0 ? nil : anyOffset
             let stripMinX = r.value(0 ... 600)
             inputs.append(.trade(.init(
                 isColumns: r.int(0 ... 9) > 0, stripWidth: strip, gap: gap, scale: scale, delta: delta,
