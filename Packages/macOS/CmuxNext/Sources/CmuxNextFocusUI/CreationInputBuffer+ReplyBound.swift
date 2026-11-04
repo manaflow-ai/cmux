@@ -67,10 +67,11 @@ extension CreationInputBuffer {
     /// Window `window` of the hold is gone: the keys held for a terminal, as runs for each terminal in typing order. A key
     /// held for no terminal had only that window and goes with it, logged (cmux-ad m12: no other key is dropped).
     public func takeForClosedWindow(window: Int) -> [([NSEvent], HeldLane)] {
-        var runs: [([NSEvent], HeldLane)] = [], lost = 0
+        var runs: [([NSEvent], HeldLane)] = [], lost = -untypedTerminalKeys
         for key in take(focused: nil, isShortcut: { _, _ in false }) {
             if case .type(let events, let lane) = key { runs.append((events, lane)) } else { lost += key.keys.count }
         }
+        lost += untypedTerminalKeys // and the keys of a new workspace asked for over no terminal
         if lost > 0 {
             Logger(subsystem: "com.cmuxterm.app.next", category: "focus.creation-hold")
                 .notice("creation hold of closed window \(window, privacy: .public): \(lost, privacy: .public) held key(s) for no terminal went with it")

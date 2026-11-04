@@ -54,7 +54,7 @@ final class CreationInputCoordinator {
         guard let controller, let window = controller.window, ActionRunScope.viewChangeAllowed() else { return nil }
         defer { router?.newTabInputCoordinator.creationTookKeys(in: window) } // the newer intent: a New Tab hold's keys come here, in order
         let generation = controller.focus.beginIntent()
-        let ticket = buffer(in: window).open(generation: generation, newWorkspace: true)
+        let ticket = buffer(in: window).open(generation: generation, newWorkspace: true, pressTerminal: Self.keyboardTerminal(controller, window).map { .init(tab: $0, machine: controller.content?.daemon.machineID) })
         claims.claim(window, ticket: ticket, input: router?.registry.dispatchingInputEvent()?.timestamp, intents: controller.focus.personIntents.count)
         return ticket
     }
