@@ -52,6 +52,27 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     /// The search row's distance under the traffic lights (and the filter circle on their line)
     /// and the list's under the search field.
     static let rowGap: CGFloat = 10
+    /// The on filter's chip row (Unread ×) under the search row, while a filter is on (the user,
+    /// 2026-11-03, msg 20156: the list said No Results with nothing to show the filter was on);
+    /// zero-sized while no filter is on or an open search covers the band. The chip is as wide
+    /// as its text, at most this row.
+    public private(set) var filterChip: CGRect = .zero
+    /// The chip's height and the gap under it to the list.
+    static let chipHeight: CGFloat = 24
+    static let chipGap: CGFloat = 6
+
+    /// - Parameters:
+    ///   - width: The list's width.
+    ///   - searchOpen: The search field edits or holds a query.
+    ///   - windowControls: The traffic lights over the band (see the other initializer).
+    ///   - filterOn: A filter is on (Unread): its chip row goes under the search row and the list under it.
+    init(width: CGFloat, searchOpen: Bool, windowControls: CGRect? = nil, filterOn: Bool) {
+        self.init(width: width, searchOpen: searchOpen, windowControls: windowControls)
+        guard filterOn, !buttonsCovered else { return }
+        let inset = compact ? Self.edge : Self.inset
+        filterChip = CGRect(x: inset, y: listTop, width: max(0, max(0, width) - 2 * inset), height: Self.chipHeight)
+        listTop = filterChip.maxY + Self.chipGap
+    }
 
     /// The list at `width` shows avatars only, and so circles for its header row.
     public static func isCompact(width: CGFloat) -> Bool { width < CmuxSidebarView.compactBelow }
