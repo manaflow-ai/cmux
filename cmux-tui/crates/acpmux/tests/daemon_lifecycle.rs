@@ -1195,3 +1195,29 @@ fn tree(dir: &Path) -> Vec<PathBuf> {
     found.sort();
     found
 }
+
+/// The stop line names who sent SIGTERM: after a NIGHTLY update relaunch on macOS the old daemon
+/// got one about 1 s after the app quit and its agent host was lost with it, and its log said only
+/// "SIGTERM" (manaflow-ai/cmuxterm-hq#6338). The sender here is a shell that stays up a while.
+#[tokio::test]
+async fn a_sigterm_stop_names_its_sender() {
+    let dir = scratch("who");
+    let home = dir.join("h");
+    std::fs::create_dir(&home).unwrap();
+    let socket = home.join("s.sock");
+    let mut child = ready_daemon(&dir, &home, &socket).await;
+    let mut sender = std::process::Command::new("/bin/sh")
+        .args(["-c", &format!("kill -TERM {}; sleep 5", child.id())])
+        .spawn()
+        .unwrap();
+    let status = exit_within(&mut child, Duration::from_secs(10)).await;
+    let _ = sender.kill();
+    let _ = sender.wait();
+    assert!(status.is_some(), "the daemon still ran 10 s after SIGTERM");
+    let log = std::fs::read_to_string(dir.join("daemon.stderr.log")).unwrap_or_default()
+        + &std::fs::read_to_string(dir.join("daemon.stdout.log")).unwrap_or_default();
+    let want = format!("stopping: SIGTERM from pid {} (", sender.id());
+    assert!(log.contains(&want), "no {want:?} in the daemon's log:\n{log}");
+    assert!(log.contains("sleep 5"), "the sender's command line is not named:\n{log}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
