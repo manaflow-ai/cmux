@@ -506,13 +506,19 @@ if args.cleanup_machine:
            loaded=machines.get("loaded"),
            **({"row": {key: scalar(row[key]) for key in ("title", "status", "created_at") if key in row}}
               if row else {}))
+    if list_code != 0 or row is None:
+        # Never invoke destructive cleanup until the account snapshot has positively
+        # identified the requested machine. A failed or incomplete listing is inconclusive,
+        # so leave the machine untouched and make the proof fail closed.
+        record("cloud machine-status", list_code or 1, "", "skipped: cleanup target was not confirmed",
+               machine_status={"skipped": True})
+        finish("fail: cleanup target was not confirmed")
     status_code, status_summary, status_detail = machine_status(machine)
     record("cloud machine-status", status_code, "", status_detail, machine_status=status_summary)
     killed = kill_machine(machine, cleanup=True)
     after_code, after_summary, after_detail = machine_status(machine)
     record("cloud machine-status after kill", after_code, "", after_detail, machine_status=after_summary)
-    finish("pass" if killed and list_code == 0 and row is not None
-            else "fail: cleanup target was not confirmed")
+    finish("pass" if killed else "fail: kill-machine failed twice")
 
 actual = wait_for("selected backend active and signed in", ("app", "call", "auth.status", "--json"),
                   lambda value: value.get("cloud_environment") == args.cloud_backend

@@ -32,6 +32,7 @@ extension CloudMachine {
         }
         // The idle auto-pause fields, when the backend sends them (`/api/vm` names).
         let minutes = (value["idlePauseMinutes"]?.doubleValue).flatMap { Int(exactly: $0) }
+            ?? Self.nextIdlePolicyMinutes(value["idle_policy"] ?? value["idlePolicy"])
         let idlePause = Self.idlePauseDiagnostics(value["idlePause"])
         self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue,
                   capabilities: capabilities,
@@ -51,6 +52,14 @@ extension CloudMachine {
         case "user": .user
         default: nil
         }
+    }
+
+    /// The app-server contract uses seconds in `idle_policy`; preserve the
+    /// CloudMachine minute model used by legacy API records.
+    public static func nextIdlePolicyMinutes(_ value: JSONValue?) -> Int? {
+        guard let value, case let .object(fields) = value,
+              let seconds = fields["idle_seconds"]?.doubleValue else { return nil }
+        return Int(exactly: seconds / 60)
     }
 
     /// The backend's `error` (`{code, message, at}`): why the last pause, resume or resize failed
