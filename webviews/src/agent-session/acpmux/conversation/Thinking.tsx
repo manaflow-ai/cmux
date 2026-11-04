@@ -299,7 +299,11 @@ export function Thinking({
         </output>
       ) : (
         <span className="cv-shimmer__row">
-          <output className="cv-thinking is-shimmer">
+          <output
+            className="cv-thinking is-shimmer"
+            aria-label={decorative ? t("thinking") : undefined}
+            aria-live={decorative ? "off" : undefined}
+          >
             <ShimmerText
               text={label}
               baseText={

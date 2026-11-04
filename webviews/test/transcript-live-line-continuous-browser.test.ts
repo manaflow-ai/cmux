@@ -179,7 +179,7 @@ await requireBrowserLane("transcript-live-line-continuous-browser.test.ts", asyn
       expect(seconds[index]!).toBeGreaterThanOrEqual(seconds[index - 1]!);
     // Between calls the line holds the finished step, never "Thinking" under its row.
     const last = (step: string) => trace.filter((row) => row.step === step).at(-1)!.text;
-    expect(DEFAULT_STATUS_VERBS).toContain(last("thinking"));
+    expect(DEFAULT_STATUS_VERBS.some((verb) => verb === last("thinking"))).toBe(true);
     expect(last("grep running")).toStartWith("Running grep");
     expect(last("grep done")).toStartWith("Ran grep");
     expect(last("thought")).toStartWith("Ran grep");

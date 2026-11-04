@@ -83,7 +83,12 @@ test("the live line uses a configured rotating verb", () => {
       </StatusVerbContext.Provider>,
     ),
   );
-  expect(container.querySelector(".cv-thinking")?.textContent).toContain("Reading");
+  const status = container.querySelector(".cv-thinking")!;
+  expect(status.textContent).toContain("Reading");
+  // Rotating copy is decorative: the implicit output live region keeps one stable accessible name
+  // and never announces every cadence tick. Typed states below keep their factual output.
+  expect(status.getAttribute("aria-label")).toBe("Thinking");
+  expect(status.getAttribute("aria-live")).toBe("off");
 });
 
 test("thinking-only configuration keeps the traditional label", () => {
