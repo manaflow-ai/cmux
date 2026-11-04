@@ -631,7 +631,7 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
         return extra_help::print(&command_args);
     }
     // Settings CRUD belongs to the daemon's v2 owner. Keep the app parser for
-    // local-only helpers (`list`, `schema`, `validate`) until those have daemon
+    // local-only helpers (`list --keys`, `schema`, `validate`) until those have daemon
     // equivalents on this surface.
     if daemon_settings_scope(&command_args) {
         return None;
@@ -1203,6 +1203,7 @@ fn scope_help_for(
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
+        "workflow" => Cow::Borrowed(workflow::HELP),
         _ => Cow::Owned(root_help(&catalog.local_server)),
     });
     docs::append_scope_help(scope, text)
