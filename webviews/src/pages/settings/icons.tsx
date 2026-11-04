@@ -13,6 +13,12 @@ const paths: Record<string, ReactNode> = {
   paintbrush: (
     <path d="M13.5 2.5 7 9l-1.8-.2L5 7l6.5-6.5M5 9.2c-1.6 0-2.6 1-2.6 2.6 0 .9-.4 1.6-1 1.9 2.8.7 5.2-.3 5.2-2.9" />
   ),
+  "sidebar.left": (
+    <>
+      <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
+      <path d="M6 2.8v10.4M3.4 5.4h1M3.4 7.4h1M3.4 9.4h1" />
+    </>
+  ),
   terminal: (
     <>
       <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />

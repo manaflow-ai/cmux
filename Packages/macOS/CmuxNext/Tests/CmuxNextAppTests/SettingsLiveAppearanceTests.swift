@@ -236,12 +236,13 @@ import Testing
             #expect(live.style == .braille && live.animation == .static)
             #expect(live.scale == 1.5 && live.thickness == 3)
             #expect(!live.showsAgentWorkingOnTabs && !live.showsPageLoading && live.honoredStyleSources.isEmpty)
-            #expect(DesignSettings.shared.uiScale == 1.25)
+            // The setting is shown at 100%; the app draws it at `uiScaleBase` (#28663).
+            #expect(DesignSettings.shared.uiScale == DesignSettings.drawnUIScale(1.25))
             await settings.reload()
             #expect(DesignSettings.shared.statusIndicator == live)
             for (key, _) in values { try await call(page, "reset", key) }
             #expect(DesignSettings.shared.statusIndicator == StatusIndicatorSettings())
-            #expect(DesignSettings.shared.uiScale == 1)
+            #expect(DesignSettings.shared.uiScale == DesignSettings.drawnUIScale(1))
         }
     }
 }

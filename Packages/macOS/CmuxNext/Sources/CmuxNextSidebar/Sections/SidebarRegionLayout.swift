@@ -34,6 +34,9 @@ public nonisolated struct SidebarRegionMetrics: Hashable, Sendable {
     /// How far a list row ends short of the region's right edge: a block in the sidebar's list takes the
     /// list rows' `SidebarStyle.rowTrailingTrim`, so a pinned row's pill ends where a workspace row's does.
     public var trailingTrim: CGFloat = 0
+    /// The gap between consecutive list rows of one section: 0 unless the user sets
+    /// `sidebar.rowSpacing` (#28663), so pinned rows space like the workspace list.
+    public var rowGap: CGFloat = 0
 
     public init(rowHeight: CGFloat, headerHeight: CGFloat, inset: CGFloat, sectionGap: CGFloat, padding: CGFloat,
                 cardPadding: CGFloat, tileMinWidth: CGFloat, tileHeight: CGFloat, tileGap: CGFloat,
@@ -100,7 +103,19 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
 
     public static let empty = SidebarRegionLayout(rows: [], cards: [], separators: [], sectionFrames: [], height: 0, cappedHeight: 0)
 
-    public func row(at point: CGPoint) -> SidebarRegionRow? { rows.first { $0.frame.contains(point) } }
+    /// The gap between a section's item rows (`SidebarRegionMetrics.rowGap`).
+    public var rowGap: CGFloat = 0
+
+    /// The row under `point`. Within a gap between two item rows (`rowGap`), each takes the half
+    /// beside it, as the workspace list does, so hover and drops never fall through a gap.
+    public func row(at point: CGPoint) -> SidebarRegionRow? {
+        if let row = rows.first(where: { $0.frame.contains(point) }) { return row }
+        guard rowGap > 0 else { return nil }
+        return rows.first { row in
+            guard case .item = row.kind else { return false }
+            return row.frame.insetBy(dx: 0, dy: -rowGap / 2).contains(point)
+        }
+    }
 
     public static func make(sections: [LayoutSection], width: CGFloat, look: SectionsLookVariant,
                             collapsed: Set<LayoutSectionID>, metrics m: SidebarRegionMetrics,
@@ -116,6 +131,7 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
         }
         guard !shown.isEmpty else { return .empty }
         var result = SidebarRegionLayout.empty
+        result.rowGap = m.rowGap
         var y = m.topPadding ?? m.padding
         var capped = y
         if m.leadingSeparator, look.separatesSections {
@@ -160,13 +176,15 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
                     let lines = min(flow.lines, section.maxRows ?? flow.lines)
                     sectionCapped += CGFloat(lines) * flow.lineHeight + CGFloat(max(0, lines - 1)) * flow.gap
                 } else {
-                    for item in section.items {
+                    for (index, item) in section.items.enumerated() {
+                        if index > 0 { y += m.rowGap }
                         result.rows.append(SidebarRegionRow(kind: .item(item.id, section: section.id),
                                                             frame: CGRect(x: x, y: y, width: max(0, innerWidth - itemTrailingTrim(section, look: look, metrics: m)),
                                                                           height: m.rowHeight)))
                         y += m.rowHeight
                     }
-                    sectionCapped += CGFloat(min(section.items.count, section.maxRows ?? section.items.count)) * m.rowHeight
+                    let shown = min(section.items.count, section.maxRows ?? section.items.count)
+                    sectionCapped += CGFloat(shown) * m.rowHeight + CGFloat(max(0, shown - 1)) * m.rowGap
                 }
             }
             if carded {

@@ -33,6 +33,8 @@ test("the categories are the approved ones, in order", () => {
     "updates",
     "theme",
     "appearance",
+    // Settings > Sidebar: sidebar text size, density and spacing, and the sidebar cards (#28663).
+    "sidebar",
     "terminal",
     "editor",
     "browser",

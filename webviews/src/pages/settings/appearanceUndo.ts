@@ -7,8 +7,9 @@ import { rowsByKey } from "./schema";
 import type { SettingsState } from "./store";
 import { t, text } from "./strings";
 
-/** The Settings pages whose rows the stack records: Appearance and Theme. */
-export const APPEARANCE_CATEGORIES: readonly string[] = ["appearance", "theme"];
+/** The Settings pages whose rows the stack records: Appearance, Theme and Sidebar (its rows came
+ * from Appearance, #28663). */
+export const APPEARANCE_CATEGORIES: readonly string[] = ["appearance", "theme", "sidebar"];
 
 /** Appearance keys the page no longer shows that the app still loads (#22379): a value someone
  * set still applies, so Reset to Defaults resets it too, the only way Settings can put it back. */
