@@ -58,4 +58,35 @@ mod apps {
         assert!(!script.contains("\nexport "), "main.js is a classic script");
         let _ = std::fs::remove_dir_all(dir.parent().unwrap());
     }
+
+    /// The "Matching the app" template (a focus timer built only from the kit) is a valid package too.
+    #[test]
+    fn the_documented_focus_timer_template_is_a_valid_package() {
+        let doc_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../skills/cmux-customization/references/local-app-views.md");
+        let doc = std::fs::read_to_string(&doc_path).expect("doc");
+        let manifest = block(&doc, "#### Focus timer manifest", "json");
+        let script = block(&doc, "#### Focus timer script", "js");
+
+        let dir = std::env::temp_dir()
+            .join(format!("cmux-customize-template-{}", std::process::id()))
+            .join("customize");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("cmux-app.json"), manifest).unwrap();
+        std::fs::write(dir.join("main.js"), script).unwrap();
+
+        let report = validate_package(&dir);
+        assert!(report.is_valid(), "{:?}", report.issues);
+        let manifest = report.manifest.expect("manifest");
+        assert_eq!(manifest["id"], "local/customize");
+        let export = manifest["implements"]["cmux.section/1"]["export"].as_str().expect("export");
+        assert!(script.contains(&format!("function {export}(")), "{export} is not defined");
+        assert!(script.contains(&format!("__cmuxAppExports = {{ {export} }}")), "{export} is not exported");
+        for piece in ["Panel(", "Toggle(", "Slider(", "Row(", "Button(", "Menu(", "cmux.toast("] {
+            assert!(script.contains(piece), "the template uses {piece}");
+        }
+        assert!(!script.contains('#'), "no literal colors");
+        let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+    }
 }
