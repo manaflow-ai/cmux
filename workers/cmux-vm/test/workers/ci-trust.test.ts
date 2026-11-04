@@ -130,6 +130,17 @@ describe("a trusted job", () => {
     expect((await create(t, token)).status).toBe(201);
   });
 
+  it("reclaims its quota from VMs the provider already deleted (a job cancelled before its cleanup)", async () => {
+    const t = await harness();
+    const token = await t.githubToken(CLAIMS);
+    expect((await create(t, token)).status).toBe(201);
+    expect((await create(t, token)).status).toBe(429);
+    // The run cap paused it and the provider auto-deleted it; its row still counts until the Worker forgets it.
+    t.upstream.vms.clear();
+    expect((await create(t, token)).status).toBe(201);
+    expect(t.audit.filter((row) => row.action === "vm.delete" && row.actor === "service:ci-product-smoke")).toHaveLength(1);
+  });
+
   it("may not grow a VM past what it was created with", async () => {
     const t = await harness();
     const token = await t.githubToken(CLAIMS);
