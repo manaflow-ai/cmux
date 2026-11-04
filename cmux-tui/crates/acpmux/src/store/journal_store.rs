@@ -83,6 +83,23 @@ const LOCK_WAIT: Duration = Duration::from_secs(5);
 /// The longest a repair waits for the lines it journals before it cuts a log.
 const REPAIR_WAIT: Duration = Duration::from_secs(60);
 
+/// Tests: the next append stops right after its log write, says so on the first channel and
+/// waits for the second (the appends' lock held, as at that point in a real append).
+#[cfg(test)]
+pub(crate) static PAUSE_AFTER_LOG_WRITE: Mutex<
+    Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
+> = Mutex::new(None);
+
+#[cfg(test)]
+fn pause_after_log_write() {
+    let pause =
+        PAUSE_AFTER_LOG_WRITE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+    if let Some((arrived, release)) = pause {
+        let _ = arrived.send(());
+        let _ = release.recv();
+    }
+}
+
 pub struct JournalStore {
     inner: Arc<Inner>,
     checkpointer: Mutex<Option<std::thread::JoinHandle<()>>>,
@@ -368,6 +385,8 @@ impl Store for JournalStore {
         inner.journal.check_append(payload.len()).map_err(JournalStore::journal_error)?;
         // Refused once the store is sealed (under the same lock, so exact).
         inner.local.append_line(id, line.as_bytes())?;
+        #[cfg(test)]
+        pause_after_log_write();
         if !order.dirty.contains(id) {
             order.dirty.insert(id.to_owned());
         }

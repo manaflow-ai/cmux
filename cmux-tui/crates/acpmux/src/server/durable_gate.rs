@@ -119,6 +119,10 @@ async fn run(
     }
 }
 
+/// Tests: the stall limit in milliseconds when not 0.
+#[cfg(test)]
+pub(crate) static TEST_STALL_MS: AtomicU64 = AtomicU64::new(0);
+
 #[cfg(all(test, unix))]
 #[path = "durable_gate_tests.rs"]
 mod durable_gate_tests;

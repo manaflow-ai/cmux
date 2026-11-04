@@ -141,3 +141,24 @@ async fn agent_output_is_not_held_behind_another_chats_acked_change() {
     assert_eq!(update["params"]["update"]["content"]["text"], "hi", "{update}");
     assert!(took < SYNC / 2, "agent output waited {took:?} behind another chat's change");
 }
+
+/// F2: a journal that makes nothing durable (a hung or failing disk; the writer retries without
+/// end) must not hold every reply without a limit: past the stall limit, the store asks the
+/// daemon to stop for a restart.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_journal_that_syncs_nothing_asks_the_daemon_to_stop() {
+    use std::sync::atomic::Ordering;
+    super::TEST_STALL_MS.store(300, Ordering::SeqCst);
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(62);
+    let hub = hub(home.path(), &journal);
+    let (input, _outgoing) = connect(&hub).await;
+    let mut stop = hub.store.stop_reason().unwrap_or_else(|| panic!("no stop reason"));
+    journal.set_sync_delay(Duration::from_secs(3600));
+    let rename = json!({"sessionId": CHAT, "newName": "renamed"});
+    send(&input, Message::request(2, method::MUX_RENAME, rename)).await;
+    let asked =
+        tokio::time::timeout(Duration::from_secs(5), stop.wait_for(Option::is_some)).await.is_ok();
+    journal.set_sync_delay(Duration::ZERO);
+    assert!(asked, "a reply waited past the stall limit and the store did not ask to stop");
+}
