@@ -2465,6 +2465,8 @@ def finish_turn_in_flight(variant, turn):
 def journey(base):
     global SINCE
     seed(base)
+    if opts.record_launch:
+        show_long_chat()
     back_walk("seed")  # before any reopen: tells the live Back bug apart from a restore loss
     for n, variant in enumerate(v.strip() for v in opts.variants.split(",") if v.strip()):
         before = snapshot(f"{variant}-before")
@@ -2560,6 +2562,28 @@ def journey(base):
         back_walk(f"{variant} after the reopen")
 
 
+def show_long_chat(turns=24):
+    """--record-launch: the first seeded chat gets a long transcript (`turns` more turns, each a multi-line prompt the
+    fake agent echoes) and is the shown tab of the front window at the quit, so each relaunch restores a chat with
+    more rows than fit (Leo, 2026-11-04: the chats restoring are what shift). False when there is no chat."""
+    chat = CHATS[0] if CHATS else None
+    client = acpmux_client()
+    if not chat or not client:
+        say("  long chat: no seeded chat (the agents part skipped or failed); the relaunch shows none")
+        return False
+    body = "\n".join(f"rj long line {k}: the quick brown fox jumps over the lazy dog, again and again" for k in range(10))
+    for turn in range(turns):
+        client.request("session/prompt", {"sessionId": chat["session"], "prompt": [{"type": "text", "text": f"rj long turn {turn} {RUN}\n{body}"}],
+                                          "_meta": {"acpmux": {"promptId": f"rj-{RUN}-long-{turn}"}}}, timeout=60)
+    ws = workspace_named("rj-chats")
+    if ws:
+        cli("workspace", ws["id"], "focus")
+    cli("tab", chat["tab"], "focus")
+    shown = wait(lambda: "first_content_ms" in (page(None, "layout_watch", ms=300) or {}), 20, 0.5)
+    say(f"  long chat: {turns} turns in {chat['label']}, shown {bool(shown)}")
+    return bool(shown)
+
+
 def start_chat_watch():
     """From as soon as the relaunched app answers: the shown chat page's `layout_watch` (what moved on the page after
     it first drew its transcript and composer), asked again until a page answers or 15 s pass. A thread; its result
@@ -2610,6 +2634,9 @@ def launch_shift_rows(variant, record, launched, chat_watch):
     chat = summary.get("chat") or {}
     if chat and "first_content_ms" in chat:
         moved = len(chat.get("shifts") or []) + len(chat.get("scroll_jumps") or [])
+        RESULTS.append((f"{variant}: the shown chat's first paint has its transcript", (chat.get("first_rows") or 0) > 0,
+                        f"first rows {chat.get('first_rows')} at {chat.get('first_content_ms')} ms after the watch began "
+                        f"({chat.get('asked_s')} s after the relaunch)", "launch frames"))
         RESULTS.append((f"{variant}: the shown chat does not move after its first paint", moved == 0,
                         f"{len(chat.get('shifts') or [])} shifts, {len(chat.get('appeared') or [])} appeared, "
                         f"{len(chat.get('scroll_jumps') or [])} scroll jumps; first rows {chat.get('first_rows')}", "launch frames"))

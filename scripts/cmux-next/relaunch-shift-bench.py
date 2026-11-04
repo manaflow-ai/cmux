@@ -34,18 +34,22 @@ def median_of(rounds):
     for key in KEYS:
         values = [r["total"].get(key) for r in rounds if isinstance(r.get("total", {}).get(key), (int, float))]
         out[key] = statistics.median(values) if values else None
-    shifts = [len((r.get("chat") or {}).get("shifts") or []) for r in rounds if "first_content_ms" in (r.get("chat") or {})]
-    out["chat_shifts"] = statistics.median(shifts) if shifts else None
+    chats = [r.get("chat") or {} for r in rounds if "first_content_ms" in (r.get("chat") or {})]
+    for key, read in (("chat_shifts", lambda c: len(c.get("shifts") or [])), ("chat_scroll_jumps", lambda c: len(c.get("scroll_jumps") or [])),
+                      ("chat_appeared", lambda c: len(c.get("appeared") or [])), ("chat_first_rows", lambda c: c.get("first_rows") or 0)):
+        out[key] = statistics.median(read(c) for c in chats) if chats else None
     return out
 
 
 def markdown(rounds, median):
-    lines = ["| relaunch | " + " | ".join(KEYS) + " | chat shifts |", "|" + "---|" * (len(KEYS) + 2)]
+    lines = ["| relaunch | " + " | ".join(KEYS) + " | chat shifts / scroll jumps / first rows |", "|" + "---|" * (len(KEYS) + 2)]
     for n, r in enumerate(rounds, 1):
         chat = r.get("chat") or {}
         lines.append(f"| {n} | " + " | ".join(str(r["total"].get(k)) for k in KEYS) +
-                     f" | {len(chat.get('shifts') or []) if 'first_content_ms' in chat else 'n/a'} |")
-    lines.append("| median | " + " | ".join(str(median.get(k)) for k in KEYS) + f" | {median.get('chat_shifts')} |")
+                     (f" | {len(chat.get('shifts') or [])} / {len(chat.get('scroll_jumps') or [])} / {chat.get('first_rows')} |"
+                      if "first_content_ms" in chat else " | n/a |"))
+    lines.append("| median | " + " | ".join(str(median.get(k)) for k in KEYS) +
+                 f" | {median.get('chat_shifts')} / {median.get('chat_scroll_jumps')} / {median.get('chat_first_rows')} |")
     for n, r in enumerate(rounds, 1):
         views = r["total"].get("views") or {}
         if views:
