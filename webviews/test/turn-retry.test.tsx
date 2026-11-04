@@ -317,3 +317,50 @@ test("a Retry acpmux took says Retrying… until its attempt reaches the chat", 
   expect([note(), cardRetry().hasAttribute("disabled")]).toEqual([undefined, false]);
   expect(answers.length).toBe(3);
 });
+
+// cmux#34369: a Retry acpmux ran that failed again (a gateway still down) drew the same card as
+// before, so the click read as doing nothing. The attempt's card says it failed again.
+test("a retried attempt that failed too says so on its card, and the first failure does not", async () => {
+  const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
+  let at = 0;
+  const row = (id: string, kind: string, extra: Record<string, unknown> = {}) =>
+    ({ id, kind, version: 1, at: (at += 1_000), ...extra }) as Parameters<typeof turnView>[0][number];
+  const error = "API Error: Connection error.";
+  const rows = [
+    row("user-1", "user", { text: "Run the sidebar tests", promptId: "p1" }),
+    row("turn-2", "turnSummary", { status: "failed", error, durationMs: 1_000 }),
+    row("user-3", "user", { text: "", incoming: { kind: "hidden" }, promptId: "p1~resume-1" }),
+    row("turn-4", "turnSummary", { status: "failed", error, durationMs: 1_000 }),
+  ];
+  const summaries = turnView(rows, new Set(), { now: 10_000 }).filter((shaped) => shaped.kind === "turnSummary");
+  expect(summaries.map((summary) => [summary.id, summary.failedAgain === true])).toEqual([
+    ["turn-2", false],
+    ["turn-4", true],
+  ]);
+  const note = () => card().querySelector(".cv-turn-error__note")?.textContent;
+  for (const [summary, expected] of [
+    [summaries[0]!, undefined],
+    [summaries[1]!, "Failed again after retrying"],
+  ] as const) {
+    await act(async () =>
+      root.render(
+        <TurnActionsContext.Provider value={{ retry: () => undefined, retryFailed: () => Promise.resolve(undefined) }}>
+          <TurnFooter key={summary.id} row={summary} />
+        </TurnActionsContext.Provider>,
+      ),
+    );
+    expect(note()).toBe(expected);
+  }
+});
+
+// cmux#34369: a chat without acpmux's retry (View Only, a read-only pane) sends the prompt again;
+// a send that did not go settled as sent, and the card said nothing.
+test("a plain resend that did not go says Retry could not run", async () => {
+  const { errorRecovery } = await import("../src/agent-session/acpmux/conversation/errorRecovery");
+  const row = { ...failed, id: "summary-resend" } as Parameters<typeof errorRecovery>[0];
+  const recovery = (sent: boolean) => errorRecovery(row, undefined, { retry: () => Promise.resolve(sent) });
+  expect(await recovery(false)!.run()).toBe("retry.failed");
+  expect(await recovery(true)!.run()).toBeUndefined();
+  // A provider that names no outcome still counts as sent.
+  expect(await errorRecovery(row, undefined, { retry: () => undefined })!.run()).toBeUndefined();
+});

@@ -612,6 +612,10 @@ export type AcpmuxRow = {
   promptId?: string;
   /// The last turn's footer carries its prompt, for Retry (conversation/turns.ts).
   prompt?: string;
+  /// A failed turn that was itself a retry of an earlier failed one (its prompt acpmux's
+  /// `P~resume-n`): its card says it failed again, so a Retry that failed as fast as the first
+  /// (a gateway outage) is not read as a click that did nothing (cmux#34369).
+  failedAgain?: true;
   /// The last turn's footer when the reader stopped that turn and nothing followed: it offers
   /// Continue (conversation/turns.ts, TurnRows.tsx TurnFooter).
   resumable?: boolean;
