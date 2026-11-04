@@ -17,7 +17,6 @@
 {"file":"agent-session/acpmux/addProject.css","kind":"spacing","property":"padding","values":{"0 10px":1,"6px 8px":1,"4px 7px":1}}
 {"file":"agent-session/acpmux/aside/btw.css","kind":"font-weight","property":"font-weight","values":{"500":2}}
 {"file":"agent-session/acpmux/avatars/avatars.css","kind":"spacing","property":"margin","values":{"0 0 6px":1}}
-{"file":"agent-session/acpmux/backgroundTasks/backgroundTasks.css","kind":"spacing","property":"margin-left","values":{"-6px":1}}
 {"file":"agent-session/acpmux/bottomStack.css","kind":"height","property":"min-height","values":{"calc(44px + var(--acpmux-transcript-min, 96px))":1,"var(--acpmux-stack-row-min, 34px)":1}}
 {"file":"agent-session/acpmux/changes/changes.css","kind":"height","property":"height","values":{"1px":1}}
 {"file":"agent-session/acpmux/changes/git.css","kind":"height","property":"min-height","values":{"44px":1}}
