@@ -545,7 +545,9 @@ body {
   max-width: min(86vw, 360px);
   display: flex;
   flex-direction: column;
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
+  /* ui-glass owns the popup rim; retain the one-pixel box edge for stable
+     geometry without drawing a second border over the glass surface. */
+  border: 1px solid transparent;
   border-radius: var(--ds-radius-lg);
   background: var(--glass-tint, var(--cmux-diff-bg));
   -webkit-backdrop-filter: var(--surface-blur, none);
@@ -1922,6 +1924,9 @@ svg[data-icon-fill] {
 #toolbar .base-picker-ref {
   font-weight: 500;
 }
+#jump-to-file {
+  flex: 0 0 auto;
+}
 .toolbar-round-button {
   display: inline-flex;
   flex: 0 0 auto;
@@ -1958,7 +1963,9 @@ svg[data-icon-fill] {
   flex-direction: column;
   min-width: 200px;
   padding: var(--ds-space-1);
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
+  /* ui-glass owns the popup rim; retain the one-pixel box edge for stable
+     geometry without drawing a second border over the glass surface. */
+  border: 1px solid transparent;
   border-radius: var(--ds-radius-lg);
   background: var(--glass-tint, color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg)));
   -webkit-backdrop-filter: var(--surface-blur, none);
