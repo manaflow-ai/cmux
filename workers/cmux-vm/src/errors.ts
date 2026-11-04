@@ -43,26 +43,32 @@ export const missingScope = (scope: Scope) =>
  * Only code-defined names: a store or provider operation, a limits or entitlements failure, an
  * identity reason, or the error's tag. Never ids, SQL, causes or provider names.
  */
+const field = (value: object, key: string): unknown => (key in value ? Reflect.get(value, key) : undefined);
+
 export const dependencyOf = (cause: unknown): string | undefined => {
   if (typeof cause === "string") return cause.length > 0 ? cause : undefined;
-  if (typeof cause !== "object" || cause === null || !("_tag" in cause) || typeof cause._tag !== "string") return undefined;
-  const fields = cause as { readonly _tag: string; readonly operation?: unknown; readonly status?: unknown; readonly reason?: unknown };
-  const operation = typeof fields.operation === "string" ? fields.operation : undefined;
-  switch (fields._tag) {
+  if (typeof cause !== "object" || cause === null) return undefined;
+  const tag = field(cause, "_tag");
+  if (typeof tag !== "string") return undefined;
+  const rawOperation = field(cause, "operation");
+  const operation = typeof rawOperation === "string" ? rawOperation : undefined;
+  switch (tag) {
     case "StoreError":
       return operation === undefined ? "database" : `database.${operation}`;
     case "UpstreamError": {
-      const status = typeof fields.status === "number" ? ` (HTTP ${fields.status})` : " (no response)";
-      return `${operation === undefined ? "vm-provider" : `vm-provider.${operation}`}${status}`;
+      const status = field(cause, "status");
+      return `${operation === undefined ? "vm-provider" : `vm-provider.${operation}`}${typeof status === "number" ? ` (HTTP ${status})` : " (no response)"}`;
     }
     case "LimitsUnavailable":
       return "tenant-limits";
     case "EntitlementUnavailable":
       return "entitlements";
-    case "IdentityUnavailable":
-      return typeof fields.reason === "string" ? `identity.${fields.reason}` : "identity";
+    case "IdentityUnavailable": {
+      const reason = field(cause, "reason");
+      return typeof reason === "string" ? `identity.${reason}` : "identity";
+    }
     default:
-      return fields._tag;
+      return tag;
   }
 };
 
