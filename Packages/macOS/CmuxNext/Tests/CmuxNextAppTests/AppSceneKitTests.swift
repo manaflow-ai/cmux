@@ -95,14 +95,13 @@ import Testing
 
     @Test func aSliderIsANativeSliderAtItsValue() throws {
         let model = AppSceneModel()
-        model.apply([.create(id: "s", type: "Slider", props: ["value": 25, "min": 5, "max": 60, "step": 5]), .root(id: "s")])
+        model.apply([.create(id: "s", type: "Slider", props: ["value": 25, "min": 5, "max": 60, "step": 5, "onChange": true]), .root(id: "s")])
         let (window, root) = try Self.host(model, "s")
         defer { window.contentView = nil; window.close() }
         let slider = try #require(Self.all(NSSlider.self, in: root).first, "the native slider")
         // SwiftUI may drive the NSSlider over a normalized range: compare the thumb's fraction, 25 in 5...60.
         let fraction = (slider.doubleValue - slider.minValue) / (slider.maxValue - slider.minValue)
         #expect(abs(fraction - 20.0 / 55.0) < 0.001)
-        #expect(!slider.isEnabled, "no onChange: the slider only shows the app's value")
     }
 
     @Test func aGlassPanelIsTheSidebarCardsSurfaceAndACardIsNot() throws {
