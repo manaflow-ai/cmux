@@ -15,7 +15,22 @@ enum ConversationTheme {
 
     /// `value` (a Large-size metric) at the current content size category.
     static func scaled(_ value: CGFloat, _ style: UIFont.TextStyle = .body) -> CGFloat {
-        UIFontMetrics(forTextStyle: style).scaledValue(for: value)
+        guard let traits = textSizeTraits else { return UIFontMetrics(forTextStyle: style).scaledValue(for: value) }
+        return UIFontMetrics(forTextStyle: style).scaledValue(for: value, compatibleWith: traits)
+    }
+
+    /// The traits text styles resolve with while the conversation on screen
+    /// has a text size from its host (`ConversationViewController.textSize`):
+    /// that size and the controller's legibility weight (Bold Text). nil,
+    /// the default, leaves every font exactly as the system sizes it. Set by
+    /// the controller (main thread only), like `displayScale`; read off the
+    /// main thread too, by rows measured ahead (a trait collection is immutable).
+    nonisolated(unsafe) static var textSizeTraits: UITraitCollection?
+
+    /// `style`'s font at the host's size, or the system's when none is set.
+    private static func preferredFont(_ style: UIFont.TextStyle) -> UIFont {
+        guard let traits = textSizeTraits else { return .preferredFont(forTextStyle: style) }
+        return .preferredFont(forTextStyle: style, compatibleWith: traits)
     }
 
     /// A system font scaled like `style`. Bold Text needs nothing here: UIKit
@@ -52,6 +67,7 @@ enum ConversationTheme {
         var currentCategory: UIContentSizeCategory
         var legibility: UILegibilityWeight
         var boldText: Bool
+        var textSize: UIContentSizeCategory?
     }
 
     nonisolated(unsafe) private static var fontCache: [FontRequest: UIFont] = [:]
@@ -65,7 +81,8 @@ enum ConversationTheme {
                 appCategory: UIApplication.shared.preferredContentSizeCategory,
                 currentCategory: current.preferredContentSizeCategory,
                 legibility: current.legibilityWeight,
-                boldText: UIAccessibility.isBoldTextEnabled
+                boldText: UIAccessibility.isBoldTextEnabled,
+                textSize: textSizeTraits?.preferredContentSizeCategory
             )
         }
         if environment != fontCacheEnvironment {
@@ -102,7 +119,8 @@ enum ConversationTheme {
     /// the default size.
     static var bubbleFont: UIFont {
         cachedFont(FontRequest(name: "bubble")) {
-            let descriptor = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .body)
+            let descriptor = textSizeTraits.map { UIFontDescriptor.preferredFontDescriptor(withTextStyle: .body, compatibleWith: $0) }
+                ?? UIFontDescriptor.preferredFontDescriptor(withTextStyle: .body)
             return UIFont(descriptor: descriptor.withSymbolicTraits(.traitTightLeading) ?? descriptor, size: 0)
         }
     }
@@ -145,7 +163,7 @@ enum ConversationTheme {
     }
 
     /// The caption 2 font (11 pt at Large), ChatKit's `transcriptTextFont`.
-    static var captionFont: UIFont { cachedFont(FontRequest(name: "caption")) { .preferredFont(forTextStyle: .caption2) } }
+    static var captionFont: UIFont { cachedFont(FontRequest(name: "caption")) { preferredFont(.caption2) } }
 
     /// A transcript space given at Large, at the current text size
     /// (`ConversationTranscriptMetrics.space`): Messages grows every gap with
@@ -190,7 +208,7 @@ enum ConversationTheme {
 
     /// Group sender names: caption 2 (11 pt at the default size), 14 pt in
     /// from the bubble's leading edge.
-    static var senderNameFont: UIFont { cachedFont(FontRequest(name: "sender")) { .preferredFont(forTextStyle: .caption2) } }
+    static var senderNameFont: UIFont { cachedFont(FontRequest(name: "sender")) { preferredFont(.caption2) } }
     static let senderNameInset: CGFloat = 14
     /// The name's line box and the bubble's offset under the name's top
     /// (`ConversationTranscriptMetrics.senderNameLine`).
@@ -209,7 +227,7 @@ enum ConversationTheme {
     static var editedFont: UIFont { font(11, style: .caption2) }
     /// Reply quote text: subheadline, 15 pt at the default size.
     /// `replyBalloonTextFont`: caption2 (11 pt at Large).
-    static var quoteFont: UIFont { cachedFont(FontRequest(name: "quote")) { .preferredFont(forTextStyle: .caption2) } }
+    static var quoteFont: UIFont { cachedFont(FontRequest(name: "quote")) { preferredFont(.caption2) } }
     /// Status, separators and swipe times are 11 pt caption 2 in Messages (iOS 26).
     static var timestampFont: UIFont { font(11, style: .caption2) }
     /// ChatKit's `transcriptBoldFont`: "Today" in separators, names in
