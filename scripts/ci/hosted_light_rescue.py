@@ -14,7 +14,8 @@ An independent scheduled workflow wakes that same concurrency owner when it is n
 cancels or re-runs target jobs itself. Each pass:
 
 - lists the in-flight (`queued`, `in_progress`) pull request runs of every workflow file that declares a hosted
-  light job, created STALL_SECONDS to WINDOW ago (the newest listing page plus one rotating overflow page per workflow and status);
+  light job, created STALL_SECONDS to WINDOW ago (the newest listing page, plus one rotating overflow page per
+  workflow and status only when the newest page is full);
 - retains discovered candidates within WINDOW and reads the jobs of at most MAX_RUNS of them (plus one re-read
   per rescue, so at most MAX_RUNS + MAX_RESCUES) (attempt 1 only, at the pull request's current head); the first
   pass is oldest first and later passes rotate from an in-memory cursor;
@@ -29,6 +30,11 @@ Bounds: only pull request runs (never push, schedule, dispatch, nightly, DEV, pr
 recovery attempts a pass, and a run with any other unfinished job is left alone and reported. Confirmed rescue
 cancellations have durable log receipts. A later minute or successor may resume only those receipts, after reading
 the live attempt and current open PR again; incomplete history and unmarked cancellations never authorize a rerun.
+
+Quota: the workflow token's pool is the repository's one GITHUB_TOKEN pool (1,000 requests an hour on this plan),
+shared by every workflow, the NEXT nightly's tick and notarization among them. A pass makes no new listing or job
+read once a response says that pool is down to POOL_RESERVE until its reset (owned recovery still finishes), and an
+unreadable recovery journal is read again only every JOURNAL_RETRY, not every minute.
 """
 
 from __future__ import annotations
@@ -58,6 +64,14 @@ WINDOW = dt.timedelta(minutes=90)
 MAX_RUNS = 40
 MAX_RESCUES = 10
 MAX_RUN_LIST_PAGES = 10
+LIST_PAGE = 100
+# Left in the repository's GITHUB_TOKEN pool for every other workflow. On 2026-11-04 this pass alone made
+# about 50-100 requests a minute (24 listings, 40 job reads and a 10-page journal read that always failed) and
+# spent the 1,000-request pool within minutes of each reset (sweeper run 41788968966 logged 403s on every read
+# from 07:06Z); the NEXT nightly tick and its notarization
+# preflight then failed with "API rate limit exceeded for installation" (runs 41791114042, 41790985234).
+POOL_RESERVE = 500
+JOURNAL_RETRY = dt.timedelta(minutes=15)
 SETTLE_BUDGET_S = 90.0
 SETTLE_INTERVAL_S = 5.0
 RERUN_TRIES = 3
@@ -132,6 +146,25 @@ class GitHub:
 
         self.etags: dict[str, tuple[str, Any]] = {}
         self.history: Any = None
+        # The token's pool as the last response reported it: None until a response carries it.
+        self.remaining: int | None = None
+        self.reset: float = 0.0
+
+    def note_limit(self, headers: Any) -> None:
+        """Record X-RateLimit-Remaining and -Reset from any response, a refusal or a 304 included."""
+        try:
+            remaining = headers.get("X-RateLimit-Remaining") if headers is not None else None
+            reset = headers.get("X-RateLimit-Reset") if headers is not None else None
+            if remaining is not None:
+                self.remaining = int(remaining)
+            if reset is not None:
+                self.reset = float(reset)
+        except (AttributeError, TypeError, ValueError):
+            pass
+
+    def spare(self, now: dt.datetime) -> bool:
+        """The pool is above POOL_RESERVE, unknown, or past its reset: a pass may read."""
+        return self.remaining is None or self.remaining > POOL_RESERVE or now.timestamp() >= self.reset
 
     def pending_cancellations(self, now: dt.datetime) -> set[int]:
         """Restore only this worker's confirmed cancellations from the existing durable rescue log journal.
@@ -167,12 +200,14 @@ class GitHub:
             request.add_header("If-None-Match", cached[0])
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
+                self.note_limit(response.headers)
                 body = response.read()
                 result = json.loads(body) if body.strip() else {}
                 if method == "GET" and response.headers.get("ETag"):
                     self.etags[path] = (response.headers["ETag"], result)
                 return result
         except urllib.error.HTTPError as error:
+            self.note_limit(error.headers)
             if error.code == 304 and cached:
                 return cached[1]
             raise RuntimeError(f"{method} {path}: HTTP {error.code}") from error
@@ -342,6 +377,12 @@ def scan_slice(runs: Sequence[Mapping[str, Any]], cursor: tuple[str, int] | None
     return selected, run_key(selected[-1])
 
 
+def pool_low(client: Any, now: dt.datetime) -> bool:
+    """The client's token pool is down to POOL_RESERVE (a client that does not track it never is)."""
+    spare = getattr(client, "spare", None)
+    return callable(spare) and not spare(now)
+
+
 def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: bool,
           sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
           pending: set[int] | None = None, log: Callable[[str], None] = print,
@@ -372,6 +413,10 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
                                        sleep=sleep, clock=clock, log=log)
         rescued += int(reran)
         lines.append(f"run {run_id}: {outcome}")
+    if pool_low(client, now):
+        lines.append(f"the workflow token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); "
+                     f"no listing or job read until its reset at {iso(dt.datetime.fromtimestamp(client.reset, UTC))}")
+        return lines
     start, end = now - WINDOW, now - dt.timedelta(seconds=STALL_SECONDS)
     # Overflow pages rotate independently of the job-read cursor. Retain the discovered union so a page
     # disappearing from the next listing cannot discard candidates before their turn. Metadata never
@@ -388,14 +433,19 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
             overflow = state.pages.get(key, 2)
             pages = (1, overflow)
             full_overflow = False
+            newest_full = False
             for listing_page in pages:
+                if listing_page == overflow and not newest_full:
+                    break  # the newest page holds every run: an overflow page would come back empty
                 try:
                     page = client.runs(workflow, status, start, end, page=listing_page)
                 except Exception as error:  # noqa: BLE001 - an unread listing only narrows this pass
                     lines.append(f"could not list {status} runs of {workflow} ({error})")
                     continue
+                if listing_page == 1:
+                    newest_full = len(page) >= LIST_PAGE
                 if listing_page == overflow:
-                    full_overflow = len(page) >= 100
+                    full_overflow = len(page) >= LIST_PAGE
                 for run in page:
                     if (isinstance(run, Mapping) and isinstance(run.get("id"), int) and candidate(run)
                             and run["id"] not in recovering
@@ -410,7 +460,11 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
     runs, state.cursor = scan_slice(runs, state.cursor)
     if candidate_count > MAX_RUNS:
         lines.append(f"{candidate_count} candidate runs; read a rotating slice of {MAX_RUNS}")
-    for run in runs:
+    for read, run in enumerate(runs):
+        if pool_low(client, now):
+            lines.append(f"the workflow token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); "
+                         f"{len(runs) - read} job reads left to a later pass")
+            break
         try:
             jobs = client.jobs(run["id"])
         except Exception as error:  # noqa: BLE001
@@ -520,14 +574,19 @@ def from_env(env: Mapping[str, str], repo: str, *, now: Callable[[], dt.datetime
     scan_state = ScanState()
     pending: set[int] = set()
     restored = False
+    retry_at: dt.datetime | None = None
     def once() -> None:
-        nonlocal restored
-        if not restored:
+        nonlocal restored, retry_at
+        if not restored and (retry_at is None or now() >= retry_at):
             try:
                 pending.update(client.pending_cancellations(now()))
                 restored = True
             except Exception as error:  # noqa: BLE001 - incomplete journal cannot authorize a rerun
-                log(f"hosted light recovery journal unavailable ({error}); existing cancellations left alone")
+                # Each attempt pages the rescue history (up to 10 reads), and an over-long window fails the same
+                # way every minute: try again after JOURNAL_RETRY, not on every pass.
+                retry_at = now() + JOURNAL_RETRY
+                log(f"hosted light recovery journal unavailable ({error}); existing cancellations left alone; "
+                    f"read again after {iso(retry_at)}")
         for line in sweep(client, workflows, now=now(), dry_run=False, pending=pending, log=log,
                           scan_state=scan_state):
             log(f"[hosted light] {line}")
