@@ -10,8 +10,9 @@ import Testing
 /// https://github.com/manaflow-ai/cmux/issues/32731: Cmd-N from Home made the new workspace at the top, then moved it
 /// next to the workspace selected before Home. The Home page parks that workspace and keeps `state.workspaceID`, but
 /// the window shows no workspace, so `workspaces.newPlacement` has no current one: the new row keeps the daemon's
-/// first slot and no second move follows. Under `beforeCurrent` and `afterCurrent` the daemon anchors its create to its active workspace,
-/// which Home leaves on the parked one, so the app moves the row to the top itself; `top` and `bottom` keep its place.
+/// first slot and no second move follows. Under `beforeCurrent` and `afterCurrent` an older daemon (one without
+/// `workspace-create-current-v1`) or an unnamed create anchors to the daemon's active workspace, which Home leaves on
+/// the parked one, so the app moves the row to the top itself; `top` and `bottom` keep its place.
 @MainActor @Suite(.serialized)
 struct NewWorkspaceFromHomePageTests {
     @Test(arguments: NewWorkspacePlacement.allCases)

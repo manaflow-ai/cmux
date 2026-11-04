@@ -20,7 +20,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `history.commandRetentionDays` | real | `30` | 1 to 3650 | Keep Terminal Commands For. Each machine deletes recorded commands that are older. |
 | `history.closed.maxGroups` | real | `0` | 0 to 10000 | Recently Closed Items to Keep. Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all. |
 | `history.closed.maxAgeDays` | real | `0` | 0 to 3650 | Keep Recently Closed Items For. Each machine deletes closed items that are older. 0 keeps them however old they are. |
-| `window.titlebar` | string | `"minimal"` | `minimal`, `standard` | Titlebar. Minimal has no titlebar strip; the top row moves the window. |
+| `window.titlebar` | string | `"standard"` | `minimal`, `standard` | Titlebar. Minimal has no titlebar strip; the top row moves the window. |
 | `window.titlebarButtons` | string | `"hover"` | `hover`, `always` | Titlebar Buttons. With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show. |
 | `app.globalHotKey` | boolean | `false` |  | Global Hot Key. Show/Hide All Windows (⌃⌥⌘.) works while another app is in front. |
 | `app.startAgentGlobalHotKey` | boolean | `false` |  | Start Agent from Any App. Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts. |
@@ -86,6 +86,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `ssh.linkAllowedHosts` | array | `[]` |  | Always Allowed SSH Link Hosts. An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask. |
 | `cloud.newWorkspacesInCloud` | boolean | `false` |  | Run New Workspaces in Cloud. Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine. |
 | `cloud.newWorkspaceFolder` | string | `"inherit"` | `inherit`, `empty` | New Cloud Workspaces Start In. Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder. |
+| `cloud.useMyClaudeLoginOnMyCloudMachines` | boolean | `false` |  | Use My Claude Login on My Own Cloud Machines. Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead. |
+| `cloud.agentsStartWithoutAsking` | boolean | `false` |  | Let Agents Start Cloud Sessions Without Asking. An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on. |
 | `agents.subsessions.enabled` | boolean | `true` |  | Let Agents Start Sub-sessions. An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar. |
 | `agents.subsessions.answerQuestions` | boolean | `false` |  | Let Sessions Answer Their Sub-sessions' Questions. When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer. |
 | `agents.subsessions.maxChildren` | real | `1000` | 1 to 1000 | Open Sub-sessions per Session. The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot. |
@@ -129,6 +131,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.chats.enabled` | boolean | `true` |  | Enable Chats. Show chats stored on this device. Nothing is uploaded. |
 | `agents.chats.discovery` | boolean | `true` |  | Discover Chat Folders. Find harness chat folders automatically. When off, only the listed folders are used. |
 | `agents.chats.roots` | array | `[]` |  | Chat Folders. Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders. |
+| `agents.chats.sessionRecap` | boolean | `true` |  | Session Recap. When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage. |
 | `picker.pinned` | array | `[]` |  | Pinned Folders. The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths. |
 | `screenshots.findTools` | boolean | `true` |  | Find Screenshot Apps. The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap. |
 | `screenshots.folders` | array | `[]` |  | More Screenshot Folders. The Screenshots pane also shows the pictures and videos in these folders. Use full paths or ~/ paths. |
@@ -572,6 +575,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `feed.mirrorNotifications.agents` | boolean | `true` |  | Copy Agent Notifications to the Feed. Notifications from agents and cmux notify go to your cmux account's feed and can reach your iPhone. |
 | `feed.mirrorNotifications.terminal` | string | `"off"` | `off`, `title`, `full` | Copy Terminal Notifications to the Feed. Notifications that programs send through the terminal can contain secrets. Off sends nothing to your cmux account. |
 | `feed.agentPermissionPrompts` | boolean | `false` |  | Send Agent Permission Requests to the Feed. Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it. |
+| `feed.needsYouInChief` | boolean | `false` |  | Pin Needs You in Chief. Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them. |
 | `notifications.attention.style` | string | `"steady"` | `blink`, `pulse`, `steady`, `none` | Style |
 | `notifications.attention.color` | string |  |  | Color |
 | `notifications.attention.terminals` | string | `"glow"` | `glow`, `ring`, `none` | Ring Terminal Panes |
@@ -621,12 +625,15 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.newChatsIn` | string | `"local"` | `local`, `cloud` | Start New Chats In. Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat. |
 | `agentPane.zoom` | real | `1` | 0.5 to 2 | Agent Chat Zoom. The display size for agent chat. Cmd-0 resets it. |
 | `agents.defaultPermissionMode` | string | `"fullAccess"` | `fullAccess`, `standard`, `ask` | Permission Mode for New Chats. What a new chat may do without asking. A mode you pick in a chat applies to that chat only. |
+| `agents.promptCache` | string | `"1h"` | `1h`, `5m` | Prompt Cache. How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more. |
 | `agents.modelRouter.model` | string | `"deepseek/deepseek-v4.1-flash-1017"` | `deepseek/deepseek-v4.1-flash-1017`, `deepseek/deepseek-v4.1-flash`, `deepseek/deepseek-v4-flash`, `deepseek/deepseek-v4-pro` | cmux Model Router Model. The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only. |
 | `diagnostics.hangReports` | boolean | `false` |  | Send Hang Reports. Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent. |
 | `macScreen.systemShortcuts` | boolean | `false` |  | Send System Shortcuts to the Remote Mac. While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility. |
 | `macScreen.debug.relayOnly` | boolean | `false` |  | Relay Only. Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect. |
 | `deviceHub.url` | string | `""` |  | Device Hub Address. Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub. |
 | `contextMenus.showCustomizeItem` | boolean | `true` |  | Show Customize Menu…. Adds Customize Menu… to the end of every right-click menu. |
+| `imessage.enabled` | boolean | `false` |  | Connect iMessage. Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click. |
+| `imessage.automationSkipped` | boolean | `false` |  | Skip Messages Automation. Remember skipping the Messages Automation step. This does not grant access or authorize sending. |
 | `EnrollmentToken` | string |  |  | Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership. |
 | `ManagedTeam` | string |  |  | Team id (team_...) that manages this device. |
 | `RestrictToManagedTeam` | boolean |  |  | Refuse sign-in to any team other than ManagedTeam on this device. |
@@ -636,3 +643,4 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `AllowedSignInMethods` | array |  | `sso`, `password`, `oauth` | Sign-in methods the app offers. |
 | `DisableAutoUpdate` | boolean |  |  | Turn off automatic updates (also honored in the legacy com.cmuxterm.app domain). |
 | `DisableTelemetry` | boolean |  |  | Turn off anonymous telemetry, crash reports included, whatever the user chose (also honored in the legacy com.cmuxterm.app domain). |
+| `ComputerUseActsAsPerson` | boolean |  |  | Computer use can act as me: clicks and key presses computer use makes in a chat count as the person's for Send, Retry and Approve, and nothing else. Off by default. Honored only as a forced value from an installed profile; the person can still turn it off until cmux restarts, and every action it lets through is logged. |
