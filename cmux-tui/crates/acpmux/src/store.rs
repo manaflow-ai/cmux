@@ -2005,6 +2005,7 @@ mod line_rev_tests;
 
 #[cfg(test)]
 mod agent_session_history_tests {
+    use crate::goal::{GoalState, GoalStatus};
     use super::{META_SCHEMA, RETIRED_AGENT_SESSION_IDS, SessionMeta};
     use serde_json::json;
 
@@ -2080,6 +2081,29 @@ mod agent_session_history_tests {
         let m = meta();
         assert!(m.previous_agent_session_ids.is_empty());
         assert!(m.retired_agent_session_ids.is_empty());
+    }
+
+    #[test]
+    fn goal_persistence_round_trip_keeps_quota_stop_reasons() {
+        for status in [GoalStatus::UsageLimited, GoalStatus::BudgetLimited] {
+            let mut m = meta();
+            m.goal = Some(GoalState {
+                objective: "Wait for quota".into(),
+                status: status.clone(),
+                provider: crate::goal::GoalProvider::Codex,
+                token_budget: None,
+                tokens_used: None,
+                elapsed_seconds: None,
+                created_at: None,
+                updated_at: None,
+                steps: None,
+                extra: Default::default(),
+            });
+            let encoded = serde_json::to_value(&m).unwrap();
+            assert_eq!(encoded["goal"]["status"], status.as_str());
+            let restored: SessionMeta = serde_json::from_value(encoded).unwrap();
+            assert_eq!(restored.goal.unwrap().status, status);
+        }
     }
 
     /// A Codex chat's earlier native roots stay known after a restart names a new one, so a

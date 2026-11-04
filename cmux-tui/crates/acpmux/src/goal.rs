@@ -121,8 +121,16 @@ impl GoalStatus {
 
     pub fn as_str(&self) -> &str {
         match self {
-            Self::Running | Self::Active => "running",
-            Self::Stalled | Self::Blocked | Self::UsageLimited | Self::BudgetLimited => "stalled",
+            // Keep explicit legacy spellings when serializing persisted
+            // metadata. `lifecycle()` is the canonical projection used by
+            // the web client, while these values retain quota stop reasons
+            // across a daemon restart.
+            Self::Running => "running",
+            Self::Stalled => "stalled",
+            Self::Active => "active",
+            Self::Blocked => "blocked",
+            Self::UsageLimited => "usageLimited",
+            Self::BudgetLimited => "budgetLimited",
             Self::Paused => "paused",
             Self::Done => "done",
             Self::Unknown(value) => value,
@@ -208,12 +216,10 @@ impl GoalState {
 
         let mut normalized = object.clone();
         normalized.insert("objective".to_owned(), Value::String(objective.to_owned()));
-        let wire_status = object
-            .get("status")
-            .or_else(|| object.get("state"))
-            .and_then(Value::as_str)
-            .unwrap_or(status.as_str());
-        normalized.insert("status".to_owned(), Value::String(wire_status.to_owned()));
+        // Deserialize the normalized value back into the typed model. Keep
+        // the canonical status here; `to_value` restores Codex's legacy wire
+        // spelling for clients that still expect `active`/`blocked`.
+        normalized.insert("status".to_owned(), Value::String(status.as_str().to_owned()));
         normalized.insert("provider".to_owned(), Value::String(provider.as_str().to_owned()));
         // Older daemons stored the goal as an untyped JSON value.  Ignore malformed
         // typed fields instead of letting one stale field make SessionMeta unloadable.
@@ -280,7 +286,10 @@ impl GoalState {
             elapsed_seconds: None,
             created_at: None,
             updated_at: None,
-            extra: BTreeMap::new(),
+            // Keep a plan distinct from Claude's actionable /loop. The web
+            // projection uses this marker together with the provider to keep
+            // ordinary TodoWrite plans read-only.
+            extra: BTreeMap::from([(String::from("kind"), Value::String(String::from("plan")))]),
         })
     }
 
@@ -380,6 +389,22 @@ mod tests {
     }
 
     #[test]
+    fn persists_usage_and_budget_stop_reasons() {
+        for raw in ["usageLimited", "budgetLimited"] {
+            let goal = GoalState::from_value(
+                &json!({"objective": "Wait for quota", "status": raw}),
+                Some("codex"),
+            )
+            .unwrap();
+            let encoded = serde_json::to_value(&goal).unwrap();
+            assert_eq!(encoded["status"], raw);
+            let restored: GoalState = serde_json::from_value(encoded).unwrap();
+            assert_eq!(restored.status, GoalStatus::from_name(raw));
+            assert_eq!(restored.lifecycle(), "stalled");
+        }
+    }
+
+    #[test]
     fn derives_running_then_done_claude_loop_from_plan_updates() {
         let running = GoalState::from_plan_update(&json!({
             "sessionUpdate": "plan",
@@ -392,6 +417,7 @@ mod tests {
         assert_eq!(running.provider, GoalProvider::Claude);
         assert_eq!(running.objective, "Run the check");
         assert_eq!(running.lifecycle(), "running");
+        assert_eq!(running.extra.get("kind"), Some(&json!("plan")));
         let done = GoalState::from_plan_update(&json!({
             "sessionUpdate": "plan",
             "entries": [{"content": "Run the check", "status": "completed"}]
