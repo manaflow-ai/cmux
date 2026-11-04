@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextFeatures
 import CmuxNextHostPressure
 import CmuxNextWakeups
 
@@ -16,15 +15,16 @@ import CmuxNextWakeups
 /// own: it follows the same level observation, and ends with it.
 ///
 /// Off by default (cmux#22662): it subscribes to the app's `HostPressureService`
-/// only while `HostPressureSampling.samples` holds (the feature `hostPressure`, resolved
-/// once per launch, is on and its window can be seen). Stop condition: the window's node in
+/// only while `HostPressureSampling.samples` holds (the Debug Settings toggle
+/// `hostPressure.enabled` is on and its window can be seen). Stop condition: the toggle going off,
+/// the window's node in
 /// the visibility tree going hidden or occluded (the window minimized or fully occluded, cmux
 /// hidden, the displays asleep), or the window closing, unsubscribes it, and the service stops
 /// the monitor and its one 15 s timer when no window is subscribed. Cleanup: leaving the window
-/// cancels the node, close and forced-level subscriptions, and leaving sampling the level
+/// cancels the node, close and toggle subscriptions, and leaving sampling the level
 /// observation; each also ends when released with the view, from any thread
 /// (`HostPressureSubscription` and `HostPressureBanner` end themselves the same way). While the
-/// feature is off it never creates the service at all.
+/// toggle is off it never creates the service at all.
 final class HostPressureIndicatorView: NSView {
     static let identifier = "cmux.titlebar.hostPressure"
     let button = TitlebarBandButton(symbol: HostPressureIndicatorView.symbol(.warning, style: .gauge))
@@ -46,10 +46,12 @@ final class HostPressureIndicatorView: NSView {
     private let onVisibilityChange: () -> Void
     private var subscription: HostPressureSubscription?
     private var service: HostPressureService? { subscription?.service }
-    /// While in a window: its node's flips, its close and the Debug forced level.
+    /// While in a window: its node's flips, its close and the Debug toggle and forced level.
     private var windowWatch: VisibilitySubscription?
     private var closeWatch: EventSubscription?
-    private var forceWatch: ServiceObservation<HostPressureForce>?
+    private var toggleWatch: ServiceObservation<ToggleFacts>?
+    /// The Debug toggle and forced level, while in a window.
+    private typealias ToggleFacts = (enabled: Bool, force: HostPressureForce)
     /// What the glyph and the banner show, while it samples.
     private typealias LevelFacts = (level: HostPressureLevel, verdict: HostBudgetVerdict?, style: HostPressureIndicatorStyle,
                                     banner: Bool, spell: Int)
@@ -122,13 +124,13 @@ final class HostPressureIndicatorView: NSView {
         applyTint()
     }
 
-    /// The gate's inputs now: the feature and whether the window can be seen (its node is visible). A forced level
+    /// The gate's inputs now: the toggle and whether the window can be seen (its node is visible). A forced level
     /// (Debug Settings only, for captures) counts as seen while the indicator is in a window: capture minis run
     /// windows the occlusion state calls hidden. The 15 s read then runs while the level stays forced; Off restores
     /// the window gate, and leaving the window still stops it.
     var sampling: HostPressureSampling {
         let forced = HostPressureTunables.force.value(in: store) != .off && window != nil
-        return HostPressureSampling(enabled: services.features.isEnabled(.hostPressure),
+        return HostPressureSampling(enabled: HostPressureTunables.enabled.value(in: store),
                                     windowVisible: forced || window.map { nodeOf($0).isVisible } == true)
     }
 
@@ -139,7 +141,7 @@ final class HostPressureIndicatorView: NSView {
 
     /// While in a window: the window's node (occlusion, minimizing, Hide cmux and sleeping displays already reach it
     /// through `WindowVisibilitySource` and `AppVisibilitySource`: no notice of its own), the window's close and the
-    /// Debug forced level. A window change, willClose and the view's release end them.
+    /// Debug toggle and forced level. A window change, willClose and the view's release end them.
     private func observeWindow() {
         stopWatching()
         guard let window else { return }
@@ -149,9 +151,9 @@ final class HostPressureIndicatorView: NSView {
             self?.stopWatching()
         }
         let store = store
-        // A service observation: the forced level starts or stops the app's monitor as well as show the glyph.
-        forceWatch = ServiceObservation(.visible, owner: "HostPressureIndicator.force", on: mainWork) {
-            HostPressureTunables.force.value(in: store)
+        // A service observation: the toggle and the forced level start or stop the app's monitor as well as show the glyph.
+        toggleWatch = ServiceObservation(.visible, owner: "HostPressureIndicator.toggle", on: mainWork) { () -> ToggleFacts in
+            (enabled: HostPressureTunables.enabled.value(in: store), force: HostPressureTunables.force.value(in: store))
         } apply: { [weak self] _ in
             self?.reconcile()
         }
@@ -162,8 +164,8 @@ final class HostPressureIndicatorView: NSView {
         windowWatch = nil
         closeWatch?.cancel()
         closeWatch = nil
-        forceWatch?.cancel()
-        forceWatch = nil
+        toggleWatch?.cancel()
+        toggleWatch = nil
     }
 
     private func join() {

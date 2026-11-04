@@ -1,18 +1,14 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
-import CmuxNextFeatures
 import CmuxNextHostPressure
 import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// App services whose launch features have `hostPressure` on or off (`CMUX_ENABLE_FEATURES`), as the
-/// launch resolves it once; the Debug toggle `hostPressure.enabled` is read only by that launch.
-@MainActor private func hostPressureServices(_ on: Bool) -> AppServices {
-    let overrides = FeatureOverrides(environmentEnabled: on ? [Feature.hostPressure.name] : [])
-    return AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"]),
-                       features: FeatureList(registry: FeatureRegistry(), channel: .dev, overrides: overrides))
+/// App services for an indicator; the Debug toggle `hostPressure.enabled` in the test's store turns it on.
+@MainActor private func hostPressureServices() -> AppServices {
+    AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"]))
 }
 
 /// A host pressure service on a test rig's scheduler (its posted tasks run on the rig's frames), with no acpmux and a
@@ -35,28 +31,28 @@ import Testing
 /// sample numbers for captures, and the popover shows the load against its limit, then acpmux's
 /// other reasons in its words.
 @MainActor @Suite struct HostPressureIndicatorTests {
-    private static func store(forcing force: HostPressureForce?, toggle: Bool? = nil) -> TunableStore {
+    private static func store(forcing force: HostPressureForce?) -> TunableStore {
         let store = TunableStore()
         store.register(HostPressureTunables.all)
         store.activate(file: nil)
         if let force { _ = store.set(HostPressureTunables.force.key, force.tunableValue) }
-        if let toggle { _ = store.set(HostPressureTunables.enabled.key, toggle.tunableValue) }
         return store
     }
 
-    /// An indicator whose window's node is `node` and whose window notices post on `events`; `feature` is the
-    /// launch's `hostPressure` feature.
+    /// An indicator whose window's node is `node` and whose window notices post on `events`; `feature` sets the
+    /// Debug toggle `hostPressure.enabled` in `store`.
     private static func indicator(store: TunableStore, rig: MainDeadlineRig, node: VisibilityNode, events: WindowEvents? = nil,
                                   feature: Bool = true, made: @escaping (HostPressureService) -> Void = { _ in })
         -> HostPressureIndicatorView {
-        HostPressureIndicatorView(services: hostPressureServices(feature), store: store,
-                                  mainWork: rig.deadlines.work, nodeOf: { _ in node },
-                                  eventsOf: { events ?? WindowEvents(window: $0, center: NotificationCenter()) },
-                                  service: {
-                                      let service = hostPressureTestService(store, rig: rig)
-                                      made(service)
-                                      return service
-                                  }) {}
+        _ = store.set(HostPressureTunables.enabled.key, feature.tunableValue)
+        return HostPressureIndicatorView(services: hostPressureServices(), store: store,
+                                         mainWork: rig.deadlines.work, nodeOf: { _ in node },
+                                         eventsOf: { events ?? WindowEvents(window: $0, center: NotificationCenter()) },
+                                         service: {
+                                             let service = hostPressureTestService(store, rig: rig)
+                                             made(service)
+                                             return service
+                                         }) {}
     }
 
     private static func window() -> NSWindow {
@@ -66,12 +62,10 @@ import Testing
         return window
     }
 
-    /// Off, the indicator never makes the service, even with the Debug toggle turned on after launch: the
-    /// toggle is the feature's launch-time override, so the code uses the value `features.list` reports.
-    @Test func theFeatureShipsOffAndOffNeverMakesTheService() {
+    /// Off, the indicator never makes the service, even with a forced level.
+    @Test func theToggleShipsOffAndOffNeverMakesTheService() {
         #expect(HostPressureTunables.enabled.defaultValue == false)
-        #expect(Feature.Channel.allCases.allSatisfy { !Feature.hostPressure.defaults.value(for: $0) })
-        let store = Self.store(forcing: .critical, toggle: true), rig = MainDeadlineRig()
+        let store = Self.store(forcing: .critical), rig = MainDeadlineRig()
         var made = 0
         let indicator = Self.indicator(store: store, rig: rig, node: VisibilityNode(root: "window", own: .visible),
                                        feature: false) { _ in made += 1 }
@@ -233,7 +227,7 @@ import Testing
         #expect(HostPressureTunables.banner.value(in: store) == true)
     }
 
-    @Test func aForcedLevelCountsAsSeenOnlyWithTheFeatureOnAndInAWindow() {
+    @Test func aForcedLevelCountsAsSeenOnlyWithTheToggleOnAndInAWindow() {
         let store = TunableStore(), rig = MainDeadlineRig()
         store.register(HostPressureTunables.all)
         store.activate(file: nil)
@@ -241,19 +235,20 @@ import Testing
         var made: HostPressureService?
         let occluded = VisibilityNode(root: "window", own: .occluded)
         func makeIndicator(feature: Bool) -> HostPressureIndicatorView {
-            HostPressureIndicatorView(services: hostPressureServices(feature), store: store, mainWork: rig.deadlines.work,
-                                      nodeOf: { _ in occluded },
-                                      service: {
-                                          let service = hostPressureTestService(store, rig: rig)
-                                          made = service
-                                          return service
-                                      }) {}
+            _ = store.set(HostPressureTunables.enabled.key, feature.tunableValue)
+            return HostPressureIndicatorView(services: hostPressureServices(), store: store, mainWork: rig.deadlines.work,
+                                             nodeOf: { _ in occluded },
+                                             service: {
+                                                 let service = hostPressureTestService(store, rig: rig)
+                                                 made = service
+                                                 return service
+                                             }) {}
         }
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         let off = makeIndicator(feature: false)
         window.contentView?.addSubview(off)
-        #expect(!off.sampling.samples) // the feature is off
+        #expect(!off.sampling.samples) // the toggle is off
         off.removeFromSuperview()
         let indicator = makeIndicator(feature: true)
         window.contentView?.addSubview(indicator)
@@ -299,6 +294,7 @@ import Testing
         init() {
             store.register(HostPressureTunables.all)
             store.activate(file: nil)
+            _ = store.set(HostPressureTunables.enabled.key, true.tunableValue)
             _ = store.set(HostPressureTunables.banner.key, true.tunableValue)
             _ = store.set(HostPressureTunables.force.key, HostPressureForce.critical.tunableValue)
             toasts = CmuxToastCenter(host: host)
@@ -308,7 +304,7 @@ import Testing
         /// A window whose indicator samples (its window's node is visible).
         func window() -> (window: NSWindow, indicator: HostPressureIndicatorView) {
             let service = service, node = shownNode
-            let indicator = HostPressureIndicatorView(services: hostPressureServices(true),
+            let indicator = HostPressureIndicatorView(services: hostPressureServices(),
                                                       store: store, mainWork: rig.deadlines.work, nodeOf: { _ in node },
                                                       service: { service }, toasts: toasts) {}
             let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled],

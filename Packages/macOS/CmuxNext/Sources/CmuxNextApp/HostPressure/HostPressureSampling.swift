@@ -2,11 +2,11 @@ import CmuxNextCompat
 import CmuxNextWakeups
 
 /// When a window's host pressure indicator samples the host (cmux#22662: a new dev
-/// surface ships off). It samples only while the feature `hostPressure` (resolved at
-/// launch; Debug Settings `hostPressure.enabled` is its local override) is on and its window
+/// surface ships off). It samples only while the Debug Settings toggle
+/// `hostPressure.enabled` is on and its window
 /// can be seen: the window's node in the visibility tree is visible (in a window, not
 /// minimized, not fully occluded, cmux not hidden, the displays awake). Everything else
-/// (feature off, hidden, minimized, occluded, closed) means no subscription, so no service,
+/// (toggle off, hidden, minimized, occluded, closed) means no subscription, so no service,
 /// no monitor, no 15 s timer and no reads.
 @MainActor struct HostPressureSampling: Equatable {
     var enabled: Bool

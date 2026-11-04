@@ -42,7 +42,6 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "frozenGrowthDiscard",
         "hiddenPollPause",
         "highEnergyTabs",
-        "hostPressure",
         "intentPrewarmHover",
         "intentPrewarmPress",
         "ipcMethodLatencyFieldData",
