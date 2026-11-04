@@ -123,6 +123,12 @@ success-output = "final"
 filter = 'test(/^netdrop_/)'
 success-output = "final"
 
+# R-DURABILITY S2c daemon I/O A/B (acpmux tests/perf_ops.rs, scratch): keep its ACPMUX-PERF lines.
+[[profile.ci.overrides]]
+filter = 'binary_id(acpmux::perf_ops) & test(=acked_replies_by_daemon_io_policy)'
+success-output = "final"
+slow-timeout = { period = "60s", terminate-after = 10, grace-period = "5s" }
+
 # Fuzz row g (the acpmux crash fuzz, tests/fuzz_crash_durable.rs) prints its FUZZ-G lines on
 # stdout; a fleet step shows them only when a passing test's output is kept. One test fuzzes
 # three seeds for up to 70 s each and shrinks a failure for up to 90 s more. It does nothing
