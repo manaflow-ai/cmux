@@ -162,7 +162,7 @@ class NightlyNeverBlacksmith(unittest.TestCase):
                 with self.subTest(job=name, inner=inner):
                     self.assertFalse(BLACKSMITH_ROUTE.search(str(spec.get("runs-on", ""))), spec.get("runs-on"))
 
-    def test_the_early_admission_overflows_onto_our_macs(self) -> None:
+    def test_the_early_admission_overflow_is_never_blacksmith(self) -> None:
         sys.path.insert(0, str(ROOT / "scripts/ci"))
         import nightly_linux_admission as admission
         self.assertTrue(admission.OVERFLOW)

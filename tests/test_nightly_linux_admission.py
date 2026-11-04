@@ -23,7 +23,7 @@ from test_nightly_trusted_routing import evaluate, parse_expression
 ENV = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "123",
        "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "a" * 40,
        "JOBS": "control", "SIDE_LABEL": "glaeda-side-std-xcode-26.6",
-       "OVERFLOW_LINUX": "blacksmith-16vcpu-ubuntu-2404"}
+       "OVERFLOW_LINUX": "ubuntu-24.04"}
 ENV["JOBS"] = " ".join(sorted(admission.JOBS))
 REQUEST = admission.identity(ENV)
 LEASE = "b" * 24
@@ -43,7 +43,8 @@ def receipt(status="pending"):
 
 
 def expected_fallback(job):
-    return ENV["OVERFLOW_LINUX"] if job == "build-nightly-inputs" else "ubuntu-24.04"
+    # build-nightly-inputs falls back to the owned nightly Mac pool; the light controls to hosted Ubuntu.
+    return "glaeda-nightly-std-xcode-26.6" if job == "build-nightly-inputs" else "ubuntu-24.04"
 
 
 def pool_context(overflow):
@@ -126,7 +127,7 @@ class Receipts(unittest.TestCase):
     def test_missing_admission_uses_measured_overflow_without_live_capacity(self):
         selected = admission.routes(ENV, REQUEST, None)
         for job in admission.JOBS:
-            self.assertEqual(selected[job], expected_fallback(job))
+            self.assertEqual(selected[job], ENV["OVERFLOW_LINUX"])
 
     def test_unconfigured_mini_and_reruns_use_measured_overflow(self):
         for config in ({**ENV, "SIDE_LABEL": ""}, {**ENV, "GITHUB_RUN_ATTEMPT": "3"}):
@@ -143,10 +144,12 @@ class Receipts(unittest.TestCase):
         self.assertEqual(selected["find-nightly-next-recovery"], "ubuntu-24.04")
         self.assertEqual(selected["build-nightly-inputs"], ENV["OVERFLOW_LINUX"])
 
-    def test_recorded_overflow_only_uses_declared_paid_set(self):
+    def test_recorded_overflow_only_uses_the_declared_set(self):
         selected = admission.routes({**ENV, "SIDE_LABEL": ""}, REQUEST, receipt("overflow"))
         self.assertEqual(set(selected.values()), {ENV["OVERFLOW_LINUX"], "ubuntu-24.04"})
-        for label in ("ubuntu-24.04", "untrusted", "glaeda-side-std-xcode-26.6"):
+        # Blacksmith is outside it: nightlies never run on Blacksmith.
+        for label in ("blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404", "untrusted",
+                      "glaeda-side-std-xcode-26.6"):
             with self.subTest(label=label), self.assertRaises(ValueError):
                 admission.routes({**ENV, "OVERFLOW_LINUX": label}, REQUEST, receipt("overflow"))
 
@@ -269,8 +272,7 @@ class Workflow(unittest.TestCase):
                                "needs.decide.outputs.early_attempt": "0", key: overflow,
                                "vars.LINUX_RUNNER": overflow, **pool_context(overflow)}
                     with self.subTest(job=name, attempt=attempt, overflow=overflow):
-                        self.assertEqual(evaluate(parse_expression(source), context),
-                                         overflow if name == "build-nightly-inputs" or attempt != 1 else "ubuntu-24.04")
+                        self.assertEqual(evaluate(parse_expression(source), context), expected_fallback(name))
 
     def test_light_resolvers_keep_hosted_first_only_for_nightly_next(self):
         for name in admission.JOBS - {"build-nightly-inputs"}:
@@ -282,10 +284,11 @@ class Workflow(unittest.TestCase):
                            "needs.decide.outputs.early_attempt": "0", key: "",
                            "vars.LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
                            **pool_context("blacksmith-16vcpu-ubuntu-2404")}
-                expected = "ubuntu-24.04" if attempt == 1 else "blacksmith-16vcpu-ubuntu-2404"
+                # A re-run takes hosted Ubuntu, never Blacksmith (nightlies never use Blacksmith).
+                expected = "ubuntu-24.04"
                 self.assertEqual(evaluate(parse_expression(source), context), expected)
 
-    def test_light_resolvers_on_other_tracks_keep_measured_blacksmith_overflow(self):
+    def test_light_resolvers_on_other_tracks_take_hosted_ubuntu(self):
         for name in ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper"):
             source = resolve_pool_literals(self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}"))
             for track in ("nightly", "rc"):
@@ -294,7 +297,7 @@ class Workflow(unittest.TestCase):
                                "needs.decide.outputs.track": track,
                                "vars.LINUX_RUNNER": ENV["OVERFLOW_LINUX"],
                                **pool_context(ENV["OVERFLOW_LINUX"])}
-                    self.assertEqual(evaluate(parse_expression(source), context), "blacksmith-16vcpu-ubuntu-2404")
+                    self.assertEqual(evaluate(parse_expression(source), context), "ubuntu-24.04")
 
     def test_each_job_consumes_only_its_current_attempt_receipt(self):
         for name in admission.JOBS:

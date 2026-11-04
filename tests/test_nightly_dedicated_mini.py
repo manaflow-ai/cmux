@@ -58,9 +58,10 @@ class DedicatedMini(unittest.TestCase):
         self.assertNotIn(VARIABLE, DOC["jobs"]["decide"]["runs-on"])
         self.assertEqual(selected("decide", context()), "ubuntu-24.04")
         self.assertEqual(selected("decide", context(**{VARIABLE: ""})), "ubuntu-24.04")
+        # A re-run stays on hosted Ubuntu: nightlies never run on Blacksmith.
         pools = '{"linux_16": "blacksmith-16vcpu-ubuntu-2404", "linux_32": "blacksmith-32vcpu-ubuntu-2404"}'
         self.assertEqual(selected("decide", context(**{"github.run_attempt": 2, "vars.RUNNER_POOLS": pools})),
-                         "blacksmith-16vcpu-ubuntu-2404")
+                         "ubuntu-24.04")
 
     def placed(self, jobs, label=LABEL, attempt="1", **changes):
         return context(**{"needs.decide.outputs.early_attempt": attempt,
@@ -77,11 +78,11 @@ class DedicatedMini(unittest.TestCase):
                 self.assertEqual(selected(job, context()), "ubuntu-24.04")
                 self.assertEqual(selected(job, self.placed([other for other in PLACED if other != job])),
                                  "ubuntu-24.04")
-                # A placement from another attempt is never reused.
+                # A placement from another attempt is never reused; the re-run takes hosted Ubuntu, never Blacksmith.
                 pools = '{"linux_16": "blacksmith-16vcpu-ubuntu-2404", "linux_32": "blacksmith-32vcpu-ubuntu-2404"}'
                 self.assertEqual(selected(job, self.placed(PLACED, attempt="1", **{"github.run_attempt": 2,
                                                                                  "vars.RUNNER_POOLS": pools})),
-                                 "blacksmith-16vcpu-ubuntu-2404")
+                                 "ubuntu-24.04")
 
     def test_reservation_route_places_the_light_jobs_with_the_bounded_wait(self):
         steps = {step.get("id"): step for step in DOC["jobs"]["decide"]["steps"]}
