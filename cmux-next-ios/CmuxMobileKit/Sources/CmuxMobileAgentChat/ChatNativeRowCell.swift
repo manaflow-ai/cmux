@@ -215,6 +215,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         let label = UILabel()
         label.numberOfLines = 0
         label.lineBreakMode = .byWordWrapping
+        label.lineBreakStrategy = ChatNativeLayout.labelLineBreakStrategy
         // Text is drawn on a background thread at commit, as the Feed's rows do.
         label.layer.drawsAsynchronously = true
         contentView.addSubview(label)
@@ -473,6 +474,7 @@ final class ChatCodeCardView: UIView, UIScrollViewDelegate {
         scroll.alwaysBounceVertical = false
         scroll.delegate = self
         body.numberOfLines = 0
+        body.lineBreakStrategy = ChatNativeLayout.labelLineBreakStrategy
         body.layer.drawsAsynchronously = true
         scroll.addSubview(body)
         fade.startPoint = CGPoint(x: 0, y: 0.5)
@@ -613,6 +615,7 @@ final class ChatTableView: UIScrollView, UIScrollViewDelegate {
             } else {
                 label = UILabel()
                 label.numberOfLines = 0
+                label.lineBreakStrategy = ChatNativeLayout.labelLineBreakStrategy
                 label.layer.drawsAsynchronously = true
                 addSubview(label)
                 labels.append(label)
@@ -679,6 +682,7 @@ final class ChatLineScroller: UIScrollView, UIScrollViewDelegate {
         alwaysBounceVertical = false
         delegate = self
         label.numberOfLines = 0
+        label.lineBreakStrategy = ChatNativeLayout.labelLineBreakStrategy
         label.layer.drawsAsynchronously = true
         addSubview(label)
         fade.startPoint = CGPoint(x: 0, y: 0.5)
