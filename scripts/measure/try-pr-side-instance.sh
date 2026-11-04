@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # try-pr.sh measured end to end on a Mac with a screen: downloads the cmux NEXT nightly, then for each
 # PR runs `try-pr.sh PR --from <nightly>` and times it to the side instance (cmux PR #N) loading the
-# PR's page from the PR's dev server (its first connection to that port), with a screenshot a second
+# PR's page from the PR's dev server (the first client of that port other than the server), with a screenshot a second
 # later. Each side instance is removed after (try-pr.sh PR --stop).
 #   scripts/measure/try-pr-side-instance.sh OUT PR...   (OUT: a folder for the logs, PNGs and result.json)
 set -uo pipefail
@@ -37,7 +37,8 @@ for pr in "$@"; do
   pid="" loaded="" done_at=""
   for _ in $(seq 1 3000); do
     [[ -z "$pid" && -f "$CMUX_SIDE_ROOT/pr-$pr/pid" ]] && pid="$(cat "$CMUX_SIDE_ROOT/pr-$pr/pid")"
-    if [[ -n "$pid" ]] && lsof -a -p "$pid" -iTCP:"$port" -sTCP:ESTABLISHED >/dev/null 2>&1; then
+    # A client of the dev server other than the server itself: the app or its web content.
+    if [[ -n "$pid" ]] && lsof -nP -iTCP:"$port" -sTCP:ESTABLISHED -Fc 2>/dev/null | sed -n 's/^c//p' | grep -qv -E '^(bun|node)$'; then
       loaded=$(now); break
     fi
     if [[ -z "$done_at" ]] && ! kill -0 "$try" 2>/dev/null; then done_at=$(now); fi

@@ -55,13 +55,19 @@ run() {
 # The side instance's environment for web-overlay.sh, in this shell.
 side_env() { if [[ -z "$dry" ]] || "$side" path "$name" >/dev/null 2>&1; then eval "$("$side" env "$name")"; fi; }
 
+side_root="${CMUX_SIDE_ROOT:-$HOME/Library/Application Support/cmux-side}"
 if [[ -n "$stop" ]]; then
+  if "$side" path "$name" >/dev/null 2>&1; then
+    side_env
+    run "$ROOT/scripts/cmux-next/web-overlay.sh" server off
+    run "$side" remove "$name"
+  else
+    echo "no side instance for #$pr"
+  fi
   # The fleet builds this script downloaded for the PR go too.
-  "$side" path "$name" >/dev/null 2>&1 || { echo "no side instance for #$pr"; exit 0; }
-  side_env
-  run "$ROOT/scripts/cmux-next/web-overlay.sh" server off
-  run "$side" remove "$name"
-  run rm -rf "${CMUX_SIDE_ROOT:-$HOME/Library/Application Support/cmux-side}/builds/pr-$pr-"*
+  for build in "$side_root/builds/pr-$pr-"*; do
+    if [[ -d "$build" ]]; then run rm -rf "$build"; fi
+  done
   exit 0
 fi
 
@@ -79,12 +85,16 @@ for reason, paths in sorted(json.load(sys.stdin)["reasons"].items()):
     print("  " + reason + ": " + ", ".join(paths[:5]) + (" …" if len(paths) > 5 else ""))
 ' <<<"$result"
 
-# Makes the side instance from APP (again when it was made from another app), then opens it.
+# Makes the side instance from APP (again when it was made from another app, or APP updated since),
+# then opens it.
 open_side() {
-  local app="$1" made
-  made="$(sed -n 's/^from=//p' "${CMUX_SIDE_ROOT:-$HOME/Library/Application Support/cmux-side}/$name/.side-instance" 2>/dev/null || true)"
-  if [[ "$made" != "$app" ]]; then
-    [[ -n "$made" ]] && run "$side" stop "$name"
+  local app="$1" marker="$side_root/$name/.side-instance" made="" version=""
+  if [[ -f "$marker" ]]; then
+    made="$(sed -n 's/^from=//p' "$marker")"
+    version="$(sed -n 's/^version=//p' "$marker")"
+  fi
+  if [[ "$made" != "$app" || "$version" != "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist" 2>/dev/null || true)" ]]; then
+    if [[ -n "$made" ]]; then run "$side" stop "$name"; fi
     run "$side" make "$name" --from "$app" --label "cmux PR #$pr"
   fi
   run "$side" launch "$name" ${front:+--front}
@@ -125,16 +135,20 @@ case "$verdict" in
     job="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$("$ci" "${build[@]}")")"
     echo "fleet job $job"
     "$ci" wait "$job" >&2 || { echo "job $job is not done; \`try-pr.sh $pr\` again picks up the same build" >&2; exit 1; }
-    out="${CMUX_SIDE_ROOT:-$HOME/Library/Application Support/cmux-side}/builds/pr-$pr-${head:0:12}"
+    out="$side_root/builds/pr-$pr-${head:0:12}"
     if [[ ! -d "$out/bundle" ]]; then
-      mkdir -p "$out"
+      # Into a scratch folder first, so an interrupted download is never taken for a build.
+      rm -rf "$out.partial"; mkdir -p "$out.partial"
       # The per-file bundle, else the zip (artifact --bundle exits 3 when the store has no bundle).
-      if "$ci" artifact "$job" "$out/bundle" --bundle >&2; then :
+      if "$ci" artifact "$job" "$out.partial/bundle" --bundle >&2; then :
       else
-        [[ $? -eq 3 ]] || exit 1
-        "$ci" artifact "$job" "$out/app.zip" >&2
-        mkdir -p "$out/bundle" && ditto -x -k "$out/app.zip" "$out/bundle" && rm -f "$out/app.zip"
+        code=$?
+        [[ $code -eq 3 ]] || { echo "downloading job $job's app failed (cmux-ci artifact exit $code)" >&2; exit 1; }
+        "$ci" artifact "$job" "$out.partial/app.zip" >&2
+        mkdir -p "$out.partial/bundle" && ditto -x -k "$out.partial/app.zip" "$out.partial/bundle"
+        rm -f "$out.partial/app.zip"
       fi
+      rm -rf "$out"; mv "$out.partial" "$out"
     fi
     app="$(find "$out/bundle" -maxdepth 2 -name '*.app' -type d | head -1)"
     [[ -n "$app" ]] || { echo "job $job returned no app bundle" >&2; exit 1; }

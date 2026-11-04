@@ -7,18 +7,22 @@
 #                                   copy APP (default /Applications/cmux NEXT.app) as NAME
 #   side-instance.sh launch NAME [--front] [-- ARGS...]
 #                                   open it (behind the front app unless --front); records its pid
-#   side-instance.sh stop NAME      quit it (its own quit, then a wait); only the pid launch recorded
+#   side-instance.sh stop NAME      quit it: the pid launch recorded, then what still runs from the copy
+#                                   (its terminal daemon and helpers outlive the app otherwise)
 #   side-instance.sh env NAME       the exports that point web-overlay.sh at it (eval "$(... env NAME)")
 #   side-instance.sh path NAME      the copy's .app
 #   side-instance.sh list           the side instances and whether each runs
-#   side-instance.sh remove NAME    stop it, then delete the folder make wrote
+#   side-instance.sh remove NAME    stop it, then delete the folder make wrote and the state the copy
+#                                   kept under its own bundle id (App Support, ~/.acpmux, ~/.cmux/chief,
+#                                   its preferences, caches and web data)
 #
 # NAME is lower case letters, digits and dashes (try-pr.sh uses pr-N). The copy is
 # $CMUX_SIDE_ROOT/NAME (default ~/Library/Application Support/cmux-side/NAME) and holds:
-#   <label>.app     the copy: bundle id <original>.side-NAME (a nightly stays a nightly, so its web
-#                   overlay works), named LABEL (default "cmux NAME"), updates off (no feed, no key),
-#                   no URL schemes or document types (links and sign-in callbacks stay with the
-#                   original), re-sealed ad hoc with its entitlements
+#   <label>.app     the copy: bundle id <original>.side-NAME-<hash of the root> (a nightly stays a
+#                   nightly, so its web overlay works), named LABEL (default "cmux NAME"), updates
+#                   off (no feed, no key), no document types or login items, one URL scheme of its
+#                   own for sign-in callbacks (cmux links stay with the original), re-sealed ad hoc
+#                   with its entitlements
 #   config/         its cmux-next.json and web-dev.json (CMUX_NEXT_CONFIG_FILE in its LSEnvironment)
 #   web-overlay/    its web overlay (CMUX_WEB_OVERLAY_DIR), web-slot/ its dev server state
 # A side instance starts signed out with fresh settings; the original's data is never read.
@@ -49,6 +53,8 @@ running() {
   local exe; exe="$(ps -o comm= -p "$pid" 2>/dev/null || true)"
   [[ -n "$exe" && "$exe" == "$(app_of)/Contents/MacOS/"* ]]
 }
+# Every process running from the copy: the app, its terminal daemon and its helpers.
+copy_pids() { local app; app="$(app_of)"; ps -axo pid=,comm= | awk -v p="$app/" 'index($0, p) { print $1 }'; }
 plist_set() { # FILE KEY VALUE: set a string key, adding it when missing
   "$buddy" -c "Set :$2 $3" "$1" 2>/dev/null || "$buddy" -c "Add :$2 string $3" "$1"
 }
@@ -66,8 +72,8 @@ case "$cmd" in
     [[ -f "$from/Contents/Info.plist" ]] || die "no app at $from"
     [[ "$label" =~ ^[A-Za-z0-9\ \#._-]+$ ]] || die "the label takes letters, digits, spaces and # . _ -"
     if [[ -f "$marker" ]]; then
-      running && die "$name is running; side-instance.sh stop $name first"
-      old="$(app_of)"; [[ -n "$old" && -d "$old" ]] && rm -rf "$old"
+      if running; then die "$name is running; side-instance.sh stop $name first"; fi
+      old="$(app_of)"; if [[ -n "$old" && -d "$old" ]]; then rm -rf "$old"; fi
     elif [[ -e "$dir" ]]; then
       die "$dir exists and is not a side instance"
     fi
@@ -77,7 +83,10 @@ case "$cmd" in
     cp -cR "$from" "$app" 2>/dev/null || { rm -rf "$app"; cp -R "$from" "$app"; }
     plist="$app/Contents/Info.plist"
     original="$("$buddy" -c "Print :CFBundleIdentifier" "$plist")"
-    bundle="$original.side-$name"
+    # The root's hash keeps two roots' NAMEs (a measurement's and yours) apart: their data roots
+    # follow the bundle id.
+    bundle="$original.side-$name-$(printf %s "$root" | shasum | cut -c1-6)"
+    scheme="cmux-side-$name-$(printf %s "$root" | shasum | cut -c1-6)"
     plist_set "$plist" CFBundleIdentifier "$bundle"
     plist_set "$plist" CFBundleName "$label"
     plist_set "$plist" CFBundleDisplayName "$label"
@@ -86,9 +95,16 @@ case "$cmd" in
     for key in SUFeedURL SUPublicEDKey CFBundleURLTypes CFBundleDocumentTypes; do
       "$buddy" -c "Delete :$key" "$plist" 2>/dev/null || true
     done
+    # Sign-in calls back on a scheme only this copy opens.
+    "$buddy" -c "Add :CFBundleURLTypes array" -c "Add :CFBundleURLTypes:0 dict" \
+      -c "Add :CFBundleURLTypes:0:CFBundleURLName string $bundle" \
+      -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" \
+      -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string $scheme" "$plist"
+    # Its login items would carry the original's labels.
+    rm -rf "$app/Contents/Library/LaunchAgents" "$app/Contents/Library/LaunchDaemons"
     "$buddy" -c "Print :LSEnvironment" "$plist" >/dev/null 2>&1 || "$buddy" -c "Add :LSEnvironment dict" "$plist"
     plist_set "$plist" LSEnvironment:CMUX_NEXT_CONFIG_FILE "$dir/config/cmux-next.json"
-    "$buddy" -c "Delete :LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME" "$plist" 2>/dev/null || true
+    plist_set "$plist" LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME "$scheme"
     # The seal covers Info.plist: re-sign the outer bundle ad hoc, keeping its entitlements (nested
     # code keeps its own signatures), and check it.
     xattr -cr "$app" 2>/dev/null || true
@@ -96,7 +112,8 @@ case "$cmd" in
     codesign --verify --strict "$app" || die "the re-sealed copy does not verify"
     # Launch Services learns the new bundle id now, so the first open finds it.
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app" 2>/dev/null || true
-    printf 'app=%s\nbundle=%s\nfrom=%s\n' "$app" "$bundle" "$from" >"$marker"
+    version="$("$buddy" -c "Print :CFBundleVersion" "$from/Contents/Info.plist" 2>/dev/null || true)"
+    printf 'app=%s\nbundle=%s\nfrom=%s\nversion=%s\n' "$app" "$bundle" "$from" "$version" >"$marker"
     echo "$name: $app ($bundle)"
     ;;
   launch)
@@ -124,13 +141,22 @@ case "$cmd" in
     echo "$name: pid $pid"
     ;;
   stop)
-    if ! running; then rm -f "$dir/pid"; echo "$name is not running"; exit 0; fi
-    pid="$(pid_of)"
-    bundle="$(sed -n 's/^bundle=//p' "$marker")"
-    osascript -e "tell application id \"$bundle\" to quit" >/dev/null 2>&1 || kill -TERM "$pid" 2>/dev/null || true
-    for _ in $(seq 1 150); do kill -0 "$pid" 2>/dev/null || break; /bin/sleep 0.2; done
-    kill -0 "$pid" 2>/dev/null && die "$name (pid $pid) is still running after 30 s"
+    [[ -f "$marker" ]] || { echo "$name is not running"; exit 0; }
+    if running; then
+      pid="$(pid_of)"
+      kill -TERM "$pid" 2>/dev/null || true
+      for _ in $(seq 1 150); do kill -0 "$pid" 2>/dev/null || break; /bin/sleep 0.2; done
+      kill -0 "$pid" 2>/dev/null && die "$name (pid $pid) is still running after 30 s"
+    fi
     rm -f "$dir/pid"
+    # The daemon and helpers the copy started run from its bundle and outlive it.
+    left="$(copy_pids)"
+    if [[ -n "$left" ]]; then
+      # shellcheck disable=SC2086 # one pid per word
+      kill -TERM $left 2>/dev/null || true
+      for _ in $(seq 1 75); do [[ -z "$(copy_pids)" ]] && break; /bin/sleep 0.2; done
+      if [[ -n "$(copy_pids)" ]]; then die "processes of $name still run: $(copy_pids | tr '\n' ' ')"; fi
+    fi
     echo "$name stopped"
     ;;
   env)
@@ -153,6 +179,16 @@ case "$cmd" in
   remove)
     app_of >/dev/null
     "$0" stop "$name"
+    bundle="$(sed -n 's/^bundle=//p' "$marker")"
+    # The state the copy kept, all named by its own bundle id (BuildIdentity: the key is the id).
+    [[ "$bundle" == *.side-"$name"-* ]] || die "unexpected bundle id $bundle"
+    defaults delete "$bundle" >/dev/null 2>&1 || true
+    for path in "$HOME/Library/Application Support/cmux/builds/$bundle" "$HOME/.acpmux/builds/$bundle" \
+      "$HOME/.cmux/chief/$bundle" "$HOME/.cmux/chief/$bundle@"* "$HOME/Library/Preferences/$bundle.plist" \
+      "$HOME/Library/Caches/$bundle" "$HOME/Library/HTTPStorages/$bundle" "$HOME/Library/WebKit/$bundle" \
+      "$HOME/Library/Saved Application State/$bundle.savedState"; do
+      if [[ -e "$path" ]]; then rm -rf "$path"; fi
+    done
     rm -rf "$dir"
     echo "$name removed"
     ;;
