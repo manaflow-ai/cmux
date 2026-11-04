@@ -17,6 +17,9 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var opened = false
         var inbox: [String] = []
         var inboxBytes = 0
+        /// Replies kept from the page while this Mac enrolls on a peer and answers again, by page
+        /// id (``AcpmuxDecisionContexts/Answer/enrollThenRetry(peer:pageID:frame:)``).
+        var held: [String: String] = [:]
         /// The inbox's first frames up to the last one the page waits on (``pageWaits``); 0 for none.
         var awaitedThrough = 0
         /// The inbox's first frames up to the last reply to the page's own request (``answersPage``); 0 for none.
@@ -237,9 +240,17 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                         // Any pending change, a tool permission's too: the other-install line reads them all.
                         let questionVersion = decisions.pendingQuestionVersion()
                         let pendingVersion = decisions.pendingVersion()
-                        decisions.observe(object, replyTo: method)
+                        let held = decisions.observe(object, replyTo: method)
                         questionsChanged = questionsChanged || decisions.pendingQuestionVersion() != questionVersion
                             || decisions.pendingVersion() != pendingVersion
+                        // A peer's refusal of the person's signed answer for want of enrollment:
+                        // the page keeps waiting on its answer while the transport enrolls this
+                        // Mac there and sends it again (``releaseHeld(_:)``, ``dropHeld(_:)``).
+                        if let held {
+                            state.withLock { $0.held[held] = fresh }
+                            signal()
+                            continue
+                        }
                         replacements.observe(object, replyTo: method, connection: connection)
                         if Self.pageWaits(on: object) { awaited += 1 }
                         if Self.answersPage(object) { answers += 1 }
@@ -371,6 +382,21 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// The relay's own answer to a refused request, straight to the page queue. It can reach the page
     /// before earlier daemon frames that still wait in `raw` for the inbound pass.
     func inject(_ text: String) { enqueue([text], awaited: 1, answers: 1) }
+
+    /// The page gets the reply kept for page id `pageID` after all (the enroll failed, or its
+    /// answer could not go again): false when none is kept.
+    @discardableResult
+    func releaseHeld(_ pageID: String) -> Bool {
+        guard let text = state.withLock({ $0.held.removeValue(forKey: pageID) }) else { return false }
+        inject(text)
+        return true
+    }
+
+    /// The reply kept for page id `pageID` is moot: its answer went again, and the page gets
+    /// that one's reply instead.
+    func dropHeld(_ pageID: String) {
+        _ = state.withLock { $0.held.removeValue(forKey: pageID) }
+    }
 
     /// Up to `maximumFrames` frames and `maximumBytes` bytes (at least one frame), and the close
     /// once every frame before it was taken. Dropped queues on an overflow close are not kept.
