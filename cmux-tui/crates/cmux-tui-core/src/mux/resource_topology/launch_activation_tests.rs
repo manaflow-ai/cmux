@@ -21,7 +21,11 @@ use crate::terminal_host_protocol::{MAX_FRAME_PAYLOAD, MessageKind, read_frame};
 #[test]
 fn a_created_terminal_whose_tab_left_before_settlement_still_activates_its_host() {
     let mux = Mux::new_for_test("launch-activation-tab-gone", SurfaceOptions::default());
-    let (attachment, mut host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    let (mut attachment, mut host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+    // The create reserved the terminal (Launching) before it launched the host.
+    attachment.record.workspace_key = workspace.key.clone();
+    mux.seed_launching_terminal_for_test(&attachment.record.terminal_id, &workspace.key).unwrap();
     let terminal_id = TerminalPublicId::random().unwrap();
     let identity = TabResourceIdentity::terminal(Some(terminal_id.clone())).unwrap();
     let tab_id = identity.tab_id.clone();
