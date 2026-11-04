@@ -59,7 +59,7 @@ import { deviceHoldsKey, type DeviceHoldsKey } from "../proofs/device-holds-key.
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreateDevice, tenantMayCreateMesh } from "../proofs/mesh-may-create.ts";
 import { MESH_CREATION_LABEL } from "../proofs/mesh-creation.ts";
-import { ownedDeviceAddressRules, ownedMeshRules, sameMeshDevice, sameMeshVm } from "../proofs/same-mesh.ts";
+import { ownedDeviceAddressRules, ownedMeshRules, sameMeshSnapshot } from "../proofs/same-mesh.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { callerActsOnDevice, callerActsOnTunnel, enrolledBy, isTenantAdmin, type CallerActsOnDevice } from "../proofs/device-owner.ts";
 import { tenantOwnsDevice, tenantOwnsMesh, tenantOwnsTunnel, tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
@@ -77,6 +77,18 @@ const tunnelNotFound = () => new NotFound({ message: "Tunnel not found" });
 
 /** A structured Worker log line naming only public ids. */
 const logEvent = (event: string, fields: Record<string, string>) => Effect.sync(() => console.error(JSON.stringify({ event, ...fields })));
+
+/** Phase timings of one request, logged as one event so `wrangler tail` shows where its time went. */
+type Phases = Record<string, string>;
+
+/** Runs `effect` and records its wall time in `into[key]` (milliseconds), success or failure. */
+const phase = <A, E, R>(into: Phases | undefined, key: string, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+  into === undefined
+    ? effect
+    : Effect.gen(function* () {
+        const started = yield* Clock.currentTimeMillis;
+        return yield* effect.pipe(Effect.ensuring(Effect.flatMap(Clock.currentTimeMillis, (at) => Effect.sync(() => { into[key] = String(at - started); }))));
+      });
 
 const now = Effect.map(Clock.currentTimeMillis, (ms) => new Date(ms));
 
@@ -254,69 +266,135 @@ const ruleCreateError = (error: { readonly status: number | null }) =>
       ? new Conflict({ message: "A device or VM left the mesh during the change; apply again" })
       : unavailable(error);
 
+/** Rules created at the provider between two database writes: one multi-row insert records each batch. */
+const RULE_RECORD_BATCH = 32;
+
 /**
  * Makes the mesh's provider rules equal `desired`: creates every missing rule
  * (8 at a time), and only when all of them exist deletes the surplus, so
  * traffic both the old and the new policy allow never stops. A failed create
  * stops before any delete.
+ *
+ * Only the rules missing from the mesh's rule table are created (planApply), so
+ * a machine joining a mesh of N devices creates its N x ports rules and nothing
+ * else, and applying the same ACL again creates none. Every database read the
+ * creates need is taken once before them (sameMeshSnapshot: four queries, not
+ * four per rule) and created rules are recorded RULE_RECORD_BATCH per insert:
+ * per rule, a new VM in a test mesh of 40 capture devices made ~800 sequential
+ * round trips on the request's one database connection and its apply took ~120 s.
  */
-const reconcile = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, ownsMesh: TenantOwnsResource<C, M>, desired: ReadonlyArray<DesiredRule>) =>
+const reconcile = <C, M>(
+  caller: Named<C, Principal>,
+  mesh: Named<M, MeshId>,
+  ownsMesh: TenantOwnsResource<C, M>,
+  desired: ReadonlyArray<DesiredRule>,
+  phases?: Phases,
+) =>
   Effect.gen(function* () {
     const store = yield* MeshStore;
     const upstream = yield* UpstreamMesh;
     const tenantId = caller.value.tenantId;
-    const current = yield* ownedMeshRules(caller, mesh, ownsMesh).pipe(Effect.catchAll(dependencyDown("mesh.listRules")));
+    const current = yield* phase(phases, "listRulesMs", ownedMeshRules(caller, mesh, ownsMesh).pipe(Effect.catchAll(dependencyDown("mesh.listRules"))));
     const plan = planApply(
       current.map((proof) => ({ key: proof.rule.key, proof })),
       desired,
     );
-    yield* Effect.forEach(
-      plan.create,
-      (rule) =>
-        Effect.gen(function* () {
-          const device = parseDeviceId(rule.deviceId);
-          const vm = parseVmId(rule.vmId);
-          if (Option.isNone(device) || Option.isNone(vm)) return yield* Effect.fail(unavailable());
-          return yield* name(device.value, vm.value, (source, destination) =>
-            Effect.gen(function* () {
-              const sourceProof = yield* sameMeshDevice(caller, mesh, ownsMesh, source).pipe(Effect.catchAll(dependencyDown("mesh.sameMesh")));
-              const destinationProof = yield* sameMeshVm(caller, mesh, ownsMesh, destination).pipe(Effect.catchAll(dependencyDown("mesh.sameMesh")));
-              if (sourceProof === null || destinationProof === null) {
-                return yield* Effect.fail(new Conflict({ message: "A device or VM left the mesh during the change; apply again" }));
-              }
-              const created = yield* upstream
-                .createRule(mesh, source, destination, { source: sourceProof, destination: destinationProof }, { protocol: rule.protocol, port: rule.port, sourceCidr: rule.cidr })
-                .pipe(Effect.mapError(ruleCreateError));
-              const at = yield* now;
-              yield* store
-                .recordRule(tenantId, {
-                  meshId: mesh.value,
-                  key: rule.key,
-                  upstreamRuleId: created.upstreamRuleId,
-                  deviceId: rule.deviceId,
-                  vmId: rule.vmId,
-                  protocol: rule.protocol,
-                  port: rule.port,
-                  createdAt: at,
-                })
-                .pipe(
-                  // Unrecorded, the rule could never be deleted by the ACL. A tunnel rule still goes with its tunnel and is
-                  // logged for the operator; an address rule names no tunnel, so it is deleted here at once.
-                  Effect.tapError(() =>
-                    rule.cidr === null
-                      ? logEvent("mesh_rule_record_failed", { meshId: mesh.value, ruleKey: rule.key })
-                      : upstream.discardCreatedRule(created).pipe(
-                          Effect.catchAll(() => logEvent("mesh_address_rule_discard_failed", { meshId: mesh.value, ruleKey: rule.key })),
-                        ),
-                  ),
-                  Effect.catchAll(dependencyDown("mesh.recordRule")),
-                );
-            }),
+    const members =
+      plan.create.length === 0
+        ? null
+        : yield* phase(
+            phases,
+            "snapshotMs",
+            sameMeshSnapshot(
+              caller,
+              mesh,
+              ownsMesh,
+              plan.create.map((rule) => rule.deviceId),
+              plan.create.map((rule) => rule.vmId),
+            ).pipe(Effect.catchAll(dependencyDown("mesh.sameMesh"))),
           );
-        }),
-      { concurrency: 8, discard: true },
-    );
-    yield* Effect.forEach(
+    const createOne = (rule: DesiredRule) =>
+      Effect.gen(function* () {
+        const device = parseDeviceId(rule.deviceId);
+        const vm = parseVmId(rule.vmId);
+        if (members === null || Option.isNone(device) || Option.isNone(vm)) return yield* Effect.fail(unavailable());
+        return yield* name(device.value, vm.value, (source, destination) =>
+          Effect.gen(function* () {
+            const sourceProof = members.device(source);
+            const destinationProof = members.vm(destination);
+            if (sourceProof === null || destinationProof === null) {
+              return yield* Effect.fail(new Conflict({ message: "A device or VM left the mesh during the change; apply again" }));
+            }
+            const created = yield* upstream
+              .createRule(mesh, source, destination, { source: sourceProof, destination: destinationProof }, { protocol: rule.protocol, port: rule.port, sourceCidr: rule.cidr })
+              .pipe(Effect.mapError(ruleCreateError));
+            return { rule, created, at: yield* now };
+          }),
+        );
+      });
+    const createsStarted = yield* Clock.currentTimeMillis;
+    let providerMs = 0;
+    let recordMs = 0;
+    for (let start = 0; start < plan.create.length; start += RULE_RECORD_BATCH) {
+      // Every create of the batch settles (none is left unrecorded by a sibling's failure), then the batch's rows go
+      // in one insert, then the first failure, if any, stops the apply before any delete.
+      const batchStarted = yield* Clock.currentTimeMillis;
+      const settled = yield* Effect.forEach(plan.create.slice(start, start + RULE_RECORD_BATCH), (rule) => Effect.either(createOne(rule)), { concurrency: 8 });
+      const made = settled.flatMap((result) => (Either.isRight(result) ? [result.right] : []));
+      const recordStarted = yield* Clock.currentTimeMillis;
+      providerMs += recordStarted - batchStarted;
+      yield* store
+        .recordRules(
+          tenantId,
+          made.map(({ rule, created, at }) => ({
+            meshId: mesh.value,
+            key: rule.key,
+            upstreamRuleId: created.upstreamRuleId,
+            deviceId: rule.deviceId,
+            vmId: rule.vmId,
+            protocol: rule.protocol,
+            port: rule.port,
+            createdAt: at,
+          })),
+        )
+        .pipe(
+          // Unrecorded, a rule could never be deleted by the ACL. A tunnel rule still goes with its tunnel and is
+          // logged for the operator; an address rule names no tunnel, so it is deleted here at once.
+          Effect.tapError(() =>
+            Effect.forEach(
+              made,
+              ({ rule, created }) =>
+                rule.cidr === null
+                  ? logEvent("mesh_rule_record_failed", { meshId: mesh.value, ruleKey: rule.key })
+                  : upstream.discardCreatedRule(created).pipe(
+                      Effect.catchAll(() => logEvent("mesh_address_rule_discard_failed", { meshId: mesh.value, ruleKey: rule.key })),
+                    ),
+              { concurrency: 8, discard: true },
+            ),
+          ),
+          Effect.catchAll(dependencyDown("mesh.recordRules")),
+        );
+      recordMs += (yield* Clock.currentTimeMillis) - recordStarted;
+      const failed = settled.find(Either.isLeft);
+      if (failed !== undefined) return yield* Effect.fail(failed.left);
+    }
+    if (plan.create.length > 0) {
+      // Where a large apply's time goes (provider creates or database writes), readable in wrangler tail.
+      yield* logEvent("mesh_rules_created", {
+        meshId: mesh.value,
+        created: String(plan.create.length),
+        totalMs: String((yield* Clock.currentTimeMillis) - createsStarted),
+        providerMs: String(providerMs),
+        recordMs: String(recordMs),
+      });
+    }
+    if (phases !== undefined) {
+      phases.created = String(plan.create.length);
+      phases.createMs = String(providerMs);
+      phases.recordMs = String(recordMs);
+      phases.removed = String(plan.remove.length);
+    }
+    yield* phase(phases, "removeMs", Effect.forEach(
       plan.remove,
       ({ proof }) =>
         Effect.gen(function* () {
@@ -328,19 +406,19 @@ const reconcile = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, ow
           yield* store.markRuleDeleted(tenantId, mesh.value, proof.rule.key, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.markRuleDeleted")));
         }),
       { concurrency: 8, discard: true },
-    );
+    ));
     return { created: plan.create.length, deleted: plan.remove.length, ruleCount: desired.length };
   });
 
 /** Re-applies the mesh's current ACL after its devices or VMs changed. */
-const reconcileCurrent = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, ownsMesh: TenantOwnsResource<C, M>) =>
+const reconcileCurrent = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, ownsMesh: TenantOwnsResource<C, M>, phases?: Phases) =>
   Effect.gen(function* () {
     const store = yield* MeshStore;
-    const acl = yield* store.currentAcl(caller.value.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.currentAcl")));
+    const acl = yield* phase(phases, "aclMs", store.currentAcl(caller.value.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.currentAcl"))));
     const document = Option.match(acl, { onNone: () => EMPTY_ACL, onSome: (row) => row.document });
-    const { result } = yield* compileFor(caller.value.tenantId, mesh.value, document, false);
+    const { result } = yield* phase(phases, "compileMs", compileFor(caller.value.tenantId, mesh.value, document, false));
     const desired = yield* compiled(result);
-    return yield* reconcile(caller, mesh, ownsMesh, desired);
+    return yield* reconcile(caller, mesh, ownsMesh, desired, phases);
   });
 
 /** Billing (402) then the budget (429); runs `k` with the proof and releases the reservation afterwards. */
@@ -1100,29 +1178,37 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
             const store = yield* MeshStore;
             const upstream = yield* UpstreamMesh;
             const tenantId = caller.value.tenantId;
+            // Where an attach's time goes (ownership reads, the provider attach, the writer lock, the rule creates),
+            // logged once as mesh_vm_attach for wrangler tail.
+            const phases: Phases = { meshId: mesh.value, vmId: path.vmId };
+            const started = yield* Clock.currentTimeMillis;
             return yield* name(parsed.value, (vm) =>
               Effect.gen(function* () {
-                const ownsVm = yield* tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find")));
+                const ownsVm = yield* phase(phases, "ownsVmMs", tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find"))));
                 if (ownsVm === null) return yield* Effect.fail(vmNotFound());
-                const current = yield* store.memberOf(tenantId, vm.value).pipe(Effect.catchAll(dependencyDown("mesh.memberOf")));
+                const current = yield* phase(phases, "memberOfMs", store.memberOf(tenantId, vm.value).pipe(Effect.catchAll(dependencyDown("mesh.memberOf"))));
                 if (Option.isSome(current) && current.value.meshId !== mesh.value) {
                   return yield* Effect.fail(new Conflict({ message: "This VM is already in another mesh" }));
                 }
                 let member = Option.getOrNull(current);
                 if (member === null) {
-                  const attached = yield* upstream
+                  const attached = yield* phase(phases, "upstreamAttachMs", upstream
                     .attachVm(mesh, vm, { ownsMesh: proofs.owns, ownsVm, meshScope: proofs.scope, vmScope })
                     .pipe(
                       Effect.mapError((error) =>
                         error.status === 404 ? vmNotFound() : error.status === 409 ? new Conflict({ message: "This VM cannot join the mesh right now" }) : unavailable(error),
                       ),
-                    );
+                    ));
                   const row = { meshId: mesh.value, vmId: vm.value, ipv4: attached.ipv4, attachedAt: yield* now };
-                  const inserted = yield* store.attachMember(tenantId, row).pipe(Effect.catchAll(dependencyDown("mesh.attachMember")));
+                  const inserted = yield* phase(phases, "attachMemberMs", store.attachMember(tenantId, row).pipe(Effect.catchAll(dependencyDown("mesh.attachMember"))));
                   if (!inserted) return yield* Effect.fail(new Conflict({ message: "This VM joined a mesh at the same time; retry" }));
                   member = row;
                 }
-                yield* withMeshWriter(tenantId, mesh.value, reconcileCurrent(caller, mesh, proofs.owns));
+                const lockStarted = yield* Clock.currentTimeMillis;
+                yield* phase(phases, "writerMs", withMeshWriter(tenantId, mesh.value, Effect.gen(function* () {
+                  phases.lockMs = String((yield* Clock.currentTimeMillis) - lockStarted);
+                  return yield* reconcileCurrent(caller, mesh, proofs.owns, phases);
+                })));
                 return new MeshMember({
                   meshId: MeshId_(member.meshId),
                   vmId: VmId_(member.vmId),
@@ -1130,6 +1216,10 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
                   attachedAt: member.attachedAt.toISOString(),
                 });
               }),
+            ).pipe(
+              Effect.ensuring(
+                Effect.flatMap(Clock.currentTimeMillis, (at) => logEvent("mesh_vm_attach", { ...phases, totalMs: String(at - started) })),
+              ),
             );
           }),
         ),
