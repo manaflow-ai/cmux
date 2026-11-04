@@ -76,6 +76,8 @@ parser.add_argument("--probe-pt", type=float, default=40.0, help="how far the dr
 parser.add_argument("--key-repeat", type=int, default=1, help="presses of each key per round (keys layouts)")
 parser.add_argument("--key-gap-ms", type=float, default=33.0, help="between repeated presses of one key")
 parser.add_argument("--key-settle-s", type=float, default=0.6, help="after the last press of a key")
+# SCRATCH (frame-owner-s4 profile, never merge): an xctrace recording of the first round of each arm of the key layouts.
+parser.add_argument("--xctrace", help="xctrace template (e.g. 'Time Profiler', 'Metal System Trace'): record each arm's first key round")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 APP = (opts.app or "").rstrip("/")
@@ -337,6 +339,79 @@ def measure(name):
                    "divider": {"x": round(x0, 1), "height": round(height, 1), "vertical_dividers": len(dividers)}})
 
 
+XCTRACE_DONE = set()
+
+
+def xctrace_start(label):
+    """SCRATCH: starts `xctrace record` of all processes for one round; returns (process, trace path) or None."""
+    if not opts.xctrace or label in XCTRACE_DONE:
+        return None
+    XCTRACE_DONE.add(label)
+    xcodes = sorted(glob.glob("/Applications/Xcode*.app"))
+    env_x = dict(os.environ, DEVELOPER_DIR=(xcodes[-1] + "/Contents/Developer") if xcodes else "")
+    trace = os.path.join(opts.out, f"xct-{label}.trace")
+    proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", opts.xctrace, "--all-processes", "--time-limit", "60s",
+                             "--output", trace, "--no-prompt"], env=env_x, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    time.sleep(4)  # bench script: the recorder starts
+    return proc, trace, env_x
+
+
+def xctrace_stop(handle, label):
+    """SCRATCH: stops the recording and summarises CPU time per process and per thread, and the heaviest frames per process."""
+    if not handle:
+        return None
+    proc, trace, env_x = handle
+    proc.send_signal(signal.SIGINT)
+    try:
+        out = proc.communicate(timeout=180)[0].decode(errors="replace")[-1500:]
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        out = "timeout"
+    xml = trace + ".xml"
+    exported = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
+                               '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]', "--output", xml],
+                              env=env_x, capture_output=True, text=True, timeout=600)
+    summary = {"template": opts.xctrace, "record_tail": out, "export_rc": exported.returncode, "export_err": exported.stderr[-800:]}
+    if exported.returncode != 0 or not os.path.exists(xml):
+        return summary
+    import collections, xml.etree.ElementTree as ET
+    byid = {}
+    proc_w, thread_w = collections.Counter(), collections.Counter()
+    self_w = collections.defaultdict(collections.Counter)
+
+    def resolve(e):
+        r = e.get("ref")
+        return byid.get(r, e) if r else e
+    for _, e in ET.iterparse(xml, events=("end",)):
+        if e.get("id"):
+            byid[e.get("id")] = e
+        if e.tag != "row":
+            continue
+        th = e.find("thread")
+        th = resolve(th) if th is not None else None
+        tfmt = th.get("fmt", "?") if th is not None else "?"
+        pr = e.find("process")
+        pr = resolve(pr) if pr is not None else None
+        pfmt = pr.get("fmt", "?") if pr is not None else tfmt.split(" ")[0]
+        w = e.find("weight")
+        w = resolve(w) if w is not None else None
+        weight = int(w.text) if w is not None and w.text and w.text.isdigit() else 1000000
+        proc_w[pfmt] += weight
+        thread_w[tfmt] += weight
+        bt = e.find("backtrace")
+        bt = resolve(bt) if bt is not None else None
+        if bt is not None:
+            frames = bt.findall("frame")
+            if frames:
+                self_w[pfmt][resolve(frames[0]).get("name", "?")] += weight
+    summary["processes_ms"] = {k: round(v / 1e6, 1) for k, v in proc_w.most_common(15)}
+    summary["threads_ms"] = {k: round(v / 1e6, 1) for k, v in thread_w.most_common(25)}
+    summary["self_ms"] = {p: {k[:140]: round(v / 1e6, 1) for k, v in c.most_common(15)} for p, c in
+                          sorted(self_w.items(), key=lambda kv: -sum(kv[1].values()))[:6]}
+    print(f"XCTRACE {label} {json.dumps(summary)[:6000]}", flush=True)
+    return summary
+
+
 def measure_keys(name):
     """Ctrl-Shift-L then Ctrl-Shift-H on the focused pane, per round and arm (see the module docstring)."""
     refresh_ms = refresh_period()
@@ -350,6 +425,7 @@ def measure_keys(name):
                 rounds.append({**entry, "error": problem})
                 continue
             before = surfaces()
+            recording = xctrace_start(f"{name}-{arms.label(arm)}")
             rpc("debug.terminal_display", {"action": "start"})
             rpc("debug.frames", {"action": "start"})
             presses = []
@@ -372,6 +448,9 @@ def measure_keys(name):
                 presses.append(press)
             frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
             display = rpc("debug.terminal_display", {"action": "stop"}) or {}
+            profile = xctrace_stop(recording, f"{name}-{arms.label(arm)}")
+            if profile:
+                entry["xctrace"] = profile
             if entry.get("error"):
                 rounds.append(entry)
                 continue
