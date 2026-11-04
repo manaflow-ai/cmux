@@ -7,7 +7,6 @@
 
 use cmux_focus_core::close_aim::Press;
 use cmux_focus_core::event::FocusEvent;
-use cmux_focus_core::state::FocusState;
 use cmux_focus_core::topology::Topology;
 use cmux_layout_reducer_ffi::focus::{CmuxFocusReply, CmuxFocusStr, CmuxFocusStrings, Focus, NONE};
 use cmux_layout_reducer_ffi::input::Input;
@@ -274,19 +273,33 @@ fn the_input_handle_replies_to_every_corpus_step_as_the_window_handle() {
     );
 }
 
-/// An equal topology report, after the first: no allocation in either handle (the router judges the ended sinks of every
-/// report, which allocates only while one is recorded: the replay records none).
-#[test]
-fn an_equal_topology_report_makes_no_allocation_in_either_handle() {
+/// The first topology report of the corpus with at least `tabs` tabs (a real layout, not an empty one).
+fn a_layout_with(tabs: u64) -> Topology {
     let corpus = corpus();
-    let sequence = &corpus["sequences"][0];
-    let initial = serde_json::to_vec(&sequence["initial"]).unwrap();
+    for sequence in corpus["sequences"].as_array().unwrap() {
+        for step in sequence["steps"].as_array().unwrap() {
+            if let Ok(FocusEvent::Topology { topology }) =
+                serde_json::from_value::<FocusEvent>(step["event"].clone())
+                && self::tabs(&topology) >= tabs
+            {
+                return topology;
+            }
+        }
+    }
+    panic!("the corpus has no topology with {tabs} tabs")
+}
+
+/// An equal topology report of a real layout (at least 4 tabs), after the one that settled it: the reducer does not run,
+/// and the input handle makes no more allocations than the window handle: the router rebuilds no tab index for it (one
+/// `Arc<str>` per tab when it does), and judging the sinks that ended allocates only while one is recorded. (Both handles
+/// clone the resolved target per report, in `WindowFocus::set_topology`: a shared cost, not the router's.)
+#[test]
+fn an_equal_topology_report_adds_no_allocation_in_the_router() {
+    let topology = a_layout_with(4);
     let mut old = Focus::new();
     let mut new = Input::new(MEMORY);
     new.window_open(WINDOW).unwrap();
-    assert!(old.import(&initial) && new.focus_import(WINDOW, &initial));
-    let topology = FocusState::import(&initial).unwrap().topology;
-    // One report first: the router's effect buffer grows once (its first event), then never again.
+    // The first report settles both states on the layout (and grows the router's effect buffer once).
     old.set_topology(topology.clone());
     new.focus_set_topology(WINDOW, topology.clone()).unwrap();
     let (for_old, for_new) = (topology.clone(), topology);
@@ -298,7 +311,195 @@ fn an_equal_topology_report_makes_no_allocation_in_either_handle() {
     let reply = new.focus_set_topology(WINDOW, for_new).unwrap();
     let input_handle = allocations() - start;
     assert_eq!(snapshot(reply), want);
-    assert_eq!((window_handle, input_handle), (0, 0), "an equal topology report allocated");
+    assert_eq!(reply.changed, 0, "the equal report changed the focus");
+    assert_eq!(
+        input_handle, window_handle,
+        "the input handle made {input_handle} allocations for an equal topology report, the window handle \
+         {window_handle} (the router rebuilt its tab index?)"
+    );
+}
+
+/// A window's reply stays where it is while other windows open and close (the header: a reply is valid until the next
+/// `cmux_input_*` call for that window). The windows' map grows and moves its entries; a reply kept inline in an entry
+/// would move with it, and the app's pointer would read freed memory (review of #35641).
+#[test]
+fn a_windows_reply_does_not_move_while_other_windows_open_and_close() {
+    let mut new = Input::new(MEMORY);
+    let reply = new.window_open(WINDOW).unwrap() as *const CmuxFocusReply;
+    let strings = new.focus_recent_panes(WINDOW, None).unwrap() as *const CmuxFocusStrings;
+    for index in 0..16 {
+        new.window_open(&format!("other-{index}")).unwrap();
+    }
+    for index in 0..16 {
+        if index % 2 == 0 {
+            new.window_close(&format!("other-{index}"));
+        }
+    }
+    for index in 16..40 {
+        new.window_open(&format!("other-{index}")).unwrap();
+    }
+    assert_eq!(
+        new.focus_current(WINDOW).unwrap() as *const CmuxFocusReply,
+        reply,
+        "the window's reply moved"
+    );
+    assert_eq!(
+        new.focus_recent_panes(WINDOW, None).unwrap() as *const CmuxFocusStrings,
+        strings,
+        "the window's lists moved"
+    );
+}
+
+/// The C ABI's edges: a null handle, null pointers, bad UTF-8 and a window that is not open never crash and answer
+/// what the header says (null, 0 or `ERR_*`); an event that does not decode answers a reply with `ok` 0.
+#[test]
+fn the_c_abi_refuses_bad_input_with_its_documented_values() {
+    use cmux_layout_reducer_ffi::focus::CmuxFocusEvent;
+    use cmux_layout_reducer_ffi::input::*;
+    use cmux_layout_reducer_ffi::{ERR_INVALID, ERR_NULL};
+    let window = WINDOW.as_bytes();
+    let missing = b"no-such-window";
+    let bad_utf8: &[u8] = &[0xff, 0xfe];
+    let event = CmuxFocusEvent {
+        kind: 5, // app active
+        source: 0,
+        target: 0,
+        target_keyboard: 0,
+        value: 1,
+        reserved: [0; 3],
+        list_count: 0,
+        reserved2: 0,
+        generation: 0,
+        a: CmuxFocusStr::ABSENT,
+        b: CmuxFocusStr::ABSENT,
+        c: CmuxFocusStr::ABSENT,
+        list: std::ptr::null(),
+    };
+    // SAFETY: every pointer is null, or points to the live bytes and event above for the call's length.
+    unsafe {
+        let none = std::ptr::null_mut();
+        assert!(cmux_input_window_open(none, window.as_ptr(), window.len()).is_null());
+        assert!(
+            cmux_input_focus_send(none, window.as_ptr(), window.len(), &event, std::ptr::null(), 0)
+                .is_null()
+        );
+        assert!(cmux_input_focus_current(none, window.as_ptr(), window.len()).is_null());
+        assert_eq!(
+            cmux_input_focus_pane_moved(
+                none,
+                window.as_ptr(),
+                window.len(),
+                std::ptr::null(),
+                0,
+                0
+            ),
+            0
+        );
+        assert_eq!(
+            cmux_input_focus_import_json(none, window.as_ptr(), window.len(), b"{}".as_ptr(), 2),
+            ERR_NULL
+        );
+        cmux_input_window_close(none, window.as_ptr(), window.len());
+        cmux_input_free(none);
+
+        let input = cmux_input_new(MEMORY);
+        assert!(!cmux_input_window_open(input, window.as_ptr(), window.len()).is_null());
+        assert!(
+            cmux_input_window_open(input, bad_utf8.as_ptr(), bad_utf8.len()).is_null(),
+            "bad UTF-8 opened a window"
+        );
+        assert!(
+            cmux_input_window_open(input, std::ptr::null(), 4).is_null(),
+            "a null id with a length opened a window"
+        );
+        // A window that is not open: null, 0 or ERR_INVALID, and its call never opens it.
+        assert!(
+            cmux_input_focus_send(
+                input,
+                missing.as_ptr(),
+                missing.len(),
+                &event,
+                std::ptr::null(),
+                0
+            )
+            .is_null()
+        );
+        assert!(cmux_input_focus_current(input, missing.as_ptr(), missing.len()).is_null());
+        assert!(cmux_input_focus_remembered(input, missing.as_ptr(), missing.len()).is_null());
+        assert!(cmux_input_focus_export_json(input, missing.as_ptr(), missing.len()).is_null());
+        assert_eq!(
+            cmux_input_focus_import_json(input, missing.as_ptr(), missing.len(), b"{}".as_ptr(), 2),
+            ERR_INVALID
+        );
+        assert_eq!(
+            cmux_input_focus_pane_moved(
+                input,
+                missing.as_ptr(),
+                missing.len(),
+                std::ptr::null(),
+                0,
+                0
+            ),
+            0
+        );
+        assert!(
+            cmux_input_focus_current(input, missing.as_ptr(), missing.len()).is_null(),
+            "a call opened the window"
+        );
+        // A null event pointer, and an event that does not decode (an unknown kind): no crash.
+        assert!(
+            cmux_input_focus_send(
+                input,
+                window.as_ptr(),
+                window.len(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0
+            )
+            .is_null()
+        );
+        let undecodable = CmuxFocusEvent { kind: 200, ..event };
+        let reply = cmux_input_focus_send(
+            input,
+            window.as_ptr(),
+            window.len(),
+            &undecodable,
+            std::ptr::null(),
+            0,
+        );
+        assert!(
+            !reply.is_null() && (*reply).ok == 0,
+            "an event that does not decode was not refused with ok 0"
+        );
+        // A good event still answers, ok 1.
+        let reply = cmux_input_focus_send(
+            input,
+            window.as_ptr(),
+            window.len(),
+            &event,
+            std::ptr::null(),
+            0,
+        );
+        assert!(!reply.is_null() && (*reply).ok == 1);
+        // A journal checkpoint that does not decode: ERR_INVALID, the state kept.
+        assert_eq!(
+            cmux_input_focus_import_json(
+                input,
+                window.as_ptr(),
+                window.len(),
+                b"not json".as_ptr(),
+                8
+            ),
+            ERR_INVALID
+        );
+        assert!(!cmux_input_focus_current(input, window.as_ptr(), window.len()).is_null());
+        cmux_input_window_close(input, window.as_ptr(), window.len());
+        assert!(
+            cmux_input_focus_current(input, window.as_ptr(), window.len()).is_null(),
+            "a closed window still answers"
+        );
+        cmux_input_free(input);
+    }
 }
 
 #[test]
