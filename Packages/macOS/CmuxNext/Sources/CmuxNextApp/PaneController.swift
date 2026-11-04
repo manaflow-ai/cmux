@@ -489,6 +489,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         launchFrames.showAhead(key, in: view.contentHost)
     }
 
+    /// Shows stand-in `key` again once its key's frame committed (within the frame's surface budget); false: it shows no more.
+    func showsAgain(_ key: String) -> Bool { guard currentTabKey == key else { return false }; services.presentation.showNow(self); return true }
     /// The selected tab is a terminal that will draw a frame (not a dead one).
     var showsLiveTerminal: Bool {
         guard let key = stripModel.selectedID?.rawValue, let tab = pane.tabs.first(where: { $0.id == key }) else { return false }
@@ -560,8 +562,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // Content destroyed while away re-attaches (daemon replay) as soon as
         // the pane nears the viewport, so it is ready before it scrolls in.
         if presence != .hidden, stripModel.selectedID != nil, currentTabKey == nil || !view.hostsContent {
-            // On screen: show now (a split's new pane draws with the layout
-            // change, no blank frame), within the one-surface-per-frame budget.
+            // On screen: show now (a split's new pane shows with the layout change; a stand-in
+            // terminal's surface follows its key's frame), within the one-surface-per-frame budget.
             if presence == .visible {
                 services.presentation.showNow(self)
             } else {
