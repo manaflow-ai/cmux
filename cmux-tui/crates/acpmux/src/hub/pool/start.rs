@@ -287,68 +287,68 @@ impl Hub {
         Ok(p)
     }
 
-/// Wait for a pooled harness request while observing its process. A machine
-/// under load may leave the harness with no CPU for a while; that is progress
-/// waiting, not a failed start. Once the process has received CPU, the long
-/// hazard bound protects the pool from a genuinely wedged peer. Every tick is
-/// also a visible progress record for diagnostics and the warming status.
-async fn wait_for_start<T>(
-    child: &ChildAgent,
-    start: impl std::future::Future<Output = Result<T, RpcError>>,
-) -> Result<T, RpcError> {
-    let began = tokio::time::Instant::now();
-    let mut tick = tokio::time::interval_at(began + START_PROGRESS, START_PROGRESS);
-    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    tokio::pin!(start);
-    let mut last_cpu_ms = None;
-    let mut no_progress_since = None;
-    loop {
-        tokio::select! {
-            done = &mut start => return done,
-            _ = tick.tick() => {
-                if !child.is_alive().await {
-                    return Err(RpcError::internal("agent process closed during pooled start"));
-                }
-                let seen = child.harness_seen().await;
-                let waited = began.elapsed();
-                match seen {
-                    crate::cpu_class::HarnessSeen::Running(state) => {
-                        let cpu_progressed = last_cpu_ms.is_some_and(|last| state.cpu_ms > last);
-                        if state.cpu_ms > 0 && !cpu_progressed {
-                            let since = *no_progress_since.get_or_insert(tokio::time::Instant::now());
-                            if since.elapsed() >= START_HAZARD {
-                                return Err(RpcError::internal(format!(
-                                    "pooled agent made no progress for {START_HAZARD:?}: {state}"
-                                )));
-                            }
-                        } else {
-                            no_progress_since = None;
-                        }
-                        last_cpu_ms = Some(state.cpu_ms);
-                        tracing::info!(
-                            waited_ms = waited.as_millis() as u64,
-                            cpu_ms = state.cpu_ms,
-                            threads_running = state.threads_running,
-                            "pooled agent start waiting; machine busy"
-                        );
+    /// Wait for a pooled harness request while observing its process. A machine
+    /// under load may leave the harness with no CPU for a while; that is progress
+    /// waiting, not a failed start. Once the process has received CPU, the long
+    /// hazard bound protects the pool from a genuinely wedged peer. Every tick is
+    /// also a visible progress record for diagnostics and the warming status.
+    async fn wait_for_start<T>(
+        child: &ChildAgent,
+        start: impl std::future::Future<Output = Result<T, RpcError>>,
+    ) -> Result<T, RpcError> {
+        let began = tokio::time::Instant::now();
+        let mut tick = tokio::time::interval_at(began + START_PROGRESS, START_PROGRESS);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        tokio::pin!(start);
+        let mut last_cpu_ms = None;
+        let mut no_progress_since = None;
+        loop {
+            tokio::select! {
+                done = &mut start => return done,
+                _ = tick.tick() => {
+                    if !child.is_alive().await {
+                        return Err(RpcError::internal("agent process closed during pooled start"));
                     }
-                    // A hosted child can be alive before it reports a harness
-                    // pid. Keep waiting in that state; `is_alive` above is the
-                    // terminal process-liveness check.
-                    crate::cpu_class::HarnessSeen::NotStarted
-                    | crate::cpu_class::HarnessSeen::Unread
-                    | crate::cpu_class::HarnessSeen::Ended => {
-                        no_progress_since = None;
-                        tracing::info!(
-                            waited_ms = waited.as_millis() as u64,
-                            "pooled agent start waiting; machine busy"
-                        );
+                    let seen = child.harness_seen().await;
+                    let waited = began.elapsed();
+                    match seen {
+                        crate::cpu_class::HarnessSeen::Running(state) => {
+                            let cpu_progressed = last_cpu_ms.is_some_and(|last| state.cpu_ms > last);
+                            if state.cpu_ms > 0 && !cpu_progressed {
+                                let since = *no_progress_since.get_or_insert(tokio::time::Instant::now());
+                                if since.elapsed() >= START_HAZARD {
+                                    return Err(RpcError::internal(format!(
+                                        "pooled agent made no progress for {START_HAZARD:?}: {state}"
+                                    )));
+                                }
+                            } else {
+                                no_progress_since = None;
+                            }
+                            last_cpu_ms = Some(state.cpu_ms);
+                            tracing::info!(
+                                waited_ms = waited.as_millis() as u64,
+                                cpu_ms = state.cpu_ms,
+                                threads_running = state.threads_running,
+                                "pooled agent start waiting; machine busy"
+                            );
+                        }
+                        // A hosted child can be alive before it reports a harness
+                        // pid. Keep waiting in that state; `is_alive` above is the
+                        // terminal process-liveness check.
+                        crate::cpu_class::HarnessSeen::NotStarted
+                        | crate::cpu_class::HarnessSeen::Unread
+                        | crate::cpu_class::HarnessSeen::Ended => {
+                            no_progress_since = None;
+                            tracing::info!(
+                                waited_ms = waited.as_millis() as u64,
+                                "pooled agent start waiting; machine busy"
+                            );
+                        }
                     }
                 }
             }
         }
     }
-}
 
     /// End entries nobody will take (in the background).
     pub(super) fn pool_discard(&self, entries: Vec<Pooled>) {
