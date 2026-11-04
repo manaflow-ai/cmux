@@ -1,3 +1,4 @@
+public import CmuxNextActions
 public import CmuxNextDaemon
 import CmuxNextWakeups
 import Foundation
