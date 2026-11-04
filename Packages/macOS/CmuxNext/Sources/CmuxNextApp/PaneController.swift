@@ -350,9 +350,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
                                                 openers: services.cache.pageRequests.openers.closeRelations(among: pane.tabs, last: &closeTabs))
         setStripSelection(selected.map { StripTabID($0) })
         let selectedID = stripModel.selectedID
+        sendTopologyIfChanged() // focus learns the selection before the show: the keyboard leaves the old tab first (showSelected)
         if selectNew {
-            // A tab this window created: show it now (focus is the
-            // coordinator's expectation, not decided here).
+            // A tab this window created: show it now (focus is the coordinator's expectation, not decided here).
             showSelected()
         } else if let selectedID, selectedID.rawValue != currentTabKey {
             presentSelection() // a close selected the neighbor
@@ -360,9 +360,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
             // Model-driven: show on the next frame, coalescing transient selections.
             services.presentation.setNeedsShowSelected(self)
         }
-        // Focus follows selection; the coordinator re-targets the keyboard
-        // (only when this pane's tabs or selection changed).
-        sendTopologyIfChanged()
         view.dropClosedParked { snapshot.items.compactMap { existingContent(for: $0.id.rawValue) } }
         remapViewedTab()
     }
@@ -437,7 +434,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
             // Another tab's last page from the launch must not stay under this one.
             view.clearLaunchImage()
         }
-        if let currentTabKey, currentTabKey != key { BenchSpans.measure("switch.withdraw") { services.cache.withdraw(currentTabKey, by: self) } }
+        if let currentTabKey, currentTabKey != key {
+            view.contentHost.handKeyboardToWindow() // before the old tab hides: no AppKit key view loop walk (5 ms); focus has the new selection
+            BenchSpans.measure("switch.withdraw") { services.cache.withdraw(currentTabKey, by: self) }
+        }
         DebugTabSwitch.mark(self, "withdraw")
         // May replace a stale surface, displacing the view shown here.
         let content = BenchSpans.measure("switch.content") { key.flatMap(content(for:)) }

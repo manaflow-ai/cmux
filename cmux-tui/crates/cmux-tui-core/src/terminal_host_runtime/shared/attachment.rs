@@ -221,6 +221,18 @@ impl HostAttachment {
         }
     }
 
+    /// A viewer-size frame (`ViewerSize`, `ReleaseViewer`): behind the frames the input port holds, on the port, with
+    /// no wait (a key that moves the grid sends one on its own turn, under the sizing lock); written directly when
+    /// the port holds none (S1.6c, `PortOrder::enqueue_after_pending`).
+    fn send_after_port(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
+        if let Some(order) = &self.input_order
+            && order.enqueue_after_pending(kind, payload)
+        {
+            return Ok(());
+        }
+        send_host_frame(&self.writer, self.protocol_version, kind, payload)
+    }
+
     /// The writer for a frame other than the port's own, after the port's earlier frames (S1.6b).
     fn direct_writer(&self) -> std::sync::MutexGuard<'_, HostStream> {
         self.direct_writer_until(None)
@@ -352,7 +364,7 @@ impl HostAttachment {
     /// the mirror before it resolves the acknowledgement. `None` when the
     /// host does not acknowledge viewer sizes, no size was sent, or the
     /// write failed.
-    pub(crate) fn begin_viewer_size_barrier(&self) -> Option<Receiver<Frame>> {
+    pub(crate) fn begin_viewer_size_barrier(&self, deadline: Instant) -> Option<Receiver<Frame>> {
         if !self.viewer_size_acks {
             return None;
         }
@@ -372,7 +384,7 @@ impl HostAttachment {
         let mut frame = Frame::new(MessageKind::ViewerSize, payload);
         frame.version = self.protocol_version;
         frame.request_id = request_id;
-        let written = write_frame(&mut *self.direct_writer(), &frame).is_ok();
+        let written = write_frame(&mut *self.direct_writer_until(Some(deadline)), &frame).is_ok();
         drop(viewer_size);
         if !written {
             self.control_responses.waiters.lock().recover_poison().remove(&request_id);
@@ -402,7 +414,7 @@ impl HostAttachment {
         let mut payload = Vec::with_capacity(4);
         payload.extend_from_slice(&cols.to_le_bytes());
         payload.extend_from_slice(&rows.to_le_bytes());
-        self.send(MessageKind::ViewerSize, &payload)?;
+        self.send_after_port(MessageKind::ViewerSize, &payload)?;
         Ok(true)
     }
 
@@ -623,7 +635,7 @@ impl HostAttachment {
         // admin connection has already failed; reconnect starts without
         // an implicit lease and therefore needs no compensating message.
         *viewer_size = None;
-        self.send(MessageKind::ReleaseViewer, &[])?;
+        self.send_after_port(MessageKind::ReleaseViewer, &[])?;
         Ok(true)
     }
 
