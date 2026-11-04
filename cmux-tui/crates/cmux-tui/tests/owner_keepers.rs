@@ -428,7 +428,9 @@ mod owner_keepers {
         // stopped in that wait began a shutdown that covers the exit: the next
         // owner read it as a host loss and gave the person a new shell in a
         // tab whose shell they had just killed (review of #34188). Until the
-        // exit settles, it keeps the owner.
+        // exit settles, it keeps the owner. The 8 s lead is a debug-build
+        // seam (`CMUX_TUI_TEST_SESSION_SHUTDOWN_LEAD_MS`): run this test in
+        // the test (debug) profile, as cmux-tui-rust-check.sh does.
         let owner =
             Owner::ensure_with("settle", vec![("CMUX_TUI_TEST_SESSION_SHUTDOWN_LEAD_MS", "8000")]);
         let mut app = Client::app(&owner.socket);

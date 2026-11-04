@@ -77,10 +77,15 @@ impl ExitSettleTimer {
         due
     }
 
-    /// Exits whose detach waits for its deadline (or for a retry): each
-    /// keeps an app session's owner (`Mux::kept_terminal_count`).
+    /// Exits whose detach waits for its deadline (or for a retry) on a
+    /// running worker: each keeps an app session's owner
+    /// (`Mux::kept_terminal_count`). A deadline no worker will run (the
+    /// owner was not bound yet, or the worker failed to start) keeps
+    /// nothing: the next owner's start settles it, so it must not keep this
+    /// owner forever.
     pub(super) fn pending(&self) -> usize {
-        self.state.lock().unwrap().deadlines.len()
+        let state = self.state.lock().unwrap();
+        if state.worker_running { state.deadlines.len() } else { 0 }
     }
 
     fn earliest(state: &ExitSettleState) -> Option<u64> {

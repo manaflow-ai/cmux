@@ -26,8 +26,12 @@ public nonisolated struct DaemonDiagnosticKnobs: Sendable, Equatable {
         ("CMUX_NEXT_TUI_DEBUG_SPANS", "CMUX_TUI_DEBUG_SPANS"),
         ("CMUX_NEXT_TUI_TERMINAL_HOST_MODEL", "CMUX_TUI_TERMINAL_HOST_MODEL"),
         ("CMUX_NEXT_TUI_RDS_INPUT", "CMUX_TUI_RDS_INPUT"),
-        ("CMUX_NEXT_TUI_OWNER_KEEPERS", "CMUX_TUI_OWNER_KEEPERS"),
+        ("CMUX_NEXT_TUI_OWNER_KEEPERS", ownerKeepersDaemonName),
     ]
+
+    /// The R-LIFECYCLE keepers switch under the daemon's name; the Chief owner's launch passes it on too
+    /// (`DaemonLauncher.chiefEnvironment`).
+    static let ownerKeepersDaemonName = "CMUX_TUI_OWNER_KEEPERS"
 
     /// The daemon variables to set, from the knobs present and non-empty in the app's environment.
     public let daemonEnvironment: [String: String]
