@@ -12,6 +12,16 @@
       "title" : "Attachment View",
       "type" : "string"
     },
+    "agentPane.composerRing" : {
+      "default" : "context",
+      "description" : "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them.",
+      "enum" : [
+        "context",
+        "planUsage"
+      ],
+      "title" : "Composer Ring",
+      "type" : "string"
+    },
     "agentPane.display.code.family" : {
       "description" : "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font.",
       "title" : "Chat Code Font",
@@ -91,6 +101,12 @@
       ],
       "title" : "Chat Minimap",
       "type" : "string"
+    },
+    "agentPane.display.pinnedPlan" : {
+      "default" : false,
+      "description" : "While the agent works, its task list stays under the latest message instead of in the bar over the composer.",
+      "title" : "Pin Task List in Chat",
+      "type" : "boolean"
     },
     "agentPane.display.presentation" : {
       "default" : "transcript",
@@ -1929,7 +1945,7 @@
       "type" : "boolean"
     },
     "cloud.agentsStartWithoutAsking" : {
-      "default" : false,
+      "default" : true,
       "description" : "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
       "title" : "Let Agents Start Cloud Sessions Without Asking",
       "type" : "boolean"
@@ -5198,7 +5214,7 @@
       "type" : "string"
     },
     "window.titlebar" : {
-      "default" : "minimal",
+      "default" : "standard",
       "description" : "Minimal has no titlebar strip; the top row moves the window.",
       "enum" : [
         "minimal",

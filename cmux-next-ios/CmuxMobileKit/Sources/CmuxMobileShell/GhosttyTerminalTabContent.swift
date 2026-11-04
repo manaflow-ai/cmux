@@ -370,6 +370,12 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         host(for: tab, in: workspace).model.focusComposer()
     }
 
+    func draft(_ text: String, for tab: WorkspaceTab, in workspace: Workspace) {
+        let model = host(for: tab, in: workspace).model
+        model.composerText = text
+        model.focusComposer()
+    }
+
     /// Each tab's card view, made once per slot: a card body is a lookup.
     private var cardViews: [String: (slot: ObjectIdentifier, view: AnyView)] = [:]
 
