@@ -176,6 +176,11 @@ final class ShellModel {
             theme.haptics.error()
             shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
         }
+        creator.onGroupFailure = { [weak self] _, what, message in
+            self?.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: what)
+            theme.haptics.error()
+            shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
+        }
     }
 
     /// Shows `workspace` in place of the one on screen (the Chats list's Open in New Workspace).
@@ -259,7 +264,12 @@ final class ShellModel {
         if live == nil, mockMode { deviceDirectory = MockDeviceDirectory(store: store) }
         #endif
         live?.onMacRemoved = { [weak self] macID in self?.macRemoved(macID) }
+        #if DEBUG
+        // Mock mode shows Screen Sharing's entries too (its hub can't be reached there).
+        attachScreenSharing(signedIn: live != nil || mockMode)
+        #else
         attachScreenSharing(signedIn: live != nil)
+        #endif
         updateShownMacs()
         if let live {
             // Tab ids repeat across Macs: every call names the tab's Mac, and
@@ -689,6 +699,9 @@ final class ShellModel {
                 switchTeam(to: team.id)
             } catch ServiceTeamCreation.Failure.unavailable {
                 toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Your account can't create teams")
+                theme.haptics.error()
+            } catch ServiceTeamCreation.Failure.invalidName {
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Team names are 1 to 120 characters")
                 theme.haptics.error()
             } catch {
                 toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't create the team")

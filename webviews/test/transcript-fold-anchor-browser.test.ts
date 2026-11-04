@@ -380,14 +380,14 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
       document.querySelector<HTMLElement>("[data-probe]")!.click();
       await window.cmuxPaintFrame();
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      // Further up than the closing body is tall: it shrinks on its own frames now, and a shorter
-      // scroll would end clamped back at the end once it has.
-      node.dispatchEvent(new WheelEvent("wheel", { deltaY: -400, bubbles: true }));
-      node.scrollTop -= 400;
+      // A short scroll up: the body lands shut at once and the end it had stays as room, so what
+      // was left of its shrink never clamps the reader back to the end.
+      node.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
+      node.scrollTop -= 100;
     });
     await settle(page);
     expect(await atLatest(page)).toBe(false);
-    expect(await page.locator("[data-bottom-fold], [data-bottom-stack]").count()).toBe(0);
+    expect(await page.locator("[data-bottom-fold], [data-bottom-stack-fold]").count()).toBe(0);
     expect(await page.locator(".acpmux-thread").evaluate((node) => node.getAnimations().length)).toBe(0);
     await page.close();
   });
