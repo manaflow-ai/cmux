@@ -137,9 +137,6 @@ jobs:
     timeout-minutes: 45
     # The cmux VM API's own environments (cmux-vm.yml smokes with the same keys).
     environment: cmux-vm-${{ inputs.target }}
-    defaults:
-      run:
-        working-directory: workers/cmux-vm
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -172,7 +169,6 @@ jobs:
           bun-version: "1.4.4"
 
       - name: Guard
-        working-directory: .
         env:
           TARGET: ${{ inputs.target }}
           CONFIRM_PRODUCTION: ${{ inputs.confirm_production }}
@@ -196,7 +192,6 @@ jobs:
       # Runners have no IPv6 route; pin the API host IPv4 first (scripts/cmux-next/release/pin-host.ts).
       - name: Pin the API host's address
         continue-on-error: true
-        working-directory: .
         run: |
           host="${CMUX_VM_DOGFOOD_URL#https://}"; host="${host%%/*}"
           line="$(bun scripts/cmux-next/release/pin-host.ts --host "$host" --wait-seconds 120)"
@@ -213,7 +208,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/dogfood"
           args=(--result-file "$RUNNER_TEMP/dogfood/result.json")
           if [ "$SKIP_SLEEP" = "true" ]; then args+=(--skip-sleep); fi
-          bun scripts/dogfood-journey.ts "${args[@]}"
+          bun scripts/cmux-next/cloud-vm-dogfood-journey.ts "${args[@]}"
 
       - name: Summary
         if: ${{ always() }}

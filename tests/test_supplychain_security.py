@@ -146,7 +146,7 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
     # NEXT Cloud: the cmux VM API's own environments, never classic cloud-vm-*.
     assert journey.get("environment") == "cmux-vm-${{ inputs.target }}"
     assert "/api/vm" not in yaml.dump(journey)
-    assert "scripts/dogfood-journey.ts" in run_text(journey)
+    assert "scripts/cmux-next/cloud-vm-dogfood-journey.ts" in run_text(journey)
     assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", journey["runs-on"]))
     assert "STACK_SECRET_SERVER_KEY" not in yaml.dump(journey)
     assert "CMUX_VM_SMOKE_API_KEY" not in (journey.get("env") or {})

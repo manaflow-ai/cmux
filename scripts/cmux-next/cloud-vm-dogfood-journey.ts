@@ -9,6 +9,9 @@
  *   -> the background process survived (memory kept) -> the same terminal
  *   reattaches and runs a command -> delete -> 404 -> gone from the list.
  *
+ * It lives outside workers/cmux-vm so changing it never redeploys the Worker
+ * (cmux-vm.yml deploys staging on every push under workers/cmux-vm/**).
+ *
  * Every step is timed. The run prints one JSON summary and writes it to
  * --result-file, success or failure, so a workflow can publish the numbers.
  * The VM it creates is deleted by its exact id at the end, also on failure,
@@ -17,7 +20,7 @@
  * key are swept first. Keys are read from the environment and never printed.
  *
  *   CMUX_VM_DOGFOOD_URL=https://vm-staging.cmux.dev \
- *   CMUX_VM_SMOKE_API_KEY=cmuxvm_sk_... bun scripts/dogfood-journey.ts --result-file out.json
+ *   CMUX_VM_SMOKE_API_KEY=cmuxvm_sk_... bun scripts/cmux-next/cloud-vm-dogfood-journey.ts --result-file out.json
  *
  * With no tenant key, CMUX_VM_SMOKE_SERVICE_KEY and CMUX_VM_SMOKE_SERVICE_TEAM
  * (a service key limited to role=chief VMs on one dev/test team, as production
