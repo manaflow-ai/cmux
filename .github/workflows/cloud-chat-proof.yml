@@ -122,7 +122,7 @@ jobs:
           set -euo pipefail
           file="$RUNNER_TEMP/cloud-chat-proof/evidence.json"
           [ -s "$file" ] || { echo "::warning::no evidence was written"; exit 0; }
-          if grep -Eq 'cmvm_|cmk_|eyJ[A-Za-z0-9_-]{8,}\.|[Bb]earer ' "$file"; then
+          if grep -Eiq '(cmvm|cmk|crt|crk|cmm|cmj)_[A-Za-z0-9_-]{8,}|sk-(ant-)?[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|bearer[[:space:]]+[A-Za-z0-9._~+/=-]+' "$file"; then
             echo "::error::the evidence holds a secret-shaped value; it is not uploaded"
             exit 1
           fi
