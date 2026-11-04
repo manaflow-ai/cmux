@@ -175,4 +175,69 @@ struct MainActorTaskStoreTests {
         store.cancel("search")
         #expect(!store.contains("search"))
     }
+
+    @Test
+    @MainActor
+    func storeWithoutTasksAllocatesNoCancellationRegistry() {
+        // SwiftUI evaluates a `@State` default value on every view init and
+        // drops all but the first, so an unused store must tear down for free.
+        for _ in 0..<1_000 {
+            let store = MainActorTaskStore<String>()
+            #expect(!store.hasCancellationRegistry)
+            store.cancel("search")
+            store.cancel(where: { _ in true })
+            #expect(!store.hasCancellationRegistry)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func releasingStoreCancelsEveryLiveSlotAndSkipsFinishedOnes() async throws {
+        let slotCount = 200
+        let started = AsyncStream<Int>.makeStream()
+        defer { started.continuation.finish() }
+        var startedIterator = started.stream.makeAsyncIterator()
+        let cancelled = AsyncStream<Int>.makeStream()
+        defer { cancelled.continuation.finish() }
+        var cancelledIterator = cancelled.stream.makeAsyncIterator()
+        let finished = AsyncStream<Void>.makeStream()
+        defer { finished.continuation.finish() }
+        var finishedIterator = finished.stream.makeAsyncIterator()
+        // One stream per slot: an AsyncStream allows a single consumer.
+        let suspensions = (0..<slotCount).map { _ in AsyncStream<Void>.makeStream() }
+        defer { suspensions.forEach { $0.continuation.finish() } }
+        var store: MainActorTaskStore<Int>? = MainActorTaskStore()
+        weak var weakStore: MainActorTaskStore<Int>?
+        weakStore = store
+
+        store?.replace(-1) {
+            finished.continuation.yield()
+        }
+        _ = try #require(await finishedIterator.next())
+
+        for slot in 0..<slotCount {
+            let handlerSlot = slot
+            let suspension = suspensions[slot].stream
+            store?.replace(slot) {
+                await withTaskCancellationHandler {
+                    started.continuation.yield(handlerSlot)
+                    for await _ in suspension {}
+                } onCancel: {
+                    cancelled.continuation.yield(handlerSlot)
+                }
+            }
+        }
+        for _ in 0..<slotCount {
+            _ = try #require(await startedIterator.next())
+        }
+
+        store = nil
+        #expect(weakStore == nil)
+
+        var cancelledSlots: Set<Int> = []
+        for _ in 0..<slotCount {
+            cancelledSlots.insert(try #require(await cancelledIterator.next()))
+        }
+        #expect(cancelledSlots == Set(0..<slotCount))
+    }
 }
