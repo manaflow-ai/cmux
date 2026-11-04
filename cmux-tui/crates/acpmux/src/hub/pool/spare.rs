@@ -23,13 +23,11 @@
 //! harness never gets one. The harnesses used are remembered in
 //! `<acpmux home>/pool-spares.json`, so a restarted daemon (a resumed or
 //! freshly booted Cloud machine) starts them again once startup is done
-//! (`restore_spares`). A spare whose agent died is replaced at the pool's next
-//! RSS tick (`spare_replace_dead`). Off with `pool.spare: false` or
+//! (`restore_spares`). A spare whose agent died is removed at the pool's next
+//! RSS tick (`spare_replace_dead`) and started again by the spare worker. Off with `pool.spare: false` or
 //! `ACPMUX_SPARE_HARNESS=0` in the daemon's environment.
 
 use super::*;
-use std::future::Future;
-use std::pin::Pin;
 
 /// A remembered harness older than this starts no spare at daemon start.
 const RECENT: Duration = Duration::from_secs(7 * 24 * 3600);
@@ -92,10 +90,6 @@ fn write_file(path: &Path, spares: Vec<Remembered>) -> std::io::Result<()> {
     })
 }
 
-/// Boxed so the pool's restart paths (`pool_after_ready` to here to `pool_want`, whose start
-/// calls `pool_after_ready`) form no recursive future type.
-type Boxed = Pin<Box<dyn Future<Output = ()> + Send>>;
-
 impl Hub {
     async fn spare_enabled(&self) -> bool {
         self.config.read().await.pool.spare_enabled() && self.pool_enabled().await
@@ -150,6 +144,7 @@ impl Hub {
         if !self.spare_enabled().await {
             return;
         }
+        tokio::spawn(self.clone().spare_worker());
         let list =
             tokio::task::spawn_blocking(|| read_file(&file_path())).await.unwrap_or_default();
         for r in recent(&list, now_ms()) {
@@ -192,14 +187,28 @@ impl Hub {
         };
         tracing::info!(count = removed.len(), "pooled agents died; they are removed");
         self.pool_discard(removed);
-        if !self.spare_enabled().await {
-            return;
+        if !restart.is_empty() {
+            lock(&self.pool.spare_restart).extend(restart);
+            self.pool.spare_wake.notify_one();
         }
-        for key in restart {
-            let hub = self.clone();
-            let again: Boxed =
-                Box::pin(async move { hub.spare_want(key.harness, key.preset, key.cwd).await });
-            tokio::spawn(again);
+    }
+
+    /// Starts again the spares `spare_replace_dead` found dead. Its own task (from
+    /// `restore_spares`), so the pool's RSS pass never awaits a pooled start: that start ends in
+    /// the RSS pass, and the two futures would contain each other.
+    async fn spare_worker(self: Arc<Self>) {
+        loop {
+            // Never on `shutdown` or `pool.stop`: their stored permits belong to the daemon's own
+            // waiters. A stopping pool starts nothing (`pool_want`), and the task ends with it.
+            self.pool.spare_wake.notified().await;
+            if self.pool.stopping.load(Ordering::SeqCst) || self.stopping.load(Ordering::SeqCst) {
+                return;
+            }
+            let keys = std::mem::take(&mut *lock(&self.pool.spare_restart));
+            for key in keys {
+                tracing::info!(harness = %key.harness, "a spare whose agent died starts again");
+                self.spare_want(key.harness, key.preset, key.cwd).await;
+            }
         }
     }
 }

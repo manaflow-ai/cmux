@@ -111,6 +111,9 @@ pub(crate) struct PoolState {
     starting: StdMutex<HashMap<String, HostRecord>>,
     /// Keys whose session alone is over the RSS cap: never started again.
     oversize: StdMutex<std::collections::HashSet<PoolKey>>,
+    /// Spares whose agent died, for the spare worker to start again (`spare.rs`).
+    spare_restart: StdMutex<Vec<PoolKey>>,
+    spare_wake: Notify,
 }
 
 type Spec = (String, Option<String>);
@@ -130,6 +133,8 @@ impl PoolState {
             rss: StdMutex::new(Arc::new(tree_rss_bytes)),
             starting: StdMutex::new(HashMap::new()),
             oversize: StdMutex::new(Default::default()),
+            spare_restart: StdMutex::new(Vec::new()),
+            spare_wake: Notify::new(),
         }
     }
 }
