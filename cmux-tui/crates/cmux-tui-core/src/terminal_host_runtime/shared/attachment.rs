@@ -241,11 +241,14 @@ const _: () = assert!(
     "an inline frame must fit the room POLLOUT promises"
 );
 
-/// Whether the socket `fd` can take a small write now, without waiting (POLLOUT, no error or hang-up).
+/// Whether the socket `fd` can take a small write now (POLLOUT, no error or hang-up). It never waits for room or for
+/// the host. On Linux the zero-timeout poll returns at once. On macOS it returns at once when there is room; with no
+/// room, XNU's poll sleeps on its timer, which is already due (about 10 us, then one wake), before it reports none
+/// (#35872 review). XNU's poll also makes and frees a kqueue on each call, a few us per key.
 #[cfg(unix)]
 fn has_room_now(fd: std::os::fd::RawFd) -> bool {
     let mut ready = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
-    // SAFETY: one valid pollfd, and a zero timeout: poll does not wait.
+    // SAFETY: one valid pollfd for a count of 1; the zero timeout keeps poll from waiting for room.
     let count = unsafe { libc::poll(&mut ready, 1, 0) };
     count == 1
         && ready.revents & libc::POLLOUT != 0

@@ -14,10 +14,11 @@
 //! - The writer writes on the route of the terminal's current host connection, which the terminal publishes each
 //!   time the connection changes (`PtyTerminalRuntime::replace_runtime`), so it never takes the runtime lock either.
 //! - A person's key (at most 1 KB) to an idle port, with nothing queued or in flight and no reconnect wait, is written
-//!   on the request's own turn when the connection's writer is free and the host socket takes it whole now
-//!   (`InputPort::try_write_now`, a non-blocking send under the port lock): no thread hand-off, which cost each key a
-//!   wake under load (#35413 A/B). Anything else (a busy writer, a full socket, an error, a frame ahead) goes to the
-//!   port as below, so a key still never waits for another writer or a host that stopped reading.
+//!   on the request's own turn when the connection's writer is free and the host socket has room for it now
+//!   (`InputPort::try_write_now`: a room check, then a send with room, under the port lock): no thread hand-off,
+//!   which cost each key a wake under load (#35413 A/B). Anything else (a busy writer, a full socket, an error, a
+//!   frame ahead) goes to the port as below, so a key still never waits for another writer or a host that stopped
+//!   reading.
 //! - Once the writer takes a person's key it runs at user-interactive QoS for its life, as the connection threads
 //!   that carried the key do (server/input_qos.rs); a port only automation writes to keeps the default QoS.
 //! - A lost host connection is retried as `write_bytes` did (cx-6so.49): the writer waits until the terminal
