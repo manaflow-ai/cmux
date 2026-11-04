@@ -106,6 +106,20 @@ def busy_main_push(queued=7):
 
 
 class PaidPortablePoolSnapshotTests(unittest.TestCase):
+    def test_linux_only_workflow_filter_still_reads_portable_queue_demand(self):
+        for base in ("main", "feat-cmux-next"):
+            for path in janitor.rescue.PORTABLE_LIGHT_WORKFLOW_PATHS:
+                with self.subTest(base=base, path=path):
+                    run = make_run(path=path)
+                    run["pull_requests"] = [{"base": {"ref": base}}]
+                    api = mock.Mock()
+                    api.jobs.return_value = mac_jobs(queued=1, label=LINUX)
+                    listed, unread, unlisted = janitor.read_run_jobs(
+                        api, [run], frozenset({path}), NOW,
+                        branch_linux_only={"feat-cmux-next": frozenset({path})})
+                    self.assertEqual((unread, unlisted), (set(), set()))
+                    self.assertEqual(listed, {run["id"]: api.jobs.return_value})
+
     def test_paid_linux_queue_and_running_demand_reach_the_rescue_snapshot(self):
         run = make_run(path=".github/workflows/pr-checks.yml")
         jobs = mac_jobs(queued=2, running=1)
