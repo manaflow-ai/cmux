@@ -11004,10 +11004,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (cancelled) return;
         // A new chat in mock mode starts without a session too, as against a real daemon. A host
         // that names a mock session (a gallery scene) opens that one.
+        const mockSession = mockModule?.mockHost.sessionId;
         const config: AcpmuxHostConfig = mockModule
           ? host.newSession
             ? { ...mockModule.mockHost, sessionId: undefined, newSession: true }
-            : { ...mockModule.mockHost, sessionId: host.sessionId || mockModule.mockHost.sessionId }
+            : { ...mockModule.mockHost, sessionId: host.sessionId || mockSession }
           : (host as AcpmuxHostConfig);
         let connectingClient: AcpmuxDirectClient | undefined;
         const client = await AcpmuxDirectClient.connect(
