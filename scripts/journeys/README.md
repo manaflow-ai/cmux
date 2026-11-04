@@ -357,7 +357,7 @@ $PY -I scripts/journeys/test_judge_goldens.py          # the runner's own tests 
 - One store serves every manifest: a branch that adds films (S1b, a judge PR's new film) snapshots them into the same
   store before it lands. `run` and `bless` check only the files their own table pins, and count the others in a note
   ("the store also holds N folder(s) and M file(s) this manifest does not pin"). No unpinned file decides a result:
-  each judge reads only its film's pinned files (sealed views), the TRUTH ruler reads only a pinned scan and
+  each judge reads only its folder's pinned files (sealed views), the TRUTH ruler reads only a pinned scan and
   frames.json, and the drag need only a pinned events.json; `snapshot` plans each folder against everything the store
   holds, whatever manifest stored it, so it never adds an input to a stored film. Two snapshots at the same time never
   replace each other's files (a link, never a replace). The judges' unit tests read the store by name
