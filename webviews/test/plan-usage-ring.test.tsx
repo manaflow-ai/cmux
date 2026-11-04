@@ -116,7 +116,8 @@ const rightClick = (element: Element) =>
     element.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 40 })),
   );
 const menuItems = () => [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')];
-const item = (label: string) => menuItems().find((entry) => entry.textContent?.trim() === label);
+const itemText = (entry: HTMLElement) => entry.textContent?.replace("✓", "").trim();
+const item = (label: string) => menuItems().find((entry) => itemText(entry) === label);
 
 test("acpmux's usageLimits keep Codex's plan, credits and window length; nothing reported is nothing", async () => {
   const { usageLimitsOf } = await import("../src/agent-session/acpmux/usageLimits");
@@ -235,7 +236,7 @@ test("the ring's right-click picks Context Usage or Plan Usage, and hides it", a
   await render(<Ring />);
   expect(ring()!.getAttribute("aria-label")).toBe("5% of context used");
   await rightClick(ring()!);
-  expect(menuItems().map((entry) => entry.textContent?.trim())).toEqual([
+  expect(menuItems().map(itemText)).toEqual([
     "Context Usage",
     "Plan Usage",
     "Hide Usage Ring",
