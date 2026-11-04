@@ -465,7 +465,7 @@ extension AgentTabStore {
             var request = NewConversationTabRequest(agentSession: record, pane: pane, origin: createOrigin, mutationID: key,
                                                     transaction: transaction)
             request.split = split
-            let response = try await connection.request(request)
+            let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command, until: .now + AgentSessionWorkspace.firstTabBudget) { try await connection.request(request) } // keyed: a late reply is asked again, never abandoned while the daemon commits the tab
             let created = AgentTabCreated(key: response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)",
                                           surface: response.surface)
             // Every event the daemon sent before the reply: the provisional tab settles there.

@@ -157,6 +157,24 @@ masks every browser pane in gray, its toolbar included, and refuses a browser ta
 ([cmux skill](../cmux/SKILL.md)): only the REPL's `page.screenshot()` hides
 the secrets a page shows.
 
+## Prove a local preview
+
+When a web UI change runs on a Cloud machine, use the built-in proof helper so
+the user receives the rendered page and the browser's errors in the same tool
+result:
+
+```js
+await previewProof(5173, { path: "/" });
+```
+
+`previewProof(port, options)` opens `http://127.0.0.1:<port><path>` in the
+machine/workspace browser, waits for the page load, collects `console.error`
+messages and uncaught page errors, and takes a screenshot. Its result includes
+the URL, both error lists, and a temporary PNG path. The transcript recognizes
+that path as an image attachment and renders it with the error report. Pass
+`screenshot: { fullPage: true }` when the whole page is needed; the default is
+the viewport.
+
 ## What the per-tab CLI does not cover
 
 The per-tab commands have no saved state, console
