@@ -18,6 +18,14 @@ public struct CloudOwnerAPIClient: Sendable {
         public var state: String
         public var machineId: String?
         public var error: String?
+
+        public init(id: String, harness: String, state: String, machineId: String?, error: String?) {
+            self.id = id
+            self.harness = harness
+            self.state = state
+            self.machineId = machineId
+            self.error = error
+        }
     }
     public typealias AccessToken = @Sendable () async throws -> String
     /// The cmux team (`team_…`) whose machine this is: the install token's team claim.
