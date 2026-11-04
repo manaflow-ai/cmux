@@ -333,7 +333,10 @@ struct CreationHoldReplyBoundTests {
         buffer.endReplyWait(personTarget: "press_tab", shows: { _ in true })
         let keys = buffer.take(focused: "other_tab", isShortcut: { _, _ in false })
         #expect(keys.count == 1, "the held keys went on in \(keys.count) runs")
-        guard case .type(let events, let lane)? = keys.first else { return Issue.record("the held keys went on as no typed run") }
+        guard case .type(let events, let lane)? = keys.first else {
+            Issue.record("the held keys went on as no typed run")
+            return
+        }
         #expect(lane == press)
         #expect(events.compactMap(\.characters).joined() == "echo hel''d\recho al''so\r", "the held keys went on out of order")
     }
