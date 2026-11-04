@@ -114,7 +114,8 @@ export function lastWrapUp(rows: readonly AcpmuxRow[]): NextStepAsk | undefined 
 export function withoutWrapUp(rows: readonly AcpmuxRow[]): AcpmuxRow[] {
   // Only a call the card stands in for goes: a failed or unfinished one keeps its row.
   const drawn = (tool: Tool | undefined) =>
-    (isWrapUp(tool) && tool.status === "completed" && wrapUpAsk(tool) !== undefined) || execWrapUp(tool)?.only === true;
+    (isWrapUp(tool) && tool.status === "completed" && wrapUpAsk(tool) !== undefined) ||
+    (tool?.status === "completed" && execWrapUp(tool)?.only === true);
   const out: AcpmuxRow[] = [];
   for (const row of rows) {
     if (row.kind !== "activity" || !(row.items ?? []).some((item) => drawn(item.tool))) {

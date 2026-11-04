@@ -170,6 +170,16 @@ describe("a wrap-up from a code-mode script", () => {
     expect(JSON.stringify(drawn)).not.toContain(only.tool!.id);
   });
 
+  test("a script that wrapped up and then failed keeps its row", () => {
+    const failed = exec([wrapped]);
+    failed.tool = { ...failed.tool!, status: "failed" };
+    const drawn = turnView(
+      [user("Fix it", 6), assistant("Done.", 5), activity([failed], 5), summary(5, { status: "completed" })] as AcpmuxRow[],
+      new Set(),
+    );
+    expect(JSON.stringify(drawn)).toContain(failed.tool.id);
+  });
+
   test("a script that did other work keeps its row and still draws the box", () => {
     const mixed = exec([{ name: "workspace_list", ok: true }, wrapped]);
     expect(execWrapUp(mixed.tool)?.only).toBe(false);
