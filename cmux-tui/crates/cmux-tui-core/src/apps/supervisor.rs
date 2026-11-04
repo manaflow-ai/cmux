@@ -236,6 +236,11 @@ pub(super) struct Inner {
     pub kept_servers_told: usize,
     /// Run callers and the ops they wait for (`cancel.rs`).
     pub calls: super::cancel::Calls,
+    /// The customize app's read scopes offered so far (granted by a save that
+    /// first declared them), seeded on the first reload from the catalog
+    /// read at start. Only grows, so a read the person turned off is never
+    /// granted again by a broken save or one that drops and re-adds it.
+    pub customize_reads_offered: Option<BTreeSet<String>>,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -371,6 +376,7 @@ impl Supervisor {
                 server_crashes: HashMap::new(),
                 kept_servers_told: 0,
                 calls: Default::default(),
+                customize_reads_offered: None,
             }),
             config,
             router,

@@ -227,9 +227,29 @@ impl Supervisor {
             strings: package.strings("en"),
             main,
         });
+        // The package may have been saved since a mount (a local reload): its
+        // interface may now name another export, or be gone, which fails the
+        // mount the way `mount` refuses it.
+        let gone: Vec<MountKey> = inner
+            .mounts
+            .iter()
+            .filter(|(_, m)| m.host == *key && package.export_for(&m.interface).is_none())
+            .map(|(k, _)| k.clone())
+            .collect();
+        let mut failed = Vec::new();
+        for mount in gone {
+            if let Some(record) = inner.mounts.remove(&mount) {
+                let reason = format!(
+                    "{} does not implement {} with a scene export",
+                    key.app, record.interface
+                );
+                failed.push(Out::Client(
+                    mount.client,
+                    json!({ "event": "apps-mount-failed", "mount_id": mount.mount_id, "reason": reason }),
+                ));
+            }
+        }
         for (mount, record) in inner.mounts.iter_mut().filter(|(_, m)| m.host == *key) {
-            // The package may have been saved since the mount (a local
-            // reload): its interface may now name another export.
             if let Some(export) = package.export_for(&record.interface) {
                 record.export = export;
             }
@@ -254,7 +274,8 @@ impl Supervisor {
         host.ready_at = None;
         host.inflight = 0;
         // A restart with nothing to do arms the idle stop like any other host.
-        self.idle_check_locked(inner, key)
+        failed.extend(self.idle_check_locked(inner, key));
+        failed
     }
 
     /// The host cannot run: its mounts fail and the record goes away.
