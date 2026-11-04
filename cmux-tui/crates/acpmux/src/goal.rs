@@ -287,7 +287,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(goal.provider, GoalProvider::Codex);
-        assert_eq!(goal.status, GoalStatus::Active);
+        assert_eq!(goal.status, GoalStatus::Running);
         assert_eq!(goal.lifecycle(), "running");
         assert_eq!(goal.elapsed_seconds, Some(42));
         assert_eq!(goal.steps.as_ref().unwrap().len(), 1);
