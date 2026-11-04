@@ -234,7 +234,9 @@ pub fn session_refusal(
 ) -> Option<Refused> {
     let p = policy();
     let method = object.get("method").and_then(Value::as_str)?;
-    let named = object.get("params").and_then(Value::as_object).and_then(|p| p.get("sessionId"));
+    let primary = p.primary_session_params.get(method).map(String::as_str).unwrap_or("sessionId");
+    let named =
+        object.get("params").and_then(Value::as_object).and_then(|params| params.get(primary));
     let optional = contains(&p.optionally_session_scoped, method);
     // A frame that may name a session and names none is not session-scoped
     // (a JSON null names one that is not a string: refused).
