@@ -15,7 +15,7 @@ SCRIPT = ROOT / "scripts" / "ci" / "classic_api_guard.py"
 CONFIG = ROOT / "scripts" / "ci" / "classic-auto-deploy.json"
 WORKFLOW = ROOT / ".github" / "workflows" / "classic-api-guard.yml"
 
-spec = importlib.util.spec_from_file_location("classic_api_guard", SCRIPT)
+spec = importlib.util.spec_from_file_location("classic_api_guard", ROOT / "scripts" / "ci" / "classic_api_guard.py")
 assert spec and spec.loader
 guard = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = guard
