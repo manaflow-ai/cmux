@@ -220,6 +220,29 @@ fn secure_origin(raw: &str) -> Result<String, ConnectInfoError> {
     Ok(url.origin().ascii_serialization())
 }
 
+#[cfg(test)]
+mod direct_tests {
+    use super::*;
+
+    #[test]
+    fn direct_source_redacts_install_token() {
+        let source =
+            DirectSource::new("http://127.0.0.1:8787".into(), "secret-install-token".into())
+                .expect("local origins are allowed for tests");
+        let debug = format!("{source:?}");
+        assert!(!debug.contains("secret-install-token"));
+        assert_eq!(source.api, "http://127.0.0.1:8787");
+    }
+
+    #[test]
+    fn direct_source_rejects_insecure_remote_origin() {
+        let error = DirectSource::new("http://cloud.example".into(), "token".into()).unwrap_err();
+        assert!(
+            matches!(error, ConnectInfoError::Unavailable(message) if message.contains("secure"))
+        );
+    }
+}
+
 impl ConnectInfoSource for RelaySource {
     async fn fetch(&self, host: &str) -> Result<ConnectInfo, ConnectInfoError> {
         let value = self.request(serde_json::json!({"op":"connect_info","host":host})).await?;
