@@ -33,11 +33,16 @@
 //! - With the switch off, [`catch_up`] runs this recovery once on a journal left by a run with it
 //!   on, so every acknowledged line is in the logs before they are written alone.
 //!
-//! Not yet (S2c): replies and events do not wait for their records to be durable, and the daemon
-//! does not stop when the journal closes (a panic on its writer). Session metadata is S3.
+//! - Durability (S2c): [`Store::durability`] gives the last acknowledged LSN and the journal's
+//!   durable LSN, for which each connection's outbound gate waits (`server/durable_gate.rs`). A
+//!   writer that ends while the store is not dropped (a panic on its thread) closes that watch
+//!   and asks the daemon to stop (DESIGN.md decision 9.8).
+//!
+//! Session metadata is S3.
 
 use super::*;
 use cmux_journal::{AppendError, Class, Damage, Journal, Lsn, OpenError};
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Condvar};
 use std::time::{Duration, Instant};
 
@@ -93,6 +98,36 @@ struct Inner {
     wake: Condvar,
     /// Why the daemon must stop (`Store::stop_reason`).
     stop: tokio::sync::watch::Sender<Option<String>>,
+    /// The LSN of the last `Ack` record appended (`Store::durability`).
+    acked: Arc<AtomicU64>,
+    /// The journal's durable LSN, fed by its writer; closed when the writer ends.
+    durable: tokio::sync::watch::Receiver<u64>,
+    /// The store is being dropped: its writer's end is not a failure.
+    dropping: Arc<AtomicBool>,
+}
+
+/// Owned by the journal's durable listener, which the writer drops when it ends: a writer that
+/// ended while the store was not being dropped (a panic on its thread) asks the daemon to stop
+/// (DESIGN.md decision 9.8), and the durable watch it fed closes.
+struct WriterEnded {
+    stop: tokio::sync::watch::Sender<Option<String>>,
+    dropping: Arc<AtomicBool>,
+}
+
+impl Drop for WriterEnded {
+    fn drop(&mut self) {
+        if self.dropping.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        tracing::error!("the event journal's writer ended: no change can be acknowledged");
+        self.stop.send_if_modified(|reason| {
+            let unset = reason.is_none();
+            if unset {
+                *reason = Some("the event journal's writer ended".into());
+            }
+            unset
+        });
+    }
 }
 
 #[derive(Default)]
@@ -144,6 +179,19 @@ impl JournalStore {
             }
         }
         let (stop, _) = tokio::sync::watch::channel(None);
+        let dropping = Arc::new(AtomicBool::new(false));
+        let (durable_tx, durable) = tokio::sync::watch::channel(journal.durable_lsn());
+        let ended = WriterEnded { stop: stop.clone(), dropping: Arc::clone(&dropping) };
+        journal.on_durable(move |lsn| {
+            let _owned = &ended;
+            durable_tx.send_if_modified(|was| {
+                let moved = lsn > *was;
+                if moved {
+                    *was = lsn;
+                }
+                moved
+            });
+        });
         let inner = Arc::new(Inner {
             local,
             journal,
@@ -157,6 +205,9 @@ impl JournalStore {
             timer: Mutex::new(Timer::default()),
             wake: Condvar::new(),
             stop,
+            acked: Arc::new(AtomicU64::new(0)),
+            durable,
+            dropping,
         });
         inner.apply(replay)?;
         if let Err(error) = inner.checkpoint() {
@@ -180,6 +231,18 @@ impl JournalStore {
     pub(super) fn opened(&self) -> &cmux_journal::OpenReport {
         &self.opened
     }
+}
+
+/// [`super::open`] with the journal on `storage` (a simulated file system in the crash tests) and
+/// its own limits, for `store.journal`.
+#[cfg(test)]
+pub(crate) fn open_with_journal(
+    config: &StoreConfig,
+    root: &Path,
+    storage: Arc<dyn cmux_journal::Storage>,
+    journal: cmux_journal::Config,
+) -> Result<Box<dyn Store>> {
+    Ok(Box::new(JournalStore::open(config, root, storage, journal)?))
 }
 
 /// Opens the journal, replaying the records after `from`; waits up to [`LOCK_WAIT`] while another
@@ -245,14 +308,6 @@ fn decode_log(payload: &[u8]) -> Option<(String, &[u8])> {
     Some((id.to_owned(), payload.get(end..)?))
 }
 
-/// A streamed agent line: synced with the next acked batch or a second later (`Class::Stream`).
-fn streamed(record: &EventRecord) -> bool {
-    record.dir == "in"
-        && (record.kind == crate::rpc::method::SESSION_UPDATE
-            || record.kind.starts_with("claude.")
-            || record.kind.starts_with("codex."))
-}
-
 /// The `seq` of a whole log line, or `None` when it does not read.
 fn line_seq(line: &[u8]) -> Option<u64> {
     record_seq(line).or_else(|| parse_record(line).ok().map(|record| record.seq))
@@ -302,6 +357,9 @@ impl Store for JournalStore {
         // record, as after a crash between the two.
         let lsn =
             inner.journal.append(KIND_LOG, class, &payload).map_err(JournalStore::journal_error)?;
+        if class == Class::Ack {
+            inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
+        }
         order.applied = lsn;
         order.bytes = order.bytes.saturating_add(u64::try_from(payload.len()).unwrap_or(u64::MAX));
         let full = order.bytes > CHECKPOINT_BYTES && !order.frozen;
@@ -378,6 +436,12 @@ impl Store for JournalStore {
     fn stop_reason(&self) -> Option<tokio::sync::watch::Receiver<Option<String>>> {
         Some(self.inner.stop.subscribe())
     }
+    fn durability(&self) -> Option<Durability> {
+        Some(Durability {
+            acked: Arc::clone(&self.inner.acked),
+            durable: self.inner.durable.clone(),
+        })
+    }
     /// The logs refuse writes, and the journal fully syncs every record (the shutdown's `flush`
     /// then checkpoints).
     fn seal(&self) {
@@ -418,6 +482,7 @@ impl Store for JournalStore {
                 .journal
                 .append(KIND_FORGET, Class::Ack, id.as_bytes())
                 .map_err(JournalStore::journal_error)?;
+            inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
             order.applied = lsn;
         }
         Store::delete(&inner.local, id)
@@ -439,6 +504,7 @@ impl Store for JournalStore {
 impl Drop for JournalStore {
     /// Stops the checkpointer. No checkpoint here: a drop is not a shutdown (`flush` is).
     fn drop(&mut self) {
+        self.inner.dropping.store(true, std::sync::atomic::Ordering::SeqCst);
         self.inner.timer.lock_or_recover().stop = true;
         self.inner.wake.notify_all();
         if let Some(handle) = self.checkpointer.lock_or_recover().take() {

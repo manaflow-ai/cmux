@@ -2,7 +2,8 @@
 //! stream ends. Cached inventory has a separate opt-in and sanitized feed.
 
 use super::{
-    Conn, Hub, Message, Ordering, broadcast, deliver, harness_admin, inventory_watch, json,
+    Conn, Hub, Message, Ordering, broadcast, deliver, durable_gate, harness_admin, inventory_watch,
+    json,
 };
 use std::sync::Arc;
 
@@ -79,7 +80,11 @@ pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<(
                 }
             };
             match ev {
-                Ok(ev) => deliver(&hub, &conn, ev),
+                Ok(ev) => {
+                    // Agent output shows nothing acknowledged: it raises no gate (`durable_gate.rs`).
+                    let _stream = durable_gate::stream_scope(&ev.record);
+                    deliver(&hub, &conn, ev);
+                }
                 Err(broadcast::error::RecvError::Lagged(n)) => {
                     conn.send(&Message::notification("_acpmux/lagged", json!({"dropped": n})));
                 }
@@ -104,7 +109,3 @@ fn send_presence(conn: &Conn, note: &serde_json::Value) {
         conn.send(&Message::notification(crate::rpc::method::MUX_PRESENCE, note.clone()));
     }
 }
-
-#[cfg(all(test, unix))]
-#[path = "durable_gate_tests.rs"]
-mod durable_gate_tests;
