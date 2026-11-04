@@ -763,7 +763,11 @@ mod tests {
         // OpenCode signs in with provider keys, never with another harness's sign-in.
         let opencode = profile(HarnessKind::Acp, "opencode", serde_json::json!({}));
         assert!(removed(&opencode, "CLAUDE_CODE_OAUTH_TOKEN") && removed(&opencode, "CODEX_HOME"));
-        assert!(!removed(&opencode, "ANTHROPIC_API_KEY") && !removed(&opencode, "OPENAI_API_KEY"));
+        // Not `removed`: inside a Claude Code shell the nested scrub removes ANTHROPIC_* too.
+        let opencode_loses = |key: &str| {
+            super::super::foreign_login::foreign_login_keys("opencode").any(|k| k == key)
+        };
+        assert!(!opencode_loses("ANTHROPIC_API_KEY") && !opencode_loses("OPENAI_API_KEY"));
         // A value the profile sets is the person's choice and passes.
         let chosen =
             profile(HarnessKind::Acp, "codex-acp", serde_json::json!({"ANTHROPIC_API_KEY": "own"}));

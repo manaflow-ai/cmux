@@ -24,7 +24,11 @@ use tokio::process::Command;
 
 /// The families of harnesses that are one model agent each. Any other
 /// family (`chief`, `unii`, a test's `fake`) is left as it was.
-const LEAF_FAMILIES: [&str; 7] = ["claude", "codex", "opencode", "gemini", "pi", "omp", "prime"];
+/// The discovered ACP agents (`config/discover.rs`) are all here.
+const LEAF_FAMILIES: [&str; 11] = [
+    "claude", "codex", "opencode", "gemini", "pi", "omp", "prime", "grok", "cursor", "hermes",
+    "deepseek",
+];
 
 /// A login variable and the harness family it belongs to. Every key of the
 /// pool's credential fingerprint (`hub/pool/auth.rs` `AUTH_ENV`) that is one
