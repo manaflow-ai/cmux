@@ -1,5 +1,5 @@
 use super::classify::{CallClass, classify_command, is_pure_read};
-use super::flush::{ConflictReason, DirMachineFs, MachineFs, flush};
+use super::flush::{ConflictReason, DirMachineFs, MachineFs, Mutation, flush};
 use super::replica::{
     DirReplica, NeedsMachine, ReadOutcome, ReplicaSource, WriteOutcome, read_text, write_text,
 };
@@ -119,6 +119,14 @@ fn a_stale_replica_or_a_left_out_file_sends_the_call_to_the_machine() {
         write_text(&mut j, &replica, "big.bin", Some("y"), 1).unwrap(),
         WriteOutcome::NeedsMachine(NeedsMachine::MachineOnly)
     );
+    // A file a read calls not text is never written or deleted unseen.
+    for edit in [Some("y"), None] {
+        assert_eq!(
+            write_text(&mut j, &replica, "bin.dat", edit, 1).unwrap(),
+            WriteOutcome::NeedsMachine(NeedsMachine::NotText)
+        );
+    }
+    assert!(j.is_empty());
 
     let generation = replica.generation();
     replica.invalidate();
@@ -144,7 +152,7 @@ fn the_replica_never_follows_a_symlink_out_of_its_folder() {
     assert_eq!(replica.read("link").unwrap(), replica::ReplicaRead::MachineOnly);
     assert_eq!(replica.read("up/secret").unwrap(), replica::ReplicaRead::MachineOnly);
     let machine = DirMachineFs::new(&root);
-    assert!(machine.write("up/secret", b"x").is_err());
+    assert!(machine.write("up/secret", b"x", &Version::Absent).is_err());
     assert_eq!(std::fs::read_to_string(dir.path().join("secret")).unwrap(), "s");
 }
 
@@ -385,14 +393,14 @@ impl MachineFs for Failing<'_> {
     fn read(&self, path: &str) -> std::io::Result<Option<Vec<u8>>> {
         self.inner.read(path)
     }
-    fn write(&self, path: &str, bytes: &[u8]) -> std::io::Result<()> {
+    fn write(&self, path: &str, bytes: &[u8], expected: &Version) -> std::io::Result<Mutation> {
         if path == self.bad {
             return Err(std::io::Error::other("disk full"));
         }
-        self.inner.write(path, bytes)
+        self.inner.write(path, bytes, expected)
     }
-    fn remove(&self, path: &str) -> std::io::Result<()> {
-        self.inner.remove(path)
+    fn remove(&self, path: &str, expected: &Version) -> std::io::Result<Mutation> {
+        self.inner.remove(path, expected)
     }
     fn make_durable(&self, path: &str) -> std::io::Result<()> {
         self.inner.make_durable(path)
@@ -409,15 +417,72 @@ impl MachineFs for Recording<'_> {
     fn read(&self, path: &str) -> std::io::Result<Option<Vec<u8>>> {
         self.inner.read(path)
     }
-    fn write(&self, path: &str, bytes: &[u8]) -> std::io::Result<()> {
-        self.inner.write(path, bytes)
+    fn write(&self, path: &str, bytes: &[u8], expected: &Version) -> std::io::Result<Mutation> {
+        self.inner.write(path, bytes, expected)
     }
-    fn remove(&self, path: &str) -> std::io::Result<()> {
-        self.inner.remove(path)
+    fn remove(&self, path: &str, expected: &Version) -> std::io::Result<Mutation> {
+        self.inner.remove(path, expected)
     }
     fn make_durable(&self, path: &str) -> std::io::Result<()> {
         self.synced.lock().unwrap().push(path.to_owned());
         self.inner.make_durable(path)
+    }
+}
+
+/// A machine where a guest process saves `path` right after the flush reads it, before the
+/// flush's own write or remove: the interleaving a conditional mutation must catch.
+struct Racing<'a> {
+    inner: &'a DirMachineFs,
+    root: &'a std::path::Path,
+    path: &'a str,
+    guest: &'a str,
+    raced: std::sync::atomic::AtomicBool,
+}
+
+impl MachineFs for Racing<'_> {
+    fn read(&self, path: &str) -> std::io::Result<Option<Vec<u8>>> {
+        let now = self.inner.read(path)?;
+        if path == self.path && !self.raced.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            std::fs::write(self.root.join(path), self.guest)?;
+        }
+        Ok(now)
+    }
+    fn write(&self, path: &str, bytes: &[u8], expected: &Version) -> std::io::Result<Mutation> {
+        self.inner.write(path, bytes, expected)
+    }
+    fn remove(&self, path: &str, expected: &Version) -> std::io::Result<Mutation> {
+        self.inner.remove(path, expected)
+    }
+    fn make_durable(&self, path: &str) -> std::io::Result<()> {
+        self.inner.make_durable(path)
+    }
+}
+
+#[test]
+fn a_save_between_the_flush_read_and_its_mutation_is_a_conflict_not_an_overwrite() {
+    // Replace, remove and create, each raced by a guest save.
+    for (start, edit) in [(Some("one"), Some("agent")), (Some("one"), None), (None, Some("agent"))]
+    {
+        let files: Vec<(&str, &str)> = start.map(|s| ("a.txt", s)).into_iter().collect();
+        let f = fixture(&files);
+        let mut j = open(&f);
+        journaled(write_text(&mut j, &f.replica, "a.txt", edit, 1).unwrap());
+        journaled(write_text(&mut j, &f.replica, "a.txt", Some("later"), 2).unwrap());
+        let machine = Racing {
+            inner: &f.machine,
+            root: &f.machine_root,
+            path: "a.txt",
+            guest: "guest save",
+            raced: std::sync::atomic::AtomicBool::new(false),
+        };
+        let report = flush(&mut j, &machine).unwrap();
+        assert!(report.applied.is_empty(), "{start:?} {edit:?}: {report:?}");
+        assert_eq!(report.conflicts.len(), 2, "{report:?}");
+        assert!(matches!(
+            report.conflicts.first().map(|c| (&c.reason, c.machine_copy.as_deref())),
+            Some((ConflictReason::ChangedOnMachine { .. }, Some("guest save")))
+        ));
+        assert_eq!(machine_text(&f, "a.txt").as_deref(), Some("guest save"));
     }
 }
 

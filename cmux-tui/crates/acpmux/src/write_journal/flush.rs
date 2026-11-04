@@ -9,6 +9,15 @@
 //!    fails with the machine's copy, and so does every later entry for that file, so no edit is
 //!    stacked on a version the agent never saw.
 //!
+//! The check in step 2 is repeated by the mutation itself ([`MachineFs::write`] and
+//! [`MachineFs::remove`] take the expected version), so a process that resumes and saves the
+//! file between the flush's read and its write is a conflict, not an overwrite. Creating a new
+//! file is fully atomic (a no-clobber link). Replacing or removing an existing one re-checks
+//! the file just before the rename or unlink: the window left is that one step, not the whole
+//! read-compare-write. A platform that needs no window at all stops the machine's writers
+//! during the flush (the flush is a barrier before exec, so it usually runs before the guest's
+//! own processes do anything).
+//!
 //! An I/O error stops the flush at that entry; it and everything after it stay in the journal
 //! for the next try. Everything before it is cleared.
 
@@ -20,14 +29,23 @@ use std::path::PathBuf;
 /// The machine's files, as the flush sees them. Paths are journal paths.
 pub trait MachineFs {
     fn read(&self, path: &str) -> io::Result<Option<Vec<u8>>>;
-    /// Replace the whole file atomically (readers see the old or the new bytes, never a mix).
-    fn write(&self, path: &str, bytes: &[u8]) -> io::Result<()>;
-    /// Remove the file; an absent file is not an error.
-    fn remove(&self, path: &str) -> io::Result<()>;
+    /// Replace the whole file atomically (readers see the old or the new bytes, never a mix),
+    /// only while it is still `expected`; [`Mutation::Changed`] (nothing written) otherwise.
+    fn write(&self, path: &str, bytes: &[u8], expected: &Version) -> io::Result<Mutation>;
+    /// Remove the file, only while it is still `expected`; an absent file is not an error.
+    fn remove(&self, path: &str, expected: &Version) -> io::Result<Mutation>;
     /// Make the file's current state (its bytes, or its absence) survive a power loss, with every
     /// folder on the way to it. `write` and `remove` already do this; the flush calls it for an
     /// entry an earlier flush applied, whose own sync may not have finished.
     fn make_durable(&self, path: &str) -> io::Result<()>;
+}
+
+/// What a conditional [`MachineFs`] mutation did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mutation {
+    Applied,
+    /// The file was no longer the expected version; it was left as it is.
+    Changed,
 }
 
 /// [`MachineFs`] over a local folder: what runs on the machine itself, and the test double.
@@ -53,6 +71,16 @@ impl DirMachineFs {
             }
         }
         Ok(at)
+    }
+
+    /// Whether the file at `full` is `expected` now.
+    fn still(&self, full: &std::path::Path, expected: &Version) -> io::Result<bool> {
+        let now = match std::fs::read(full) {
+            Ok(b) => Some(b),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e),
+        };
+        Ok(Version::of(now.as_deref()) == *expected)
     }
 
     /// Syncs every folder from `full`'s parent up to the root, so each link on the way (a folder
@@ -81,29 +109,49 @@ impl MachineFs for DirMachineFs {
         }
     }
 
-    fn write(&self, path: &str, bytes: &[u8]) -> io::Result<()> {
+    fn write(&self, path: &str, bytes: &[u8], expected: &Version) -> io::Result<Mutation> {
         let full = self.resolve(path)?;
         let dir = full.parent().map(PathBuf::from).unwrap_or_else(|| self.root.clone());
         std::fs::create_dir_all(&dir)?;
         let mut tmp = tempfile::NamedTempFile::new_in(&dir)?;
         tmp.write_all(bytes)?;
         tmp.as_file().sync_data()?;
-        // Keep the old file's permissions (an executable script stays executable).
-        if let Ok(m) = std::fs::metadata(&full) {
-            let _ = std::fs::set_permissions(tmp.path(), m.permissions());
+        if *expected == Version::Absent {
+            // A no-clobber link: a file created in the meantime is never replaced.
+            match tmp.persist_noclobber(&full) {
+                Ok(_) => {}
+                Err(e) if e.error.kind() == io::ErrorKind::AlreadyExists => {
+                    return Ok(Mutation::Changed);
+                }
+                Err(e) => return Err(e.error),
+            }
+        } else {
+            // Re-checked after the slow part (the temp file and its sync), right before the
+            // rename.
+            if !self.still(&full, expected)? {
+                return Ok(Mutation::Changed);
+            }
+            // Keep the old file's permissions (an executable script stays executable).
+            if let Ok(m) = std::fs::metadata(&full) {
+                let _ = std::fs::set_permissions(tmp.path(), m.permissions());
+            }
+            tmp.persist(&full).map_err(|e| e.error)?;
         }
-        tmp.persist(&full).map_err(|e| e.error)?;
         // The entry is cleared from the journal after this returns, so the rename, and any
         // folder just created for it, must survive a power loss first.
-        self.sync_parents(&full)
+        self.sync_parents(&full)?;
+        Ok(Mutation::Applied)
     }
 
-    fn remove(&self, path: &str) -> io::Result<()> {
+    fn remove(&self, path: &str, expected: &Version) -> io::Result<Mutation> {
         let full = self.resolve(path)?;
+        if !self.still(&full, expected)? {
+            return Ok(Mutation::Changed);
+        }
         match std::fs::remove_file(&full) {
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Mutation::Applied),
             Err(e) => Err(e),
-            Ok(()) => self.sync_parents(&full),
+            Ok(()) => self.sync_parents(&full).map(|()| Mutation::Applied),
         }
     }
 
@@ -217,11 +265,18 @@ fn apply(
     if found != entry.base {
         return Ok(Some((found, now)));
     }
-    match &entry.op {
-        Op::Write { content } => machine.write(&entry.path, content.as_bytes())?,
-        Op::Delete => machine.remove(&entry.path)?,
+    let done = match &entry.op {
+        Op::Write { content } => machine.write(&entry.path, content.as_bytes(), &entry.base)?,
+        Op::Delete => machine.remove(&entry.path, &entry.base)?,
+    };
+    match done {
+        Mutation::Applied => Ok(None),
+        // Saved on the machine between the read above and the mutation: report what is there.
+        Mutation::Changed => {
+            let now = machine.read(&entry.path)?;
+            Ok(Some((Version::of(now.as_deref()), now)))
+        }
     }
-    Ok(None)
 }
 
 /// Applies `journal` on `machine` (module docs) and clears what it settled, durably, before

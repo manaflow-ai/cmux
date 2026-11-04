@@ -188,6 +188,10 @@ pub fn write_text(
     let path = rel_path(raw_path)?;
     let base = match current(journal, replica, &path)? {
         Err(why) => return Ok(WriteOutcome::NeedsMachine(why)),
+        // A read of this file says NotText, so a write over it must not succeed unseen.
+        Ok(Some(bytes)) if std::str::from_utf8(&bytes).is_err() => {
+            return Ok(WriteOutcome::NeedsMachine(NeedsMachine::NotText));
+        }
         Ok(bytes) => Version::of(bytes.as_deref()),
     };
     let op = match content {
