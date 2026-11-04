@@ -86,6 +86,11 @@ impl SizingEntries {
         removed
     }
 
+    /// Whether the entries publish their fast paths (the mux's stage S1 switch).
+    pub(in crate::mux) fn publishing(&self) -> bool {
+        self.publishing
+    }
+
     pub(in crate::mux) fn contains_key(&self, runtime: &SurfaceId) -> bool {
         self.map.contains_key(runtime)
     }
@@ -113,8 +118,11 @@ impl SizingEntries {
         for runtime in touched {
             let Some(entry) = self.map.get(&runtime) else { continue };
             let Some(slot) = entry.fast_path_slot.as_ref() else { continue };
-            let published = if cut_short { None } else { entry.fast_path().map(Arc::new) };
-            slot.store(published);
+            let published = if cut_short { None } else { entry.fast_path() };
+            // An unchanged value is not stored again: a read that changed nothing allocates nothing.
+            if slot.load().as_deref().copied() != published {
+                slot.store(published.map(Arc::new));
+            }
         }
     }
 
@@ -135,7 +143,8 @@ impl TerminalSizingEntry {
     /// Points the entry at `surface`'s terminal runtime when that runtime is the entry's: a respawn under the same
     /// runtime id builds a new runtime with a new slot, and the entry outlives it. The old slot is cleared; the
     /// sizing guard publishes into the new one (the caller reached the entry through `SizingEntries`, which marked
-    /// it). A surface of another runtime changes nothing.
+    /// it). A surface of another runtime changes nothing. Called by a key's sizing note, which holds the surface, so
+    /// it costs no lookup.
     pub(in crate::mux) fn follow_runtime_of(
         &mut self,
         runtime: SurfaceId,

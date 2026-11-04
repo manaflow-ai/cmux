@@ -380,6 +380,11 @@ fn after_a_respawn_keys_wait_for_no_sizing_lock_again() {
     connection.submit("after-respawn", b'r');
     assert!(connection.arrival(b'r').is_some(), "the key after the respawn never arrived");
     connection.settle(&["after-respawn"]);
+    // The old runtime's slot is cleared, so nothing publishes into a runtime that no view types into.
+    assert!(
+        !removed.skips_sizing_note(connection.client),
+        "the replaced runtime still publishes the sizing fast path"
+    );
     let waited = key_wait_while_held(&connection, 0, hold_client_sizing);
     eprintln!(
         "SHARED-LOCKS after a respawn, key wait while client sizing is held {HOLD:?}: {waited:?}"
@@ -390,6 +395,35 @@ fn after_a_respawn_keys_wait_for_no_sizing_lock_again() {
         waited < BUDGET,
         "after a respawn the keys waited {waited:?} for the sizing lock held {HOLD:?}"
     );
+}
+
+/// #34261 review 2: a settled terminal's sizing entry looks its surface up only when it makes the entry, so a size
+/// state read takes the session lock once with the switch off (the caller's own lookup), never again under the
+/// sizing lock, and none with the switch on. Looked up on every access, it took the session lock under the sizing
+/// lock in every attach, size report, claim and size-state read, so with the switch off (the default) a key's sizing
+/// note waited for automation's session-lock holds behind them.
+#[test]
+fn a_settled_size_state_read_takes_the_session_lock_once_with_the_switch_off() {
+    let mut counts = Vec::new();
+    for (lane, expected) in [(false, 1), (true, 0)] {
+        let connection = TypingConnection::open_with(lane);
+        // The view's attach and its 100x30 report made the entry; this read settles nothing new.
+        assert!(connection.mux.terminal_size_state(connection.surface).is_some());
+        let before = crate::mux::state_locks_taken_on_this_thread();
+        assert!(connection.mux.terminal_size_state(connection.surface).is_some());
+        let taken = crate::mux::state_locks_taken_on_this_thread() - before;
+        connection.close();
+        counts.push((lane, taken, expected));
+    }
+    eprintln!(
+        "SHARED-LOCKS session locks per settled size-state read (lane, taken, expected): {counts:?}"
+    );
+    for (lane, taken, expected) in counts {
+        assert_eq!(
+            taken, expected,
+            "lane {lane}: one settled size-state read took the session lock {taken} times, not {expected}"
+        );
+    }
 }
 
 /// The skipped note must never keep the grid from a view: under the default policy (the newest view sets the grid),
