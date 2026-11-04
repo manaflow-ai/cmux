@@ -47,7 +47,7 @@ export type SubagentStatus = "running" | "waiting" | "idle" | "done" | "failed" 
 export const STATUS_LABEL: Record<SubagentStatus, StringKey> = {
   running: "subagents.state.running",
   waiting: "subagents.state.waiting",
-  idle: "subagents.state.ownWork",
+  idle: "subagents.state.idle",
   done: "subagents.state.completed",
   failed: "subagents.state.failed",
   stopped: "subagents.state.cancelled",
@@ -75,6 +75,8 @@ export function isIdle(agent: Subagent, now: number): boolean {
 
 export function subagentStatusLabel(agent: Subagent, waiting: ReadonlySet<string>, now?: number): StringKey {
   const status = subagentStatus(agent, waiting, now);
+  // One whose end was interim says what it waits on; one only quiet past the window stays Idle.
+  if (status === "idle" && awaitsOwnWork(agent)) return "subagents.state.ownWork";
   if (status !== "stopped") return STATUS_LABEL[status];
   return agent.state === "disconnected" ? STATE_LABEL.disconnected : STATE_LABEL.cancelled;
 }
