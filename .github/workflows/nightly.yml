@@ -2191,6 +2191,9 @@ jobs:
         env:
           # libghostty-vt (ghostty-vt-sys) builds from ghostty-next.
           GHOSTTY_ZIG_SOURCE: ghostty-next
+          # Job-local install: this warm mini also runs classic jobs that need
+          # the Zig 0.16.0 in /usr/local/bin, so never replace it from here.
+          ZIG_FORCE_LOCAL_INSTALL: "1"
         run: ./scripts/install-zig-ci.sh
 
       - name: Build fast arm64 cmux-tui client
