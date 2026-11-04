@@ -180,7 +180,7 @@ class GitHub:
     def runs(self, workflow: str, status: str, start: dt.datetime, end: dt.datetime, *, page: int = 1) -> list[dict[str, Any]]:
         # Filtered to pull_request runs server-side, so push and dispatch runs never fill the one page.
         query = urllib.parse.urlencode({"status": status, "event": "pull_request", "per_page": 100, "page": page,
-                                        "created": f">={iso(start.replace(minute=0, second=0, microsecond=0))}"})
+                                        "created": f"{iso(start)}..{iso(end)}"})
         return list(self.request("GET", f"/actions/workflows/{workflow}/runs?{query}").get("workflow_runs") or [])
 
     def jobs(self, run_id: int) -> list[dict[str, Any]]:
@@ -379,7 +379,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
     listed = state.candidates
     for run_id, run in list(listed.items()):
         created = parse_time(run.get("created_at"))
-        if (created is None or created < start or run.get("_workflow") not in workflows
+        if (created is None or not start <= created <= end or run.get("_workflow") not in workflows
                 or run_id in recovering):
             del listed[run_id]
     for workflow in workflows:
@@ -399,7 +399,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
                 for run in page:
                     if (isinstance(run, Mapping) and isinstance(run.get("id"), int) and candidate(run)
                             and run["id"] not in recovering
-                            and (created := parse_time(run.get("created_at"))) is not None and created >= start):
+                            and (created := parse_time(run.get("created_at"))) is not None and start <= created <= end):
                         listed[run["id"]] = {**run, "_workflow": workflow}
             if full_overflow:
                 state.pages[key] = 2 if overflow >= MAX_RUN_LIST_PAGES else overflow + 1
