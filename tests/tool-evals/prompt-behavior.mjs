@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 // Fixed, synthetic repository tasks for prompt-guidance A/Bs. The model and
 // captured Claude Code system/native tool schemas are real; file/command results
 // are deterministic fixtures. No model-generated shell command is executed.
@@ -17,13 +17,21 @@ const out = resolve(arg("out", process.env.FAST_CHECKS_OUT ?? "artifacts/prompt-
 const baseUrl = process.env.ANTHROPIC_BASE_URL ?? "http://sr2-gateway.tail137216.ts.net:4016";
 const auth = process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? "";
 const template = JSON.parse(gunzipSync(readFileSync(new URL("./templates/claude.json.gz", import.meta.url))));
-const source = readFileSync(new URL("../../cmux-tui/crates/acpmux/src/agent_tools.rs", import.meta.url), "utf8");
-const askingSource = source.match(/pub const ASKING_RULE: &str = "([\s\S]*?)";/)?.[1];
-if (!askingSource) throw new Error("ASKING_RULE source not found");
-const baseline = askingSource.replace(/\\\n\s*/g, "").replace(/\\"/g, '"');
+// Freeze the pre-change arm: rebasing onto the shipped rule must not change it.
+// Source: agent_tools.rs at 6dedb9cc163f68759c193491592b30950a78fe34.
+const baseline = "Asking the person: the person allows tools through the chat's mode and the harness's own permission prompts, never through your questions, and a chat in Full access (Claude Code bypassPermissions, Codex full access) has already allowed every tool call its harness would ask about. So never ask them to allow, confirm or approve a step, with AskUserQuestion or in text (\"should I go ahead?\"): decide, say why in one line, and go on. Deciding never widens the task: a step a cmux skill keeps for the person's own request (importing a browser's cookies, deleting their data) waits for that request, and a cmux consent card is theirs to answer; leave such a step out and say so. Ask only about product taste you cannot settle from the request or the code, as that choice, never as a permission.";
 const compact = "Asking the person: Full access already permits harness tool calls; never ask them to allow or confirm one. Decide, say why, continue. This never widens the task: respect user-only skill steps and consent cards; never bypass refusals. Ask only unresolved product taste, not permission.";
 const guidance = "Read relevant instructions and likely source files early. Batch independent reads and searches into parallel tool calls; sequence dependent work. Start long-running builds, tests, and waits in the background when the tools support it, then continue useful independent work. Rejoin and inspect the results before relying on them. Keep reports concise: explain the outcome, verification, and remaining blockers.";
-const arms = { baseline, guidance: `${compact}\n\n${guidance}` };
+const arms = {
+  baseline: { mcpInstructions: baseline, firstTurnContext: null },
+  guidance: { mcpInstructions: compact, firstTurnContext: `<cmux-default-context>${guidance}</cmux-default-context>` },
+};
+// A refreshed capture must not silently duplicate either intervention.
+const capturedText = JSON.stringify([template.system, template.reminders]);
+if (/Asking the person:|<cmux-(?:default|user|project)-context>/i.test(capturedText) || capturedText.includes(guidance)) {
+  throw new Error("Captured template already contains cmux guidance; isolate it before comparing arms");
+}
+const mcpBlock = (text) => ({ type: "text", text: `# MCP Server Instructions\n\nThe following MCP servers have provided instructions for how to use their tools and resources:\n\n## cmux\n${text}` });
 const tools = template.tools.filter((t) => ["Read", "Bash"].includes(t.name));
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const tasks = [
@@ -55,7 +63,10 @@ async function sample(task, arm, index) {
   const turns = [];
   const calls = [];
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-  const messages = [{ role: "user", content: `${template.reminders.join("\n")}\nWorking directory: /repo\n\n${task.prompt}` }];
+  const prompt = [{ type: "text", text: `${template.reminders.join("\n")}\nWorking directory: /repo\n\n${task.prompt}` }];
+  // Match the product seam: cmux appends its block to the first user prompt.
+  if (arms[arm].firstTurnContext) prompt.push({ type: "text", text: arms[arm].firstTurnContext });
+  const messages = [{ role: "user", content: prompt }];
   const answer = async (call) => {
     const input = call.input ?? {};
     calls.push({ name: call.name, input, at_ms: Date.now() - started });
@@ -91,7 +102,7 @@ async function sample(task, arm, index) {
         headers: { "content-type": "application/json", "anthropic-version": "2023-06-01", authorization: `Bearer ${auth}`,
           "user-agent": "claude-cli/2.1.311 (external, sdk-cli)", "x-app": "cli",
           "anthropic-beta": "claude-code-20250219,interleaved-thinking-2025-06-27" },
-        body: JSON.stringify({ model, max_tokens: 4000, system: [...template.system, { type: "text", text: arms[arm] }],
+        body: JSON.stringify({ model, max_tokens: 4000, system: [...template.system, mcpBlock(arms[arm].mcpInstructions)],
           tools, messages, thinking: { type: "adaptive", display: "omitted" }, output_config: { effort: "medium" } }),
       });
       if (!res.ok) throw new Error(`model ${res.status}: ${(await res.text()).slice(0, 200)}`);
@@ -143,8 +154,14 @@ async function main() {
   const manifest = { model, samples, tasks: tasks.map((t) => t.id), template_source: template.source,
     template_sha256: createHash("sha256").update(JSON.stringify(template)).digest("hex"),
     fixture_sha256: createHash("sha256").update(JSON.stringify(tasks)).digest("hex"),
-    arms: Object.fromEntries(Object.entries(arms).map(([arm, text]) => [arm, { text, chars: text.length, estimated_tokens: Math.ceil(text.length / 4), method: "chars/4 estimate" }])),
-    limitation: "Synthetic deterministic tool fixtures with captured Claude Code system and native Read/Bash schemas. Measures model behavior; not a live app or Codex-session result." };
+    baseline_source: "cmux-tui/crates/acpmux/src/agent_tools.rs@6dedb9cc163f68759c193491592b30950a78fe34",
+    arms: Object.fromEntries(Object.entries(arms).map(([arm, parts]) => [arm, Object.entries(parts).map(([source, text]) => ({
+      source, channel: source === "mcpInstructions" ? "system (MCP instruction approximation)" : "first-user-prompt, last block",
+      text, chars: text?.length ?? 0, estimated_tokens: Math.ceil((text?.length ?? 0) / 4), method: "chars/4 estimate",
+      sha256: text == null ? null : createHash("sha256").update(text).digest("hex"),
+    }))])),
+    delivery: "Both arms approximate MCP initialization instructions as one labelled system block. Only the candidate adds the exact cmux-default-context block after normal first-turn user content, matching the product guidance channel.",
+    limitation: "Synthetic Claude-only deterministic tool fixtures with historical Claude Code 2.1.311 system and native Read/Bash schemas (2026-10-27). No live MCP initialization or complete current session context. Measures model behavior; not a live app or Codex-session result." };
   writeFileSync(join(out, "manifest.json"), JSON.stringify(manifest, null, 2));
   const rows = [];
   // Paired, alternating order avoids warming or time-of-run always favoring an arm.

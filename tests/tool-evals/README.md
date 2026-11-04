@@ -55,7 +55,9 @@ Use the same fixed cases, model, surface, samples and catalog for both arms. The
 synthetic MCP instructions with the compact rule and appends the canonical
 early/concurrent-work guidance. Real CLI runs append guidance through the Claude
 preset or Codex developer instruction field. Those runs leave the MCP rule from the
-selected product binary unchanged. Use the same binary in both arms.
+selected product binary unchanged. Use the same binary in both arms. These system/
+developer-field experiments do not reproduce the product's first-turn user-context
+delivery; use the standalone paired evaluator below for that intervention.
 
 ```sh
 bun tests/tool-evals/run.mjs --model claude-sonnet-5-5 --surface code \
@@ -77,19 +79,26 @@ For early reads and background work without an app build, run the standalone
 captured-Claude harness against fixed synthetic repository fixtures:
 
 ```sh
-cmux-ci test --setup webviews --artifact /tmp/prompt-behavior -- \
-  bun tests/tool-evals/prompt-behavior.mjs --samples 3
+cmux-ci test --setup none --timeout 1800 --artifact /tmp/prompt-behavior -- \
+  node tests/tool-evals/prompt-behavior.mjs --samples 3
 ```
 
 It alternates arm order for each paired task/sample. It uses the captured Claude
-Code system prompt and native Read/Bash schemas; the baseline contains the source
-ASKING_RULE, and the candidate contains the compact rule plus concurrency guidance.
+Code 2.1.311 system prompt and native Read/Bash schemas captured on 2026-10-27.
+The baseline asking rule is frozen at its recorded source revision, so a later
+product change cannot silently alter the control. Both arms approximate MCP server
+instructions with a labelled system block: the old rule in baseline, the compact
+rule in candidate. Only candidate appends the exact `<cmux-default-context>`
+concurrency guidance as the last block of the first user prompt, matching product
+delivery. A guard rejects captures that already include these cmux additions.
+This is not live MCP initialization or a complete current harness context.
 The three tasks cover independent config reads, cross-file contract comparison,
 and a test command with independent release-note reads. Results are deterministic
 fixtures with a 250ms read and 2s command delay; no generated shell runs. A task
 passes only when the model reads every named file, collects its test output, and
 reports the required facts. `manifest.json` records the prompts, hashes and estimate
-method; `results.jsonl`, per-sample transcripts and `summary.json` record measured
+method, source channels and delivery limitation; `results.jsonl`, per-sample
+transcripts and `summary.json` record measured
 model usage and behavior. Report this as a synthetic prompt-behavior eval, not as
 live app or Codex verification. The model endpoint must be reachable from the worker.
 
