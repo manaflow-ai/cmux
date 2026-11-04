@@ -70,9 +70,9 @@ struct CreationHoldReplyBoundTests {
 
     enum Which { case pressed, other }
 
-    /// What a read of a terminal's screen waits for (``cmdNNeverAnswered(then:check:)``): the first line's output `held` (up
-    /// to 15 s), the second line's own output line `also` (up to 15 s: the second command ran), or 3 s in which `held` must
-    /// not show.
+    /// What a read of a terminal's screen waits for (``cmdNNeverAnswered(then:check:)``), on the daemon's output-woken wait:
+    /// the first line's output `held` (deadline 15 s), the second line's own output line `also` (deadline 15 s: the second
+    /// command ran), or 3 s in which `held` must not show.
     enum Wait { case held, alsoLine, noHeld }
 
     /// Whether screen line `line` is `word` alone (a command's output line, not its echo).
@@ -197,18 +197,18 @@ struct CreationHoldReplyBoundTests {
             let end = coordinator.lastHoldEnd(in: window).map { "\($0)" } ?? "none"
             coordinator.resolve(ticket, landed: false, in: window) // a reply after the bound belongs to no hold
             // What the person sees: a command's own output (`held`, `also`: only its run prints them, its typed line has quotes).
+            // The daemon's `wait-for` waits on the terminal's output with a deadline (woken by output, no sleep). It answers an
+            // error at its deadline: what must show and did not fails the test there, with the screen; what must not show
+            // waits its 3 s for a late run.
             let (pressedSurface, otherSurface) = (pressed.surface, other.surface)
             try await check(end) { terminal, wait in
                 let surface = terminal == .pressed ? pressedSurface : otherSurface
-                let shows: (String) -> Bool = wait == .alsoLine ? { $0.components(separatedBy: "\n").contains { isLine($0, "also") } } : { $0.contains("held") }
-                var screen = ""
-                let deadline = ContinuousClock.now + (wait == .noHeld ? .seconds(3) : .seconds(15))
-                while ContinuousClock.now < deadline { // until the output shows (a red when it must not) or the deadline
-                    screen = (try? await connection.request(ReadScreenRequest(surface: surface), timeout: .seconds(2)).text) ?? screen
-                    if shows(screen) { break }
-                    try await Task.sleep(for: .milliseconds(100))
+                let (pattern, deadline) = wait == .alsoLine ? ("(?m)^\\s*also\\s*$", 15_000) : ("held", wait == .noHeld ? 3_000 : 15_000)
+                if let reply = try? await connection.request(WaitForTextRequest(surface: surface, pattern: pattern, timeoutMs: deadline),
+                                                             timeout: .milliseconds(deadline + 5_000)) {
+                    return (reply.matched == true, reply.text)
                 }
-                return (shows(screen), screen)
+                return (false, (try? await connection.request(ReadScreenRequest(surface: surface), timeout: .seconds(5)))?.text ?? "unreadable")
             }
         }
     }
