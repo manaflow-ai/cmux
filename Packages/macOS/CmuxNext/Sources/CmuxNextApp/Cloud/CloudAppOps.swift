@@ -24,7 +24,6 @@ extension CloudAppLinks {
     }
 }
 
-
 extension CloudAppLinks {
     /// The Cloud page's ops on the classic link (``CloudClassicPageOps``) as a ``CloudAppOp``: origin
     /// `user` is the person; a refusal is a ``CloudAppOpFailure`` with its code.
