@@ -1878,7 +1878,11 @@ function fallbackRowHeight(
   // below when asked.
   if (row.kind === "sessionStart") return finish(toolRowHeight());
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
-  if (row.kind === "plan" && row.plan) return finish(40 + row.plan.length * 24);
+  // Ended, it folds to its one 24px progress line unless the reader opened it, which adds the items.
+  if (row.kind === "plan" && row.plan) {
+    const items = row.plan.length * 24;
+    return finish(40 + (row.turnEnded ? 24 + (planOpen(row.id) ? items : 0) : items));
+  }
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
   // controls, conversation/turns.ts isEmptyFooter) takes no extra line; its gap fits the controls.
   if (row.kind === "turnSummary") return finish(isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : footerRow());
@@ -2732,6 +2736,7 @@ import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
+import { planOpen } from "./conversation/planOpen";
 
 /// The pane's fallback accessible name and problem-only header status. A handshake that is
 /// retrying (`connecting:`) says nothing here: the pane's retries are quiet, and a failure that
