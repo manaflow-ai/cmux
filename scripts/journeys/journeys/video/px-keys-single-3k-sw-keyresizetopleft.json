@@ -1,7 +1,7 @@
 {
  "id": "px-keys-single-3k-sw-keyresizetopleft",
  "priority": "P1",
- "title": "PIXEL: Ctrl-Shift-L, H, J, K on p1 (p0 T | (p1 T / p2 P)), at x1 OFF, x1 ON, Reduce Motion OFF, Reduce Motion ON (browserResize.keyResizeTopLeft OFF and ON)",
+ "title": "PIXEL: Ctrl-Shift-L, H, J, K on p1 (p0 T | (p1 T / p2 P)), at x1 OFF, x1 ON, Reduce Motion OFF, Reduce Motion ON (browserResize.keyResizeTopLeft OFF and ON; + debug.frames per film)",
  "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell #FF00FF, terminal ground #00FFFF, tab strips #000000, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; judge_pixel.py reads every pane edge, tab strip and divider per film frame from the exact scan lines.",
  "source": "PIXEL PERFECT kit (video-cases/gen_pixel.py)",
  "budget_seconds": 107,
@@ -203,6 +203,14 @@
      "title": "the layout and the load settle (nothing observable to wait on)"
     },
     {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start: main-thread time per frame while the page moves (the 8.3 ms rule)"
+    },
+    {
      "do": "px_record_start",
      "name": "px-keys-single-3k-sw-keyresizetopleft-off-s1",
      "seconds": 10.0,
@@ -303,6 +311,16 @@
      "name": "px-keys-single-3k-sw-keyresizetopleft-off-s1",
      "tail": 0.4,
      "title": "the motion ends; stop the recording (px-keys-single-3k-sw-keyresizetopleft-off-s1)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (kept whole)"
     }
    ],
    "after": [],
@@ -326,6 +344,14 @@
      "do": "wait",
      "seconds": 0.8,
      "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start: main-thread time per frame while the page moves (the 8.3 ms rule)"
     },
     {
      "do": "px_record_start",
@@ -428,6 +454,16 @@
      "name": "px-keys-single-3k-sw-keyresizetopleft-on-s1",
      "tail": 0.4,
      "title": "the motion ends; stop the recording (px-keys-single-3k-sw-keyresizetopleft-on-s1)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (kept whole)"
     }
    ],
    "after": [],
@@ -451,6 +487,14 @@
      "do": "wait",
      "seconds": 0.8,
      "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start: main-thread time per frame while the page moves (the 8.3 ms rule)"
     },
     {
      "do": "px_record_start",
@@ -553,6 +597,16 @@
      "name": "px-keys-single-3k-sw-keyresizetopleft-off-reduce",
      "tail": 0.4,
      "title": "the motion ends; stop the recording (px-keys-single-3k-sw-keyresizetopleft-off-reduce)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (kept whole)"
     }
    ],
    "after": [],
@@ -576,6 +630,14 @@
      "do": "wait",
      "seconds": 0.8,
      "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "start"
+     },
+     "title": "debug.frames start: main-thread time per frame while the page moves (the 8.3 ms rule)"
     },
     {
      "do": "px_record_start",
@@ -678,6 +740,16 @@
      "name": "px-keys-single-3k-sw-keyresizetopleft-on-reduce",
      "tail": 0.4,
      "title": "the motion ends; stop the recording (px-keys-single-3k-sw-keyresizetopleft-on-reduce)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.frames",
+     "params": {
+      "action": "stop",
+      "raw": true
+     },
+     "keep": "frames",
+     "title": "debug.frames stop raw (kept whole)"
     }
    ],
    "after": [],
