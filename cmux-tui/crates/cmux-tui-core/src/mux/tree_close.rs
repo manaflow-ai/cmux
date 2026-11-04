@@ -574,7 +574,7 @@ impl Mux {
                 )?
             };
             let resource_revision = project_resource
-                .then(|| registry.snapshot().map(|snapshot| snapshot.resource_revision))
+                .then(|| registry.resource_revision())
                 .transpose()?;
             let mut delta = close_workspace_delta(&state, &notifications, workspace_id)
                 .expect("live workspace has a close delta");
