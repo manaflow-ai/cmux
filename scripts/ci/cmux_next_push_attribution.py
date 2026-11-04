@@ -93,6 +93,33 @@ def last_green(failed: list[str], earlier: list[tuple[str, dict[str, str]]]) -> 
     return None
 
 
+def first_red_observed(failed: list[str], runs: list[tuple[str, dict[str, str]]], lower: str | None = None,
+                      commits: list[str] | None = None) -> dict[str, str | None]:
+    """Return a culprit only when every commit in LOWER..RED has a verdict.
+
+    This is a history-backed bounded bisect: it never treats a skipped or
+    missing run as green, and it refuses to name a culprit across an untested
+    commit. ``commits`` is the compare API's first-parent list, oldest first;
+    callers pass it only after validating the lower bound's ancestry.
+    """
+    found: dict[str, str | None] = {job: None for job in failed}
+    verdict = {sha: jobs for sha, jobs in runs}
+    order = list(commits or [sha for sha, _ in reversed(runs)])
+    if lower and lower in order:
+        order = order[order.index(lower) + 1:]
+    for sha in order:
+        jobs = verdict.get(sha)
+        if not jobs:
+            return found
+        for job in failed:
+            conclusion = jobs.get(job)
+            if conclusion in (None, "", "skipped", "cancelled"):
+                return found
+            if found[job] is None and conclusion in ("failure", "timed_out", "startup_failure"):
+                found[job] = sha
+    return found
+
+
 def never_passed(failed: list[str], earlier: list[tuple[str, dict[str, str]]]) -> list[str]:
     """Failed jobs with no pass in the scanned runs: red since before the range (or never
     run on a push before), so no merge in it is the culprit, and they must not hide the
@@ -110,6 +137,24 @@ def pull_requests(repo: str, base: str, head: str, branch: str) -> list[int]:
     return numbers
 
 
+def compare_commits(repo: str, base: str, head: str) -> list[str]:
+    """First-parent commit SHAs in a bounded compare response, oldest first."""
+    compare = gh_api(f"repos/{repo}/compare/{base}...{head}")
+    return [str(commit["sha"]) for commit in reversed(compare.get("commits", []))
+            if re.fullmatch(r"[0-9a-f]{40}", str(commit.get("sha", "")))]
+
+
+def pull_requests_for_commit(repo: str, sha: str, branch: str) -> list[int]:
+    """Merged PRs whose merge commit or head commit is SHA, on BRANCH."""
+    found: list[int] = []
+    for pull in gh_api(f"repos/{repo}/commits/{sha}/pulls"):
+        if pull.get("base", {}).get("ref") == branch and pull.get("merged_at"):
+            number = pull.get("number")
+            if isinstance(number, int):
+                found.append(number)
+    return found
+
+
 def comment_body(run_url: str, sha: str, failed: list[str], good: str, numbers: list[int], run_id: int) -> str:
     others = ", ".join(f"#{n}" for n in numbers)
     return "\n".join([
@@ -118,6 +163,16 @@ def comment_body(run_url: str, sha: str, failed: list[str], good: str, numbers: 
         f"Those jobs last passed at {good[:10]}. This pull request is one of {len(numbers)} merged since: {others}.",
         "If the failure is in your change, fix forward on feat-cmux-next. Pull requests run only the tiers "
         "their paths reach (docs/ci/cmux-next-tiers.md); label a batch PR full-ci to run them all before merging.",
+    ])
+
+
+def culprit_body(run_url: str, sha: str, job: str, culprit: str, run_id: int) -> str:
+    """A bounded, evidence-backed comment for one exact observed culprit."""
+    return "\n".join([
+        f"<!-- cmux-next-push-culprit:{run_id}:{job} -->",
+        f"The `{job}` check first went red after merged commit `{culprit}` (push run {run_url}).",
+        f"This run tested `{sha}`; the lower bound was the reconciler's last-known-green when available.",
+        "The attribution is based on a completed red run; skipped, missing, and infrastructure results stay unresolved.",
     ])
 
 
@@ -131,6 +186,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--server-url", default="https://github.com")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--summary", type=Path)
+    parser.add_argument("--last-known-green", default="",
+                        help="reconciler-published lower bound; malformed values are ignored")
     parser.add_argument("--events", default="push",
                         help="comma-separated run events to scan for the last pass (push, workflow_dispatch)")
     args = parser.parse_args(argv)
@@ -172,8 +229,35 @@ def main(argv: list[str]) -> int:
         return 0
     numbers = pull_requests(args.repo, good, args.sha, args.branch)
     run_url = f"{args.server_url}/{args.repo}/actions/runs/{args.run_id}"
+    lower = args.last_known_green if re.fullmatch(r"[0-9a-f]{40}", args.last_known_green or "") else good
+    try:
+        commit_order = compare_commits(args.repo, lower, args.sha)
+    except (OSError, ValueError, subprocess.SubprocessError, KeyError):
+        commit_order = []
+    observed = first_red_observed(failed, earlier, lower, commit_order or None)
+    exact: dict[int, str] = {}
+    for job, culprit in observed.items():
+        if not culprit:
+            report(f"{job}: culprit unresolved (no completed red run after the lower bound).")
+            continue
+        prs = pull_requests_for_commit(args.repo, culprit, args.branch)
+        if len(prs) == 1:
+            exact[prs[0]] = culprit
+            report(f"{job}: culprit #{prs[0]} at {culprit} (first completed red run after lower bound).")
+        else:
+            report(f"{job}: culprit unresolved at {culprit} ({len(prs)} merged PRs or a direct push).")
     report(f"### cmux-next push attribution\n\nFailed: {', '.join(failed)}. Last passed at {good}. "
            f"Pull requests in range: {', '.join(f'#{n}' for n in numbers) or 'none'}.")
+    exact_body = {
+        number: culprit_body(run_url, args.sha, "cmux-next", culprit, args.run_id)
+        for number, culprit in exact.items()
+    }
+    for number, body in exact_body.items():
+        if args.dry_run:
+            print(f"--- would comment on exact culprit #{number}:\n{body}")
+        else:
+            pr_status.upsert(args.repo, number, "push-culprit", body,
+                             legacy="<!-- cmux-next-push-culprit:")
     if not should_comment(numbers):
         if numbers:
             report(f"{len(numbers)} pull requests in range: no comments (more than {MAX_COMMENTED_PRS}). "

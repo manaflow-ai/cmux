@@ -21,7 +21,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
-from cmux_next_push_attribution import MAX_COMMENTED_PRS, failed_jobs, last_green, never_passed, should_comment  # noqa: E402
+from cmux_next_push_attribution import (MAX_COMMENTED_PRS, failed_jobs, first_red_observed, last_green,
+                                         never_passed, should_comment)  # noqa: E402
 from cmux_next_route import MAX_PRIORITY_SUITES, outputs, route  # noqa: E402
 
 PACKAGE = "Packages/macOS/CmuxNext"
@@ -1183,6 +1184,18 @@ class RunnerAndScriptRoutes(unittest.TestCase):
 
 
 class PushAttribution(unittest.TestCase):
+    def test_first_observed_red_names_only_a_completed_failure_after_last_green(self):
+        runs = [
+            ("c3", {"job": "failure"}),
+            ("c2", {"job": "success"}),
+            ("c1", {"job": "success"}),
+        ]
+        self.assertEqual(first_red_observed(["job"], runs, "c1", ["c2", "c3"]), {"job": "c3"})
+        self.assertEqual(first_red_observed(["job"], runs, "missing", ["c1", "c2", "c3"]), {"job": "c3"})
+
+    def test_first_observed_red_keeps_unknown_when_no_completed_failure_exists(self):
+        self.assertEqual(first_red_observed(["job"], [("c2", {"job": "skipped"})], "c1"), {"job": None})
+
     def test_repeated_push_failures_edit_the_shared_status_comment(self):
         import cmux_next_push_attribution as attribution
         import pr_status

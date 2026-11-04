@@ -5248,7 +5248,6 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-          fetch-depth: 1
       - name: Request nightly-next promotion after this gate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -5668,6 +5667,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          fetch-depth: 1
           sparse-checkout: scripts/ci
       - name: Mint the owned-pool read token
         id: route-token
@@ -6896,7 +6896,8 @@ jobs:
         run: |
           python3 scripts/ci/cmux_next_push_attribution.py --repo "$GITHUB_REPOSITORY" \
             --run-id "$GITHUB_RUN_ID" --sha "$SHA" --server-url "$GITHUB_SERVER_URL" \
-            --events push,workflow_dispatch --summary "$GITHUB_STEP_SUMMARY"
+            --events push,workflow_dispatch --summary "$GITHUB_STEP_SUMMARY" \
+            --last-known-green "$(git ls-remote --heads origin refs/heads/last-known-green | awk '{print $1}')"
 
   # The base-break rule, automated: a feat-cmux-next push whose Mac Release compile failed in its
   # compile step (pull requests get the fleet compile at -Onone, so -O codegen and the final app link
