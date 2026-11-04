@@ -1720,3 +1720,24 @@ describe("a subagent of the chat's own family draws its toned sparkle, not the c
     }
   });
 });
+
+// A plan with nothing running has no lines to stack: the header's slot stays blank, never the 3/4
+// ring Leo rejected (2026-11-01).
+test("a plan-only tray's header keeps a blank slot, not the ring", async () => {
+  const { root, done } = await render(
+    createElement(SubagentTray, {
+      items: [],
+      working: true,
+      waiting: new Set<string>(),
+      onOpen: () => {},
+      plan: [{ content: "Fix the grid", status: "in_progress" }],
+    }),
+  );
+  try {
+    const head = root.querySelector(".acpmux-running-tray__head")!;
+    expect(head.querySelector(".acpmux-running-tray__stack")).toBeNull();
+    expect(head.querySelector(".acpmux-lineage__icon")?.hasAttribute("data-blank")).toBe(true);
+  } finally {
+    await done();
+  }
+});

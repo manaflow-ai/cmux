@@ -503,7 +503,8 @@ export const SubagentTray = memo(function SubagentTray({
             <span
               className="acpmux-lineage__icon"
               data-state={runs ? "running" : "done"}
-              data-blank={head === "bare" || undefined}
+              // An empty stack (a plan with nothing running) keeps the slot blank, never the ring.
+              data-blank={head === "bare" || head === "stack" || undefined}
               aria-hidden="true"
             >
               <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
