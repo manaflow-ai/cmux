@@ -42,9 +42,9 @@ struct PaneCloseKeptHandleTests {
                        focused: "p2", closing: "p2", kept: .columnEdge("c0"))
     }
 
-    /// The last of three half-width columns closes while the strip camera moves back: the edge of the column before it stays.
-    @Test func theLastColumnsNeighbourEdgeStaysOnItsGapWhileTheCameraMovesBack() throws {
-        try Self.check(layout: PaneCloseCameraGroundTests.threeColumns, focused: "p3", closing: "p3", kept: .columnEdge("c2"))
+    /// The last of three half-width columns closes while the strip shifts back: the edge of the column before it stays.
+    @Test func theLastColumnsNeighbourEdgeStaysOnItsGapWhileTheStripShiftsBack() throws {
+        try Self.check(layout: ColumnCloseScrollMotionTests.columns(3), focused: "p3", closing: "p3", kept: .columnEdge("c2"))
     }
 
     /// Guard (the films' px-close-pane-3): p0 | p1 | p2 split from p0 then p1, the middle one closes; the divider x on its
