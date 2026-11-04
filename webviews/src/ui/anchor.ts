@@ -2,6 +2,8 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject }
 
 /** The gap used by every anchored menu and popover. Keep this in one place. */
 export const UI_ANCHOR_GAP = 6;
+/** The compact tooltip sits on the 4px grid, closer than menus and popovers. */
+export const UI_TOOLTIP_GAP = 4;
 
 export type UiAnchorSide = "above" | "below";
 export type UiAnchorAlign = "start" | "end";

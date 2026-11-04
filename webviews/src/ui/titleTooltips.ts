@@ -11,13 +11,14 @@
 // element: a row as wide as the pane shows its tooltip at its words, not under its middle.
 // Text the element cuts off shows in full, as wide as the element (`tooltipWidth`).
 import { HOVER_INTENT, HoverGroup, HoverIntent, tooltipGroup, type HoverClock } from "./hoverIntent";
+import { UI_TOOLTIP_GAP } from "./anchor";
 
 /// Room kept between the tooltip and the window's edges, and its gap from the element.
 const EDGE = 6;
 /// After a scroll, how long the page stays still before the element under the pointer shows its
 /// tooltip: rows passing under a resting pointer show none (at once, each would flash by).
 const SCROLL_QUIET = 150;
-const GAP = 6;
+const GAP = UI_TOOLTIP_GAP;
 
 type Box = { left: number; top: number; width: number; height: number };
 
@@ -58,15 +59,14 @@ function clips(element: Element): boolean {
   return false;
 }
 
-/// Where a `size` tooltip for `anchor` goes in a `view` window: below and centered, above when
-/// there is no room below, and shifted to stay inside the edges. `side` "top" (an element's
-/// `data-tooltip-side="top"`: a message's time, as Claude's) puts it above, below only when there
-/// is no room above.
+/// Where a `size` tooltip for `anchor` goes in a `view` window: above and centered by default, below
+/// when there is no room above, and shifted to stay inside the edges. `side` "top" (the default,
+/// and an element's `data-tooltip-side="top"`) puts it above, below only when there is no room above.
 export function tooltipPosition(
   anchor: Box,
   size: { width: number; height: number },
   view: { width: number; height: number },
-  side: "top" | "bottom" = "bottom",
+  side: "top" | "bottom" = "top",
 ) {
   const below = anchor.top + anchor.height + GAP;
   const above = anchor.top - GAP - size.height;
@@ -213,7 +213,7 @@ export function installTooltips(
       anchor,
       tip.getBoundingClientRect(),
       { width: doc.documentElement.clientWidth, height: doc.documentElement.clientHeight },
-      target.getAttribute("data-tooltip-side") === "top" ? "top" : "bottom",
+      target.getAttribute("data-tooltip-side") === "bottom" ? "bottom" : "top",
     );
     tip.style.left = `${position.left}px`;
     tip.style.top = `${position.top}px`;

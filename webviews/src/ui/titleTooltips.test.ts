@@ -6,6 +6,7 @@ import { afterEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { HoverGroup, HoverIntent } from "./hoverIntent";
 import { installTooltips, tooltipPosition, tooltipWidth } from "./titleTooltips";
+import { UI_TOOLTIP_GAP } from "./anchor";
 
 test("a tooltip for truncated text wraps up to its source's width, never narrower than the line", () => {
   // Untruncated: the standard tooltip width.
@@ -297,9 +298,12 @@ test("a top-side tooltip (a message's time) sits above its element, below only w
   const view = { width: 800, height: 600 };
   const size = { width: 140, height: 22 };
   const time = { left: 100, top: 300, width: 80, height: 24 };
-  // Centered on the time, 6px above it (as Claude's), and below by default.
-  expect(tooltipPosition(time, size, view, "top")).toEqual({ left: 70, top: 272 });
-  expect(tooltipPosition(time, size, view)).toEqual({ left: 70, top: 330 });
+  // Centered on the time, on the compact 4px grid gap above it (as Claude's), and above by default.
+  expect(tooltipPosition(time, size, view, "top")).toEqual({ left: 70, top: 274 });
+  expect(tooltipPosition(time, size, view)).toEqual({ left: 70, top: 274 });
   // At the pane's top edge: below.
-  expect(tooltipPosition({ ...time, top: 10 }, size, view, "top")).toEqual({ left: 70, top: 40 });
+  expect(tooltipPosition({ ...time, top: 10 }, size, view, "top")).toEqual({ left: 70, top: 38 });
+  expect(UI_TOOLTIP_GAP).toBe(4);
+  const positioned = tooltipPosition(time, size, view);
+  expect(time.top - (positioned.top + size.height)).toBe(UI_TOOLTIP_GAP);
 });
