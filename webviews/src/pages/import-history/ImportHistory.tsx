@@ -51,7 +51,7 @@ export function ImportHistory({ store, strings, layout = "list" }: ImportHistory
                 title={t("history.savedDot")}
                 store={store}
                 strings={strings}
-                busy={busy || snapshot.phase === "detecting"}
+                busy={busy}
               />
             )}
           </div>
@@ -125,7 +125,10 @@ function SourceRow({
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const t = strings.t;
-  const title = titleOverride ?? t(`history.source.${row.id}`);
+  // The Choose action names the source ("Choose a Dot (New Computer) export (.zip)"), not the
+  // placeholder's sentence.
+  const sourceName = t(`history.source.${row.id}`);
+  const title = titleOverride ?? sourceName;
   const unavailable = row.kind === "local" && !row.source;
   const selected = row.kind === "text" ? Boolean(row.expanded) : row.selected;
   return (
@@ -175,7 +178,7 @@ function SourceRow({
               className="history-link"
               disabled={busy || Boolean(snapshot.picking)}
               onClick={() => void store.pickZip(row.id as "chatgpt" | "claude" | "dot")}
-              aria-label={strings.format("history.chooseFor", title)}
+              aria-label={strings.format("history.chooseFor", sourceName)}
             >
               {t(snapshot.picking === row.id ? "history.choosing" : "history.choose")}
             </button>

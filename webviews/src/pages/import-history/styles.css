@@ -148,6 +148,11 @@
   color: inherit;
   font: inherit;
 }
+/* The keycap (ui/DialogButton) reads one step quieter than its button's label, on both fills. */
+.history-button .ui-keyhint {
+  color: inherit;
+  opacity: 0.7;
+}
 .history-button.is-primary {
   background: var(--page-text);
   color: var(--page-elevated);
