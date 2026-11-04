@@ -303,7 +303,12 @@ test("every motion-off and Reduce Motion rule outranks the depth layer's drift a
   expect(moving.length).toBeGreaterThanOrEqual(4);
   // Off, Reduce Motion by attribute (both hosts' spellings), and the media query.
   expect(stills.length).toBe(2);
-  for (const flag of ['data-agent-motion="off"', 'data-agent-motion="reduced"', 'data-cmux-motion="off"', 'data-cmux-motion="reduced"'])
+  for (const flag of [
+    'data-agent-motion="off"',
+    'data-agent-motion="reduced"',
+    'data-cmux-motion="off"',
+    'data-cmux-motion="reduced"',
+  ])
     expect(stills[0]).toContain(flag);
   for (const still of stills)
     for (const move of moving) expect(weight(specificity(still))).toBeGreaterThan(weight(specificity(move)));
