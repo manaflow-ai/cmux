@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import CmuxSettings
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
