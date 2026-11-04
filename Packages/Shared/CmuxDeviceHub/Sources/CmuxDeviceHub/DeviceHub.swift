@@ -96,7 +96,7 @@ public final class DeviceHub {
     }
 
     /// The hub refused this id for good: removed, another signing key, or another approval key.
-    nonisolated static func renewsIdentity(_ code: DeviceHubError.Code) -> Bool {
+    nonisolated static func renewsIdentity(_ code: DeviceHubError.Code?) -> Bool {
         code == .deviceRemoved || code == .deviceKeyMismatch || code == .approvalKeyMismatch
     }
 
