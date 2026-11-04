@@ -62,7 +62,7 @@ public nonisolated struct CrashFeatureScope: Sendable, Equatable {
 
 extension CrashReporter {
     /// Puts `features` on the scope every later event and crash carries, replacing the last ones: right after
-    /// ``start(profile:)``, then at each change of the features the app runs with. Does nothing while Sentry is off.
+    /// ``start()``, then at each change of the features the app runs with. Does nothing while Sentry is off.
     public func setFeatures(_ features: CrashFeatureScope) {
         guard isStarted else { return }
         SentrySDK.configureScope { scope in features.apply(to: scope) }

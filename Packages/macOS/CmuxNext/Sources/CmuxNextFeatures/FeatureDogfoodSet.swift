@@ -98,7 +98,6 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "rendererlessSpareWindow",
         "resampledDrags",
         "savedWindowPicture",
-        "sentryHandlersFirst",
         "sharedGlyphMasks",
         "sidebarRowsNearViewport",
         "sidebarSlideHoldsContent",
