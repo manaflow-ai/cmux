@@ -3,7 +3,8 @@
 // into the real pane (a vite build of the pane's dev entry, joined to a stand-in acpmux) at the page's top speed under
 // a replay clock: `Date` reads the time of the newest record played, so a session hours long replays in seconds and
 // every elapsed label reads what it read live. Timers stay real; nothing waits on wall time between records.
-// Each log is played twice, in its own page:
+// Each log is played twice, each time in its own page (live only for a log of 8 records or more: a seeded chat of a
+// prompt and its reply says nothing live that its open does not):
 //   open   `_acpmux/attach` hands the page the whole log; every row box in the view is sampled each painted frame from
 //          the first row painted until the view rests. The first frame should be the final frame.
 //   live   the page attaches to an empty session and the log arrives record by record as `_acpmux/event`s: up to
