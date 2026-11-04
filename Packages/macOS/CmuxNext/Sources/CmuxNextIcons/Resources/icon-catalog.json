@@ -2074,12 +2074,6 @@
    "family": "view"
   },
   {
-   "name": "view.list.short",
-   "meaning": "Two-row list: the chat header's Session Info panel toggle",
-   "sf": "questionmark.square.dashed",
-   "family": "view.list"
-  },
-  {
    "name": "window.new",
    "meaning": "Move to a new window / new window",
    "sf": "macwindow.badge.plus",
