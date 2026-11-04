@@ -52,6 +52,7 @@ path = "src/bin/cmux-tui-host.rs"
 [dependencies]
 tempfile = "3"
 cmux-json.workspace = true
+cmux-cloud-environment.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
 cmux-git.workspace = true
@@ -60,6 +61,8 @@ cmux-process.workspace = true
 # `cmux vm`: the cmux VM API CLI (workers/cmux-vm/cli), linked in process so the
 # bundle needs no cmux-vm binary. Its TLS rides this crate's rustls (ring).
 cmux-vm = { path = "../../../workers/cmux-vm/cli/crates/cmux-vm", default-features = false }
+# `cmux vm token create`'s mint rules, shared with the app (cli/vm.rs `mint_exit`).
+cmux-cloud-config.workspace = true
 cmux-api-compat.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
@@ -100,6 +103,8 @@ terminput.workspace = true
 terminput-crossterm.workspace = true
 parking_lot.workspace = true
 sha2.workspace = true
+# `cmux link sync pull` merges a text file both sides changed by line.
+diffy.workspace = true
 uuid.workspace = true
 wait-timeout.workspace = true
 # Verifies the signed invite-wave flags (feature_flags.rs); tests sign with it.

@@ -3,6 +3,8 @@
 import type { Translate } from "../../i18n";
 import type { AcpmuxSessionEntry } from "../../sessionList";
 import { byUsage, cacheUsageRows, type SessionUsageStats, UNKNOWN, usageCost, usageTokens } from "../../usageStats";
+import type { AcpmuxUsageLimits } from "../../model";
+import { planLimitRows } from "../../usageLimits";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 
 export const USAGE_SYMBOL = "waveform.path";
@@ -125,6 +127,8 @@ function ownRows(
 
 export type UsageInput = {
   own?: SessionUsageStats;
+  /// The account's plan usage limits this chat's harness reported (acpmux `usageLimits`).
+  planLimits?: AcpmuxUsageLimits;
   sessions: readonly AcpmuxSessionEntry[];
   /// Parent may provide a memoized ranking; when absent, ranking only happens while open.
   ranked?: readonly AcpmuxSessionEntry[];
@@ -148,7 +152,8 @@ export function usageSection(
   t: Translate,
 ): NativeInfoSection | undefined {
   const hasSessionUsage = input.hasSessionUsage ?? input.sessions.some((entry) => Boolean(entry.usageStats));
-  if (!input.own && !hasSessionUsage) return undefined;
+  const planRows = planLimitRows(input.planLimits, t, Date.now(), input.locale);
+  if (!input.own && !hasSessionUsage && !planRows.length) return undefined;
   const ranked = input.ranked ?? (input.open ? byUsage(input.sessions, input.sort ?? "cost") : []);
   const expanded = input.expanded === true;
   const sort = input.sort ?? "cost";
@@ -156,6 +161,11 @@ export function usageSection(
   const shown = folds && !expanded ? ranked.slice(0, USAGE_SHOWN) : ranked;
   const rows: NativeInfoRow[] = [];
   if (input.own) rows.push(...ownRows(input.own, t, input.locale, actions, input.onCompact, input.onShowSubagents));
+  // The plan's limits, as the composer ring's plan usage popover shows them (PlanUsageCard.tsx).
+  if (planRows.length) {
+    rows.push({ id: "plan", title: t("sessionInfo.usage.planLimits") });
+    for (const row of planRows) rows.push({ id: `plan:${row.id}`, title: row.name, trailing: row.value });
+  }
   if (ranked.length && input.onSortChange) {
     rows.push({
       id: "sort",

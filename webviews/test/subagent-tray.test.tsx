@@ -402,7 +402,7 @@ describe("the tray", () => {
       expect(head.querySelector(".acpmux-lineage__icon")?.hasAttribute("data-blank")).toBe(true);
       expect(head.querySelector('svg[data-icon="agent.session"]')).toBeNull();
       expect(head.querySelector('[role="progressbar"]')).toBeNull();
-      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running · 1 command");
+      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running · 1 server");
       expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
       // The header's time is its own, not a fourth line's.
       expect(shown.root.querySelectorAll(".acpmux-agent-line__time").length).toBe(3);
@@ -462,7 +462,7 @@ describe("the tray", () => {
       await act(async () => head().click());
       // Open, the header counts (folded, it names what runs: subagent-tray-names.test.tsx).
       expect(head().querySelector(".acpmux-running-tray__title")?.textContent).toBe(
-        "Running in background · 1 subagent · 2 commands",
+        "Running in background · 1 subagent · 1 server · 1 command",
       );
       expect(root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
       await show(tray("chat-2"));
@@ -838,7 +838,7 @@ describe("the tray", () => {
 describe("a tray line says what it is and what a click does", () => {
   const raw = "cd /Users/you/fun/cmux-wt/chromium-transparency && RED=cb8f4178; GREEN=1 bun test";
 
-  test("a command leads with Command, its tooltip is the whole shell line, its chevron opens it, one stop", async () => {
+  test("a command leads with its kind's mark, never the word Command; its tooltip is the whole shell line, its chevron opens it, one stop", async () => {
     const items = trayItems(
       [],
       [command("s/1", { command: raw, processId: "s/1", toolCallId: "call-1", startedAt: Date.now() })],
@@ -860,8 +860,9 @@ describe("a tray line says what it is and what a click does", () => {
     try {
       const line = root.querySelector<HTMLElement>(".acpmux-agent-line")!;
       const button = line.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
-      expect(line.querySelector(".acpmux-agent-line__kind")?.textContent).toBe("Command");
-      expect(button.querySelector(".acpmux-summary-text")?.textContent?.startsWith("Command")).toBe(true);
+      // Its mark is the kind the header counts it under (trayCommandKinds.ts), in place of the word.
+      expect(line.querySelector(".acpmux-agent-line__kind")).toBeNull();
+      expect(button.querySelector(".acpmux-summary-text")?.textContent?.startsWith("Command")).toBe(false);
       expect(button.getAttribute("title")).toBe(raw);
       expect(button.querySelector(".acpmux-agent-line__chevron")).not.toBeNull();
       await act(async () => button.click());
@@ -989,7 +990,7 @@ describe("a tray line says what it is and what a click does", () => {
       const button = root.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
       expect(button.disabled).toBe(true);
       expect(button.querySelector(".acpmux-agent-line__chevron")).toBeNull();
-      expect(root.querySelector(".acpmux-agent-line__kind")?.textContent).toBe("Command");
+      expect(root.querySelector(".acpmux-agent-line__kind")).toBeNull();
     } finally {
       await done();
     }
@@ -1040,7 +1041,7 @@ describe("the tray tells the truth", () => {
       // a session. What ended counts after what runs, its failures apart in the danger colour.
       if (head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
-        "2 subagents running · 1 session · 1 waiting · 1 command · 2 done",
+        "2 subagents running · 1 session · 1 waiting · 1 server · 2 done",
       );
       expect(head.querySelector(".acpmux-running-tray__failed")?.textContent).toBe("· 2 failed");
       const lines = liveLines(root);
@@ -1195,8 +1196,9 @@ describe("the tray tells the truth", () => {
       }),
     );
     try {
-      // The tray names the cmux-ci step by its rule, its setup's substitution before it (commandRules.ts).
-      expect(names(liveLines(root))).toEqual(["git rev-parse HEAD · Fleet run"]);
+      // With no rule for cmux-ci (it is in the opt-in preset), the tray names its program, its
+      // setup's substitution before it (commandRules.ts).
+      expect(names(liveLines(root))).toEqual(["git rev-parse HEAD · cmux-ci run"]);
       expect(liveLines(root)[0]!.querySelector("button")?.getAttribute("title")).toBe(raw);
       expect(root.textContent).not.toContain("HEAD);");
       expect(root.textContent).not.toContain("--class");

@@ -65,10 +65,12 @@ extension ActionRegistry {
             return true
         }
         if needsConfirmation(id, invocation) { return gateDestructive(id, invocation, settle: settle) }
-        signposted(id, index: action.timingIndex, invocation) {
+        return signposted(id, index: action.timingIndex, invocation) {
             settle()
+            // In the run's timing: leaving a top page is part of the person's run (the action budget counts it).
+            guard leavesTopPage(for: id, invocation) else { return false }
             runScoped(action, id, invocation)
+            return true
         }
-        return true
     }
 }

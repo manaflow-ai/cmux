@@ -262,6 +262,7 @@ import CmuxNextCompat
         remoteHostID = connection.remote?.hostID
         remoteWire = connection.remote != nil
         trustDaemon = remoteWire ? nil : (connection.socketPath ?? connection.url.absoluteString)
+        AgentPaneLaunchTimings.shared.mark("agent_pane.transport_open_start")
         if let daemon = trustDaemon {
             bindPreOpenTrust(to: daemon)
             guard await restorePendingTrust(daemon: daemon, connection: id) else { throw .closed }
@@ -302,6 +303,7 @@ import CmuxNextCompat
             if self.socket === socket { self.socket = nil; localAppToken = nil; trustDaemon = nil }
             throw .connectFailed
         }
+        AgentPaneLaunchTimings.shared.mark("agent_pane.transport_listener_checked")
         do {
             try await socket.start(timeout: limits.connectTimeout)
         } catch {
@@ -321,11 +323,13 @@ import CmuxNextCompat
         } else {
             onOtherInstall?(false)
         }
+        AgentPaneLaunchTimings.shared.mark("agent_pane.transport_accepted_checked")
         // P1: the daemon's mode fields, once per connection, before the page's first frame.
         modeFields = nil
         let answer = await webModes(nil, nil, nil)
         guard self.socket === socket, id == current else { throw .staleConnection }
         modeFields = answer?.modeFields
+        AgentPaneLaunchTimings.shared.mark("agent_pane.transport_open")
         Self.logger.info("agent pane transport open connection=\(id, privacy: .public) localApp=\(self.localAppToken != nil, privacy: .public)")
         return id
     }
@@ -456,6 +460,7 @@ import CmuxNextCompat
         for answer in decisions.takeAnswers() where !remoteWire {
             switch answer {
             case .refused(let peer): onPeerApprovalsOff?(.notEnrolled(peer: peer))
+            case .enrollThenRetry(let peer, let pageID, let frame): enrollThenRetry(peer: peer, pageID: pageID, frame: frame)
             case .unproved: onPeerApprovalsOff?(.notRecorded)
             case .counted: onPeerApprovalsOff?(nil)
             }

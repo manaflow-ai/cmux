@@ -255,7 +255,7 @@ import {
 } from "./computerUse/computerUsePreview";
 import { ComputerUsePreviewCard } from "./computerUse/ComputerUsePreviewCard";
 import { PermissionCard } from "./PermissionCard";
-import { cardTakesShortcuts } from "./permissionKeys";
+import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKeys";
 import { QuestionCard } from "./question/QuestionCard";
 import { PermissionQuestion } from "./question/PermissionQuestion";
 import { QUESTION_RECORD } from "./question/record";
@@ -348,7 +348,12 @@ import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsConte
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { FisheyeFilters } from "../../ui/glass/Fisheye";
 import { latestTurnCheckpointPair, readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
-import { registerAttachmentViewHost, registerComposerHost, useComposerSettings } from "./composerSettings";
+import {
+  registerAttachmentViewHost,
+  registerComposerHost,
+  registerComposerRingHost,
+  useComposerSettings,
+} from "./composerSettings";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
 import {
@@ -561,6 +566,7 @@ import { ThreadTitle } from "./header/ThreadTitle";
 import { deleteChatRow, moveMachineRow } from "./header/chatRows";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
+import { runsUnderTabRow, type UnderHeaderLines } from "./header/underHeader";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
@@ -1312,6 +1318,7 @@ if (typeof window !== "undefined")
     if (typeof tab === "string" && tab) setSessionInfoTab(tab);
   });
 registerAttachmentViewHost((view) => callNative("pane.setAttachmentView", { view }));
+registerComposerRingHost((ring) => callNative("pane.setComposerRing", { ring }));
 registerChatDisplayHost((key, value) => void callNative("pane.setDisplay", { key, value }).catch(() => undefined));
 /// A folder's `git.status` from the native host, named by the folder: a new chat has no session to
 /// name it by (the header's worktree pill, cx-lyqio.3b).
@@ -2890,6 +2897,7 @@ export function VirtualTranscript({
   afterLatest,
   showMinimap = true,
   endReserve = 0,
+  topInset = 0,
 }: {
   rows: readonly AcpmuxRow[];
   /// The pane's live transcript: it draws the streaming reply's row ahead of the pane's snapshot
@@ -2983,6 +2991,11 @@ export function VirtualTranscript({
   /// Room the column keeps at its right for the computer use live preview (`--cv-inset-end`,
   /// computerUse/computerUsePreview.ts): rows are laid out that much narrower.
   endReserve?: number;
+  /// CSS pixels of the scroller's top that the pane's tab row floats over (a one-tab pane, header/tabRow.ts
+  /// `soloTab`): the scroller runs up under the row, and the rows draw this much lower and the content is
+  /// this much taller, so the first row rests where it did below the row and the latest one where it did
+  /// above the composer. 0 for a scroller below its header.
+  topInset?: number;
 }) {
   // The streaming reply's newer text, when the pane has not redrawn for it (streamingRow.ts): that
   // row only, in place, with its version moved on by the chunks it is ahead.
@@ -3188,6 +3201,8 @@ export function VirtualTranscript({
   });
   const dockSpaceRef = useRef(0);
   dockSpaceRef.current = dockSpace;
+  const topInsetRef = useRef(topInset);
+  topInsetRef.current = topInset;
   /// The room the rows keep over a floating stack: its height, and the rest gap's share past the last
   /// row's own turn gap (model.ts `restRoom`), so the newest row rests the same gap over whatever the
   /// stack's top is. Read once per transcript; the masks, Jump to latest and the scroll-into-view
@@ -4179,7 +4194,7 @@ export function VirtualTranscript({
     dockSpace > 0
       ? (measured.layout.restBand ?? 0)
       : (measured.layout.tailGap ?? TRANSCRIPT_COMPOSER_GAP * (measured.layout.scale ?? 1));
-  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + tailGap + dockRoom - trayHold;
+  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + dockRoom - trayHold;
   const atDock = Math.max(floorHeight, rowsAtDock);
   // A card that grew is drawn up by at most what the offset can take back: the view keeps more than
   // the follow deadband to scroll, so the reader's scroll up still leaves the latest row (and the
@@ -4204,7 +4219,7 @@ export function VirtualTranscript({
         )
       : grown;
   const room = sessionSwitched || following ? dockRoom - lifted - trayHold : heldRoom.current;
-  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + tailGap + room;
+  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
   const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
   rowsEndRef.current = rowsEnd;
@@ -4983,7 +4998,7 @@ export function VirtualTranscript({
     const bottom = top + layout.geometry.heightAt(findIndex);
     // In view where it draws (`lift` from its place while the rows follow a grown composer).
     const drawn = layoutScrollTop(node) - liftRef.current;
-    if (top >= drawn && bottom <= drawn + node.clientHeight - dockSpaceRef.current) {
+    if (top >= drawn && bottom <= drawn + node.clientHeight - topInsetRef.current - dockSpaceRef.current) {
       findMoved(node);
       return;
     }
@@ -5020,7 +5035,7 @@ export function VirtualTranscript({
     const bottom = top + layout.geometry.heightAt(revealIndex);
     // In view where it draws (`lift` from its place while the rows follow a grown composer).
     const drawn = layoutScrollTop(node) - liftRef.current;
-    if (top >= drawn && bottom <= drawn + node.clientHeight - dockSpaceRef.current) return;
+    if (top >= drawn && bottom <= drawn + node.clientHeight - topInsetRef.current - dockSpaceRef.current) return;
     unlift();
     // The reader asked for this row: the view stops following the reply, or the run opening below
     // would pull it back to the latest line.
@@ -5781,11 +5796,12 @@ export function VirtualTranscript({
   else if (dockSpace > 0 && (restingDock.current.space <= 0 || dockSpace < restingDock.current.space))
     restingDock.current.space = dockSpace;
   // A stack not measured since it came (the latch's 0) reads as it is now.
+  // Below a floating tab row (`topInset`): the rail centers in the view the row leaves (threadMinimap.css).
   // `live` is the stack's top now: the rail's foot and its card stay above it (ThreadMinimap `railBox`).
   const railBox = {
-    height,
-    foot: height - (restingDock.current.space || dockSpace),
-    live: height - dockSpace,
+    height: height - topInset,
+    foot: height - topInset - (restingDock.current.space || dockSpace),
+    live: height - topInset - dockSpace,
   };
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
@@ -5844,6 +5860,7 @@ export function VirtualTranscript({
             columnWidth={width}
             placed={minimapPlaced}
             change={rowsChange.current}
+            topInset={topInset}
           />
         )}
         {/* The VS Code-style minimap at the right edge (Settings > Agent Chat > VS Code Minimap, off by default). */}
@@ -5873,7 +5890,7 @@ export function VirtualTranscript({
             <div
               ref={thread}
               className="acpmux-thread"
-              style={{ top: `calc(${lift}px + var(--acpmux-scroll-origin, 0px))` }}
+              style={{ top: `calc(${lift + topInset}px + var(--acpmux-scroll-origin, 0px))` }}
               onPointerOver={(event) => pointAt(event.target)}
               onPointerLeave={() => pointAt(null)}
             >
@@ -6006,6 +6023,17 @@ const answerSecret = (ask: AcpmuxSecretAsk) => (value?: string) => {
   return value ? sent : sent.catch(() => undefined);
 };
 
+/// A peer's chat, reached over this Mac's own acpmux (server/peer_forward.rs), as ComposerPickers'
+/// `onThisMac` reads it: its summary or its listed row names the peer. The peer takes only a signed
+/// one-time Allow and a Deny from this Mac (mac_approvers.rs).
+function chatOnPeer(snapshot: AcpmuxSnapshot): boolean {
+  const summary = snapshot.summary;
+  const listedPeer = summary?.sessionId
+    ? snapshot.sessions.find((session) => session.sessionId === summary.sessionId)?.peer
+    : undefined;
+  return snapshot.origin === "peer" || !!summary?.peer || !!listedPeer;
+}
+
 /// The native label of the mode the chat runs now when it is its family's highest (Claude Code's
 /// Bypass permissions, Codex's Full access), else nothing.
 function fullAccessModeName(summary: AcpmuxSnapshot["summary"]): string | undefined {
@@ -6023,6 +6051,8 @@ function PermissionAsk({
   shownChat,
   shortcuts,
   waiting = 0,
+  alwaysAtSource,
+  onDraft,
 }: {
   permission: AcpmuxPermission;
   harness?: string;
@@ -6036,18 +6066,24 @@ function PermissionAsk({
   shortcuts?: boolean;
   /// More asks waiting behind this one (snapshot `permissionsWaiting`).
   waiting?: number;
+  /// A peer's chat, which takes no lasting grant from this Mac (PermissionCard).
+  alwaysAtSource?: boolean;
+  /// The card's deny instructions opened or closed (PermissionCard `onDraft`).
+  onDraft?: (open: boolean) => void;
 }) {
   const t = useT();
   if (!permission.question)
     return (
       <PermissionCard
         permission={permission}
+        alwaysAtSource={alwaysAtSource}
         harness={harness}
         fullAccessMode={fullAccessMode}
         focusComposer={focusComposer}
         shortcuts={shortcuts}
         onAnswer={answerPermission(permission)}
         onDenyWithFeedback={shownChat && denyWithFeedback(permission, shownChat)}
+        onDraft={onDraft}
         waiting={waiting}
       />
     );
@@ -6494,7 +6530,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       catalogClientId.current,
       current.origin,
       current.answersTrust,
-      current.summary?.peer,
+      directClient.current?.trustPeer ?? current.summary?.peer,
       current.summary?.hostKind,
       current.summary?.host,
     ]);
@@ -7043,7 +7079,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const continueAvailable = canContinueIn(snapshot);
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
   /// folder it named, and `again` sends the held prompt after Trust.
-
+  const peerTrustStarted = useRef<(() => void) | undefined>(undefined);
   const trustRefused = useRef<((error: unknown, again?: () => void, declined?: () => void) => boolean) | undefined>(
     undefined,
   );
@@ -7093,7 +7129,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       reread: newTabAdoptions,
     },
     answersTrust,
-    healthLocal && snapshot.origin !== "remote" && snapshot.origin !== "peer",
+    !directClient.current?.trustPeer && healthLocal && snapshot.origin !== "remote" && snapshot.origin !== "peer",
     blockSend,
   );
   // A no-folder recovery must not win over a trust answer made while its session switch is in
@@ -7103,6 +7139,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   trustRevision.current = trustAsk.revision;
   const trustRoute = trustAsk.refused;
   trustRefused.current = trustRoute;
+  peerTrustStarted.current = trustAsk.started;
   // The connection's action table outlives renders; Retry must read the current folder/auth gate.
   const retryAfterTrust = useRef(trustAsk.retry);
   retryAfterTrust.current = trustAsk.retry;
@@ -7140,10 +7177,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       return;
     if (trustRoute(pending.error, pending.again, pending.declined)) pendingTrustRefusal.current = undefined;
   }, [trustRoute]);
+  /// The ask whose card has a deny's instructions open: it stays the single card (`heldOnCard`).
+  const [draftAsk, setDraftAsk] = useState<AcpmuxPermission>();
   const individualPermission =
-    snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
-      ? snapshot.permission
-      : undefined;
+    heldOnCard(draftAsk, snapshot.permission, snapshot.permissionGroups) ??
+    (askOnSingleCard(snapshot.permission, snapshot.permissionGroups) ? snapshot.permission : undefined);
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
   const fileRoot = snapshot.summary?.cwd;
@@ -7477,7 +7515,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             liveRuns: codexRuns,
             sessionStatus,
             lineBelow,
-            // A finished turn folds as its harness family's app does: Codex under one Worked for, Claude per run.
+            // A finished turn folds under one Worked for; opened, a Claude turn folds per run, as Claude desktop does.
             agentFamily: snapshot.summary?.family,
             // Other sessions' messages among them, two or more in a run, draw as one card.
             waitingSteers: snapshot.waitingSteers,
@@ -8829,6 +8867,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The header's tools in the pane's tab row, while the App offers one (header/tabRow.ts).
   const tabRow = useTabRow();
   const inTabRow = tabRow.height > 0 && !quick;
+  /// A one-tab pane's row has no band: the transcript runs up under it (header/tabRow.ts `soloTab`, header.css).
+  const soloTab = inTabRow && tabRow.soloTab === true;
+  /// The lines in flow under the header (header/underHeader.ts): each renders below only when its flag is set,
+  /// and the transcript runs up under the row only when none is, so it never covers one.
+  const underHeader: UnderHeaderLines = {
+    checkpointReview: checkpoints.review != null,
+    liveChat: !!snapshot.liveChat,
+    peerCopy: !!snapshot.peerCopy?.offline,
+    watching: !!snapshot.summary?.watching,
+    handoffError: !reviewing && !!snapshot.handoff?.error,
+  };
+  const soloUnder = runsUnderTabRow(soloTab, underHeader);
   const tabRowTools = useTabRowTools(inTabRow ? tabRow : undefined, reportTabRowTools);
   // Ctrl-B moves a Claude Code chat's running command or subagent to the background, and a
   // running command's row says so (conversation/runInBackground.ts).
@@ -10898,6 +10948,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       connecting = true;
       try {
         acpmuxPerf.markAgent("handshakeStart");
+        acpmuxPerf.markLaunch("handshakeStart");
         acpWire.lifecycle("handshake", { reconnect });
         setWaitingSince(Date.now());
         setRestartUnavailable(false);
@@ -10946,6 +10997,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // Before anything draws the chat: its Session Info is this tab's, not another tab's of the chat.
         if (typeof host.tab === "string" && host.tab) setSessionInfoTab(host.tab);
         acpmuxPerf.markAgent("handshakeReady");
+        acpmuxPerf.markLaunch("handshakeReady");
         setCloudCredentialRecoveryAvailable(host.cloudCredentialRecoveryAvailable === true);
         setCloudTeamMachine(host.cloudTeamMachine === true);
         setCloudRepositoryAvailable(host.cloudRepositoryAvailable === true);
@@ -11083,13 +11135,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // await in the mock branch so the native handshake still starts in the same turn.
         const mockModule = mock ? (preparedMockTransport() ?? (await import("./mock"))) : undefined;
         if (cancelled) return;
-        // A new chat in mock mode starts without a session too, as against a real daemon.
+        // A new chat in mock mode starts without a session too, as against a real daemon. A host
+        // that names a mock session (a gallery scene) opens that one.
         const config: AcpmuxHostConfig = mockModule
           ? host.newSession
             ? { ...mockModule.mockHost, sessionId: undefined, newSession: true }
-            : mockModule.mockHost
+            : { ...mockModule.mockHost, sessionId: host.sessionId || mockModule.mockHost.sessionId }
           : (host as AcpmuxHostConfig);
         let connectingClient: AcpmuxDirectClient | undefined;
+        acpmuxPerf.markLaunch("connectStart");
         const client = await AcpmuxDirectClient.connect(
           config,
           (next) => {
@@ -11169,6 +11223,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           client.close();
           return;
         }
+        acpmuxPerf.markLaunch("connected");
         connectingClient = client;
         directClient.current = client;
         connectedClients.connected(client);
@@ -11191,6 +11246,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         });
         // Every trust refusal (a new chat, a resumed one, a switch, a prewarm, a prompt) shows the
         // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).
+        client.onPeerSessionStarted = () => {
+          if (directClient.current !== client) return;
+          pendingTrustRefusal.current = undefined;
+          peerTrustStarted.current?.();
+        };
         client.onTrustRefused = (refusal, again, declined) => {
           if (directClient.current !== client) return;
           const shownSessionId = client.shownSession()?.sessionId;
@@ -13532,6 +13592,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                     {(find) => (
                                                       <VirtualTranscript
                                                         key={chatPresentation}
+                                                        topInset={soloUnder ? tabRow.height : 0}
                                                         rows={transcriptRows}
                                                         streams={!childRows}
                                                         earlier={!childRows ? snapshot.earlierPrompts : undefined}
@@ -13818,6 +13879,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               fullAccessMode={fullAccessModeName(snapshot.summary)}
               focusComposer={() => composerHandle.current?.focus()}
               shownChat={shownChat}
+              alwaysAtSource={chatOnPeer(snapshot)}
+              onDraft={(open) => setDraftAsk(open ? individualPermission : undefined)}
             />
           )}
           {secret && (
@@ -14749,6 +14812,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         ref={setShell}
         className="acpmux-shell"
         data-tab-row={inTabRow ? "" : undefined}
+        data-solo-tab={soloTab ? "" : undefined}
         aria-busy="true"
         style={inTabRow ? tabRowStyle(tabRow) : undefined}
       />
@@ -14759,6 +14823,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         ref={setShell}
         className="acpmux-shell"
         data-tab-row={inTabRow ? "" : undefined}
+        data-solo-tab={soloTab ? "" : undefined}
         data-background-pane={ownBackgroundPane ? "" : undefined}
         aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
         style={inTabRow ? tabRowStyle(tabRow) : undefined}
@@ -15034,6 +15099,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             <>
               <div
                 className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
+                data-solo-tab={soloUnder ? "" : undefined}
                 style={inTabRow ? tabRowStyle(tabRow) : undefined}
               >
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
@@ -15156,15 +15222,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 {/* A feature tip under its header control (featureTips.tsx; it portals out). */}
                 {!quick && !showNewTab && snapshot.sessionId && <PaneFeatureTips streaming={turnWorking} />}
                 {!sessionInfo.on && !summaryCard.column && summaryPanel}
-                {checkpoints.review}
+                {underHeader.checkpointReview && checkpoints.review}
                 {/* The lines under the header drop in from the top (ui/popupSurface.css `data-enter`). */}
-                {snapshot.liveChat && (
+                {underHeader.liveChat && snapshot.liveChat && (
                   <LiveChatChoice
                     {...snapshot.liveChat}
                     onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
                   />
                 )}
-                {snapshot.peerCopy?.offline && (
+                {underHeader.peerCopy && snapshot.peerCopy && (
                   <PeerCopyBanner
                     key={`${snapshot.sessionId ?? ""}:${snapshot.peerCopy.peer}`}
                     copy={snapshot.peerCopy}
@@ -15182,20 +15248,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   onOpen={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "open" }))}
                   onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
                 />
-                {snapshot.summary?.watching && !snapshot.liveTakeOver && (
+                {underHeader.watching && snapshot.summary?.watching && !snapshot.liveTakeOver && (
                   <WatchBanner
                     family={snapshot.summary.watching}
                     onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
                     onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
                   />
                 )}
-                {snapshot.summary?.watching && snapshot.liveTakeOver && (
+                {underHeader.watching && snapshot.liveTakeOver && (
                   <LiveChatChoice
                     {...snapshot.liveTakeOver}
                     onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
                   />
                 )}
-                {!reviewing && snapshot.handoff?.error && (
+                {underHeader.handoffError && snapshot.handoff?.error && (
                   <p className="acpmux-handoff-error" role="alert" data-enter="top">
                     {snapshot.handoff.error}
                   </p>
