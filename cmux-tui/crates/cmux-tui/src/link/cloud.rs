@@ -134,6 +134,7 @@ impl DirectSource {
         &self,
         path: &str,
         body: serde_json::Value,
+        read_envelope: bool,
     ) -> Result<serde_json::Value, ConnectInfoError> {
         let response = self
             .client
@@ -148,7 +149,10 @@ impl DirectSource {
             .json()
             .await
             .map_err(|_| ConnectInfoError::Unavailable("the Cloud API sent invalid JSON".into()))?;
-        if value.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
+        if read_envelope && status.is_success() && value.get("value").is_some() {
+            return Ok(value.get("value").cloned().unwrap_or(serde_json::Value::Null));
+        }
+        if !read_envelope && value.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
             return Ok(value.get("value").cloned().unwrap_or(serde_json::Value::Null));
         }
         let error = value.get("error").or_else(|| status.is_client_error().then_some(&value));
@@ -172,6 +176,7 @@ impl ConnectInfoSource for DirectSource {
                 serde_json::json!({
                     "op":"cloud.machine.connect_info", "params":{"host":host}
                 }),
+                true,
             )
             .await?;
         serde_json::from_value(value).map_err(|_| {
@@ -193,6 +198,7 @@ impl ConnectInfoSource for DirectSource {
                 serde_json::json!({
                     "op":"cloud.machine.link_token", "params":{"host":host,"services":services}
                 }),
+                false,
             )
             .await?;
         serde_json::from_value(value).map_err(|_| {
