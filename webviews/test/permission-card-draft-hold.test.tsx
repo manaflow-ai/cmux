@@ -41,7 +41,6 @@ afterAll(() => {
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { PermissionCard } = await import("../src/agent-session/acpmux/PermissionCard");
-const { translate } = await import("../src/agent-session/acpmux/i18n");
 const { heldOnCard } = await import("../src/agent-session/acpmux/permissionKeys");
 
 const ask: AcpmuxPermission = {
