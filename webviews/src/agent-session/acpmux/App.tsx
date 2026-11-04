@@ -13816,6 +13816,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     hasPermissionGroups ||
     individualPermission ||
     secret ||
+    mcpConnect ||
+    mcpCall ||
     toolCards.length > 0,
   );
   // Behind the agent.sessionStatus Debug toggle (`sessionStatus`, read above for the transcript): a
@@ -13934,7 +13936,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           }}
         />
       )}
-      {(individualPermission || secret || toolCards.length > 0) && (
+      {(individualPermission || secret || mcpConnect || mcpCall || toolCards.length > 0) && (
         <>
           <ToolCards
             cards={toolCards}
