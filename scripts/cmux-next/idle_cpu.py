@@ -224,7 +224,6 @@ def seed_history(home: Path, chats: int) -> dict:
     CHATS Claude Code transcripts over 40 projects, the same number of Codex rollouts, and a Codex state database in
     WAL mode whose writer was killed (its -wal and -shm stay, as after a hibernated Codex was stopped). Text only, no
     credential. Returns the counts."""
-    import sqlite3
     import uuid as uuidlib
     day = time.strftime("%Y/%m/%d").split("/")
     stamp = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
@@ -293,13 +292,15 @@ def bench_line(rows: list[dict], samples: dict) -> dict:
     for name in ("app", "acpmux", "cmux_tui"):
         members = [row for row in rows if group_of(row) == name]
         last = [row["windows"][-1] for row in members]
-        line[name] = {"n": len(members), "cpu_pct": round(sum(w["cpu_pct"] for w in last), 3),
-                      "wakeups_per_s": round(sum(w["wakeups_per_s"] for w in last), 2)}
+        # A group with no process gets no numbers (never 0 %: the bench would read that as a rest).
+        line[name] = {"n": 0} if not members else {
+            "n": len(members), "cpu_pct": round(sum(w["cpu_pct"] for w in last), 3),
+            "wakeups_per_s": round(sum(w["wakeups_per_s"] for w in last), 2)}
     line["processes"] = [{"kind": row["kind"], "pid": row["pid"], "group": group_of(row),
                           "cpu_pct": row["windows"][-1]["cpu_pct"], "wakeups_per_s": row["windows"][-1]["wakeups_per_s"]}
                          for row in rows if group_of(row)]
     if rows:
-        top = max(rows, key=lambda row: row["windows"][-1]["cpu_pct"])
+        top = rows[0]   # the process measure() ranks first and main() always samples
         line["busiest"] = {"kind": top["kind"], "pid": top["pid"], "cpu_pct": top["windows"][-1]["cpu_pct"],
                            "top_frame": top_frame(samples.get(top["pid"], ""))}
     return line
@@ -325,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     if args.windows < 1 or args.window <= 0 or args.minutes < 0 or args.chats < 0 or args.history < 0:
-        parser.error("--windows must be >= 1, --window > 0, --minutes and --chats >= 0")
+        parser.error("--windows must be >= 1, --window > 0, --minutes, --chats and --history >= 0")
     out = Path(args.out) if args.out else None
     if out:
         out.mkdir(parents=True, exist_ok=True)

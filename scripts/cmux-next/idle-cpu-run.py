@@ -25,6 +25,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -91,16 +92,22 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--agent-id", default=os.environ.get("CMUX_AGENT_ID", ""))
     ap.add_argument("--label", default="")
     ap.add_argument("--wait", action="store_true")
+    ap.add_argument("--wait-hours", type=float, default=6.0,
+                    help="with --wait: give up after this long; a spec not started by then is withdrawn")
     ap.add_argument("--json", action="store_true",
                     help="with --wait: the last stdout line is the step's IDLE-CPU-JSON object (or a one-line reason)")
     a = ap.parse_args(argv)
     if a.windows < 1 or a.window <= 0 or a.minutes < 0 or a.chats < 0 or a.history < 0:
-        print("idle-cpu-run: --windows >= 1, --window > 0, --minutes and --chats >= 0", file=sys.stderr)
+        print("idle-cpu-run: --windows >= 1, --window > 0, --minutes, --chats and --history >= 0", file=sys.stderr)
         return 2
     if a.mini and a.mini not in MINIS:
         print(f"idle-cpu-run: --mini must be one of {', '.join(MINIS)}", file=sys.stderr)
         return 2
-    build = resolve_build(a.build, a.tag)
+    try:
+        build = resolve_build(a.build, a.tag)
+    except SystemExit as error:
+        print(f"idle CPU not measured: {error}" if a.json else error, file=sys.stdout if a.json else sys.stderr)
+        return 3
     ref = a.ref or default_ref()
     if not re.fullmatch(r"[0-9a-f]{40}", ref):
         print(f"idle-cpu-run: --ref must be a 40-hex pushed commit (got {ref!r})", file=sys.stderr)
@@ -133,7 +140,32 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     results = QUEUE / "results.jsonl"
     seen = results.stat().st_size if results.exists() else 0
-    deadline = time.time() + 6 * 3600
+
+    def withdraw(why: str) -> int:
+        """Gives up the wait: a spec the scheduler has not started is removed (its mini is not spent for nobody);
+        a job already started runs to its end (cancelling a measurement mid-way frees nothing)."""
+        try:
+            state = json.loads((QUEUE / "state.json").read_text())
+        except (OSError, ValueError):
+            state = {}
+        # Started: the scheduler submitted it (an entry in "running") or it already ran once ("runs").
+        started = any(r.get("spec") == sid for r in (state.get("running") or {}).values()) \
+            or bool(((state.get("specs") or {}).get(sid) or {}).get("runs"))
+        if not started:
+            try:
+                path.unlink()
+                why += "; the spec was withdrawn before it started"
+            except OSError:
+                pass
+        print(f"idle CPU not measured: {why} (spec {sid})")
+        return 3
+
+    def stop(signum, _frame):
+        raise SystemExit(withdraw(f"the wait was stopped (signal {signum})"))
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    deadline = time.time() + a.wait_hours * 3600
     while time.time() < deadline:
         time.sleep(30)  # a fleet-host wrapper: the scheduler appends the result when the job ends
         if not results.exists():
@@ -145,28 +177,29 @@ def main(argv: list[str] | None = None) -> int:
                     rec = json.loads(line)
                 except ValueError:
                     continue
-                if sid in json.dumps(rec):
-                    print(json.dumps(rec))
-                    job = rec.get("job") or rec.get("job_id") or ""
-                    verdict = str(rec.get("verdict") or "")
-                    payload = None
-                    if job:
-                        log = subprocess.run([CI, "log", job], capture_output=True, text=True, timeout=300).stdout
-                        print("\n".join(l for l in log.splitlines() if "IDLE-CPU" in l and "IDLE-CPU-JSON" not in l))
-                        found = re.findall(r"IDLE-CPU-JSON (\{.*\})\s*$", log, re.M)
-                        payload = found[-1] if found else None
-                    if a.json:
-                        if payload:
-                            obj = json.loads(payload)
-                            obj.update(verdict=verdict.split(" ", 1)[0], build=build["id"], job=job, mini=rec.get("mini"))
-                            print(json.dumps(obj, sort_keys=True))
-                        else:
-                            print(f"idle CPU not measured: {verdict or 'no verdict'} (job {job or 'none'})")
-                    return 0 if verdict.startswith("PASS") else 1 if verdict.startswith("FAIL") else 3
+                if rec.get("spec") != sid:
+                    continue
+                print(json.dumps(rec))
+                job = rec.get("job") or ""
+                verdict = str(rec.get("verdict") or "")
+                payload = None
+                if job:
+                    log = subprocess.run([CI, "log", job], capture_output=True, text=True, timeout=300).stdout
+                    print("\n".join(l for l in log.splitlines() if "IDLE-CPU" in l and "IDLE-CPU-JSON" not in l))
+                    found = re.findall(r"IDLE-CPU-JSON (\{.*\})\s*$", log, re.M)
+                    payload = found[-1] if found else None
+                measured = verdict.startswith(("PASS", "FAIL"))
+                if a.json:
+                    # Numbers only from a run that measured the daemons (PASS or FAIL); else the reason.
+                    if payload and measured:
+                        obj = json.loads(payload)
+                        obj.update(verdict=verdict.split(" ", 1)[0], build=build["id"], job=job, mini=rec.get("mini"))
+                        print(json.dumps(obj, sort_keys=True))
+                    else:
+                        print(f"idle CPU not measured: {verdict or 'no verdict'} (job {job or 'none'})"[:400])
+                return 0 if verdict.startswith("PASS") else 1 if verdict.startswith("FAIL") else 3
             seen = handle.tell()
-    if a.json:
-        print(f"idle CPU not measured: spec {sid} gave no result in 6 h")
-    return 3
+    return withdraw(f"no result in {a.wait_hours:g} h")
 
 
 if __name__ == "__main__":
