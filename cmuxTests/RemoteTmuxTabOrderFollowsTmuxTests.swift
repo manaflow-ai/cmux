@@ -26,10 +26,10 @@ import Testing
 
         // `move-window -s '=work:@1' -t '=work:9'` on the host: @1 is now the last window.
         feed(harness.connection, "%window-add @1\n%session-window-changed $0 @1\n%window-close @1\n")
-        answerPendingCommands(
+        #expect(answerPendingCommands(
             harness.connection,
             windowLines: [Self.windowLine(2), Self.windowLine(3), Self.windowLine(1)]
-        )
+        ))
 
         #expect(
             harness.sessionMirror.panelIdByWindow == panelsBefore,
@@ -54,10 +54,10 @@ import Testing
 
         // `swap-window -s '=work:@1' -t '=work:@3'`, then any re-read of the window list.
         feed(harness.connection, "%window-add @3\n")
-        answerPendingCommands(
+        #expect(answerPendingCommands(
             harness.connection,
             windowLines: [Self.windowLine(3), Self.windowLine(2), Self.windowLine(1)]
-        )
+        ))
 
         let tabs = workspace.bonsplitController.tabs(inPane: pane).compactMap {
             workspace.panelIdFromSurfaceId($0.id)
@@ -172,7 +172,10 @@ import Testing
 
     /// Answers every queued command: a window list with `windowLines`, each rects fetch with
     /// that window's single pane, anything else with an empty block.
-    private func answerPendingCommands(_ connection: RemoteTmuxControlConnection, windowLines: [String]) {
+    /// Returns whether the queue drained, so a regression that keeps re-queuing a window list
+    /// fails instead of stopping quietly at the reply cap.
+    @discardableResult
+    private func answerPendingCommands(_ connection: RemoteTmuxControlConnection, windowLines: [String]) -> Bool {
         var answered = 0
         while let kind = connection.pendingCommandKindsForTesting.first, answered < 200 {
             answered += 1
@@ -184,6 +187,7 @@ import Testing
             }
             connection.handleMessageForTesting(.commandResult(commandNumber: 0, lines: lines, isError: false))
         }
+        return connection.pendingCommandKindsForTesting.isEmpty
     }
 
     /// Every command a stream writes once its attach block drains.
@@ -275,8 +279,15 @@ private final class AttachedStream {
 
 /// A tmux server on its own socket, so nothing here can reach a server the user runs.
 private final class IsolatedTmuxServer {
-    static let binary: String? = ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
-        .first { FileManager.default.isExecutableFile(atPath: $0) }
+    /// The fixed install locations first, then every `PATH` entry, so a tmux installed
+    /// anywhere (MacPorts, Nix, a custom prefix) still runs the real-tmux tests.
+    static let binary: String? = {
+        let fixed = ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/opt/local/bin/tmux", "/usr/bin/tmux"]
+        let onPath = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+            .split(separator: ":")
+            .map { URL(fileURLWithPath: String($0)).appendingPathComponent("tmux").path }
+        return (fixed + onPath).first { FileManager.default.isExecutableFile(atPath: $0) }
+    }()
 
     let directory: URL
     private var socket: String { directory.appendingPathComponent("s").path }
