@@ -7,6 +7,7 @@ use crate::no_panic::{JsonExt, LockExt};
 mod briefs;
 pub(super) mod cancel_refused;
 mod composer;
+mod context;
 mod events;
 mod info;
 #[path = "requests/mailbox.rs"]
@@ -1027,6 +1028,11 @@ async fn dispatch_request_with_identity(
         method::INITIALIZE => {
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
                 *conn.name.lock_or_recover() = name.to_owned();
+            }
+            // A client that only observes (cmux-tui's chat notices watch) keeps no daemon whose
+            // owner app exited (`daemon/unused_exit.rs`, R-LIFECYCLE ORPHANS).
+            if params.pointer("/_meta/acpmux/observer").and_then(Value::as_bool) == Some(true) {
+                conn.presence.observes();
             }
             // A Mac that lends this machine its GitHub login: only over a link that read this
             // machine's peer token over ssh, never a paired device's (`hub/github_owner.rs`). It
@@ -2180,6 +2186,9 @@ async fn dispatch_request_with_identity(
         }
         // Read or change presets (`requests/presets.rs`).
         method::MUX_PRESETS => presets::handle(hub, conn, &params).await,
+        method::MUX_CONTEXT | method::MUX_CONTEXT_OVERRIDE => {
+            context::handle(hub, conn, m, &params).await
+        }
         method::MUX_INFO => info::info(hub, conn, &params).await,
         method::MUX_SESSION_FILES => {
             super::session_files::require_local(conn.origin)?;

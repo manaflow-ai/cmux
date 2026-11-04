@@ -123,7 +123,7 @@ The driver drives and reads the app only through interfaces the app already has:
 | app state | the control socket: `debug.surfaces {text: true}` (each pane's focus, link, viewport text, `terminal_id`, `host_pid`), `action.run` |
 | the daemon's screen | the bundled `cmux` CLI on the app's own daemon: `cmux terminal ID screen read` |
 | processes | `ps`, scoped to the terminal's `__terminal-host` (`host_pid`), else to every process run from the app bundle |
-| the frame | `debug.window_snapshot` (the app's own drawing of its main window) read with macOS text recognition |
+| the frame | `debug.window_snapshot` (the app's own drawing of its main window) read with macOS text recognition (`scripts/ci/pr_media_ocr.swift`; an image in which it finds no text at all is read again in four horizontal bands) |
 
 ## Write a journey
 
