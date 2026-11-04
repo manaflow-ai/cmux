@@ -16,7 +16,7 @@
 //!
 //! Which agent a profile runs comes from its kind and its command line by
 //! exact program names ([`classify`]). A host that starts harnesses under it
-//! (the Chief brain `<cli> chief acp`, `uniichat-agent`) passes every login on
+//! (only the Chief brain, `<cli> chief acp`) passes every login on
 //! to them on purpose (`cli/chief/launch.rs` `brain_env_allowed`), so it keeps
 //! them. A command line that names no known agent, or more than one, loses
 //! every harness's own sign-in and keeps only the provider API keys: the safe
@@ -143,18 +143,18 @@ fn canonical(label: &str) -> Option<String> {
     [lower.as_str(), head].into_iter().find(|f| LEAF_FAMILIES.contains(f)).map(str::to_owned)
 }
 
-/// A command line that starts acpmux harnesses under itself, in the exact
-/// shape acpmux gives it (`config/discover.rs`): acpmux's own multicall
-/// binary (`cmux-tui`, `cmux`, `acpmux`) running the Chief brain (`<cli>
-/// chief acp`) or uniichat (`<own argv> uniichat-agent`). The same words
-/// after any other program (`codex exec uniichat-agent`) are no host.
+/// A command line that starts acpmux harnesses under itself: the Chief
+/// brain, exactly `<cmux-tui|cmux|acpmux> chief acp` as discovery makes it
+/// (`config/discover.rs` `add_chief`). Nothing else keeps every login: not
+/// uniichat (`uniichat-agent` is a network agent and starts no harness), not
+/// a wrapper whose name merely starts with `cmux-`.
 fn is_host(argv: &[String]) -> bool {
-    let Some(program) = argv.first().map(|p| program_name(p)) else { return false };
-    let own =
-        ["cmux", "acpmux"].iter().any(|p| program == *p || program.starts_with(&format!("{p}-")));
-    own && (matches!(argv, [_, chief, acp, ..] if chief == "chief" && acp == "acp")
-        || argv.len() > 1 && argv.last().is_some_and(|a| a == "uniichat-agent"))
+    matches!(argv, [program, chief, acp, ..]
+        if HOST_PROGRAMS.contains(&program_name(program).as_str()) && chief == "chief" && acp == "acp")
 }
+
+/// acpmux's own multicall binary names.
+const HOST_PROGRAMS: [&str; 3] = ["cmux-tui", "cmux", "acpmux"];
 
 /// The distinct leaf families a command line names by exact program name:
 /// its executable (`/usr/bin/claude`), and when that is a runner (`npx`,
@@ -173,7 +173,21 @@ fn argv_families(argv: &[String]) -> Vec<String> {
         return Vec::new();
     }
     let mut found: Vec<String> = Vec::new();
+    // Only words that can be what the runner starts: no option (`-y`,
+    // `--require`), no option's value (`--require loader.js`), no `K=V`
+    // assignment (`env FOO=/tmp/codex-acp tool`).
+    let mut skip_value = false;
     for word in rest {
+        if std::mem::take(&mut skip_value) {
+            continue;
+        }
+        if word.starts_with('-') {
+            skip_value = !word.contains('=') && OPTIONS_WITH_VALUE.contains(&word.as_str());
+            continue;
+        }
+        if word.contains('=') {
+            continue;
+        }
         let package = word.rsplit('/').next().unwrap_or(word);
         let package = package.split('@').find(|p| !p.is_empty()).unwrap_or(package);
         let hit = by_name(&program_name(package)).or_else(|| {
@@ -201,6 +215,10 @@ fn program_name(program: &str) -> String {
         .find_map(|ext| name.strip_suffix(ext).map(str::to_owned))
         .unwrap_or(name)
 }
+
+/// Runner options whose next word is their value, never the program.
+const OPTIONS_WITH_VALUE: [&str; 8] =
+    ["--require", "-r", "--import", "--loader", "--experimental-loader", "-p", "--package", "-C"];
 
 /// Programs that start another program named by their arguments.
 const RUNNERS: [&str; 7] = ["npx", "bunx", "pnpx", "node", "bun", "uvx", "env"];
