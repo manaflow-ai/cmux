@@ -915,9 +915,11 @@ jobs:
     needs: [deploy-production, promote-production]
     if: always() && (needs.deploy-production.result == 'success' || needs.promote-production.result == 'success')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
-    # No environment: the repository's CMUX_DOGFOOD_STACK_* pair is the production agent test account, which
-    # cmux-next-vm-image-dev shadows with the staging one. CLAUDE_CODE_OAUTH_TOKEN (the login machine-vault-e2e.yml
-    # gives its daemons) is the journey's "pass Claude login": the Mac's login copy, so a chat reply comes back.
+    # cmux-next-cloud-journey holds the production agent test account as CMUX_DOGFOOD_STACK_*, shadowing the
+    # repository's pair (the dev Stack account, which production rejects with EMAIL_PASSWORD_MISMATCH).
+    # CLAUDE_CODE_OAUTH_TOKEN (the login machine-vault-e2e.yml gives its daemons) is the journey's "pass Claude
+    # login": the Mac's login copy, so a chat reply comes back.
+    environment: cmux-next-cloud-journey
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
