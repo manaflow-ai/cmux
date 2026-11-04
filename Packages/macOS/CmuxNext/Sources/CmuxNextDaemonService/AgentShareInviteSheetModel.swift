@@ -1,6 +1,7 @@
 public import CmuxNextDaemon
 import Foundation
 public import Observation
+import CmuxNextWakeups
 
 /// The Invite People sheet's state (design chat-multiplayer.md 2, "Invite people"): who is invited to
 /// one chat, an account field and a role, the chat's invite link, and the work the sheet runs. Invite
@@ -75,7 +76,8 @@ public final class AgentShareInviteSheetModel {
     private let work: Work
     /// The last Invite or Remove: the next one runs after it.
     @ObservationIgnored private var lastStep: Task<Void, Never>?
-    @ObservationIgnored private var copiedReset: Task<Void, Never>?
+    /// Copied goes back to Copy Invite Link at this deadline; the next copy pushes it back.
+    @ObservationIgnored private let copiedReset = DemandTimer(owner: "agentShare.copiedLink")
 
     public init(chat: String, session: String, role: String = "talk", work: Work) {
         self.chat = chat
@@ -140,12 +142,7 @@ public final class AgentShareInviteSheetModel {
         guard let inviteLink else { return }
         work.copy(inviteLink)
         copied = true
-        copiedReset?.cancel()
-        let wait = copiedFor
-        // task-owner: Copied goes back to Copy Invite Link after `copiedFor`; the next copy cancels it
-        copiedReset = Task { [weak self] in
-            try? await Task.sleep(for: wait)
-            guard !Task.isCancelled else { return }
+        copiedReset.schedule(after: copiedFor) { @MainActor [weak self] in
             self?.copied = false
         }
     }
