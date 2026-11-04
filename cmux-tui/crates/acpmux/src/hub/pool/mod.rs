@@ -1210,5 +1210,9 @@ async fn end_pooled_host(record: &HostRecord) {
         )
         .await;
     }
+    // A host killed outright ended nothing under it, and its harness exits on the closed pipe:
+    // a helper that left the group is found only by the host's mark.
+    let nonce = record.start_nonce.clone();
+    let _ = tokio::task::spawn_blocking(move || agent_host::end_left_behind(&nonce)).await;
     agent_host::remove_artifacts(&dir, record);
 }
