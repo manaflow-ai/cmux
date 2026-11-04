@@ -2871,6 +2871,96 @@ async fn peer_pending_for_an_unknown_session_is_dropped() {
     assert_eq!(got.len(), 1, "{got:?}");
 }
 
+/// A live ask for a session the peer has not listed yet (its new chat asked
+/// before its `session_changed` reached this daemon) is held, not dropped as
+/// forged: once the peer lists that session, the ask reaches the watcher with
+/// its decision nonce, so the app holds a record of it and can sign a
+/// person's Allow once (2026-11-03: "That answer didn't go through" on a
+/// live ask). An ask for a session the peer never lists still never does.
+#[tokio::test]
+async fn peer_pending_for_a_session_listed_after_it_is_relayed_once_listed() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let says = Lying {
+        instance: json!("l-run"),
+        sessions: vec![json!({"sessionId": "far-1", "name": "far"})],
+        pending: vec![
+            peer_prompt("nobody", "forged", "l-run"),
+            peer_prompt("far-2", "fresh", "l-run"),
+        ],
+        changed: vec![json!({"session": {"sessionId": "far-2", "name": "new"},
+                             "kind": "created", "seq": 1})],
+        ..Lying::default()
+    };
+    let port = lying_peer(says).await;
+    let mut watcher = plain(a.clone()).await;
+    watcher.call(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+    a.add_peer("l", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    // One deadline for the whole read: `wait` restarts its own on every line the hub sends.
+    let got = tokio::time::timeout(Duration::from_secs(30), async {
+        let mut got = Vec::new();
+        loop {
+            let p = watcher.wait(method::MUX_PERMISSION_PENDING, |_| true).await;
+            let fresh = p["permissionId"] == "fresh";
+            got.push(p);
+            if fresh {
+                return got;
+            }
+        }
+    })
+    .await
+    .expect("the held ask never reached the watcher");
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0]["sessionId"], "far-2", "{got:?}");
+    assert_eq!(got[0]["decisionNonce"], "n-1", "{got:?}");
+    assert_eq!(got[0]["peer"], "l", "{got:?}");
+}
+
+/// A held ask (its session not listed yet) that the peer decided before it
+/// listed the session never comes back as a live card; another session's
+/// held ask, listed after, does.
+#[tokio::test]
+async fn peer_pending_decided_before_its_session_is_listed_is_not_relayed() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let says = Lying {
+        instance: json!("l-run"),
+        sessions: vec![json!({"sessionId": "far-1", "name": "far"})],
+        pending: vec![
+            peer_prompt("far-2", "gone", "l-run"),
+            peer_prompt("far-3", "fresh", "l-run"),
+        ],
+        changed: vec![
+            json!({"session": {"sessionId": "far-2", "name": "decided"},
+                   "kind": "permission_decision", "seq": 2}),
+            json!({"session": {"sessionId": "far-3", "name": "new"}, "kind": "created", "seq": 1}),
+        ],
+        ..Lying::default()
+    };
+    let port = lying_peer(says).await;
+    let mut watcher = plain(a.clone()).await;
+    watcher.call(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+    a.add_peer("l", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    // One deadline for the whole read: `wait` restarts its own on every line the hub sends.
+    let got = tokio::time::timeout(Duration::from_secs(30), async {
+        let mut got = Vec::new();
+        loop {
+            let p = watcher.wait(method::MUX_PERMISSION_PENDING, |_| true).await;
+            let fresh = p["permissionId"] == "fresh";
+            got.push(p);
+            if fresh {
+                return got;
+            }
+        }
+    })
+    .await
+    .expect("the held ask never reached the watcher");
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0]["sessionId"], "far-3", "{got:?}");
+}
+
 /// A peer's prompt for its own session in its own run reaches the watcher,
 /// with which peer asks.
 #[tokio::test]

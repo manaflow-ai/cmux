@@ -160,6 +160,8 @@ export const PROMPT_SUGGESTIONS_OPTION = {
     },
   ],
 };
+/// The mock chat whose model the harness cannot reach and retries (`turn_retrying`).
+export const MODEL_RETRY_SESSION = "mock-model-retry";
 export const SUBAGENT_NAMES_SESSION = "mock-subagent-names";
 export const SUBAGENT_NAMES_AGENT_ID = "a6ab68f9e2c41d07b";
 export const SUBAGENT_NAMES_TASK = "Watch CI for #33005";
@@ -246,6 +248,38 @@ export const mockSessions: MockSession[] = [
     hostKind: "local",
     reply:
       "The lane wasn't foregrounded by acpmux or cmux NEXT. It ran about 40 slow Bash calls in the foreground itself, and they stalled the turn. Separately, the activity-row timer bug went to the timer helper.\n\n[outward] Add a hook that pushes known-slow commands to the background?\n- Yes, add the hook\n- Not now\n- Fix CI first",
+  },
+  {
+    // The person came back to a Claude chat after 5+ minutes away (Leo, 2026-11-03: "lkewise with
+    // teh cli summarization thing? how do those get turned on? maybe we can expose it in cmux-next
+    // too"): acpmux's `recap` record, drawn as the recap row under the last turn.
+    sessionId: "mock-session-recap",
+    title: "Make the parser tolerate missing fields",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9200,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "The parser now skips absent optional fields.",
+    history: (at) => [
+      { ago: at + 900_000, mux: "user_message", msg: { text: "Make the parser in foo.rs tolerate missing fields." } },
+      { ago: at + 900_000, mux: "turn_started" },
+      {
+        ago: at + 860_000,
+        update: text("The parser now skips absent optional fields; required ones still fail with their name."),
+      },
+      { ago: at + 860_000, mux: "turn_result", msg: { status: "completed" } },
+      {
+        ago: at,
+        mux: "recap",
+        msg: {
+          text: "Goal: make the parser in foo.rs tolerate missing fields; optional ones are done. Next: decide how required fields should fail.",
+          awayMs: 840_000,
+        },
+      },
+    ],
   },
   {
     sessionId: "mock-typing-latency",
@@ -696,6 +730,38 @@ export const mockSessions: MockSession[] = [
       { ago: at + 60_000, mux: "turn_started" },
       { ago: at + 10_000, update: text("Done: the uploader retries 5xx with backoff.") },
       { ago: at, mux: "turn_result", msg: { status: "completed" } },
+    ],
+  },
+  {
+    // A chat whose model gateway is down (Leo, 2026-11-03, on "Thinking 7m 49s": "i feel like this
+    // mac session just keeps "thinking""): Claude Code retries the request every 75 s, and acpmux
+    // logs each retry as `turn_retrying` (hub/turn_retry.rs). The live line says the model cannot
+    // be reached, with the retry's count and error, never "Thinking" (`?mock&session=` this id).
+    sessionId: MODEL_RETRY_SESSION,
+    title: "Fix the flaky upload test",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "running",
+    cwd: CMUX,
+    ago: 9300,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    history: (at) => [
+      { ago: at + 470_000, mux: "user_message", msg: { text: "Fix the flaky upload test" } },
+      { ago: at + 470_000, mux: "turn_started", msg: { turnId: "mock-retry-turn" } },
+      ...[1, 2, 3, 4, 5, 6, 7].map((attempt) => ({
+        ago: at + 470_000 - attempt * 66_000,
+        mux: "turn_retrying",
+        msg: {
+          turnId: "mock-retry-turn",
+          attempt,
+          maxRetries: 10,
+          errorStatus: 503,
+          error: "server_error",
+          retryDelayMs: 75_000,
+          source: "claude",
+        },
+      })),
     ],
   },
 ];
