@@ -641,7 +641,7 @@ fn a_customize_save_that_declares_a_new_read_scope_gets_it() {
     };
     assert!(grants(&supervisor).is_empty());
     let path = customize.join("cmux-app.v2.json");
-    let mut manifest: serde_json::Value =
+    let mut manifest: Value =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     manifest["version"] = json!("1.0.1");
     manifest["scopes"] = json!({"workspace:read": "r", "workspace:write": "w"});
@@ -667,9 +667,8 @@ fn a_read_the_person_turned_off_stays_off_through_a_broken_save() {
     let customize = session.0.join("customize");
     write_app(&customize, "local/customize", "1.0.0");
     let path = customize.join("cmux-app.v2.json");
-    let good: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    let save = |version: &str, scopes: serde_json::Value| {
+    let good: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let save = |version: &str, scopes: Value| {
         let mut manifest = good.clone();
         manifest["version"] = json!(version);
         manifest["scopes"] = scopes;
