@@ -204,10 +204,14 @@ jobs:
       # and the queue janitor's snapshot, and spill linux off a backed-up member (above).
       # Without the spill checkout, main's runner_pools.py runs alone as before.
       # Runs whatever the switch decided, with its token.
+      # GH_TOKEN only reads (the spill's queue sample lists in-flight runs and their jobs; the policy reads the
+      # janitor's pool snapshot artifact), so it is the cmux-bot read token minted above: measured on
+      # 2026-11-04 (14:03-15:02Z) at about 54 GITHUB_TOKEN requests a run, six runs an hour. Variable writes stay
+      # on SWITCH_TOKEN; a failed mint falls back to the workflow token.
       - name: Point the runner pools at live members
         if: always() && steps.switch.outcome != 'skipped'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
           SWITCH_TOKEN: ${{ steps.switch-token.outputs.token }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}

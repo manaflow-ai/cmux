@@ -318,6 +318,8 @@ jobs:
   # tip-dmg-build, also secret-free, takes `dmg_label`: the same owned pool,
   # but only when it has two machines free now, so it never queues behind
   # verify on one mini; otherwise it stays on Blacksmith macOS.
+  # Before any wait, verify takes an owned std label (a pool or its root label)
+  # with an idle runner no queued job waits for (e2e_runner_pool.py --free-now).
   # Only the std class (--owned-classes std): both jobs download the 188 MB
   # signed app, which took 736-974 s on the light pool's minis (24 h to
   # 2026-10-30), so verify ran 895 s median there against 41 s on std and
@@ -476,10 +478,19 @@ jobs:
             glaeda-*) ;;
             *) echo "No owned Mac to wait on (picker said '${label:-nothing}'); Blacksmith macOS 26 takes verify."; label="" ;;
           esac
+          # verify (1.5 min of work) takes an owned label with an idle runner that no queued job
+          # waits for, when one exists, instead of the label picked above: on 2026-11-04 it waited
+          # 67 min on glaeda-std-xcode-26.6 (0 runners online, 22 jobs queued; run 41814294095)
+          # while glaeda-root-std-xcode-26.6 runners with nothing queued sat idle. Same std class
+          # (the download-bound rule above) and Xcode pin; tip-dmg-build keeps its own pick.
+          free="$(pick 1 --free-now)" || free=""
+          case "$free" in
+            glaeda-*) echo "verify takes $free: an idle owned runner with no job queued on its labels."; label="$free" ;;
+          esac
           echo "label=$label" >> "$GITHUB_OUTPUT"
           echo "dmg_label=$dmg_label" >> "$GITHUB_OUTPUT"
           echo "owned=$owned" >> "$GITHUB_OUTPUT"
-          [ -z "$label" ] || echo "Runner: $label for verify${dmg_label:+ and tip-dmg-build} (a re-run takes Blacksmith macOS 26)"
+          [ -z "$label" ] || echo "Runner: $label for verify${dmg_label:+,$dmg_label for tip-dmg-build} (a re-run takes Blacksmith macOS 26)"
 
       # ci-owned-pool-rescue.yml's sweeper watches a run with these markers and
       # re-runs verify (and tip-dmg-build) when an owned Mac leaves it queued or refuses it
@@ -500,7 +511,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.pool.outputs.dmg_label != '' && '2' || '1' }}-${{ steps.pool.outputs.label }}
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.pool.outputs.dmg_label == steps.pool.outputs.label && '2' || '1' }}-${{ steps.pool.outputs.label }}
           path: ${{ steps.marker.outputs.path }}
           retention-days: 1
 
