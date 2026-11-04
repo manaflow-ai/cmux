@@ -1812,8 +1812,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWireDigest",
                 // MethodTableTests counts allocations through a malloc_logger hook.
                 .product(name: "Atomics", package: "swift-atomics"),
-                // FrameFuzzTests runs on FuzzRun (seeded replay, long mode).
-                .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
                 // The fixture schema's generated DaemonWireEvent, which WireEventSetTests decodes with.
                 "CmuxNextIPCTestSupport",
             ],
