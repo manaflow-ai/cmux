@@ -80,6 +80,7 @@ struct TerminalRevealReportTests {
         let fixture = try await Fixture()
         defer { fixture.close() }
         let view = fixture.session.surfaceView
+        fixture.recorder.revealed.removeAll() // the window's first show is a reveal too
 
         fixture.session.view.isHidden = true
         fixture.session.view.isHidden = false
