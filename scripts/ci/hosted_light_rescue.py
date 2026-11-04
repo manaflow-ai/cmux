@@ -14,7 +14,7 @@ An independent scheduled workflow wakes that same concurrency owner when it is n
 cancels or re-runs target jobs itself. Each pass:
 
 - lists the in-flight (`queued`, `in_progress`) pull request runs of every workflow file that declares a hosted
-  light job, created STALL_SECONDS to WINDOW ago (one listing page per workflow and status);
+  light job, created STALL_SECONDS to WINDOW ago (the newest listing page plus one rotating overflow page per workflow and status);
 - reads the jobs of at most MAX_RUNS of them (plus one re-read per rescue, so at most MAX_RUNS + MAX_RESCUES) (attempt 1 only, at the pull request's current head); the first pass is oldest first and later passes rotate from a bounded in-memory cursor;
 - finds a stalled job: queued, no runner id or name, every label a GitHub-hosted `ubuntu-*` label (in this repo only
   declared hosted light jobs may ask for one, tests/test_ci_self_hosted_guard.sh), created STALL_SECONDS or more ago;
@@ -54,6 +54,7 @@ STALL_SECONDS = 180
 WINDOW = dt.timedelta(minutes=90)
 MAX_RUNS = 40
 MAX_RESCUES = 10
+MAX_RUN_LIST_PAGES = 10
 SETTLE_BUDGET_S = 90.0
 SETTLE_INTERVAL_S = 5.0
 EVENTS = frozenset({"pull_request"})
@@ -148,9 +149,9 @@ class GitHub:
                 return cached[1]
             raise RuntimeError(f"{method} {path}: HTTP {error.code}") from error
 
-    def runs(self, workflow: str, status: str, start: dt.datetime, end: dt.datetime) -> list[dict[str, Any]]:
+    def runs(self, workflow: str, status: str, start: dt.datetime, end: dt.datetime, *, page: int = 1) -> list[dict[str, Any]]:
         # Filtered to pull_request runs server-side, so push and dispatch runs never fill the one page.
-        query = urllib.parse.urlencode({"status": status, "event": "pull_request", "per_page": 100,
+        query = urllib.parse.urlencode({"status": status, "event": "pull_request", "per_page": 100, "page": page,
                                         "created": f">={iso(start.replace(minute=0, second=0, microsecond=0))}"})
         return list(self.request("GET", f"/actions/workflows/{workflow}/runs?{query}").get("workflow_runs") or [])
 
@@ -262,22 +263,42 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
     lines: list[str] = []
     start, end = now - WINDOW, now - dt.timedelta(seconds=STALL_SECONDS)
     listed: dict[int, Mapping[str, Any]] = {}
+    state: dict[str, Any] = {}
+    if scan_cursor is not None:
+        current = scan_cursor[0] if scan_cursor else None
+        state = current if isinstance(current, dict) else {"run": current, "pages": {}}
+    overflow_pages = state.setdefault("pages", {})
     for workflow in workflows:
         for status in IN_FLIGHT:
-            try:
-                page = client.runs(workflow, status, start, end)
-            except Exception as error:  # noqa: BLE001 - an unread listing only narrows this pass
-                lines.append(f"could not list {status} runs of {workflow} ({error})")
-                continue
-            for run in page:
-                if isinstance(run, Mapping) and isinstance(run.get("id"), int) and candidate(run):
-                    listed[run["id"]] = {**run, "_workflow": workflow}
+            key = f"{workflow}\0{status}"
+            overflow = int(overflow_pages.get(key, 2) or 2)
+            pages = (1, overflow) if overflow != 1 else (1,)
+            full_overflow = False
+            for listing_page in pages:
+                try:
+                    page = client.runs(workflow, status, start, end, page=listing_page)
+                except TypeError:
+                    # Test doubles and older callers can still provide the original five-argument client.
+                    page = client.runs(workflow, status, start, end)
+                except Exception as error:  # noqa: BLE001 - an unread listing only narrows this pass
+                    lines.append(f"could not list {status} runs of {workflow} ({error})")
+                    continue
+                if listing_page == overflow:
+                    full_overflow = len(page) >= 100
+                for run in page:
+                    if isinstance(run, Mapping) and isinstance(run.get("id"), int) and candidate(run):
+                        listed[run["id"]] = {**run, "_workflow": workflow}
+            if full_overflow:
+                overflow_pages[key] = 2 if overflow >= MAX_RUN_LIST_PAGES else overflow + 1
+            else:
+                overflow_pages[key] = 2
     runs = sorted(listed.values(), key=run_key)
     candidate_count = len(runs)
-    cursor = scan_cursor[0] if scan_cursor else None
+    cursor = state.get("run")
     runs, next_cursor = scan_slice(runs, cursor)
     if scan_cursor is not None:
-        scan_cursor[:] = [next_cursor]
+        state["run"] = next_cursor
+        scan_cursor[:] = [state]
     if candidate_count > MAX_RUNS:
         lines.append(f"{candidate_count} candidate runs; read a rotating slice of {MAX_RUNS}")
     rescued = 0
