@@ -3,13 +3,14 @@
 // other side too when you do one... they should all be individual per pane"): a toggle, a drag or a
 // fold in one pane never reaches another. Every chat pane is its own page, so the page's copy is the
 // pane's; it is kept in localStorage under the chat's session (``bindSessionInfoPane``) so the pane
-// shows it again after a relaunch, and no page listens for another's writes. The last choice made in
-// any pane is the default for a pane with none of its own yet (a new chat), so Session Info still
-// opens for a first chat and stays off for new chats once closed (Leo, 2026-10-20). With no storage
-// (a private window, a test) the page's own copy holds them.
+// shows it again after a relaunch, and no page listens for another's writes. The last width and
+// folds chosen in any pane are the defaults for a pane with none of its own yet (a new chat), but a
+// new chat starts closed: Session Info opens only when the viewer opens it (its toggle, the
+// palette, a running line's count), never by itself over a new chat's composer (cmux #26692). With
+// no storage (a private window, a test) the page's own copy holds them.
 //
 // A chat opened in a split beside another chat (a subagent's pane, a chat its agent started) starts
-// with Session Info closed: it does not inherit the parent's or the last choice (Leo, 2026-11-03: "i
+// with Session Info closed too: it does not inherit the parent's or the last choice (Leo, 2026-11-03: "i
 // also dont like how the session info overlay is when it goes to a right split honestly it's often
 // fine to just not have it open by default on the right like it doesn't need to inherit that" and
 // "like if they want it open they can just do it on the right split one but otherwise it really
@@ -60,8 +61,9 @@ export const DEFAULT_SECTIONS: SessionInfoSections = {
   outputs: true,
 };
 
-/// The last choice made in any pane: the defaults for a pane with no state of its own. These were
-/// the one shared state before 2026-10-25, so an old install's choice is the default too.
+/// The last width and folds chosen in any pane: the defaults for a pane with no state of its own.
+/// These were the one shared state before 2026-10-25, so an old install's choice is the default too.
+/// The open key records the last open choice but is no longer a default: a new chat starts closed.
 const OPEN_KEY = "cmux.agentPane.inspector.open";
 const WIDTH_KEY = "cmux.agentPane.inspector.width";
 const SECTIONS_KEY = "cmux.agentPane.inspector.sections";
@@ -69,8 +71,8 @@ const SECTIONS_KEY = "cmux.agentPane.inspector.sections";
 const MORE_KEY = "cmux.agentPane.inspector.more";
 /// The first iMessage connector reveal is shared across panes and relaunches; later folds stay put.
 const IMESSAGE_REVEALED_KEY = "cmux.agentPane.inspector.imessageRevealed";
-/// Each chat's own state, one key per chat (`{ open, width, sections, at }`): a pane writes only its
-/// chat's key, so two panes saving at once never undo each other's change.
+/// Each chat's own state, one key per chat (`{ open, width, sections, sourcesAll, more, at, v }`): a
+/// pane writes only its chat's key, so two panes saving at once never undo each other's change.
 export const SESSION_INFO_PANE_PREFIX = "cmux.agentPane.inspector.pane.";
 /// The chats that have a key, newest first: `[sessionId, savedAt]` pairs, at most ``PANES_KEPT``.
 /// A save prunes from it, so a toggle reads one small key, never every key in the page's storage.
@@ -112,7 +114,11 @@ type Stored = {
   sourcesAll?: unknown;
   more?: unknown;
   at?: unknown;
+  v?: unknown;
 };
+/// The saved state's version. Before 2 a new chat saved Session Info open without the viewer
+/// opening it (the old default), so an open from then is not the viewer's: it reads closed.
+const STORED_VERSION = 2;
 
 const clampWidth = (width: number) =>
   Math.round(Math.min(SESSION_INFO_WIDTH.max, Math.max(SESSION_INFO_WIDTH.min, width)));
@@ -150,7 +156,7 @@ function storedState(raw: string | null): State | undefined {
   const stored = parse(raw) as Stored | undefined;
   if (!stored || typeof stored !== "object" || typeof stored.open !== "boolean") return undefined;
   return {
-    open: stored.open,
+    open: stored.open && stored.v === STORED_VERSION,
     width: widthOf(stored.width),
     sections: sectionsOf(stored.sections),
     sourcesAll: stored.sourcesAll === true,
@@ -192,9 +198,9 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
       return [];
     }
   };
-  /// Open unless the viewer closed it: a first chat shows it.
+  /// Closed until the viewer opens it, with the last width and folds.
   const defaults = (): State => ({
-    open: read(OPEN_KEY) !== "0",
+    open: false,
     width: widthOf(Number(read(WIDTH_KEY))),
     sections: sectionsOf(parse(read(SECTIONS_KEY))),
     sourcesAll: false,
@@ -236,7 +242,7 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
   const save = (sessionId: string, next: State) => {
     const now = Date.now();
     const ids = tab ? [tabEntry(sessionId, tab), sessionId] : [sessionId];
-    const value = JSON.stringify({ ...next, sections: savedSections(next.sections), at: now });
+    const value = JSON.stringify({ ...next, sections: savedSections(next.sections), at: now, v: STORED_VERSION });
     for (const id of ids) write(SESSION_INFO_PANE_PREFIX + id, value);
     const others = adoptStrays(indexOf())
       .filter(([id]) => !ids.includes(id))
@@ -264,6 +270,9 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
   let pane: string | undefined;
   /// The tab this page is (``setTab``); none (an older host, a page no tab adopted yet, a test): by chat.
   let tab: string | undefined;
+  /// The chat the pane is leaving for a new one (`startNewChat`) until it binds again: nothing is saved
+  /// under it meanwhile, so the new chat's closed state never lands on the chat it left.
+  let leaving: string | undefined;
   let state: State | undefined;
   /// The last saved state `shownFor` read for a chat the pane does not show yet, so the snapshot
   /// stays the same object while nothing changed.
@@ -281,17 +290,20 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
     const raw = read(SESSION_INFO_PANE_PREFIX + key);
     return { raw, state: storedState(raw) };
   };
-  /// What a pane with no saved state of its own starts with: what it shows now, closed for a split
-  /// pane. The same object while `current()` is, so a snapshot read stays stable.
-  let closedOf: { from: State; state: State } | undefined;
-  const fresh = (key: string): State => {
-    const now = current();
-    if (!key.startsWith(SPLIT_PREFIX) || !now.open) return now;
-    if (closedOf?.from !== now) closedOf = { from: now, state: { ...now, open: false } };
-    return closedOf.state;
+  /// What the pane shows, closed. The same object while the pane's state is, so a snapshot read
+  /// twice is equal.
+  let closedOf: { from: State; to: State } | undefined;
+  const closed = (): State => {
+    const from = current();
+    if (!from.open) return from;
+    if (closedOf?.from !== from) closedOf = { from, to: { ...from, open: false } };
+    return closedOf.to;
   };
+  /// What a chat with no saved state of its own starts with under `key`: closed when it replaces
+  /// another chat's session in the pane (`left`) or is a split pane's key, else what the pane shows.
+  const fresh = (key: string, left: boolean): State => (left || key.startsWith(SPLIT_PREFIX) ? closed() : current());
   const update = (next: State, persist: boolean) => {
-    if (persist && pane) save(pane, next);
+    if (persist && pane && pane !== leaving) save(pane, next);
     const changed = next !== state;
     state = next;
     if (changed) for (const listener of listeners) listener();
@@ -307,30 +319,45 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
     },
     /// What the pane shows for chat `sessionId`, read before the pane is bound to it, so a pane
     /// switched to another chat draws that chat's state from its first frame: the chat's saved
-    /// state, else what the pane shows now (a new chat inherits it).
+    /// state, else, for a chat with none that replaces another chat's session or under a split pane's
+    /// key, what the pane shows now closed (a new chat never opens Session Info by itself). No session
+    /// (a new chat before its first, a harness switch on an empty chat) and a pane with no session
+    /// getting its first are the same chat: it keeps what it shows (the viewer may have opened it
+    /// before the first prompt).
     shownFor(sessionId: string | undefined): State {
       if (!sessionId || sessionId === pane) return current();
       const key = tabEntry(sessionId, tab);
       const saved = savedFor(sessionId);
       if (peeked?.key !== key || peeked.raw !== saved.raw) peeked = { key, raw: saved.raw, state: saved.state };
-      return peeked.state ?? fresh(sessionId);
+      return peeked.state ?? fresh(sessionId, pane !== undefined);
     },
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => void listeners.delete(listener);
     },
     /// The pane shows chat `sessionId` (a relaunch, a new chat's first session, another chat in the
-    /// pane): it shows that chat's saved state, or keeps what it shows (closed under a split pane's
-    /// key, ``sessionInfoPaneKey``) and saves it as the chat's.
-    /// No session (a new chat not started yet, a harness switch): nothing is saved until one comes,
-    /// and the pane keeps what it shows.
+    /// pane): it shows that chat's saved state, or saves what it shows as the chat's, closed when the
+    /// pane went straight from another chat's session to it or under a split pane's key
+    /// (``sessionInfoPaneKey``). No session (a new chat not started yet, a harness switch): nothing
+    /// is saved until one comes, and the pane keeps what it shows.
     bind(sessionId: string | undefined) {
-      if (sessionId === pane) return;
+      if (sessionId === pane) {
+        // The host handed the tab back the chat it showed (no new chat after all): it shows its own
+        // saved state again and saves as before.
+        if (pane && leaving === pane) {
+          leaving = undefined;
+          const saved = savedFor(pane).state;
+          if (saved) update(saved, false);
+        }
+        return;
+      }
+      leaving = undefined;
+      const left = pane !== undefined;
       pane = sessionId || undefined;
       if (!pane) return;
       const saved = savedFor(pane).state;
       if (saved) return update(saved, false);
-      const start = fresh(pane);
+      const start = fresh(pane, left);
       save(pane, start);
       update(start, false);
     },
@@ -341,12 +368,23 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
       if (next === tab) return;
       tab = next;
       peeked = undefined;
+      // A pane leaving its chat for a new one keeps showing the new chat closed; the chat it left
+      // is read under the new tab if the host hands it back (``bind``).
+      if (leaving) return;
       const shown = pane;
       pane = undefined;
       if (shown) store.bind(shown);
       else for (const listener of listeners) listener();
     },
+    /// The page starts another chat by way of no session (the host's new chat in this tab, or another
+    /// chat it hands the tab: App.tsx's handshake reset): the new chat shows closed from its first
+    /// frame, and the chat the pane showed keeps its saved state. A harness switch keeps what it shows.
+    startNewChat() {
+      leaving = pane;
+      update(closed(), false);
+    },
     setOpen(open: boolean) {
+      // Read by no default since #26692; written so an older build reading it keeps the last choice.
       write(OPEN_KEY, open ? "1" : "0");
       update({ ...current(), open }, true);
     },
@@ -355,7 +393,7 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
       const next = clampWidth(width);
       if (persist) write(WIDTH_KEY, String(next));
       if (next !== current().width) update({ ...current(), width: next }, persist);
-      else if (persist && pane) save(pane, current());
+      else if (persist && pane && pane !== leaving) save(pane, current());
     },
     setSection(id: SessionInfoSectionId, open: boolean) {
       const sections = { ...current().sections, [id]: open };
@@ -388,6 +426,7 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
       state = undefined;
       peeked = undefined;
       closedOf = undefined;
+      leaving = undefined;
       update(defaults(), false);
     },
   };
@@ -412,6 +451,7 @@ export const useSessionInfoOpen = (sessionId?: string): boolean => {
 export const bindSessionInfoPane = page.bind;
 /// Keys this pane's state by the tab the page is (App.tsx, from the handshake and `acpmux-pane-tab`).
 export const setSessionInfoTab = page.setTab;
+export const startNewSessionInfoChat = page.startNewChat;
 export const setSessionInfoOpen = page.setOpen;
 export const setSessionInfoWidth = page.setWidth;
 export const setSessionInfoSection = page.setSection;

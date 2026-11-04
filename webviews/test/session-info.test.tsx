@@ -45,6 +45,7 @@ import {
   sessionInfoState,
   resetSessionInfoState,
   setSessionInfoMore,
+  setSessionInfoOpen,
   setSessionInfoSection,
 } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
@@ -109,6 +110,8 @@ function installDom(sessionInfo: boolean): HTMLElement {
   Object.assign(scope, replacements);
   resetSessionInfoState();
   setSessionInfoMore(true);
+  // The viewer opened Session Info before the chat's first frame: it never opens by itself (#26692).
+  setSessionInfoOpen(true);
   return dom.window.document.getElementById("root")!;
 }
 
@@ -336,7 +339,7 @@ test("Session Info does not render when the transcript scrolls", async () => {
   expect(renders).toBe(beforeScroll);
 });
 
-test("Session Info opens with a first chat: its environment, context use and outputs; the toggle closes it", async () => {
+test("Session Info, once opened, shows its environment, context use and outputs; the toggle closes it", async () => {
   const container = installDom(true);
   const opened = await render(container, localChat);
   expect(toggle(container)?.getAttribute("aria-pressed")).toBe("true");
@@ -835,7 +838,7 @@ test("an output whose diff split leaves no room to push the chat closes Session 
   });
   expect(panel(container)).toBeNull();
   expect(toggle(container)?.getAttribute("aria-pressed")).toBe("false");
-  // Not remembered as closed: the next chat still opens it, and the toggle brings it back here.
+  // Not remembered as closed: the toggle brings it back here.
   expect(sessionInfoState().open).toBe(true);
   await click(toggle(container)!);
   expect(panel(container)).not.toBeNull();

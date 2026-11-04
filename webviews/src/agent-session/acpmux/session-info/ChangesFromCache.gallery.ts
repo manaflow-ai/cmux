@@ -77,6 +77,8 @@ const settled: Play = async (ctx) => {
   // choice opens it, as a person who opened Show more once has it.
   const { setSessionInfoMore } = await import("./sessionInfoState");
   setSessionInfoMore(true);
+  // Session Info opens only on the viewer's click (#26692).
+  if (!ctx.document.querySelector(".acpmux-session-info")) await ctx.click({ role: "button", name: "Session Info" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info[data-presence=shown]"), { capMs: 3000 });
   // The read-only `gh pr view` is a Source; only the created and merged PRs belong in Changes.
   await ctx.waitFor(() => ctx.document.querySelectorAll("li.acpmux-session-info-pr").length >= 2, { capMs: 3000 });
