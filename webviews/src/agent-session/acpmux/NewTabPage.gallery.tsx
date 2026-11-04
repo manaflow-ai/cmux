@@ -148,6 +148,22 @@ const switchKinds: Play = async (ctx) => {
 };
 
 const prefixes: Play = async (ctx) => {
+  // DIAG(cmux#35744): temporary, not for merge.
+  const view = ctx.document.defaultView!;
+  const seen: string[] = [];
+  const diag = new view.PerformanceObserver((list) => {
+    for (const entry of list.getEntries() as (PerformanceEntry & { value: number; sources?: { node?: Node; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly }[] })[]) {
+      for (const source of entry.sources ?? []) {
+        const el = source.node instanceof view.Element ? source.node : undefined;
+        if (!el?.closest(".acpmux-omni")) continue;
+        const pop = el.closest(".acpmux-omni") as HTMLElement;
+        const r = (b: DOMRectReadOnly) => [b.x, b.y, b.width, b.height].map((n) => Math.round(n)).join(",");
+        const rows = [...pop.querySelectorAll(".acpmux-omni-row")];
+        seen.push(`t=${Math.round(entry.startTime)} v=${entry.value.toFixed(4)} row#${rows.indexOf(el)}/${rows.length} "${(el.textContent ?? "").slice(0, 40)}" prev=${r(source.previousRect)} cur=${r(source.currentRect)} pop=${r(pop.getBoundingClientRect())} scroll=${pop.scrollTop}/${pop.clientHeight}/${pop.scrollHeight} kind=${ctx.document.querySelector(".acpmux-newtab")?.getAttribute("data-kind")} q="${fieldText(ctx)}" sw=${ctx.document.querySelector(".acpmux-newtab-under")?.getAttribute("data-kind-switch") ?? ""} vh=${view.innerHeight}`);
+      }
+    }
+  });
+  diag.observe({ type: "layout-shift", buffered: false });
   await typePrompt(ctx, "!git status");
   await ctx.waitFor(
     () =>
@@ -161,6 +177,8 @@ const prefixes: Play = async (ctx) => {
       ctx.document.querySelector(".acpmux-newtab")?.getAttribute("data-kind") === "agent" &&
       fieldText(ctx) === "review the cache",
   );
+  diag.disconnect();
+  if (seen.length) throw new Error(`DIAG ${seen.join(" || ")}`);
 };
 
 const keyboard: Play = async (ctx) => {
