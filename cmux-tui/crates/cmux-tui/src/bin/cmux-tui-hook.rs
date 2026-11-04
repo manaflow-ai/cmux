@@ -125,6 +125,20 @@ fn run_reading(
         println!("{}", cmux_git::native_hook::denial(&error.to_string()));
         return Ok(());
     }
+    let result = run_after_ready(&args, exe_prefix, native);
+    if result.is_err()
+        && args.native_event == "PreToolUse"
+        && matches!(args.source.as_str(), "claude" | "codex")
+    {
+        // Repository readiness is the only blocking part of this hook. Once
+        // it passed, journal delivery is telemetry and must not deny a tool.
+        println!("{{}}");
+        return Ok(());
+    }
+    result
+}
+
+fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::Result<()> {
     let inbox = inbox::Delivery::for_event(&args.source, &args.native_event);
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
         inbox::print_nothing(inbox);

@@ -532,7 +532,7 @@ pub struct Translator {
     sent_commands: Mutex<Option<Vec<Value>>>,
     /// Lines for claude's stdin produced while reading its stdout (answers
     /// to control requests acpmux declines). The reader drains them.
-    stdin_replies: Mutex<Vec<Value>>,
+    stdin_replies: Arc<Mutex<Vec<Value>>>,
     /// Running Agent (Task) tool calls: tool_use id -> the subagent session
     /// id their lines stream under.
     subagents: Mutex<HashMap<String, String>>,
@@ -700,7 +700,7 @@ impl Translator {
             slash_commands: Mutex::new(Vec::new()),
             skills: Mutex::new(Vec::new()),
             sent_commands: Mutex::new(None),
-            stdin_replies: Mutex::new(Vec::new()),
+            stdin_replies: Arc::new(Mutex::new(Vec::new())),
             subagents: Mutex::new(HashMap::new()),
             background_subagents: Mutex::new(HashSet::new()),
             subagent_tasks: Mutex::new(HashMap::new()),

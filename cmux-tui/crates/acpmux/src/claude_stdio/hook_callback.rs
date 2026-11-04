@@ -6,7 +6,29 @@ use super::*;
 pub(super) const SYNC_CALLBACK: &str = "cmux-repo-sync";
 
 impl Translator {
+    /// Schedule a registered hook without holding the stdio translator's
+    /// inbound loop on a repository lock. The reply is queued when the wait
+    /// completes; the next frame can still be read and cancellation handled.
+    pub(super) fn spawn_hook_callback(&self, rid: String, req: Value) {
+        let replies = Arc::clone(&self.stdin_replies);
+        tokio::spawn(async move {
+            let output = Self::hook_callback_output(&req).await;
+            replies.lock().await.push(json!({
+                "type": "control_response",
+                "response": {"subtype": "success", "request_id": rid, "response": output}
+            }));
+        });
+    }
+
     pub(super) async fn answer_hook_callback(&self, rid: &str, req: &Value) {
+        let output = Self::hook_callback_output(req).await;
+        self.stdin_replies.lock().await.push(json!({
+            "type": "control_response",
+            "response": {"subtype": "success", "request_id": rid, "response": output}
+        }));
+    }
+
+    async fn hook_callback_output(req: &Value) -> Value {
         #[cfg(not(unix))]
         let output = {
             let _ = req;
@@ -32,9 +54,6 @@ impl Translator {
                 Err(error) => cmux_git::native_hook::denial(&error.to_string()),
             };
         }
-        self.stdin_replies.lock().await.push(json!({
-            "type": "control_response",
-            "response": {"subtype": "success", "request_id": rid, "response": output}
-        }));
+        output
     }
 }

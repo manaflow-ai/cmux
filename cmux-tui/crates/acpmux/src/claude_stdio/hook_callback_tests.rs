@@ -47,7 +47,7 @@ async fn registered_pre_tool_callback_waits_and_failed_sync_returns_denial() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     let mut call = callback("sync", hook_callback::SYNC_CALLBACK, "PreToolUse");
     call["request"]["input"]["cwd"] = json!(repo);
-    let pending = t.inbound(&call);
+    let pending = t.answer_hook_callback("sync", &call["request"]);
     tokio::pin!(pending);
     assert!(
         tokio::time::timeout(std::time::Duration::from_millis(50), &mut pending).await.is_err()
@@ -57,7 +57,7 @@ async fn registered_pre_tool_callback_waits_and_failed_sync_returns_denial() {
     assert_eq!(t.take_stdin_replies().await[0]["response"]["response"], json!({}));
 
     drop(Sync::begin(&repo).unwrap());
-    t.inbound(&call).await;
+    t.answer_hook_callback("sync", &call["request"]).await;
     let replies = t.take_stdin_replies().await;
     assert_eq!(
         replies[0]["response"]["response"]["hookSpecificOutput"]["permissionDecision"],
