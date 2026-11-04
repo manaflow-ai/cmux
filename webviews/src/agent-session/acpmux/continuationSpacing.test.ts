@@ -168,7 +168,7 @@ test("estimated grid rows follow the Interface Size", () => {
   }
 });
 
-test("the live line sits flush under a run of one-line rows: 22 apart top to top (#29965)", () => {
+test("the live line keeps the scaled run gap after activity while activity rows stay flush", () => {
   const run = row("run", "activity", {
     items: [
       {
@@ -191,7 +191,7 @@ test("the live line sits flush under a run of one-line rows: 22 apart top to top
   const layout = layoutConversation([run, next, live], 720);
   expect(layout.heights[0]).toBe(22);
   expect(layout.tops[1]! - layout.tops[0]!).toBe(22);
-  expect(layout.tops[2]! - layout.tops[1]!).toBe(22);
+  expect(layout.tops[2]! - layout.tops[1]! - layout.heights[1]!).toBe(TRANSCRIPT_RUN_GAP);
   // The same live line right under its prompt still waits a block gap under it (grid.md 5.5).
   const prompt = row("p", "user", { text: "Go" });
   const waiting = layoutConversation([prompt, live], 720);
