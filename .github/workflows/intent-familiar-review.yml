@@ -74,7 +74,8 @@ jobs:
           import sys
 
           # One {filename, patch} per file, the shape pulls.listFiles gives: the patch is
-          # the file's hunks from its first "@@" line, without the diff header.
+          # the file's hunks from its first "@@" line, without the diff header. Git ends a
+          # ---/+++ name that holds a space with a tab.
           files = []
           current = None
           with open(sys.argv[1], encoding="utf-8", errors="replace") as diff:
@@ -89,9 +90,9 @@ jobs:
                   elif current["patch"] or line.startswith("@@"):
                       current["patch"].append(line)
                   elif line.startswith("+++ ") and line != "+++ /dev/null":
-                      current["new"] = line[4:].strip('"')[2:]
+                      current["new"] = line[4:].rstrip("\t").strip('"')[2:]
                   elif line.startswith("--- ") and line != "--- /dev/null":
-                      current["old"] = line[4:].strip('"')[2:]
+                      current["old"] = line[4:].rstrip("\t").strip('"')[2:]
                   elif line.startswith("rename to "):
                       current["rename"] = line[len("rename to "):]
           result = [

@@ -55,6 +55,7 @@ class GitPatch(unittest.TestCase):
         (src / "gone.txt").write_text("bye\n")
         (src / "moved.txt").write_text("".join(f"same {i}\n" for i in range(20)))
         (src / "blob.bin").write_bytes(b"\x00\x01\x02")
+        (src / "with space.txt").write_text("old\n")
         git(src, "add", "-A")
         git(src, "commit", "-q", "-m", "base")
         root = git(src, "rev-parse", "HEAD")
@@ -64,6 +65,7 @@ class GitPatch(unittest.TestCase):
         (src / "gone.txt").unlink()
         (src / "moved.txt").rename(src / "renamed.txt")
         (src / "blob.bin").write_bytes(b"\x00\x01\x03")
+        (src / "with space.txt").write_text("new\n")
         git(src, "add", "-A")
         git(src, "commit", "-q", "-m", "pr")
         self.head = git(src, "rev-parse", "HEAD")
@@ -95,7 +97,7 @@ class GitPatch(unittest.TestCase):
         result, files, body = self.run_step()
         self.assertEqual(result.returncode, 0, result.stderr)
         by_name = {item["filename"]: item["patch"] for item in files}
-        self.assertEqual(set(by_name), {"familiar.swift", "gone.txt", "renamed.txt", "blob.bin"})
+        self.assertEqual(set(by_name), {"familiar.swift", "gone.txt", "renamed.txt", "blob.bin", "with space.txt"})
         familiar = by_name["familiar.swift"]
         self.assertTrue(familiar.startswith("@@ -1,3 +1,3 @@"), familiar)
         self.assertIn("-let a = 1", familiar)
