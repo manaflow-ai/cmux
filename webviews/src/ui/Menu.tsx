@@ -497,16 +497,6 @@ export interface MenuItemProps {
   children: ReactNode;
 }
 
-function highlightMenuItem(target: HTMLElement) {
-  if (target.hasAttribute("data-disabled") || target.getAttribute("aria-disabled") === "true") return;
-  const menu = target.closest<HTMLElement>('[role="menu"]');
-  if (!menu) return;
-  menu.querySelectorAll<HTMLElement>('[role^="menuitem"][data-highlighted]').forEach((row) => {
-    if (row !== target) row.removeAttribute("data-highlighted");
-  });
-  target.setAttribute("data-highlighted", "");
-}
-
 export function MenuItem({
   className,
   "data-value": dataValue,
@@ -543,7 +533,6 @@ export function MenuItem({
       {...(closeOnClick === false ? { "data-keeps-open": "" } : {})}
       onPointerMove={(event) => {
         context?.movePointer(event);
-        highlightMenuItem(event.currentTarget);
         onPointerMove?.(event);
       }}
       onPointerEnter={onPointerEnter}

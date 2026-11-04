@@ -78,11 +78,12 @@ export function Listbox<T>({
   const typed = useRef({ text: "", at: 0 });
   const id = useId();
   const current = items.length > 0 ? Math.min(currentHighlight, items.length - 1) : -1;
+  const activeId = current >= 0 ? (getItemId?.(items[current], current) ?? `${id}-${current}`) : undefined;
   useEffect(() => {
-    if (current < 0) return;
-    const element = document.getElementById(getItemId?.(items[current], current) ?? `${id}-${current}`);
+    if (!activeId) return;
+    const element = document.getElementById(activeId);
     element?.scrollIntoView?.({ block: "nearest" });
-  }, [current, getItemId, id, items]);
+  }, [activeId]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     // Cmd, Ctrl and Option chords are the app's.
@@ -127,7 +128,7 @@ export function Listbox<T>({
       tabIndex={0}
       aria-label={label}
       aria-busy={ariaBusy || undefined}
-      aria-activedescendant={current >= 0 ? (getItemId?.(items[current], current) ?? `${id}-${current}`) : undefined}
+      aria-activedescendant={activeId}
       onKeyDown={onKeyDown}
     >
       {items.map((item, index) => (
