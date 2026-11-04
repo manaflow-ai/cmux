@@ -502,6 +502,10 @@ export const COMMAND_RULES: readonly CommandRule[] = [
         "-testPlan",
       ]);
       const actions = positionals(words, 0, valued);
+      // Only a build or test reads as one; `clean`, `archive` or `-exportArchive` fall back.
+      const known = ["build", "test", "test-without-building", "build-for-testing"];
+      if (actions.some((action) => !known.includes(action))) return undefined;
+      if (words.some((word) => word.startsWith("-export"))) return undefined;
       return testOrBuild(
         actions.some((action) => action === "test" || action === "test-without-building"),
         flag(words, "-scheme"),
