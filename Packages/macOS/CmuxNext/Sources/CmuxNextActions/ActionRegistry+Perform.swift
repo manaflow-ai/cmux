@@ -65,6 +65,7 @@ extension ActionRegistry {
             return true
         }
         if needsConfirmation(id, invocation) { return gateDestructive(id, invocation, settle: settle) }
+        guard leavesTopPage(for: id, invocation) else { return false }
         signposted(id, index: action.timingIndex, invocation) {
             settle()
             runScoped(action, id, invocation)
