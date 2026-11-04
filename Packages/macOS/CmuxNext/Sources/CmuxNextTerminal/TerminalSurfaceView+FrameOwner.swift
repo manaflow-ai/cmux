@@ -34,7 +34,7 @@ extension TerminalSurfaceView {
     func place(_ frame: CGRect, anchor: PaneMotionAnchor, trailing: Bool = false) {
         let owned = TerminalDragTunables.framesOwnedByCommit.value
         if owned != frameOwnership.embedderPresents { setFramesOwnedByCommit(owned) }
-        guard owned, isShown, window != nil, surface != nil else {
+        guard owned, !TerminalDragTunables.framesOwnedByCommitDirectPlace.value, isShown, window != nil, surface != nil else {
             // A size or a scale that waits gives way: the view takes this frame now (hidden, parked, no window).
             if frameOwnership.inFlight != nil || frameOwnership.scale != nil {
                 framePresenter?.cancel(self)
@@ -173,7 +173,8 @@ extension TerminalSurfaceView {
         guard let surface else { return }
         if !owned { releaseFrameOwnership() }
         frameOwnership.embedderPresents = owned
-        ghostty_surface_set_host_present(surface, owned ? GHOSTTY_HOST_PRESENT_EMBEDDER : GHOSTTY_HOST_PRESENT_RENDERER)
+        let embedder = owned && !TerminalDragTunables.framesOwnedByCommitRendererMode.value
+        ghostty_surface_set_host_present(surface, embedder ? GHOSTTY_HOST_PRESENT_EMBEDDER : GHOSTTY_HOST_PRESENT_RENDERER)
         // The mode starts with every frame going through main until a commit is reported.
         if owned { framePresenter?.watch(self) }
     }

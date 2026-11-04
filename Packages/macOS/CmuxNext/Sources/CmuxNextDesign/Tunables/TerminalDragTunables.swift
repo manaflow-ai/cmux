@@ -25,5 +25,22 @@ public nonisolated struct TerminalDragTunables {
         help: "A resized terminal shows its new size only in the commit that has its frame drawn at that size; until then it keeps its last size and frame. Off: the size changes at once and the frame comes 1-4 refreshes later.",
         default: false, code: "TerminalDragTunables.framesOwnedByCommit")
 
-    public static var all: [TunableDescriptor] { [holdsSurfaceDuringDrag.descriptor, framesOwnedByCommit.descriptor] }
+    /// SCRATCH, never merged (S4 defect (a) film arms): with the frame owner on, Ghostty presents host sizes itself
+    /// (renderer mode) instead of leaving them to cmux. Read when the frame owner turns on.
+    public static let framesOwnedByCommitRendererMode = Tunable<Bool>.toggle(
+        "motion.frameOwner.terminalsRendererMode", section, "S4 arm: Ghostty renderer mode",
+        help: "Scratch film arm: with the frame owner on, Ghostty keeps presenting host sizes itself.",
+        default: false, code: "TerminalDragTunables.framesOwnedByCommitRendererMode")
+
+    /// SCRATCH, never merged (S4 defect (a) film arms): with the frame owner on, place() sets the frame at once, as with
+    /// it off (no wanted frame, no request). Read on every layout.
+    public static let framesOwnedByCommitDirectPlace = Tunable<Bool>.toggle(
+        "motion.frameOwner.terminalsDirectPlace", section, "S4 arm: place at once",
+        help: "Scratch film arm: with the frame owner on, the terminal takes its frame at once.",
+        default: false, code: "TerminalDragTunables.framesOwnedByCommitDirectPlace")
+
+    public static var all: [TunableDescriptor] {
+        [holdsSurfaceDuringDrag.descriptor, framesOwnedByCommit.descriptor, framesOwnedByCommitRendererMode.descriptor,
+         framesOwnedByCommitDirectPlace.descriptor]
+    }
 }
