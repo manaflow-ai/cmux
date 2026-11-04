@@ -36,9 +36,10 @@ and writes the JSON to --out.
 
   bench_relaunch_reconnect.py --app BUNDLE [--modes warm,update,cold] [--rounds 3] [--chats 6]
       [--out FILE.json] [--md FILE.md]
-One command on the fleet:
-  cmux-ci run --class exclusive --measurement --label measure \\
-    --script scripts/measure/perf-relaunch-reconnect.sh --ref SHA --artifact artifacts/perf-relaunch-reconnect.json
+One command on the fleet (bench_power.py's `relaunch-reconnect` scenario; --arg=chats=N sets the chats):
+  cmux-ci run --class exclusive --measurement --display --label measure \\
+    --script scripts/measure/perf-idle-power.sh --ref SHA --arg=scenarios=relaunch-reconnect \\
+    --arg=config=bench --artifact artifacts/perf-idle-power.json
 macOS only, on a fleet Mac (it launches the app with a scratch HOME).
 """
 from __future__ import annotations
@@ -187,7 +188,7 @@ def median_table(rounds: list[dict], modes: list[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main():
+def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True)
     parser.add_argument("--modes", default="warm,update,cold")
@@ -199,7 +200,7 @@ def main():
     parser.add_argument("--config", default="{}")
     parser.add_argument("--out")
     parser.add_argument("--md")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     modes = [mode for mode in args.modes.split(",") if mode]
     for mode in modes:
         if mode not in ("warm", "update", "cold"):
