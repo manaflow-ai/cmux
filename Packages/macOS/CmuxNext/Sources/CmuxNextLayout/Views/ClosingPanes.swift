@@ -169,13 +169,20 @@ struct ClosingPanes {
         var shown: [PaneID: CGRect] = [:], rests: [PaneID: CGRect] = [:]
         for pane in order.reversed() {
             guard var entry = entries[pane] else { continue }
-            /// Places `side` on its slowest neighbour's facing edge (a live pane's frame, else a closing pane placed earlier in
-            /// this pass); returns where it rests (that neighbour's rest frame).
+            /// The facing edge of `neighbour` now: a live pane's frame, else a closing pane placed earlier in this pass (one that
+            /// closed later).
+            func facing(_ neighbour: PaneID, _ edge: (CGRect) -> CGFloat) -> CGFloat? {
+                frames[neighbour].map { edge($0.rect) } ?? shown[neighbour].map(edge)
+            }
+            /// Where that edge rests: a live pane's target frame, else the rest of a closing pane placed earlier in this pass.
+            func restingEdge(_ neighbour: PaneID, _ edge: (CGRect) -> CGFloat) -> CGFloat? {
+                frames[neighbour].map { edge($0.targetRect) } ?? rests[neighbour].map(edge)
+            }
+            /// Places `side` on its slowest neighbour's facing edge; returns where it rests (that neighbour's rest).
             func place(_ side: inout Side, slowest: ([CGFloat]) -> CGFloat?, edge: (CGRect) -> CGFloat, sign: CGFloat) -> CGFloat? {
-                let now = side.neighbours.compactMap { frames[$0].map { edge($0.rect) } ?? shown[$0].map { edge($0) } }
-                if let value = slowest(now) { side.fixed = value + sign * side.gap }
+                if let value = slowest(side.neighbours.compactMap({ facing($0, edge) })) { side.fixed = value + sign * side.gap }
                 if side.start == nil { side.start = side.fixed }
-                return slowest(side.neighbours.compactMap { frames[$0].map { edge($0.targetRect) } ?? rests[$0].map { edge($0) } }).map { $0 + sign * side.gap }
+                return slowest(side.neighbours.compactMap { restingEdge($0, edge) }).map { $0 + sign * side.gap }
             }
             /// A side with no neighbour (`free`), opposite one that rides neighbours (`rider`): it travels from where it stood
             /// to where the rider rests (`rest`; nil: where the rider is), by the share of the motion that covers the pane's
