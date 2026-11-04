@@ -227,6 +227,10 @@ pub(super) struct Inner {
     /// Open tokens minted for user runs of server ops (`servers.rs`).
     pub open_tokens: HashMap<String, super::open_tokens::OpenToken>,
     pub server_crashes: HashMap<String, super::servers::Crashes>,
+    /// The kept-server count ([`Supervisor::kept_servers`]) as the last
+    /// emit read it: compared and stored under this lock, so it follows the
+    /// lock order and no stale read is stored after a newer one.
+    pub kept_servers_told: usize,
     /// Run callers and the ops they wait for (`cancel.rs`).
     pub calls: super::cancel::Calls,
 }
@@ -262,8 +266,6 @@ pub struct Supervisor {
     /// The owner's keepers observers (`AppsSlot::add_server_observer`),
     /// told outside the lock when [`Self::kept_servers`] changes.
     server_observers: OnceLock<super::ServerObservers>,
-    /// The last [`Self::kept_servers`] the observers were told of.
-    kept_servers_told: Mutex<usize>,
     /// Test hook: the emit on this thread runs this right after its locked
     /// read, before it tells the observers (a race of two emits).
     #[cfg(test)]
@@ -360,6 +362,7 @@ impl Supervisor {
                 servers: HashMap::new(),
                 open_tokens: HashMap::new(),
                 server_crashes: HashMap::new(),
+                kept_servers_told: 0,
                 calls: Default::default(),
             }),
             config,
@@ -373,7 +376,6 @@ impl Supervisor {
             link_changed: Mutex::new((false, false)),
             deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
             server_observers: OnceLock::new(),
-            kept_servers_told: Mutex::new(0),
             #[cfg(test)]
             emit_pause: Mutex::new(None),
         });
@@ -574,21 +576,15 @@ impl Supervisor {
         let _ = self.server_observers.set(observers);
     }
 
-    /// Tells the observers when the kept count differs from the last one
-    /// they were told of. Every change of the count (a start, an exit, a
-    /// restart scheduled, fired or cancelled, a disable) is made under the
-    /// lock by work that ends in [`Self::emit`], which reads it here.
-    fn notify_kept_servers(&self, kept: usize) {
-        let Some(observers) = self.server_observers.get() else { return };
-        {
-            let mut told = self.kept_servers_told.lock().recover_poison();
-            if *told == kept {
-                return;
+    /// Tells the observers that the kept count changed. Every change of the
+    /// count (a start, an exit, a restart scheduled, fired or cancelled, a
+    /// disable) is made under the lock by work that ends in [`Self::emit`],
+    /// which compares it with the last one it read, under the same lock.
+    fn notify_kept_servers(&self) {
+        if let Some(observers) = self.server_observers.get() {
+            for observer in observers.lock().recover_poison().iter() {
+                observer();
             }
-            *told = kept;
-        }
-        for observer in observers.lock().recover_poison().iter() {
-            observer();
         }
     }
 
@@ -608,14 +604,18 @@ impl Supervisor {
     }
 
     pub(super) fn emit(&self, mut outs: Vec<Out>) {
-        let (sinks, kept) = {
+        let (sinks, kept_changed) = {
             let mut inner = self.inner.lock().unwrap();
             outs.extend(Self::inventory_demand_locked(&mut inner));
-            (inner.sinks.clone(), Self::kept_servers_locked(&inner))
+            let kept = Self::kept_servers_locked(&inner);
+            let changed = std::mem::replace(&mut inner.kept_servers_told, kept) != kept;
+            (inner.sinks.clone(), changed)
         };
         #[cfg(test)]
         self.run_emit_pause();
-        self.notify_kept_servers(kept);
+        if kept_changed {
+            self.notify_kept_servers();
+        }
         if outs.is_empty() {
             return;
         }

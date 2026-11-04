@@ -60,8 +60,9 @@ pub struct Keepers {
     pub browser_host: bool,
     /// Running app server processes.
     pub app_servers: usize,
-    /// Live and respawning terminals; `None` when not read (a cheaper
-    /// keeper held, or the owner is not armed) or unreadable.
+    /// Terminals that keep the owner (`Mux::kept_terminal_count`: 0 exactly
+    /// when none does); `None` when not read (a cheaper keeper held, or the
+    /// owner is not armed) or unreadable.
     pub terminals: Option<usize>,
 }
 

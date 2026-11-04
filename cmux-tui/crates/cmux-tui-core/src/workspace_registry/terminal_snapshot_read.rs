@@ -15,28 +15,6 @@ impl WorkspaceRegistry {
         Ok(usize::try_from(count).unwrap_or(usize::MAX))
     }
 
-    /// Exited rows of terminals whose policy keeps their views (`on_exit`
-    /// keep or shell): `(terminal_id, exit receipt)`. The rows a kept dead
-    /// tab can belong to; few, as each is a tab the person still sees.
-    pub(crate) fn exited_view_keeping_terminals(
-        &self,
-    ) -> anyhow::Result<Vec<(String, Option<Value>)>> {
-        let db = self.connection.get();
-        let mut statement = db.prepare(
-            "SELECT terminal_id, exit_json FROM terminal_hosts
-             WHERE lifecycle = 'exited' AND on_exit = 'keep'",
-        )?;
-        let rows = statement.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-        })?;
-        rows.map(|row| {
-            let (terminal_id, exit) = row?;
-            let exit = exit.map(|exit| serde_json::from_str(&exit)).transpose()?;
-            Ok((terminal_id, exit))
-        })
-        .collect()
-    }
-
     /// Returns the canonical, non-tombstoned terminal placement projection.
     /// Runtime surface ids and renderer process ids are intentionally absent.
     pub fn terminal_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {

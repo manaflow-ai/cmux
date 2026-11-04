@@ -130,8 +130,11 @@ pub(crate) struct AppsSlot {
 impl AppsSlot {
     #[cfg(unix)]
     pub(crate) fn get_or_init(&self, mux: &Arc<crate::Mux>) -> Arc<Supervisor> {
-        self.supervisor
+        let mut created = false;
+        let supervisor = self
+            .supervisor
             .get_or_init(|| {
+                created = true;
                 let state_dir = mux.session_state_directory();
                 let idle = std::env::var("CMUX_APPS_IDLE_STOP_SECONDS")
                     .ok()
@@ -170,7 +173,17 @@ impl AppsSlot {
                 supervisor.observe_kept_servers(self.server_observers.clone());
                 supervisor
             })
-            .clone()
+            .clone();
+        if created {
+            // Its `always` servers started before it had the observers, and
+            // `kept_servers` read 0 until this slot held it: the owner's
+            // watch reads the count again now. Later changes reach the
+            // observers from `Supervisor::emit`.
+            for observer in self.server_observers.lock().recover_poison().iter() {
+                observer();
+            }
+        }
+        supervisor
     }
 
     /// `client` cancels its own request `target` (`cancel-request`). Before
