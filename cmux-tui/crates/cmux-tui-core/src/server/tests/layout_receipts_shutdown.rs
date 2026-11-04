@@ -250,6 +250,31 @@ fn set_layout_sizes_applies_a_trade_whole_or_refuses_it_whole() {
     assert_eq!(applied["id"], 43);
     assert_eq!(applied["ok"], true, "{applied}");
     assert_eq!(widths(&mux), vec![0.4, 0.6]);
+
+    // #34928 review A: a value with both pairs is neither a ratio nor a width; it is refused, not half applied.
+    let split = mux.with_state(|state| state.workspaces[0].screens[0].layout_columns[1].id);
+    handle_message(
+        &mux,
+        mux.local_test_client(7),
+        &json!({
+            "id": 44,
+            "cmd": "set-layout-sizes",
+            "values": [{"split": split, "ratio": 0.5, "pane": right_pane, "width": 0.3}],
+            "transaction": 3
+        })
+        .to_string(),
+        &writer,
+    );
+    let both: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+    assert_eq!(both["id"], 44);
+    assert_eq!(both["ok"], false, "a value with both a ratio and a width was taken: {both}");
+    assert_eq!(widths(&mux), vec![0.4, 0.6], "a refused value changed a width");
+}
+
+/// #34928 review C: identify advertises the batch command.
+#[test]
+fn identify_advertises_the_layout_sizes_batch() {
+    assert!(advertised_capabilities(false).contains(&LAYOUT_SIZES_BATCH_CAPABILITY));
 }
 
 #[test]
