@@ -121,7 +121,7 @@ public final class MacScreenSession {
         process = nil
         if let socketDirectory {
             // The link bridge's private directory goes on a background thread: no disk work on main.
-            Task.detached(priority: WorkPriority.bestEffort.taskPriority) { try? FileManager.default.removeItem(at: socketDirectory) }
+            Task.detached(priority: WorkPriority.bestEffort.taskPriority) { try? FileManager.checked.removeItem(at: socketDirectory) }
         }
         socketDirectory = nil
         if case .connecting = phase { phase = .ended }
@@ -240,19 +240,27 @@ public final class MacScreenSession {
     }
 
     private func sendAnswer(_ answer: MacScreenRdDocument, sessionID: String, servers: MacScreenRdServers, to process: MacScreenRdProcess) {
-        // The link bridge's socket lives in a 0700 directory of this user's.
+        // The link bridge's socket lives in a 0700 directory of this user's, made off the main thread.
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-rd-\(UUID().uuidString.prefix(8))", isDirectory: true)
-        do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        } catch {
-            fail(L.t("macScreen.rd.viewerStopped", "The screen viewer stopped."))
-            return
-        }
-        socketDirectory = directory
-        socketPath = directory.appendingPathComponent("s").path
-        logger.info("cmux rd: link started toward the host")
-        process.send(Answer(session: sessionID, peerKey: answer.key, stun: servers.stun, turn: servers.turn,
-                            candidates: answer.candidates, socket: socketPath ?? "", relayOnly: relayOnly))
+        let relayOnly = relayOnly
+        // task-owner: one answer's directory and hand-off; ends when the link has its answer
+        tasks.append(Task { [weak self] in
+            let made = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) {
+                (try? FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true,
+                                                          attributes: [.posixPermissions: 0o700])) != nil
+            }.value
+            guard let self, isCurrent(process) else { return }
+            guard made else {
+                fail(L.t("macScreen.rd.viewerStopped", "The screen viewer stopped."))
+                return
+            }
+            socketDirectory = directory
+            let path = directory.appendingPathComponent("s").path
+            socketPath = path
+            logger.info("cmux rd: link started toward the host")
+            process.send(Answer(session: sessionID, peerKey: answer.key, stun: servers.stun, turn: servers.turn,
+                                candidates: answer.candidates, socket: path, relayOnly: relayOnly))
+        })
     }
 
     @ObservationIgnored private var socketPath: String?

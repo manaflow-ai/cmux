@@ -79,9 +79,8 @@ nonisolated final class MacScreenRdProcess: Sendable {
 
     /// Starts `cmux rd <role>`. Throws when the binary is missing or will not launch.
     func start(_ role: Role) throws {
-        guard let binary = Self.binary, FileManager.default.isExecutableFile(atPath: binary.path) else {
-            throw CocoaError(.fileNoSuchFile)
-        }
+        // A missing or unlaunchable binary throws from run() below (no disk check on the caller's thread).
+        guard let binary = Self.binary else { throw CocoaError(.fileNoSuchFile) }
         let process = Process()
         process.executableURL = binary
         process.arguments = ["rd", role.rawValue]
@@ -93,7 +92,7 @@ nonisolated final class MacScreenRdProcess: Sendable {
         let splitter = MacScreenRdLines()
         stdout.fileHandleForReading.readabilityHandler = { handle in
             // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
+            let data = handle.blockingAvailableData()
             guard !data.isEmpty else {
                 handle.readabilityHandler = nil
                 continuation.finish()
@@ -109,7 +108,7 @@ nonisolated final class MacScreenRdProcess: Sendable {
         let logger = logger
         stderr.fileHandleForReading.readabilityHandler = { [weak self] handle in
             // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
+            let data = handle.blockingAvailableData()
             guard !data.isEmpty else {
                 handle.readabilityHandler = nil
                 return

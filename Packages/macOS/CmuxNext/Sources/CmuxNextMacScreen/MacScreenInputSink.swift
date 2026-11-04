@@ -5,6 +5,7 @@ import CoreGraphics
 /// The pane's input events, sent as they are on the session's cmux.rd/1
 /// transport: physical keys by HID usage (the host maps them to its own
 /// layout), pointer in stream pixels, buttons, scroll in hundredths, text.
+@MainActor
 final class MacScreenInputSink: RemoteViewInputSink {
     weak var session: MacScreenSession?
 
@@ -13,8 +14,7 @@ final class MacScreenInputSink: RemoteViewInputSink {
     }
 
     func send(_ event: RemoteInputEvent) {
-        // The remote view surface calls its sink on the main thread.
-        MainActor.assumeIsolated { session?.send(event) }
+        session?.send(event)
     }
 }
 
