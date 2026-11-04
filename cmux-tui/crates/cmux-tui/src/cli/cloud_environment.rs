@@ -12,7 +12,7 @@ mod relaunch;
 
 const USAGE: &str = super::cloud_help::ENV_USAGE;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 enum Command {
     Help,
     Get,
@@ -139,20 +139,21 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             OutputMode::Human => {
                 if value.get("check_create").is_some() {
                     println!("ok");
-                    return 0;
+                    0
+                } else {
+                    println!("{}", value["name"].as_str().unwrap_or("unknown"));
+                    if value["restart_required"] == true {
+                        eprintln!(
+                            "{}",
+                            if value["restart_scheduled"] == true {
+                                "The app is restarting. Sign in to Cloud again."
+                            } else {
+                                "Restart this app and sign in to Cloud again to apply the selection."
+                            }
+                        );
+                    }
+                    0
                 }
-                println!("{}", value["name"].as_str().unwrap_or("unknown"));
-                if value["restart_required"] == true {
-                    eprintln!(
-                        "{}",
-                        if value["restart_scheduled"] == true {
-                            "The app is restarting. Sign in to Cloud again."
-                        } else {
-                            "Restart this app and sign in to Cloud again to apply the selection."
-                        }
-                    );
-                }
-                0
             }
             output => super::wire::print_local_success(&value, output),
         },
