@@ -13,6 +13,8 @@ struct ContentEdgeProbe {
     /// The pane's clip view (its padded content rect: the pane edge a film measures) and its tab strip.
     var paneClassName = "PaneClipView"
     var stripClassName = "TabStripView"
+    /// The pane content a Chromium page window sits over (its host).
+    var pageHostClassName = "CEFHostView"
 
     /// Each value is the largest over the measured views, in points (pixels for `pixelLag`), 0 when nothing to measure.
     struct Reading: Equatable {
@@ -25,7 +27,7 @@ struct ContentEdgeProbe {
         var strip: CGFloat = 0, stripLayer: CGFloat = 0
         /// A terminal's shown IOSurface against its layer's size in pixels (a frame drawn at another size).
         var pixelLag: CGFloat = 0
-        /// A page host's screen rect against the page window over it, left and right edges.
+        /// Each shown page window against the page host nearest it, all four edges, on screen.
         var pageWindow: CGFloat = 0
     }
 
@@ -33,16 +35,18 @@ struct ContentEdgeProbe {
         guard let content = window.contentView else { return nil }
         let rootLayer = content.superview?.layer ?? content.layer
         var reading = Reading()
-        let pages = (window.childWindows ?? []).filter { WindowOverlayHost.isPageWindow($0) && $0.isVisible }
+        var pageHosts: [CGRect] = []
         var stack: [NSView] = [content]
         while let view = stack.popLast() {
             guard !view.isHidden else { continue }
-            guard contentClassNames.contains(String(describing: type(of: view))) else {
+            let name = String(describing: type(of: view))
+            guard contentClassNames.contains(name) else {
                 stack.append(contentsOf: view.subviews)
                 continue
             }
             reading.views += 1
             let shown = view.convert(view.bounds, to: nil)
+            if name == pageHostClassName { pageHosts.append(window.convertToScreen(shown)) }
             let shownLayer = rootLayer.flatMap { root in view.layer.map { $0.convert($0.bounds, to: root) } }
             func compare(_ other: NSView?, bothEdges: Bool, _ viewError: inout CGFloat, _ layerError: inout CGFloat) {
                 guard let other else { return }
@@ -67,13 +71,11 @@ struct ContentEdgeProbe {
                                            abs(CGFloat(surface.height) - layer.bounds.height * scale))
                 }
             }
-            if !pages.isEmpty {
-                let onScreen = window.convertToScreen(shown)
-                if let page = pages.max(by: { $0.frame.intersection(onScreen).width < $1.frame.intersection(onScreen).width }),
-                   page.frame.intersects(onScreen) {
-                    reading.pageWindow = max(reading.pageWindow, abs(page.frame.minX - onScreen.minX), abs(page.frame.maxX - onScreen.maxX))
-                }
-            }
+        }
+        // A page window against the nearest host only: rounded out to whole points, it overlaps the content beside its host.
+        for page in PageWindowMoves.pages(of: window) {
+            guard let nearest = pageHosts.map({ PageWindowMoves.edgeDistance(page.frame, $0) }).min() else { continue }
+            reading.pageWindow = max(reading.pageWindow, nearest)
         }
         return reading.views == 0 ? nil : reading
     }

@@ -161,19 +161,39 @@ public final class LiveResizeDragInput {
     /// then `frameApplied` runs.
     public func applyingFrame(_ apply: () -> Void) {
         let waitsForCommit = holdsForCommitNow
-        defer { if !waitsForCommit { frameApplied() } }
         #if DEBUG || CMUX_BENCH_HOOKS
         let applied = nextApplied
         nextApplied = nil
         let frame = window.flatMap { probe.frameWillApply(in: $0, eventTime: applied?.eventTime, atTick: applied?.atTick == true) }
-        defer { if let frame { probe.frameDidApply(frame) } }
         #endif
         if waitsForCommit, let window {
             holdForCommit(in: window)
-            return apply()
+            apply()
+            setFrameDidReturn()
+        } else if holdsTrackerNotices, let window {
+            FollowedViews.of(window).holdingFrameNotices {
+                apply()
+                setFrameDidReturn()
+            }
+        } else {
+            apply()
+            setFrameDidReturn()
         }
-        guard holdsTrackerNotices, let window else { return apply() }
-        FollowedViews.of(window).holdingFrameNotices(apply)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let frame { probe.frameDidApply(frame) }
+        #endif
+        guard !waitsForCommit else { return }
+        frameApplied()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        probe.pageUpdatePosted()
+        #endif
+    }
+
+    /// `super.setFrame` returned, before held frame notices go: the probe's step there (nothing in a shipped build).
+    private func setFrameDidReturn() {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        probe.setFrameDidReturn()
+        #endif
     }
 
     /// Whether this `setFrame`'s page update and tracker notices wait for its commit (the diagnostic, DEBUG and bench).
