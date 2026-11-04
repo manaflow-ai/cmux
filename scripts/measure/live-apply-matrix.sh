@@ -17,6 +17,24 @@
 #   scripts/measure/live-apply-matrix.sh inplace OUT PR  (experience 2, a real cmux; see inplace() below)
 # LIVE_APPLY_MATRIX_DIFFS_ONLY=1 writes each row's change.diff and stops: no build, any host.
 set -euo pipefail
+# This run's own tag: reload.sh stops every app of the tag it builds, so the tag must be one no other
+# run, person or stale app can be on (the PR, this time and this shell's pid).
+lab_tag() { echo "liveapply-$1-$(date -u +%Y%m%d%H%M%S)-$$"; }
+# The pids of processes whose command line names TAG's bundle. reload.sh is only run while there is
+# none: so it never stops a process this run did not start. This only reads; it signals nothing.
+tag_in_use() {
+  python3 -c '
+import os, subprocess, sys
+tag = sys.argv[1]
+rows = [l.split(None, 2) for l in subprocess.run(["ps", "-axo", "pid=,ppid=,args="], capture_output=True, text=True).stdout.splitlines()]
+parent = {int(r[0]): int(r[1]) for r in rows if len(r) >= 2}
+mine, pid = set(), os.getpid()
+while pid > 1 and pid not in mine:  # this check and the shells that run it
+    mine.add(pid); pid = parent.get(pid, 0)
+print(" ".join(r[0] for r in rows if len(r) == 3 and int(r[0]) not in mine and tag in r[2]))
+' "$1"
+}
+
 # Experience 2 (hq#7111): the change applied IN PLACE to an already-running real cmux, a lab
 # instance (fresh home, own socket and tag; never the person's app), for a real merged PR:
 #   scripts/measure/live-apply-matrix.sh inplace OUT PR      (PR: one of the fixtures below)
@@ -70,12 +88,14 @@ inplace() {
   python3 "$here/scripts/cmux-next/live_apply.py" --repo "$here" --json "$base" "$sha" >"$out/classifier-$pr.json" || true
   scratch="$(mktemp -d)"
   srcdir="$scratch/src"
-  local tag="liveapply-${pr}"
+  local tag; tag="$(lab_tag "$pr")"
+  echo "$tag" >"$out/lab-tag-$pr.txt"
   # Under set -e a failing step in the trap would become the script's exit status: none may fail it.
   cleanup_inplace() {
     local code=$?
     set +e
     [[ -n "${base_app:-}" ]] && python3 "$here/scripts/cmux-next/tag_teardown.py" "$base_app" >/dev/null 2>&1
+    [[ -n "${head_app:-}" ]] && python3 "$here/scripts/cmux-next/tag_teardown.py" "$head_app" >/dev/null 2>&1
     if [[ -n "${scratch:-}" ]]; then
       git -C "$here" worktree remove --force "$srcdir" >/dev/null 2>&1
       git -C "$here" worktree remove --force "$scratch/head" >/dev/null 2>&1
@@ -127,6 +147,7 @@ PY
   fi
   local tb0 tb1
   tb0=$(python3 -c 'import time; print(f"{time.time():.3f}")')
+  [[ -z "$(tag_in_use "$tag")" ]] || { echo "inplace: something already runs on tag $tag; refusing to let reload.sh stop it" >&2; return 3; }
   (cd "$srcdir" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links) >"$out/reload-base-$pr.log" 2>&1 || true
   tb1=$(python3 -c 'import time; print(f"{time.time():.3f}")')
   base_app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload-base-$pr.log" | tail -n 1)"
@@ -416,7 +437,13 @@ DRIVER
   # Parity and fallback: the head built on the same tag (incremental), launched fresh, probed.
   local th0 th1
   th0=$(python3 -c 'import time; print(f"{time.time():.3f}")')
-  (cd "$srcdir" && git checkout --quiet --detach "$sha" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links) >"$out/reload-head-$pr.log" 2>&1 || true
+  # The base app was torn down above; reload.sh would stop anything left on the tag, so nothing may be.
+  if [[ -n "$(tag_in_use "$tag")" ]]; then
+    echo "inplace: processes still run on tag $tag after teardown; not rebuilding over them" >&2
+    : >"$out/reload-head-$pr.log"
+  else
+    (cd "$srcdir" && git checkout --quiet --detach "$sha" && CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links) >"$out/reload-head-$pr.log" 2>&1 || true
+  fi
   th1=$(python3 -c 'import time; print(f"{time.time():.3f}")')
   head_app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload-head-$pr.log" | tail -n 1)"
   if [[ -n "$head_app" && -d "$head_app" ]]; then
