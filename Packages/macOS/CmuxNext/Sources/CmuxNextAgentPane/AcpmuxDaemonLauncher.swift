@@ -30,6 +30,13 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// Names the app that started the daemon; the daemon follows its exit.
     static let ownerAppPidKey = "ACPMUX_OWNER_APP_PID"
 
+    typealias DisclaimFunction = @convention(c) (UnsafeMutablePointer<posix_spawnattr_t?>, Int32) -> Int32
+    /// `responsibility_spawnattrs_setdisclaim` from libsystem (as `DisclaimedHelperSpawner`).
+    static let systemDisclaim: DisclaimFunction? = {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_spawnattrs_setdisclaim") else { return nil }
+        return unsafeBitCast(symbol, to: DisclaimFunction.self)
+    }()
+
     static let script = #"set -m; "$@" 3>&1 1>>"$ACPMUX_LAUNCH_LOG" 2>&1 </dev/null &"#
     /// The daemon reads its person key (``AcpmuxPersonKey``) from this descriptor and
     /// closes it before it starts any agent; the key never goes into argv or the environment.
@@ -176,6 +183,11 @@ nonisolated enum AcpmuxDaemonLauncher {
         let spawnFlags = Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSID)
         guard posix_spawnattr_setflags(&attributes, spawnFlags) == 0 else {
             throw Failure.spawnFailed("unable to configure acpmux descriptor policy")
+        }
+        // Probe (hq#6338): the daemon is its own responsible process, so loginwindow does not
+        // end it with the app it replaces. Best effort: without the call, it spawns as before.
+        if let disclaim = Self.systemDisclaim, disclaim(&attributes, 1) != 0 {
+            logger.error("acpmux spawn: responsibility disclaim failed")
         }
 
         var processIdentifier: pid_t = 0
