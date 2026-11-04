@@ -115,7 +115,7 @@ const stackResized = (height: number) =>
     for (const { callback, self } of observers) callback([], self);
   });
 
-test("a composer that grows over the view, or a tray that opens in the stack, never changes the rail's height; a stack that reaches it lifts it clear", async () => {
+test("a composer that grows over the view, or a tray that opens in the stack, never moves the rail or changes its height", async () => {
   stack = 120;
   const root = createRoot(document.getElementById("root")!);
   const dock = document.getElementById("dock")!;
@@ -136,28 +136,14 @@ test("a composer that grows over the view, or a tray that opens in the stack, ne
     const rest = railBox();
     expect(Number.parseFloat(rest.height)).toBe(240);
     const restBottom = Number.parseFloat(rest.top) + Number.parseFloat(rest.height);
-    // Leo, 2026-11-04: "the height of the left scroll rail should never be affected by anything". Every
-    // stack keeps the rail's height and inset. One that stays under the rail's foot leaves it where it
-    // is; one that reaches it lifts the whole rail just clear of the stack's top less the bottom fade's
-    // clearance (model.ts railRoom, 18 + 4 px), so no tick runs under the composer (Leo, 2026-11-03:
-    // "this left scroll rail prob goes a little bit too far down now").
-    const clearOf = (stackHeight: number) => {
-      const box = railBox();
-      expect({ left: box.left, height: box.height }).toEqual({ left: rest.left, height: rest.height });
-      const bottom = Number.parseFloat(box.top) + Number.parseFloat(box.height);
-      const foot = Math.min(restBottom, VIEWPORT - stackHeight - 22);
-      expect(bottom).toBeLessThanOrEqual(foot);
-      expect(bottom).toBeGreaterThan(foot - 1);
-    };
+    // Leo, 2026-11-04: "the height of the left scroll rail should never be affected by anything", and
+    // 2026-11-03: "i just don't like it when the thing shifts". Three more composer lines, then a stack
+    // that reaches past the rail's foot: the box stays where it rests, and the stack lays over its foot.
     await stackResized(188);
     expect(scroller.style.getPropertyValue("--acpmux-dock-space")).toBe("188px");
-    clearOf(188);
     expect(railBox()).toEqual(rest);
-    const reaching = VIEWPORT - restBottom - 22 + 40;
-    await stackResized(reaching);
-    clearOf(reaching);
-    expect(Number.parseFloat(railBox().top)).toBeLessThan(Number.parseFloat(rest.top));
-    // Back to rest: the same box.
+    await stackResized(VIEWPORT - restBottom - 22 + 40);
+    expect(railBox()).toEqual(rest);
     await stackResized(120);
     expect(railBox()).toEqual(rest);
   } finally {

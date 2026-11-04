@@ -306,8 +306,9 @@ export function railRoom(viewportHeight: number, foot = viewportHeight): { top: 
 /// 70% of the window, after which the rows scroll. It fits the room the transcript gives it
 /// (railRoom: its viewport less the mask's bands), so a short pane's rows all scroll into view and no
 /// tick sits under the transcript's fades (Leo 2026-10-22: "it wouldn't show the highlighted bottom
-/// ... it just didn't go to the bottom"). It is never shorter than the band, the `band` prompts on
-/// screen: in a pane too short for both, the mask's clearance gives way first, up to the whole view.
+/// ... it just didn't go to the bottom"). A `fixed` arm is its one height, clipped only by that room.
+/// The others are never shorter than the band, the `band` prompts on screen: in a pane too short for
+/// both, the mask's clearance gives way first, up to the whole view.
 export function railHeight(
   count: number,
   windowHeight: number,
@@ -366,15 +367,6 @@ export function railClearHeight(
   if (grown <= 0) return height;
   const clear = Math.floor(railRoom(viewportHeight, liveFoot).bottom - top);
   return Math.max(0, Math.min(height, Math.max(clear, height - Math.ceil(grown))));
-}
-
-/// A fixed rail's top over a bottom stack grown into it: its height never changes (railHeight), so it
-/// rises just enough to keep its foot clear of the stack (railRoom), and no higher than the room's top.
-/// A stack that does not reach it leaves it where railTop put it.
-export function railLiftTop(height: number, top: number, viewportHeight: number, liveFoot: number): number {
-  const room = railRoom(viewportHeight, liveFoot);
-  const over = top + height - room.bottom;
-  return over <= 0 ? top : Math.max(Math.min(top, room.top), Math.floor(top - over));
 }
 
 /// The fade a rail longer than its room draws at an edge with more rows past it: 2.5rem

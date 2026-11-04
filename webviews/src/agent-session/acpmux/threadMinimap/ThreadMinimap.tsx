@@ -54,7 +54,6 @@ import {
   railFades,
   railClearHeight,
   railHeight,
-  railLiftTop,
   ROW_WIDTH,
   railScrollTop,
   railTop as railTopAt,
@@ -416,14 +415,14 @@ export function ThreadMinimap({
   /// The bottom stack's top as it is now (VirtualTranscript `railBox.live`): the rail's foot and the
   /// card's both stay above it, so the two never disagree on where the view ends.
   const liveFoot = railBox?.live ?? boxFoot ?? viewportHeight;
-  const restTop = railTopAt(boxRail, boxHeight, boxFoot);
-  /// A fixed rail keeps its height over a grown stack and rises clear of it (railLiftTop); the others
-  /// keep their top and shorten from the foot (railClearHeight).
-  const boxTop = heightConfig.fixed ? railLiftTop(boxRail, restTop, boxHeight, liveFoot) : restTop;
-  /// The list's own height: the whole box, less what a stack grown since rest takes (railClearHeight).
+  /// A fixed rail neither moves nor changes height when the stack grows (Leo, 2026-11-04: "the height
+  /// of the left scroll rail should never be affected by anything"; 2026-11-03: "i just don't like it
+  /// when the thing shifts"): a stack tall enough to reach it lays over its foot. The other arms keep
+  /// their top and shorten from the foot (railClearHeight).
+  const boxTop = railTopAt(boxRail, boxHeight, boxFoot);
   const height = heightConfig.fixed
     ? boxRail
-    : railClearHeight(boxRail, restTop, boxHeight, boxFoot ?? boxHeight, liveFoot);
+    : railClearHeight(boxRail, boxTop, boxHeight, boxFoot ?? boxHeight, liveFoot);
   /// Where the list's first row draws in the view.
   const railTop = boxTop;
   // The compact rail is pinned to the pane's left edge. It never follows the centered transcript or
