@@ -23,12 +23,18 @@ struct AgentSessionCarrierSwitchTests {
             var closed = false
             var detached = false
             var onAttach: (@Sendable () -> Void)?
+            /// The next attach waits here until ``releaseAttach()``.
+            var holdAttach = false
+            var heldAttach: CheckedContinuation<Void, Never>?
         }
 
         let state = Mutex(State())
-        let isReadOnly = false
+        let isReadOnly: Bool
 
-        init(log: [UInt64] = []) { state.withLock { $0.log = log } }
+        init(log: [UInt64] = [], readOnly: Bool = false) {
+            isReadOnly = readOnly
+            state.withLock { $0.log = log }
+        }
 
         func attach(_ page: AgentSessionPage, events handler: @escaping @Sendable (AgentSessionRemoteEvent) -> Void) async throws -> Data {
             let (fails, hook) = state.withLock { state -> (Bool, (@Sendable () -> Void)?) in
@@ -38,6 +44,11 @@ struct AgentSessionCarrierSwitchTests {
                 return (state.attachFails, state.onAttach)
             }
             if fails { throw AgentSessionRemoteError(code: "link.down", message: "no direct link") }
+            if state.withLock({ $0.holdAttach }) {
+                await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
+                    state.withLock { $0.heldAttach = waiter }
+                }
+            }
             hook?()
             return answer(after: page.afterSeq)
         }
@@ -76,6 +87,17 @@ struct AgentSessionCarrierSwitchTests {
             }
             handler?(.record(Data(#"{"seq":\#(seq)}"#.utf8)))
         }
+
+        func releaseAttach() {
+            let held = state.withLock { state -> CheckedContinuation<Void, Never>? in
+                state.holdAttach = false
+                defer { state.heldAttach = nil }
+                return state.heldAttach
+            }
+            held?.resume()
+        }
+
+        var attachHeld: Bool { state.withLock { $0.heldAttach != nil } }
 
         func end(_ reason: String) { state.withLock { $0.handler }?(.closed(reason)) }
 
@@ -232,5 +254,66 @@ struct AgentSessionCarrierSwitchTests {
         relay.end("lagged")
         #expect(page.closes == 1)
         #expect(await chat.move(to: Carrier()) == false)
+    }
+
+    /// Codex review F1 (cmux#35770): a later `_acpmux/watch` re-attach (one transcript record) must
+    /// not narrow what a move replays.
+    @Test func aWatchReattachDoesNotNarrowTheMove() async throws {
+        let relay = Carrier()
+        let direct = Carrier(log: [1, 2])
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        _ = try await chat.attach(AgentSessionPage(limit: 50, kinds: ["transcript", "tool"]), events: Page().handler)
+        _ = try await chat.attach(RemoteAcpmuxWire.watchPage, events: Page().handler)
+        #expect(await chat.move(to: direct))
+        #expect(direct.state.withLock { $0.attaches.first?.kinds } == ["transcript", "tool"])
+    }
+
+    /// Codex review F2: records the page read forward through `events` are not replayed by a move.
+    @Test func recordsPagedForwardAreNotReplayedByAMove() async throws {
+        let relay = Carrier()
+        let direct = Carrier(log: [1, 2, 3, 4])
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        let page = Page()
+        _ = try await chat.attach(AgentSessionPage(afterSeq: 0), events: page.handler)
+        // Records 1-3 reach the page through a forward events read, not as pushes.
+        relay.state.withLock { $0.log = [1, 2, 3] }
+        _ = try await chat.events(AgentSessionPage(afterSeq: 0))
+        #expect(await chat.move(to: direct))
+        #expect(direct.state.withLock { $0.attaches.first?.afterSeq } == 3)
+        #expect(page.seqs == [4])
+    }
+
+    /// Codex review F3: no move starts while the chat is on its way back to the relay.
+    @Test func noMoveStartsDuringAFallBack() async throws {
+        let relay = Carrier()
+        let direct = Carrier()
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        _ = try await chat.attach(AgentSessionPage(), events: Page().handler)
+        #expect(await chat.move(to: direct))
+        relay.state.withLock { $0.holdAttach = true }
+        direct.end("link.down")
+        await Self.until { relay.attachHeld }
+        #expect(relay.attachHeld, "the fall-back is re-attaching the relay")
+
+        let second = Carrier()
+        #expect(await chat.move(to: second) == false)
+        #expect(second.state.withLock { $0.attaches.isEmpty })
+
+        relay.releaseAttach()
+        await Self.until { !chat.holding }
+        _ = try await chat.prompt(id: "a", text: "after")
+        #expect(relay.prompts == ["a"])
+        #expect(await chat.move(to: Carrier()), "a move works again once the fall-back is done")
+    }
+
+    /// Codex review F4: read-only follows the client that carries the chat.
+    @Test func readOnlyFollowsTheCarrier() async throws {
+        let relay = Carrier(readOnly: true)
+        let direct = Carrier(readOnly: false)
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        _ = try await chat.attach(AgentSessionPage(), events: Page().handler)
+        #expect(chat.isReadOnly)
+        #expect(await chat.move(to: direct))
+        #expect(!chat.isReadOnly)
     }
 }

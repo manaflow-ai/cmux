@@ -79,7 +79,7 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
         state = Mutex(State(current: fallback))
     }
 
-    public var isReadOnly: Bool { fallback.isReadOnly }
+    public var isReadOnly: Bool { state.withLock { $0.current }.isReadOnly }
 
     /// Whether the chat runs over the client that took over.
     public var moved: Bool { state.withLock { $0.preferred != nil } }
@@ -121,6 +121,8 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
     private func fallBack(_ reason: String) async {
         let start = state.withLock { state -> (AgentSessionPage, UInt64, UInt64, (any AgentSessionRemoteClient)?)? in
             guard !state.ended, let page = state.page else { return nil }
+            // No move starts while the chat is on its way back.
+            state.moving = true
             defer { state.preferred = nil }
             return (page, state.newest, Self.beginBuffering(&state), state.preferred)
         }
@@ -135,6 +137,7 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
         }
         let released = state.withLock { state -> Released in
             state.ended = true
+            state.moving = false
             state.buffering = nil
             state.buffer = []
             state.outbox.append(.closed(reason))
@@ -333,7 +336,8 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
     public func attach(_ page: AgentSessionPage, events handler: @escaping @Sendable (AgentSessionRemoteEvent) -> Void) async throws -> Data {
         let (client, generation) = state.withLock { state -> (any AgentSessionRemoteClient, UInt64) in
             state.handler = handler
-            state.page = page
+            // A watch's one-record transcript read never sets what a move re-attaches with.
+            if page != RemoteAcpmuxWire.watchPage || state.page == nil { state.page = page }
             state.nextGeneration += 1
             state.live = state.nextGeneration
             return (state.current, state.live)
@@ -344,7 +348,14 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
         return answer
     }
 
-    public func events(_ page: AgentSessionPage) async throws -> Data { try await call { try await $0.events(page) } }
+    /// A forward page the page gets here covers its records too, so a move replays past them.
+    public func events(_ page: AgentSessionPage) async throws -> Data {
+        let answer = try await call { try await $0.events(page) }
+        if page.afterSeq != nil, page.beforeSeq == nil, let newest = Self.page(answer).newestSeq {
+            state.withLock { $0.newest = max($0.newest, newest) }
+        }
+        return answer
+    }
     public func prompt(id: String, text: String) async throws -> Data { try await call { try await $0.prompt(id: id, text: text) } }
     public func prompt(id: String, content: Data) async throws -> Data { try await call { try await $0.prompt(id: id, content: content) } }
     public func cancel() async throws { try await call { try await $0.cancel() } }
