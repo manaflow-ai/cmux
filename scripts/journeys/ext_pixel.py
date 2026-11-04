@@ -605,6 +605,12 @@ def step_px_film(j, step):
             return film_not_started(j, name, reduce, switch, done, error)
         except D.StepError as error:
             raise D.StepError(f"px_film {name}: {sub['do']} ({sub.get('title', '')[:60]}): {error}")
+        if sub.get("keep"):
+            # `keep` (a film's measurement read, e.g. debug.frames stop raw): the whole reply in its own file, so a long
+            # array is not cut at RESULT_CHARS; result.json keeps the file name.
+            path = j.out / f"{step['name']}.{sub['keep']}.json"
+            path.write_text(json.dumps(out, default=str))
+            out = {"kept": path.name, "bytes": path.stat().st_size}
         done.append({"do": sub["do"], "title": sub.get("title", ""), "seconds": round(D.now() - t, 3), "result": _short(out)})
     line = {"film": name, "status": "recorded", "speed": None if reduce else st["speed"], "reduce": reduce,
             "springs_source": st["springs_source"], "speed_facts": facts, "bytes": film_bytes(j, name), "steps": done}

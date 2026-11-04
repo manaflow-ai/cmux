@@ -228,7 +228,8 @@
      "do": "rpc",
      "method": "debug.cef",
      "params": {},
-     "title": "debug.cef before the film (tracker.geometry_posts, geometry_skips)"
+     "title": "debug.cef before the film (tracker.geometry_posts, geometry_skips)",
+     "keep": "cef-before"
     },
     {
      "do": "rpc",
@@ -317,19 +318,22 @@
       "action": "stop",
       "raw": true
      },
-     "title": "debug.frames stop raw"
+     "title": "debug.frames stop raw",
+     "keep": "frames"
     },
     {
      "do": "rpc",
      "method": "debug.layers",
      "params": {},
-     "title": "layout_passes (top_classes, top_instances)"
+     "title": "layout_passes (top_classes, top_instances)",
+     "keep": "layers"
     },
     {
      "do": "rpc",
      "method": "debug.cef",
      "params": {},
-     "title": "debug.cef after the film"
+     "title": "debug.cef after the film",
+     "keep": "cef-after"
     }
    ],
    "after": [],
@@ -353,7 +357,8 @@
      "do": "rpc",
      "method": "debug.cef",
      "params": {},
-     "title": "debug.cef before the film (tracker.geometry_posts, geometry_skips)"
+     "title": "debug.cef before the film (tracker.geometry_posts, geometry_skips)",
+     "keep": "cef-before"
     },
     {
      "do": "rpc",
@@ -442,19 +447,22 @@
       "action": "stop",
       "raw": true
      },
-     "title": "debug.frames stop raw"
+     "title": "debug.frames stop raw",
+     "keep": "frames"
     },
     {
      "do": "rpc",
      "method": "debug.layers",
      "params": {},
-     "title": "layout_passes (top_classes, top_instances)"
+     "title": "layout_passes (top_classes, top_instances)",
+     "keep": "layers"
     },
     {
      "do": "rpc",
      "method": "debug.cef",
      "params": {},
-     "title": "debug.cef after the film"
+     "title": "debug.cef after the film",
+     "keep": "cef-after"
     }
    ],
    "after": [],
@@ -478,7 +486,8 @@
      "do": "rpc",
      "method": "debug.cef",
      "params": {},
-     "title": "debug.cef before the film (tracker.geometry_posts, geometry_skips)"
+     "title": "debug.cef before the film (tracker.geometry_posts, geometry_skips)",
+     "keep": "cef-before"
     },
     {
      "do": "rpc",
@@ -567,19 +576,22 @@
       "action": "stop",
       "raw": true
      },
-     "title": "debug.frames stop raw"
+     "title": "debug.frames stop raw",
+     "keep": "frames"
     },
     {
      "do": "rpc",
      "method": "debug.layers",
      "params": {},
-     "title": "layout_passes (top_classes, top_instances)"
+     "title": "layout_passes (top_classes, top_instances)",
+     "keep": "layers"
     },
     {
      "do": "rpc",
      "method": "debug.cef",
      "params": {},
-     "title": "debug.cef after the film"
+     "title": "debug.cef after the film",
+     "keep": "cef-after"
     }
    ],
    "after": [],
@@ -603,7 +615,8 @@
      "do": "rpc",
      "method": "debug.cef",
      "params": {},
-     "title": "debug.cef before the film (tracker.geometry_posts, geometry_skips)"
+     "title": "debug.cef before the film (tracker.geometry_posts, geometry_skips)",
+     "keep": "cef-before"
     },
     {
      "do": "rpc",
@@ -692,19 +705,22 @@
       "action": "stop",
       "raw": true
      },
-     "title": "debug.frames stop raw"
+     "title": "debug.frames stop raw",
+     "keep": "frames"
     },
     {
      "do": "rpc",
      "method": "debug.layers",
      "params": {},
-     "title": "layout_passes (top_classes, top_instances)"
+     "title": "layout_passes (top_classes, top_instances)",
+     "keep": "layers"
     },
     {
      "do": "rpc",
      "method": "debug.cef",
      "params": {},
-     "title": "debug.cef after the film"
+     "title": "debug.cef after the film",
+     "keep": "cef-after"
     }
    ],
    "after": [],
