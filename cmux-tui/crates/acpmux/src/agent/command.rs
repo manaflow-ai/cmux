@@ -125,13 +125,8 @@ pub(crate) fn harness_command(
     }
     // Every other harness's login, from the daemon's env, the login shell or
     // machine env (`foreign_login.rs`). The profile's env, applied below, may
-    // still set one on purpose. A Claude Code kind is Claude's whatever its family.
-    let login_family = if profile.kind == crate::config::HarnessKind::ClaudeStdio {
-        "claude"
-    } else {
-        family_name.as_str()
-    };
-    super::foreign_login::scrub(&mut cmd, login_family);
+    // still set one on purpose. The agent is the one its command line runs.
+    super::foreign_login::scrub(&mut cmd, name, profile);
     // Caller context, herdr-style: the agent knows which session it is.
     for (k, _) in std::env::vars_os() {
         if k.to_string_lossy().starts_with("ACPMUX_") {
@@ -755,7 +750,11 @@ mod tests {
         let claude = profile(HarnessKind::ClaudeStdio, "claude", serde_json::json!({}));
         for key in ["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY"] {
             assert!(removed(&codex, key), "Codex inherits {key}");
-            assert!(!removed(&claude, key), "Claude Code loses its own {key}");
+            // Not `removed`: inside a Claude Code shell the nested scrub removes these too.
+            assert!(
+                !super::super::foreign_login::foreign_login_keys("claude").any(|k| k == key),
+                "Claude Code loses its own {key}"
+            );
         }
         for key in ["OPENAI_API_KEY", "CODEX_HOME"] {
             assert!(removed(&claude, key), "Claude Code inherits {key}");
