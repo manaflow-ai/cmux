@@ -111,12 +111,15 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         heights.reserveCapacity(new.count)
         for row in first..<new.count {
             var height = height(for: new[row])
-            // Only the row's disclosures changed, to a state with no kept height yet: it keeps the
-            // height it is laid out at (its cell already draws the new state while it opens on the
-            // disclosure's spring) until its cell measures it. Its estimate (a 32 pt line) made the
-            // list's reload, a turn after the tap, snap the opening row shut and back.
+            // Only the row's disclosures changed: it keeps the height it is laid out at (its cell
+            // already draws the new state while it opens on the disclosure's spring) until its cell
+            // measures it. Its estimate (a 32 pt line) made the list's reload, a turn after the tap,
+            // snap the opening row shut and back. While a fold holds the heights it keeps it even
+            // when the new state was measured before, so a second open or close springs too
+            // (`layOut` moves it to the measured height inside the spring) instead of snapping.
             if row < old.count, row < heights.count, old[row].id == new[row].id, old[row].revision == new[row].revision,
-               old[row].fold != new[row].fold, !new[row].exact, measured[new[row].id]?.height(fold: new[row].fold) == nil {
+               old[row].fold != new[row].fold, !new[row].exact,
+               holdsHeights || measured[new[row].id]?.height(fold: new[row].fold) == nil {
                 height = heights[row]
             }
             if row < heights.count { heights[row] = height } else { heights.append(height) }

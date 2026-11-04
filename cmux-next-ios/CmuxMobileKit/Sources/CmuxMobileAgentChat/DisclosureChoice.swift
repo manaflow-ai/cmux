@@ -46,16 +46,20 @@ final class ChatDisclosures {
     /// native row (a finished tool row, group or thought at rest) swapped to its open SwiftUI
     /// view with nothing to animate, so it opened at once while SwiftUI rows animated, and an
     /// open row swapped back to native mid-close.
-    @ObservationIgnored private var settling: Set<String> = []
+    /// Counted per key: a second tap inside the spring starts a second settle, and the first
+    /// one's completion must not end it early.
+    @ObservationIgnored private var settling: [String: Int] = [:]
 
     func isSettling(_ key: String) -> Bool {
         access(keyPath: \.revision)
-        return settling.contains(key)
+        return settling[key, default: 0] > 0
     }
 
     func settle(_ key: String, _ on: Bool) {
-        guard on ? settling.insert(key).inserted : settling.remove(key) != nil else { return }
-        revision &+= 1
+        let before = settling[key, default: 0]
+        let after = on ? before + 1 : max(0, before - 1)
+        settling[key] = after == 0 ? nil : after
+        if (before == 0) != (after == 0) { revision &+= 1 }
     }
 }
 
