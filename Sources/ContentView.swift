@@ -2653,6 +2653,8 @@ struct ContentView: View {
 
         view = AnyView(view.onAppear {
             ChiefHomeNavigation.restoreConversations(in: tabManager)
+            // A session saved with Chief on restores its Home; with Chief off, drop it.
+            ChiefHomeNavigation.removeHome(in: tabManager)
             sidebarState.installVisibilityWillChangeHandler(ownerId: windowId) { isVisible in
                 if !isVisible {
                     restoreMainPanelFocusAfterAppKitSidebarHiddenIfNeeded()
@@ -2798,12 +2800,15 @@ struct ContentView: View {
             ChiefHomeNavigation.restoreConversations(in: tabManager)
         })
 
-        view = AnyView(view.onChange(of: chiefEnabled) { _, enabled in
+        view = AnyView(view.onChange(of: chiefEnabled && CmuxFeatureFlags.shared.isChiefAvailable) { _, enabled in
             if enabled {
                 AppDelegate.shared?.startChiefIfEnabled()
                 _ = ChiefHomeNavigation.ensureHome(in: tabManager)
             } else {
                 ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState, tabManager: tabManager).leave()
+                ChiefService.shared.stopBecauseDisabled()
+                ChiefHomeNavigation.removeHome(in: tabManager)
+                AppDelegate.shared?.existingWindowDock(forWindowId: windowId)?.removeChiefPanels()
             }
         })
 
@@ -15797,9 +15802,10 @@ struct SidebarFooterButtons: View {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
     }
 
+    /// Account and sign-in state only: the flow refetches on a team change.
     private var billingPlanRefreshID: String? {
         guard let flow = accountFlow, let accountID = flow.currentIdentity?.id else { return nil }
-        return "\(accountID):\(flow.confirmedTeamID ?? "personal"):\(flow.isAuthenticated)"
+        return "\(accountID):\(flow.isAuthenticated)"
     }
 
     private var isProStatusKnownForUpgrade: Bool {

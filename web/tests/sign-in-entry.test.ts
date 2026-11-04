@@ -23,6 +23,7 @@ const {
   SELECT_ACCOUNT_PROMPT,
   accountInitials,
   handlerHref,
+  authErrorHref,
   hostedAuthErrorRedirect,
   isReturningFromOAuth,
   oauthLoginHint,
@@ -269,6 +270,19 @@ describe("hosted error pages", () => {
     );
   });
 
+  test("a failed app sign-in keeps its app return target on the recovery page", () => {
+    const href = authErrorHref(
+      "email-unverified",
+      q("code=abc&native_app_return_to=cmux%3A%2F%2Fauth-callback&after_auth_return_to=%2Fhandler%2Fafter-sign-in"),
+    );
+    const url = new URL(href, "https://cmux.test");
+    expect(url.pathname).toBe("/handler/auth-error");
+    expect(url.searchParams.get("code")).toBe("email-unverified");
+    expect(url.searchParams.get("native_app_return_to")).toBe("cmux://auth-callback");
+    expect(url.searchParams.get("after_auth_return_to")).toBe("/handler/after-sign-in");
+    expect(authErrorHref(null, q(""))).toBe("/handler/auth-error");
+  });
+
   test("any other failure maps to the generic page, and a normal return is left alone", () => {
     expect(hostedAuthErrorRedirect("oauth-callback", q("error=access_denied"))).toBe("/handler/auth-error");
     expect(hostedAuthErrorRedirect("oauth-callback", q("code=abc&state=xyz"))).toBeNull();
@@ -285,16 +299,32 @@ describe("which remembered accounts go straight to a provider", () => {
   const google = [{ type: "google", allowSignIn: true }];
 
   test("a Google-only account goes to Google", () => {
-    expect(rememberedMethodFor({ hasPassword: false, linked: google, preference })).toBe("google");
+    expect(rememberedMethodFor({ linked: google, preference })).toBe("google");
   });
 
-  test("a password account gets the form, even with a provider linked", () => {
-    expect(rememberedMethodFor({ hasPassword: true, linked: [], preference })).toBeNull();
-    expect(rememberedMethodFor({ hasPassword: true, linked: google, preference })).toBeNull();
+  // A Google account that later set a password used to open the password form.
+  test("a Google account that also has a password still goes to Google", () => {
+    const signedUpWithGoogle = { linked: google, preference, hasPassword: true };
+    expect(rememberedMethodFor(signedUpWithGoogle)).toBe("google");
+    expect(rememberedMethodFor({ ...signedUpWithGoogle, usedProvider: "google" })).toBe("google");
   });
 
-  test("an email-code account with no provider gets the form", () => {
-    expect(rememberedMethodFor({ hasPassword: false, linked: [], preference })).toBeNull();
+  test("the provider this sign-in came back from wins over the preference order", () => {
+    const both = [{ type: "google", allowSignIn: true }, { type: "github", allowSignIn: true }];
+    expect(rememberedMethodFor({ linked: both, preference, usedProvider: "github" })).toBe("github");
+    expect(rememberedMethodFor({ linked: both, preference })).toBe("google");
+  });
+
+  test("a provider that can't sign the account in is never picked", () => {
+    const connectedOnly = [{ type: "google", allowSignIn: false }];
+    expect(rememberedMethodFor({ linked: connectedOnly, preference })).toBeNull();
+    expect(rememberedMethodFor({ linked: connectedOnly, preference, usedProvider: "google" })).toBeNull();
+    // A stale "last used" from another account doesn't count either.
+    expect(rememberedMethodFor({ linked: google, preference, usedProvider: "github" })).toBe("google");
+  });
+
+  test("an email account with no provider gets the form", () => {
+    expect(rememberedMethodFor({ linked: [], preference })).toBeNull();
   });
 
   test("a failed direct sign-in sends only that account to the form next time", () => {

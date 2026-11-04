@@ -11,6 +11,8 @@ use serde_json::{Map, Number, Value, json};
 
 use super::{GlobalArgs, UsageError};
 
+mod actions;
+
 pub(super) enum ParsedCommand {
     Help(Option<String>),
     Command { global: GlobalArgs, plan: CommandPlan },
@@ -113,11 +115,25 @@ impl Selectors {
 #[derive(Default)]
 struct Flags {
     values: BTreeMap<String, Option<String>>,
+    /// The resolved action, so debug builds can prove its help lists every
+    /// flag the parser reads.
+    action: Option<&'static actions::ActionSpec>,
 }
 
 impl Flags {
     fn take(&mut self, name: &str) -> Option<String> {
+        self.assert_documented(name);
         self.values.remove(name).flatten()
+    }
+
+    fn assert_documented(&self, name: &str) {
+        if let Some(action) = self.action {
+            debug_assert!(
+                action.accepts(name),
+                "`{}` reads --{name}, which its entry in cli/command/actions.rs does not list",
+                action.path,
+            );
+        }
     }
 
     fn required(&mut self, name: &str) -> Result<String, UsageError> {
@@ -125,6 +141,7 @@ impl Flags {
     }
 
     fn boolean(&mut self, name: &str) -> bool {
+        self.assert_documented(name);
         self.values.remove(name).is_some()
     }
 
@@ -149,8 +166,22 @@ struct Tokens {
 }
 
 pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
-    let mut tokens = tokenize(args)?;
+    let mut tokens = match tokenize(args) {
+        Ok(tokens) => tokens,
+        // Startup options before `server start` are not resource flags; say
+        // where they go instead of naming the first one as unknown.
+        Err(_) if starts_with_server_start(args) => {
+            return Err(UsageError::new(
+                crate::localization::catalog().local_server.start_options_after_action,
+            ));
+        }
+        Err(error) => return Err(error),
+    };
     super::shorthand::normalize_words(&mut tokens.words);
+    if let Some(action) = actions::resolve(&tokens.words) {
+        check_action_flags(action, &tokens.flags)?;
+        tokens.flags.action = Some(action);
+    }
     let scope = tokens
         .words
         .first()
@@ -184,6 +215,99 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
     };
     tokens.flags.reject_remaining()?;
     Ok(plan)
+}
+
+/// Whether the first two command words are `server start` (or `srv start`),
+/// skipping startup switches, value-bearing startup options, and resource
+/// flags with their catalog arity.
+fn starts_with_server_start(args: &[String]) -> bool {
+    let mut words = Vec::new();
+    let mut index = 0;
+    while index < args.len() && words.len() < 2 {
+        let value = args[index].as_str();
+        if value == "--" {
+            break;
+        }
+        if crate::STARTUP_SWITCH_OPTIONS.contains(&value) {
+            index += 1;
+            continue;
+        }
+        if let Some(end) = crate::startup_option_value_end(args, index) {
+            index = end;
+            continue;
+        }
+        if let Some(name) = value.strip_prefix("--") {
+            if !name.contains('=')
+                && flag_takes_value(name)
+                && args.get(index + 1).is_some_and(|next| !next.starts_with('-'))
+            {
+                index += 1;
+            }
+        } else {
+            words.push(value);
+        }
+        index += 1;
+    }
+    matches!(words[..], [scope, "start"] if super::shorthand::scope(scope) == "server")
+}
+
+/// Reject flags the action does not take and report every missing required
+/// flag at once, before any value is interpreted.
+fn check_action_flags(action: &actions::ActionSpec, flags: &Flags) -> Result<(), UsageError> {
+    let usage = || format!("usage: {}", action.usage(&super::program_name()));
+    if let Some(name) = flags.values.keys().find(|name| !action.accepts(name)) {
+        return Err(UsageError::new(format!(
+            "unknown flag --{name} for `{}`\n{}",
+            action.path,
+            usage()
+        )));
+    }
+    let missing = action
+        .all_options()
+        .into_iter()
+        .filter(|option| option.required && !flags.values.contains_key(option.name()))
+        .map(|option| format!("--{}", option.name()))
+        .collect::<Vec<_>>();
+    let message = match missing.as_slice() {
+        [] => return Ok(()),
+        [flag] => format!("{flag} is required"),
+        [first, second] => format!("{first} and {second} are required"),
+        [rest @ .., last] => format!("{}, and {last} are required", rest.join(", ")),
+    };
+    Err(UsageError::new(format!("{message}\n{}", usage())))
+}
+
+/// Words that name the help topic in a `--help` invocation: option values
+/// and forwarded argv are skipped, and shorthand is normalized the same way
+/// as for a real command.
+pub(super) fn help_words(args: &[String]) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        let value = args[index].as_str();
+        if value == "--" {
+            break;
+        }
+        if let Some(name) = value.strip_prefix("--") {
+            if !name.contains('=') && actions::arity(name) == Some(actions::Arity::Value) {
+                index += 1;
+            }
+        } else if !value.starts_with('-') {
+            words.push(value.to_string());
+        }
+        index += 1;
+    }
+    super::shorthand::normalize_words(&mut words);
+    words
+}
+
+/// The action a help invocation names, as a help topic.
+pub(super) fn action_help_topic(words: &[String]) -> Option<&'static str> {
+    actions::resolve(words).map(|action| action.path)
+}
+
+pub(super) fn action_help(path: &str, program: &str) -> Option<String> {
+    actions::ACTIONS.iter().find(|action| action.path == path).map(|action| action.help(program))
 }
 
 fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
@@ -235,7 +359,10 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             if name.is_empty() {
                 return Err(UsageError::new("empty flag name"));
             }
-            let flag_value = if is_boolean_flag(name) {
+            let Some(arity) = actions::arity(name) else {
+                return Err(unknown_flag(name));
+            };
+            let flag_value = if arity == actions::Arity::Switch {
                 if inline.is_some() {
                     return Err(UsageError::new(format!("--{name} does not take a value")));
                 }
@@ -263,44 +390,22 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     Ok(Tokens { words, flags, argv })
 }
 
-/// Metadata for flags which consume no following token.
-///
-/// Keeping this as data makes the tokenizer's grammar auditable and leaves a
-/// single place to extend when a command adds a boolean option. This is the
-/// same distinction Clap models with `ArgAction::SetTrue`, while retaining
-/// cmux's custom forwarding and error text.
-const BOOLEAN_FLAGS: &[&str] = &[
-    "clear",
-    "reply",
-    "empty",
-    "left",
-    "right",
-    "up",
-    "down",
-    "force",
-    "confirm-close",
-    "complete",
-    "clear-name",
-    "clear-kind",
-    "clear-foreground",
-    "clear-background",
-    "clear-cursor",
-    "clear-selection-background",
-    "clear-selection-foreground",
-    "clear-cursor-style",
-    "clear-cursor-blink",
-    "clear-palette",
-    "read-only",
-    "relaunch",
-    "styled",
-    "builtin",
-    "mutation",
-    "stream",
-    "ignore-case",
-];
+/// Whether `--name` consumes the next token. Arity comes from the action
+/// catalog, the same distinction Clap models with `ArgAction::SetTrue`.
+/// Unknown flags take no value, so they are reported as unknown instead of
+/// swallowing the next argument.
+pub(super) fn flag_takes_value(name: &str) -> bool {
+    actions::arity(name) == Some(actions::Arity::Value)
+}
 
-pub(super) fn is_boolean_flag(name: &str) -> bool {
-    BOOLEAN_FLAGS.contains(&name)
+fn unknown_flag(name: &str) -> UsageError {
+    let known = actions::known_flag_names().into_iter().collect::<Vec<_>>();
+    match super::suggestion(name, &known) {
+        Some(suggestion) => {
+            UsageError::new(format!("unknown flag --{name}; did you mean --{suggestion}?"))
+        }
+        None => UsageError::new(format!("unknown flag --{name}")),
+    }
 }
 
 fn parse_machine(
@@ -1702,10 +1807,13 @@ fn parse_plugin(
         }
         _ => return usage("plugin action"),
     }
+    // Only install takes --name and --force; the action check rejects them
+    // anywhere else before the plugin manager runs.
+    let install = positionals.first().is_some_and(|action| action == "install");
     let plan = PluginPlan {
         positionals,
-        name: flags.take("name"),
-        force: flags.boolean("force"),
+        name: if install { flags.take("name") } else { None },
+        force: install && flags.boolean("force"),
         builtin,
         kind,
     };
@@ -2849,7 +2957,7 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
 pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthorityPlan) -> i32 {
     let output = global.output;
     let Some(socket) = global.socket else {
-        eprintln!("cmux: provider authority install requires --socket");
+        eprintln!("{}: provider authority install requires --socket", crate::cli::program_name());
         return 2;
     };
     #[cfg(target_os = "linux")]
@@ -3107,13 +3215,63 @@ mod tests {
     }
 
     #[test]
+    fn server_start_hint_respects_startup_option_arity() {
+        let expected = crate::localization::catalog().local_server.start_options_after_action;
+        for option in [
+            "--ephemeral",
+            "--cloud",
+            "--headless",
+            "--ws-insecure-bind",
+            "--remote",
+            "--remote-ws-insecure-bind",
+            "--remote-ws-trusted-carrier",
+            "--iroh",
+        ] {
+            let error = match parse(&strings(&[option, "server", "start"])) {
+                Err(error) => error,
+                Ok(_) => panic!("misplaced {option} must be rejected"),
+            };
+            assert_eq!(error.0, expected, "{option}");
+        }
+
+        for args in [
+            &["--term", "xterm-256color", "server", "start"][..],
+            &["--term", "server", "server", "start"][..],
+            &["--ephemeral", "--term", "xterm-256color", "server", "start"][..],
+            &["--ephemeral", "--force", "server", "start"][..],
+            &["--ephemeral", "--cwd", "/tmp", "server", "start"][..],
+            &["--ephemeral", "srv", "start"][..],
+        ] {
+            let error = match parse(&strings(args)) {
+                Err(error) => error,
+                Ok(_) => panic!("misplaced startup options must be rejected"),
+            };
+            assert_eq!(error.0, expected, "{args:?}");
+        }
+        for args in [
+            &["--term", "server", "start"][..],
+            &["--ephemeral", "tab", "server", "start"][..],
+            &["--ephemeral", "--", "server", "start"][..],
+            &["--machine-provider-command", "server", "start", "--"][..],
+        ] {
+            let error = match parse(&strings(args)) {
+                Err(error) => error,
+                Ok(_) => panic!("invalid command must be rejected"),
+            };
+            assert_ne!(error.0, expected, "{args:?}");
+        }
+    }
+
+    #[test]
     fn boolean_flag_metadata_matches_tokenizer_contract() {
-        for name in BOOLEAN_FLAGS {
-            assert!(is_boolean_flag(name));
+        for name in actions::known_flag_names()
+            .into_iter()
+            .filter(|name| actions::arity(name) == Some(actions::Arity::Switch))
+        {
             let args = vec!["workspace".into(), "create".into(), format!("--{name}")];
             let tokens = tokenize(&args).expect("metadata flag must tokenize");
-            assert!(tokens.flags.values.contains_key(*name));
-            assert_eq!(tokens.flags.values[*name], None);
+            assert!(tokens.flags.values.contains_key(name));
+            assert_eq!(tokens.flags.values[name], None);
         }
     }
 

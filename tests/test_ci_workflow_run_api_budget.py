@@ -14,6 +14,8 @@ macOS) on PATH that records each call.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -179,6 +181,198 @@ class FailureAttributionCalls(unittest.TestCase):
         self.assertEqual(gh.writes, [])
 
 
+    def main_act(self, gh: "CountingGitHub", run: dict, classify=None) -> tuple[list[str], list[str]]:
+        """classify_failures.main(["act"]) on `run` as the workflow_run event, with `gh` as its client.
+        Returns (the runs classify_run read, stdout lines)."""
+        classified: list[str] = []
+        gh.calls = gh.read_calls = 0  # type: ignore[attr-defined]
+
+        def fake_classify(client, event_run):  # noqa: ANN001, ANN202
+            classified.append(str(event_run["id"]))
+            found = classify(client) if classify else report([cf.CODE])
+            for job in found["jobs"]:
+                job.setdefault("signature", None)
+            return found
+
+        with tempfile.TemporaryDirectory() as temp:
+            event = Path(temp) / "event.json"
+            event.write_text(json.dumps({"workflow_run": run}))
+            out = io.StringIO()
+            saved = {name: getattr(cf, name) for name in ("GitHub", "classify_run")}
+            env = {"GITHUB_EVENT_PATH": str(event), "GH_TOKEN": "t", "GITHUB_REPOSITORY": REPO}
+            old_env = {key: os.environ.get(key) for key in env}
+            try:
+                cf.GitHub = lambda *args, **kwargs: gh  # type: ignore[assignment,misc]
+                cf.classify_run = fake_classify  # type: ignore[assignment]
+                os.environ.update(env)
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(cf.main(["act"]), 0)
+            finally:
+                for name, value in saved.items():
+                    setattr(cf, name, value)
+                for key, value in old_env.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+        return classified, out.getvalue().splitlines()
+
+    def test_a_red_run_on_a_moved_or_closed_head_reads_no_jobs(self) -> None:
+        self.assertTrue(cf.moved_past(RUN, (7, {"state": "open", "head": {"sha": "b" * 40}})))
+        self.assertTrue(cf.moved_past(RUN, (7, {"state": "closed", "head": {"sha": HEAD}, "merged_at": None})))
+        self.assertTrue(cf.moved_past(RUN, (None, {})))
+        self.assertFalse(cf.moved_past(RUN, (7, {"state": "open", "head": {"sha": HEAD}})))
+        self.assertFalse(cf.moved_past(RUN, (7, {"state": "closed", "head": {"sha": HEAD}, "merged_at": "x"})))
+        red = {**RUN, "status": "completed", "conclusion": "failure", "run_attempt": 1}
+        gh = CountingGitHub(comments=[{**BOT_COMMENT, "body": cf.MARKER + "\n" + cf.head_marker(HEAD, "failed")}],
+                            head="b" * 40)
+        classified, _ = self.main_act(gh, red)
+        self.assertEqual(classified, [])  # no jobs, logs or annotations read
+        self.assertEqual(gh.writes, [("PATCH", f"repos/{REPO}/issues/comments/99")])  # marked pending
+        gh = CountingGitHub(state="closed")
+        classified, lines = self.main_act(gh, red)
+        self.assertEqual((classified, gh.writes), ([], []))
+        self.assertTrue(any("no open pull request" in line for line in lines))
+        # A red run on the current head is classified as before.
+        gh = CountingGitHub()
+        self.assertEqual(self.main_act(gh, red)[0], ["42"])
+
+    def test_a_pull_request_that_moves_while_its_logs_are_read_is_not_re_run(self) -> None:
+        red = {**RUN, "status": "completed", "conclusion": "failure", "run_attempt": 1}
+        gh = CountingGitHub()
+
+        def moves_meanwhile(client) -> dict:  # noqa: ANN001
+            client.head = "b" * 40  # a push lands while the jobs and logs are read
+            return report([cf.MACHINE])
+
+        classified, _ = self.main_act(gh, red, classify=moves_meanwhile)
+        self.assertEqual(classified, ["42"])
+        self.assertEqual(gh.reads.count("pull 7"), 2)  # read again before deciding the re-run
+        self.assertNotIn(("POST", f"repos/{REPO}/actions/runs/42/rerun-failed-jobs"), gh.writes)
+
+
+    NEXT_RUN = {**RUN, "id": 42, "conclusion": "success", "pull_requests": [
+        {"number": 7, "base": {"ref": "feat-cmux-next", "repo": {"url": f"https://api.github.com/repos/{REPO}"}}}]}
+
+    def test_a_green_run_into_feat_cmux_next_reads_only_the_comments(self) -> None:
+        # feat-cmux-next's ci.yml skips `Fast static checks` and so `macos` by design: routing,
+        # not "macOS never ran". Before, that skip read the pull request, its comments and its files.
+        jobs = [{"name": "changes", "conclusion": "success"}, {"name": "Fast static checks", "conclusion": "skipped"}]
+        self.assertEqual(cf.macos_blocked(jobs, "feat-cmux-next"), "")
+        self.assertEqual(cf.macos_blocked(jobs, "main"), "`Fast static checks` skipped")
+        rep = cf.green_next_report(CountingGitHub(), self.NEXT_RUN)  # type: ignore[arg-type]
+        self.assertIsNotNone(rep)
+        gh = CountingGitHub(files=["Packages/macOS/CmuxNext/Sources/A.swift"])
+        result = cf.act(gh, cf.Writer(gh, dry_run=False), self.NEXT_RUN, rep)  # type: ignore[arg-type]
+        self.assertEqual(gh.reads, ["comments 7"])  # no jobs, pull or files read
+        self.assertEqual(gh.writes, [])
+        self.assertEqual(result["line"], "skipped: nothing reported on this pull request")
+        # An earlier report on the pull request is still updated to "passes".
+        gh = CountingGitHub(comments=[BOT_COMMENT])
+        cf.act(gh, cf.Writer(gh, dry_run=False), self.NEXT_RUN, cf.green_next_report(gh, self.NEXT_RUN))  # type: ignore[arg-type]
+        self.assertEqual(gh.writes, [("PATCH", f"repos/{REPO}/issues/comments/99")])
+
+    def test_only_a_green_run_into_feat_cmux_next_skips_the_jobs(self) -> None:
+        gh = CountingGitHub()
+        self.assertIsNone(cf.green_next_report(gh, {**self.NEXT_RUN, "conclusion": "failure"}))  # type: ignore[arg-type]
+        main_run = {**self.NEXT_RUN, "pull_requests": [
+            {"number": 7, "base": {"ref": "main", "repo": {"url": f"https://api.github.com/repos/{REPO}"}}}]}
+        self.assertIsNone(cf.green_next_report(gh, main_run))  # type: ignore[arg-type]
+        fork_pr = {**self.NEXT_RUN, "pull_requests": [
+            {"number": 7, "base": {"ref": "feat-cmux-next", "repo": {"url": "https://api.github.com/repos/someone/cmux"}}}]}
+        self.assertIsNone(cf.green_next_report(gh, fork_pr))  # type: ignore[arg-type]
+
+    def test_feat_cmux_next_ci_skips_the_static_checks_and_gates_macos_on_them(self) -> None:
+        shown = subprocess.run(["git", "-C", str(ROOT), "show", "origin/feat-cmux-next:.github/workflows/ci.yml"],
+                               capture_output=True, text=True, check=False)
+        if shown.returncode:
+            self.skipTest("origin/feat-cmux-next is not fetched")
+        jobs = yaml.safe_load(shown.stdout)["jobs"]
+        static = next(name for name, job in jobs.items() if job.get("name") == cf.STATIC_CHECKS_JOB)
+        self.assertIn("github.event.pull_request.base.ref != 'feat-cmux-next'", jobs[static]["if"])
+        self.assertIn(f"needs.{static}.result == 'success'", jobs["macos"]["if"])
+
+
+class FeatCmuxNextSkips(unittest.TestCase):
+    """CI runs of pull requests into feat-cmux-next start no guard analysis: that branch's ci.yml
+    skips `fast-guards` for them, so the analysis read the run's jobs to find no verdict."""
+
+    def test_guard_attribution_skips_feat_cmux_next_ci_runs(self) -> None:
+        job, _ = workflow_step("ci-guard-attribution.yml", "analyze", "Analyze")
+        self.assertIn("!(github.event.workflow_run.event == 'pull_request' && "
+                      "github.event.workflow_run.path == '.github/workflows/ci.yml' && "
+                      "github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next')", job["if"])
+        shown = subprocess.run(["git", "-C", str(ROOT), "show", "origin/feat-cmux-next:.github/workflows/ci.yml"],
+                               capture_output=True, text=True, check=False)
+        if shown.returncode:
+            self.skipTest("origin/feat-cmux-next is not fetched")
+        guards = yaml.safe_load(shown.stdout)["jobs"]["fast-guards"]
+        self.assertIn("github.event.pull_request.base.ref != 'feat-cmux-next'", guards["if"])
+
+
+class ReadTokenRouting(unittest.TestCase):
+    """guard_attribution.GitHub: reads on the App's token, writes and checks reads on GH_TOKEN."""
+
+    def calls(self, steps, refuse: dict[str, int] | None = None) -> list[tuple[str, str, str]]:
+        seen: list[tuple[str, str, str]] = []
+
+        class Response:
+            def __init__(self) -> None:
+                self.headers: dict = {}
+
+            def read(self) -> bytes:
+                return b"{}"
+
+            def __enter__(self):  # noqa: ANN204
+                return self
+
+            def __exit__(self, *exc: object) -> None:
+                return None
+
+        def urlopen(req, timeout=60):  # noqa: ANN001, ANN202
+            token = req.unredirected_hdrs["Authorization"].split()[-1]
+            path = req.full_url.split("api.github.com/")[1]
+            seen.append((req.get_method(), path, token))
+            code = (refuse or {}).get(token)
+            if code:
+                raise ga.urllib.error.HTTPError(req.full_url, code, "no", {}, io.BytesIO(b"refused"))  # type: ignore[arg-type]
+            return Response()
+
+        original = ga.urllib.request.urlopen
+        ga.urllib.request.urlopen = urlopen  # type: ignore[assignment]
+        try:
+            gh = ga.GitHub(REPO, "workflow", read_token="app")
+            steps(gh)
+        finally:
+            ga.urllib.request.urlopen = original  # type: ignore[assignment]
+        return seen
+
+    def test_reads_use_the_app_and_writes_the_workflow_token(self) -> None:
+        def steps(gh: ga.GitHub) -> None:
+            gh.get(f"repos/{REPO}/actions/runs/1/jobs?per_page=100")
+            gh.get(f"repos/{REPO}/check-runs/5/annotations?per_page=50")
+            gh.request("POST", f"repos/{REPO}/actions/runs/1/rerun-failed-jobs", {})
+            gh.request("PATCH", f"repos/{REPO}/issues/comments/9", {"body": "x"})
+        self.assertEqual([(m, t) for m, _, t in self.calls(steps)],
+                         [("GET", "app"), ("GET", "workflow"), ("POST", "workflow"), ("PATCH", "workflow")])
+
+    def test_a_refused_read_is_made_again_with_the_workflow_token(self) -> None:
+        def steps(gh: ga.GitHub) -> None:
+            gh.get(f"repos/{REPO}/pulls/7")
+            gh.get(f"repos/{REPO}/pulls/8")
+        for code, second in ((403, "app"), (401, "workflow")):
+            with self.subTest(code=code), contextlib.redirect_stderr(io.StringIO()):
+                tokens = [t for _, _, t in self.calls(steps, refuse={"app": code})]
+                # 403 (no permission or no budget for this read) retries that read; 401 (an
+                # expired token) keeps the workflow token from then on.
+                self.assertEqual(tokens[:2], ["app", "workflow"])
+                self.assertEqual(tokens[2], second)
+
+    def test_without_a_read_token_everything_uses_the_workflow_token(self) -> None:
+        gh = ga.GitHub(REPO, "workflow", read_token="workflow")
+        self.assertEqual(gh.read_token, "")
+
+
 # ---------------------------------------------------------------- CI guard attribution
 
 
@@ -230,6 +424,9 @@ FAKE_GH = textwrap.dedent("""\
     import json, os, sys
     with open(os.environ["FAKE_GH_LOG"], "a") as log:
         log.write(json.dumps(sys.argv[1:]) + "\\n")
+    if os.environ.get("FAKE_GH_TOKEN_LOG"):
+        with open(os.environ["FAKE_GH_TOKEN_LOG"], "a") as log:
+            log.write(os.environ.get("GH_TOKEN", "") + "\\n")
     args = [a for a in sys.argv[1:] if a.startswith("repos/")]
     responses = json.loads(os.environ.get("FAKE_GH_RESPONSES", "{}"))
     path = args[0] if args else ""
@@ -373,6 +570,16 @@ class HostedQueueRescueCalls(StepHarness):
             f"-X POST repos/{REPO}/actions/runs/42/rerun"])
         self.assertIn("rerunning hosted queue timeout 42", out)
 
+    def test_reads_use_the_read_token_and_the_rerun_the_workflow_token(self) -> None:
+        self.assertEqual(self.STEP["env"]["READ_TOKEN"],
+                         "${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}")
+        with tempfile.TemporaryDirectory() as tmp:
+            tokens = Path(tmp) / "tokens"
+            self.run_step(self.STEP["run"], {**self.ENV, "READ_TOKEN": "app", "FAKE_GH_TOKEN_LOG": str(tokens)},
+                          {"runs/42": self.RUN, "runs/42/jobs": self.NO_RUNNER})
+            # run, jobs on the App; the re-run on GH_TOKEN (github-actions[bot] routes attempt 3).
+            self.assertEqual(tokens.read_text().split(), ["app", "app", "t"])
+
     def test_a_run_already_rerun_is_left_alone(self) -> None:
         calls, _, out = self.run_step(self.STEP["run"], self.ENV, {"runs/42": {**self.RUN, "run_attempt": 2}})
         self.assertEqual(len(calls), 1)
@@ -391,9 +598,10 @@ class CmuxBotTokenWorkflowShape(unittest.TestCase):
         "ci-owned-pool-rescue.yml": ("rescue",),
         # The publish job runs in the artifacts environment, which is limited
         # to R2 credentials by the production-secret guard. Its explicitly
-        # scoped GITHUB_TOKEN preserves that trust boundary; capture has no
-        # artifact secrets and can use cmux-bot's separate budget.
-        "dogfood-artifact-publish.yml": ("capture",),
+        # scoped GITHUB_TOKEN preserves that trust boundary. The capture runs on
+        # the reused GUI mini, so the cmux-bot token is minted only in the two
+        # short jobs around it, on a literal ephemeral label.
+        "dogfood-artifact-publish.yml": ("capture-inputs", "capture-report"),
     }
     PERMISSIONS = {
         "permission-actions": "write",
@@ -421,14 +629,36 @@ class CmuxBotTokenWorkflowShape(unittest.TestCase):
 
                     # Every shell step that can call gh receives the App token,
                     # while the expression keeps forks and rollouts working.
-                    token_envs = [(step.get("id"), step.get("env", {}).get("GH_TOKEN")) for step in steps]
+                    token_envs = [(step.get("id") or step.get("name"), step.get("env", {}).get("GH_TOKEN"))
+                                  for step in steps]
                     token_envs = [(step_id, value) for step_id, value in token_envs if value is not None]
                     self.assertTrue(token_envs)
                     for step_id, value in token_envs:
-                        if filename == "ci-queue-janitor.yml" and step_id == "fresh":
-                            self.assertEqual(value, "${{ github.token }}")
+                        if str(step_id).startswith("Log the glaeda-route App budget "):
+                            # The budget probes read that App installation's own rate_limit (free).
+                            self.assertEqual(value, "${{ steps.glaeda-token.outputs.token }}")
+                        elif filename == "ci-queue-janitor.yml" and step_id == "fresh":
+                            # Ahead of the cmux-bot mint, so only the glaeda-route App's token.
+                            self.assertEqual(value, "${{ steps.glaeda-token.outputs.token || github.token }}")
                         else:
                             self.assertIn("steps.cmux-bot-token.outputs.token", value)
+
+    def test_the_gui_capture_job_holds_no_secret_and_no_app_token(self) -> None:
+        # MACOS_RUNNER_DISPLAY (set by the overflow switch too) puts the capture on a reused mini:
+        # it may read this run's artifacts and upload one, nothing more.
+        document = yaml.safe_load((ROOT / ".github/workflows/dogfood-artifact-publish.yml").read_text())
+        capture = document["jobs"]["capture"]
+        self.assertIn("vars.MACOS_RUNNER_DISPLAY", capture["runs-on"])
+        text = json.dumps(capture)
+        for held in ("secrets.", "create-github-app-token", "cmux-bot-token", "GH_TOKEN", "github.token"):
+            self.assertNotIn(held, text)
+        self.assertEqual(capture["permissions"], {"actions": "read", "contents": "read"})
+        self.assertEqual(capture["needs"], ["publish", "capture-inputs"])
+        self.assertEqual(document["jobs"]["capture-report"]["needs"], ["publish", "capture"])
+        uses = [step.get("uses", "").split("@")[0] for step in capture["steps"]]
+        self.assertEqual(uses.count("actions/download-artifact"), 2)
+        for name in ("capture-inputs", "capture-report"):
+            self.assertNotIn("${{ vars.", document["jobs"][name]["runs-on"].split("||", 1)[1], name)
 
     def test_artifact_publisher_keeps_the_r2_environment_secret_boundary(self) -> None:
         document = yaml.safe_load((ROOT / ".github/workflows/dogfood-artifact-publish.yml").read_text())
@@ -439,6 +669,121 @@ class CmuxBotTokenWorkflowShape(unittest.TestCase):
             token = step.get("env", {}).get("GH_TOKEN")
             if token is not None:
                 self.assertEqual(token, "${{ github.token }}")
+
+
+# ---------------------------------------------------------------- risk tier
+
+
+# Records each call with the token it used. FAIL_READ_TOKEN refuses every call made with that
+# token; MISSING_LABELS fails --add-label until a label was created.
+FAKE_RISK_GH = textwrap.dedent("""\
+    #!/usr/bin/env python3
+    import json, os, sys
+    log = os.environ["FAKE_GH_LOG"]
+    calls = [json.loads(line) for line in open(log)] if os.path.getsize(log) else []
+    with open(log, "a") as handle:
+        handle.write(json.dumps({"token": os.environ.get("GH_TOKEN"), "args": sys.argv[1:]}) + "\\n")
+    if os.environ["GH_TOKEN"] == os.environ.get("FAIL_READ_TOKEN"):
+        sys.exit(1)
+    if sys.argv[1:3] == ["pr", "view"]:
+        print(os.environ.get("CURRENT_LABELS", ""))
+    elif ("--add-label" in sys.argv and os.environ.get("MISSING_LABELS")
+          and not any(c["args"][:2] == ["label", "create"] for c in calls)):
+        sys.exit(1)
+    """)
+
+# Stands in for risk_tier.py: records the token it graded with and writes a verdict.
+FAKE_RISK_TIER = textwrap.dedent("""\
+    import os, sys
+    if os.environ["GH_TOKEN"] == os.environ.get("FAIL_READ_TOKEN"):
+        open(sys.argv[sys.argv.index("--github-output") + 1], "a").write("tier=partial\\n")
+        sys.exit(1)
+    open(os.environ["FAKE_GH_LOG"], "a").write('{"token": "%s", "args": ["grade"]}\\n' % os.environ["GH_TOKEN"])
+    ready = "false" if os.environ["GH_TOKEN"] == os.environ.get("HELD_ON") else "true"
+    open(sys.argv[sys.argv.index("--github-output") + 1], "a").write("tier=normal\\nlabel=risk:normal\\nready=%s\\n" % ready)
+    open(sys.argv[sys.argv.index("--summary") + 1], "a").write("## Risk tier: normal\\n")
+    """)
+
+
+class RiskTierCalls(unittest.TestCase):
+    """risk evidence reads on the glaeda-route App's budget and creates no label that exists (2026-10-26)."""
+
+    def run_step(self, name: str, **env: str) -> tuple[list[dict], str]:
+        _, step = workflow_step("risk-tier.yml", "evidence", name)
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            (Path(tmp) / "scripts/ci").mkdir(parents=True)
+            (Path(tmp) / "scripts/ci/risk_tier.py").write_text(FAKE_RISK_TIER)
+            bin_dir.mkdir()
+            (bin_dir / "gh").write_text(FAKE_RISK_GH)
+            (bin_dir / "gh").chmod(0o755)
+            log, output, summary = Path(tmp) / "gh.log", Path(tmp) / "output", Path(tmp) / "summary"
+            for path in (log, output, summary):
+                path.touch()
+            result = subprocess.run(
+                ["bash", "-e", "-c", step["run"]], capture_output=True, text=True, check=False, cwd=tmp,
+                env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_GH_LOG": str(log),
+                     "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary), "RUNNER_TEMP": tmp,
+                     "REPO": REPO, "NUMBER": "7", "LABEL": "risk:normal", "GH_TOKEN": "workflow", **env})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return [json.loads(line) for line in log.read_text().splitlines()], output.read_text()
+
+    def test_the_step_tokens_are_the_app_for_reads_and_the_workflow_token_for_writes(self) -> None:
+        for name in ("Grade the pull request", "Set the risk label"):
+            with self.subTest(step=name):
+                _, step = workflow_step("risk-tier.yml", "evidence", name)
+                self.assertEqual(step["env"]["READ_TOKEN"], "${{ steps.glaeda-token.outputs.token }}")
+                self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
+        _, mint = workflow_step("risk-tier.yml", "evidence", "Mint the glaeda-route token")
+        self.assertTrue(mint["continue-on-error"])
+        self.assertEqual({k: v for k, v in mint["with"].items() if k.startswith("permission-")},
+                         {"permission-contents": "read", "permission-issues": "read", "permission-pull-requests": "read"})
+
+    def test_grading_reads_on_the_app_token(self) -> None:
+        calls, output = self.run_step("Grade the pull request", READ_TOKEN="app")
+        self.assertEqual(calls, [{"token": "app", "args": ["grade"]}])
+        self.assertEqual(output, "tier=normal\nlabel=risk:normal\nready=true\n")
+
+    def test_a_refused_app_read_grades_again_on_the_workflow_token_with_one_verdict(self) -> None:
+        calls, output = self.run_step("Grade the pull request", READ_TOKEN="app", FAIL_READ_TOKEN="app")
+        self.assertEqual(calls, [{"token": "workflow", "args": ["grade"]}])
+        self.assertEqual(output, "tier=normal\nlabel=risk:normal\nready=true\n")
+
+    def test_a_held_app_verdict_is_graded_again_on_the_workflow_token(self) -> None:
+        calls, output = self.run_step("Grade the pull request", READ_TOKEN="app", HELD_ON="app")
+        self.assertEqual(calls, [{"token": "app", "args": ["grade"]}, {"token": "workflow", "args": ["grade"]}])
+        self.assertEqual(output, "tier=normal\nlabel=risk:normal\nready=true\n")
+
+    def test_the_risk_labels_are_in_the_label_manifest(self) -> None:
+        manifest = json.loads((ROOT / ".github/labels.json").read_text())
+        names = {label["name"] for label in manifest["labels"]}
+        self.assertTrue({"risk:low", "risk:normal", "risk:high", "risk:human-ok"} <= names)
+
+    def test_without_an_app_token_grading_uses_the_workflow_token(self) -> None:
+        calls, _ = self.run_step("Grade the pull request", READ_TOKEN="")
+        self.assertEqual(calls, [{"token": "workflow", "args": ["grade"]}])
+
+    def test_an_unchanged_label_costs_one_app_read_and_nothing_else(self) -> None:
+        calls, _ = self.run_step("Set the risk label", READ_TOKEN="app", CURRENT_LABELS="risk:normal")
+        self.assertEqual([(c["token"], c["args"][:2]) for c in calls], [("app", ["pr", "view"])])
+
+    def test_a_new_tier_swaps_labels_on_the_workflow_token_without_creating_any(self) -> None:
+        calls, _ = self.run_step("Set the risk label", READ_TOKEN="app", CURRENT_LABELS="risk:low")
+        writes = [c for c in calls if c["args"][:2] != ["pr", "view"]]
+        self.assertEqual([c["token"] for c in writes], ["workflow", "workflow"])
+        self.assertIn("--remove-label", writes[0]["args"])
+        self.assertIn("--add-label", writes[1]["args"])
+
+    def test_a_missing_label_is_created_then_added(self) -> None:
+        calls, _ = self.run_step("Set the risk label", READ_TOKEN="app", MISSING_LABELS="1")
+        self.assertEqual(sum(c["args"][:2] == ["label", "create"] for c in calls), 4)
+        self.assertEqual(sum("--add-label" in c["args"] for c in calls), 2)
+
+    def test_a_refused_app_read_reads_the_labels_on_the_workflow_token(self) -> None:
+        calls, _ = self.run_step("Set the risk label", READ_TOKEN="app", FAIL_READ_TOKEN="app",
+                                 CURRENT_LABELS="risk:normal")
+        self.assertEqual([(c["token"], c["args"][:2]) for c in calls],
+                         [("app", ["pr", "view"]), ("workflow", ["pr", "view"])])
 
 
 if __name__ == "__main__":

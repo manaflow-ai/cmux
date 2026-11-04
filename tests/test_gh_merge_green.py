@@ -7,6 +7,7 @@ import json
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest import mock
 import signal
 import subprocess
 import tempfile
@@ -32,6 +33,23 @@ os.environ["GH_MERGE_GREEN_FREEZE_ISSUES"] = _NO_FREEZES.name
 os.environ["GH_MERGE_GREEN_FREEZE_EVENTS"] = _NO_FREEZES.name
 os.environ["GH_MERGE_GREEN_TEST"] = "1"
 HEAD = "a" * 40
+# Under GH_MERGE_GREEN_TEST the review receipt check reads GH_MERGE_GREEN_REVIEWS, never the
+# pull request. Every run gets an independent review's SHIP receipt on HEAD unless a test
+# passes its own; a test run without the fixture refuses.
+
+
+def reviews_fixture(*comments, head=HEAD):
+    """A pull request read for scripts/ci/review_receipt.py: comments are (body, createdAt)."""
+    handle = tempfile.NamedTemporaryFile("w", suffix="-reviews.json", delete=False)
+    json.dump({"headRefOid": head, "reviews": {"nodes": []}, "comments": {"nodes": [
+        {"createdAt": at, "body": body, "authorAssociation": "MEMBER", "author": {"__typename": "User", "login": "teamleaderleo"}}
+        for body, at in comments]}}, handle)
+    handle.close()
+    return handle.name
+
+
+SHIP_RECEIPT = f"Review (subagent, correctness first): SHIP at {HEAD}"
+os.environ["GH_MERGE_GREEN_REVIEWS"] = reviews_fixture((SHIP_RECEIPT, "2026-10-21T05:00:00Z"))
 MERGED_SHA = "d" * 40
 BASE = "b" * 40
 ANCESTOR = "c" * 40
@@ -379,7 +397,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None, check_paths=None, fast_gates_base=None, fast_gates_after=None, tip_sha=None, compare=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None, check_paths=None, fast_gates_base=None, fast_gates_after=None, tip_sha=None, compare=None, reviews=None, reviews_final=None):
         """full=True keeps a feat-cmux-next merge on the full gate (--full) these
         tests were written for; full=False runs the default fast gate, whose
         `gh pr view --json statusCheckRollup` read returns rollup. excuse=(status, output)
@@ -488,6 +506,10 @@ class InstalledHelperRegression(unittest.TestCase):
         gh.chmod(0o755)
         argv = [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", *extra_args, "--squash"]
         env = {**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "MERGE_ARGS_LOG": str(Path(directory) / "merge-args"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1", "GH_MERGE_GREEN_CHECK_PATHS_INTERVAL": "0"}
+        if reviews is not None:
+            env["GH_MERGE_GREEN_REVIEWS"] = reviews
+        if reviews_final is not None:
+            env["GH_MERGE_GREEN_REVIEWS_FINAL"] = reviews_final
         if terminate_after is None:
             return subprocess.run(argv, env=env, capture_output=True, text=True)
         # A caller's timeout: SIGTERM to the whole group while the gate still waits.
@@ -1076,6 +1098,83 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertFalse(marker.exists())
             self.assertIn("react-apps-check", result.stderr)
 
+    def test_feat_next_refuses_a_head_with_no_review_receipt(self):
+        """2026-10-21: cmux#22899 merged before its re-review, which then found cmux#22988, and
+        #22911 merged before its green run. Into feat-cmux-next a head merges only with an
+        independent review's SHIP receipt for that exact head, as next-autoland requires."""
+        old = reviews_fixture((f"Review (subagent, correctness first): SHIP at {'b' * 40}", "2026-10-21T05:00:00Z"))
+        for name, reviews in (("none", reviews_fixture()), ("an older head", old)):
+            for full in (False, True):
+                with self.subTest(receipt=name, full=full), tempfile.TemporaryDirectory() as directory:
+                    marker = Path(directory) / "merged"
+                    result = self.run_helper(directory, marker, full=full, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                             reviews=reviews)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertFalse(marker.exists())
+                    self.assertIn("no SHIP review receipt", result.stderr)
+                    self.assertIn(f"Review (subagent, correctness first): SHIP at {HEAD}", result.stderr)
+
+    def test_override_cannot_waive_the_review_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     extra_args=("--override", self.OVERRIDE), event_log=events, reviews=reviews_fixture())
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("no SHIP review receipt", result.stderr)
+            self.assertIn("--override cannot waive", result.stderr)
+            self.assertFalse(events.exists() and "comment" in events.read_text(), "posted an override for a refused merge")
+
+    def test_a_newer_block_on_the_head_beats_its_ship(self):
+        reviews = reviews_fixture((SHIP_RECEIPT, "2026-10-21T05:00:00Z"),
+                                  (f"Independent review (codex): BLOCK at {HEAD[:12]}: drops a lock", "2026-10-21T06:00:00Z"))
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     reviews=reviews)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("no SHIP review receipt", result.stderr)
+
+    def test_a_block_posted_during_the_wait_refuses_before_the_override_comment(self):
+        """The receipt is read again right before the merge, ahead of the merge-override and
+        merge-source-trust comments: a BLOCK posted while the gate waited stops the merge and
+        leaves no override on the record for a merge that never happened."""
+        during = reviews_fixture((SHIP_RECEIPT, "2026-10-21T05:00:00Z"),
+                                 (f"Independent review (codex): BLOCK at {HEAD[:12]}: drops a lock", "2026-10-21T06:00:00Z"))
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     extra_args=("--override", self.OVERRIDE), event_log=events, reviews_final=during)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("no SHIP review receipt", result.stderr)
+            self.assertFalse(events.exists() and "comment" in events.read_text(), "posted an override for a refused merge")
+
+    def test_the_receipt_is_named_when_the_head_merges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("review receipt", result.stderr)
+
+    def test_main_does_not_need_a_review_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, base="main", reviews=reviews_fixture())
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_a_test_run_without_the_reviews_fixture_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     reviews="")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("GH_MERGE_GREEN_REVIEWS", result.stderr)
+
     def test_main_keeps_the_full_wait_without_full(self):
         """Only feat-cmux-next gets the fast gate: a main PR with green fast lanes and a
         pending ci-status still waits on everything, without --full."""
@@ -1334,7 +1433,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
     """Repositories without the aggregate workflow use all exact-head verdicts."""
 
     def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None, workflow_body=None,
-                 raw_content=None, app_workflow_body=None, extra_args=()):
+                 raw_content=None, app_workflow_body=None, graphql_workflows=None, extra_args=()):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             marker = directory / "merged"
@@ -1342,7 +1441,8 @@ class WorkflowPresenceRegression(unittest.TestCase):
             payload = {"head": HEAD, "workflow": workflow, "probe_status": probe_status,
                        "checks": checks if checks is not None else [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"}],
                        "statuses": statuses or [], "app_workflow": app_workflow, "files": files or [],
-                       "workflow_body": workflow_body, "raw_content": raw_content, "app_workflow_body": app_workflow_body}
+                       "workflow_body": workflow_body, "raw_content": raw_content, "app_workflow_body": app_workflow_body,
+                       "graphql_workflows": graphql_workflows or {}}
             fixture = directory / "fixture.json"
             fixture.write_text(__import__("json").dumps(payload))
             gh = directory / "gh"
@@ -1358,6 +1458,11 @@ class WorkflowPresenceRegression(unittest.TestCase):
                     pass
                 elif a[:2] == ['pr', 'merge']:
                     Path(os.environ['MERGE_MARKER']).touch()
+                elif a[:2] == ['api', 'graphql']:
+                    expr = next((arg.removeprefix('expr=') for arg in a if arg.startswith('expr=')), '')
+                    if expr not in x['graphql_workflows']: sys.exit(2)
+                    body = x['graphql_workflows'][expr]
+                    print(json.dumps({'data': {'repository': {'object': {'text': body} if body is not None else None}}}))
                 elif a[0] == 'api' and any('contents/scripts/ci/check-paths.txt' in arg for arg in a):
                     print('gh: Not Found (HTTP 404)', file=sys.stderr)
                     sys.exit(1)
@@ -1458,6 +1563,30 @@ class WorkflowPresenceRegression(unittest.TestCase):
             extra_args=("--override", "Vercel preview is unrelated to this CLI change"))
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(merged)
+
+    def test_large_graphql_workflow_preserves_aggregate_gate(self):
+        # Linux limits each argv element to 128 KiB, even when ARG_MAX is larger.
+        # Keep the aggregate at the end so truncated content cannot silently merge.
+        large_workflow = "name: app\n" + ("# " + "x" * 126 + "\n") * 2048 + "jobs:\n  ci-status:\n    needs: [tests]\n"
+        for name, conclusion, should_merge in (("ci-status", "success", True),
+                                                ("tests", "success", False),
+                                                ("ci-status", "failure", False)):
+            with self.subTest(name=name, conclusion=conclusion):
+                result, merged, queries = self.run_case(
+                    probe_status=500,
+                    graphql_workflows={
+                        "main:.github/workflows/ci.yml": None,
+                        "main:.github/workflows/ci-macos.yml": large_workflow,
+                    },
+                    checks=[{'id': 1, 'name': name, 'status': 'completed', 'conclusion': conclusion}],
+                )
+                self.assertEqual(merged, should_merge, result.stdout + result.stderr)
+                self.assertEqual(result.returncode == 0, should_merge, result.stderr)
+                self.assertIn('expr=main:.github/workflows/ci-macos.yml', queries)
+                self.assertIn('used GraphQL fallback to inspect main:.github/workflows/ci-macos.yml', result.stderr)
+                self.assertNotIn('Argument list too long', result.stderr)
+                if not should_merge:
+                    self.assertIn('ci-status', result.stderr)
 
     def test_workflow_probe_failure_is_not_absence(self):
         for code in (403, 500):
@@ -1577,6 +1706,10 @@ class WorkflowPresenceRegression(unittest.TestCase):
 class HelperCheckoutUpdateRegression(unittest.TestCase):
     """The symlinked helper refreshes only a clean main checkout."""
 
+    # The caller's settings that change what the helper does before it reads a PR: the installer's
+    # GH_MERGE_GREEN_NO_AUTO_UPDATE=1 skips this very update, and GH_REPO/GH_HOST point gh elsewhere.
+    CALLER = ("GH_MERGE_GREEN_NO_AUTO_UPDATE", "GH_MERGE_GREEN_HOME", "GH_REPO", "GH_HOST")
+
     def invoke(self, mode):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
@@ -1625,7 +1758,8 @@ class HelperCheckoutUpdateRegression(unittest.TestCase):
             fake_gh.chmod(0o755)
             result = subprocess.run(
                 [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42"],
-                env={**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"],
+                env={**{k: v for k, v in os.environ.items() if k not in self.CALLER},
+                     "PATH": str(directory) + os.pathsep + os.environ["PATH"],
                      "CHECKOUT": str(checkout), "GIT_LOG": str(log), "MODE": mode,
                      "UPDATE_MARKER": str(directory / "updated")},
                 capture_output=True, text=True,
@@ -1633,6 +1767,20 @@ class HelperCheckoutUpdateRegression(unittest.TestCase):
             marker = directory / "updated"
             diagnostics = (result, marker.exists(), marker.read_text() if marker.exists() else "", log.read_text() if log.exists() else "", result.stderr)
             return diagnostics
+
+    def test_the_installers_environment_does_not_skip_the_update(self):
+        """install-gh-merge-green.sh runs these tests with GH_MERGE_GREEN_NO_AUTO_UPDATE=1 (its pinned snapshot must
+        not move), and a session may export GH_REPO or GH_HOST. Inheriting them skipped the update under test, so
+        the helper went on to read the PR: cosmic-gray's installer refused every main from 538ade5724 (2026-10-21)
+        with "not green: cannot read manaflow-ai/cmux#42" while a bare run passed."""
+        caller = {"GH_MERGE_GREEN_NO_AUTO_UPDATE": "1", "GH_MERGE_GREEN_HOME": "/nonexistent",
+                  "GH_REPO": "someone/else", "GH_HOST": "github.example.com"}
+        with mock.patch.dict(os.environ, caller):
+            result, marker_exists, marker_content, log, stderr = self.invoke("behind")
+            self.assertEqual(result.returncode, 0, stderr + "\n" + log)
+            self.assertTrue(marker_exists, stderr + "\n" + log)
+            result, marker_exists, marker_content, log, stderr = self.invoke("dirty")
+            self.assertIn("dirty", stderr)  # the update ran and refused; the PR read after it is the fake gh's
 
     def test_clean_main_checkout_fast_forwards_and_reexecutes(self):
         result, marker_exists, marker_content, log, stderr = self.invoke("behind")
@@ -2004,7 +2152,8 @@ class MergedHeadChecksRegression(unittest.TestCase):
             result = InstalledHelperRegression.run_helper(
                 self, directory, marker, changed_files=tuple(changed_files or pr_files), is_cross_repository=fork,
                 extra_args=((*extra_args, "--trust-fork-head", head) if trust_head else extra_args),
-                full=full, rollup=() if full else InstalledHelperRegression.FAST_GREEN, rollup_head=head)
+                full=full, rollup=() if full else InstalledHelperRegression.FAST_GREEN, rollup_head=head,
+                reviews=reviews_fixture((f"Review (subagent, correctness first): SHIP at {head}", "2026-10-21T05:00:00Z"), head=head))
         finally:
             HEAD = saved[0]
             os.environ["PATH"] = saved[2]
@@ -2198,7 +2347,7 @@ class MergedHeadChecksRegression(unittest.TestCase):
 
 FIXTURE_GH = "#!/usr/bin/env python3\n" + textwrap.dedent(r"""
     # A recorded GitHub: routes are (substring of the joined arguments, stdout) in order.
-    import json, os, sys
+    import json, os, re, sys
     from pathlib import Path
     x = json.loads(Path(os.environ['FIXTURE']).read_text())
     a = sys.argv[1:]
@@ -2240,9 +2389,17 @@ FIXTURE_GH = "#!/usr/bin/env python3\n" + textwrap.dedent(r"""
     else:
         for needle, out in x['routes']:
             if needle in joined:
-                if '--paginate' in a and '--slurp' not in a and isinstance(out, list) and all(isinstance(p, dict) for p in out):
+                paged = re.search(r'[?&]page=(\d+)', joined)
+                pages = isinstance(out, list) and bool(out) and all(isinstance(p, dict) for p in out)
+                if '--paginate' in a and '--slurp' not in a and pages:
                     # Real gh without --slurp prints each recorded page object back to back.
                     print(''.join(json.dumps(page) for page in out))
+                elif paged and pages and 'per_page=' in joined:
+                    # Explicit ?page=N (main_fix_evidence pages itself since #30219): the Nth recorded page,
+                    # then the same object with its lists empty, as GitHub answers past the last page.
+                    n = int(paged.group(1))
+                    print(json.dumps(out[n - 1] if n <= len(out) else
+                                     {k: ([] if isinstance(v, list) else v) for k, v in out[0].items()}))
                 else:
                     print(out if isinstance(out, str) else json.dumps(out))
                 sys.exit(0)

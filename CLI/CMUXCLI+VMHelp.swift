@@ -182,7 +182,7 @@ extension CMUXCLI {
         case "max": localizedName = String(localized: "pricing.native.plan.max", defaultValue: "Max")
         case "team": localizedName = String(localized: "pricing.native.plan.team", defaultValue: "Team")
         case "founders", "founders-edition": localizedName = String(localized: "cli.vm.resize.planName.founders", defaultValue: "Founder's Edition")
-        case "go": localizedName = String(localized: "pricing.native.plan.go", defaultValue: "Go")
+        case "go": localizedName = String(localized: "pricing.native.plan.go", defaultValue: "Plus")
         case "free": localizedName = String(localized: "pricing.native.plan.free", defaultValue: "Free")
         default: return planID
         }

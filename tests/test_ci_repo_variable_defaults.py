@@ -87,6 +87,8 @@ GATE_EXEMPT_REPORTING_READS = {
         "reports each runner variable's value; gating would report empty",
     ("ci-repo-variables.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "validates each runner variable's value; gating would validate empty",
+    ("ci-repo-variables.yml", "CMUX_CI_RUNS_ON_VARIABLES"):
+        "checks each runs-on variable's value for one machine; gating would check empty",
     ("ci-cloud-overflow-probe.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "the overflow switch records each value to put back; gating would record empty",
 }
@@ -139,6 +141,24 @@ def default_chain_reaches_literal(text: str, end: int) -> bool:
         rest = rest[chained.end():]
 
 
+# The one routing source (scripts/ci/runner_pools.py): RUNNER_POOLS has no literal fallback on purpose.
+# Leo, 2026-10-28: "I hate pins." An unset RUNNER_POOLS makes fromJSON() fail the run at once (a red run,
+# not a job queued on a label nobody serves). A fork pull request, which gets no repository variables,
+# never reaches the read: the fork pull request branch in front of it names its own label.
+FORK_PULL_REQUEST_BRANCH = re.compile(
+    r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
+    r" != github\.repository(?: && !contains\(fromJSON\([\w.]+\), github\.event\.pull_request\.head\.repo\.full_name\))?"
+    r" && '[^']+' \|\| "
+)
+
+
+def pool_read_after_fork_branch(expression: str, read: re.Match) -> bool:
+    """`fromJSON(vars.RUNNER_POOLS).<pool>` with the fork pull request branch before it."""
+    if read.group(1) != "RUNNER_POOLS" or not expression[: read.start()].endswith("fromJSON("):
+        return False
+    return FORK_PULL_REQUEST_BRANCH.search(expression[: read.start()]) is not None
+
+
 def check_runs_on(path: Path, errors: list[str]) -> None:
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         matched = RUNS_ON.match(line)
@@ -150,8 +170,10 @@ def check_runs_on(path: Path, errors: list[str]) -> None:
             continue
         if any(default_chain_reaches_literal(expression, read.end()) for read in reads):
             continue
+        if all(pool_read_after_fork_branch(expression, read) for read in reads):
+            continue
         # A last top-level `|| 'label'` is the fallback of the whole expression
-        # (build-nightly-app: trusted tuple || hosted 'macos-26').
+        # (build-nightly-app: trusted tuple || 'blacksmith-12vcpu-macos-26').
         if re.search(r"\|\|\s*'[^']+'\s*\}\}\s*(#.*)?$", line):
             continue
         errors.append(
@@ -268,6 +290,17 @@ def self_test_gate_matcher(errors: list[str]) -> None:
                 )
 
 
+def self_test_pool_reads(errors: list[str]) -> None:
+    fork = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
+            "github.repository && 'blacksmith-32vcpu-ubuntu-2404' || ")
+    good = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + fork + "fromJSON(vars.RUNNER_POOLS).linux }}"
+    bad = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"
+    for text, expected in ((good, True), (bad, False)):
+        reads = list(VARS_REFERENCE.finditer(text))
+        if all(pool_read_after_fork_branch(text, read) for read in reads) != expected:
+            errors.append(f"self-test: pool read {'accepted' if not expected else 'refused'} wrongly: {text}")
+
+
 def main() -> int:
     errors: list[str] = []
     files = workflow_files()
@@ -275,6 +308,7 @@ def main() -> int:
         print(f"no workflows found under {WORKFLOWS}", file=sys.stderr)
         return 1
     self_test_gate_matcher(errors)
+    self_test_pool_reads(errors)
     for path in files:
         check_runs_on(path, errors)
         check_cheap_defaults(path, errors)

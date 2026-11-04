@@ -34,7 +34,7 @@ SELF="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/$(basename -- "${BA
 # unchanged needs no new snapshot.
 PINNED_PATHS=(scripts/gh-merge-green scripts/ci scripts/gh-merge-green-pinned scripts/install-gh-merge-green.sh)
 SPARSE_PATTERNS=(/scripts/ /tests/ /.github/)
-DEFAULT_TESTS="tests.test_gh_merge_green tests.test_gh_merge_green_revert tests.test_base_red_excuse tests.test_merge_fast_gate tests.test_merge_freeze tests.test_pr_proof_section tests.test_install_gh_merge_green"
+DEFAULT_TESTS="tests.test_gh_merge_green tests.test_gh_merge_green_revert tests.test_base_red_excuse tests.test_merge_fast_gate tests.test_merge_check_paths tests.test_review_receipt tests.test_merge_freeze tests.test_pr_proof_section tests.test_install_gh_merge_green"
 KEEP_SNAPSHOTS=3
 # Leo's Macs run no test suites (their local build guards give them the
 # submitter-only build role). There a main commit is installed once its main

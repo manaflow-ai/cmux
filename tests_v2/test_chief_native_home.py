@@ -2,6 +2,8 @@
 """Chief Home uses an ordinary workspace, preserving the local workspace list.
 
 Run against an explicitly named tagged app socket:
+Skips while Chief is off; turn on chief-enabled-release with `cmux __internal_flags` to run it.
+
 CMUX_SOCKET_PATH=/tmp/cmux-debug-<tag>.sock python3 tests_v2/test_chief_native_home.py
 """
 
@@ -28,6 +30,9 @@ def main():
     if not path or "cmux-debug-" not in path:
         raise RuntimeError("Set CMUX_SOCKET_PATH to an isolated tagged development socket")
     with cmux(path) as client:
+        if not any(str(m).startswith("chief.") for m in client.capabilities().get("methods", [])):
+            print("SKIP: Chief is off (chief-enabled-release)")
+            return
         before = client._call("workspace.list")["workspaces"]
         groups = client._call("workspace.group.list")["groups"]
         chief_members = {

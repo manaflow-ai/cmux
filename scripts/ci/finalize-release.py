@@ -5,6 +5,12 @@ The tags endpoint 404s for drafts. A publish step that looks the release up by
 tag therefore creates a second release and can publish it with 0 assets while
 the real assets sit on the staged draft (v0.65.2). Callers pass the id that
 publish-release-assets.py staged and reported.
+
+`adopt` repairs a tag that is already in that state (v0.65.2, v0.65.2.2, both
+tagged from a checkout whose release workflow still published by tag): it
+deletes the published duplicate (empty, or holding copies of only some draft
+assets; a duplicate holding every draft asset is refused), moves the tag onto
+the staged draft and publishes the draft through `publish`.
 """
 from __future__ import annotations
 
@@ -31,9 +37,11 @@ def release(client, release_id: int) -> dict:
     return client.request("GET", f"{client.api_url}/repos/{client.repo}/releases/{release_id}")
 
 
-def refuse_other_releases(client, tag: str, release_id: int) -> None:
+def refuse_other_releases(client, tag: str, release_id: int, deleted: frozenset = frozenset()) -> None:
+    # `deleted` holds releases adopt just removed: the list can still show them
+    # for a moment, and failing then would leave the tag with no release.
     others = sorted(int(entry["id"]) for entry in client.releases()
-                    if entry.get("tag_name") == tag and int(entry["id"]) != release_id)
+                    if entry.get("tag_name") == tag and int(entry["id"]) not in {release_id, *deleted})
     if others:
         raise RuntimeError(
             f"Release {release_id} is staged for {tag}, but other releases exist for the same tag "
@@ -84,10 +92,10 @@ def patch(client, release_id: int, fields: dict) -> dict:
                           body=json.dumps(fields).encode())
 
 
-def publish(client, args) -> None:
+def publish(client, args, deleted: frozenset = frozenset()) -> None:
     staged = release(client, args.release_id)
     check_release(staged, args.release_id, args.tag)
-    refuse_other_releases(client, args.tag, args.release_id)
+    refuse_other_releases(client, args.tag, args.release_id, deleted)
     check_assets(client, "Staged", args.release_id, args.expect_asset, args.expect_count)
 
     fields: dict = {}
@@ -124,6 +132,95 @@ def publish(client, args) -> None:
     print(f"Verified {args.tag}: release {args.release_id} with {len(assets)} assets", flush=True)
 
 
+def adopt(client, args) -> None:
+    staged = release(client, args.release_id)
+    # Once the publish-by-tag release claimed the tag, GitHub shows the staged
+    # draft as untagged-<hash>; only its name still says which tag it is for.
+    current = staged.get("tag_name") or ""
+    owned = current == args.tag or (current.startswith("untagged-") and staged.get("name") == args.tag)
+    if int(staged.get("id", 0)) != args.release_id or not staged.get("draft") or not owned:
+        hint = ""
+        if current == args.tag and not staged.get("draft"):
+            # A failed check after the draft went public leaves nothing to adopt.
+            hint = "; it is already published, so finish it with `publish`"
+        raise RuntimeError(f"Release {args.release_id} is not a staged draft for tag {args.tag}{hint}")
+    prerelease = staged.get("prerelease") if args.prerelease is None else args.prerelease == "true"
+    if prerelease and args.make_latest == "true":
+        raise RuntimeError("Cannot make a prerelease latest; use --prerelease false or --make-latest false")
+    staged_assets = check_assets(client, "Staged", args.release_id, args.expect_asset, args.expect_count)
+    others = [entry for entry in client.releases()
+              if entry.get("tag_name") == args.tag and int(entry["id"]) != args.release_id]
+    # Only a published release with nothing of its own is the publish-by-tag
+    # duplicate: empty, or holding only byte-identical copies of draft assets
+    # (a hand repair of the download links). A draft or a release with any
+    # other asset may be someone's real release, so leave it.
+    def copy_of_staged(asset: dict) -> bool:
+        source = staged_assets.get(asset.get("name"))
+        return bool(source and asset.get("digest") and asset.get("digest") == source.get("digest")
+                    and asset.get("size") == source.get("size"))
+
+    held = {int(entry["id"]): client.assets(int(entry["id"])) for entry in others}
+    keep = sorted(int(entry["id"]) for entry in others
+                  if entry.get("draft") or not all(map(copy_of_staged, held[int(entry["id"])].values())))
+    if keep:
+        raise RuntimeError(
+            f"Refusing to adopt release {args.release_id}: releases {', '.join(map(str, keep))} for "
+            f"{args.tag} are drafts or have assets that are not copies of the draft's. "
+            f"Resolve them by hand.")
+    # A release that already serves every draft asset needs no repair, and
+    # deleting it would take working downloads offline; drop the draft instead.
+    complete = sorted(release_id for release_id, assets in held.items() if set(staged_assets) <= set(assets))
+    if complete:
+        raise RuntimeError(
+            f"Release {', '.join(map(str, complete))} for {args.tag} already holds every asset of draft "
+            f"{args.release_id}; nothing to adopt. Delete the draft instead.")
+    empty = sorted(held)
+    # Without a notes flag the draft keeps the deleted release's notes. A body
+    # file is read now, so a bad path fails before anything is deleted.
+    carried = {}
+    if args.body_file is not None:
+        carried["body"] = args.body_file.read_text()
+        args = argparse.Namespace(**{**vars(args), "body_file": None, "generate_notes": False})
+    elif not args.generate_notes:
+        bodies = [entry.get("body") for entry in sorted(others, key=lambda entry: int(entry["id"]))
+                  if entry.get("body")]
+        if bodies:
+            carried["body"] = bodies[0]
+    print(f"Adopting draft {args.release_id} for {args.tag}; replacing published duplicates: "
+          f"{', '.join(map(str, empty)) or 'none'}"
+          f"{'; carrying their notes' if carried else ''}", flush=True)
+    if args.dry_run:
+        return
+    # Generate and persist notes before deleting even a partially served release.
+    if args.generate_notes:
+        notes = client.request("POST", f"{client.api_url}/repos/{client.repo}/releases/generate-notes",
+                               body=json.dumps({"tag_name": args.tag}).encode())
+        carried["body"] = notes["body"]
+        args = argparse.Namespace(**{**vars(args), "generate_notes": False})
+    # Notes go onto the draft before anything is deleted, so a failure cannot lose them.
+    if carried:
+        patch(client, args.release_id, carried)
+    for release_id in empty:
+        try:
+            client.request("DELETE", f"{client.api_url}/repos/{client.repo}/releases/{release_id}")
+        except RequestError as error:
+            if error.status != 404:
+                raise
+        # A 404 can also mean the request was refused; confirm the release is gone
+        # before publish stops counting it as a duplicate.
+        try:
+            release(client, release_id)
+        except RequestError as error:
+            if error.status != 404:
+                raise
+        else:
+            raise RuntimeError(f"Release {release_id} for {args.tag} still exists after DELETE")
+        print(f"Deleted duplicate release {release_id} for {args.tag}", flush=True)
+    if current != args.tag:
+        patch(client, args.release_id, {"tag_name": args.tag})
+    publish(client, args, frozenset(empty))
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None
@@ -145,6 +242,18 @@ def open_asset(client, url: str):
     return urllib.request.urlopen(urllib.request.Request(location), timeout=600)
 
 
+def open_asset_with_fallback(client, url: str):
+    """open_asset with the client's token; a refused App token is tried once more with the fallback."""
+    for switched in (False, True):
+        used = client.token
+        try:
+            return open_asset(client, url)
+        except urllib.error.HTTPError as error:
+            if not switched and client._fall_back(used, error.code, error):
+                continue
+            raise
+
+
 def download(client, args) -> None:
     staged = release(client, args.release_id)
     check_release(staged, args.release_id, args.tag)
@@ -156,7 +265,7 @@ def download(client, args) -> None:
         target = args.dest / name
         digest = hashlib.sha256()
         try:
-            with open_asset(client, remote["url"]) as response, target.open("wb") as out:
+            with open_asset_with_fallback(client, remote["url"]) as response, target.open("wb") as out:
                 for chunk in iter(lambda: response.read(1024 * 1024), b""):
                     digest.update(chunk)
                     out.write(chunk)
@@ -172,28 +281,34 @@ def download(client, args) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("publish", "download"):
+    for name in ("publish", "download", "adopt"):
         command = sub.add_parser(name)
         command.add_argument("--repo", required=True)
         command.add_argument("--tag", required=True)
         command.add_argument("--release-id", type=int, required=True)
-    pub = sub.choices["publish"]
-    pub.add_argument("--expect-asset", action="append", default=[])
-    pub.add_argument("--expect-count", type=int)
-    pub.add_argument("--name")
-    pub.add_argument("--target-commitish")
-    pub.add_argument("--body-file", type=Path)
-    pub.add_argument("--generate-notes", action="store_true")
-    pub.add_argument("--prerelease", choices=("true", "false"))
-    pub.add_argument("--make-latest", choices=("true", "false"))
+    for pub in (sub.choices["publish"], sub.choices["adopt"]):
+        pub.add_argument("--expect-asset", action="append", default=[])
+        pub.add_argument("--expect-count", type=int)
+        pub.add_argument("--name")
+        pub.add_argument("--target-commitish")
+        pub.add_argument("--body-file", type=Path)
+        pub.add_argument("--generate-notes", action="store_true")
+        pub.add_argument("--prerelease", choices=("true", "false"))
+        pub.add_argument("--make-latest", choices=("true", "false"))
+    sub.choices["adopt"].add_argument("--dry-run", action="store_true")
     dl = sub.choices["download"]
     dl.add_argument("--asset", action="append", required=True)
     dl.add_argument("--dest", type=Path, required=True)
     args = parser.parse_args()
-    if args.command == "publish" and not args.expect_asset and args.expect_count is None:
-        parser.error("publish needs --expect-asset or --expect-count")
-    client = publisher.GitHub(args.repo, os.environ.get("GH_TOKEN", ""))
-    (publish if args.command == "publish" else download)(client, args)
+    if args.command in ("publish", "adopt") and not args.expect_asset and args.expect_count is None:
+        parser.error(f"{args.command} needs --expect-asset or --expect-count")
+    # Publishing without make_latest lets GitHub make the release latest, so a
+    # repair of an older tag would move releases/latest back onto it.
+    if args.command == "adopt" and args.make_latest is None:
+        parser.error("adopt needs --make-latest true or false")
+    # GH_APP_TOKEN first when the step passes one, GH_TOKEN as its fallback.
+    client = publisher.client_from_env(args.repo)
+    {"publish": publish, "download": download, "adopt": adopt}[args.command](client, args)
     return 0
 
 

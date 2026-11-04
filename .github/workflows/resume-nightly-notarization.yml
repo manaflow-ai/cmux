@@ -36,14 +36,18 @@ permissions:
   actions: read
   contents: read
 
+# Per source run: a group per channel and variant let a newer recovery replace
+# a waiting one for another source run, whose accepted DMG then never
+# published. Every recovery of one source run (its first and outer DMG
+# artifacts, and retries) still takes turns.
 concurrency:
-  group: notarization-recovery-${{ inputs.channel }}-${{ inputs.variant }}
+  group: notarization-recovery-${{ inputs.channel }}-${{ inputs.variant }}-${{ inputs.source_run_id }}
   cancel-in-progress: false
 
 jobs:
   resume:
     environment: release
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 180
     # Secrets and the job token are set only on the steps that use them, so the
     # steps that launch the recovered app do not inherit them.
@@ -281,7 +285,7 @@ jobs:
     needs: resume
     permissions:
       contents: read
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     steps:
       - name: Checkout trusted continuation tools

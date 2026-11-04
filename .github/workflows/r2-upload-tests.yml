@@ -34,5 +34,5 @@ jobs:
       - run: bash tests/test_ci_r2_upload_python.sh
       - run: python3 tests/test_github_release_publication.py
       # finalize-release.py runs only at real publish time; at least prove it loads.
-      - run: python3 scripts/ci/finalize-release.py publish --help && python3 scripts/ci/finalize-release.py download --help
+      - run: python3 scripts/ci/finalize-release.py publish --help && python3 scripts/ci/finalize-release.py download --help && python3 scripts/ci/finalize-release.py adopt --help
       - run: python3 tests/test_cmux_tui_artifacts_retry.py
