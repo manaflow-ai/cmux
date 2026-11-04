@@ -15056,7 +15056,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 />
               )}
             />
-          ) : (
+          ) : ownContextPane ? null : (
             <>
               <div
                 className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
