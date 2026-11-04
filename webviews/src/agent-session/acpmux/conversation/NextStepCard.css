@@ -58,16 +58,19 @@
   outline: 2px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
   outline-offset: 1px;
 }
+/* The ink is the page's opaque base (--acpmux-base, the theme's accentText), never --agent-page-bg:
+   that one is the translucent glass page, so under a see-through window the label drew in the
+   fill's own white (Leo 2026-11-03: "that "YES" was styled bad it was white font on white button"). */
 .acpmux-next-step__answer.is-primary {
   background: var(--agent-text);
-  color: var(--agent-page-bg, var(--acpmux-base));
+  color: var(--acpmux-base);
 }
 .acpmux-next-step__answer.is-primary:hover {
   opacity: 0.9;
 }
 .acpmux-next-step__answer.is-primary .acpmux-keycap {
   margin: 0 -4px 0 2px;
-  border-color: color-mix(in srgb, var(--agent-page-bg, var(--acpmux-base)) 30%, transparent);
+  border-color: color-mix(in srgb, var(--acpmux-base) 30%, transparent);
   color: inherit;
   opacity: 0.7;
 }
