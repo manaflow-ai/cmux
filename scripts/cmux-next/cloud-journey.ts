@@ -258,8 +258,10 @@ function directExec(api: Api, machine: string, journey: Journey): Exec {
 /** `cmux machine access exec` with the same credential: the journey drives the real CLI. */
 export function cliExecNeedsDirectFallback(status: number | null, stdout: string, stderr: string): boolean {
   if (status === 0) return false;
-  const output = `${stdout}\n${stderr}`;
-  return /cmux:\s+the cmux API refused the client session:\s*501\s+Not Implemented\s+cloud\.provider\.unsupported\b/i.test(output);
+  // The CLI writes refusal diagnostics to stderr. Ignore stdout so a guest command
+  // cannot manufacture this marker and cause a side-effectful retry.
+  void stdout;
+  return /cmux:\s+the cmux API refused the client session:\s*501\s+Not Implemented\s+cloud\.provider\.unsupported\b/i.test(stderr);
 }
 
 function cliExec(cmux: string, api: Api, machine: string, journey: Journey): Exec {
