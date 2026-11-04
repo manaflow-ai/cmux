@@ -160,6 +160,8 @@ export const PROMPT_SUGGESTIONS_OPTION = {
     },
   ],
 };
+/// The mock chat whose model the harness cannot reach and retries (`turn_retrying`).
+export const MODEL_RETRY_SESSION = "mock-model-retry";
 export const SUBAGENT_NAMES_SESSION = "mock-subagent-names";
 export const SUBAGENT_NAMES_AGENT_ID = "a6ab68f9e2c41d07b";
 export const SUBAGENT_NAMES_TASK = "Watch CI for #33005";
@@ -728,6 +730,38 @@ export const mockSessions: MockSession[] = [
       { ago: at + 60_000, mux: "turn_started" },
       { ago: at + 10_000, update: text("Done: the uploader retries 5xx with backoff.") },
       { ago: at, mux: "turn_result", msg: { status: "completed" } },
+    ],
+  },
+  {
+    // A chat whose model gateway is down (Leo, 2026-11-03, on "Thinking 7m 49s": "i feel like this
+    // mac session just keeps "thinking""): Claude Code retries the request every 75 s, and acpmux
+    // logs each retry as `turn_retrying` (hub/turn_retry.rs). The live line says the model cannot
+    // be reached, with the retry's count and error, never "Thinking" (`?mock&session=` this id).
+    sessionId: MODEL_RETRY_SESSION,
+    title: "Fix the flaky upload test",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "running",
+    cwd: CMUX,
+    ago: 9300,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    history: (at) => [
+      { ago: at + 470_000, mux: "user_message", msg: { text: "Fix the flaky upload test" } },
+      { ago: at + 470_000, mux: "turn_started", msg: { turnId: "mock-retry-turn" } },
+      ...[1, 2, 3, 4, 5, 6, 7].map((attempt) => ({
+        ago: at + 470_000 - attempt * 66_000,
+        mux: "turn_retrying",
+        msg: {
+          turnId: "mock-retry-turn",
+          attempt,
+          maxRetries: 10,
+          errorStatus: 503,
+          error: "server_error",
+          retryDelayMs: 75_000,
+          source: "claude",
+        },
+      })),
     ],
   },
 ];

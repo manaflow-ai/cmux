@@ -50,9 +50,8 @@ const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SUBAGENTS } = await import("../src/agent-session/acpmux/subagents/subagentFold");
 const { childView } = await import("../src/agent-session/acpmux/subagents/subagentRows");
 const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
-const { escapeClosesSubagent, useEscapeClosesSubagent } = await import(
-  "../src/agent-session/acpmux/subagents/subagentEscape"
-);
+const { escapeClosesSubagent, useEscapeClosesSubagent } =
+  await import("../src/agent-session/acpmux/subagents/subagentEscape");
 
 afterAll(() => {
   setPaneLanguage("en");

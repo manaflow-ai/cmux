@@ -753,7 +753,7 @@ import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { MOTION_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
-import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
+import { holdWebSwap, pageReleaseHold, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
@@ -1571,6 +1571,7 @@ const ThinkingRow = memo(
         quietAt={row.quietAt}
         below={row.below}
         command={row.doingCommand}
+        retry={row.retry}
       />
     );
   },
@@ -1595,7 +1596,8 @@ const ThinkingRow = memo(
     a.row.quietKey === b.row.quietKey &&
     a.row.quietAt === b.row.quietAt &&
     a.row.below === b.row.below &&
-    a.row.doingCommand === b.row.doingCommand,
+    a.row.doingCommand === b.row.doingCommand &&
+    a.row.retry === b.row.retry,
 );
 const WorkingRow = memo(
   function WorkingRow({ row, sessionId }: RowProps) {
@@ -2837,6 +2839,7 @@ export function VirtualTranscript({
   earlier,
   promptCount,
   loadThrough,
+  loadPromptIndex,
   sessionId,
   onToggleActivity,
   onOpenDiff,
@@ -2884,6 +2887,8 @@ export function VirtualTranscript({
   promptCount?: number;
   /// Pages history in until the prompt at `seq` is held (a click on an earlier prompt's tick).
   loadThrough?: (seq: number) => Promise<boolean>;
+  /// Asks for the chat's prompt index (a hover or click on a pending tick): true once it named them.
+  loadPromptIndex?: () => Promise<boolean>;
   sessionId?: string;
   /// Where the transcript opens instead of the latest message, when that row is loaded.
   openAt?: ScrollAnchor;
@@ -5757,6 +5762,7 @@ export function VirtualTranscript({
             earlier={earlier}
             promptCount={promptCount}
             loadThrough={loadThrough}
+            loadPromptIndex={loadPromptIndex}
             sessionId={sessionId}
             layout={layout}
             scroller={ref}
@@ -8595,6 +8601,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       sandbox.setMode(mode);
     },
   };
+  /// The composer's Run as rows: picking Cloud there is the person's pick of the chat's folder too,
+  /// so the host grants it (workspace.useFolder) and the Cloud start may copy it (the same folder
+  /// sendToCloud names). A folder Cloud never copies (home or above, agent-home) asks nothing.
+  /// The last Cloud pick's folder grant (workspace.useFolder), still out or done: a Cloud start waits
+  /// for it, so a Return right after picking Cloud never races the grant into path_outside_roots.
+  const cloudFolderGrant = useRef<Promise<unknown> | undefined>(undefined);
+  const composerModeRows = {
+    mode: sandboxModeRows.mode,
+    onMode: (mode: RunMode) => {
+      if (mode === "cloud") {
+        const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
+        if ("cwd" in folder) cloudFolderGrant.current = pickFolder(callNative, folder.cwd, () => undefined);
+      }
+      sandboxModeRows.onMode(mode);
+    },
+  };
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
   const startSandbox = (text: string, attachmentCount: number, harness: string | undefined): string | boolean =>
@@ -8606,7 +8628,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// message as it goes (CloudStartView; the host's `cloudStartProgress` pushes fill it in).
   const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
   const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
-  const [startCloud] = useState(() => oneCloudStart(callNative));
+  const [startCloud] = useState(() =>
+    oneCloudStart((method, params) =>
+      (cloudFolderGrant.current ?? Promise.resolve()).catch(() => undefined).then(() => callNative(method, params)),
+    ),
+  );
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
   /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
@@ -11950,6 +11976,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             const released = quitting === true ? held.release() : [];
             const chips = released.length ? await giveBackTrustHeld.current(released, false, true, until) : [];
             await settleDraftWithin(composerHandle.current, Math.max(0, until - Date.now()));
+            // Only untouched New Tabs are capped. Keep their page-owned drafts, attachments,
+            // sends, composition and popups; quit and close still hand back their state.
+            if (quitting !== true && newTabNow.current && pageReleaseHold()) return { holdsPageState: true };
             const anchor = transcriptAnchor.current?.();
             const composer = composerHandle.current?.wakeState();
             const attachments = [...chips, ...(composer?.attachments ?? [])];
@@ -13414,6 +13443,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                 Promise.resolve(false)
                                                             : undefined
                                                         }
+                                                        loadPromptIndex={
+                                                          !childRows
+                                                            ? () =>
+                                                                directClient.current?.loadPromptIndex() ??
+                                                                Promise.resolve(false)
+                                                            : undefined
+                                                        }
                                                         sourceRows={childRows ? undefined : sourceRows}
                                                         endReserve={previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0}
                                                         working={snapshot.isWorking}
@@ -14282,7 +14318,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             }
             localName={thisMacName(localMachineName, machineName, composerSnapshot.summary)}
             environments
-            {...(sandboxOffered ? { runMode: sandboxModeRows } : {})}
+            {...(sandboxOffered ? { runMode: composerModeRows } : {})}
             onBrowseFolder={
               canMove ? () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd) : undefined
             }
@@ -14755,7 +14791,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   // (never home or above it, cloudStartFolder), and whenever Cloud may be offered, the
                   // host's sandbox check still out included (newTabProjectPick); a home or root answer
                   // asks nothing here (the local start still asks on Return).
-                  {...newTabProjectPick(callNative, sandboxOfferable)}
+                  {...newTabProjectPick(callNative, sandboxOfferable, (grant) => {
+                    cloudFolderGrant.current = grant;
+                  })}
                   {...(!handshaken ? { startPending: true } : {})}
                   {...(newTabChatsPending ? { chatsPending: true } : {})}
                   {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
