@@ -157,12 +157,6 @@
       "title" : "Transcript View",
       "type" : "string"
     },
-    "agentPane.display.trayTucked" : {
-      "default" : false,
-      "description" : "Hides the bar of running agents and commands over the composer. A grabber on the composer's top edge brings it back and shows a dot when an agent waits on you.",
-      "title" : "Tuck Away Running Tray",
-      "type" : "boolean"
-    },
     "agentPane.display.vscodeMinimap" : {
       "default" : false,
       "description" : "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.",

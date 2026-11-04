@@ -51,12 +51,17 @@ export function attentionFirst(
   return ordered.flatMap((group) => group.cards);
 }
 
-/// How many lines run now: the count on a tucked tray's grabber. A line that waits, on the person or
-/// for a run slot (`waitsForSlot`), does not run (the grabber's dot says the first); a chat acpmux
-/// retries runs again, as a retrying subagent reads "running".
+/// How many lines run now: the count on a tucked hat's pull tab (TrayPullTab.tsx). Only a line that
+/// runs counts: one that waits, on the person or for a run slot (`waitsForSlot`), or that ended, does
+/// not (the tab's dot says the first); a chat acpmux retries runs again, as a retrying subagent reads
+/// "running".
 export function runningCount(items: readonly TrayItem[], waiting: ReadonlySet<string>): number {
   return items.filter((item) => {
-    if (item.kind === "agent") return subagentStatus(item.agent, waiting) !== "waiting";
+    if (item.kind === "agent") {
+      // "idle" here is one that awaits background work of its own (no `now`): that work runs.
+      const status = subagentStatus(item.agent, waiting);
+      return status === "running" || status === "idle";
+    }
     if (item.kind === "session") {
       if (item.session.state === "failed") return sessionRetry(item.session).kind !== "failed";
       return item.session.state === "running" && !item.session.waitsForSlot;
@@ -64,3 +69,8 @@ export function runningCount(items: readonly TrayItem[], waiting: ReadonlySet<st
     return true;
   }).length;
 }
+
+/// How many lines need the person (needsPerson): the dot on a tucked hat's pull tab. Tucking hides
+/// noise, never a question or a failure.
+export const needsPersonCount = (items: readonly TrayItem[], waiting: ReadonlySet<string>): number =>
+  items.filter((item) => needsPerson(item, waiting)).length;

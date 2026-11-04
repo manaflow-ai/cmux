@@ -95,7 +95,7 @@ import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
-import { attentionFirst, runningCount } from "./trayAttention";
+import { attentionFirst } from "./trayAttention";
 import { latestLine, toolDetail } from "./trayDetail";
 import { trayLatestLook } from "./trayLatest.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
@@ -114,9 +114,6 @@ import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
 import { PlanList } from "../conversation/PlanList";
-import { changeChatDisplay, TRAY_TUCKED_KEY, useTrayTucked } from "../chatDisplay";
-import { TrayGrabber } from "./TrayGrabber";
-import { trayGrabberLook } from "./trayGrabber.experiment";
 import type { AcpmuxPlanEntry } from "../model";
 
 const ROW_ICON = rowIconSize(12);
@@ -157,6 +154,7 @@ export const SubagentTray = memo(function SubagentTray({
   enters = false,
   chat,
   plan,
+  onTuck,
 }: {
   /// What runs or waits on the person (runningTray.ts `trayItems`): the lines the header counts.
   items: readonly TrayItem[];
@@ -197,6 +195,10 @@ export const SubagentTray = memo(function SubagentTray({
   /// and, opened, as its checklist over the lines (Leo, 2026-11-03: "did we like/prefer that tho to
   /// the little composer hat we have rn"). Unset between turns: the ended list folds in the transcript.
   plan?: readonly AcpmuxPlanEntry[];
+  /// Tucks the hat away to a pull tab at the top middle of the composer (TrayPullTab.tsx): a chevron
+  /// at the hat's own top middle, shown on hover (Leo, 2026-11-04: "at the top of the hat, there's
+  /// some sort of little thing ... a special kind of chevron"). Unset, the hat can't tuck away.
+  onTuck?: () => void;
 }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -227,10 +229,6 @@ export const SubagentTray = memo(function SubagentTray({
   const [opensArm] = useState(() => experimentArm(trayOpenLook));
   const [kindsArm] = useState(() => experimentArm(trayHeadKindsLook));
   const [kindLine] = useState(() => experimentArm(trayKindLineLook));
-  const [grabberSide] = useState(() => experimentArm(trayGrabberLook));
-  // Tucked away (Settings > Tuck Away Running Tray, the palette, the CLI, or the grabber): only the
-  // grabber shows, on the composer's top edge (TrayGrabber.tsx).
-  const tucked = useTrayTucked();
   // How the header reaches the Background tasks panel, where the chat has one (Leo, 2026-11-03: "a
   // thing like this that can either expand OR open up to this sort of thing"): a panel button beside
   // its chevron (the default), or the whole header, Claude's chip.
@@ -380,23 +378,6 @@ export const SubagentTray = memo(function SubagentTray({
     [t, items, finished, waiting, working, chatHarness, kindsArm, kindLine],
   );
   if (items.length === 0 && finished.length === 0 && !planned) return null;
-  if (tucked)
-    return (
-      <div className="acpmux-tray-tucked" data-tray-tucked="">
-        <TrayGrabber
-          tucked
-          side={grabberSide}
-          running={runningCount(items, waiting)}
-          waiting={waitingCount(items, waiting)}
-          // Back folded to its header, or open with Option (Leo's plan: tucked, then folded, then open).
-          onToggle={(openIt) => {
-            setOpened(openIt);
-            rememberTrayOpen(chat, openIt);
-            changeChatDisplay(TRAY_TUCKED_KEY, null);
-          }}
-        />
-      </div>
-    );
   // The counts, split by kind, then what ended and failed (trayHeadKinds.ts; Leo, 2026-11-03: "the
   // top bit aka what the collapsed area shows i think can show much more interesting stuf fthan it
   // does now").
@@ -477,161 +458,165 @@ export const SubagentTray = memo(function SubagentTray({
   // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0 || planned;
   return (
-    <>
-      {/* The grabber that tucks the tray, on its top edge: a band of no height before it, as the
-          tucked tray's, so the tray's own children stay its header, then its fold. */}
-      <div className="acpmux-tray-band">
-        <TrayGrabber tucked={false} side={grabberSide} onToggle={() => changeChatDisplay(TRAY_TUCKED_KEY, true)} />
-      </div>
-      <section
-        ref={setTrayRef}
-        className="acpmux-running-tray"
-        aria-label={t("summary.subagents")}
-        data-open={open || undefined}
-        data-placement={placement}
-        data-look={look}
-        data-row={row}
-        // Nothing runs: the ended lines sit quietly over the composer in the settled surface, joined to
-        // the composer's top as one glass (no card of its own floating over it; Leo, 2026-10-31, on a
-        // finished one-line row in a bordered card: "why is this still so ass").
-        data-settled={(items.length === 0 && !planned) || undefined}
-        // A headed tray keeps its own surface, settled too: a slightly lighter or darker glass than the
-        // chat behind it and a hairline rim (Leo, 2026-11-01: "you can't just have it be the exact same
-        // glass as the background"). traySurface.experiment.ts holds the arms.
-        data-headed={headed || undefined}
-        data-surface={surface}
-        // It draws a card (and joins the composer as one glass, bottomStack.css): always while something
-        // runs, and settled in every arm with a surface, a lone ended line too, so the transcript never
-        // shows through it (Leo, 2026-11-02, on a done line over a reply's footer icons: "this running
-        // thing now looks mildly awkward").
-        data-card={items.length > 0 || planned || surface !== "none" || undefined}
-        data-motion={motion}
-        data-narrow={narrow || undefined}
-        data-head={head}
-        data-stop={stopLook}
-        data-opens={(headed && opensPanel) || undefined}
-        style={gutter > 0 ? ({ "--acpmux-tray-gutter": `${gutter}px` } as CSSProperties) : undefined}
-      >
-        {/* Its top edge's grabber tucks it away; Settings, the palette and the CLI do the same. */}
-        {headed && (
-          <button
-            type="button"
-            ref={headButton}
-            className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__head"
-            aria-expanded={opensPanel === "header" ? undefined : open}
-            aria-controls={open && opensPanel !== "header" ? listId : undefined}
-            onClick={() => {
-              if (opensPanel === "header") {
-                onOpenPanel?.();
-                return;
-              }
-              setOpened(!open);
-              rememberTrayOpen(chat, !open);
-            }}
-          >
-            {head === "stack" && drawnMarks.length > 0 ? (
-              // The lines' own marks side by side, each subagent's in its tone (trayHead.experiment.ts),
-              // as the sidebar's status row stacks them before "8 done".
-              <span className="acpmux-running-tray__stack" data-tray-stack aria-hidden="true">
-                {drawnMarks.map((mark) => (
-                  <AgentIdentity
-                    key={mark.key}
-                    className="acpmux-running-tray__stack-mark"
-                    harness={mark.harness}
-                    tone={mark.tone}
-                    size={ROW_ICON}
-                    fallback={mark.icon}
-                  />
-                ))}
-              </span>
-            ) : (
-              // The `bare` arm: the slot stays, blank, so the counts keep the lines' text column
-              // (desktop.css --grid-tray-text) instead of jumping to the inset.
-              <span
-                className="acpmux-lineage__icon"
-                data-state={runs ? "running" : "done"}
-                // An empty stack (a plan with nothing running) keeps the slot blank, never the ring.
-                data-blank={head === "bare" || head === "stack" || undefined}
-                aria-hidden="true"
-              >
-                <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
-              </span>
-            )}
-            <Tick className="acpmux-summary-text acpmux-running-tray__title" text={headText} steadyCounts />
-            {/* Open (or in the counts arm), what ended failed, in the danger colour, and a subagent of
-                another model family by its harness's mark, as its line draws it. */}
-            {!named && counts.failed > 0 && (
-              <span className="acpmux-running-tray__failed">
-                {title && <span aria-hidden="true">· </span>}
-                {t("summary.subagents.failed", { n: counts.failed })}
-              </span>
-            )}
-            {/* A family the stacked marks already draw is not drawn again here. */}
-            {!named && trailingMarks.length > 0 && (
-              <span className="acpmux-running-tray__marks" data-tray-marks>
-                {trailingMarks.map((harness) => (
-                  <AgentMark key={harness} agent={harness} size={ROW_ICON} label={harness} />
-                ))}
-              </span>
-            )}
-            {named && moreCount > 0 && (
-              <span className="acpmux-summary-meta acpmux-running-tray__more">{t("tools.more", { n: moreCount })}</span>
-            )}
-            {/* Quiet meta right after the counts, never a column of its own far from them. */}
-            <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
-              {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
+    <section
+      ref={setTrayRef}
+      className="acpmux-running-tray"
+      aria-label={t("summary.subagents")}
+      data-open={open || undefined}
+      data-placement={placement}
+      data-look={look}
+      data-row={row}
+      // Nothing runs: the ended lines sit quietly over the composer in the settled surface, joined to
+      // the composer's top as one glass (no card of its own floating over it; Leo, 2026-10-31, on a
+      // finished one-line row in a bordered card: "why is this still so ass").
+      data-settled={(items.length === 0 && !planned) || undefined}
+      // A headed tray keeps its own surface, settled too: a slightly lighter or darker glass than the
+      // chat behind it and a hairline rim (Leo, 2026-11-01: "you can't just have it be the exact same
+      // glass as the background"). traySurface.experiment.ts holds the arms.
+      data-headed={headed || undefined}
+      data-surface={surface}
+      // It draws a card (and joins the composer as one glass, bottomStack.css): always while something
+      // runs, and settled in every arm with a surface, a lone ended line too, so the transcript never
+      // shows through it (Leo, 2026-11-02, on a done line over a reply's footer icons: "this running
+      // thing now looks mildly awkward").
+      data-card={items.length > 0 || planned || surface !== "none" || undefined}
+      data-motion={motion}
+      data-narrow={narrow || undefined}
+      data-head={head}
+      data-stop={stopLook}
+      data-opens={(headed && opensPanel) || undefined}
+      data-tucks={onTuck ? "" : undefined}
+      style={gutter > 0 ? ({ "--acpmux-tray-gutter": `${gutter}px` } as CSSProperties) : undefined}
+    >
+      {headed && (
+        <button
+          type="button"
+          ref={headButton}
+          className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__head"
+          aria-expanded={opensPanel === "header" ? undefined : open}
+          aria-controls={open && opensPanel !== "header" ? listId : undefined}
+          onClick={() => {
+            if (opensPanel === "header") {
+              onOpenPanel?.();
+              return;
+            }
+            setOpened(!open);
+            rememberTrayOpen(chat, !open);
+          }}
+        >
+          {head === "stack" && drawnMarks.length > 0 ? (
+            // The lines' own marks side by side, each subagent's in its tone (trayHead.experiment.ts),
+            // as the sidebar's status row stacks them before "8 done".
+            <span className="acpmux-running-tray__stack" data-tray-stack aria-hidden="true">
+              {drawnMarks.map((mark) => (
+                <AgentIdentity
+                  key={mark.key}
+                  className="acpmux-running-tray__stack-mark"
+                  harness={mark.harness}
+                  tone={mark.tone}
+                  size={ROW_ICON}
+                  fallback={mark.icon}
+                />
+              ))}
             </span>
-            {/* The panel button's room, in the lines' Stop column: the button lies over it, outside the
-                header's own button (a button holds no button). */}
-            {opensPanel === "button" && <span className="acpmux-running-tray__open-slot" aria-hidden="true" />}
-            {/* The one trailing column every line's chevron ends in. */}
-            <span className="acpmux-running-tray__status">
-              <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+          ) : (
+            // The `bare` arm: the slot stays, blank, so the counts keep the lines' text column
+            // (desktop.css --grid-tray-text) instead of jumping to the inset.
+            <span
+              className="acpmux-lineage__icon"
+              data-state={runs ? "running" : "done"}
+              // An empty stack (a plan with nothing running) keeps the slot blank, never the ring.
+              data-blank={head === "bare" || head === "stack" || undefined}
+              aria-hidden="true"
+            >
+              <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
             </span>
-          </button>
-        )}
-        {fold.present && (
-          // While it folds away its lines are out of reach: no focus, no reading.
-          <div
-            ref={fold.ref}
-            className="acpmux-running-tray__fold"
-            inert={!open || undefined}
-            aria-hidden={!open || undefined}
-            onFocus={() => {
-              focusInList.current = true;
-            }}
-            onBlur={(event) => {
-              // Only focus that moves to another control leaves the list. A blur to nothing (the
-              // focused line removed or made inert by the fold, the window losing focus) keeps it,
-              // for the effect above to read against where focus is then.
-              const to = event.relatedTarget as Node | null;
-              if (to && !event.currentTarget.contains(to)) focusInList.current = false;
-            }}
-          >
-            {/* The plan's checklist over what runs, the turn's own work first. */}
-            {planned && (
-              <div className="acpmux-running-tray__plan">
-                <PlanList entries={plan} />
-              </div>
-            )}
-            <ul ref={listRef} id={listId} className="acpmux-running-tray__list">
-              {cards}
-            </ul>
-          </div>
-        )}
-        {headed && opensPanel === "button" && (
-          <button
-            type="button"
-            className="acpmux-running-tray__open"
-            aria-label={t("backgroundTasks.open")}
-            title={t("backgroundTasks.open")}
-            onClick={onOpenPanel}
-          >
-            <Icon name="panel.right" size={ROW_ICON} row />
-          </button>
-        )}
-      </section>
-    </>
+          )}
+          <Tick className="acpmux-summary-text acpmux-running-tray__title" text={headText} steadyCounts />
+          {/* Open (or in the counts arm), what ended failed, in the danger colour, and a subagent of
+              another model family by its harness's mark, as its line draws it. */}
+          {!named && counts.failed > 0 && (
+            <span className="acpmux-running-tray__failed">
+              {title && <span aria-hidden="true">· </span>}
+              {t("summary.subagents.failed", { n: counts.failed })}
+            </span>
+          )}
+          {/* A family the stacked marks already draw is not drawn again here. */}
+          {!named && trailingMarks.length > 0 && (
+            <span className="acpmux-running-tray__marks" data-tray-marks>
+              {trailingMarks.map((harness) => (
+                <AgentMark key={harness} agent={harness} size={ROW_ICON} label={harness} />
+              ))}
+            </span>
+          )}
+          {named && moreCount > 0 && (
+            <span className="acpmux-summary-meta acpmux-running-tray__more">{t("tools.more", { n: moreCount })}</span>
+          )}
+          {/* Quiet meta right after the counts, never a column of its own far from them. */}
+          <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
+            {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
+          </span>
+          {/* The panel button's room, in the lines' Stop column: the button lies over it, outside the
+              header's own button (a button holds no button). */}
+          {opensPanel === "button" && <span className="acpmux-running-tray__open-slot" aria-hidden="true" />}
+          {/* The one trailing column every line's chevron ends in. */}
+          <span className="acpmux-running-tray__status">
+            <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+          </span>
+        </button>
+      )}
+      {fold.present && (
+        // While it folds away its lines are out of reach: no focus, no reading.
+        <div
+          ref={fold.ref}
+          className="acpmux-running-tray__fold"
+          inert={!open || undefined}
+          aria-hidden={!open || undefined}
+          onFocus={() => {
+            focusInList.current = true;
+          }}
+          onBlur={(event) => {
+            // Only focus that moves to another control leaves the list. A blur to nothing (the
+            // focused line removed or made inert by the fold, the window losing focus) keeps it,
+            // for the effect above to read against where focus is then.
+            const to = event.relatedTarget as Node | null;
+            if (to && !event.currentTarget.contains(to)) focusInList.current = false;
+          }}
+        >
+          {/* The plan's checklist over what runs, the turn's own work first. */}
+          {planned && (
+            <div className="acpmux-running-tray__plan">
+              <PlanList entries={plan} />
+            </div>
+          )}
+          <ul ref={listRef} id={listId} className="acpmux-running-tray__list">
+            {cards}
+          </ul>
+        </div>
+      )}
+      {onTuck && (
+        <button
+          type="button"
+          className="acpmux-running-tray__tuck"
+          aria-label={t("tray.tuck")}
+          title={t("tray.tuck")}
+          onClick={onTuck}
+        >
+          <Icon name="disclosure.expanded" size={12} />
+        </button>
+      )}
+      {headed && opensPanel === "button" && (
+        <button
+          type="button"
+          className="acpmux-running-tray__open"
+          aria-label={t("backgroundTasks.open")}
+          title={t("backgroundTasks.open")}
+          onClick={onOpenPanel}
+        >
+          <Icon name="panel.right" size={ROW_ICON} row />
+        </button>
+      )}
+    </section>
   );
 
   /// A line in its context menu's host. The host stays when there is nothing to stop (no items, so a
@@ -812,15 +797,6 @@ export const SubagentTray = memo(function SubagentTray({
     );
   }
 });
-
-/// How many lines wait on the person: the dot on a tucked tray's grabber.
-function waitingCount(items: readonly TrayItem[], waiting: ReadonlySet<string>): number {
-  return items.filter((item) =>
-    item.kind === "agent"
-      ? subagentStatus(item.agent, waiting) === "waiting"
-      : item.kind === "session" && item.session.state === "waiting" && !item.session.waitsForSlot,
-  ).length;
-}
 
 /// A subagent's state needs no word on its line when its glyph says it: done, or running under the
 /// spinner. Waiting, failed, stopped and a retry keep theirs.

@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (prompts, subagent tasks and replies), not shipped UI.
-// The running tray tucked away behind its grabber (TrayGrabber.tsx). Leo, 2026-11-04: "Some people
+// The running tray tucked away to its pull tab (TrayPullTab.tsx). Leo, 2026-11-04: "Some people
 // might want to tuck away the composer hat ... what if you wanted to collapse that one line? ... at
 // the top of the hat, there's some sort of little thing that's like, I don't know, like a special
 // kind of chevron ... you can hover around that, the top of the composer, and then you can click that
@@ -43,7 +43,7 @@ const scene = (agents: Subagent[]) =>
 
 const RUNNING = scene([CACHE, SIGNING, PUBLISH]);
 
-/** The publish agent asks to read a file: the tucked grabber draws its dot. */
+/** The publish agent asks to read a file: the tucked tab draws its dot. */
 const WAITING = {
   ...RUNNING,
   subagentViews: {
@@ -67,18 +67,18 @@ const waitingScene = {
   },
 };
 
-const grabber = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acpmux-tray-grabber");
+const tab = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acpmux-tray-pull__tab");
 
-/** Tucked: no tray lines, only the grabber on the composer's top edge. */
+/** Tucked: no tray lines, only the pull tab on the composer's top edge. */
 const tucked = async (ctx: PlayContext) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-tray-tucked .acpmux-tray-grabber"));
+  await ctx.waitFor(() => tab(ctx));
   if (ctx.document.querySelector(".acpmux-running-tray")) throw new Error("a tucked tray draws no lines");
 };
 
-/** Hovers the grabber's band, where the pill is drawn. */
+/** Hovers the tab, which turns its grabber into an up chevron. */
 const hovered = async (ctx: PlayContext) => {
-  await ctx.waitFor(() => grabber(ctx));
-  await ctx.hover({ selector: ".acpmux-tray-grabber" });
+  await tucked(ctx);
+  await ctx.hover({ selector: ".acpmux-tray-pull__tab" });
 };
 
 export default agentPaneEntry({
@@ -89,46 +89,37 @@ export default agentPaneEntry({
   widths: { narrow: 360 },
   anchors: [{ selector: ".acpmux-header" }],
   covers: [
-    "agent-session/acpmux/subagents/TrayGrabber.tsx",
+    "agent-session/acpmux/subagents/TrayPullTab.tsx",
     "agent-session/acpmux/subagents/trayGrabber.experiment.ts",
   ],
   keywords: ["tuck", "hide", "hat", "composer hat", "grabber", "chevron", "running tray"],
   experiment: {
     definition: trayGrabberLook,
     script: [
-      { name: "the tray, its grabber hovered", run: hovered },
-      { name: "tucked", run: async (ctx) => ctx.click({ selector: ".acpmux-tray-grabber" }) },
-      { name: "back, folded", run: async (ctx) => ctx.click({ selector: ".acpmux-tray-grabber" }) },
+      { name: "tucked", run: tucked },
+      { name: "its tab hovered", run: hovered },
     ],
   },
   variants: {
-    "shown-hover": {
-      note: "The tray shows, folded to its header; the pointer at its top edge draws the grabber, whose click tucks it away.",
-      play: hovered,
-      snapshot: RUNNING,
-    },
     tucked: {
-      note: "Tucked (Settings > Tuck Away Running Tray, the palette, the CLI or the grabber): only the grabber on the composer's top edge, drawn while work runs, with how many things run.",
+      note: "Tucked (Settings > Tuck Away Running Tray, the palette, the CLI or the grabber): only the pull tab on the composer's top edge, in the accent while work runs, with how many things run.",
       display: TUCKED,
       play: tucked,
       snapshot: RUNNING,
     },
     "tucked-waiting": {
-      note: "Tucked while an agent waits on the person: the grabber draws a dot. Tucking hides noise, never a question.",
+      note: "Tucked while an agent waits on the person: the tab draws a dot. Tucking hides noise, never a question.",
       display: TUCKED,
       play: async (ctx) => {
         await tucked(ctx);
-        await ctx.waitFor(() => grabber(ctx)?.hasAttribute("data-waiting"));
+        await ctx.waitFor(() => tab(ctx)?.hasAttribute("data-waiting"));
       },
       snapshot: waitingScene,
     },
     "tucked-hover": {
-      note: "Tucked, the pointer on the grabber: a click brings the tray back folded, an Option-click brings it back open.",
+      note: "Tucked, the pointer on the tab: its grabber turns into an up chevron, and a click brings the tray back.",
       display: TUCKED,
-      play: async (ctx) => {
-        await tucked(ctx);
-        await hovered(ctx);
-      },
+      play: hovered,
       snapshot: RUNNING,
     },
   },

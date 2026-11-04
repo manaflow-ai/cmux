@@ -76,11 +76,11 @@ export const CHAT_MINIMAP_KEY = "agentPane.display.vscodeMinimap";
 /// (subagents/SubagentTray.tsx `plan`; Leo, 2026-11-03: "we said earlier the composer hat is kinda ok?").
 /// Not part of ChatDisplay: switching it measures no transcript row again.
 export const PINNED_PLAN_KEY = "agentPane.display.pinnedPlan";
-/// Settings > Agent Chat > Tuck Agent Tray, off by default: the running tray over the composer (the
-/// composer hat) is tucked away, a grabber on the composer's top edge brings it back
-/// (subagents/TrayGrabber.tsx; Leo, 2026-11-04: "Some people might want to tuck away the composer
-/// hat"). The grabber writes it, so the palette, the CLI and MCP tuck and show the same tray. Not part
-/// of ChatDisplay: tucking measures no transcript row again.
+/// Settings > Agent Chat > Tuck Away Running Tray, off by default: the hat over the composer
+/// (subagents/SubagentTray.tsx) tucks away to a chevron at the top middle of the composer, shown on
+/// hover, which brings it back (subagents/TrayPullTab.tsx; Leo, 2026-11-04: "what if you wanted to
+/// collapse that one line?"). The hat's own chevron, the palette, the CLI and MCP write the same key.
+/// Not part of ChatDisplay: switching it measures no transcript row again.
 export const TRAY_TUCKED_KEY = "agentPane.display.trayTucked";
 /// Settings > Agent Chat > Chat Minimap (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const MINIMAP_KEY = "agentPane.display.minimap";
@@ -395,11 +395,13 @@ export const useDefaultPresentation = (): Presentation =>
   useSyncExternalStore(subscribe, presentationSnapshot, presentationSnapshot);
 const featureTipsSnapshot = () => featureTipsOn;
 const pinnedPlanSnapshot = () => pinnedPlanOn;
-const trayTuckedSnapshot = () => trayTuckedOn;
-/// Whether the running tray is tucked away (TRAY_TUCKED_KEY).
-export const useTrayTucked = (): boolean => useSyncExternalStore(subscribe, trayTuckedSnapshot, trayTuckedSnapshot);
 /// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
 export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);
+const trayTuckedSnapshot = () => trayTuckedOn;
+/// Whether the hat over the composer is tucked away to its pull tab (TRAY_TUCKED_KEY).
+export const useTrayTucked = (): boolean => useSyncExternalStore(subscribe, trayTuckedSnapshot, trayTuckedSnapshot);
+/// Tucks the hat away or brings it back, at once in the page; the host writes the setting.
+export const setTrayTucked = (tucked: boolean): void => changeChatDisplay(TRAY_TUCKED_KEY, tucked || null);
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.
