@@ -649,11 +649,11 @@ export default agentPaneEntry({
       ),
     },
     "one-command": {
-      note: "One background command: its line says Command before it, ends in a chevron (a click opens its output) and has no fill at rest; hover fills the whole line to the tray's edges, one inset. The whole shell line is its tooltip.",
+      note: "One background command: its line leads with its kind's mark (a test run's check, trayCommandKinds.ts) in place of the word Command, ends in a chevron (a click opens its output) and has no fill at rest; hover fills the whole line to the tray's edges, one inset. The whole shell line is its tooltip.",
       play: async (ctx) => {
         await trayLines(1)(ctx);
-        if (ctx.document.querySelector(".acpmux-agent-line__kind")?.textContent !== "Command")
-          throw new Error("a command's line says Command first");
+        if (ctx.document.querySelector(".acpmux-agent-line__kind"))
+          throw new Error("a command's line leads with its kind's mark, not the word Command");
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
@@ -841,12 +841,12 @@ export default agentPaneEntry({
       ),
     },
     "one-agent-two-commands": {
-      note: "One subagent and two background commands, opened: the header reads exactly `1 subagent running · 2 commands` above its lines (folded, it names them: agent-pane.subagent-tray-names).",
+      note: "One subagent and two background commands, opened: the header reads exactly `1 subagent running · 1 test run · 1 build` above its lines, the commands counted by what they do (folded, it names them: agent-pane.subagent-tray-names).",
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         await ctx.click({ selector: ".acpmux-running-tray__head" });
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
-        if (title !== "1 subagent running · 2 commands") throw new Error(`unexpected tray title: ${title}`);
+        if (title !== "1 subagent running · 1 test run · 1 build") throw new Error(`unexpected tray title: ${title}`);
       },
       snapshot: chat(
         [
@@ -937,7 +937,7 @@ export default agentPaneEntry({
       })(),
     },
     "counts-equal-rows": {
-      note: "What Leo called lying, told straight: the header counts what runs kind by kind (2 subagents, 2 sessions it started, 2 commands), then the 3 that ended in the list, and equals the rows under it. A command reads as what it does, not its cd prefix; a chat says what its turn does now. What ended stays visible as bounded status cards.",
+      note: "What Leo called lying, told straight: the header counts what runs kind by kind (2 subagents, 2 sessions it started, a test run and a build), then the 3 that ended in the list, and equals the rows under it. A command reads as what it does, not its cd prefix; a chat says what its turn does now. What ended stays visible as bounded status cards.",
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         await ctx.click({ selector: ".acpmux-running-tray__head" });
@@ -945,7 +945,7 @@ export default agentPaneEntry({
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
         // Kind by kind (trayHeadKinds.ts): the chats it started read as sessions, and what ended in
         // the list counts after what runs.
-        if (title !== "2 subagents running · 2 sessions · 2 commands · 3 done")
+        if (title !== "2 subagents running · 2 sessions · 1 test run · 1 build · 3 done")
           throw new Error(`the header must count the rows: ${title}`);
       },
       snapshot: (() => {

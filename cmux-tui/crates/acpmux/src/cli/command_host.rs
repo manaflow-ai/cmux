@@ -282,7 +282,27 @@ pub enum DepsCmd {
         /// `node_modules` or `.venv`), so an install never replaces a tree in use.
         #[arg(long)]
         if_missing: bool,
+        /// Pack and upload after a cold install before returning, instead of
+        /// in a detached `machine deps upload`.
+        #[arg(long)]
+        upload_now: bool,
     },
+    /// Pack a cache folder and upload it under KEY (what `warm` starts
+    /// detached after a cold install).
+    #[command(hide = true)]
+    Upload {
+        #[arg(long)]
+        key: String,
+        #[arg(long)]
+        root: std::path::PathBuf,
+        #[arg(long = "include", required = true)]
+        include: Vec<std::path::PathBuf>,
+        /// zstd or gzip.
+        #[arg(long)]
+        codec: String,
+    },
+    /// Wait until no background upload (`warm` after a cold install) is running.
+    Wait,
     /// Print each project's cache key and what its archive holds, without asking the hub.
     Key {
         /// The project folder (default: the current folder).
