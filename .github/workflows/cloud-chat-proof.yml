@@ -16,9 +16,9 @@ on:
   workflow_dispatch:
     inputs:
       prompt:
-        description: The prompt the Cloud chat gets
+        description: Extra context for the Cloud chat; the browser proof is always required
         required: false
-        default: "Reply with one short sentence that names the planet you are on."
+        default: "After the browser proof, mention the result in one short sentence."
         type: string
       agent:
         description: The harness the chat starts (claude or codex)
