@@ -103,6 +103,7 @@ impl RelaySource {
 pub(super) struct DirectSource {
     api: String,
     token: String,
+    token_file: Option<PathBuf>,
     client: reqwest::Client,
 }
 
@@ -114,6 +115,22 @@ impl std::fmt::Debug for DirectSource {
 
 impl DirectSource {
     pub(super) fn new(api: String, token: String) -> Result<Self, ConnectInfoError> {
+        Self::build(api, token, None)
+    }
+
+    pub(super) fn with_token_file(
+        api: String,
+        token: String,
+        token_file: PathBuf,
+    ) -> Result<Self, ConnectInfoError> {
+        Self::build(api, token, Some(token_file))
+    }
+
+    fn build(
+        api: String,
+        token: String,
+        token_file: Option<PathBuf>,
+    ) -> Result<Self, ConnectInfoError> {
         let api = secure_origin(&api)?;
         if token.trim().is_empty() {
             return Err(ConnectInfoError::Unavailable("the Cloud install token is empty".into()));
@@ -127,7 +144,14 @@ impl DirectSource {
             .map_err(|_| {
                 ConnectInfoError::Unavailable("the Cloud HTTP client is unavailable".into())
             })?;
-        Ok(Self { api, token: token.trim().to_owned(), client })
+        Ok(Self { api, token: token.trim().to_owned(), token_file, client })
+    }
+
+    fn current_token(&self) -> Result<String, ConnectInfoError> {
+        let Some(path) = &self.token_file else { return Ok(self.token.clone()) };
+        super::read_cloud_token_file(path).map_err(|_| {
+            ConnectInfoError::Unavailable("the Cloud install token file is unavailable".into())
+        })
     }
 
     async fn request(
@@ -136,10 +160,11 @@ impl DirectSource {
         body: serde_json::Value,
         read_envelope: bool,
     ) -> Result<serde_json::Value, ConnectInfoError> {
+        let token = self.current_token()?;
         let response = self
             .client
             .post(format!("{}{}", self.api, path))
-            .bearer_auth(&self.token)
+            .bearer_auth(token)
             .json(&body)
             .send()
             .await
@@ -246,6 +271,27 @@ mod direct_tests {
         assert!(
             matches!(error, ConnectInfoError::Unavailable(message) if message.contains("secure"))
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn direct_source_reloads_a_rotated_token_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().expect("temporary token directory");
+        let path = directory.path().join("install-token");
+        std::fs::write(&path, "first-token\n").expect("write first token");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .expect("protect token file");
+        let source = DirectSource::with_token_file(
+            "http://127.0.0.1:8787".into(),
+            "first-token".into(),
+            path.clone(),
+        )
+        .expect("local origins are allowed for tests");
+        assert_eq!(source.current_token().expect("first token"), "first-token");
+        std::fs::write(&path, "rotated-token\n").expect("rotate token");
+        assert_eq!(source.current_token().expect("rotated token"), "rotated-token");
     }
 }
 

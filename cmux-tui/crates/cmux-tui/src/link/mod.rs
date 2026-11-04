@@ -466,10 +466,14 @@ fn direct_source(token_file: Option<&Path>) -> Option<cloud::DirectSource> {
         Some(path) => read_cloud_token_file(path).ok(),
         None => std::env::var("CMUX_CLOUD_INSTALL_TOKEN").ok(),
     }?;
-    cloud::DirectSource::new(api?, token).ok()
+    let api = api?;
+    match token_file {
+        Some(path) => cloud::DirectSource::with_token_file(api, token, path.to_owned()).ok(),
+        None => cloud::DirectSource::new(api, token).ok(),
+    }
 }
 
-fn read_cloud_token_file(path: &Path) -> anyhow::Result<String> {
+pub(super) fn read_cloud_token_file(path: &Path) -> anyhow::Result<String> {
     let metadata =
         std::fs::metadata(path).map_err(|error| anyhow!("read Cloud token file: {error}"))?;
     #[cfg(unix)]
