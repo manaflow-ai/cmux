@@ -27,8 +27,13 @@ extension DaemonService {
         }
         store.applyProvisional(snapshot: snapshot.tree)
         launchSnapshotWindows = snapshot.windows
-        launchSnapshotSidebarDoc = snapshot.sidebarDoc
+        receiveLaunchSnapshotSidebarDoc(snapshot.sidebarDoc)
         Self.launchMark("launch_snapshot_applied")
+    }
+
+    /// Keeps the launch snapshot's sidebar document for the sidebar document's start.
+    func receiveLaunchSnapshotSidebarDoc(_ data: Data?) {
+        launchSnapshotSidebarDoc = data
     }
 
     /// Records the snapshot path the local daemon reported, for the next launch.
