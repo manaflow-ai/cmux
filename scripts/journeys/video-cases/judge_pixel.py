@@ -948,6 +948,7 @@ def judge(base, all_frames=False):
     rest_frames = [f for f in range(film.n) if shown[f] is not None and (first is None or shown[f] < first - 1)]
     report["rest_frames"] = len(rest_frames)
     summary, frames_out = {}, {}
+    side_rest = {}  # (pid, line, axis, side) -> (rest gap, rest rings) of each side the pane loop judges (3e)
 
     def add_frame(f, entry):
         if entry.get("problems") or all_frames:
@@ -970,6 +971,7 @@ def judge(base, all_frames=False):
             [f for f in range(film.n) if per[f] is not None and per[f].get("status") == "found"][-REST_FALLBACK:]
         rings_rest = [float(np.median([per[f]["rings"][r] for f in pool])) if pool else None for r in range(3)]
         gap_rest = float(np.median([per[f]["gap"] for f in pool])) if pool else 0.0
+        side_rest[key] = (gap_rest, rings_rest)
         strips = [per[f]["strip"] for f in pool if per[f].get("strip") is not None]
         strip_rest = float(np.median(strips)) if strips else None
         other = measured.get((pid, name, axis, "lo")) if side == "hi" else None
@@ -1048,8 +1050,9 @@ def judge(base, all_frames=False):
     judge_inside(film, shown, inside, rest_frames, summary, add_frame)
 
     judge_divider_rects(film, dividers, summary)
-    judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, line_codes)
+    strips = judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, line_codes)
     judge_page_windows(film, shown, measured, summary, add_frame)
+    report["m6"] = judge_m6(film, shown, measured, side_rest, strips)
     if film.main_pane_source and film.main_pane_source != "note" and film.main_pane[0] > 0:
         report["notes"].append(f"the panes' visible area {film.main_pane} is from {film.main_pane_source}")
     if film.note.get("page_backdrop") is not False and any(i["kind"] == "page" for i in film.panes.values()):
@@ -1059,6 +1062,9 @@ def judge(base, all_frames=False):
     report["summary"] = summary
     report["frame_findings"] = [{"f": f, "entries": frames_out[f]} for f in sorted(frames_out)]
     report["findings"], report["info"] = findings_of(report)
+    m6_findings, m6_info = m6_findings_of(report["m6"])
+    report["findings"] += m6_findings
+    report["info"] += m6_info
     report["info"].insert(0, {"check": "clock", "where": "film", "detail": f"offset {offset:+d} ({clock['status']}): "
                                                                           f"{clock['why']}"})
     if clock["offset"] is None:
@@ -1173,11 +1179,176 @@ def judge_divider_rects(film, dividers, summary):
                                                       "mid", None, divider=did, detail=detail, **stats)
 
 
+M6_KINDS = ("terminal", "page", "agent")
+
+
+def m6_kind(info):
+    """The content kind of a fixture pane for the m6 contract: agent, terminal (tui) or page."""
+    return "agent" if info.get("agent") else {"tui": "terminal", "page": "page"}.get(info.get("kind"), info.get("kind"))
+
+
+def _previous_distinct(values):
+    """Per frame, the last earlier frame whose value is not None and differs from this frame's (None: none): the frame
+    before as the screen showed it, so a repeated frame (a dropped refresh) does not widen a one-refresh allowance."""
+    prev, runs = [None] * len(values), []  # runs: (first frame, value) of each run of one value
+    for f, v in enumerate(values):
+        if v is None:
+            continue
+        if runs and runs[-1][1] == v:
+            prev[f] = runs[-2][0] if len(runs) > 1 else None
+            prev[f] = None if prev[f] is None else max(g for g in range(prev[f], f) if values[g] == runs[-2][1])
+        else:
+            prev[f] = None if not runs else max(g for g in range(runs[-1][0], f) if values[g] == runs[-1][1])
+            runs.append((f, v))
+    return prev
+
+
+def m6_edge_verdict(kind, side, c, cur, prev):
+    """(verdict, rule) of one content edge at C (device px, its rest offset taken off) against its pane's edges (lo, hi)
+    in the current frame CUR and the frame before PREV (either side None when not shown): E2 for a lo edge (top-left
+    anchored: the current lo edge, within TOL_PX inclusive; a page also the previous frame's: "page late 1"), E3 for a
+    hi edge (the current hi edge: pass; the previous frame's size anchored at the current lo edge, clipped at the
+    current hi edge: "late")."""
+    lo_i, hi_i = 0, 1
+    si = lo_i if side == "lo" else hi_i
+    if abs(c - cur[si]) <= TOL_PX:
+        return "pass", None
+    if side == "lo":
+        if kind == "page" and prev is not None and prev[lo_i] is not None and abs(c - prev[lo_i]) <= TOL_PX:
+            return "page late 1", None
+        return "fail", "E2"
+    if prev is not None and None not in prev and cur[lo_i] is not None:
+        late_at = min(cur[lo_i] + (prev[hi_i] - prev[lo_i]), cur[hi_i])
+    else:
+        late_at = prev[hi_i] if prev is not None else None
+    if late_at is not None and abs(c - late_at) <= TOL_PX:
+        return "late", None
+    return "fail", "E3"
+
+
+def judge_m6(film, shown, measured, side_rest, strips):
+    """3e, the judge part of cmux-ad m6 1d (FRAME OWNER): per film frame and content kind (terminal, page, agent), each
+    content edge against its pane edge as cmux's own layer shows it in the same film frame: the pane's tab strip (x edges
+    of a pane with a strip row; a frame whose strip is not shown is not judged, never a pass), else (y edges, panes with
+    no strip row) the trace sample of the frame on the film's clock (3d). Each edge, after its rest offset:
+      E2  a lo edge (top-left anchored) on the current frame's pane edge, within TOL_PX; a page's also on the previous
+          frame's ("page late 1": the interim browser contract until S5);
+      E3  a hi edge on the current pane edge (pass) or on the previous frame's size anchored at the current lo edge and
+          clipped at the current hi edge ("late"); the previous frame is the last one whose strip differs (a dropped
+          refresh does not widen the allowance); for the trace source, the previous sample;
+      E4  never the shell beyond it (gap over its rest: the page's own backdrop and the terminal's own ground are no gap);
+      E5  never stretched (a ring wider than at rest by more than TOL_PX).
+    A frame of a kind: fail if an edge fails, else late, else page late 1, else pass; not judged when none of its edges
+    can be judged. E7: frames where every strip edge that moved into the frame's sample is one sample late are late as a
+    whole (the window presented the whole frame late; its content on the same strips passes). Program grid size per press (E8) is not a film fact."""
+    edges = strips.get("edges") or {}
+    prev_strip = {pid: _previous_distinct(ext) for pid, ext in edges.items()}
+    frames = {kind: collections.defaultdict(list) for kind in M6_KINDS}  # kind -> frame -> [edge verdicts]
+    edge_counts = {kind: collections.Counter() for kind in M6_KINDS}
+    rules = {kind: collections.Counter() for kind in M6_KINDS}
+    sources = {kind: collections.Counter() for kind in M6_KINDS}
+    for key, per in sorted(measured.items()):
+        if key not in side_rest:
+            continue  # a side the pane loop does not judge (no fill on the line at rest)
+        pid, name, axis, side = key
+        kind = m6_kind(film.panes[pid])
+        if kind not in frames:
+            continue
+        gap_rest, rings_rest = side_rest[key]
+        si = 0 if side == "lo" else 1
+        strip = edges.get(pid) if axis == "row" else None
+        source = "strip" if strip is not None else "trace"
+        series = {"lo": edge_series(film, pid, axis, "lo"), "hi": edge_series(film, pid, axis, "hi")}
+
+        def pane_at(f):
+            """((lo, hi) of the pane edge in frame f, (lo, hi) in the frame before), None where not shown."""
+            if strip is not None:
+                g = prev_strip[pid][f]
+                return strip[f], (strip[g] if g is not None else None)
+            k = shown[f]
+            if k is None:
+                return None, None
+            cur = (series["lo"][k], series["hi"][k])
+            return cur, ((series["lo"][k - 1], series["hi"][k - 1]) if k >= 1 else None)
+
+        values = [m["view_edge"] if m is not None and m.get("status") in ("found", "cut") and m.get("view_edge") is not None
+                  else None for m in per]
+        rest = [f for f in range(film.n) if values[f] is not None and (pane_at(f)[0] or (None, None))[si] is not None]
+        if not rest:
+            continue
+        offset = float(np.median([values[f] - pane_at(f)[0][si] for f in rest[:REST_FALLBACK * 4]]))
+        for f in range(film.n):
+            if values[f] is None:
+                continue
+            cur, prev = pane_at(f)
+            if cur is None or cur[si] is None:
+                frames[kind][f].append("not judged")
+                edge_counts[kind]["not judged"] += 1
+                continue
+            sources[kind][source] += 1
+            verdict, rule = m6_edge_verdict(kind, side, values[f] - offset, cur, prev)
+            m = per[f]
+            if m.get("gap", 0.0) - gap_rest >= TOL_PX:
+                verdict, rule = "fail", "E4"
+                rules[kind]["E4"] += 1
+            if any(rings_rest[r] is not None and m["rings"][r] > rings_rest[r] + TOL_PX for r in range(3)):
+                verdict, rule = "fail", "E5"
+                rules[kind]["E5"] += 1
+            if verdict == "fail" and rule in ("E2", "E3"):
+                rules[kind][rule] += 1
+            frames[kind][f].append(verdict)
+            edge_counts[kind][verdict] += 1
+    out = {"kinds": {}}
+    order = ("fail", "late", "page late 1", "pass")
+    for kind in M6_KINDS:
+        per_frame = {}
+        for f, verdicts in frames[kind].items():
+            judged = [v for v in verdicts if v != "not judged"]
+            per_frame[f] = next((v for v in order if v in judged), "not judged")
+        if not per_frame:
+            continue
+        by = {v: sorted(f for f, w in per_frame.items() if w == v) for v in order + ("not judged",)}
+        out["kinds"][kind] = {"frames": len(per_frame), "pass": len(by["pass"]), "late": len(by["late"]),
+                              "page_late_1": len(by["page late 1"]), "fail": len(by["fail"]),
+                              "not_judged": len(by["not judged"]), "fail_ranges": ranges(by["fail"]),
+                              "late_ranges": ranges(by["late"]), "page_late_1_ranges": ranges(by["page late 1"]),
+                              "not_judged_ranges": ranges(by["not judged"]),
+                              "fail_by_rule": {r: rules[kind][r] for r in ("E2", "E3", "E4", "E5")},
+                              "sources": dict(sources[kind]), "edges": dict(edge_counts[kind])}
+    late = sorted(f for f, lags in (strips.get("lags") or {}).items() if lags and all(v == 1 for v in lags))
+    out["late_as_a_whole"], out["late_as_a_whole_ranges"] = len(late), ranges(late)
+    return out
+
+
+def m6_findings_of(m6):
+    """(defects, information) of the m6 check: a finding per kind with a failing frame; information per kind (its counts)
+    and the late-as-a-whole count."""
+    out, info = [], []
+    for kind, row in (m6.get("kinds") or {}).items():
+        counts = (f"{row['pass']} pass, {row['late']} late, {row['page_late_1']} page late 1, {row['fail']} fail, "
+                  f"{row['not_judged']} not judged of {row['frames']} frames")
+        if row["fail"]:
+            rules = ", ".join(f"{r} {n}" for r, n in row["fail_by_rule"].items() if n)
+            out.append({"check": "m6 contract", "where": f"{kind} content",
+                        "detail": f"{row['fail']} of {row['frames']} frames fail (frames {row['fail_ranges']}; edges: {rules}); "
+                                  f"{counts}"})
+        info.append({"check": "m6 contract", "where": f"{kind} content", "detail": counts})
+    if m6.get("late_as_a_whole"):
+        info.append({"check": "late as a whole", "where": "film",
+                     "detail": f"{m6['late_as_a_whole']} frame(s) with every tab strip one sample late: the window presented "
+                               f"the whole frame late (frames {m6['late_as_a_whole_ranges']})"})
+    return out, info
+
+
 def judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, line_codes):
     """Each pane's tab strip on its strip row: the strip's two edges against the pane's edges, and the selected tab's pill
-    against the pane's left edge, per frame (frames where the row is outside the strip's height now are skipped)."""
+    against the pane's left edge, per frame (frames where the row is outside the strip's height now are skipped).
+    Returns {"edges": {pid: per frame (lo, hi) of the strip as shown (a side None when not on screen) or None},
+    "lags": {frame: [the lag of each strip edge judged in it that moved into the frame's sample]}}: cmux's own layer in
+    each film frame, for the m6 check."""
     rows = {y: i for i, y in enumerate(film.rows)}
     shell = film.roles["shell"]
+    out = {"edges": {}, "lags": collections.defaultdict(list)}
     for pid, y in sorted(film.strip_rows.items()):
         if y not in rows or film.row_px is None:
             continue
@@ -1208,6 +1379,7 @@ def judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, l
             e = strip_extent(codes, (vlo + vhi) / 2 * film.scale, shell, vlo * film.scale, vhi * film.scale,
                              int(STRIP_REACH_PT * film.scale) if lo_shown and hi_shown else 0)
             ext[f] = (e[0] if lo_shown else None, e[1] if hi_shown else None) if e else None
+        out["edges"][pid] = ext
         # A side hidden under the sidebar or past the window is None; the run between the strip's shown ends (a hidden
         # end: the visible area's edge) gives the ground and the pill.
         spans = [None] * film.n
@@ -1245,6 +1417,10 @@ def judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, l
                 continue
             track = judge_track(film, shown, measured, series, rest_frames, spring, reduce)
             for f, t in sorted(track["per_frame"].items()):
+                k = shown[f]
+                if what == "strip" and k is not None and 1 <= k and series[k] is not None and series[k - 1] is not None \
+                        and abs(series[k] - series[k - 1]) >= TOL_PX:
+                    out["lags"][f].append(t["lag"])  # a strip edge that moved into this frame's sample
                 entry = {"f": f, "t_ms": round((film.t[f] - film.t[0]) * 1000, 2), "sample": shown[f], "line": f"row@{y}",
                          "pane": pid, "label": f"{what} {label}", "side": side, "dev": t["dev"], "lag": t["lag"], "at": measured[f]}
                 problems = []
@@ -1261,6 +1437,7 @@ def judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, l
                 what, pid, f"{what} {label}", what, f"row@{y}", side, track, detail=f"against {ref}",
                 not_found_frames=sum(1 for f in range(film.n) if ext[f] is not None and measured[f] is None),
                 **({"ground": list(ground), "outside_strip_frames": len(not_judged)} if what == "strip" else {}))
+    return out
 
 
 def judge_page_windows(film, shown, measured, summary, add_frame):
