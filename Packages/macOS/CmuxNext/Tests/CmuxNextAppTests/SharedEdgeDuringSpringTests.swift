@@ -6,17 +6,21 @@ import Testing
 
 /// FRAME OWNER REFACTOR S2B: two panes that share an edge show it at the same place in every frame, also when two
 /// motions overlap: their gap is the gap at rest, never wider (the shell shows between them) and never narrower (they
-/// overlap), and a divider a person drags stays under the pointer.
+/// overlap), and a divider a person drags moves with the pointer, as much as the pointer travels.
 ///
 /// Each pane frame and each divider frame is its own spring (`AnimatedFrame`). They agree only while they all step
 /// together from consistent values. A drag snaps every frame it retargets to its target (`ScreenContentView.place`,
 /// M3) while a frame it does not retarget keeps its spring: when a drag starts during a key resize's spring, the
 /// dragged column's panes jump to their rest place and the springing column beside them is still on its way. A drag
-/// also starts from the rest geometry (`DividerDrag.start`), not from where a springing divider shows.
+/// The drag measures the pointer against the rest layout (`DividerDrag.start`): a press changes no size, and the
+/// pointer's travel changes the dragged pane's size 1:1. A divider pressed while its column still slides on a spring
+/// cannot also stay under the pointer: the column moves under it, so the pane would change by the column's travel
+/// (a press alone would resize it). The dragged edge rides its column's spring and moves with the pointer in the
+/// column's frame: the test reads it from column B's left edge (b1's), which only the key spring moves.
 ///
 /// Three cases on one layout, A | B (split x: b1 | b2) | C, a strip that fits its viewport:
 /// - a key press grows column A (its edge springs) and, while it springs, a drag starts on B's column edge;
-/// - the same, with the drag on the split divider inside B;
+/// - the same, with the drag on the split divider inside B (toward b2: b1 is 13 pt above its minimum width);
 /// - a Shift drag of the split divider lands on a snap (its release springs) and, while that springs, a key press
 ///   grows column A;
 /// - a key press grows column A and, during that spring, an Option drag of the split in B (B grows, C moves);
@@ -136,25 +140,32 @@ struct SharedEdgeDuringSpringTests {
             try #require(root.context.hosts[pane], "no host for \(pane)").frame.maxX
         }
 
+        /// How far the right edge of `pane` (in column B) shows from column B's left edge (b1's left edge): the
+        /// dragged edge in its column's frame, which the column's own spring does not change.
+        func span(_ pane: PaneID) throws -> CGFloat {
+            try rightEdge(pane) - (try #require(root.context.hosts["b1"], "no host for b1").frame.minX)
+        }
+
         /// A drag of `kind`, pressed where its handle shows, `moves` steps of `step` points (whole points: the edge
         /// stays on the pixel grid), one display frame per move. In every frame it checks the shared edges, and that
-        /// the dragged edge (the right edge of `dragged`) moved with the pointer from where it showed at the press;
-        /// then the release (`releaseSpeed`: the pointer's speed at it, pt/s, set as the drag samples it).
+        /// the dragged edge (the right edge of `dragged`, in column B) moved from column B's left edge by as much as
+        /// the pointer travelled since the press; then the release (`releaseSpeed`: the pointer's speed at it, pt/s,
+        /// set as the drag samples it).
         func drag(_ kind: DividerHandleView.Kind, dragged: PaneID, moves: Int, step: CGFloat, flags: NSEvent.ModifierFlags = [],
                   releaseSpeed: CGFloat? = nil, edges: [SharedEdge]) throws {
             let view = try handle(kind)
             let press = try center(kind)
             let tolerance = try halfPixel
-            let start = try rightEdge(dragged)
+            let start = try span(dragged)
             view.mouseDown(with: event(.leftMouseDown, press, flags))
             var pointer = press
             for move in 1...moves {
                 pointer.x += step
                 view.mouseDragged(with: event(.leftMouseDragged, pointer, flags))
                 frame(edges, "drag frame \(move)")
-                let shown = try rightEdge(dragged), want = start + CGFloat(move) * step
+                let shown = try span(dragged), want = start + CGFloat(move) * step
                 if abs(shown - want) > tolerance {
-                    misses.append("drag frame \(move): the dragged edge shows at \(Self.pt(shown)), the pointer put it at \(Self.pt(want))")
+                    misses.append("drag frame \(move): the dragged edge shows \(Self.pt(shown)) pt from its column's left edge, the pointer put it at \(Self.pt(want)) pt")
                 }
             }
             if let releaseSpeed {
@@ -198,9 +209,11 @@ struct SharedEdgeDuringSpringTests {
             try #require(try rig.screen.hasMotion, "the key press did not start a spring")
             // While column A's edge still springs, a drag on the edge or divider beside it.
             // Column B's edge is b2's right edge; the split's divider is b1's.
-            let (kind, dragged): (DividerHandleView.Kind, PaneID) = overlap == .keySpringThenColumnEdgeDrag
-                ? (.columnEdge("B"), "b2") : (.split("x"), "b1")
-            try rig.drag(kind, dragged: dragged, moves: 10, step: -3, edges: edges)
+            // The column edge goes left (B narrows); the split goes right, where b1 has room (it is 13 pt above its
+            // minimum width, so a left drag would stop at the minimum).
+            let (kind, dragged, step): (DividerHandleView.Kind, PaneID, CGFloat) = overlap == .keySpringThenColumnEdgeDrag
+                ? (.columnEdge("B"), "b2", -3) : (.split("x"), "b1", 3)
+            try rig.drag(kind, dragged: dragged, moves: 10, step: step, edges: edges)
             rig.land(edges, "landing")
         case .keySpringThenPushDrag:
             #expect(PaneResize.press("a", .right, model: rig.model, view: rig.root), "the key press changed nothing")
