@@ -5,7 +5,8 @@
 // composer's card never jumps: per frame its top (on the Default template, which docks it at the
 // foot, its distance from the foot) moves at most 0.6px per px of height + 2px, its left edge at
 // most 0.6px per px of width + 2px plus one 4px grid step (the column's inset is rounded down to the
-// 4 grid, design/grid.md 5.5, so it moves in 4px steps) and its width at most 1px per px + 2px. The layout is CSS only:
+// 4 grid, design/grid.md 5.5, so it moves in 4px steps) and its width at most 1px per px + 2px
+// plus a step on each side. The layout is CSS only:
 // the field (where the text is typed) never has an inline height and a one-line draft keeps its
 // one-line row. ResizeObserver callbacks take at most 2ms a frame (p95 in Chromium; the mean in
 // WebKit, whose clock ticks in whole ms). In Chromium the frames hold 60fps: p95 interval at most
@@ -314,7 +315,7 @@ await requireBrowserLane("new-tab-live-resize.test.ts", async () => {
         failures.push(`${at}: the card's ${stage ? "distance from the foot" : "top"} jumped ${px(moved)}px`);
       if (Math.abs(b.left - a.left) > 0.6 * dw + 2 + GRID_STEP)
         failures.push(`${at}: the card's left edge jumped ${px(b.left - a.left)}px`);
-      if (Math.abs(b.width - a.width) > dw + 2)
+      if (Math.abs(b.width - a.width) > dw + 2 + 2 * GRID_STEP)
         failures.push(`${at}: the card's width jumped ${px(b.width - a.width)}px`);
     }
     const inline = samples.filter((sample) => sample.inline);
