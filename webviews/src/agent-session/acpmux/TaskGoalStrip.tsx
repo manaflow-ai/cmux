@@ -37,9 +37,12 @@ function LoopStrip({ goal, now }: { goal: TaskGoal; now: () => number }) {
   const lang = usePaneLanguage();
   // The page's shared second clock (ui/pageClock.ts), only while the next run is ahead: the render
   // after that time passes stops it, as does unmounting, and a hidden page runs no timer.
+  // The caption reads the newer of the clock's sample and the time now: a render between the run
+  // time and the clock's next tick stops the clock, and its older sample would keep the countdown up.
   const at = goal.nextRunAt;
-  const time = usePageNow(at !== undefined && now() < at, now);
-  const next = at === undefined ? undefined : loopNextText(time, at, lang);
+  const current = now();
+  const time = usePageNow(at !== undefined && current < at, now);
+  const next = at === undefined ? undefined : loopNextText(Math.max(time, current), at, lang);
   const objective = goal.autonomous ? t("goal.loopAutonomous") : goal.objective;
   return (
     <section className="acpmux-goal" data-state={goal.status} data-kind="loop" aria-label={t("goal.label")}>
