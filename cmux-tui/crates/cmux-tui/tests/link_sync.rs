@@ -1265,4 +1265,23 @@ fn a_file_is_never_written_through_a_link_the_machine_changed() {
         "a symlink (something else is at its path on the other side)",
         "{pushed}"
     );
+    // Nor the push after it, whose record no longer holds the link.
+    let (ok, again, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{again}");
+    assert_eq!(std::fs::read_to_string(remote.join("secret.txt")).unwrap(), "secret\n");
+    assert_eq!(std::fs::read_link(remote.join("link")).unwrap(), Path::new("secret.txt"));
+}
+
+/// A machine link at or above the hooks folder never comes back: through it
+/// git would run hooks the machine chose.
+#[test]
+fn a_pull_never_brings_back_a_link_over_the_hooks_folder() {
+    let (_root, _sockets, repo, remote, socket) = pushed_repo();
+    git(&repo, &["config", "core.hooksPath", "entry/hooks"]);
+    std::fs::create_dir_all(remote.join("payload/hooks")).unwrap();
+    std::fs::write(remote.join("payload/hooks/reference-transaction"), "#!/bin/sh\necho x\n")
+        .unwrap();
+    std::os::unix::fs::symlink("payload", remote.join("entry")).unwrap();
+    let (_, answer) = pull(&socket, &repo, &remote);
+    assert!(std::fs::symlink_metadata(repo.join("entry")).is_err(), "{answer}");
 }

@@ -558,12 +558,6 @@ fn push_inner(
             if !set.links.contains_key(relative) && !set.files.contains_key(relative) {
                 summary.deleted += 1;
             }
-        } else if remote.kind(&target)?.as_deref() == Some("symlink")
-            && set.files.remove(relative).is_some()
-        {
-            // The machine changed that link: a file written there would go
-            // through it, so this Mac's file stays and is named.
-            set.skips.note(relative, skips::Why::SymlinkTaken);
         }
     }
     listings.clear();
@@ -588,7 +582,18 @@ fn push_inner(
             if made.insert(parent.to_string()) {
                 remote.mkdir_all(parent)?;
             }
-            let revision = write(&mut remote, &target, file)?;
+            let revision = match write(&mut remote, &target, file) {
+                Ok(revision) => revision,
+                // A symlink of the machine's at its path: a file written
+                // there would go through it, so this Mac's file stays.
+                Err(error) if error.is::<LinkInTheWay>() => {
+                    set.skips.note(relative, skips::Why::SymlinkTaken);
+                    done.files_done += 1;
+                    done.bytes_done += bytes;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             summary.written += 1;
             summary.bytes += bytes;
             next.files.insert(
@@ -750,14 +755,29 @@ fn write_with_progress(
     file: &LocalFile,
     progress: &mut dyn FnMut(),
 ) -> anyhow::Result<String> {
-    if remote.kind(target)?.as_deref() == Some("dir")
-        && remote.list(target)?.is_some_and(|entries| entries.is_empty())
-    {
-        remote.delete(&[target.to_string()])?;
+    match remote.kind(target)?.as_deref() {
+        Some("dir") if remote.list(target)?.is_some_and(|entries| entries.is_empty()) => {
+            remote.delete(&[target.to_string()])?;
+        }
+        Some("symlink") => return Err(LinkInTheWay.into()),
+        _ => {}
     }
     let mut reader = open(file)?;
     remote.write_with_progress(target, &mut reader, file.permissions, progress)
 }
+
+/// A symlink on the machine where a file would be written: never written
+/// through.
+#[derive(Debug)]
+struct LinkInTheWay;
+
+impl std::fmt::Display for LinkInTheWay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a symlink is at that path on the machine")
+    }
+}
+
+impl std::error::Error for LinkInTheWay {}
 
 /// A relative path of plain names: no empty, `.` or `..` part.
 fn plain_relative(relative: &str) -> bool {

@@ -214,6 +214,18 @@ pub(super) fn pull_kept(
             None => (Side::Missing, None),
             Some(Found::Other) => (Side::Other, None),
             Some(Found::Link) if !links_ok => (Side::Other, None),
+            // A link at a hooks folder or above one would hand git hooks
+            // the machine chose.
+            Some(Found::Link)
+                if hooks.iter().any(|folder| {
+                    names::folded_path(folder) == names::folded_path(relative)
+                        || names::folded_path(folder)
+                            .starts_with(&format!("{}/", names::folded_path(relative)))
+                }) =>
+            {
+                skips.note(relative, super::skips::Why::SymlinkIntoRepository);
+                continue;
+            }
             Some(Found::Link) => match machine_links.get(relative).cloned().flatten() {
                 // Only a text that stays inside, through every link on its
                 // way on either side, comes back.
