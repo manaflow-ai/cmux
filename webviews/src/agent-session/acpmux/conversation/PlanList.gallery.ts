@@ -37,11 +37,12 @@ export default agentPaneEntry({
       ]),
     },
     pinned: {
-      note: "A running Claude turn with its list, by default: the hat over the composer reads \"2 of 4 · Reserve space with an aspect-ratio fallback\" and the transcript holds no list; the hat's chevron opens the checklist.",
+      note: 'A running Claude turn with its list, by default: the hat over the composer reads "2 of 4 · Reserve space with an aspect-ratio fallback" and the transcript holds no list; the hat\'s chevron opens the checklist.',
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
-        if (title !== "2 of 4 · Reserve space with an aspect-ratio fallback") throw new Error(`unexpected hat: ${title}`);
+        if (title !== "2 of 4 · Reserve space with an aspect-ratio fallback")
+          throw new Error(`unexpected hat: ${title}`);
         if (ctx.document.querySelector(".cv-plan:not(.acpmux-running-tray .cv-plan)"))
           throw new Error("the running list is in the hat, not the transcript");
       },

@@ -9574,41 +9574,40 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A chat switch, or the tray moving to another placement (another host), is not the tray leaving:
   // its kept copy goes before the frame paints.
   useLayoutEffect(() => settleTrayExit(), [shownSessionId, trayPlacement]);
-  const trayNode =
-    hasTray ? (
-      <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-        <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-          {/* A subagent naming no harness draws the chat's mark, as in the transcript. */}
-          <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
-            <SubagentTray
-              key={shownSessionId}
-              chat={shownSessionId}
-              items={trayList}
-              finished={trayFinished}
-              working={snapshot.isWorking}
-              waiting={waitingAgents}
-              onOpen={showSubagent}
-              onOpenCommand={openTrayCommand}
-              canOpenTerminal={opensProcessTerminal(snapshot.summary)}
-              canReadTail={
-                opensProcessTerminal(snapshot.summary) &&
-                clientEpoch > 0 &&
-                directClient.current !== undefined &&
-                backgroundTaskOutput !== undefined
-              }
-              onOpenSession={openOfferChat}
-              onOpenPanel={quick ? undefined : openBackgroundPanel}
-              stop={stopSubagent}
-              stopProcess={stopProcess}
-              placement={trayPlacement}
-              shown={trayChat}
-              enters={trayEnters}
-              plan={hatPlan}
-            />
-          </SubagentHarnessContext.Provider>
-        </SubagentClockContext.Provider>
-      </BackgroundTaskOutputContext.Provider>
-    ) : null;
+  const trayNode = hasTray ? (
+    <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
+      <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+        {/* A subagent naming no harness draws the chat's mark, as in the transcript. */}
+        <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
+          <SubagentTray
+            key={shownSessionId}
+            chat={shownSessionId}
+            items={trayList}
+            finished={trayFinished}
+            working={snapshot.isWorking}
+            waiting={waitingAgents}
+            onOpen={showSubagent}
+            onOpenCommand={openTrayCommand}
+            canOpenTerminal={opensProcessTerminal(snapshot.summary)}
+            canReadTail={
+              opensProcessTerminal(snapshot.summary) &&
+              clientEpoch > 0 &&
+              directClient.current !== undefined &&
+              backgroundTaskOutput !== undefined
+            }
+            onOpenSession={openOfferChat}
+            onOpenPanel={quick ? undefined : openBackgroundPanel}
+            stop={stopSubagent}
+            stopProcess={stopProcess}
+            placement={trayPlacement}
+            shown={trayChat}
+            enters={trayEnters}
+            plan={hatPlan}
+          />
+        </SubagentHarnessContext.Provider>
+      </SubagentClockContext.Provider>
+    </BackgroundTaskOutputContext.Provider>
+  ) : null;
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
   /// The composer itself, which takes back prompts a harness switch held; prompts handed back

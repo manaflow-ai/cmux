@@ -626,7 +626,7 @@ export default agentPaneEntry({
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
     "plan-and-commands": {
-      note: "Leo's composer hat with the turn's todo list (2026-11-03: \"we said earlier the composer hat is kinda ok?\"): folded, it reads \"2 of 5 · <the step at work>\" before the newest command, \"+2 more\" and the time; the transcript holds no list while the turn runs.",
+      note: 'Leo\'s composer hat with the turn\'s todo list (2026-11-03: "we said earlier the composer hat is kinda ok?"): folded, it reads "2 of 5 · <the step at work>" before the newest command, "+2 more" and the time; the transcript holds no list while the turn runs.',
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent ?? "";

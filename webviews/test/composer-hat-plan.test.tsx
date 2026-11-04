@@ -86,7 +86,13 @@ async function hat(commands: BackgroundCommand[], entries: readonly AcpmuxPlanEn
   const items = trayItems([], commands, [], true);
   await act(async () =>
     root.render(
-      createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {}, plan: entries }),
+      createElement(SubagentTray, {
+        items,
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+        plan: entries,
+      }),
     ),
   );
   const button = () => host.querySelector<HTMLButtonElement>(".acpmux-running-tray__head");
@@ -132,7 +138,10 @@ describe("the composer hat shows the running turn's plan", () => {
   });
 
   test("an all-done list reads only its progress", async () => {
-    const bar = await hat([], plan.map((entry) => ({ ...entry, status: "completed" as const })));
+    const bar = await hat(
+      [],
+      plan.map((entry) => ({ ...entry, status: "completed" as const })),
+    );
     try {
       expect(bar.title()).toBe("5 of 5");
     } finally {
@@ -141,7 +150,8 @@ describe("the composer hat shows the running turn's plan", () => {
   });
 
   test("the hat takes only the running turn's list, never one whose turn ended", () => {
-    const row = (id: string, fields: Partial<AcpmuxRow>) => ({ id, version: 1, at: now, kind: "plan", ...fields }) as AcpmuxRow;
+    const row = (id: string, fields: Partial<AcpmuxRow>) =>
+      ({ id, version: 1, at: now, kind: "plan", ...fields }) as AcpmuxRow;
     const ended = row("p1", { plan, turnEnded: true });
     const live = row("p2", { plan });
     expect(liveTurnPlan([ended])).toBeUndefined();

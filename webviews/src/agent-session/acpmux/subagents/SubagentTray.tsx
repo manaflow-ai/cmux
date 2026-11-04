@@ -768,8 +768,7 @@ const HEAD_ICON = "app.sample.runningagents";
 export function planHead(t: Translate, plan: readonly AcpmuxPlanEntry[]): string {
   const done = plan.filter((entry) => entry.status === "completed").length;
   const progress = t("plan.hat", { done, total: plan.length });
-  const step =
-    plan.find((entry) => entry.status === "in_progress") ?? plan.find((entry) => entry.status === "pending");
+  const step = plan.find((entry) => entry.status === "in_progress") ?? plan.find((entry) => entry.status === "pending");
   return step ? `${progress} · ${step.content}` : progress;
 }
 const NO_ITEMS: readonly TrayItem[] = [];

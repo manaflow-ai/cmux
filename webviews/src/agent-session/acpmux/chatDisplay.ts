@@ -379,8 +379,7 @@ export const useDefaultPresentation = (): Presentation =>
 const featureTipsSnapshot = () => featureTipsOn;
 const pinnedPlanSnapshot = () => pinnedPlanOn;
 /// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
-export const useChatPinnedPlan = (): boolean =>
-  useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);
+export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.
