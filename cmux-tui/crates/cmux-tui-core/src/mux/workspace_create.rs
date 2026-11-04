@@ -236,9 +236,8 @@ impl Mux {
                     replayed: true,
                 });
             }
-            let resource_revision = project_resource
-                .then(|| registry.resource_revision())
-                .transpose()?;
+            let resource_revision =
+                project_resource.then(|| registry.resource_revision()).transpose()?;
             if reloads_presentation {
                 self.reload_presentation(&registry)?;
                 notifications.presentation = self.presentation_snapshot();

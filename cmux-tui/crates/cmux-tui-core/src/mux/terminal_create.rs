@@ -469,8 +469,9 @@ impl Mux {
             anyhow::bail!("terminal closed while its topology binding was being created");
         }
         let was_placed = state.pane_of(surface.id).is_some();
-        let screens_before =
-            state.workspace_by_key(&terminal.workspace_key).map(|workspace| workspace.screens.len());
+        let screens_before = state
+            .workspace_by_key(&terminal.workspace_key)
+            .map(|workspace| workspace.screens.len());
         let (placement, changed) = self.project_terminal_to_workspace_in_state(
             &mut state,
             &identity.terminal_id,
