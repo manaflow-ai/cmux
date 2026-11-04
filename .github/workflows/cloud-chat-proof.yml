@@ -126,9 +126,18 @@ jobs:
         if: inputs.build != 'published'
         run: ./scripts/select-ci-xcode.sh
 
-      # The cmux-next web bundles need bun 1.4.4 or newer (reload.sh refuses an older one).
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      # Same toolchain as reload-build.yml: the webviews `vp build` runs on node,
+      # and check-webviews-bun-version.sh refuses a bun older than the
+      # webviews/package.json devEngines pin, which stopped run 41798237731.
+      - name: Setup Node
         if: inputs.build != 'published'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Setup Bun
+        if: inputs.build != 'published'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
 
