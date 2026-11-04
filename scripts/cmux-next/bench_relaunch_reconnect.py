@@ -16,9 +16,9 @@ webviews perf.ts). Modes:
 
   warm     the daemon keeps running (its streaming turn keeps it), same build: a plain relaunch.
   update   the bundle is replaced in place while the app is gone, as Sparkle's installer does (a copy
-           staged beside it, swapped in atomically, the old one deleted after the relaunch): the
-           relaunched app hands it off (AcpmuxVersionHandoff) and starts the bundled one, which
-           adopts the streaming agent.
+           staged beside it, swapped in atomically, the old one deleted), so the running daemon's
+           executable is gone: the relaunched app hands it off (AcpmuxVersionHandoff) and starts
+           the bundled one, which adopts the streaming agent.
   cold     the daemon is stopped (SIGTERM) after the quit: the relaunched app starts one.
 
 Each round's phases, in ms since the relaunched app's process started (debug.timings' launch marks,
@@ -147,20 +147,24 @@ def daemon_pids(bundle: str) -> set[int]:
             if bm.in_bundle(cmd, bundle) is not None and "/bin/acpmux daemon run" in cmd}
 
 
-def replace_bundle(bundle: str) -> str:
+def replace_bundle(bundle: str):
     """An update's swap, as Sparkle's installer does it (SUPlainInstaller): the new copy (an APFS
-    clone) staged in a temporary folder on the bundle's volume, then swapped with the installed
-    bundle in one `renamex_np(RENAME_SWAP)`, so the bundle's path never goes missing. Returns that
-    folder, which now holds the old bundle: the caller deletes it after the relaunch, as Sparkle
-    asks for the relaunch before its cleanup."""
+    clone) staged in a temporary folder on the bundle's volume, swapped with the installed bundle
+    in one `renamex_np(RENAME_SWAP)`, so the bundle's path never goes missing, then the old bundle
+    deleted. Sparkle deletes it right after it asks for the relaunch, seconds before the new app
+    looks at its daemon; deleting it before the relaunch keeps that order every round, so the
+    running daemon's executable is gone and the relaunched app hands it off
+    (AcpmuxVersionHandoff.replaced) as it does after a real update."""
     bundle = bundle.rstrip("/")
     staged = tempfile.mkdtemp(prefix=".bench-update-", dir=os.path.dirname(bundle))
-    new = os.path.join(staged, os.path.basename(bundle))
-    subprocess.run(["cp", "-cR", bundle, new], check=True, timeout=600)
-    libc = ctypes.CDLL(None, use_errno=True)
-    if libc.renamex_np(new.encode(), bundle.encode(), RENAME_SWAP) != 0:
-        raise OSError(ctypes.get_errno(), "renamex_np(RENAME_SWAP) failed", bundle)
-    return staged
+    try:
+        new = os.path.join(staged, os.path.basename(bundle))
+        subprocess.run(["cp", "-cR", bundle, new], check=True, timeout=600)
+        libc = ctypes.CDLL(None, use_errno=True)
+        if libc.renamex_np(new.encode(), bundle.encode(), RENAME_SWAP) != 0:
+            raise OSError(ctypes.get_errno(), "renamex_np(RENAME_SWAP) failed", bundle)
+    finally:
+        shutil.rmtree(staged, ignore_errors=True)
 
 
 def wait_live(sock: str, seconds: float) -> dict:
@@ -257,16 +261,13 @@ def main(argv: list[str] | None = None):
                 time.sleep(args.settle)  # test script: the chat streams a while before the quit
                 quit_at = time.time() * 1000
                 quit_app(sock, args.app)
-                staged = None
                 if mode == "cold":
                     bm.end_processes(daemon_pids(args.app))
                 elif mode == "update":
-                    staged = replace_bundle(args.app)
+                    replace_bundle(args.app)
                 running = sorted(daemon_pids(args.app))
                 started = time.time() * 1000
                 pid, sock, scratch = bm.launch(args.app, config, env, scratch=scratch)
-                if staged:
-                    shutil.rmtree(staged, ignore_errors=True)  # Sparkle's cleanup: the old bundle, after the relaunch
                 page = wait_live(sock, args.live_timeout)
                 timings = bp.rpc(sock, "debug.timings") or {}
                 daemon, log_lines = daemon_log(acpmux_home, quit_at)
