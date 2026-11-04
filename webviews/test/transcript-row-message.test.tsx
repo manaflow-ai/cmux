@@ -77,7 +77,7 @@ test("a sent message starts as one collapsed line: Sent to, the recipient, a one
   expect(row.getAttribute("data-direction")).toBe("sent");
   expect(row.querySelector(".cv-agentmsg__line")?.textContent).toContain("Sent to");
   expect(row.querySelector(".cv-agentmsg__name")?.textContent).toBe("coordinator");
-  expect(row.querySelector(".cv-agentmsg__below")?.textContent).toBe("first line");
+  expect(row.querySelector(".cv-agentmsg__preview")?.textContent).toBe("first line");
   expect(toggle().getAttribute("aria-expanded")).toBe("false");
   // Closed, how far it got is one word on the line; nothing else draws: no body, no Show more.
   expect(row.querySelector(".cv-agentmsg__line > .cv-tool__trail > .cv-message__status")?.textContent).toBe(
@@ -238,15 +238,12 @@ test("the recipient is the Agent call's description for its agentId, or a short 
   expect(host.querySelector(".cv-agentmsg__name")?.hasAttribute("title")).toBe(false);
 });
 
-test("Copy is in the line's hover row at the sentence's end; the status word, then the chevron, close the line", async () => {
+test("a sent message's line has no Copy; the status word, then the chevron, close the line", async () => {
   await render(send("completed", "", 'tell-coordinator "first line\\nsecond line"'));
   const line = host.querySelector(".cv-agentmsg__line")!;
-  const sentence = line.querySelector(":scope > .cv-agentmsg__sentence")!;
-  const actions = sentence.querySelector(":scope > .cv-sent-actions")!;
-  expect(actions).not.toBeNull();
-  expect(actions.querySelector("button")?.getAttribute("aria-label")).toBe("Copy");
-  // The sentence's last child: the words, chip and preview come before it.
-  expect(sentence.lastElementChild).toBe(actions);
+  // Leo, 2026-11-04: "why is there even a copy button on the right here? ... let's remove copy button".
+  expect(line.querySelector(".cv-sent-actions")).toBeNull();
+  expect(line.querySelector('button[aria-label="Copy"]')).toBeNull();
   // The row grammar's trailing column (status), then the chevron, end the line.
   const trail = line.querySelector(":scope > .cv-tool__trail")!;
   expect(trail.querySelector(".cv-message__status")).not.toBeNull();
@@ -291,7 +288,7 @@ test("the shared row draws a received message too: the caller's icon, a chip tha
   expect(row.querySelector(".cv-agentmsg__icon [data-testid=harness-mark]")).not.toBeNull();
   expect(row.querySelector(".cv-agentmsg__line > .cv-agentmsg__sentence > .reply")?.textContent).toBe("Reply");
   // First line only, its Markdown marks dropped.
-  expect(row.querySelector(".cv-agentmsg__below")?.textContent).toBe("Done: the grid fix is on cmux/grid-fix.");
+  expect(row.querySelector(".cv-agentmsg__preview")?.textContent).toBe("Done: the grid fix is on cmux/grid-fix.");
   await act(async () => host.querySelector<HTMLButtonElement>("button.cv-agentmsg__name")!.click());
   expect(opened).toEqual(["grid-fix"]);
   expect(host.querySelector(".cv-agentmsg__card")).toBeNull();
@@ -326,6 +323,6 @@ test("an acpmux_send call draws as the same collapsed message line, never an MCP
   const message = host.querySelector(".cv-agentmsg")!;
   expect(message.getAttribute("data-direction")).toBe("sent");
   expect(message.querySelector(".cv-agentmsg__name")?.textContent).toBe("build-box/lane-a");
-  expect(message.querySelector(".cv-agentmsg__below")?.textContent).toBe("Rebase on main.");
+  expect(message.querySelector(".cv-agentmsg__preview")?.textContent).toBe("Rebase on main.");
   expect(toggle().getAttribute("aria-expanded")).toBe("false");
 });

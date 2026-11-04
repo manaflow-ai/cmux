@@ -125,7 +125,7 @@ extension WorkspaceRowView {
         switch iconKind {
         case nil: side = railSlot ? SidebarStyle.dotSize + Metrics.space1 : 0 // text only: no kind glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON)
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
-        case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconColumnBox
+        case .symbol?, .emoji?, .favicon?, .pagePlaceholder?: side = SidebarStyle.iconColumnBox
         }
         // The icon's box starts on lead (where an iconless title would start) and its glyph's ink starts there too, as
         // the pins' and Home's do (`SidebarStyle.iconColumnGlyphX`, Lawrence msg 19643); the text column is the
