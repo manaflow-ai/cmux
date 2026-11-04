@@ -115,7 +115,7 @@ SPEEDS_LOWPROMPT = (("s1", 1.0), ("s025", 0.25))
 # The bar over the low prompt (a color no fixture uses): lowprompt_rows.py finds it on the scan column through the pane.
 LOW_PROMPT_BAR = "#FF8000"
 # Seconds, from the first rounds (cmux22, 2026-11-03: a pane's set-up took 1-3 s); MARGIN on top.
-EST_BASE, EST_PANE, EST_FOCUS, EST_FILM, EST_REBUILD, EST_AFTER = 12, {"tui": 4, "page": 12, "agent": 5, "shell": 4}, 1, 9, 7, 8
+EST_BASE, EST_PANE, EST_FOCUS, EST_FILM, EST_REBUILD, EST_AFTER = 12, {"tui": 4, "page": 12, "agent": 5, "shell": 4, "shellz": 4}, 1, 9, 7, 8
 EST_TAB = 5  # one more terminal tab with its fixture (px_tab_new, the neutral prompt, the TUI)
 MARGIN, BUDGET_MIN = 1.2, 40
 H, J, K, L = (("h", ["control", "shift"]), ("j", ["control", "shift"]), ("k", ["control", "shift"]),
@@ -201,6 +201,27 @@ def start_low_prompt(name):
              "timeout": 8, "all": [{"daemon_line": "line 120"}, {"daemon_prompt": True}]}]
 
 
+# The striped low prompt (S4 H1): every line a 3-cell #FF0000 marker, then the rest of the row on #00FF00 or #0000FF in turn,
+# so a film can see a band of ground above the lines (no stripe under the tab strip) and lines cut off on the left (the marker
+# narrower or gone at the pane's left edge). lowprompt_h1.py reads it.
+ZEBRA_MARK, ZEBRA_A, ZEBRA_B = "#FF0000", "#00FF00", "#0000FF"
+
+
+def start_low_prompt_zebra(name):
+    """A shell in NAME with its prompt on the last row under the orange bar, as start_low_prompt, but every line above the bar
+    striped (ZEBRA_MARK, then ZEBRA_A or ZEBRA_B across the row) and the bar starting with the text lpbar (the set-up's check)."""
+    mark = f"lowz-{name}"
+    rgb = lambda hexa: ";".join(str(int(hexa[i:i + 2], 16)) for i in (1, 3, 5))
+    m, a, b, bar = rgb(ZEBRA_MARK), rgb(ZEBRA_A), rgb(ZEBRA_B), rgb(LOW_PROMPT_BAR)
+    text = (f"clear; for i in $(seq 1 120); do if [ $((i % 2)) = 0 ]; then c='{a}'; else c='{b}'; fi; "
+            f"printf '\\033[48;2;{m}m   \\033[48;2;%sm%*s\\033[0m\\n' \"$c\" $((COLUMNS - 3)) ''; done; "
+            f"printf '\\033[48;2;{bar}mlpbar%*s\\033[0m\\n' $((COLUMNS - 5)) ''")
+    return [{"do": "type", "text": text, "enter": True, "mark": mark,
+             "title": f"set-up: {name} fills its screen with striped lines, an orange bar, then the prompt on the last row"},
+            {"do": "expect", "title": f"set-up: {name}'s prompt is back on its last row, under the bar", "since": mark,
+             "timeout": 8, "all": [{"daemon_contains": "lpbar"}, {"daemon_prompt": True}]}]
+
+
 def new_pane(name, action):
     """A new terminal pane by the app's action (splitRight, splitDown, newColumn, newRow) on the focused pane."""
     return [{"do": "action", "action": action, "title": f"set-up: {action} ({name})"},
@@ -223,6 +244,8 @@ def make_kind(name, kind, fill):
         return start_tui(name, fill)
     if kind == "shell":
         return start_low_prompt(name)
+    if kind == "shellz":
+        return start_low_prompt_zebra(name)
     if kind == "page":
         return [{"do": "px_page", "pane": name, "bg": fill, "label": name, "title": f"set-up: page.html in a browser tab of {name} ({fill})"}]
     if kind == "agent":
@@ -317,6 +340,13 @@ T3T =Layout("3t", "p0 T | p1 T | p2 P (splits, p1 nested with p0)",
 C2 = Layout("c2", "columns p0 T | p1 P", [("p0", "tui", YELLOW, None), ("p1", "page", GREEN, ("newColumn", None))])
 # T3K with a shell in p1 whose prompt is on its last row (S4 F2). The judge reads tui and page panes only: p1 is
 # lowprompt_rows.py's (the bar and the pane's bottom edge on the scan column through p1, per frame).
+# S4 H1 (frame-owner-s4 5d22dbc42a08): the striped low prompt in p1 (J, J, K: a band of ground above the terminal), and in the
+# bottom-right pane of a 2x2 grid (H, then K: the lines cut off on the left).
+T3KZ = Layout("3kz", "p0 T | (p1 S / p2 P), p1 a striped shell with its prompt on the last row",
+              [("p0", "tui", YELLOW, None), ("p1", "shellz", GREEN, ("splitRight", None)), ("p2", "page", YELLOW, ("splitDown", None))])
+G4Z = Layout("4z", "(p0 T / p2 T) | (p1 T / p3 S), p3 a striped shell with its prompt on the last row",
+             [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("splitRight", None)), ("p2", "tui", GREEN, ("splitDown", "p0")),
+              ("p3", "shellz", YELLOW, ("splitDown", "p1"))])
 T3KP = Layout("3kp", "p0 T | (p1 S / p2 P), p1 a shell with its prompt on the last row",
               [("p0", "tui", YELLOW, None), ("p1", "shell", GREEN, ("splitRight", None)), ("p2", "page", YELLOW, ("splitDown", None))])
 # Stage S2b, the layouts of SharedEdgeDuringSpringTests (A | B | C, B split): strip columns, each a third of the viewport, a
@@ -446,6 +476,24 @@ def low_prompt_reverse_play(speed):
             press(J, "grow"), rest(round(0.4 * response, 3), "40% of J's spring"), press(K, "reverse"), rest(land(speed)),
             {"do": "rpc", "method": "debug.terminal_display", "params": {"action": "stop"}, "keep": "tdisplay",
              "title": "debug.terminal_display stop (host_present_calls, host_fresh_presents)"}]
+
+
+def presses_play(keys, why):
+    """KEYS [(key, label)] pressed 40% of a spring apart (the next press before the last one lands), then the landing; S4 H1.
+    debug.terminal_display per film."""
+    def play(speed):
+        response = RESPONSE["move"] / (speed or 1.0)
+        steps = [{"do": "rpc", "method": "debug.terminal_display", "params": {"action": "start"},
+                  "title": "debug.terminal_display start (present counters per film)"}]
+        for i, (key, label) in enumerate(keys):
+            if i:
+                steps.append(rest(round(0.4 * response, 3), f"40% of the spring ({why})"))
+            steps.append(press(key, label))
+        steps += [rest(land(speed)),
+                  {"do": "rpc", "method": "debug.terminal_display", "params": {"action": "stop"}, "keep": "tdisplay",
+                   "title": "debug.terminal_display stop (host_present_calls, host_fresh_presents)"}]
+        return steps
+    return play, (lambda s: 0.2 + 0.4 * (len(keys) - 1) * RESPONSE["move"] / (s or 1.0) + land(s))
 
 
 def resize_keyboard_keys():
@@ -595,6 +643,17 @@ def cases():
     out.append(Case(f"px-keys-lowprompt-reverse-{T3KP.key}", f"Ctrl-Shift-J on p1, then Ctrl-Shift-K at 40% of J's spring, a shell with "
                     f"its prompt on the last row under an orange bar ({T3KP.text})", T3KP, low_prompt_reverse_play, "move", "keys (reverse)",
                     before=[focus("p1")], play_seconds=lambda s: 0.2 + 0.4 * RESPONSE["move"] / (s or 1.0) + land(s),
+                    speeds=(("s025", 0.25),)))
+    # S4 H1 (frame-owner-s4 5d22dbc42a08, fix 03c050e893fc; switch on only): the bottom hold of a low prompt after a press on
+    # the other axis (H then K on the bottom-right pane: lines cut off on the left) and after two grow presses and a shrink
+    # (J, J, K: a band of ground above the terminal). The reverse case above (J then K) shows neither.
+    play, secs = presses_play([(J, "grow1"), (J, "grow2"), (K, "shrink")], "J, J, K")
+    out.append(Case(f"px-keys-lowprompt-jjk-{T3KZ.key}", f"Ctrl-Shift-J twice, then Ctrl-Shift-K, each at 40% of the last spring, on p1 "
+                    f"({T3KZ.text})", T3KZ, play, "move", "keys (J, J, K)", before=[focus("p1")], play_seconds=secs,
+                    speeds=(("s025", 0.25),)))
+    play, secs = presses_play([(H, "wider"), (K, "taller")], "H, K")
+    out.append(Case(f"px-keys-lowprompt-hk-{G4Z.key}", f"Ctrl-Shift-H, then Ctrl-Shift-K at 40% of its spring, on the bottom-right "
+                    f"pane p3 ({G4Z.text})", G4Z, play, "move", "keys (H, K)", before=[focus("p3")], play_seconds=secs,
                     speeds=(("s025", 0.25),)))
     # cmux-ad m6 (d): resize-keyboard's presses on terminal fixtures, so judge_m6.py reads each terminal's edge per frame.
     out.append(Case(f"px-keys-rk-{T3RK.key}", f"the resize-keyboard presses (Ctrl-Shift-L, H, J, K, Ctrl-Cmd-Right, Left, Down, "
