@@ -82,6 +82,8 @@ final class CloudMachineSession {
     /// (`CloudService.resumeMachine`), for an attach to a paused machine.
     /// Set by `CloudService`; nil where nothing resumes (some tests).
     @ObservationIgnored var resumer: (@MainActor (String) async throws -> Void)?
+    /// Resumes a machine for a passive hint, preserving the script origin instead of a user gesture.
+    @ObservationIgnored var passiveResumer: (@MainActor (String) async throws -> Void)?
     /// Reads the machine list again (`CloudService.refresh`); `force` false
     /// skips a list read in the last 30 seconds. Set by `CloudService`; nil in
     /// some tests. The record is read on launch and on activation, so a
