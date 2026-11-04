@@ -108,8 +108,11 @@ test("failed lines take the quiet grid: plain title, muted reason, Retry and tim
 });
 
 test("the grid's columns are fixed, and red is on the mark only", () => {
+  // The refusal note and the ⋯ menu each have their own track, so a refused Retry's note never draws over ⋯.
+  expect(css).toMatch(/\[data-look="grid"\] > \.cv-subagent-done__note \{\s*grid-column: 3;/);
+  expect(css).toMatch(/\[data-look="grid"\] > \.cv-subagent-done__actions \{\s*grid-column: 4;/);
   expect(css).toMatch(
-    /\.cv-tool\.cv-subagent-done-row\[data-look="grid"\] \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) var\(--cv-failed-retry-width, 64px\) auto var\(--cv-failed-time-width, 7ch\)/,
+    /\.cv-tool\.cv-subagent-done-row\[data-look="grid"\] \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(var\(--cv-failed-retry-width, 64px\), max-content\) auto auto\s+minmax\(var\(--cv-failed-time-width, 7ch\), max-content\)/,
   );
   expect(css).toMatch(
     /\[data-look="grid"\] \.cv-subagent-failed__text \{[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/,
