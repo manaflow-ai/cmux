@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import os
 import re
 import subprocess
 import sys
@@ -801,12 +802,16 @@ def merge_base_of(repo: str, pr: dict) -> str:
         return pr["base"]["sha"]
 
 
-def event_pull_request(path: str | None, number: str) -> dict | None:
+def event_pull_request(path: str | None, number: str, attempt: str | None = None) -> dict | None:
     """The pull request as the triggering event delivered it ($GITHUB_EVENT_PATH), or None when there
     is no such file or it is about another pull request. It is the same object `GET pulls/N` returns
     (body, labels, user, author_association, head and base), as of the event, and saves that REST
-    call on every run. A later event runs this again, and its run cancels this one."""
-    if not path:
+    call on every first attempt. A later event runs this again, and its run cancels this one.
+    A re-run (GITHUB_RUN_ATTEMPT above 1) gets the original event's payload, frozen at that event,
+    so it reads the pull request live instead: re-running an old run must grade today's head,
+    description and labels, as it always did."""
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1") if attempt is None else attempt
+    if not path or attempt.strip() not in ("", "1"):
         return None
     try:
         pull = json.loads(Path(path).read_text()).get("pull_request")
