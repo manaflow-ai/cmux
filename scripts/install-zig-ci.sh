@@ -145,16 +145,33 @@ ZIG_DOWNLOAD_RETRY_DELAY="$(normalize_bounded_integer \
 ZIG_DOWNLOAD_BUDGET_SECONDS="$(normalize_bounded_integer \
   ZIG_DOWNLOAD_BUDGET_SECONDS "$ZIG_DOWNLOAD_BUDGET_SECONDS" 1 "$ZIG_DOWNLOAD_BUDGET_MAX_SECONDS")"
 
+# ZIG_PUBLISH_ENV names the variable later steps read the Zig path from
+# (default CMUX_ZIG, which also puts the Zig first on PATH). Another name
+# publishes only that variable and leaves PATH and CMUX_ZIG alone, so a job
+# that builds both Ghostty trees keeps a second Zig beside its default one
+# (with ZIG_FORCE_LOCAL_INSTALL=1, so the system zig is not replaced).
+ZIG_PUBLISH_ENV="${ZIG_PUBLISH_ENV:-CMUX_ZIG}"
+case "$ZIG_PUBLISH_ENV" in
+  *[!A-Za-z0-9_]* | [0-9]*)
+    echo "Invalid ZIG_PUBLISH_ENV: ${ZIG_PUBLISH_ENV}" >&2
+    exit 1
+    ;;
+esac
+if [ "$ZIG_PUBLISH_ENV" != CMUX_ZIG ] && [ "${ZIG_FORCE_LOCAL_INSTALL:-0}" != "1" ]; then
+  echo "ZIG_PUBLISH_ENV=${ZIG_PUBLISH_ENV} needs ZIG_FORCE_LOCAL_INSTALL=1 (a system install would replace the default zig)" >&2
+  exit 1
+fi
+
 publish_zig_for_later_steps() {
   local zig_path="$1"
   local zig_dir
   zig_dir="$(cd "$(dirname "$zig_path")" && pwd)"
   zig_path="${zig_dir}/$(basename "$zig_path")"
-  if [ -n "${GITHUB_PATH:-}" ]; then
+  if [ -n "${GITHUB_PATH:-}" ] && [ "$ZIG_PUBLISH_ENV" = CMUX_ZIG ]; then
     echo "$zig_dir" >> "$GITHUB_PATH"
   fi
   if [ -n "${GITHUB_ENV:-}" ]; then
-    echo "CMUX_ZIG=$zig_path" >> "$GITHUB_ENV"
+    echo "${ZIG_PUBLISH_ENV}=$zig_path" >> "$GITHUB_ENV"
   fi
 }
 
