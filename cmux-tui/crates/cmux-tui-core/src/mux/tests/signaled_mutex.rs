@@ -134,13 +134,13 @@ fn routes_of_a_change_cut_short_by_a_panic_are_never_published() {
 fn a_poisoned_session_state_answers_the_creating_input_checks_from_the_state() {
     let mux = test_mux();
     mux.set_input_lane_for_test(true);
-    let identity = crate::terminal_host_runtime::TerminalHostIdentity {
-        terminal_id: crate::terminal_host::TerminalId::random().unwrap().to_hex(),
+    let identity = TerminalHostIdentity {
+        terminal_id: TerminalId::random().unwrap().to_hex(),
         incarnation: crate::terminal_host::HostIncarnation::random().unwrap().to_hex(),
     };
-    let terminal = crate::Surface::exited_terminal_placeholder(
+    let terminal = Surface::exited_terminal_placeholder(
         9_999_998,
-        crate::SurfaceOptions::default(),
+        SurfaceOptions::default(),
         Arc::downgrade(&mux),
         identity.clone(),
     )

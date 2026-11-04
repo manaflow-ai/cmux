@@ -134,7 +134,7 @@ impl Mux {
         // answer is one the old path can give. On both arms the read ends before the insert, so a
         // commit can make the id live in between; the entry is then written to the live terminal in
         // order, by the creation's finish or by the next input on another path
-        // (`wait_for_creating_input_flush`).
+        // (`wait_for_creating_input_flush`), or given back, as any queue.
         let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
         if terminals.contains_key(terminal_id)
             || self.live_surface_for_terminal(terminal_id).is_some()
@@ -375,15 +375,16 @@ impl Mux {
     /// its routes before it releases the session lock, and a queue is removed only after its terminal is live, so the
     /// creation checks give the answers they gave under the session lock.
     ///
-    /// The creating-input lock is a leaf only while the state is not poisoned: on a poisoned state this takes the
-    /// session lock under it (creating, then state), as the old path always did. So no code may take the
+    /// On the lane, the creating-input lock is a leaf only while the state is not poisoned: on a poisoned state this
+    /// takes the session lock under it (creating, then state), as the old path always does. So no code may take the
     /// creating-input lock while it holds the session lock.
     #[track_caller]
     fn live_surface_for_terminal(&self, terminal_id: &str) -> Option<Arc<Surface>> {
         // As `Mux::surface`: the routes are loaded before the poison check (poison never clears), so routes used here
         // come from a change that finished before any panic, and a poisoned state takes the old read. Unlike
         // `Mux::surface`'s, this old read recovers the poison: the creation checks answer from the state, as the old
-        // path did (a create whose commit panicked has its terminal in the state and none in the routes).
+        // path did (a create whose commit panicked has its terminal in the state, and the routes lack it until a later
+        // change that recovers the poison publishes them).
         if self.control_clients.input_lane.on() {
             let routes = self.state.routes();
             if !self.state.is_poisoned() {
