@@ -357,6 +357,10 @@ pub mod method {
     /// when the daemon closes the socket, so stream consumers notice.
     pub const MUX_DISCONNECTED: &str = "_acpmux/disconnected";
     pub const MUX_PRESETS: &str = "_acpmux/presets";
+    /// Read or update the effective prompt context for a session.
+    pub const MUX_CONTEXT: &str = "_acpmux/context";
+    /// Persist a cmux-added context override for the user or current project.
+    pub const MUX_CONTEXT_OVERRIDE: &str = "_acpmux/context_override";
     pub const MUX_ATTACH: &str = "_acpmux/attach";
     pub const MUX_VIEW: &str = "_acpmux/view";
     pub const MUX_MARK_UNREAD: &str = "_acpmux/markUnread";
