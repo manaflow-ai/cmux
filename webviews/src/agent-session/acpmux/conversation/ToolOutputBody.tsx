@@ -65,16 +65,20 @@ function MonoOutput({
 export const ToolOutput = memo(function ToolOutput({
   id,
   result,
+  copyOutput,
   reveal = 0,
 }: {
   id?: string;
   result: ToolResult;
+  /** Original response when the displayed output is condensed. */
+  copyOutput?: string;
   reveal?: number;
 }) {
   const t = useT();
   const generated = useId();
   const bodyId = `${id ?? generated}:body`;
   const raw = useOutput(result.text, reveal);
+  const copyText = copyOutput ?? raw.text;
   const [rawShown, setRawShown] = useState(false);
   const [revealed, setRevealed] = useState(reveal);
   if (revealed !== reveal) {
@@ -91,12 +95,12 @@ export const ToolOutput = memo(function ToolOutput({
     [],
   );
   return (
-    <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: raw.text })}>
+    <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: copyText })}>
       <div className="cv-tool-output__box" id={bodyId}>
         <span className="cv-tool-output__actions" data-find-skip="">
           {!rendered && <WrapButton kind="output" />}
           {experimentArm(hoverActions) === "all" && (
-            <CopyButton text={raw.text ?? ""} label={t("turn.copy")} className="cv-codeblock__action" />
+            <CopyButton text={copyText ?? ""} label={t("turn.copy")} className="cv-codeblock__action" />
           )}
         </span>
         {rendered ? (
