@@ -1817,36 +1817,14 @@ function PickerMenuItem({
   warnUnrestricted: boolean;
   close(): void;
 }) {
-  const [hovered, setHovered] = useState(false);
   return (
     <MenuItem
       closeOnClick={false}
       data-value={choice.id}
       className={cx(
         "acpmux-menu-item",
-        hovered && "acpmux-menu-item-hovered",
         warnUnrestricted && unrestricted(choice.id) ? "acpmux-unrestricted" : undefined,
       )}
-      onPointerMove={(event) => {
-        setHovered(true);
-        // WebKit's pointer navigation does not always ask Base UI to set data-highlighted on
-        // portal rows. Keep the menu's normal highlight contract explicit for this picker.
-        const row = event.currentTarget;
-        row.parentElement
-          ?.querySelectorAll<HTMLElement>(":scope > .ui-menu-item[data-highlighted]")
-          .forEach((other) => other.removeAttribute("data-highlighted"));
-        row.setAttribute("data-highlighted", "");
-      }}
-      onPointerEnter={() => setHovered(true)}
-      onPointerLeave={(event) => {
-        setHovered(false);
-        event.currentTarget.removeAttribute("data-highlighted");
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={(event) => {
-        setHovered(false);
-        event.currentTarget.removeAttribute("data-highlighted");
-      }}
       onSelect={() => {
         if (section.onPick(choice.id) !== "keep") close();
       }}

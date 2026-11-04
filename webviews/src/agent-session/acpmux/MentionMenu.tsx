@@ -127,9 +127,6 @@ export function MentionMenu({
     },
     [escape, listEdges],
   );
-  useEffect(() => {
-    document.getElementById(`acpmux-mention-${active}`)?.scrollIntoView?.({ block: "nearest" });
-  }, [active]);
   // Chats can list before a word is typed; the files' state still says what the search is doing.
   const note = !state
     ? undefined
@@ -149,7 +146,7 @@ export function MentionMenu({
         textValue={(item) => item.name.map((part) => part.text).join("")}
         label={t("files.search")}
         autoFocus={false}
-        activeIndex={active < 0 ? 0 : active}
+        activeIndex={active}
         onActiveIndexChange={onHover}
         onOpen={onPick}
         aria-busy={state?.kind === "searching"}

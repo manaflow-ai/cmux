@@ -77,7 +77,7 @@ export function Listbox<T>({
   );
   const typed = useRef({ text: "", at: 0 });
   const id = useId();
-  const current = Math.min(currentHighlight, items.length - 1);
+  const current = items.length > 0 ? Math.min(currentHighlight, items.length - 1) : -1;
   useEffect(() => {
     if (current < 0) return;
     const element = document.getElementById(getItemId?.(items[current], current) ?? `${id}-${current}`);
@@ -127,7 +127,7 @@ export function Listbox<T>({
       tabIndex={0}
       aria-label={label}
       aria-busy={ariaBusy || undefined}
-      aria-activedescendant={items.length ? (getItemId?.(items[current], current) ?? `${id}-${current}`) : undefined}
+      aria-activedescendant={current >= 0 ? (getItemId?.(items[current], current) ?? `${id}-${current}`) : undefined}
       onKeyDown={onKeyDown}
     >
       {items.map((item, index) => (

@@ -481,7 +481,7 @@ test("the + menu keeps host sections separate and stays open for an unsupported 
     ),
   ).toEqual([["add.files"], ["add.project", "add.mention"], ["browser"], ["chat"], ["tab"]]);
   const row = menuDocument().querySelector<HTMLElement>('[data-value="browser"]')!;
-  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  await act(async () => row.click());
   expect(menuDocument().querySelector('[data-value="browser"]')).toBeTruthy();
 });
 
