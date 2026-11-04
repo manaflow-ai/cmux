@@ -2570,5 +2570,9 @@ path = "tests/test_nightly_owned_minis_only.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_signing_on_cmux15.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_classic_api_guard.py"
 lane = "linux-guard"
