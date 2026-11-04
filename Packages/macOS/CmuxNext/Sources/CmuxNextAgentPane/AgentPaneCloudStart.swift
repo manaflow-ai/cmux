@@ -180,8 +180,8 @@ struct AgentPaneHandOff {
     /// `cloud.startChat`, and a refusal made here, before the App's start ran (the folder check, the
     /// gesture, an attachment), logged under `app.cloud` beside the App's own start failures: such a
     /// refusal never reaches CloudStartChat, so without this the log said nothing at all.
-    func cloud(_ start: AgentPaneCloudStart) async -> [String: Any] {
-        let reply = await cloudChecked(start)
+    func cloud(_ start: AgentPaneCloudStart, signingIn: Bool = false) async -> [String: Any] {
+        let reply = await cloudChecked(start, signingIn: signingIn)
         if let code = Self.refusedHere(reply) {
             Self.cloudLog.error("cloud start chat refused on this Mac before it reached Cloud (nothing was sent): \(code, privacy: .public)")
         }
@@ -201,7 +201,7 @@ struct AgentPaneHandOff {
         return code.hasPrefix("transport.") || refusedHereCodes.contains(code) ? code : nil
     }
 
-    private func cloudChecked(_ start: AgentPaneCloudStart) async -> [String: Any] {
+    private func cloudChecked(_ start: AgentPaneCloudStart, signingIn: Bool = false) async -> [String: Any] {
         // The folder is a path on this Mac: a chat on another machine never names one to copy.
         guard let run = model.onCloudStartChat, !model.chatIsElsewhere else { return AgentPaneModel.unsupported("cloud.startChat") }
         guard AgentPaneCloudAttachments(start.attachments) != nil else {
@@ -239,6 +239,14 @@ struct AgentPaneHandOff {
             start.uploadRoot = root
         }
         return await held("cloud.startChat") { [start] replacements in
+            // Reserve the send's click before opening the browser. The callback may take longer
+            // than a gesture lives; this hold authorizes only this already-validated request.
+            if signingIn {
+                guard let signIn = model.onCloudSignIn, await signIn() else {
+                    replacements.endSandbox()
+                    return AgentPaneReply.failure(code: "not_signed_in", message: "Sign in to continue")
+                }
+            }
             let reply = await run(start)
             // A chat that started on the machine keeps the hold: this pane never starts one too,
             // also when the App could not close it.

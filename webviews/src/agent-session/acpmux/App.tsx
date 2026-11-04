@@ -576,12 +576,12 @@ import {
   cloudFolderGrants,
   cloudStartFolder,
   cloudStartToasted,
-  cloudSignInSucceeded,
   makeCloudSignInRetry,
   grantedCloudStart,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
+  type CloudStartAnswer,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { folderRunLocation, newChatRunLocation } from "./runLocationDefault";
@@ -8758,6 +8758,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [startCloud] = useState(() => grantedCloudStart(callNative, cloudFolderGrant));
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
+  const cloudSignInSend = useRef<() => Promise<CloudStartAnswer> | undefined>(() => undefined);
   /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
   /// host closes this tab with only the sent prompt, so text or files added meanwhile would be lost;
   /// on failure the prompt is still in the composer to edit and send again.
@@ -8774,11 +8775,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (refused === "cloud_not_now")
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
     const request: CloudStart = { task: text, attachments, ...start };
+    beginCloudSend(request);
+    return false;
+  };
+  const beginCloudSend = (request: CloudStart, signingIn = false): Promise<CloudStartAnswer> | undefined => {
+    const { task: text, ...start } = request;
     // A retry of the same start reuses its first key, so the host reaches the machine it made (#33493).
     const key = cloudStartKeys.keyFor(request);
-    const started = startCloud(request, key);
+    const started = startCloud(request, key, signingIn);
     // Another Return while a start waits starts nothing, and the card keeps that start.
-    if (!started) return false;
+    if (!started) return undefined;
+    cloudSignInSend.current = () => beginCloudSend(request, true);
     cloudStartPending.current = true;
     setCloudStart(
       cloudStartBegun(key, text, start.cwd, start.harness ? harnessLabel(start.harness) : undefined, start.home),
@@ -8799,7 +8806,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       if (!answer.ok && !cloudStartToasted(answer))
         directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
     });
-    return false;
+    return started;
   };
   /// A chat shows here while the tab's run is out or ended: a notice offers it, and Show opens it in
   /// place of the chat until Back: a paid run's receipt stays reachable.
@@ -8818,10 +8825,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     runModePicked.current = false;
     // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
     setCloudStart(undefined);
+    cloudSignInSend.current = () => undefined;
   }, [snapshot.sessionId, newTabGeneration]);
   /// The person picked another place to run after a Cloud start failed: its card goes.
   useEffect(() => {
-    if (sandbox.mode !== "cloud") setCloudStart((current) => (current?.state === "failed" ? undefined : current));
+    if (sandbox.mode !== "cloud") {
+      setCloudStart((current) => (current?.state === "failed" ? undefined : current));
+      cloudSignInSend.current = () => undefined;
+    }
   }, [sandbox.mode]);
   /// Run on This Mac from the cap card (runHereSend): the kept prompt sends once the mode is this Mac's.
   useEffect(() => {
@@ -9704,13 +9715,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The composer itself, which takes back prompts a harness switch held; prompts handed back
   /// while it is not mounted (a handoff review) go in when it mounts.
   const composerHandle = useRef<ComposerHandle | null>(null);
-  /// The signed-out Cloud first-send card owns one browser callback and one composer resume.
-  const [cloudSignInRetry] = useState(() =>
-    makeCloudSignInRetry(
-      () => callNative("cloud.signIn", {}).then(cloudSignInSucceeded),
-      () => composerHandle.current?.send(),
-    ),
-  );
+  /// The card retries its preserved request once; native keeps the click across browser auth.
+  const [cloudSignInRetry] = useState(() => makeCloudSignInRetry(() => cloudSignInSend.current()));
   /// What the new chat shown leaves when its tab opens another chat (set below, cmux#32276).
   const newChatLeftover = useRef<() => { leave: () => void; cancel: () => void } | undefined>(() => undefined);
   /// The composer is in shell mode, whose ⌘Return answers no recap card (RecapCard.tsx `keyHint`).

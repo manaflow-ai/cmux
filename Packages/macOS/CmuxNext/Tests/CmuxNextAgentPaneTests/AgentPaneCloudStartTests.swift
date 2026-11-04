@@ -61,6 +61,46 @@ struct AgentPaneCloudStartTests {
         #expect(!model.transport.replacements.beginSandbox())
     }
 
+    @Test func inlineSignInHoldsTheSendBeforeAuthAndRunsItsPromptOnce() async throws {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        var signIns = 0
+        model.onCloudSignIn = {
+            signIns += 1
+            // Auth need not finish within the click lifetime: it has already been consumed
+            // for this request, and a second start cannot enter while the browser is open.
+            #expect(!model.transport.gestures.isAvailable)
+            #expect(!model.transport.replacements.beginSandbox())
+            #expect(starts.seen.isEmpty)
+            return true
+        }
+        let request = AgentPaneRequest(body: ["method": "cloud.signIn", "params": [
+            "task": "preserved prompt", "key": UUID().uuidString, "home": true,
+        ]])
+        // A scripted request cannot open auth or send a prompt.
+        #expect(await model.respond(to: request)["ok"] as? Bool == false)
+        #expect(signIns == 0)
+        model.transport.gestures.record()
+        #expect(await model.respond(to: request)["ok"] as? Bool == true)
+        #expect(await model.respond(to: request)["ok"] as? Bool == false)
+        #expect(signIns == 1)
+        #expect(starts.seen.map(\.task) == ["preserved prompt"])
+    }
+
+    @Test func cancelledInlineSignInKeepsTheStartRetryable() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        model.onCloudSignIn = { false }
+        model.transport.gestures.record()
+        let request = AgentPaneRequest(body: ["method": "cloud.signIn", "params": [
+            "task": "preserved prompt", "key": UUID().uuidString, "home": true,
+        ]])
+        let reply = await model.respond(to: request)
+        #expect(reply["ok"] as? Bool == false)
+        #expect(starts.seen.isEmpty)
+        #expect(model.transport.replacements.beginSandbox())
+    }
+
     @Test func theMachinesChatStartsWithThePromptAgentAndModelThePagePicked() throws {
         let start = try #require(AgentPaneCloudStart(params: Self.good))
         let seed = start.seed(cwd: "/home/cmux/work/paint-1a2b3c")

@@ -281,7 +281,7 @@ export function CloudStartView({
   start: CloudStartProgress;
   bubble?: boolean;
   onOpenEnvironment?: (options: { environmentId?: string; repository?: string; section: "script" }) => void;
-  onSignIn?: () => void | Promise<void>;
+  onSignIn?: () => void | Promise<unknown>;
 }) {
   const t = useT();
   const arm = experimentArm(cloudStartLook);

@@ -18,18 +18,32 @@ import {
 } from "./cloudRun";
 
 test("sign-in recovery preserves the prompt and resumes it once", async () => {
+  const prompt = { task: "Fix the failing Cloud build", home: true, harness: "codex", model: "gpt-6.1-sol" };
   let resolveSignIn!: (signedIn: boolean) => void;
-  const signIn = () => new Promise<boolean>((resolve) => { resolveSignIn = resolve; });
-  let sends = 0;
-  const retry = makeCloudSignInRetry(signIn, () => { sends += 1; });
+  const sends: [string, Record<string, unknown>][] = [];
+  let delivered = 0;
+  const send = oneCloudStart(async (method, params) => {
+    sends.push([method, params]);
+    if (method !== "cloud.signIn") throw { code: "not_signed_in" };
+    const signedIn = await new Promise<boolean>((resolve) => { resolveSignIn = resolve; });
+    if (!signedIn) throw { code: "not_signed_in" };
+    delivered += 1;
+  });
+  expect(await send(prompt, "first-send")).toEqual({ ok: false, code: "not_signed_in" });
+  const retry = makeCloudSignInRetry(() => send(prompt, "first-send", true));
   const first = retry();
   const second = retry();
   expect(first).toBe(second);
+  expect(delivered).toBe(0);
   resolveSignIn(true);
   await expect(first).resolves.toBe(true);
-  expect(sends).toBe(1);
+  expect(delivered).toBe(1);
+  expect(sends).toEqual([
+    ["cloud.startChat", { ...prompt, key: "first-send" }],
+    ["cloud.signIn", { ...prompt, key: "first-send" }],
+  ]);
   await expect(retry()).resolves.toBe(false);
-  expect(sends).toBe(1);
+  expect(sends).toHaveLength(2);
 });
 
 test("a Cloud start sends the prompt, folder, agent and model with a key, and answers ok", async () => {

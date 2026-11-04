@@ -122,19 +122,19 @@ export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message
 /// resumes it once. Concurrent clicks share one browser callback, and a later click after a
 /// successful callback cannot send the prompt a second time.
 export function makeCloudSignInRetry(
-  signIn: () => Promise<boolean>,
-  resume: () => void,
+  resume: () => Promise<CloudStartAnswer> | undefined,
 ): () => Promise<boolean> {
   let inFlight: Promise<boolean> | undefined;
   let resumed = false;
   return () => {
     if (resumed) return Promise.resolve(false);
     if (inFlight) return inFlight;
-    inFlight = signIn()
-      .then((signedIn) => {
-        if (!signedIn || resumed) return false;
+    const started = resume();
+    if (!started) return Promise.resolve(false);
+    inFlight = started
+      .then((answer) => {
+        if (!answer.ok || resumed) return false;
         resumed = true;
-        resume();
         return true;
       })
       .catch(() => false)
@@ -143,10 +143,6 @@ export function makeCloudSignInRetry(
       });
     return inFlight;
   };
-}
-
-export function cloudSignInSucceeded(value: unknown): boolean {
-  return typeof value === "object" && value !== null && (value as { signed_in?: unknown }).signed_in === true;
 }
 
 /// A page-side refusal before anything goes to the host: Cloud is picked but not offered now
@@ -162,6 +158,7 @@ export async function startCloudChat(
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
   start: CloudStart,
   key: string = crypto.randomUUID(),
+  signingIn = false,
 ): Promise<CloudStartAnswer> {
   const params: Record<string, unknown> = { task: start.task, key };
   if (start.attachments?.length) params.attachments = start.attachments;
@@ -171,7 +168,7 @@ export async function startCloudChat(
   if (start.model) params.model = start.model;
   if (start.environment) params.environment = start.environment;
   try {
-    await call("cloud.startChat", params);
+    await call(signingIn ? "cloud.signIn" : "cloud.startChat", params);
     return { ok: true };
   } catch (error) {
     const { code, message, userMessage } = (error ?? {}) as {
@@ -192,12 +189,12 @@ export async function startCloudChat(
 /// another Return starts nothing and says nothing, instead of a second start the host refuses.
 export function oneCloudStart(
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
-): (start: CloudStart, key?: string) => Promise<CloudStartAnswer> | undefined {
+): (start: CloudStart, key?: string, signingIn?: boolean) => Promise<CloudStartAnswer> | undefined {
   let waiting = false;
-  return (start, key) => {
+  return (start, key, signingIn) => {
     if (waiting) return undefined;
     waiting = true;
-    return startCloudChat(call, start, key).finally(() => {
+    return startCloudChat(call, start, key, signingIn).finally(() => {
       waiting = false;
     });
   };

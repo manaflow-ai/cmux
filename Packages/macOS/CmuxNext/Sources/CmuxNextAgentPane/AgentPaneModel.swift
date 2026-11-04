@@ -559,9 +559,7 @@ public final class AgentPaneModel {
         case .environment(let request): return await request.reply(store: startFolders.environments, newTabPage: newTab != nil && sessionId == nil)
         // A new chat's send elsewhere spends Cloud time: the Send's own gesture (``AgentPaneHandOff``).
         case .sandboxRun(let task, let agent, let key): return await AgentPaneHandOff(model: self).sandbox(task: task, agent: agent, key: key)
-        case .cloudSignIn:
-            guard userGesture, let signIn = onCloudSignIn else { return Self.unsupported("cloud.signIn") }
-            return AgentPaneReply.success(["signed_in": await signIn()])
+        case .cloudSignIn(let start): return await AgentPaneHandOff(model: self).cloud(start, signingIn: true)
         case .cloudStartChat(let start): return await AgentPaneHandOff(model: self).cloud(start)
         // Only a chat on another machine, on the person's own pick (one gesture).
         case .cloudRepickChat(let repick):
