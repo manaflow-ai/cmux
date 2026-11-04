@@ -344,7 +344,7 @@ pub(super) fn pins_of(
             // The approval key (Secure Enclave, Face ID per Allow) is what signs an Allow.
             let key = device.approval_key.as_deref().ok_or_else(|| {
                 format!(
-                    "{} has no approval key yet: update cmux on it and open it once, then run setup again",
+                    "{} has registered no approval key with the device hub, so it cannot approve",
                     device.name
                 )
             })?;
