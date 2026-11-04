@@ -42,6 +42,8 @@ mod event_bus;
 pub mod fs_ops;
 mod git_ops;
 #[cfg(unix)]
+pub mod blob_fetch;
+#[cfg(unix)]
 pub mod git_seed;
 mod history_ops;
 pub mod history_search;

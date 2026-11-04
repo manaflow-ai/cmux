@@ -12,7 +12,9 @@
  *     new-machine, machine-status, exec, start-session, start-chat --wait, kill-machine; cmux#35086)
  *
  * It signs in as the agent test account (Stack password sign-in; CMUX_DOGFOOD_STACK_EMAIL and
- * CMUX_DOGFOOD_STACK_PASSWORD from the environment or a KEY=value --credentials file) and walks the
+ * CMUX_DOGFOOD_STACK_PASSWORD from the environment or a KEY=value --credentials file; or, in a GitHub Actions
+ * job with `id-token: write`, --sign-in oidc: the job's OIDC token for a short session, no stored password,
+ * hq#7076) and walks the
  * same routes the app and the cmux CLI use, against the cmux API Worker (which forwards Cloud ops to
  * cmux-platform):
  *
@@ -170,6 +172,26 @@ async function http(method: string, url: string, body: unknown, headers: Record<
 
 const short = (v: unknown) => JSON.stringify(v ?? null).slice(0, 300);
 
+/**
+ * --sign-in oidc: the GitHub Actions job's OIDC token (audience: the API origin) traded at the API's
+ * POST /v1/auth/github-actions for a short Stack session of the one test account the API trusts that job
+ * with (backend/apps/api/src/ci-session.ts). Both tokens are pushed to `secrets` before anything can print.
+ */
+export async function oidcSignIn(apiOrigin: string, env: Record<string, string | undefined>, secrets: string[], fetchJson: typeof http = http): Promise<{ token: string; user: string; expiresAt: string }> {
+  const url = env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const bearer = env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  if (!url || !bearer) throw new Error("no GitHub Actions OIDC token: the job needs `permissions: id-token: write`");
+  secrets.push(bearer);
+  const sep = url.includes("?") ? "&" : "?";
+  const gh = await fetchJson("GET", `${url}${sep}audience=${encodeURIComponent(apiOrigin)}`, undefined, { authorization: `bearer ${bearer}` });
+  if (gh.status !== 200 || typeof gh.body.value !== "string") throw new Error(`GitHub OIDC token HTTP ${gh.status}`);
+  secrets.push(gh.body.value);
+  const r = await fetchJson("POST", `${apiOrigin}/v1/auth/github-actions`, undefined, { authorization: `Bearer ${gh.body.value}` });
+  if (r.status !== 200 || typeof r.body.access_token !== "string") throw new Error(`OIDC sign-in HTTP ${r.status} ${String(r.body.error ?? "")}`);
+  secrets.push(r.body.access_token);
+  return { token: r.body.access_token, user: String(r.body.user ?? "?"), expiresAt: String(r.body.session_expires_at ?? "?") };
+}
+
 class Api {
   bearer = "";
   constructor(readonly origin: string, readonly team?: string) {}
@@ -266,6 +288,23 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
   };
 }
 
+/**
+ * The CLI's exec, until it answers cloud.provider.unsupported: `cmux machine access exec` mints a client session,
+ * which a VM API machine does not have, so the journey then runs every exec through the machine exec route
+ * (directExec's guest route) and names the CLI gap in the journey's meta instead of going red on it.
+ */
+export function cliExecWithFallback(cli: Exec, direct: Exec, journey: { meta: Record<string, string> }): Exec {
+  let fallback = false;
+  return async (command, timeoutMs) => {
+    if (fallback) return direct(command, timeoutMs);
+    const r = await cli(command, timeoutMs);
+    if (r.code === 0 || !`${r.stderr}${r.stdout}`.includes("cloud.provider.unsupported")) return r;
+    fallback = true;
+    journey.meta.exec_route = "machine exec route: cmux machine access exec answers cloud.provider.unsupported on a VM API machine (CLI gap)";
+    return direct(command, timeoutMs);
+  };
+}
+
 type HeadlessLink = { stateDir: string; linkSocket: string; bridgeSocket: string; close: () => Promise<void> };
 
 /** Start the userspace link and bridge its stdio dial into a Unix socket for link sync. */
@@ -354,6 +393,29 @@ export function loginPrograms(installerSwift: string, provider: "claude" | "code
       "set -e\n. /etc/cmux/agent-auth.sh\ncmux_agent_drop_model_plane_env\n" +
       `python3 - ${shq(provider)} ${shq(payloadPath)} ${creatorTeamGuest ? "owner,team" : "owner"} <<'CMUX_CREDENTIAL_INSTALL'\n${script}\nCMUX_CREDENTIAL_INSTALL`,
   };
+}
+
+/** What the preflight checks, one by one, for a refusal's message: the kind record, the image's launchers, the exec user. */
+export const PREFLIGHT_PROBE =
+  `printf 'vm-kind=%s agent-auth.sh=%s user=%s' "$(head -c 64 /etc/cmux/vm-kind 2>/dev/null | tr -d '[:space:]')" ` +
+  `"$([ -f /etc/cmux/agent-auth.sh ] && echo yes || echo no)" "$(id -un)"`;
+
+/**
+ * Run the preflight until it passes or `budgetMs` runs out. On a VM API machine nothing writes /etc/cmux/vm-kind
+ * at create: the guest's cmux-host writes it once it is bound (record_owner_kind), which can land after the
+ * machine reads running and takes its first exec. A refusal that outlasts the budget names the failing check.
+ */
+export async function waitPreflight(exec: Exec, program: string, kinds: string, budgetMs = 90_000, pauseMs = 3_000, pause = sleep): Promise<{ waitedMs: number; tries: number }> {
+  const t0 = Date.now();
+  for (let tries = 1; ; tries++) {
+    const pre = await exec(program);
+    if (pre.code === 0) return { waitedMs: Date.now() - t0, tries };
+    if (Date.now() - t0 + pauseMs >= budgetMs) {
+      const seen = await exec(PREFLIGHT_PROBE).then((r) => r.stdout.trim(), (error) => `probe failed: ${(error as Error).message}`);
+      throw new Error(`preflight exit ${pre.code} after ${tries} tries in ${Math.round((Date.now() - t0) / 1000)} s: not an ${kinds} machine with the image's launchers (${seen})`);
+    }
+    await pause(pauseMs);
+  }
 }
 
 /** CloudCredentialTransfer.validate: what the app accepts as a login to copy, per provider. */
@@ -476,6 +538,20 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
   }
 }
 
+/** The link_token refusals that mean "this install has no Native device enrollment" (cloud-native-dial.ts details.reason). */
+const NATIVE_ENROLLMENT_REASONS = new Set(["host_missing", "host_unconfirmed", "proof_missing"]);
+
+/**
+ * The skip reason when a link_token answer refused only for want of a Native device proof (an app-only
+ * enrollment), else null: every other answer, an older backend's refusal with no reason included, is the step's own.
+ */
+export function nativeProofSkip(body: any): string | null {
+  const error = body?.ok === false ? body.error : null;
+  const reason = error?.details?.reason;
+  if (error?.code !== "auth.forbidden" || typeof reason !== "string" || !NATIVE_ENROLLMENT_REASONS.has(reason)) return null;
+  return `needs a Native device proof (app-only): link_token refused ${reason}; this journey's cli install has no Native device enrollment`;
+}
+
 /**
  * Steps that passed on the version before a deploy and fail after it: the deploy's own reds. A step that
  * was already red before (a known backend bug) is not the deploy's fault and never triggers a rollback.
@@ -518,6 +594,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const email = process.env.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_UITEST_STACK_EMAIL;
   const password = process.env.CMUX_DOGFOOD_STACK_PASSWORD ?? creds.CMUX_DOGFOOD_STACK_PASSWORD ?? creds.CMUX_UITEST_STACK_PASSWORD;
   const team = argValue("--team", argv) ?? process.env.CMUX_JOURNEY_TEAM ?? undefined;
+  const signIn = argValue("--sign-in", argv) ?? "password";
+  if (signIn !== "password" && signIn !== "oidc") throw new Error(`--sign-in ${signIn}: password or oidc`);
   const agent = argValue("--agent", argv) ?? "claude";
   const prompt = argValue("--prompt", argv) ?? "Reply with one short sentence that names the planet you are on.";
   const chatBudget = Number(argValue("--chat-timeout", argv) ?? 300) * 1000;
@@ -604,13 +682,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (r.status !== 200) throw new Error(`HTTP ${r.status} ${short(r.body)}`);
       return { value: null, detail: `commit ${r.body.commit ?? r.body.version ?? "?"}` };
     });
-    if (!email || !password) {
+    if (signIn === "oidc") {
+      api.bearer = await J.step("sign in (agent test account)", async () => {
+        const s = await oidcSignIn(backend.api, process.env, J.secrets);
+        return { value: s.token, detail: `GitHub OIDC, user ${s.user}, session ends ${s.expiresAt}` };
+      });
+    } else if (!email || !password) {
       await J.step("sign in (agent test account)", async () => {
         throw new Error("no agent test account: set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, or --credentials FILE");
       });
     }
     const stack = STACK[backend.stack];
-    api.bearer = await J.step("sign in (agent test account)", async () => {
+    if (signIn === "password") api.bearer = await J.step("sign in (agent test account)", async () => {
       const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-in`, { email, password }, {
         "x-stack-access-type": "client",
         "x-stack-project-id": stack.project,
@@ -662,7 +745,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
-    const exec = cmux ? cliExec(cmux, api, created.id) : directExec(api, created.id, J);
+    const exec = cmux ? cliExecWithFallback(cliExec(cmux, api, created.id), directExec(api, created.id, J), J) : directExec(api, created.id, J);
     await J.step("first exec", async () => {
       const r = await exec("echo journey-ok; uname -m");
       if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
@@ -681,8 +764,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         // On a team machine the journey is its creator and copies as a DEV or nightly build does (Release copies
         // only to an owner machine).
         const programs = loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), provider, Boolean(team));
-        const pre = await exec(programs.preflight);
-        if (pre.code !== 0) throw new Error(`preflight exit ${pre.code}: not an ${team ? "owner or team" : "owner"} machine with the image's launchers`);
+        const pre = await waitPreflight(exec, programs.preflight, team ? "owner or team" : "owner");
         const folder = "/home/cmux/.cmux/credential-transfer";
         const made = await exec(`umask 077 && mkdir -p -- ${shq(folder)} && chmod 700 -- ${shq(folder)} && test -O ${shq(folder)} && test ! -L ${shq(folder)}`);
         if (made.code !== 0) throw new Error(`staging folder: exit ${made.code}`);
@@ -699,7 +781,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         const own = await exec(`. /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login ${provider} && echo own-login`);
         if (!own.stdout.includes("own-login")) throw new Error(`installed, but the image's launcher does not see an own ${provider} login`);
-        return { value: null, detail: "the person's own login, written by the app's installer; the launcher picks it" };
+        const waited = pre.tries > 1 ? ` (preflight passed on try ${pre.tries}, after ${Math.round(pre.waitedMs / 1000)} s)` : "";
+        return { value: null, detail: `the person's own login, written by the app's installer; the launcher picks it${waited}` };
       });
     }
 
@@ -784,13 +867,31 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
 
-    await J.step("connect (connect_info + link_token)", async () => {
+    // A Native (vm-api) machine's link_token needs a Native device proof, which only an enrolled app install
+    // makes (NativeDeviceEnrollment.swift). This install never enrolled, so that refusal is a SKIP with the
+    // backend's own reason; any other refusal (a receiver that is not ready, a policy) stays red.
+    await J.step("connect (connect_info)", async () => {
       const info = await installApi.read("cloud.machine.connect_info", { machine: created.id });
-      const tok = await installApi.op("cloud.machine.link_token", { host: bound.host, services: ["daemon"] });
-      if (!tok?.expires_at) throw new Error(`link_token answered ${short(Object.keys(tok ?? {}))}`);
-      return { value: null, detail: `host ${info.host} state ${info.state} epoch ${info.epoch}; link token until ${tok.expires_at}` };
+      return { value: null, detail: `host ${info.host} state ${info.state} epoch ${info.epoch}` };
     });
-    if (headlessLink) {
+    const linkToken = await installApi.raw("POST", "/v1/ops", { op: "cloud.machine.link_token", params: { host: bound.host, services: ["daemon"] } })
+      .catch((error: Error) => error);
+    const nativeOnly = linkToken instanceof Error ? null : nativeProofSkip(linkToken.body);
+    if (nativeOnly) {
+      J.skip("connect (link_token)", nativeOnly);
+      J.skip("connect (link dial)", nativeOnly);
+    } else {
+      await J.step("connect (link_token)", async () => {
+        if (linkToken instanceof Error) throw new Error(`cloud.machine.link_token: ${linkToken.message}`);
+        if (linkToken.status !== 200 || linkToken.body?.ok !== true) throw new Error(`cloud.machine.link_token: HTTP ${linkToken.status} ${short(linkToken.body?.error ?? linkToken.body)}`);
+        const tok = linkToken.body.value;
+        if (!tok?.expires_at) throw new Error(`link_token answered ${short(Object.keys(tok ?? {}))}`);
+        return { value: null, detail: `link token until ${tok.expires_at}` };
+      });
+    }
+    if (nativeOnly) {
+      // link_token and link dial are recorded as skips above.
+    } else if (headlessLink) {
       await J.step("connect (link dial)", async () => {
         const dial = spawnSync(cmux!, ["link", "dial", "--host", bound.host, "--service", "daemon", "--socket", headlessLink!.linkSocket], {
           input: '{"id":1,"cmd":"identify"}\n', encoding: "utf8", timeout: 45_000,
@@ -816,6 +917,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     J.skip("handoff (agent move)", "headless agent move requires a local session daemon socket; the Cloud guest session has no local source socket");
 
     if (only.has("sync")) J.skip("sync push/pull (folder round trip)", "--skip sync");
+    else if (nativeOnly) J.skip("sync push/pull (folder round trip)", nativeOnly);
     else await J.step("sync push/pull (folder round trip)", async () => {
       if (!headlessLink) throw new Error("--cmux is required for link sync");
       const payload = Buffer.from(`journey ${tag} ${Date.now()}\n`.repeat(64)).toString("base64");

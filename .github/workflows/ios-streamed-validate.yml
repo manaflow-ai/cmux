@@ -79,6 +79,13 @@ jobs:
         # use); fall back to a local build only if the prebuilt is unavailable.
         run: ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
+      # The cmux-next web bundles the Mac app build makes need bun 1.4.4 or
+      # newer; the runner's own bun is older, so pin it as nightly.yml does.
+      - name: Set up bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
       - name: Install tools (bun, idb, postgres)
         run: |
           set -euo pipefail
