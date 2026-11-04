@@ -942,6 +942,16 @@ class Excusing(unittest.TestCase):
         self.assertIn(f"macos / {SWIFT}", "\n".join(lines))
         self.assertNotIn("'ci-status'", "\n".join(lines))
 
+    def test_a_red_ci_status_check_whose_job_was_retried_green_blocks(self):
+        # The check-run can stay failed while its exact job was re-run green: never rescan the run and excuse
+        # its child reds then, as for a routed rollup (the Guard status).
+        for job_id in (1, 2):
+            self.gh.jobs[job_id]["name"] = f"macos / {SWIFT}"
+        self.red_ci_status()
+        self.gh.jobs[3]["conclusion"] = "success"
+        with self.assertRaisesRegex(excuse.Refused, "exact aggregate job is success, not failure"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
+
     def test_a_red_ci_status_whose_failed_jobs_are_all_outside_its_needs_blocks(self):
         # The run's only red job is not under ci-status's needs (ci.yml's pr-red-checks, say), so it did not turn
         # ci-status red: its own verdict did. A base-red job outside it must not carry it.
@@ -2377,6 +2387,19 @@ class GuardGroupPerStep(unittest.TestCase):
 
 
 class Script(unittest.TestCase):
+    def test_a_rate_limited_read_exits_3(self):
+        # gh-merge-green reports exit 3 as a rate limit, not a red (main's main_fix_evidence.RateLimited).
+        class RateLimited(excuse.Refused):
+            pass
+
+        def judge(*args, **kwargs):
+            raise RateLimited("GitHub rate-limited `gh api`")
+
+        with unittest.mock.patch.object(excuse, "RateLimited", RateLimited), \
+                unittest.mock.patch.object(excuse, "judge", judge), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
+            self.assertEqual(excuse.main(["--repo", REPO, "--base", "main", "--sha", HEAD, "--check", "x"]), 3)
+
     def test_gh_merge_green_asks_the_base_before_refusing_a_red_lane(self):
         text = (ROOT / "scripts/gh-merge-green").read_text()
         self.assertIn("base_red_excuse.py", text)
