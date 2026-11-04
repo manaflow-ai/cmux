@@ -248,6 +248,7 @@ fn approved_remote_host(origin: &str) -> bool {
         || host.ends_with(".cmux.com")
         || host == "cmux.dev"
         || host.ends_with(".cmux.dev")
+        || host == "cmux-staging.vercel.app"
         || host.ends_with(".debussy.workers.dev")
 }
 
