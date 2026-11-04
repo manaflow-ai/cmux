@@ -21,7 +21,7 @@ rest width and B shows nothing: the shell inside A's pane, A's gap capped at A's
 reduce-drag (a drag under Reduce Motion: input-driven, no finding) and reduce-keys (a key press whose motion takes 20
 samples under Reduce Motion: a finding). The clock films (3d): clock-late shows every layer one refresh later than the
 fixed clock (offset +1), clock-early one refresh earlier (-1), clock-late2 two refreshes later (no offset of -1, 0, +1
-fits: clock not found, judged on the fixed clock), clock-late-inset is clock-late with both edges 1 px inside their pane
+fits: clock not found, judged on the fixed clock; clock-late2-off-centre adds divider-off-centre's trace), clock-late-inset is clock-late with both edges 1 px inside their pane
 edges while they move (device-pixel rounding: still the sample they show), strip-clock-late is clock-late with the tab strips, and still has no motion. blip: B's page 4 px right of its pane edge in frames 35-36 and 1 px in frame 40,
 after the divider has landed (B's own defect). Pair C: the film never shows the divider layer (its band shows the shell),
 so only the trace's divider is judged, against the gap between its two panes: divider-off-centre moves the trace's
@@ -157,7 +157,8 @@ def draw_page(img, x0, w, y0=0, fill=GREEN):
 
 
 # The clock films: how many refreshes later than the fixed clock each frame shows its sample (+ later, - earlier).
-CLOCK_SHIFT = {"clock-late": 1, "strip-clock-late": 1, "clock-early": -1, "clock-late2": 2, "clock-late-inset": 1}
+CLOCK_SHIFT = {"clock-late": 1, "strip-clock-late": 1, "clock-early": -1, "clock-late2": 2, "clock-late-inset": 1,
+               "clock-late2-off-centre": 2}
 
 
 def frame(k, variant):
@@ -260,7 +261,8 @@ def build(root, name, variant):
             ax = -SCROLL_PX / SCALE  # A's column scrolled left: its rect starts under the sidebar, off the window
             a = ["pa", ax, 0, aw - ax, 150, 1, 0, ax, 0, aw - ax, 150, aw - ax, 150 - cy, 0, ax, cy, aw - ax, 150 - cy]
         bx = aw + DIV_PX / SCALE
-        nudge = {**{j: 2.0 for j in range(30, 36)}, 40: 0.5, 45: 0.25}.get(k, 0.0) if variant == "divider-off-centre" else 0.0
+        nudge = {**{j: 2.0 for j in range(30, 36)}, 40: 0.5, 45: 0.25}.get(k, 0.0) \
+            if variant in ("divider-off-centre", "clock-late2-off-centre") else 0.0
         dividers = [["d0", aw + nudge, 0, DIV_PX / SCALE, 150, 1, 2]]
         closing, closing_key = [], None
         if variant == "divider-off-centre":
@@ -783,7 +785,7 @@ class ClockTests(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-clock-")
         cls.reports = {v: jp.judge(build(cls.tmp, v, v)) for v in ("clean", "lag1", "clock-late", "clock-early",
                                                                     "clock-late2", "strip-clock-late", "still",
-                                                                    "clock-late-inset")}
+                                                                    "clock-late-inset", "clock-late2-off-centre")}
 
     @classmethod
     def tearDownClass(cls):
@@ -859,6 +861,25 @@ class ClockTests(unittest.TestCase):
         self.assertEqual(self.checks(r)[0], "clock not found")
         self.assertIn("lag", self.checks(r))
         self.assertEqual(side(r, "p1", "row@110", "lo")["max_lag_frames"], 2)
+
+    def test_each_motion_finding_of_a_film_with_no_clock_says_so(self):
+        # 3d.1 (FRAME OWNER): judged on the fixed clock, each finding read from the film's frames says that a lag in
+        # motion can be one refresh off; the table marks the film. A trace-only finding does not depend on the clock.
+        r = self.reports["clock-late2"]
+        film_findings = [f for f in r["findings"] if f["check"] != "clock not found"]
+        self.assertTrue(film_findings)
+        for f in film_findings:
+            self.assertTrue(f["detail"].endswith(jp.CLOCK_NOT_FOUND_NOTE), f)
+        self.assertIn("clock not found", jp.markdown([r]).splitlines()[0])
+        # clock-late2-off-centre adds a trace divider off its gap: that finding is the trace's, with no note.
+        off = self.reports["clock-late2-off-centre"]
+        rect = [f for f in off["findings"] if f["check"] == "divider rect not centred on its panes' gap"]
+        self.assertEqual(len(rect), 1, off["findings"])
+        self.assertNotIn(jp.CLOCK_NOT_FOUND_NOTE, rect[0]["detail"])
+        clean = self.reports["clean"]
+        self.assertFalse([f for f in clean["findings"] + clean["info"] if jp.CLOCK_NOT_FOUND_NOTE in f["detail"]])
+        self.assertIn("clock +0 (fitted)", jp.markdown([clean]).splitlines()[0])
+        self.assertIn("clock +1 (fitted)", jp.markdown([self.reports["clock-late"]]).splitlines()[0])
 
     def test_the_tab_strips_are_judged_against_the_films_clock(self):
         r = self.reports["strip-clock-late"]
