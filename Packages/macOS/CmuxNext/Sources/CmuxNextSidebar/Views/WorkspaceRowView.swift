@@ -36,16 +36,18 @@ final class WorkspaceRowView: SidebarRowView {
     let usageWarningMark = DecorativeImageView()
     /// The workspace's tabs play sound (or are muted): a small speaker in the
     /// trailing cluster, always shown while they do, crossed out while they
-    /// are muted. A click mutes or unmutes them (`onToggleAudio`).
-    let audioButton = SidebarIconButton(icon: .browserTabAudio, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.muteTabs)
+    /// are muted. A click mutes or unmutes them (`onToggleAudio`). Made when it first shows
+    /// (`RowControlSlot`, WorkspaceRowView+Controls), as are the close, the menu button, the Unpin and the tree fold.
+    let audioSlot = RowControlSlot { (row: WorkspaceRowView) in row.makeAudioButton() }
     internal(set) var audio: SidebarWorkspaceAudio?
-    let closeButton = SidebarIconButton.rowClose(label: Strings.closeButton) // SidebarRowCloseButton
+    /// The hover close (`SidebarRowCloseButton`).
+    let closeSlot = RowControlSlot { (row: WorkspaceRowView) in row.makeCloseButton() }
     /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu,
     /// under the button. Shows on hover only, over the end of the title
     /// behind a fade (Lawrence 2026-10-11: no layout shift).
-    let moreButton = OverflowButton(label: Strings.workspaceMenu)
+    let moreSlot = RowControlSlot { (row: WorkspaceRowView) in row.makeMoreButton() }
     /// An expanded pinned row's Unpin (cx-13w3), on hover beside the menu button.
-    let pinButton = SidebarIconButton(icon: .statePinned, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.unpinWorkspace)
+    let pinSlot = RowControlSlot { (row: WorkspaceRowView) in row.makePinButton() }
     /// `sidebar.workspaceRow.tabCount`: the workspace's tab count, in a fixed-width slot.
     let tabCount = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// `sidebar.workspaceRow.pullRequest`: the PR / CI badge a hook reported.
@@ -55,8 +57,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// guide line, the pull request badge and the keycap.
     let treeLine = NSView(), pullRequests = SidebarPullRequestBadgeView(), keycap = SidebarKeycapView()
     /// A tree parent's chevron (folds its subtree) and a folded parent's roll-up chips.
-    let treeFoldButton = SidebarIconButton(icon: .disclosureExpanded, pointSize: { Metrics.smallIconSize - Metrics.space2 },
-                                           label: Strings.collapseSessions), rollUp = SidebarTreeRollUpView()
+    let treeFoldSlot = RowControlSlot { (row: WorkspaceRowView) in row.makeTreeFoldButton() }
+    let rollUp = SidebarTreeRollUpView()
     var treeDepth = 0
     var treeFold: SidebarTreeFold?
     var onToggleTree: (() -> Void)?
@@ -108,7 +110,7 @@ final class WorkspaceRowView: SidebarRowView {
     var showsMenu = false {
         didSet {
             guard showsMenu != oldValue else { return }
-            moreButton.showsMenu = showsMenu
+            moreSlot.made?.showsMenu = showsMenu
             needsLayout = true
         }
     }
@@ -154,8 +156,8 @@ final class WorkspaceRowView: SidebarRowView {
         usageWarningMark.imageScaling = .scaleProportionallyDown
         usageWarningMark.isHidden = true
         usageWarningMark.setAccessibilityElement(false)
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, tabCount, prBadge, placeholderBar, statusBlock,
-         treeLine, pullRequests, keycap, treeFoldButton, rollUp].forEach(addSubview)
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, badge, rowBadge, presenceDots, tabCount, prBadge, placeholderBar, statusBlock,
+         treeLine, pullRequests, keycap, rollUp].forEach(addSubview)
         setUpSessionTree()
         tabCount.isHidden = true
         prBadge.isHidden = true
@@ -165,20 +167,15 @@ final class WorkspaceRowView: SidebarRowView {
         progressTrack.addSublayer(progressFill)
         progressTrack.isHidden = true
         layer?.addSublayer(progressTrack)
-        closeButton.isHidden = true
-        audioButton.isHidden = true
-        pinButton.isHidden = true // hover only (layoutPin shows it), so it makes no image before then
         placeholderBar.wantsLayer = true
         placeholderBar.layer?.cornerRadius = Metrics.chipCornerRadius(height: SidebarStyle.placeholderBarHeight)
         placeholderBar.isHidden = true
         title.wantsLayer = true
-        closeButton.onPress = { [weak self] in self?.onClose?() }
-        moreButton.onPress = { [weak self] in self?.onMore?() }
-        pinButton.onPress = { [weak self] in self?.onPin?() }
-        audioButton.onPress = { [weak self] in self?.onToggleAudio?() }
     }
 
-    override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, treeFoldButton, audioButton] }
+    override var interactiveSubviews: [NSView] {
+        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made] as [NSView?]).compactMap(\.self)
+    }
     override var debugArchived: Bool { isArchived }
     override var debugIcon: String? {
         switch iconKind {
@@ -323,9 +320,8 @@ final class WorkspaceRowView: SidebarRowView {
         usageWarningMark.isHidden = usageWarningMark.image == nil
         usageWarningMark.themedToolTip = usageWarningMark.isHidden ? nil : ws.usageWarnings.joined(separator: "\n")
         audio = isShowingPlaceholder ? nil : ws.audio
-        audioButton.isHidden = audio == nil
-        audioButton.icon = audio == .muted ? .browserTabMuted : .browserTabAudio
-        audioButton.label = audio == .muted ? Strings.unmuteTabs : Strings.muteTabs
+        if audio != nil { _ = audioSlot.control(in: self) }
+        audioSlot.made.map(applyAudio)
         count = row.tabCount
         tabCount.setString(row.tabCount.map(String.init) ?? "")
         badgeText = shown.badge
@@ -342,9 +338,7 @@ final class WorkspaceRowView: SidebarRowView {
         setAccessibilityElement(!isShowingPlaceholder)
         setAccessibilityRole(.row)
         setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue)")
-        for (button, control) in [(closeButton, "close"), (moreButton, "more"), (pinButton, "pin")] as [(NSButton, String)] {
-            button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue).\(control)")
-        }
+        applyControlIdentifiers()
         setAccessibilityLabel(accessibilityText(ws, content: shown,
                                                 title: shown.subagentOf.map(Strings.subagentOf)
                                                     ?? ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)))
