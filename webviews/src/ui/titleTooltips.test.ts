@@ -302,8 +302,9 @@ test("a tooltip near the right edge is measured at its full width, wherever the 
     close.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true }));
     await hover(summary);
     expect(tip.textContent).toBe("Chat summary");
-    // As wide as its text (84 px), not squeezed into the 41 px right of the last tooltip's place.
-    expect(tip.style.left).toBe(`${1000 - UI_TOOLTIP_EDGE - 84}px`);
+    // The full 84px label now fits centered on the trigger, before the 4px edge clamp.
+    expect(tip.style.left).toBe(`${940 + 26 / 2 - 84 / 2}px`);
+    expect(tip.getBoundingClientRect().width).toBe(84);
   } finally {
     proto.getBoundingClientRect = original;
   }
