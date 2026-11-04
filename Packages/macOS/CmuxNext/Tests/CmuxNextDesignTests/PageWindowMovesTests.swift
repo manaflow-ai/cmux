@@ -7,7 +7,8 @@ import Testing
 /// The S7 live-resize probe's page window steps (`liveResize.page_moved_*_pt`, FRAME OWNER REFACTOR S7): a step measures
 /// how far each shown page window moved since the step before, matched by window (not by place), so a panel or a page
 /// window that appears adds nothing; a step after another resize's only notes the frames. The window server check
-/// (`liveResize.ws_*_lag_pt`) reads a window's frame in the window server's space, flipped from AppKit's.
+/// (`liveResize.ws_*_moved_*_pt`) sees a window's move as AppKit made it, in its own space (no flip: on a fleet display
+/// a window server frame read 3 pt from AppKit's frame flipped by the primary screen's height).
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct PageWindowMovesTests {
@@ -52,9 +53,7 @@ struct PageWindowMovesTests {
         #expect(none.step(in: alone, at: 10.008) == nil, "a window with no page window has nothing to measure")
     }
 
-    @Test func theWindowServerSpaceCountsFromThePrimaryScreensTop() throws {
-        #expect(PageWindowMoves.flipped(CGRect(x: 10, y: 100, width: 50, height: 20), primaryHeight: 1000)
-                == CGRect(x: 10, y: 880, width: 50, height: 20))
+    @Test func theWindowServerSeesAMoveAsAppKitMadeIt() throws {
         #expect(PageWindowMoves.edgeDistance(CGRect(x: 0, y: 0, width: 100, height: 50), CGRect(x: 2, y: 0, width: 91, height: 50)) == 7,
                 "the right edge moved 7 pt, the left 2 pt")
 
@@ -62,10 +61,21 @@ struct PageWindowMovesTests {
         let shown = Self.window(NSRect(x: 140, y: 160, width: 400, height: 300))
         defer { shown.close() }
         CATransaction.flush()
-        let lag = PageWindowMoves.windowServerLag(of: shown)
-        let windowLag = try #require(lag.window, "the window server does not list a shown window")
-        #expect(windowLag <= 1, "a window placed once: the window server's frame is AppKit's, flipped (\(windowLag) pt apart)")
-        #expect(lag.pages == nil, "no page window")
+        let number = shown.windowNumber
+        let before = PageWindowMoves.windowServerFrames(of: shown)
+        let listed = try #require(before[number], "the window server does not list a shown window")
+        let appKitBefore = PageWindowMoves.appKitFrames(of: shown)
+        // A live resize's step: the right edge 30 pt in, the bottom edge 12 pt up.
+        shown.setFrame(NSRect(x: 140, y: 172, width: 370, height: 288), display: true)
+        CATransaction.flush()
+        let after = PageWindowMoves.windowServerFrames(of: shown)
+        let appKitAfter = PageWindowMoves.appKitFrames(of: shown)
+        #expect(PageWindowMoves.largestMove(from: appKitBefore, to: appKitAfter, of: [number]) == 30, "AppKit's step")
+        let moved = PageWindowMoves.largestMove(from: before, to: after, of: [number])
+        #expect(moved == 30, "the window server's frame moved \(String(describing: moved)) pt (\(listed) to \(String(describing: after[number])); "
+                + "AppKit \(appKitBefore[number].map { "\($0)" } ?? "-") to \(shown.frame))")
+        #expect(PageWindowMoves.largestMove(from: before, to: after, of: [number + 1_000_000]) == nil, "a window in neither read")
+        #expect(PageWindowMoves.pages(of: shown).isEmpty && after.count == 1, "only the window: \(after)")
     }
 }
 #endif

@@ -42,34 +42,40 @@ struct PageWindowMoves {
         max(abs(a.minX - b.minX), abs(a.maxX - b.maxX), abs(a.minY - b.minY), abs(a.maxY - b.maxY))
     }
 
-    /// How far the window server's frame of `window` and of its shown page windows is from their AppKit frames now, in
-    /// points (the largest over the pages); nil for a window the server does not list. One window server round trip.
-    static func windowServerLag(of window: NSWindow) -> (window: CGFloat?, pages: CGFloat?) {
-        let pages = pages(of: window)
-        guard let primaryHeight = NSScreen.screens.first?.frame.height else { return (nil, nil) }
+    /// The window server's frames of `window` and of its shown page windows now, by window number, in the window server's
+    /// own space (compared only with each other: a move needs no flip). One window server round trip.
+    static func windowServerFrames(of window: NSWindow) -> [Int: CGRect] {
         // The array holds CGWindowID values (not CFNumbers), as `CGWindowListCreateImageFromArray`'s.
         var ids: [UnsafeRawPointer?] = []
-        for shown in [window] + pages where shown.windowNumber > 0 { ids.append(UnsafeRawPointer(bitPattern: UInt(shown.windowNumber))) }
+        for shown in [window] + pages(of: window) where shown.windowNumber > 0 { ids.append(UnsafeRawPointer(bitPattern: UInt(shown.windowNumber))) }
         guard !ids.isEmpty, let array = CFArrayCreate(nil, &ids, ids.count, nil),
-              let listed = CGWindowListCreateDescriptionFromArray(array) as? [[String: Any]] else { return (nil, nil) }
-        var bounds: [Int: CGRect] = [:]
+              let listed = CGWindowListCreateDescriptionFromArray(array) as? [[String: Any]] else { return [:] }
+        var frames: [Int: CGRect] = [:]
         for info in listed {
             guard let number = (info[kCGWindowNumber as String] as? NSNumber)?.intValue,
                   let rect = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0 as CFDictionary) })
             else { continue }
-            bounds[number] = rect
+            frames[number] = rect
         }
-        func lag(_ shown: NSWindow) -> CGFloat? {
-            bounds[shown.windowNumber].map { edgeDistance($0, flipped(shown.frame, primaryHeight: primaryHeight)) }
-        }
-        let pageLags = pages.compactMap(lag)
-        return (lag(window), pageLags.max())
+        return frames
     }
 
-    /// An AppKit screen rect (origin at the primary screen's bottom left, y up) in the window server's space (origin at
-    /// its top left, y down).
-    static func flipped(_ rect: CGRect, primaryHeight: CGFloat) -> CGRect {
-        CGRect(x: rect.minX, y: primaryHeight - rect.maxY, width: rect.width, height: rect.height)
+    /// AppKit's frames of `window` and of its shown page windows now, by window number.
+    static func appKitFrames(of window: NSWindow) -> [Int: CGRect] {
+        var frames: [Int: CGRect] = [:]
+        for shown in [window] + pages(of: window) where shown.windowNumber > 0 { frames[shown.windowNumber] = shown.frame }
+        return frames
+    }
+
+    /// The largest edge change from `before` to `after` of the windows `numbers` in both; nil when none is in both.
+    /// The same in AppKit's space and the window server's (a flip swaps the top and bottom edges, not their changes).
+    static func largestMove(from before: [Int: CGRect], to after: [Int: CGRect], of numbers: some Sequence<Int>) -> CGFloat? {
+        var moved: CGFloat?
+        for number in numbers {
+            guard let from = before[number], let to = after[number] else { continue }
+            moved = max(moved ?? 0, edgeDistance(from, to))
+        }
+        return moved
     }
 }
 #endif
