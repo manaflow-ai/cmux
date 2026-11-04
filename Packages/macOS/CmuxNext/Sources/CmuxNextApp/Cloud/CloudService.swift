@@ -13,7 +13,6 @@ import Foundation
 import Observation
 import os
 import CmuxNextWakeups
-
 /// Cloud orchestration: sign-in state, the configured machine list, and
 /// one `CloudMachineSession` per live machine in `MachineRegistry`. The
 /// list is fetched when the session restores or signs in, after every
@@ -339,8 +338,11 @@ final class CloudService {
         observers.append(Task { [weak self] in
             guard let self else { return }
             await auth.awaitRestored()
-            // The account and selected team: a team switch stays signed in but
-            // must fence the old Native mesh and link before reconnecting.
+            // The account and selected team fence the old stream before reconnecting.
+            // A team switch remains signed in but changes the event authorization scope.
+            // The wire is started only after auth restoration has completed.
+            // It is stopped on sign-out and policy disable below.
+            // This observer is the single lifecycle owner for account changes.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
                 if accountScope != nil {
                     self.machineWire.stop()
@@ -357,10 +359,10 @@ final class CloudService {
                     await self.ensureLink()
                     await self.refresh()
                 } else {
+                    // Signing out invalidates the bearer used by the wire.
+                    // Stop before dropping machine state so no event races a new account.
                     self.machineWire.stop()
                     self.dropAllMachines()
-                    // The session ended (signed out here or elsewhere, or
-                    // expired): no link keeps running for it.
                     await self.link.endLink(final: true)
                     await self.installIdentity.unbind()
                     for share in await self.shareInstalls.ended(except: self.installIdentity) { await share.unbind() }
@@ -410,6 +412,8 @@ final class CloudService {
         // homes for a later confirmed run after policy is restored.
         codexBroker.setAvailable(!disabled)
         if disabled {
+            // Policy disable fences Cloud event delivery synchronously.
+            // Existing machines disconnect below while their local records remain.
             machineWire.stop()
             changes.stop()
             signedOutCreation.cancel()
@@ -437,6 +441,7 @@ final class CloudService {
     }
 
     func stop() {
+        // Stop the socket before cancelling the remaining Cloud observers.
         machineWire.stop()
         refreshGate.cancel()
         signedOutCreation.cancel()

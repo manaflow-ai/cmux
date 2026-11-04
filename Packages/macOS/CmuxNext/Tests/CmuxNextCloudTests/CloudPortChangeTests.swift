@@ -28,6 +28,12 @@ struct CloudPortChangeTests {
         #expect(change.port == 3000)
     }
 
+    @Test func replayedPortReplayIsKnownInsteadOfNew() throws {
+        let frame = Data(#"{"t":"ephemeral","replayed":true,"event":"cloud.machine.event","data":{"machine":"vm_a","kind":"service.port.opened","data":{"port":3000,"proto":"tcp"}}}"#.utf8)
+        let change = try #require(CloudPortChange.parseWireFrame(frame))
+        #expect(change.known)
+    }
+
     @Test func snapshotFrameDoesNotCreateAnOpening() {
         let frame = Data(#"{"t":"snapshot","event":"cloud.machine.event","data":{"machine":"vm_a","kind":"service.port.opened","data":{"port":3000}}}"#.utf8)
         #expect(CloudPortChange.parseWireFrame(frame) == nil)

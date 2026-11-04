@@ -53,6 +53,18 @@ describe("Cloud preview port cards", () => {
     expect(cloudPreviewPorts()).toEqual([{ port: 3001 }]);
   });
 
+  test("replayed and snapshot-marked events never create a card", () => {
+    setCloudPreviewContext({
+      machineID: "machine-a",
+      sessionId: "chat-a",
+      turnId: "turn-a",
+      active: true,
+    });
+    expect(addCloudPreviewPort({ port: 3000, replayed: true })).toBe(false);
+    expect(addCloudPreviewPort({ data: { port: 3001, snapshot: true } })).toBe(false);
+    expect(cloudPreviewPorts()).toEqual([]);
+  });
+
   test("keeps the machine baseline when a new turn becomes active", () => {
     setCloudPreviewContext({
       machineID: "machine-a",

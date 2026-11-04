@@ -8,6 +8,8 @@ type PortEvent = CloudPreviewPort & {
   turnId?: string;
   state?: string;
   known?: boolean;
+  snapshot?: boolean;
+  replayed?: boolean;
 };
 
 const NONE: readonly CloudPreviewPort[] = [];
@@ -37,6 +39,13 @@ function parseEvent(value: unknown): PortEvent | undefined {
   const data = item.data && typeof item.data === "object" ? (item.data as Record<string, unknown>) : item;
   if (!validPort(data.port)) return undefined;
   const process = typeof data.process === "string" ? data.process.trim() : "";
+  const known =
+    item.known === true ||
+    item.snapshot === true ||
+    item.replayed === true ||
+    data.known === true ||
+    data.snapshot === true ||
+    data.replayed === true;
   const machineID = field(data, "machineID", "machineId", "machine");
   const sessionId = field(data, "sessionId", "sessionID", "session");
   const turnId = field(data, "turnId", "turnID", "turn");
@@ -47,7 +56,7 @@ function parseEvent(value: unknown): PortEvent | undefined {
     ...(sessionId ? { sessionId } : {}),
     ...(turnId ? { turnId } : {}),
     ...(typeof data.state === "string" ? { state: data.state } : {}),
-    ...(data.known === true ? { known: true } : {}),
+    ...(known ? { known: true } : {}),
   };
 }
 
