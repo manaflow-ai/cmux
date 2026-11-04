@@ -237,12 +237,21 @@ def set_arm(arm):
     return None
 
 
+def reset_arm():
+    """--ab's tunable back to the build's default: the layouts after an A/B layout (idle-cursor, split-resize) and the
+    next run measure the build as it is. A DEBUG build keeps a set value in the tag's Debug Settings file, so a run killed
+    before this leaves it set; a bench build (--config=bench) keeps tunables in memory only."""
+    if opts.ab:
+        rpc("debug.tunables", {"action": "set", "key": opts.ab, "value": None}, timeout=10)
+
+
 def finish(result):
-    """Pools each arm's rounds (`arms`, with --ab). Each round keeps its raw per-frame arrays (`raw`: intervals_ms,
-    main_ms, motion_main_ms), so a reader can place the slow frames in the spring."""
+    """Pools each arm's rounds (`arms`, with --ab) and resets --ab's tunable. Each round keeps its raw per-frame arrays
+    (`raw`: intervals_ms, main_ms, motion_main_ms), so a reader can place the slow frames in the spring."""
     if opts.ab:
         result["ab"] = opts.ab
         result["arms"] = arms.summaries(result.get("rounds") or [])
+        reset_arm()
     return result
 
 
@@ -319,7 +328,8 @@ def measure(name):
             # where it began, so start and end grids match; a build that holds terminals through the drag resizes none).
             entry.update({"terminals": len(after), "resized_terminals": terminal_resize_verdict.resized(before, after), "frames": numbers,
                           "main_ms": arms.distribution(raw["main_ms"]), "raw": raw, "display": display,
-                          "counters": counter_delta(before, after), "unsettled_after": unsettled(after)})
+                          "counters": counter_delta(before, after), "unsettled_after": unsettled(after),
+                          "holds_terminals": drag_holds_terminals()})
             rounds.append(entry)
     return finish({"layout": name, "refresh_ms": refresh_ms, "moves": 4 * opts.steps, "probe": checked,
                    "drag_holds_terminals": drag_holds_terminals(), "rounds": rounds,
@@ -344,7 +354,12 @@ def measure_keys(name):
             presses = []
             for number, action in enumerate(plan):
                 last = number + 1 == len(plan) or plan[number + 1] != action
-                rpc("debug.terminal_final_grid", {"action": "start"})
+                # The grids sent from here to the next press's start count as this press's: each press sends its final
+                # grids by its first frame tick (FRAME OWNER S1B), within --key-gap-ms.
+                traced = rpc("debug.terminal_final_grid", {"action": "start"}) or {}
+                if not traced.get("started"):
+                    entry["error"] = f"the grid trace did not start: {json.dumps(traced)[:200]}"
+                    break
                 reply = rpc("action.run", {"action": action, "focus": True})
                 # bench script: a held key's repeat gap, or the spring lands before the other key
                 time.sleep(opts.key_settle_s if last else opts.key_gap_ms / 1000)
@@ -356,6 +371,9 @@ def measure_keys(name):
                 presses.append(press)
             frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
             display = rpc("debug.terminal_display", {"action": "stop"}) or {}
+            if entry.get("error"):
+                rounds.append(entry)
+                continue
             time.sleep(1.0)  # bench script: the last press's frames and grids land
             after = surfaces()
             numbers, raw = frame_numbers(frames)
@@ -614,9 +632,8 @@ try:
         report["layouts"].append(result)
         print(f"TERMINAL-RESIZE {json.dumps(result)}", flush=True)
 finally:
-    if opts.ab and app.poll() is None:
-        # The A/B's tunable back to its default (a DEBUG build's store keeps a set value in the tag's Debug Settings file).
-        rpc("debug.tunables", {"action": "set", "key": opts.ab, "value": None}, timeout=10)
+    if app.poll() is None:
+        reset_arm()  # a layout that stopped early (an exception) did not reset it
     if app.poll() is None:
         app.send_signal(signal.SIGTERM)
         try:
