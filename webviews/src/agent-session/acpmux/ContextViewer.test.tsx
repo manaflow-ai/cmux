@@ -152,26 +152,41 @@ test("edits and resets a preset prompt without changing the guidance part", asyn
   const calls: unknown[] = [];
   await act(async () => {
     root = createRoot(container);
-    root.render(<ContextViewer
-      parts={parts}
-      settings={{user: "guidance user", project: null, parts: {
-        "cmux-system-prompt": {label: "Preset system prompt", user: "preset user", project: null, defaultText: "preset default"},
-      }}}
-      onSaveOverride={(scope, text, partId) => { calls.push(["save", scope, text, partId]); }}
-      onResetOverride={(scope, partId) => { calls.push(["reset", scope, partId]); }}
-    />);
+    root.render(
+      <ContextViewer
+        parts={parts}
+        settings={{
+          user: "guidance user",
+          project: null,
+          parts: {
+            "cmux-system-prompt": {
+              label: "Preset system prompt",
+              user: "preset user",
+              project: null,
+              defaultText: "preset default",
+            },
+          },
+        }}
+        onSaveOverride={(scope, text, partId) => {
+          calls.push(["save", scope, text, partId]);
+        }}
+        onResetOverride={(scope, partId) => {
+          calls.push(["reset", scope, partId]);
+        }}
+      />,
+    );
   });
   await act(async () => {
     const select = container.querySelector<HTMLSelectElement>('select[aria-label="Part"]')!;
     select.value = "cmux-system-prompt";
-    select.dispatchEvent(new dom!.window.Event("change", {bubbles: true}));
+    select.dispatchEvent(new dom!.window.Event("change", { bubbles: true }));
   });
   const editor = container.querySelector<HTMLTextAreaElement>("[data-context-editor] textarea")!;
   expect(editor.value).toBe("preset user");
   await act(async () => {
     const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(editor), "value")!.set!;
     set.call(editor, "new preset prompt");
-    editor.dispatchEvent(new dom!.window.Event("input", {bubbles: true}));
+    editor.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
   });
   await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-context-part__save")!.click());
   await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-context-part__reset")!.click());

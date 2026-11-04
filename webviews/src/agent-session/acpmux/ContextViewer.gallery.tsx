@@ -69,7 +69,11 @@ const presetPlay: Play = async (ctx) => {
   if (!select) throw new Error("editable preset selector did not open");
   select.value = "cmux-system-prompt";
   select.dispatchEvent(new Event("change", { bubbles: true }));
-  await ctx.waitFor(() => ctx.document.querySelector<HTMLTextAreaElement>("[data-context-editor] textarea")?.value === "Read the project guide first.");
+  await ctx.waitFor(
+    () =>
+      ctx.document.querySelector<HTMLTextAreaElement>("[data-context-editor] textarea")?.value ===
+      "Read the project guide first.",
+  );
 };
 
 const editPlay: Play = async (ctx) => {
@@ -111,9 +115,17 @@ export default componentEntry<Props>({
       note: "A local Claude preset exposes its cmux-owned system prompt as an independently editable part.",
       props: {
         ...baseline,
-        settings: { ...baseline.settings!, parts: {
-          "cmux-system-prompt": { label: "Preset system prompt", user: null, project: "Read the project guide first.", defaultText: "You are a coding assistant." },
-        } },
+        settings: {
+          ...baseline.settings!,
+          parts: {
+            "cmux-system-prompt": {
+              label: "Preset system prompt",
+              user: null,
+              project: "Read the project guide first.",
+              defaultText: "You are a coding assistant.",
+            },
+          },
+        },
       },
     },
     "existing-project-override": {

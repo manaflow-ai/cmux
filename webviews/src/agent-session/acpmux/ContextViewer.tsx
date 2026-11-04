@@ -179,38 +179,40 @@ function NextSessionEditor({
           <p>{t("context.nextSessionDescription")}</p>
         </div>
         <div className="acpmux-context-editor__selectors">
-        {currentSettings.parts && Object.keys(currentSettings.parts).length > 0 && (
+          {currentSettings.parts && Object.keys(currentSettings.parts).length > 0 && (
+            <label className="acpmux-context-part__scope">
+              <span>{t("context.editPart")}</span>
+              <select
+                aria-label={t("context.editPart")}
+                value={partId}
+                disabled={saving}
+                onChange={(event) => {
+                  const id = event.target.value;
+                  setPartId(id);
+                  const part = (id && currentSettings.parts?.[id]) || currentSettings;
+                  setScope(part.project !== null ? "project" : "user");
+                }}
+              >
+                <option value="">{t("context.guidance")}</option>
+                {Object.entries(currentSettings.parts).map(([id, part]) => (
+                  <option key={id} value={id}>
+                    {part.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="acpmux-context-part__scope">
-            <span>{t("context.editPart")}</span>
+            <span>{t("context.scope")}</span>
             <select
-              aria-label={t("context.editPart")}
-              value={partId}
+              value={scope}
+              onChange={(event) => setScope(event.target.value as ContextOverrideScope)}
               disabled={saving}
-              onChange={(event) => {
-                const id = event.target.value;
-                setPartId(id);
-                const part = (id && currentSettings.parts?.[id]) || currentSettings;
-                setScope(part.project !== null ? "project" : "user");
-              }}
             >
-              <option value="">{t("context.guidance")}</option>
-              {Object.entries(currentSettings.parts).map(([id, part]) => (
-                <option key={id} value={id}>{part.label}</option>
-              ))}
+              <option value="user">{t("context.scope.user")}</option>
+              <option value="project">{t("context.scope.project")}</option>
             </select>
           </label>
-        )}
-        <label className="acpmux-context-part__scope">
-          <span>{t("context.scope")}</span>
-          <select
-            value={scope}
-            onChange={(event) => setScope(event.target.value as ContextOverrideScope)}
-            disabled={saving}
-          >
-            <option value="user">{t("context.scope.user")}</option>
-            <option value="project">{t("context.scope.project")}</option>
-          </select>
-        </label>
         </div>
       </div>
       {currentPart.project !== null && (
@@ -245,11 +247,7 @@ function NextSessionEditor({
         </button>
         <span className="acpmux-context-editor__hint">{t("context.emptyDisables")}</span>
       </div>
-      {notice && (
-        <output className="acpmux-context-part__notice">
-          {notice}
-        </output>
-      )}
+      {notice && <output className="acpmux-context-part__notice">{notice}</output>}
     </section>
   );
 }
@@ -312,11 +310,7 @@ export function ContextViewer({
           </button>
         )}
       </header>
-      {loading && (
-        <output className="acpmux-context-viewer__state">
-          {t("context.loading")}
-        </output>
-      )}
+      {loading && <output className="acpmux-context-viewer__state">{t("context.loading")}</output>}
       {error && (
         <p className="acpmux-context-viewer__state is-error" role="alert">
           {error}
