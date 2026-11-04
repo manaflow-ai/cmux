@@ -82,20 +82,11 @@ final class UpdateSurfaceProvider: PageProvider {
         self.services = services
     }
 
-    private var highlights: UpdateHighlights? {
-        guard let updater = services?.updater else { return nil }
-        guard kind == .updated else { return updater.stagedHighlights }
-        return updater.lastUpdateHighlights ?? updater.updatedWithoutRecordHighlights
-    }
+    private var highlights: UpdateHighlights? { services?.updater.surfaceHighlights(updated: kind == .updated) }
 
+    /// The Updated card after an automatic install that relaunched cmux behind another app says so.
     private func json(_ highlights: UpdateHighlights?) throws -> JSONValue {
-        guard let highlights else { return .null }
-        let value = try JSONValue.parse(JSONEncoder().encode(highlights))
-        // The Updated card after an automatic install that relaunched cmux behind another app
-        // (nobody clicked Restart to Update): the card says it updated in the background.
-        guard kind == .updated, services?.environment.relaunchBehind != nil, case .object(var members) = value else { return value }
-        members["delivery"] = .string("background")
-        return .object(members)
+        try highlights?.surfaceJSON(background: kind == .updated && services?.environment.relaunchBehind != nil) ?? .null
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
