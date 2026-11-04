@@ -141,6 +141,52 @@ impl Mux {
         Ok(surface.id)
     }
 
+    /// Makes `surface`, a live hosted runtime a test built for seeded terminal
+    /// `terminal` (`seed_running_terminal_for_test`, same host identity), the
+    /// terminal's catalog runtime in place of its placeholder, and a session
+    /// surface, so its publications and host-link callbacks find it. A fresh
+    /// surface id: one the mux has not handed out.
+    #[cfg(all(test, unix))]
+    pub(crate) fn install_live_terminal_runtime_for_test(
+        &self,
+        terminal: &TerminalPublicId,
+        surface: Arc<Surface>,
+    ) -> anyhow::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        state.remove_catalog_terminal(terminal);
+        state.insert_catalog_terminal(terminal, &surface)?;
+        insert_surface_checked(&mut state, surface)
+    }
+
+    /// A surface id the mux has not handed out.
+    #[cfg(all(test, unix))]
+    pub(crate) fn next_surface_id_for_test(&self) -> SurfaceId {
+        self.next_id()
+    }
+
+    /// Commits host terminal `terminal_id` to `lifecycle` with `incarnation`,
+    /// as adoption does (Adopting, then Running once its runtime is live).
+    #[cfg(all(test, unix))]
+    pub(crate) fn commit_terminal_lifecycle_for_test(
+        &self,
+        terminal_id: &str,
+        lifecycle: TerminalLifecycle,
+        incarnation: &str,
+    ) -> anyhow::Result<()> {
+        let event_kind = match lifecycle {
+            TerminalLifecycle::Adopting => "terminal-adopting",
+            _ => "terminal-ready",
+        };
+        self.transition_terminal_lifecycle(
+            event_kind,
+            "test-terminal-lifecycle",
+            terminal_id,
+            lifecycle,
+            Some(incarnation),
+        )
+        .map(drop)
+    }
+
     #[cfg(test)]
     pub(crate) fn set_terminal_close_failure_for_test(&self, enabled: bool) -> anyhow::Result<()> {
         self.workspace_registry.lock().unwrap().set_terminal_close_failure(enabled)

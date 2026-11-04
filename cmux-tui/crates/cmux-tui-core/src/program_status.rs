@@ -12,9 +12,10 @@
 //! keyed by `updated_seq`. A record without `app` shows the app of its
 //! nearest ancestor that has one. A record that starts waiting on the user
 //! (`blocked`), fails (`error`) or finishes (`done`) raises one
-//! [`ProgramStatusAlert`], which the terminal's reader posts as a
-//! rate-limited terminal notification (the client shows a `done` only for a
-//! terminal the user cannot see).
+//! [`ProgramStatusAlert`], which the terminal's reader takes and rate-limits
+//! and the terminal publisher posts as a terminal notification, after the
+//! record's upsert (the client shows a `done` only for a terminal the user
+//! cannot see).
 //!
 //! Text is untrusted program output: display only, never interpreted.
 //! libghostty already removed control characters; this module also removes
@@ -307,12 +308,11 @@ impl ProgramStatusRecords {
     }
 
     /// Whether a terminal publication would take something now: a visible
-    /// change (`take_change`), a new shown value (`take_shown_change`) or an
-    /// alert (`take_alerts`). Marks nothing.
+    /// change (`take_change`) or a new shown value (`take_shown_change`).
+    /// Marks nothing. Alerts are not counted: the output reader takes them
+    /// itself (`Surface::queue_pending_publications`).
     pub(crate) fn has_publication_change(&self, running: bool) -> bool {
-        self.revision != self.published
-            || self.shown(running) != self.shown_published
-            || !self.alerts.is_empty()
+        self.revision != self.published || self.shown(running) != self.shown_published
     }
 
     /// The records a terminal host hands to the daemon that attaches.

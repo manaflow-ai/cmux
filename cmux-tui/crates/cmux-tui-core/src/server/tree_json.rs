@@ -65,6 +65,21 @@ pub(crate) fn panes_built_for_test() -> u64 {
     PANES_BUILT.with(std::cell::Cell::get)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Test seam: runs once on this thread between an entity's build and the whole tree's build in
+    /// `tree_entity_json`'s check, as a terminal's reader could run there on another thread.
+    static ENTITY_CHECK_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `hook` once, the next time `tree_entity_json` on this thread has built an entity and has not
+/// built the whole tree yet.
+#[cfg(test)]
+pub(crate) fn set_entity_check_hook_for_test(hook: impl FnOnce() + 'static) {
+    ENTITY_CHECK_HOOK.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+}
+
 pub(super) fn pane_json(
     state: &State,
     id: PaneId,
@@ -467,13 +482,48 @@ pub(crate) fn tree_entity_json(
     let entity = entity_json(state, notifications, kind, id);
     // Unit tests check every entity against the whole tree's value at that place (not counted as built).
     #[cfg(test)]
-    {
-        let built = panes_built_for_test();
-        let from_tree = entity_from_whole_tree(state, notifications, kind, id);
-        PANES_BUILT.with(|cell| cell.set(built));
-        assert_eq!(entity, from_tree, "the {kind:?} entity of {id} differs from the tree's");
-    }
+    check_entity_against_whole_tree(state, notifications, kind, id, &entity);
     entity
+}
+
+/// How many times the check reads an entity whose live fields keep moving before it gives up on
+/// comparing it.
+#[cfg(test)]
+const ENTITY_CHECK_ATTEMPTS: usize = 16;
+
+/// Unit tests: `entity` (built alone) equals the whole tree's value at its place. Both builders
+/// read a terminal's live fields (title, size, connection state, end) without the state lock, and
+/// its reader sets them on its own thread, so they are equal only when both builds saw the same
+/// inputs: the entity is built again after the whole tree, and the two are compared only when the
+/// inputs held still across the tree's build (the entity built before and after it agree). A title
+/// set between the builds (#35765: a directory publication's tab delta, built on the terminal
+/// publisher while the shell sets its title at a prompt) is read again, not reported as a
+/// difference. Not counted as built.
+#[cfg(test)]
+fn check_entity_against_whole_tree(
+    state: &State,
+    notifications: &TreeDecorations,
+    kind: TreeDeltaKind,
+    id: u64,
+    entity: &Option<Value>,
+) {
+    let built = panes_built_for_test();
+    let mut before = entity.clone();
+    for _ in 0..ENTITY_CHECK_ATTEMPTS {
+        if let Some(hook) = ENTITY_CHECK_HOOK.with(|slot| slot.borrow_mut().take()) {
+            hook();
+        }
+        let from_tree = entity_from_whole_tree(state, notifications, kind, id);
+        let after = entity_json(state, notifications, kind, id);
+        if after == before {
+            PANES_BUILT.with(|cell| cell.set(built));
+            assert_eq!(after, from_tree, "the {kind:?} entity of {id} differs from the tree's");
+            return;
+        }
+        before = after;
+    }
+    // The live fields moved during every attempt: nothing to compare.
+    PANES_BUILT.with(|cell| cell.set(built));
 }
 
 /// Only the entity itself: the one workspace, screen, pane or tab, never the whole tree (each
