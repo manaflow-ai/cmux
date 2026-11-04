@@ -44,7 +44,7 @@ export default agentPaneEntry({
     },
   },
   variants: {
-    tedd: variant("Play: `:tedd` lists the teddy bear first, its typed letters bold, over the typed `:`; no row is chosen.", (ctx) =>
+    tedd: variant("Play: `:tedd` lists the teddy bear first, letters bold, over the typed `:`; none chosen.", (ctx) =>
       typeToMenu(ctx, "Ship it :tedd"),
     ),
     "emoticon-dd": variant(
@@ -52,7 +52,7 @@ export default agentPaneEntry({
       (ctx) => typeToMenu(ctx, "That fixed it :DD"),
     ),
     heart: variant("Play: `<3` lists the red heart first.", (ctx) => typeToMenu(ctx, "Thanks <3")),
-    "arrow-return": variant("Play: ↓ chooses 🧸 on `:tedd`, then Return writes it and a space; the menu closes.", async (ctx) => {
+    "arrow-return": variant("Play: ↓ chooses 🧸 on `:tedd`; Return writes it and a space.", async (ctx) => {
       await typeToMenu(ctx, "Ship it :tedd");
       const prompt = ctx.document.querySelector(PROMPT)!;
       await ctx.press("ArrowDown");
@@ -61,7 +61,7 @@ export default agentPaneEntry({
       await ctx.waitFor(() => ctx.document.querySelector(ROW) === null);
       if (!promptText(ctx).includes("Ship it 🧸")) throw new Error(`pick did not write the emoji: ${promptText(ctx)}`);
     }),
-    "return-sends": variant("Play: Return with no row chosen sends; `:tedd` is never turned into an emoji.", async (ctx) => {
+    "return-sends": variant("Play: Return with no row chosen sends; `:tedd` stays text.", async (ctx) => {
       await typeToMenu(ctx, "Ship it :tedd");
       await ctx.press("Enter");
       // fixed-wait: this static snapshot has no host to take the prompt, so the draft stays; the
