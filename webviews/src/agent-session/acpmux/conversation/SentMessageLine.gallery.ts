@@ -206,8 +206,8 @@ export default agentPaneEntry({
       snapshot: sent(),
       play: async (ctx) => {
         await openTurn(ctx);
-        // Trusted clicks settle before the next step, so Raw is clicked where it rests. Stacked
-        // (#33249), the message's first line sits under its row, out of the row's name; it toggles too.
+        // Trusted clicks settle before the next step, so Raw is clicked where it rests. The message's
+        // first line toggles the row, on the row (one line, #34464) or under it (stacked, #33249).
         await ctx.click({ text: /^net-retries: done$/ });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md h2"));
         await ctx.click({ selector: ".cv-subsession__under .cv-subsession__toggle" });
