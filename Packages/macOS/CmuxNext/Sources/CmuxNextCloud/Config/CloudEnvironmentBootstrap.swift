@@ -1,6 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDaemon
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Foundation
 
 /// Thin process adapter: Rust resolves and validates the selected environment before app services start.
