@@ -233,6 +233,45 @@ struct PaneContentPolicyTests {
         }
     }
 
+    /// Review of #35470 (F3): a terminal tab parked when a key press began (another tab showed) and shown again during the
+    /// spring follows its pane from the frame it shows: it is unhidden before its area hands it the hold (in the next
+    /// layout pass), and `restAt` held its surface at the final size then, a size its pane did not have yet.
+    @Test func aParkedTerminalShownDuringAKeyHoldFollowsFromItsFirstFrame() async throws {
+        let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
+        defer { rig.close() }
+        let pane = try #require(rig.root.context.hosts["p2"]?.content as? PaneContentView)
+        let shown = try #require(rig.provider.sessions["p2"]?.session)
+        let io = GridRecordingTerminalIO()
+        let parked = TerminalSession(io: io)
+        defer {
+            parked.close()
+            io.finish()
+        }
+        // The second tab shows once, then the first one again: the second stays parked (hidden) in the pane.
+        _ = pane.show(parked.view)
+        rig.root.layoutSubtreeIfNeeded()
+        _ = pane.show(shown.view)
+        rig.root.layoutSubtreeIfNeeded()
+        try #require(parked.view.isHidden && parked.view.superview != nil, "the second tab was not parked in the pane")
+        #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
+        rig.root.syncWithModel()
+        rig.root.layoutSubtreeIfNeeded()
+        for _ in 1...6 { _ = rig.frame() }
+        // The tab switch back to the parked terminal, mid-spring.
+        _ = pane.show(parked.view)
+        rig.root.layoutSubtreeIfNeeded()
+        var off: [String] = []
+        func check(_ label: String) {
+            let host = parked.view
+            let area = host.surfaceSize(forHostSize: host.bounds.size)
+            if parked.surfaceView.frame.size != area { off.append("\(label): its surface \(parked.surfaceView.frame.size) in a \(area) area") }
+        }
+        check("the switch's frame")
+        let frames = try Self.run(rig) { frame in check("frame \(frame)") }
+        #expect(frames > 3, "the spring landed before the switch (\(frames) frames left)")
+        #expect(off.isEmpty, "the shown terminal did not follow its pane: \(off.prefix(3))")
+    }
+
     /// Review of #35470 (F2): a pane that a key press grows down keeps a prompt on its last row in view, as S3 did (and as
     /// a split or a close does, TerminalPaneMotionFinalGridTests): the PTY gets the final, taller grid at the press, and a
     /// surface at the pane's size in each frame showed that grid's top rows, cut off at the bottom, so the prompt was out
