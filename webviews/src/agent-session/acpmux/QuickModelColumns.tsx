@@ -120,7 +120,7 @@ const CheckIcon = () => (
 );
 
 const PlusIcon = () => (
-  <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
     <path d="M6 2v8M2 6h8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
   </svg>
 );

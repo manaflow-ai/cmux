@@ -45,6 +45,10 @@ const STATE_LABELS: Record<string, StringKey> = {
   connecting: "rail.connectorPending",
   degraded: "rail.connectorPending",
   reconnecting: "header.reconnecting",
+  // A Cloud machine the account says sleeps (cloudMachines.ts withCloudSleep): a calm state, never
+  // a link to fix.
+  paused: "composer.envPaused",
+  resuming: "composer.envResuming",
 };
 export function environmentStateLabel(environment: Environment): string {
   if (isCloudMachineRow(environment)) return cloudMachineLabel(environment.cloudMachine);
@@ -55,6 +59,7 @@ const CLOUD_STAGE_LABELS: Record<string, StringKey> = {
   ready: "composer.envOpenMachine",
   paused: "composer.envPausedResume",
   requesting: "composer.envStarting",
+  resuming: "composer.envResuming",
   creating: "composer.envStarting",
   booting: "composer.envStarting",
   connecting: "composer.envStarting",
@@ -589,7 +594,8 @@ export function EnvironmentPicker({
     // A machine, Another machine, or Cloud's New Cloud Machine flow: Persistent again.
     if (!action || value === ACTION + "cloud" || value === ANOTHER) persistent();
     if (action) action.run();
-    else if (value === currentRow) focusPrompt();
+    // The chat's own machine, paused (cloudMachines.ts withCloudSleep), is still a pick: it resumes.
+    else if (value === currentRow && !(machine && isCloudMachineRow(machine))) focusPrompt();
     else if (value.startsWith(SAVED)) saved?.onPick(value.slice(SAVED.length));
     else if (machine) onPick(value);
   };
