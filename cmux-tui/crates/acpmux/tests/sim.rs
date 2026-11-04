@@ -133,6 +133,7 @@ fn seeds_hold_the_delivery_invariants() {
         world::human(simulated),
         simulated.as_secs_f64() / wall.as_secs_f64().max(1e-9),
     );
+    eprintln!("sim: not checked yet: {}", invariants::NOT_CHECKED.join("; "));
     let gaps = if opts.faults != Faults::standard() || !opts.resend {
         format!(
             "\nknown gaps these options can show (sim/invariants.rs): {}",

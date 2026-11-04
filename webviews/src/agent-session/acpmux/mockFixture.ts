@@ -707,8 +707,8 @@ export const mockSessions: MockSession[] = [
     // Claude Code's prompt suggestions (Leo, 2026-11-03: "i know there's suggested prompts that you
     // can right arrow/tab to do stuff with... maybe we can expose it in cmux-next too"): after the
     // second turn acpmux sends the agent's guess at the next prompt (live, `suggestion`), which the empty composer shows
-    // as ghost text (Tab or Right-arrow takes it). The chat's switch is the Options chip's
-    // "Prompt suggestions", as acpmux offers it (claude_stdio/prompt_suggestions.rs).
+    // as ghost text (Tab or Right-arrow takes it). acpmux also offers the chat's "Prompt
+    // suggestions" switch (claude_stdio/prompt_suggestions.rs), which the composer leaves out.
     sessionId: PROMPT_SUGGESTION_SESSION,
     title: "Retry flaky uploads",
     harness: "claude",
