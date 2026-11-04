@@ -180,6 +180,7 @@ import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, browserSwitchClock, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
+import { harnessModeName, highestMode } from "./harnessModes";
 import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
@@ -262,7 +263,7 @@ import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
 import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
-import { readUntilMoved, refreshCloudMachines, useCloudMachines } from "./cloudMachines";
+import { cloudMachineAsleep, readUntilMoved, refreshCloudMachines, useCloudMachines } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
 import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type TrustHeldPrompt } from "./trustHeld";
@@ -562,10 +563,11 @@ import { HarnessStatusCard } from "./HarnessStatusCard";
 import {
   cloudPageRefusal,
   cloudRunsHere,
+  cloudFolderGrants,
   cloudStartFolder,
   cloudStartToasted,
+  grantedCloudStart,
   newTabProjectPick,
-  oneCloudStart,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
 } from "./cloudRun";
@@ -1431,8 +1433,8 @@ const MessageRow = memo(
                     text={envelope ? envelope.task : (row.text ?? "")}
                     pending={
                       !readOnly && steerControls(row)
-                        ? (actions) => (
-                            <PendingSteer row={row} send={editQueued}>
+                        ? (actions, queued) => (
+                            <PendingSteer row={row} send={editQueued} queued={queued}>
                               {actions}
                             </PendingSteer>
                           )
@@ -1451,8 +1453,8 @@ const MessageRow = memo(
                 text={row.text ?? ""}
                 pending={
                   !readOnly && steerControls(row)
-                    ? (actions) => (
-                        <PendingSteer row={row} send={editQueued}>
+                    ? (actions, queued) => (
+                        <PendingSteer row={row} send={editQueued} queued={queued}>
                           {actions}
                         </PendingSteer>
                       )
@@ -1697,7 +1699,7 @@ const SummaryRow = memo(
 const PlanRow = memo(
   function PlanRow({ row }: RowProps) {
     return row.plan ? (
-      <PlanList entries={row.plan} ended={row.turnEnded} />
+      <PlanList entries={row.plan} ended={row.turnEnded} id={row.id} />
     ) : (
       <div className="acpmux-muted">{row.text}</div>
     );
@@ -5943,10 +5945,19 @@ const answerSecret = (ask: AcpmuxSecretAsk) => (value?: string) => {
   return value ? sent : sent.catch(() => undefined);
 };
 
+/// The native label of the mode the chat runs now when it is its family's highest (Claude Code's
+/// Bypass permissions, Codex's Full access), else nothing.
+function fullAccessModeName(summary: AcpmuxSnapshot["summary"]): string | undefined {
+  const current = summary?.modes?.currentModeId;
+  if (!current || highestMode(summary?.family, summary?.harness)?.id !== current) return undefined;
+  return harnessModeName(summary?.family, summary?.harness, current);
+}
+
 /// A permission ask: a question card when the request asks a question, else its option buttons.
 function PermissionAsk({
   permission,
   harness,
+  fullAccessMode,
   focusComposer,
   shownChat,
   shortcuts,
@@ -5954,6 +5965,8 @@ function PermissionAsk({
 }: {
   permission: AcpmuxPermission;
   harness?: string;
+  /// The chat's highest mode while it runs it: the card says the mode does not answer this ask.
+  fullAccessMode?: string;
   focusComposer?: () => void;
   /// The chat shown now, read when a deny's instructions are about to go: with it, the card can deny
   /// with what the agent should do instead (`denyWithFeedback`).
@@ -5969,6 +5982,7 @@ function PermissionAsk({
       <PermissionCard
         permission={permission}
         harness={harness}
+        fullAccessMode={fullAccessMode}
         focusComposer={focusComposer}
         shortcuts={shortcuts}
         onAnswer={answerPermission(permission)}
@@ -8617,15 +8631,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The composer's Run as rows: picking Cloud there is the person's pick of the chat's folder too,
   /// so the host grants it (workspace.useFolder) and the Cloud start may copy it (the same folder
   /// sendToCloud names). A folder Cloud never copies (home or above, agent-home) asks nothing.
-  /// The last Cloud pick's folder grant (workspace.useFolder), still out or done: a Cloud start waits
-  /// for it, so a Return right after picking Cloud never races the grant into path_outside_roots.
-  const cloudFolderGrant = useRef<Promise<unknown> | undefined>(undefined);
+  /// The Cloud picks' folder grants (workspace.useFolder), by folder: a Cloud start waits for the
+  /// grant of the folder it sends, at most CLOUD_FOLDER_GRANT_WAIT_MS, so a Return right after
+  /// picking Cloud never races the grant into path_outside_roots and a grant that never answers
+  /// never holds the composer.
+  const [cloudFolderGrant] = useState(() => cloudFolderGrants());
   const composerModeRows = {
     mode: sandboxModeRows.mode,
     onMode: (mode: RunMode) => {
       if (mode === "cloud") {
         const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
-        if ("cwd" in folder) cloudFolderGrant.current = pickFolder(callNative, folder.cwd, () => undefined);
+        if ("cwd" in folder)
+          cloudFolderGrant.granting(
+            folder.cwd,
+            pickFolder(callNative, folder.cwd, () => undefined),
+          );
       }
       sandboxModeRows.onMode(mode);
     },
@@ -8641,11 +8661,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// message as it goes (CloudStartView; the host's `cloudStartProgress` pushes fill it in).
   const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
   const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
-  const [startCloud] = useState(() =>
-    oneCloudStart((method, params) =>
-      (cloudFolderGrant.current ?? Promise.resolve()).catch(() => undefined).then(() => callNative(method, params)),
-    ),
-  );
+  const [startCloud] = useState(() => grantedCloudStart(callNative, cloudFolderGrant));
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
   /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
@@ -12162,7 +12178,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           setHostFailure(error);
           failingSince ??= Date.now();
           const recovering = hostIsReconnecting(error);
-          setHostErrorShown(hostErrorShows(error, Date.now() - failingSince));
+          // A sleeping Cloud machine is never "Can't reach"; an SSH peer of the same name still is.
+          const asleep = (peer: string | undefined) =>
+            peer !== undefined && snapshotRef.current?.peerKinds?.[peer] !== "ssh" && cloudMachineAsleep(peer);
+          setHostErrorShown(hostErrorShows(error, Date.now() - failingSince, asleep));
           // A refused chat of another machine still names that machine on its chip (cx-k21v).
           setMachineName((current) => refusedMachine(error) ?? current);
           // Another binary's daemon on this app's socket: the card offers Restart acpmux.
@@ -13721,6 +13740,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               shortcuts={cardTakesShortcuts(snapshot.permissionGroups)}
               waiting={snapshot.permissionsWaiting}
               harness={snapshot.summary?.harness}
+              fullAccessMode={fullAccessModeName(snapshot.summary)}
               focusComposer={() => composerHandle.current?.focus()}
               shownChat={shownChat}
             />
@@ -14011,6 +14031,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             draft={draft}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
+            onSuggestionTaken={() => directClient.current?.takeSuggestion()}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={handleCmuxCommand}
             onSend={(text, chips, steer) => {
@@ -14810,9 +14831,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   // (never home or above it, cloudStartFolder), and whenever Cloud may be offered, the
                   // host's sandbox check still out included (newTabProjectPick); a home or root answer
                   // asks nothing here (the local start still asks on Return).
-                  {...newTabProjectPick(callNative, sandboxOfferable, (grant) => {
-                    cloudFolderGrant.current = grant;
-                  })}
+                  {...newTabProjectPick(callNative, sandboxOfferable, cloudFolderGrant.granting)}
                   {...(!handshaken ? { startPending: true } : {})}
                   {...(newTabChatsPending ? { chatsPending: true } : {})}
                   {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}

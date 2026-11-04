@@ -255,6 +255,15 @@ impl Translator {
                         {
                             out.push(upd(plan));
                         }
+                        // Claude Code 2.1 keeps it with TaskCreate and TaskUpdate
+                        // instead: each call lands on its result (`task_plan.rs`). The
+                        // list is the main session's; a subagent's tasks stay its own.
+                        if main_line
+                            && super::task_plan::TaskPlan::follows(name)
+                            && let Some(id) = c.get("id").and_then(Value::as_str)
+                        {
+                            self.task_plan.lock().await.call(name, id, &input);
+                        }
                         // Every shell, so one moved to the background later
                         // keeps its command (cx-ncc.84).
                         if name == "Bash"
@@ -275,6 +284,12 @@ impl Translator {
                                 output: None,
                             };
                             self.background_shells.lock().await.insert(id.to_owned(), shell);
+                        }
+                        // Claude's /loop tools, the chat's goal from their results (`loops.rs`).
+                        if parent.is_none()
+                            && let Some(id) = c.get("id").and_then(Value::as_str)
+                        {
+                            self.note_loop_call(id, name, &input).await;
                         }
                         let mut call = tool_call_fields(name, &input);
                         call.set("sessionUpdate", json!("tool_call"));
@@ -416,7 +431,20 @@ impl Translator {
                             "status": if is_err { "failed" } else { "completed" },
                             "content": content,
                         })));
+                        // A task call's result redraws the task list (`task_plan.rs`).
+                        if let Some(plan) = self.task_plan.lock().await.result(
+                            tool,
+                            is_err,
+                            line.get("tool_use_result"),
+                        ) {
+                            out.push(upd(plan));
+                        }
                         if let Some(update) = self.workflow_launched(tool, is_err, line).await {
+                            out.push(upd(update));
+                        }
+                        if let Some(update) =
+                            self.loop_result(tool, is_err, line.get("tool_use_result")).await
+                        {
                             out.push(upd(update));
                         }
                         // A background subagent's result is only its launch, unless the launch
@@ -1006,7 +1034,8 @@ impl Translator {
     /// ended with its process, so each is reported `stopped`, marked
     /// `_meta.acpmux.endedBy: "harness_exit"` for the hub (`hub/processes.rs`
     /// lists it `lost`); the update itself is what clients show. A call named
-    /// early whose input was still streaming ends `failed` with them.
+    /// early whose input was still streaming ends `failed` with them, and its
+    /// loops end with it too (`loops.rs`).
     pub async fn end_background_shells(&self) -> Vec<Message> {
         let mut shells: Vec<_> =
             self.background_shells.lock().await.drain().filter(|(_, s)| s.background).collect();
@@ -1020,6 +1049,7 @@ impl Translator {
                            "_meta": {"acpmux": {"endedBy": "harness_exit"}}}),
             )
         }));
+        out.extend(self.end_loops().await);
         out
     }
 

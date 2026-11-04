@@ -34,7 +34,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxHomeCoreTests",
-            dependencies: ["CmuxHomeCore", "CmuxHomeCoreTestSupport"],
+            dependencies: ["CmuxHomeCore", "CmuxHomeCoreTestSupport", .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]
