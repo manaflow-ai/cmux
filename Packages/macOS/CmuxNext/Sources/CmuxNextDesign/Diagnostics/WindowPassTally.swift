@@ -42,6 +42,8 @@ public struct WindowPassTally {
     /// One frame: `windowPasses` is the frame's window pass count (`LayoutPassGuard.windowLayoutPasses` delta).
     public mutating func frame(windowPasses: Int, records: Bool = true) {
         if !LayoutPassGuard.shared.countsPassesByWindow { LayoutPassGuard.shared.countsPassesByWindow = true }
+        // Slots for the windows there are now, before the next frame's passes (a window made since counts as no slot once).
+        defer { LayoutPassGuard.shared.registerWindowsForPassCounts(NSApp?.windows ?? []) }
         guard windowPasses > 0 else { return records ? perFrame.append([:]) : () }
         var frame: [String: Int] = [:]
         for (window, passes) in LayoutPassGuard.shared.windowPassCounts {

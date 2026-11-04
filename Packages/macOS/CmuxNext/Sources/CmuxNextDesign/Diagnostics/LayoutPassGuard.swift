@@ -76,9 +76,10 @@ public final class LayoutPassGuard {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// ``windowLayoutPasses`` per window (DEV and bench builds), only while `debug.frames` runs
     /// (``countsPassesByWindow``): it names the window of each pass by its role (``LayoutPassRoleNaming``). Fixed slots
-    /// made when counting starts: a pass finds its window's slot or a free one (at most ``windowSlots`` compares) and adds
-    /// one; it never allocates. A window past the slots counts in ``passesInNoSlot``.
-    private var passesByWindow: [(window: WeakWindow, passes: Int)] = []
+    /// made when counting starts; the probe's frame tick gives each window a slot (``registerWindowsForPassCounts(_:)``),
+    /// outside any pass, and a pass only finds its window's slot by identity (at most ``windowSlots`` compares) and adds
+    /// one: no allocation, no weak reference made. A window with no slot yet counts in ``passesInNoSlot``.
+    private var passesByWindow: [(id: ObjectIdentifier?, window: WeakWindow, passes: Int)] = []
     static let windowSlots = 64
     /// Passes of windows that found no free slot while counting.
     public private(set) var passesInNoSlot = 0
@@ -87,7 +88,7 @@ public final class LayoutPassGuard {
     public var countsPassesByWindow = false {
         didSet {
             guard countsPassesByWindow != oldValue else { return }
-            passesByWindow = countsPassesByWindow ? Array(repeating: (WeakWindow(object: nil), 0), count: Self.windowSlots) : []
+            passesByWindow = countsPassesByWindow ? Array(repeating: (nil, WeakWindow(object: nil), 0), count: Self.windowSlots) : []
             passesInNoSlot = 0
         }
     }
@@ -204,16 +205,25 @@ public final class LayoutPassGuard {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// One pass of `window` in its slot, or in a free slot (empty, or its window gone), else in ``passesInNoSlot``.
+    /// One pass of `window` in its slot (by identity only), else in ``passesInNoSlot``.
     private func countPass(of window: NSWindow) {
-        var free: Int?
-        for index in passesByWindow.indices {
-            let slot = passesByWindow[index].window.object
-            if slot === window { return passesByWindow[index].passes &+= 1 }
-            if slot == nil, free == nil { free = index }
+        let id = ObjectIdentifier(window)
+        for index in passesByWindow.indices where passesByWindow[index].id == id { return passesByWindow[index].passes &+= 1 }
+        passesInNoSlot &+= 1
+    }
+
+    /// Gives each of `windows` a slot while counting (the probe's frame tick, outside any layout pass): a slot whose
+    /// window is gone is freed first, and a window that gets a slot starts at 0.
+    public func registerWindowsForPassCounts(_ windows: [NSWindow]) {
+        guard countsPassesByWindow else { return }
+        for index in passesByWindow.indices where passesByWindow[index].id != nil && passesByWindow[index].window.object == nil {
+            passesByWindow[index] = (nil, WeakWindow(object: nil), 0)
         }
-        guard let free else { return passesInNoSlot &+= 1 }
-        passesByWindow[free] = (WeakWindow(object: window), 1)
+        for window in windows {
+            let id = ObjectIdentifier(window)
+            guard !passesByWindow.contains(where: { $0.id == id }), let free = passesByWindow.firstIndex(where: { $0.id == nil }) else { continue }
+            passesByWindow[free] = (id, WeakWindow(object: window), 0)
+        }
     }
     #endif
 
