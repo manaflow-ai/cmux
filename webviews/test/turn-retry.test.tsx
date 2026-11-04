@@ -5,7 +5,7 @@
 // failed turn's Retry now asks acpmux first, and sends the prompt again only where acpmux cannot.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { resendToOwner, retryFailedTurn } from "../src/agent-session/acpmux/conversation/turnRetry";
+import { RetryNotSent, resendToOwner, retryFailedTurn } from "../src/agent-session/acpmux/conversation/turnRetry";
 import { RETRY_METHOD, TURN_RETRY } from "../src/agent-session/acpmux/subagents/retryState";
 
 const refusal = (reason: string, why?: string) =>
@@ -254,10 +254,66 @@ test("the fallback send checks the chat and client again after the prompt is res
     });
     change(state);
     restored({ input: "fix the build", attachments: [] });
-    await going;
-    return sent;
+    // One that sent nothing rejects (RetryNotSent), so the card says Retry could not run.
+    const went = await going.then(
+      () => true,
+      (error: unknown) => (error instanceof RetryNotSent ? false : Promise.reject(error)),
+    );
+    return [went, sent] as const;
   };
-  expect(await run(() => undefined)).toEqual(["fix the build"]);
-  expect(await run((state) => (state.owns = false))).toEqual([]);
-  expect(await run((state) => (state.client = {}))).toEqual([]);
+  expect(await run(() => undefined)).toEqual([true, ["fix the build"]]);
+  expect(await run((state) => (state.owns = false))).toEqual([false, []]);
+  expect(await run((state) => (state.client = {}))).toEqual([false, []]);
+});
+
+// cmux#34369: a Retry whose fallback send reached no chat settled as sent, so the card said nothing
+// and the button came back as if the click had not happened.
+test("a fallback send that reaches no chat says Retry could not run", async () => {
+  const { deps: d } = deps(() => Promise.reject(Object.assign(new Error("no method"), { code: -32601 })));
+  expect(await retryFailedTurn({ ...d, resend: () => Promise.reject(new RetryNotSent()) })).toBe("retry.failed");
+});
+
+// cmux#34369: acpmux took the Retry, and the card came back at once looking untouched; during a
+// gateway outage the retried attempt failed again as fast, so the click read as doing nothing. The
+// card says Retrying… from the click until the attempt reaches the chat and changes the row. The
+// button waits only while the request is in flight: a second click is acpmux's to refuse.
+test("a Retry acpmux took says Retrying… until its attempt reaches the chat", async () => {
+  const answers: ((note: "retry.busy" | undefined) => void)[] = [];
+  const draw = (row: Parameters<typeof TurnFooter>[0]["row"]) =>
+    act(async () =>
+      root.render(
+        <TurnActionsContext.Provider
+          value={{
+            retry: () => undefined,
+            retryFailed: () => new Promise((resolve) => answers.push(resolve)),
+          }}
+        >
+          {/* Keyed by the row's id, as the transcript draws it: a new failure is a new footer. */}
+          <TurnFooter key={row.id} row={row} />
+        </TurnActionsContext.Provider>,
+      ),
+    );
+  const note = () => card().querySelector(".cv-turn-error__note")?.textContent;
+  await draw({ ...failed, id: "summary-retried" });
+  expect(note()).toBeUndefined();
+  await act(async () => cardRetry().click());
+  expect([note(), cardRetry().hasAttribute("disabled"), footerRetry().hasAttribute("disabled")]).toEqual([
+    "Retrying…",
+    true,
+    true,
+  ]);
+  // acpmux answered: the attempt is on its way, and the card keeps saying so.
+  await act(async () => answers[0]!(undefined));
+  expect([note(), cardRetry().hasAttribute("disabled")]).toEqual(["Retrying…", false]);
+  // A second click while it runs is acpmux's to refuse, and the card says why.
+  await act(async () => footerRetry().click());
+  await act(async () => answers[1]!("retry.busy"));
+  expect(note()).toBe("Busy, try again shortly");
+  // A Retry taken again, then the attempt reached the chat: the row changed and the note is gone.
+  await act(async () => cardRetry().click());
+  await act(async () => answers[2]!(undefined));
+  expect(note()).toBe("Retrying…");
+  await draw({ ...failed, id: "summary-retried", version: failed.version + 1 });
+  expect([note(), cardRetry().hasAttribute("disabled")]).toEqual([undefined, false]);
+  expect(answers.length).toBe(3);
 });

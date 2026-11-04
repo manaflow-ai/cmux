@@ -8119,7 +8119,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             retryFailed: ((owner: string) => (rowId: string | undefined, prompt: string | undefined) => {
               const reaches = () => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession);
               const client = directClient.current;
-              if (!client || !reaches()) return Promise.resolve(undefined);
+              // Nothing to ask (the daemon went away and the client is not back yet, or the pane moved
+              // to another chat): say so on the card. Settling as sent left a Retry that did nothing
+              // (cmux#34369).
+              if (!client || !reaches()) return Promise.resolve("retry.failed" as const);
               return retryFailedTurn({
                 sessionId: owner,
                 capabilities: client.capabilities,
