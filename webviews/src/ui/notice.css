@@ -30,6 +30,12 @@
   user-select: none;
 }
 
+/* A field inside (a tool card's secret) still selects and replaces its text. */
+.ui-notice :is(input, textarea) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 .ui-notice[data-kind="error"] {
   --ui-notice-mark: var(--ds-color-danger);
 }

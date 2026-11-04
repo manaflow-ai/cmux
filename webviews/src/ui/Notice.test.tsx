@@ -142,6 +142,14 @@ test("the queue replaces by id, keeps the newest three and says why each left", 
   expect(queue.snapshot().map((e) => e.spec.id)).toEqual(["b", "d"]);
 });
 
+test("a queue keeps at least the newest toast, whatever its limit", () => {
+  const queue = createNoticeQueue(0);
+  const closed: string[] = [];
+  for (const id of ["a", "b"]) queue.show({ id, message: id, onClose: (reason) => closed.push(`${id}:${reason}`) });
+  expect(queue.snapshot().map((entry) => entry.spec.id)).toEqual(["b"]);
+  expect(closed).toEqual(["a:replaced"]);
+});
+
 test("a toast times out, but not while the stack is hovered, and gets its full time after", () => {
   let clock = 0;
   const armed: { fire(): void; ms: number; live: boolean }[] = [];

@@ -41,6 +41,8 @@ export interface NoticeQueue {
 }
 
 export function createNoticeQueue(limit = STACK_LIMIT): NoticeQueue {
+  // At least one: a limit of 0 would report every toast replaced and still keep it.
+  const keep = Math.max(1, limit);
   let entries: readonly NoticeEntry[] = [];
   let next = 0;
   let shown = 0;
@@ -58,8 +60,9 @@ export function createNoticeQueue(limit = STACK_LIMIT): NoticeQueue {
         entries = entries.map((old, index) => (index === at ? entry : old));
       } else {
         const kept = [...entries, entry];
-        for (const pushed of kept.slice(0, Math.max(0, kept.length - limit))) pushed.spec.onClose?.("replaced");
-        entries = kept.slice(-limit);
+        const evicted = Math.max(0, kept.length - keep);
+        for (const pushed of kept.slice(0, evicted)) pushed.spec.onClose?.("replaced");
+        entries = kept.slice(evicted);
       }
       emit();
       return id;

@@ -61,7 +61,7 @@ export interface NoticeProps {
   retry?: { label: string; onRetry(): void; disabled?: boolean; hint?: string };
   actions?: readonly NoticeAction[];
   check?: NoticeCheck;
-  /** The ×, and Escape while focus is inside. Needs `dismissLabel`. */
+  /** The ×, and Escape while focus is inside. The × has no text, so `dismissLabel` names it. */
   onDismiss?(): void;
   dismissLabel?: string;
   /** Extra content between the text and the buttons (a field). */
@@ -162,7 +162,8 @@ export function Notice({
           {buttons.length > 0 && (
             <div className="ui-notice-actions">
               {buttons.map(({ action, filled }) =>
-                action.href ? (
+                // A disabled link is drawn as its disabled button, so it neither focuses nor opens.
+                action.href && !action.disabled ? (
                   // A link the host opens outside the page (PageNavigation), in the button's look.
                   <a
                     key={action.id}
