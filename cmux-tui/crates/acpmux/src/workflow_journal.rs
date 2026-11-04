@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
@@ -399,14 +399,7 @@ impl Journal {
 
 fn preserve_corrupt_tail(path: &Path, bytes: &[u8]) -> Result<()> {
     let sidecar = path.with_file_name("activities.jsonl.corrupt");
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-    }
-    match options.open(&sidecar) {
+    match crate::config::private_state_create_new(&sidecar) {
         Ok(mut file) => {
             file.write_all(bytes)?;
             file.sync_all()?;
@@ -414,7 +407,12 @@ fn preserve_corrupt_tail(path: &Path, bytes: &[u8]) -> Result<()> {
             File::open(path.parent().context("workflow journal has no parent")?)?.sync_all()?;
             Ok(())
         }
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+        Err(error)
+            if error
+                .root_cause()
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == std::io::ErrorKind::AlreadyExists) =>
+        {
             let existing = std::fs::read(&sidecar).with_context(|| {
                 format!("read preserved corrupt workflow journal {}", sidecar.display())
             })?;
@@ -430,16 +428,8 @@ fn preserve_corrupt_tail(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 fn private_file(path: &Path) -> Result<File> {
-    let mut options = OpenOptions::new();
-    options.read(true).write(true).create(true).truncate(false);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-    }
-    // The containing directory has already passed private_state_dir's owner
-    // and access checks (including its Windows owner-only ACL).
-    options.open(path).with_context(|| format!("open workflow journal {}", path.display()))
+    crate::config::private_state_rw(path)
+        .with_context(|| format!("open workflow journal {}", path.display()))
 }
 
 fn fingerprint(kind: &str, prompt: &str, options: &Value) -> Result<String> {
