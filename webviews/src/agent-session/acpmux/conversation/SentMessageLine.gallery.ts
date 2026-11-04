@@ -171,9 +171,14 @@ const writtenFile = () =>
     { title: "coord" },
   );
 
-/// Opens the finished turn's "Worked for" line, where its calls are.
+/// Opens the finished turn's "Worked for" line, where its calls are, then the line its run of sends
+/// folds into ("Sent 7 messages", MessageRunLine.tsx, #31398), which draws the rows as before.
 const openTurn: Play = async (ctx) => {
   await ctx.click({ selector: ".cv-worked.is-toggle" });
+  const run = () => ctx.document.querySelector("button[data-message-run]");
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent") ?? run());
+  if (!ctx.document.querySelector(".cv-sent") && run()?.getAttribute("aria-expanded") === "false")
+    await ctx.click({ selector: "button[data-message-run]" });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-sent"));
 };
 

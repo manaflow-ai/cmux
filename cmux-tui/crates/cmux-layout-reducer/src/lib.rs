@@ -953,6 +953,7 @@ mod rows_tests;
 #[cfg(test)]
 mod sidebar_face_tests;
 
+pub mod group_hover_summary;
 #[cfg(kani)]
 mod proofs;
 pub mod scroll;

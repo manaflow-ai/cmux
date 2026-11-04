@@ -85,7 +85,7 @@ public final class TerminalSession {
     public var isRenderingSuspended = false {
         didSet {
             surfaceView.isRenderingSuspended = isRenderingSuspended
-            if isRenderingSuspended != oldValue { frameChanges.bump() } // shown or hidden: its kept frame follows
+            if isRenderingSuspended != oldValue { frameChanges.wake() } // shown or hidden: its kept frame follows
         }
     }
     /// This terminal's content changes, for the launch frame keeper (``TerminalLaunchFrameKeeper``).
@@ -422,7 +422,7 @@ public final class TerminalSession {
     /// whether the underlying terminal keeps running.
     public func close() {
         isClosed = true
-        frameChanges.bump() // its kept frame goes (TerminalLaunchFrameKeeper)
+        frameChanges.wake() // its kept frame goes (TerminalLaunchFrameKeeper)
         let onClose = view.onClose
         view.onClose = nil
         onClose?()

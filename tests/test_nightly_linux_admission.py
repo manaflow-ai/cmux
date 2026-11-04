@@ -46,6 +46,20 @@ def expected_fallback(job):
     return ENV["OVERFLOW_LINUX"] if job == "build-nightly-inputs" else "ubuntu-24.04"
 
 
+def pool_context(overflow):
+    return {"vars.RUNNER_POOLS": json.dumps({
+        "linux_16": "blacksmith-16vcpu-ubuntu-2404",
+        "linux_32": "blacksmith-32vcpu-ubuntu-2404",
+        "linux_4": "blacksmith-4vcpu-ubuntu-2404",
+    })}
+
+
+def resolve_pool_literals(source):
+    return (source.replace("fromJSON(vars.RUNNER_POOLS).linux_16", "'blacksmith-16vcpu-ubuntu-2404'")
+                  .replace("fromJSON(vars.RUNNER_POOLS).linux_32", "'blacksmith-32vcpu-ubuntu-2404'")
+                  .replace("fromJSON(vars.RUNNER_POOLS).linux_4", "'blacksmith-4vcpu-ubuntu-2404'"))
+
+
 class Receipts(unittest.TestCase):
     def test_future_receipt_cannot_authorize_overflow(self):
         value = receipt("overflow")
@@ -246,48 +260,51 @@ class Workflow(unittest.TestCase):
 
     def test_missing_stale_or_quota_failed_picker_uses_measured_overflow(self):
         for name in admission.JOBS:
-            source = self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
+            source = resolve_pool_literals(self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}"))
             key = f"needs.decide.outputs.early_{admission.output_key(name)}_runner"
             for attempt in (1, 2, 3):
                 for overflow in admission.OVERFLOW:
                     context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": attempt,
                                "needs.decide.outputs.track": "nightly-next",
                                "needs.decide.outputs.early_attempt": "0", key: overflow,
-                               "vars.LINUX_RUNNER": overflow}
+                               "vars.LINUX_RUNNER": overflow, **pool_context(overflow)}
                     with self.subTest(job=name, attempt=attempt, overflow=overflow):
                         self.assertEqual(evaluate(parse_expression(source), context),
                                          overflow if name == "build-nightly-inputs" or attempt != 1 else "ubuntu-24.04")
 
     def test_light_resolvers_keep_hosted_first_only_for_nightly_next(self):
         for name in admission.JOBS - {"build-nightly-inputs"}:
-            source = self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
+            source = resolve_pool_literals(self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}"))
             key = f"needs.decide.outputs.early_{admission.output_key(name)}_runner"
             for attempt in (1, 2):
                 context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": attempt,
                            "needs.decide.outputs.track": "nightly-next",
                            "needs.decide.outputs.early_attempt": "0", key: "",
-                           "vars.LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"}
+                           "vars.LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
+                           **pool_context("blacksmith-16vcpu-ubuntu-2404")}
                 expected = "ubuntu-24.04" if attempt == 1 else "blacksmith-16vcpu-ubuntu-2404"
                 self.assertEqual(evaluate(parse_expression(source), context), expected)
 
     def test_light_resolvers_on_other_tracks_keep_measured_blacksmith_overflow(self):
         for name in ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper"):
-            source = self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
+            source = resolve_pool_literals(self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}"))
             for track in ("nightly", "rc"):
                 with self.subTest(job=name, track=track):
                     context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1,
                                "needs.decide.outputs.track": track,
-                               "vars.LINUX_RUNNER": ENV["OVERFLOW_LINUX"]}
+                               "vars.LINUX_RUNNER": ENV["OVERFLOW_LINUX"],
+                               **pool_context(ENV["OVERFLOW_LINUX"])}
                     self.assertEqual(evaluate(parse_expression(source), context), "blacksmith-16vcpu-ubuntu-2404")
 
     def test_each_job_consumes_only_its_current_attempt_receipt(self):
         for name in admission.JOBS:
-            source = self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}")
+            source = resolve_pool_literals(self.jobs[name]["runs-on"].removeprefix("${{").removesuffix("}}"))
             key = f"needs.decide.outputs.early_{admission.output_key(name)}_runner"
             for label in (receipt("fleet")["runners"][name], expected_fallback(name)):
                 context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": 2,
                            "needs.decide.outputs.track": "nightly-next",
                            "needs.decide.outputs.early_attempt": "2", key: label}
+                context.update(pool_context(label if label.startswith("blacksmith-") else ENV["OVERFLOW_LINUX"]))
                 with self.subTest(job=name, label=label):
                     self.assertEqual(evaluate(parse_expression(source), context), label)
 

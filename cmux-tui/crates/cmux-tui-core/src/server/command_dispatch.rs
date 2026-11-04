@@ -68,6 +68,10 @@ fn dispatch_command(
         Command::ChiefInspect(_) => {
             anyhow::bail!("chief-inspect requires the asynchronous request path")
         }
+        Command::ChiefWork { chief } => {
+            drop(chief);
+            anyhow::bail!("chief-work requires the asynchronous request path")
+        }
         Command::PasteImage {
             surface,
             terminal_id,
@@ -206,7 +210,7 @@ fn dispatch_command(
         Command::ReloadConfig => cmd_server::reload_config(mux),
         Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
         Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
-        Command::ListWorkspaces => cmd_workspaces::list_workspaces(mux),
+        Command::ListWorkspaces => cmd_workspaces::list_workspaces(mux, writer.lines_written()),
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
             cmd_frontend::get_frontend_projection(mux, frontend, scope, subject_key)
         }
@@ -268,7 +272,9 @@ fn dispatch_command(
         Command::CreateSurfaceWithReceipt(request) => {
             cmd_frontend::create_surface_with_receipt_command(mux, client, request)
         }
-        Command::SendKey { surface, keys } => cmd_terminal_io::send_key(mux, client, surface, keys),
+        Command::SendKey { surface, keys } => {
+            cmd_terminal_io::send_key(mux, client, writer, surface, keys)
+        }
         Command::Copy { surface, mode } => cmd_terminal_io::copy(mux, surface, mode),
         Command::Ids { kind } => cmd_frontend::ids(mux, kind),
         Command::Notify { title, body, level, surface, source } => {
@@ -929,6 +935,9 @@ fn dispatch_command(
         }
         Command::ClientFocus { client_id } => cmd_server::client_focus(mux, client_id),
         Command::SnapshotRequest(params) => cmd_terminal_io::snapshot_request(mux, client, params),
+        Command::SetAttachVisibility(params) => {
+            terminal_snapshot::set_visibility(mux, client, params)
+        }
         Command::TerminalHistory(params) => cmd_terminals::terminal_history(mux, params),
         Command::TerminalReadRange(params) => cmd_terminals::terminal_read_range(mux, params),
         Command::ScrollSurface { surface, delta } => {

@@ -47,7 +47,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("OVERFLOW_LABEL", str(self.jobs["dev-landing-place"]))
         # With no placement at all (the placing job failed), the larger-capacity 6 vCPU label, never 12 vCPU
         # alone: it started nothing from about 02:11Z on 2026-10-28 (tests/test_ci_runs_on_fallback.py).
-        self.assertTrue(runs_on.rstrip(" }").endswith("'blacksmith-6vcpu-macos-26'"), runs_on)
+        self.assertTrue(runs_on.rstrip(" })").endswith("fromJSON(vars.RUNNER_POOLS).macos_26"), runs_on)
         self.assertIn("needs.dev-landing-place.outputs.runner_label", self.jobs["dev-landing-compile"]["env"]["CMUX_NEXT_RUNNER"])
 
     def test_the_compile_records_its_app_where_the_dev_run_looks(self):

@@ -27,6 +27,8 @@ pub(super) struct OpenWork {
     /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt,
     /// client, control; a Web steer's `turn_control` raises it).
     turn: Option<(u64, String, String, String, String, Control)>,
+    /// Whether the open turn was started by the Cloud mobile relay.
+    cloud_mobile_turn: bool,
     /// That turn's line on the summary (`turn_started` `promptLine`, `prompt_line.rs`); `None`
     /// for an older record.
     turn_line: Option<String>,
@@ -568,7 +570,7 @@ impl Hub {
         };
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
         // What the daemon that started it kept of its MCP servers (`hub/idle_census.rs`).
-        self.restore_launch(session, &child, &incarnation);
+        self.restore_launch(session, &child, &incarnation, kind).await;
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
@@ -920,6 +922,7 @@ impl Hub {
                     // A new harness runs no carried turn of the old one's.
                     work.carry_next = None;
                     work.turn_carried = false;
+                    work.cloud_mobile_turn = false;
                     work.next_raised = false;
                     work.last_host_seq = 0;
                     host_seq_at = None;
@@ -934,6 +937,8 @@ impl Hub {
                         next.get("turnId") == e.msg.get("turnId")
                             && next.get("control").and_then(Value::as_str) == Some("web")
                     });
+                    work.cloud_mobile_turn =
+                        e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
                     work.turn = Some((
                         e.seq,
                         field("turnId"),
@@ -1166,6 +1171,7 @@ impl Hub {
             .floor
             .last_turn_web
             .store(work.last_control == Some(Control::Web), Ordering::SeqCst);
+        session.floor.cloud_mobile_turn.store(work.cloud_mobile_turn, Ordering::SeqCst);
         if let Some((_, turn_id, ..)) = &work.turn
             && work.floor_cancelled.as_ref() == Some(turn_id)
         {

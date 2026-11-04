@@ -4,7 +4,7 @@ import type { ManagedBanner } from "./ManagedBanner";
 
 type Props = Parameters<typeof ManagedBanner>[0];
 
-const onTakeOver = () => undefined;
+const onHide = () => undefined;
 const onOpenManager = () => undefined;
 
 export default componentEntry<Props>({
@@ -17,13 +17,13 @@ export default componentEntry<Props>({
   load: () => import("./ManagedBanner").then((module) => module.ManagedBanner),
   variants: {
     chief: {
-      props: { manager: { kind: "chief" }, onTakeOver },
-      note: "A Chief's subagent: Chief is managing this chat, Take over",
+      props: { manager: { kind: "chief" }, onHide },
+      note: "A Chief's subagent: Chief is sending messages here, Hide",
     },
     agent: {
       props: {
         manager: { kind: "agent", name: "claude-sr2-coord", sessionId: "s-coord" },
-        onTakeOver,
+        onHide,
         onOpenManager,
       },
       note: "A sub-session another chat started: its name opens that chat",
@@ -35,10 +35,10 @@ export default componentEntry<Props>({
           name: "Land the group chat guest composer and approvals across Home and New Tab",
           sessionId: "s-long",
         },
-        onTakeOver,
+        onHide,
         onOpenManager,
       },
-      note: "A long chat title is cut with an ellipsis; Take over keeps its size",
+      note: "A long chat title is cut with an ellipsis; Hide keeps its size",
     },
   },
 });

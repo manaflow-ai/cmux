@@ -404,6 +404,43 @@
    side: it may cover its own anchor, so it fits the window less the edge margins. */
 .ui-popup[data-popup-shift] { --available-height: calc(100vh - 16px); }
 
+/* Shared scroll-edge fade: rows soften only at edges with more content. The tracker
+   disconnects its observers and passive scroll listener when the surface unmounts. */
+.ui-scroll-edge-fade:is([data-fade-top], [data-fade-bottom]) {
+  --ui-scroll-fade-top: 0px;
+  --ui-scroll-fade-bottom: 0px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--ui-scroll-fade-top),
+    #000 calc(100% - var(--ui-scroll-fade-bottom)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--ui-scroll-fade-top),
+    #000 calc(100% - var(--ui-scroll-fade-bottom)),
+    transparent
+  );
+}
+.ui-scroll-edge-fade[data-fade-top] {
+  --ui-scroll-fade-top: 14px;
+}
+.ui-scroll-edge-fade[data-fade-bottom] {
+  --ui-scroll-fade-bottom: 22px;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .ui-scroll-edge-fade:is([data-fade-top], [data-fade-bottom]) {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+:root[data-reduce-transparency] .ui-scroll-edge-fade:is([data-fade-top], [data-fade-bottom]) {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
 /* AppKit's menu columns, shared by page and agent-pane bundles. The popup owns the
    highlight inset; when any row has an icon, every row reserves the icon column.
    A state column belongs to the whole popup, never only to the checked row. The Claude Code

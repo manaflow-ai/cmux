@@ -34,6 +34,10 @@ export type TrustHeldPrompt = {
   /// The gesture ticket its send reserves for its prompt id (`transport.gesture`); none when the
   /// host gave none. It goes once this settles: the reserve took the send's gesture.
   ticket: Promise<string | undefined>;
+  /// Held while the chat's Cloud machine wakes (cloudWake.ts), not for the folder's trust: it
+  /// reserves no ticket (a ticket ends with the connection the wake replaces) and goes with the
+  /// send's gesture once the chat is back.
+  waking?: true;
 };
 
 /// Whether `entry` was sent in the chat shown: its session, or for a new chat (no session yet) its
@@ -81,7 +85,13 @@ export function heldQueueRows(
     .filter((entry) => sentIn(entry, chat, cwd))
     .map((entry) => {
       const images = attachedImages(entry.attachments);
-      return { id: entry.id, prompt: entry.text, held: true, ...(images.length ? { images } : {}) };
+      return {
+        id: entry.id,
+        prompt: entry.text,
+        held: true,
+        ...(entry.waking ? { waking: true as const } : {}),
+        ...(images.length ? { images } : {}),
+      };
     });
 }
 
@@ -144,11 +154,14 @@ export function useTrustHeldPrompts({
   const going = useRef<TrustHeldPrompt | undefined>(undefined);
   /// Prompts a quitting page took out (`release`): a send of one that settles later puts nothing back.
   const released = useRef(new Set<string>());
+  /// Picks from the new chat still waiting for the chat they open (``pauseNewChat``): no new chat's
+  /// prompt goes meanwhile, or it could land in that chat.
+  const pausedNewChat = useRef(0);
 
   useEffect(() => {
     if (holds || flushing.current || !held.some((entry) => sentIn(entry, chat, cwd))) return;
-    // A new chat's first prompt is starting it: the rest wait for its session.
-    if (chat === undefined && starting.current) return;
+    // A new chat's first prompt is starting it: the rest wait for its session. A pick paused them.
+    if (chat === undefined && (starting.current || pausedNewChat.current > 0)) return;
     flushing.current = true;
     void (async () => {
       // One at a time, each once acpmux took the one before. A new chat's first prompt starts it;
@@ -157,6 +170,7 @@ export function useTrustHeldPrompts({
         const shown = now.current;
         const entry = shown.held.find((item) => sentIn(item, chat, cwd));
         if (!entry || shown.holds || shown.chat !== chat || shown.cwd !== cwd) break;
+        if (chat === undefined && pausedNewChat.current > 0) break;
         now.current = { ...shown, held: shown.held.filter((item) => item.id !== entry.id) };
         setHeld((list) => list.filter((item) => item.id !== entry.id));
         if (chat === undefined) starting.current = true;
@@ -230,22 +244,32 @@ export function useTrustHeldPrompts({
   }, [holds, chat, cwd, held, rounds]);
 
   /// Holds a prompt sent now, with its send's gesture, in the chat shown, or in `sentFrom`: the chat
-  /// and folder it was sent in, for a refusal that came after the person moved on.
+  /// and folder it was sent in, for a refusal that came after the person moved on. `waking`: it
+  /// waits for the chat's Cloud machine to wake instead (cloudWake.ts), with no ticket.
   const hold = useCallback(
     (
       text: string,
       attachments: ComposerAttachment[],
       sentFrom?: { chat: string | undefined; cwd: string | undefined },
+      waking = false,
     ) => {
       const id = crypto.randomUUID();
-      const ticket = reserve(id).catch(() => undefined);
-      const entry = { id, ...(sentFrom ?? { chat, cwd }), text, attachments, ticket };
+      const ticket = waking ? Promise.resolve(undefined) : reserve(id).catch(() => undefined);
+      const entry: TrustHeldPrompt = {
+        id,
+        ...(sentFrom ?? { chat, cwd }),
+        text,
+        attachments,
+        ticket,
+        ...(waking ? { waking: true as const } : {}),
+      };
       now.current = { ...now.current, held: [...now.current.held, entry] };
       setHeld((list) => [...list, entry]);
     },
     [chat, cwd, reserve],
   );
 
+  const rowsInKept = useRef<{ held: TrustHeldPrompt[]; chat: string; rows: QueuedPrompt[] } | undefined>(undefined);
   // The same rows until a held prompt comes, goes or changes (the composer's snapshot keeps them).
   const rows = useMemo(() => heldQueueRows(held, chat, cwd), [held, chat, cwd]);
   // Every new chat's held text, whichever folder it was picked in: the tab's one new chat keeps them.
@@ -296,6 +320,59 @@ export function useTrustHeldPrompts({
     edit: (id: string, edit: QueueEdit) => {
       now.current = { ...now.current, held: editHeld(now.current.held, id, edit) };
       setHeld((list) => editHeld(list, id, edit));
+    },
+    /// Holds every new chat's prompt from now, for a pick waiting for the chat it opens; returns
+    /// what resumes them (once, however often it is called). A pick that lands takes them first
+    /// (``takeNewChat``); one that fails only resumes, and they go as before.
+    pauseNewChat: () => {
+      pausedNewChat.current += 1;
+      let resumed = false;
+      return () => {
+        if (resumed) return;
+        resumed = true;
+        pausedNewChat.current -= 1;
+        setRounds((count) => count + 1);
+      };
+    },
+    /// Takes every new chat's held prompt out, in order, for a tab that opens another chat: what
+    /// they say goes with the new chat's leftover (cmux#32276), and none is sent after.
+    /// One going (a start the pick cancelled, not settled yet) is taken first, as `release` takes
+    /// it: its send settling later puts nothing back, and a copy that reached acpmux stays a draft.
+    takeNewChat: () => {
+      const inFlight = going.current?.chat === undefined ? going.current : undefined;
+      if (inFlight) {
+        going.current = undefined;
+        released.current.add(inFlight.id);
+      }
+      const held = now.current.held.filter((entry) => entry.chat === undefined);
+      if (held.length) {
+        const ids = new Set(held.map((entry) => entry.id));
+        now.current = { ...now.current, held: now.current.held.filter((entry) => !ids.has(entry.id)) };
+        setHeld((list) => list.filter((entry) => !ids.has(entry.id)));
+      }
+      return inFlight ? [inFlight, ...held] : held;
+    },
+    /// The held prompts of chat `shownChat` as queue rows, for a chat the pane shows under the id its tab
+    /// recorded while it is not listed (a Cloud machine that wakes, cloudWake.ts).
+    /// The same rows until a held prompt comes, goes or changes, as `rows` keeps them.
+    rowsIn: (shownChat: string) => {
+      const kept = rowsInKept.current;
+      if (kept?.held === held && kept.chat === shownChat) return kept.rows;
+      const next = heldQueueRows(held, shownChat, undefined);
+      rowsInKept.current = { held, chat: shownChat, rows: next };
+      return next;
+    },
+    /// Whether any prompt waits for a Cloud machine to wake (cloudWake.ts).
+    wakingAny: () => now.current.held.some((entry) => entry.waking),
+    /// Takes every prompt that waits for a Cloud machine to wake out, in order: the wake failed, so
+    /// they go back into the composer.
+    takeWaking: () => {
+      const taken = now.current.held.filter((entry) => entry.waking);
+      if (!taken.length) return taken;
+      const ids = new Set(taken.map((entry) => entry.id));
+      now.current = { ...now.current, held: now.current.held.filter((entry) => !ids.has(entry.id)) };
+      setHeld((list) => list.filter((entry) => !ids.has(entry.id)));
+      return taken;
     },
     /// The held prompt `id`, for an edit that takes it back into the composer.
     get: (id: string) => now.current.held.find((entry) => entry.id === id),

@@ -229,7 +229,64 @@ fn workspace_list_reads_the_window_without_waiting_for_the_apps_read_barrier() {
     drop(stream);
     let received = app.join().unwrap();
     assert_eq!(received.len(), 1, "one snapshot read, no retry: {received:?}");
-    assert_ne!(received[0]["params"]["after"], "sync", "{received:?}");
+    assert_eq!(received[0]["params"]["after"], 0, "{received:?}");
     assert_eq!(reply[0]["focused"], true, "{reply}");
     assert_eq!(reply[1]["focused"], false, "{reply}");
+}
+
+/// An app whose published snapshot is older than the caller's last daemon
+/// write: `after: 0` answers the old window, `after: "sync"` the new one.
+fn lagging_app(published: Value, synced: Value) -> (PathBuf, std::thread::JoinHandle<Vec<Value>>) {
+    let dir = cmux_unix_socket::short_test_dir("cmux-focus-lag");
+    let socket = dir.path().join("app.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let handle = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut received = Vec::new();
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap() > 0 {
+            let request = serde_json::from_str::<Value>(&line).unwrap();
+            line.clear();
+            let snapshot = if request["params"]["after"] == "sync" {
+                synced.clone()
+            } else {
+                published.clone()
+            };
+            received.push(request);
+            writeln!(writer, "{}", ok(snapshot)).unwrap();
+        }
+        drop(dir);
+        received
+    });
+    (socket, handle)
+}
+
+/// Review of #32201: `workspace close <shown>; workspace list`. The app's
+/// last published snapshot can still show the closed workspace. A list in
+/// which the window's workspace is missing is older than the caller's
+/// write, so it reads the window once more with the read barrier.
+#[test]
+fn a_list_without_the_window_s_workspace_reads_the_window_again_with_the_barrier() {
+    let (socket, app) = lagging_app(
+        json!({"topology": {"focus": {"workspace": "ws_closed"},
+            "workspaces": [{"id": "ws_closed"}, {"id": "ws_a"}, {"id": "ws_b"}]}}),
+        json!({"topology": {"focus": {"workspace": "ws_b"},
+            "workspaces": [{"id": "ws_a"}, {"id": "ws_b"}]}}),
+    );
+    let mut stream = UnixStream::connect(&socket).unwrap();
+    let mut reply = json!([
+        {"id": "ws_a", "name": "a", "focused": false},
+        {"id": "ws_b", "name": "b", "focused": false}
+    ]);
+    after_daemon_with(&mut stream, &follow_for(ResourceOperation::WorkspaceList), &mut reply)
+        .unwrap();
+    drop(stream);
+    let received = app.join().unwrap();
+    assert_eq!(received.len(), 2, "{received:?}");
+    assert_eq!(received[0]["params"]["after"], 0, "{received:?}");
+    assert_eq!(received[1]["params"]["after"], "sync", "{received:?}");
+    assert_eq!(reply[0]["focused"], false, "{reply}");
+    assert_eq!(reply[1]["focused"], true, "{reply}");
 }

@@ -77,7 +77,10 @@ impl Mux {
             Some(view) => sub_view_participant_id(client, view),
             None => view_participant_id(runtime, surface.id, client),
         };
-        self.mutate_terminal_sizing(runtime, |_, sizing| {
+        // Activity keeps the participants and their identities, the only inputs of the host policy's expansion that
+        // a key can change, so a key does not re-expand it: that asks for the terminal's workspace default, which
+        // reads the session lock (TYPING FIX 2).
+        self.mutate_terminal_sizing_keeping_participants(runtime, |_, sizing| {
             let entry = sizing.terminal_sizing.get_mut(&runtime)?;
             if entry.members.get(&id).is_none_or(|member| member.client != client) {
                 return None;
@@ -623,11 +626,34 @@ impl Mux {
         runtime: SurfaceId,
         mutate: impl FnOnce(&Self, &mut ClientSizingState) -> R,
     ) -> R {
+        self.mutate_terminal_sizing_with(runtime, true, mutate)
+    }
+
+    /// [`Self::mutate_terminal_sizing`] for a mutation that adds, removes and renames no participant (a present
+    /// view's activity): the host policy's expansion depends only on the participants, so it is not refreshed. That
+    /// refresh asks whether the terminal follows a workspace default, which looks the terminal's workspace up under
+    /// the session lock; on the typing path it put that lock back on every key (TYPING FIX 2).
+    pub(super) fn mutate_terminal_sizing_keeping_participants<R>(
+        &self,
+        runtime: SurfaceId,
+        mutate: impl FnOnce(&Self, &mut ClientSizingState) -> R,
+    ) -> R {
+        self.mutate_terminal_sizing_with(runtime, false, mutate)
+    }
+
+    fn mutate_terminal_sizing_with<R>(
+        &self,
+        runtime: SurfaceId,
+        participants_may_change: bool,
+        mutate: impl FnOnce(&Self, &mut ClientSizingState) -> R,
+    ) -> R {
         let mut sizing = self.client_sizing.lock().unwrap();
         let owners_before = sizing.terminal_owner_clients(runtime);
         let result = mutate(self, &mut sizing);
-        // Participants may have come, gone or changed identity.
-        self.refresh_host_policy_locked(&mut sizing, runtime);
+        if participants_may_change {
+            // Participants may have come, gone or changed identity.
+            self.refresh_host_policy_locked(&mut sizing, runtime);
+        }
         self.apply_terminal_grid(&sizing, runtime);
         let owners_after = sizing.terminal_owner_clients(runtime);
         drop(sizing);

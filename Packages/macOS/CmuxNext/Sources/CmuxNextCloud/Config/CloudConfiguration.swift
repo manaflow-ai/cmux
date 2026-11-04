@@ -170,7 +170,8 @@ public struct CloudConfiguration: Sendable, Equatable {
         return URL(string: "https://cloud-api.cmux.dev") ?? Self.inertURL
     }
 
-    /// The API a guest link's owner token comes from. The daemon makes each build's links in its
+    /// The API a guest link's owner token comes from when the daemon does not name its room's
+    /// (`agent-session-share-room`, an older daemon). The daemon makes each build's links in its
     /// room (cmux-tui share_room.rs: DEV the development room), and a room takes only its own
     /// environment's install tokens. A debug build signs in to the staging Worker
     /// (``ownerAPIBaseURL(environment:)``), so its links mint from the development Worker; with
@@ -182,11 +183,50 @@ public struct CloudConfiguration: Sendable, Equatable {
         return URL(string: "https://cmux-api-development.debussy.workers.dev") ?? Self.inertURL
     }
 
-    public static func current(bundle: Bundle = .main, isDebugBuild: Bool) -> CloudConfiguration {
-        let bundled = bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String] ?? [:]
-        return resolve(bundleID: bundle.bundleIdentifier, bundled: bundled,
-                       process: ProcessInfo.processInfo.environment, isDebugBuild: isDebugBuild)
+    /// Whether a guest link's owner token may come from `api`, the API the daemon's share room names
+    /// (`agent-session-share-room`, cmux#31372). A release build takes only a cmux API, so the owner's
+    /// credentials never reach another origin; a debug build takes any https origin. Only a bare origin (no
+    /// credentials, port, path, query or fragment) is taken: an install is kept per host (`install-share-<host>`).
+    public func acceptsShareAPI(_ api: URL) -> Bool {
+        guard api.scheme?.lowercased() == "https", let host = api.host?.lowercased(), !host.isEmpty, api.user == nil, api.password == nil,
+              api.path.isEmpty || api.path == "/", api.query == nil, api.fragment == nil else { return false }
+        return api.port == nil && (isDebugBuild || Self.shareAPIHosts.contains(host))
     }
+
+    /// The cmux APIs a share room takes tokens from (cmux-tui `platform::share_owner_api`).
+    static let shareAPIHosts: Set<String> = ["cloud-api.cmux.dev", "cloud-api-staging.cmux.dev", "cmux-api-development.debussy.workers.dev"]
+
+    /// Whether this compile has the bench hooks (`reload.sh --config bench`: `CMUX_BENCH_HOOKS`, never in a
+    /// shipped app). With them, a `cap<sha10>` capture build's Cloud is configured as a Debug build's (``isCaptureBuild(bundleID:benchHooks:)``).
+    public static var benchHooksCompiled: Bool {
+        #if CMUX_BENCH_HOOKS
+        true
+        #else
+        false
+        #endif
+    }
+
+    /// `benchHooks`: whether this compile has the bench hooks (``benchHooksCompiled`` unless a test says).
+    public static func current(bundle: Bundle = .main, isDebugBuild: Bool, benchHooks: Bool = benchHooksCompiled) -> CloudConfiguration {
+        let bundled = bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String] ?? [:]
+        let debug = isDebugBuild || isCaptureBuild(bundleID: bundle.bundleIdentifier, benchHooks: benchHooks)
+        return resolve(bundleID: bundle.bundleIdentifier, bundled: bundled,
+                       process: ProcessInfo.processInfo.environment, isDebugBuild: debug)
+    }
+
+    /// Whether this is a PR capture's Release build: the bench configuration (`CMUX_BENCH_HOOKS`, which the
+    /// release and nightly pipelines refuse to ship, scripts/cmux-next/check-no-bench-hooks.sh) of the tag
+    /// `cap<sha10>` (cmuxterm-hq build-fleet/pr-capture `--release`). Its Cloud is configured as a Debug build's:
+    /// the development backend and the capture account's automatic sign-in, so a capture can drive the Release
+    /// paths (`DevTools.isEnabled` false, which this does not change) against a test account. A shipped build
+    /// has neither the hooks nor that bundle identifier, so it keeps production.
+    public static func isCaptureBuild(bundleID: String?, benchHooks: Bool) -> Bool {
+        guard benchHooks, let bundleID, bundleID.hasPrefix(captureBundlePrefix) else { return false }
+        let tag = bundleID.dropFirst(captureBundlePrefix.count)
+        return tag.count == 10 && tag.allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
+    }
+
+    static let captureBundlePrefix = "com.cmuxterm.app.debug.cap"
 
     static func isLoopback(_ url: URL) -> Bool {
         guard let host = url.host?.lowercased() else { return true }

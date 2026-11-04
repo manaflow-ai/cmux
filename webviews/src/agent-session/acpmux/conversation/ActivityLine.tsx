@@ -7,7 +7,7 @@ import { useSubsessionInfo } from "../subagents/subsessions";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { BackgroundHint } from "./BackgroundHint";
-import { Envelope } from "./icons";
+import { Envelope, TerminalSquare } from "./icons";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
 import { formatDuration } from "./turns";
 import { useTicking, workingLabel } from "./WorkingFor";
@@ -29,12 +29,17 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
         after={after}
         meta={<span className="cv-command__meta">{formatDuration(Math.max(0, time - row.at))}</span>}
         className="cv-activity-row"
+        // It opens nothing, so it draws no chevron (a row shows one only with something to show).
+        chevron={false}
         ariaLabel={t("send.sending", { target: sendName })}
       />
     );
   }
   return (
-    <div className="cv-activity">
+    <div className="cv-activity cv-tool">
+      <span className="cv-tool__icon" aria-hidden="true">
+        {row.doingCommand ? <TerminalSquare /> : null}
+      </span>
       {row.text ? (
         <>
           <span className="cv-activity__label">{row.text}</span>

@@ -270,6 +270,15 @@ path = "tests/test_ci_runner_set.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_no_single_size_pins.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runner_pools_copy.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that every fromJSON(vars.RUNNER_POOLS).<pool> read names a pool declared in .github/runners.json and that the copy equals main's pools; run python3 tests/test_ci_runner_pools_copy.py yourself after changing a pool read or the pools (about 1 s, no build)."
+
+[[test]]
 path = "tests/test_ci_overflow_pick_reads_pool.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. #30878 registered it as linux-guard with no ci-guards.yml step, which reddened tooling-tests on every pull request. Checks that no Linux runs-on picks a fixed Blacksmith size where the live pool (RUNNER_POOLS.linux) would pick; run python3 tests/test_ci_overflow_pick_reads_pool.py yourself after changing a Linux runs-on or the pool picker (about 2 s, no build)."
@@ -284,6 +293,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_nightly_push_throttle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_push_trigger_branches.py"
 lane = "linux-guard"
 
 [[test]]
@@ -514,6 +527,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_machine_join_e2e_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_machine_vault_e2e_workflow.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1105,6 +1122,11 @@ path = "tests/test_webviews_tests_per_file.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_no_playwright_on_macs.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence, 2026-10-23): the author runs it, python3 -m unittest tests/test_no_playwright_on_macs.py; it needs only bash and a fake uname."
+
+[[test]]
 path = "tests/test_webviews_tests_new_reds.py"
 lane = "linux-guard"
 
@@ -1258,6 +1280,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_attachment_caps_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_send_path_caps.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1578,6 +1604,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_base_red_excuse.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_coalesce.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2371,6 +2401,10 @@ path = "tests/test_ci_warm_sources.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_checkout_lean.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_workflow_file_size.py"
 lane = "linux-guard"
 
@@ -2469,6 +2503,11 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI gates. The file says so itself: run python3 tests/test_cmux_next_guardrails_qos.py yourself after changing guardrails.py's task-priority rule (about 2 s, no build)."
 
 [[test]]
+path = "tests/test_scroll_measurement_metrics.py"
+lane = "manual"
+reason = "Run through cmux-ci after changing native scroll receipt validation; isolated Python checks launch no app. No new CI gate."
+
+[[test]]
 path = "tests/test_cmux_next_perf_budgets.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Checks scripts/cmux-next/perf-budgets.py's table and gate; run python3 tests/test_cmux_next_perf_budgets.py yourself after changing it (under 1 s, no build)."
@@ -2477,3 +2516,29 @@ reason = "Lawrence 2026-10-23: no new CI tests. Checks scripts/cmux-next/perf-bu
 path = "tests/test_cmux_tui_no_bundled_webpki_roots.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Checks that cmux-tui compiles in no webpki root list (#25452); run python3 tests/test_cmux_tui_no_bundled_webpki_roots.py yourself after changing a cmux-tui Cargo.toml, Cargo.lock or TLS setup (about 1 s, no build)."
+
+[[test]]
+path = "tests/test_playwright_system_chrome.py"
+lane = "manual"
+reason = "Static check run by the author on the fleet; no new CI tests (CLAUDE.md, 2026-10-23)."
+
+[[test]]
+path = "tests/test_fetch_run_artifact.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_publish_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_chat_probe_args.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Pins that scripts/ci/chat-probe.sh passes its prompt to acpmux after -- (a prompt like --cwd=/etc stays text); run python3 tests/test_ci_chat_probe_args.py after changing that script (under 1 s, no build)."
+
+[[test]]
+path = "tests/test_nightly_next_rolling_dmg_identity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_identity_probe.py"
+lane = "linux-guard"

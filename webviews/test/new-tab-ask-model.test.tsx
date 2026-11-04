@@ -236,6 +236,7 @@ async function newTabPage(
       <QueryClientProvider client={new QueryClient()}>
         <SignInContext.Provider value={{ signedOut: options.signedOut ?? {}, logIn: noop, readSessionAuth }}>
           <NewTabScreen
+            template="default"
             {...options.launch}
             chips={options.chips}
             snapshot={noChat()}
@@ -409,7 +410,9 @@ for (const mode of ["cloud", "sandboxed"] as const) {
       const chip = host.querySelector(".acpmux-model-name")?.closest("button");
       expect(chip).toBeTruthy();
       await act(async () => chip!.click());
-      expect(window.document.querySelectorAll('.acpmux-quick-list [role="menuitemradio"]').length).toBeGreaterThan(0);
+      expect(
+        window.document.querySelectorAll('.acpmux-cols [role="listbox"] [role="option"].acpmux-cols-row').length,
+      ).toBeGreaterThan(0);
     } finally {
       await act(async () => page.root.unmount());
     }

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8. */
+/* cmux-tui mux protocol 12, IR bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -171,6 +171,26 @@ export type CellPixelSurface = {
   "height_px": number;
   "surface": Id;
   "width_px": number;
+};
+
+export type ChiefWorkAgent = {
+  "id": string;
+  "name": string;
+  "startedAt": (bigint) | null;
+  "state": "working" | "waiting" | "idle" | "failed";
+  "task": (string) | null;
+  "updatedAt": (bigint) | null;
+};
+
+export type ChiefWorkTask = {
+  "command": string;
+  "detail": (string) | null;
+  "endedAt": (bigint) | null;
+  "id": string;
+  "sessionId": string;
+  "startedAt": (bigint) | null;
+  "status": "running" | "done" | "failed" | "cancelled" | "unknown";
+  "title": string;
 };
 
 export type ClientInfo = {
@@ -1005,6 +1025,19 @@ export type Screen = {
   "panes": Array<Pane>;
   "short_id"?: string;
   "zoomed_pane": (Id) | null;
+};
+
+export type SelectionPane = {
+  "active_tab": bigint;
+  "focused_at": bigint;
+  "id": Id;
+};
+
+export type SelectionScreen = {
+  "active": boolean;
+  "active_pane": Id;
+  "id": Id;
+  "panes": Array<SelectionPane>;
 };
 
 export type SendExpectAgent = {

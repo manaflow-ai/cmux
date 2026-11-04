@@ -177,12 +177,12 @@ public nonisolated struct AgentPaneTunables {
         help: "A header toggle opens Session Info at the right of the chat: its environment, context, pull requests, subagents, background tasks and outputs.",
         default: true, code: "AgentPaneTunables.sessionInfo")
 
-    /// Native drawing is the shipped Session Info path; the page remains the fallback when this
-    /// Debug Settings switch is turned off. Leo ordered the native port to ship on by default.
+    /// The chat page draws Session Info by default, with its header buttons matching the native
+    /// panel's; this Debug Settings switch draws it natively instead.
     public static let nativeSessionInfo = Tunable<Bool>.toggle(
         "agent.sessionInfo.native", PageTunables.section, "Session Info drawn natively",
         help: "The App draws Session Info over the agent pane; off, the chat page draws it.",
-        default: true, code: "AgentPaneTunables.nativeSessionInfo")
+        default: false, code: "AgentPaneTunables.nativeSessionInfo")
 
     /// `sessionInfo` was `agent.inspector`, the panel's old name: a file that still holds it keeps its choice.
     public static func registerRenames(_ store: TunableStore) {
@@ -459,13 +459,14 @@ public nonisolated struct AgentPaneTunables {
 
     /// Whether a prompt the daemon dropped with its connection before acpmux took it (an acpmux
     /// restart, a reset socket) goes again on the pane's next connection, under its promptId, so
-    /// acpmux runs it at most once (``AgentPanePromptJournal``). Off (the default), the page says
-    /// "Not sent" with Retry, as before; the page's recovery for a prompt sent again after its
-    /// "Not sent" lands with turning this on.
+    /// acpmux runs it at most once (``AgentPanePromptJournal``). On by default: the page waits for
+    /// the prompt to show on that connection instead of saying "Not sent" (webviews lostPrompt.ts;
+    /// Leo, 2026-10-21: "why does it say it's not responding?"). Off, the page says "Not sent" once
+    /// its wait for the prompt runs out, and gives it back.
     public static let lostPromptReplay = Tunable<Bool>.toggle(
         "agentPane.debug.lostPromptReplay", PageTunables.section, "Send again a prompt a dropped connection lost",
         help: "A prompt acpmux never took because its connection dropped goes again on the next connection.",
-        default: false, code: "AgentPaneTunables.lostPromptReplay")
+        default: true, code: "AgentPaneTunables.lostPromptReplay")
 
     public static var all: [TunableDescriptor] {
         [

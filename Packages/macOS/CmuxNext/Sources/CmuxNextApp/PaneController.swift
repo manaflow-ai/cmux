@@ -9,6 +9,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextLayout
+import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextTerminal
 import Observation
@@ -76,6 +77,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var hidesStrip = false // PaneTabBarChoices: only the person's Hide Tab Bar
         var fullWidthTab = false // PaneFullWidthTabs: the strip shows only the selected tab
         var zoomed = false // the pane fills its screen (Toggle Pane Zoom): the selected tab shows the zoom indicator
+        var verticalTabs: PaneVerticalTabs? // WorkspaceVerticalTabs: a list instead of the strip; nil shows the strip
         /// `pinned-dock-v1`: the pane is in a pinned column (the Home dock): its first tab
         /// shows no close button.
         var keepsFirstTab = false
@@ -165,7 +167,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// One tab's strip item changed (`tabItems`): apply it with the list as it is now (untracked).
     /// Suspended: `resume` maps the strip anyway.
     private func tabItemChanged() {
-        guard !isSuspended else { return }
+        guard !isSuspended, layoutFirst() else { return }
         apply(compose(structure()))
     }
 
@@ -242,6 +244,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                          hidesStrip: hidesTabBar || ownWorkspace?.app != nil || homeChief,
                          fullWidthTab: services.paneFullWidthTabs.contains(paneKey),
                          zoomed: ownWorkspace?.screens.contains { $0.zoomedPane == pane.handle } ?? false,
+                         verticalTabs: .shown(in: ownWorkspace?.id, unless: hidesTabBar || ownWorkspace?.app != nil || homeChief || pinned, store: services.workspaceVerticalTabs),
                          keepsFirstTab: pinned && tabs.first?.id == pane.tabs.first?.id,
                          // What Home's pinned dock opens goes beside it (ChatColumnPlacement, and
                          // LinkOpener for links), so its strip has no +.
@@ -319,7 +322,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         appliedRecordTabs = pane.tabs.map(\.id)
         if force { view.stripView.discardPendingReorder() }
         snapshotHidesStrip = snapshot.hidesStrip
-        if view.hidesStrip != (snapshot.hidesStrip || presentsPage) { view.hidesStrip = snapshot.hidesStrip || presentsPage }
+        view.showStrip(hidden: snapshot.hidesStrip || presentsPage, vertical: presentsPage ? nil : snapshot.verticalTabs)
         if stripModel.showsSelectedFullWidth != snapshot.fullWidthTab { stripModel.showsSelectedFullWidth = snapshot.fullWidthTab }
         if stripModel.zoomsSelected != snapshot.zoomed { stripModel.zoomsSelected = snapshot.zoomed }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
@@ -421,7 +424,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Pushes the store's current tabs into the strip now (no reset of
     /// optimistic strip state), ahead of the next observation step.
     func syncStripFromStore() {
-        apply(snapshot())
+        if layoutFirst() { apply(snapshot()) }
+    }
+
+    /// The layout first when the record's tabs changed since the strip took them, as `observe` takes it: a tab that moved
+    /// away (a lone chat docking left) leaves here in the turn its new pane shows, not a turn ahead (Leo 2026-11-03: "the
+    /// browser/tab opening animation still plays on the main pane before going"). False when that apply removed this pane.
+    private func layoutFirst() -> Bool {
+        if stripIsStale { workspace?.applyLayoutIfChanged() }
+        return observation?.isCancelled != true // teardown cancels it
     }
 
     // MARK: Content
@@ -489,9 +500,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     /// This pane is its workspace's focused pane.
-    var isFocusedInWorkspace: Bool {
-        workspace?.focus.state.pane == paneKey
-    }
+    var isFocusedInWorkspace: Bool { workspace?.focus.state.pane == paneKey }
 
     func content(for key: String) -> TabContent? {
         if key.hasPrefix(LocalPageTab.prefix) { return services.pages.view(for: key).map(TabContent.page) }

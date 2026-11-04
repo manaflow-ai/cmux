@@ -40,7 +40,7 @@ impl Mux {
         operation_name: &str,
         fingerprint: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.write().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         let workspace =
             self.surface_workspace(surface).context("content close target has no workspace")?;
@@ -76,7 +76,7 @@ impl Mux {
         operation_name: &str,
         fingerprint: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.write().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         let terminal_id = terminal_id.clone();
         let committed = self.commit_resource_close_with(
@@ -113,7 +113,7 @@ impl Mux {
         mutation: &WorkspaceMutation,
         guard: TerminalCloseGuard,
     ) -> anyhow::Result<Option<TerminalCloseResult>> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.write().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
@@ -224,8 +224,25 @@ impl Mux {
                 },
             )
         };
+        // A terminal with no view (its tabs closed; the reaper or a client
+        // ends it) changes no screen, pane or tab: its only durable change is
+        // its own tombstone, added below. The full projection walked the whole
+        // topology under the registry and session locks to find it (TUL-F7:
+        // 278 ms session lock hold under the L1 storm).
+        // The placement index is the view check; a view that is live but
+        // not indexed would be removed by the plan, and that close needs the
+        // full projection (#32406 review).
         let mut projection =
-            self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+            if !has_views && plan.removed.is_empty() && plan.workspace_close.is_none() {
+                ResourceEffectProjection {
+                    patch: ResourcePatch { changes: Vec::new() },
+                    changes: json!([]),
+                    result: json!({}),
+                    restates_all: false,
+                }
+            } else {
+                self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?
+            };
         if !projection.patch.changes.iter().any(|change| {
             matches!(
                 change,
@@ -270,6 +287,7 @@ impl Mux {
             &projection.result,
             &projection.changes,
             plan.workspace_close.as_ref(),
+            projection.restates_all,
         )?;
         let (terminal, resource, workspace_revision) = match committed {
             TerminalResourceCloseCommit::TerminalReplay(terminal) => {
@@ -471,7 +489,7 @@ impl Mux {
         }
         self.emit(MuxEvent::TreeChanged);
         if effects.selection_resync {
-            self.emit(MuxEvent::TreeSelectionChanged);
+            self.emit(MuxEvent::TreeSelectionChanged(None));
         }
         for screen in effects.changed_screens {
             self.emit_layout_changed(screen, None);
@@ -613,7 +631,7 @@ impl Mux {
             ResourceCloseTreePublication::PendingSnapshot => {
                 self.emit(MuxEvent::TreeChanged);
                 if effects.selection_resync {
-                    self.emit(MuxEvent::TreeSelectionChanged);
+                    self.emit(MuxEvent::TreeSelectionChanged(None));
                 }
             }
             ResourceCloseTreePublication::Published => {}

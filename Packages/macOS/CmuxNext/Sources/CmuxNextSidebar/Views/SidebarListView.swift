@@ -79,6 +79,13 @@ final class SidebarListView: NSView {
     let chatHistory = SidebarChatHistoryViews()
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
+    /// Keeps spare workspace row views (SidebarListView+SpareRow): the sidebar's list does, a space page's does not.
+    var keepsSpareRow = false
+    var spareRowScheduled = false
+    /// Whether `window` shows its lists now (spares are made only then): on screen and not fully covered. Tests inject an answer.
+    var windowShowsRows: @MainActor (NSWindow) -> Bool = { $0.isVisible && $0.occlusionState.contains(.visible) }
+    /// Runs work once the current pass committed its frame (`AfterFrameCommit`).
+    var afterFrameCommit: (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) }
     var hoveredKey: SidebarRowKey?
     /// True while a scroll moves the hover to the row under a still pointer: that row's hover
     /// shows at once instead of fading, so a scroll does not start a fade on every row it passes.
@@ -112,6 +119,8 @@ final class SidebarListView: NSView {
     var openDoneFolds: Set<SidebarDoneFoldID> = []
     /// The lists whose "Show N more" row the person opened: view state, kept for this list only.
     var openShowMore: Set<SidebarDoneFoldID> = []
+    /// The brief highlight Reveal Workspace in Sidebar draws over the row it revealed (`SidebarListView+RevealInSidebar`).
+    var revealFlash: SidebarRevealFlash?
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
     let inlineRename = SidebarInlineRename()
     /// The group editor bubble (SidebarListView+GroupEditor) and its App-filled rows.
@@ -132,6 +141,8 @@ final class SidebarListView: NSView {
     internal(set) var selectedRowKey: SidebarRowKey?
     /// The anchor step moves the offset; rows wait for the new layout.
     var isShiftingViewport = false
+    /// The clip has had a height (`revealFirstViewport`): the first one goes to the selection before any row is realized.
+    var hasViewport = false
     /// The rect a list outside a scroll view shows (a space page, `SidebarSpacePaging`): rows are
     /// realized for it only. Nil realizes the list's bounds, every row (space-switch-fast: a page
     /// made every row view of its space, so a switch cost grew with the space's workspaces).
@@ -278,9 +289,15 @@ final class SidebarListView: NSView {
         // The rows read the window when they moved in; the list's own reading starts them all from
         // the same state, not each from whatever its window said a moment earlier.
         if window != nil { windowOcclusionChanged() }
+        scheduleSpareRow()
     }
     private func windowOcclusionChanged() {
         setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
+        scheduleSpareRow() // spares wait for a shown window
+    }
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        scheduleSpareRow() // the sidebar folded open again
     }
     /// Pauses (or resumes) every row's activity animation, down to a row badge's glyphs (cx-m8buz).
     func setWindowVisible(_ visible: Bool) {

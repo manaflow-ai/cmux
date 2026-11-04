@@ -362,7 +362,8 @@ pub fn successor(
     let on_screen: std::collections::HashSet<&String> = after.iter().flatten().collect();
     let shown_history: Vec<String> =
         history.iter().filter(|p| on_screen.contains(p)).cloned().collect();
-    if let Some(pick) = close_focus::pane(Some(pane), &before, &after, &shown_history, policy)
+    let focused = pane.to_owned();
+    if let Some(pick) = close_focus::pane(Some(&focused), &before, &after, &shown_history, policy)
         && new.contains_pane(&pick)
     {
         return Some(pick);

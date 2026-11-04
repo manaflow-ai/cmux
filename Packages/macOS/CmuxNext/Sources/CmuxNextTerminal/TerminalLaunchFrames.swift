@@ -222,8 +222,11 @@ public final class TerminalLaunchFrames {
         waiting = waiting.filter { $0.value.session != nil || ($0.value.content.map { $0 !== content } ?? false) }
     }
 
+    /// Records why `key`'s frame did not show. A later `no_frame` never replaces a reason: that ask finds the frame
+    /// taken by the earlier one, and `no_frame` would hide the cause (#32493: frames refused for their `size`). Any
+    /// other later reason (`size`, `scale`, `live`) is the newer cause and replaces it.
     private func noteMissed(_ key: String, _ reason: String) {
-        guard var pane = panes[key], pane.shown == nil else { return }
+        guard var pane = panes[key], pane.shown == nil, !(reason == "no_frame" && pane.missed != nil) else { return }
         pane.missed = reason
         panes[key] = pane
     }
@@ -306,6 +309,19 @@ public final class TerminalLaunchFrames {
         shown.view.removeFromSuperview()
     }
 
+    /// The terminals whose saved frame a pane on screen shows ahead of their surface (#32274), or will show when the
+    /// launch read ends (it asked ahead before then): no session is shown there yet, so no quit snapshot or keeper save
+    /// covers them, and their saved frame is the one the pane shows. On screen as the quit and the keeper count it.
+    var keysShownAhead: Set<String> {
+        func onScreen(_ content: NSView?) -> Bool {
+            guard let content else { return false }
+            return content.window?.isVisible == true && !content.isHiddenOrHasHiddenAncestor
+        }
+        let shown = ahead.values.filter { $0.view.superview === $0.content && onScreen($0.content) }.map(\.key)
+        let asked = waiting.filter { $0.value.session == nil && onScreen($0.value.content) }.map(\.key)
+        return Set(shown).union(asked)
+    }
+
     /// Whether `content` shows a frame ahead of its terminal's surface (tests).
     func showsAhead(in content: NSView) -> Bool {
         aheadEntry(in: content).map { $0.view.superview === content } ?? false
@@ -377,50 +393,83 @@ public final class TerminalLaunchFrames {
     public func keep(_ key: String, session: TerminalSession, work: BackgroundWork) {
         guard let directory else { return }
         if keeper == nil {
-            keeper = TerminalLaunchFrameKeeper(directory: directory, work: work) { [weak self] in
+            keeper = TerminalLaunchFrameKeeper(directory: directory, work: work, readEnded: { [weak self] in
                 guard let self else { return false }
                 return self.readDropped || self.read?.value != nil || self.read == nil
-            }
+            }, shownAhead: { [weak self] in self?.keysShownAhead ?? [] })
         }
         keeper?.keep(key, session: session)
     }
 
     /// Frames the keeper saved so far (tests, `debug.timings`).
     var keepSaves: Int { keeper?.saves ?? 0 }
+    /// The keeper's checks so far (each a main-actor timer wake).
+    var keepChecks: Int { keeper?.checks ?? 0 }
     /// The size of `key`'s last kept save (tests).
     func keepSavedSize(_ key: String) -> CGSize? { keeper?.savedSize(key) }
 
     /// Saves the frames of `sessions` on screen, by tab key, replacing the last quit's. A bare
     /// prompt too: it is what the pane showed. The keeper stops first: no save of its may land after these.
+    ///
+    /// Issue #32274 (3 of 20 STRESS reopens showed a visible pane empty): a terminal on screen with no new frame keeps
+    /// the one saved for it. A pane that still shows its saved frame ahead of its surface (its surface had not come, or
+    /// its session was not presented yet) has no frame to take here; its saved frame is exactly what it shows. A shown
+    /// terminal whose snapshot gave nothing keeps the keeper's last frame. Only terminals no pane shows lose theirs.
     public func save(_ sessions: [String: TerminalSession]) async {
         keeper?.stop()
         var frames: [String: NSImage] = [:]
-        for (key, session) in sessions where !session.isRenderingSuspended {
+        var kept = keysShownAhead
+        for key in kept { mark("quit.terminal_frame.\(key).ahead") }
+        for (key, session) in sessions {
+            guard !session.isRenderingSuspended else {
+                mark("quit.terminal_frame.\(key).suspended")
+                continue
+            }
             let surface = session.surfaceView
-            guard surface.window?.isVisible == true, !surface.isHiddenOrHasHiddenAncestor, surface.bounds.width > 0,
-                  // What the pane shows: a terminal still held over its slow attach saves its held frame.
-                  let frame = await session.shownFrameInBackground(maxPixelSize: .greatestFiniteMagnitude) else { continue }
+            // Each shown terminal's outcome is a quit mark (`quit.terminal_frame.<key>.<outcome>`, issue #32274).
+            let skipped = surface.window?.isVisible != true ? "not_visible"
+                : surface.isHiddenOrHasHiddenAncestor ? "hidden" : surface.bounds.width > 0 ? nil : "no_width"
+            if let skipped {
+                mark("quit.terminal_frame.\(key).\(skipped)")
+                continue
+            }
+            // What the pane shows: a terminal still held over its slow attach saves its held frame.
+            guard let frame = await session.shownFrameInBackground(maxPixelSize: .greatestFiniteMagnitude) else {
+                mark("quit.terminal_frame.\(key).no_snapshot")
+                kept.insert(key) // on screen: its last kept frame beats none
+                continue
+            }
+            mark("quit.terminal_frame.\(key).snapshot")
             frames[key] = NSImage(cgImage: frame, size: surface.bounds.size)
         }
-        await save(images: frames)
+        await save(images: frames, keeping: kept.subtracting(frames.keys))
+        mark("quit.terminal_frames.written")
     }
 
-    /// Replaces the saved frames with `images` (by tab key, at their point size).
-    func save(images: [String: NSImage]) async {
+    /// Replaces the saved frames with `images` (by tab key, at their point size); the files of the keys in `keeping`
+    /// stay as they are (terminals on screen with no new frame).
+    func save(images: [String: NSImage], keeping: Set<String> = []) async {
         guard let directory else { return }
         // NSImage stays on the main actor; the JPEG encode and the writes run detached.
         var frames: [String: CGImage] = [:]
-        for (key, image) in images where Self.isFileSafe(key) && image.size.width > 0 {
-            guard let frame = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
+        var keeping = keeping
+        for (key, image) in images where Self.isFileSafe(key) {
+            // On screen with no bitmap to save: its saved frame stays, as for a snapshot that gave nothing.
+            guard image.size.width > 0, let frame = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                keeping.insert(key)
+                continue
+            }
             frames["\(key)@\(max(1, min(3, Int((CGFloat(frame.width) / image.size.width).rounded()))))x.jpg"] = frame
         }
-        await Task.detached { Self.write(frames, to: directory) }.value
+        await Task.detached { [keeping] in Self.write(frames, keeping: keeping, to: directory) }.value
     }
 
     /// Every saved frame in `directory`, decoded, with its point size and scale, by tab key (for each
     /// key the first scale a save may have written).
     private nonisolated static func readAll(in directory: URL, _ reader: LaunchFileReader) -> [String: Frame] {
-        let names = Set(((try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? []).sorted().prefix(maximumFiles))
+        // Saved frames only, then the cap: files a killed write left (`<key>@1x.jpg.sb-<id>`) never take a slot.
+        let names = Set(((try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? [])
+            .filter { owner(of: $0) != nil }.sorted().prefix(maximumFiles))
         var frames: [String: Frame] = [:]
         for scale in [2, 1, 3] {
             let suffix = "@\(scale)x.jpg"
@@ -434,10 +483,11 @@ public final class TerminalLaunchFrames {
         return frames
     }
 
-    private nonisolated static func write(_ frames: [String: CGImage], to directory: URL) {
+    private nonisolated static func write(_ frames: [String: CGImage], keeping: Set<String>, to directory: URL) {
         let manager = FileManager.default
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where frames[old] == nil {
+            guard !keeping.contains(owner(of: old) ?? old) else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
         }
         for (name, frame) in frames {
@@ -449,19 +499,24 @@ public final class TerminalLaunchFrames {
     }
 
     /// Writes one terminal's frame (the keeper), replacing the key's file at any scale; with `keeping`, also removes the
-    /// frames of every key not in it (terminals this run does not show), once the launch read has ended.
-    nonisolated static func writeOne(_ frame: CGImage, key: String, scale: Int, to directory: URL, keeping: Set<String>?) {
+    /// frames of every key not in it (terminals this run does not show), once the launch read has ended. `stillWanted`
+    /// is asked again after the encode and before the cleanup: a quit that stopped the keeper meanwhile writes every
+    /// frame itself, so a write that started before it neither lands over those frames nor prunes them.
+    nonisolated static func writeOne(_ frame: CGImage, key: String, scale: Int, to directory: URL, keeping: Set<String>?,
+                                     stillWanted: () -> Bool = { true }) {
         let manager = FileManager.checked
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let name = "\(key)@\(scale)x.jpg"
         let url = directory.appending(path: name)
         if let data = NSBitmapImageRep(cgImage: frame).representation(using: .jpeg, properties: [.compressionFactor: 0.9]),
+           stillWanted(),
            (try? data.blockingWrite(to: url, options: [.atomic])) != nil {
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
+        guard stillWanted() else { return }
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old != name {
-            let owner = old.split(separator: "@", maxSplits: 1).first.map(String.init) ?? old
-            guard owner == key || keeping.map({ !$0.contains(owner) }) == true else { continue }
+            // Only saved frames: another write's file before its rename (the quit's, beside this one) is left alone.
+            guard let tab = owner(of: old), tab == key || keeping.map({ !$0.contains(tab) }) == true else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
         }
     }
@@ -469,9 +524,18 @@ public final class TerminalLaunchFrames {
     /// Removes every saved frame of `key` (the keeper: a terminal hidden or closed).
     nonisolated static func removeAll(of key: String, in directory: URL) {
         let manager = FileManager.checked
-        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old.hasPrefix(key + "@") {
+        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where owner(of: old) == key {
             try? manager.removeItem(at: directory.appending(path: old))
         }
+    }
+
+    /// The tab key of a saved frame (`<key>@<scale>x.jpg`, scale 1 to 3); nil for any other file, such as Foundation's
+    /// atomic-write file beside one before its rename (`<key>@2x.jpg.sb-<id>`).
+    nonisolated static func owner(of file: String) -> String? {
+        guard file.hasSuffix("x.jpg"), let at = file.lastIndex(of: "@") else { return nil }
+        let scale = file[file.index(after: at)..<file.index(file.endIndex, offsetBy: -"x.jpg".count)]
+        guard scale.count == 1, let digit = scale.first, ("1"..."3").contains(digit) else { return nil }
+        return String(file[..<at])
     }
 
     /// Tab keys are `tab_<hex>`; anything else never becomes a path.

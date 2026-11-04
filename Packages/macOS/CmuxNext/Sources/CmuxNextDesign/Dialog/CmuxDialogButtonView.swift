@@ -9,6 +9,9 @@ public final class CmuxDialogButtonView: ClickableButton {
     public private(set) var button: CmuxDialogButton
     /// The key that presses this button, drawn after its title (u2647); nil draws none.
     public let keyHint: CmuxDialogKeyHint?
+    /// Drawn as text with no fill at rest (``CmuxDialogButtonLook`` `quiet`): a destructive choice in a
+    /// ``CmuxDialogSpec/Layout/safeDefault`` dialog.
+    public let isQuiet: Bool
     private var isHovering = false { didSet { refresh() } }
     private var tracking: NSTrackingArea?
     private var hasFocus = false { didSet { refresh() } }
@@ -21,9 +24,10 @@ public final class CmuxDialogButtonView: ClickableButton {
     /// A button drawing `hint` after its title. The hint only labels the key: the host
     /// answers it (``CmuxDialogView`` through ``CmuxDialogKeys``), so pass the hint that
     /// ``CmuxDialogKeys/hint(for:in:)`` gives for the host's spec.
-    public init(_ button: CmuxDialogButton, hint: CmuxDialogKeyHint?, target: AnyObject?, action: Selector) {
+    public init(_ button: CmuxDialogButton, hint: CmuxDialogKeyHint?, quiet: Bool = false, target: AnyObject?, action: Selector) {
         self.button = button
         keyHint = hint
+        isQuiet = quiet
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         isBordered = false
@@ -165,7 +169,7 @@ public final class CmuxDialogButtonView: ClickableButton {
         let state: CmuxDialogButtonLook.State = isHighlighted ? .pressed : isHovering ? .hover : .rest
         return performWithTheme {
             let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-            return CmuxDialogButtonLook(role: button.role, tokens: tokens, state: state,
+            return CmuxDialogButtonLook(role: button.role, tokens: tokens, state: state, quiet: isQuiet,
                                         card: CmuxDialogButtonLook.cardSurfaces(tokens, lift: ChromeTunables.opaqueOverlayLift.value))
         }
     }

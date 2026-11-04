@@ -1,6 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-import AppKit
-import CmuxNextSettings
+public import AppKit
+public import CmuxNextSettings
 import Foundation
 
 /// Geometry and host state used by the deterministic native Session Info capture scene.
@@ -86,6 +86,82 @@ extension AgentPaneView {
         guard !id.isEmpty, let panel = model.sessionInfo.panel else { return false }
         panel.store.act(id)
         return true
+    }
+
+    /// `debug.agent_pane` `session_info_action` (`id`): ``debugSessionInfoAction(_:)``'s reply.
+    public func debugSessionInfoAction(_ params: [String: JSONValue], pane: String) -> JSONValue {
+        guard let id = params["id"]?.stringValue else {
+            return .object(["pane": .string(pane), "error": .string("pass id")])
+        }
+        let sent = debugSessionInfoAction(id)
+        return .object(["pane": .string(pane), "id": .string(id), "sent": .bool(sent)])
+    }
+
+    /// Opens Session Info with `click`, the real header click a person makes (the capture scene's
+    /// `debug.agent_pane` click on "Session Info").
+    public func debugOpenSessionInfo(pane: String, click: @MainActor () async -> JSONValue) async -> JSONValue {
+        guard await debugSessionInfoHeaderPressed() else { return await click() }
+        // Showcase state can retain an open toggle across scene renders. Close it with
+        // the real header click first, then click the same control again to prove opening works.
+        let close = await click()
+        let open = await click()
+        return .object(["pane": .string(pane), "initial_pressed": .bool(true), "close": close, "open": open])
+    }
+
+    /// Whether native Session Info settled open at full length below the header, with the capture
+    /// scene's report. `settle` waits display frames until its condition holds and returns the ms
+    /// it first held (nil at its deadline) with the frame stats; `windowWidth` is read after it.
+    public func debugSessionInfoReadiness(
+        pane: String,
+        windowWidth: @MainActor () -> Double,
+        settle: @MainActor (_ until: @escaping () -> Bool) async -> (ms: Double?, frames: JSONValue),
+    ) async -> (ready: Bool, report: JSONValue) {
+        // The page click has already returned after its event report. Read the toggle once, then
+        // let display frames settle the AppKit panel geometry; no timer or polling loop is needed.
+        let togglePressed = await debugSessionInfoHeaderPressed()
+        let settled = await settle { [weak self] in self?.debugSessionInfoState.ready == true }
+        let state = debugSessionInfoState
+        let report: JSONValue = .object([
+            "pane": .string(pane),
+            "native_host": .bool(state.nativeHost),
+            "open": .bool(state.open),
+            "visible": .bool(state.visible),
+            "frame_ready": .bool(state.frameReady),
+            "full_length": .bool(state.foot == nil),
+            "ready": .bool(state.ready),
+            "header_toggle_pressed": .bool(togglePressed),
+            "section_count": .number(Double(state.sectionCount)),
+            "panel": state.panel?.json ?? .null,
+            "page": state.page?.json ?? .null,
+            "top": state.top.map { .number($0) } ?? .null,
+            "foot": state.foot.map { .number($0) } ?? .null,
+            "zoom": .number(state.zoom),
+            "flipped": .bool(state.flipped),
+            "window_width": .number(windowWidth()),
+            "settled_ms": settled.ms.map { .number($0) } ?? .null,
+            "frames": settled.frames,
+        ])
+        return (settled.ms != nil && state.ready && state.foot == nil && togglePressed, report)
+    }
+}
+
+extension AgentPaneSessionInfoDebugState {
+    /// Keep the capture in the wide-gutter state: the native panel then reaches the pane's 8 px
+    /// foot instead of stopping above the composer. WindowController clamps this to the capture
+    /// screen when its visible frame is narrower.
+    @MainActor public static func widenCaptureWindow(_ window: NSWindow?) {
+        guard let window else { return }
+        let frame = window.frame
+        let width = max(frame.width, 1_500)
+        let height = max(frame.height, 850)
+        guard width != frame.width || height != frame.height else { return }
+        window.setFrame(CGRect(x: frame.minX, y: frame.minY, width: width, height: height), display: true)
+    }
+}
+
+extension AgentPaneSessionInfoDebugRect {
+    var json: JSONValue {
+        .object(["x": .number(x), "y": .number(y), "width": .number(width), "height": .number(height)])
     }
 }
 #endif

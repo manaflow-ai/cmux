@@ -202,6 +202,9 @@ impl Mux {
         let launch_identity = crate::launch_credential::LaunchIdentity::load(
             registry.session_journal_database_path().as_deref().and_then(Path::parent),
         );
+        // One stage S1 switch for the mux (R-DAEMON-STATE): the state's routes and the client registry's facts.
+        let input_lane = crate::rds_switch::InputLaneSwitch::from_env();
+        let publish_routes = input_lane.on();
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
@@ -213,7 +216,7 @@ impl Mux {
             registry_identity,
             resource_projection_stats,
             started_at: Instant::now(),
-            state: signaled_mutex::StateMutex::new(state),
+            state: signaled_mutex::StateMutex::new(state, publish_routes),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
             config_reload_changed: Condvar::new(),
@@ -277,6 +280,8 @@ impl Mux {
             #[cfg(test)]
             resource_close_after_commit: Mutex::new(None),
             #[cfg(test)]
+            state_commit_after_apply: Mutex::new(None),
+            #[cfg(test)]
             layout_undo_before_commit: Mutex::new(None),
             #[cfg(test)]
             resource_close_cleanup: Mutex::new(None),
@@ -330,7 +335,7 @@ impl Mux {
             agent_hook_children: Mutex::new(HashMap::new()),
             agent_prompts: Mutex::new(agent_prompts::AgentTexts::default()),
             agent_roster: Mutex::new(agent_roster),
-            agent_roster_fold: Mutex::new(()),
+            agent_roster_fold: Mutex::default(),
             agent_message_pump: Default::default(),
             #[cfg(unix)]
             agent_chat_notices: Default::default(),
@@ -368,9 +373,12 @@ impl Mux {
             terminal_exit_waiters: TerminalExitWaiters::default(),
             #[cfg(test)]
             terminal_exit_state_queries: AtomicU64::new(0),
-            resource_creation_handoff: Mutex::new(()),
+            resource_creation_handoff: RwLock::new(()),
             initial_bootstrap: Mutex::new(()),
             resource_creation_execution: Mutex::new(()),
+            creation_groups: Default::default(),
+            #[cfg(test)]
+            creation_burst_seams: Default::default(),
             #[cfg(unix)]
             agent_cli_job_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
@@ -404,7 +412,7 @@ impl Mux {
             exit_settles: Arc::default(),
             terminal_respawns: terminal_respawn::TerminalRespawns::from_env(),
             daemon_shutdown_waker: Mutex::new(None),
-            control_clients: crate::server::ClientRegistry::new(),
+            control_clients: crate::server::ClientRegistry::new(input_lane),
             #[cfg(unix)]
             agent_transfers: Default::default(),
             #[cfg(unix)]

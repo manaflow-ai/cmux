@@ -88,6 +88,19 @@ public final class TerminalSurfaceView: NSView {
     }
 
     private(set) var lastOcclusionVisible: Bool?
+    /// ``showsForLaunchFrame`` at the last ``updateOcclusion()``.
+    private var lastShowsForLaunchFrame = false
+
+    /// Whether the launch-frame keeper counts this terminal as on screen: in a window that is ordered in, not hidden,
+    /// parked or suspended. A covered window still counts (it shows again at a relaunch); forced drawing (a hover
+    /// mirror) does not make a hidden terminal count.
+    var showsForLaunchFrame: Bool {
+        Self.showsForLaunchFrame(WindowDrawPolicy.inputs(for: self, suspended: isRenderingSuspended), window: window)
+    }
+
+    static func showsForLaunchFrame(_ inputs: SurfaceDrawInputs, window: NSWindow?) -> Bool {
+        inputs.inWindow && !inputs.hidden && !inputs.parked && !inputs.suspended && window?.isVisible == true
+    }
     private(set) var pause: SurfacePause? = .notInWindow // why it does not draw (nil: draws)
     /// The presented frame made volatile while the surface does not draw (`holdPresentedFrame`).
     private var volatileFrame: IOSurface?
@@ -490,11 +503,19 @@ public final class TerminalSurfaceView: NSView {
     /// keep parsing output; Ghostty draws the current content on its `.visible` message.
     func updateOcclusion() {
         guard let surface else { return }
-        pause = WindowDrawPolicy.inputs(for: self, suspended: isRenderingSuspended, forced: mirrorDemand > 0).pause
+        let inputs = WindowDrawPolicy.inputs(for: self, suspended: isRenderingSuspended, forced: mirrorDemand > 0)
+        pause = inputs.pause
+        // The keeper's own "on screen" (``showsForLaunchFrame``) can change while drawing does not (a hover mirror
+        // forces drawing; an automation launch draws occluded windows): it is told of either change.
+        let shows = Self.showsForLaunchFrame(inputs, window: window)
+        if shows != lastShowsForLaunchFrame {
+            lastShowsForLaunchFrame = shows
+            session?.frameChanges.wake()
+        }
         let drawing = pause == nil
         guard drawing != lastOcclusionVisible else { return }
         lastOcclusionVisible = drawing
-        session?.frameChanges.bump() // drawn or paused (a window shown, minimized, occluded): its kept frame follows
+        session?.frameChanges.wake() // drawn or paused (a window shown, minimized, occluded): its kept frame follows
         holdPresentedFrame(volatile: pause != nil)
         ghostty_surface_set_occlusion(surface, drawing)
         // A surface can parse a renderer-affecting OSC action (for example Copilot's OSC 11

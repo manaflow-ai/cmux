@@ -95,16 +95,22 @@ extension SidebarListViewComponents {
     /// a gesture is held (`escapeSeen`: it cancels the gesture, wherever the keys go); the caller removes it.
     func observePointerEnds() -> Any? {
         NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .keyDown]) { [weak self] event in
-            if event.type == .keyDown {
-                self?.onPointerKeyDown?(event)
-                return event.keyCode == 53 && self?.escapeSeen() == true ? nil : event
-            }
-            self?.onPointerEvent?(event)
-            // A window's event is in its coordinates; one with no window (the desktop's) is on screen.
-            _ = self?.pointerEventSeen(event.type, in: event.window,
-                                       at: event.window?.convertPoint(toScreen: event.locationInWindow) ?? event.locationInWindow)
-            return event
+            guard let self else { return event }
+            return self.pointerMonitorSaw(event)
         }
+    }
+
+    /// One event `observePointerEnds`'s monitor sees; nil when the list used it (Escape ending its held gesture).
+    func pointerMonitorSaw(_ event: NSEvent) -> NSEvent? {
+        if event.type == .keyDown {
+            onPointerKeyDown?(event)
+            return event.keyCode == 53 && escapeSeen() ? nil : event
+        }
+        onPointerEvent?(event)
+        // A window's event is in its coordinates; one with no window (the desktop's) is on screen.
+        _ = pointerEventSeen(event.type, in: event.window,
+                             at: event.window?.convertPoint(toScreen: event.locationInWindow) ?? event.locationInWindow)
+        return event
     }
 
     /// Whether `row` is a group's one row (`SidebarLayout+SoleMember`) and a drop goes into its group: the row draws

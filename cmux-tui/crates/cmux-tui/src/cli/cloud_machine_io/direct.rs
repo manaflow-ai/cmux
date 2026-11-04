@@ -13,6 +13,7 @@
 //! stdin (1 MiB) is staged in chunks, then renamed over the target once its
 //! sha256 matches, so a write is still atomic and has no size cap.
 
+use std::io::{Seek as _, Write as _};
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -21,12 +22,11 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::super::cloud_client_session::{ExecAnswer, IDENTITY_HEADER, exec_answer};
-use super::{Answer, Op, Request};
+use super::{Answer, Op, Request, Spool, directory, private_spool, storage_error};
 
 /// The program's exit codes (44 to 47 as the cmux API's file routes use them).
 const NOT_FOUND: i32 = 44;
 const WRONG_KIND: i32 = 45;
-const TOO_LARGE: i32 = 46;
 const ROOT: i32 = 47;
 /// The work user may not do it; root (the proxied route) may.
 pub(super) const NEEDS_ROOT: i32 = 48;
@@ -41,11 +41,11 @@ const READ_TRIES: usize = 3;
 pub(super) const STDIN_MAX: usize = 1024 * 1024;
 /// One ranged read's bytes (its base64 is a third larger in the exec's stdout).
 pub(super) const READ_CHUNK: u64 = 4 * 1024 * 1024;
-/// The cmux API's limits, kept so both routes answer alike.
-const DIR_MAX_ENTRIES: u32 = 10_000;
-const DIR_MAX_BYTES: u32 = 2 * 1024 * 1024;
 const OUTPUT_MAX_BYTES: u32 = 1024 * 1024;
-pub(super) const COMMAND_MAX_BYTES: usize = 64 * 1024;
+/// The longest command that goes inline, as one argument on the machine (Linux takes at most
+/// 128 KiB in one argument). A longer one is staged as a file first ([`run_exec`]), so an exec
+/// has no length limit.
+pub(super) const INLINE_COMMAND_MAX_BYTES: usize = 64 * 1024;
 pub(super) const EXEC_DEFAULT_MS: u64 = 30_000;
 /// Freestyle's inline exec limit (five minutes).
 pub(super) const EXEC_MAX_MS: u64 = 300_000;
@@ -57,7 +57,6 @@ const FS_TIMEOUT_MS: u64 = 60_000;
 /// `commit STAGE SHA256 [MODE]`, `abort` (path: the staging file).
 pub(super) const FS_PROGRAM: &str = r#"import base64,hashlib,json,os,shutil,stat,sys,tempfile
 op,p=sys.argv[1],sys.argv[2]
-DN,DB=%DN%,%DB%
 P=".cmux-write-"
 def k(m):return "directory" if stat.S_ISDIR(m) else "symlink" if stat.S_ISLNK(m) else "file"
 def i(s):return {"kind":k(s.st_mode),"size":s.st_size,"mode":stat.S_IMODE(s.st_mode),"modifiedAt":int(s.st_mtime*1000)}
@@ -82,15 +81,7 @@ def done(t,q,m,o):
 try:
  if op=="stat":o={"path":p,**i(os.lstat(p))}
  elif op=="dir":
-  e=[];n=16
-  with os.scandir(p) as d:
-   for x in d:
-    if len(e)>=DN:sys.exit(%TOO_LARGE%)
-    y={"name":x.name,**i(x.stat(follow_symlinks=False))}
-    n+=len(json.dumps(y))+2
-    if n>DB:sys.exit(%TOO_LARGE%)
-    e.append(y)
-  o={"entries":e}
+  exec(%DIRECTORY_PROGRAM%);sys.exit(0)
  elif op=="read":
   s=os.stat(p)
   if stat.S_ISDIR(s.st_mode):sys.exit(%WRONG_KIND%)
@@ -218,11 +209,13 @@ pub(super) fn quote(word: &str) -> String {
 /// The shell line that runs the file program for `op` with `args`.
 pub(super) fn fs_command(op: &str, path: &str, args: &[String]) -> String {
     let program = FS_PROGRAM
-        .replace("%DN%", &DIR_MAX_ENTRIES.to_string())
-        .replace("%DB%", &DIR_MAX_BYTES.to_string())
+        .replace("%DIRECTORY_PROGRAM%", &json!(directory::PROGRAM).to_string())
+        .replace("%DN%", &directory::PAGE_ENTRIES.to_string())
+        .replace("%DB%", &directory::PAGE_BYTES.to_string())
         .replace("%NOT_FOUND%", &NOT_FOUND.to_string())
         .replace("%WRONG_KIND%", &WRONG_KIND.to_string())
-        .replace("%TOO_LARGE%", &TOO_LARGE.to_string())
+        .replace("%DIR_CHANGED%", &directory::CHANGED.to_string())
+        .replace("%DIR_CURSOR%", &directory::INVALID_CURSOR.to_string())
         .replace("%ROOT%", &ROOT.to_string())
         .replace("%NEEDS_ROOT%", &NEEDS_ROOT.to_string())
         .replace("%CORRUPT%", &CORRUPT.to_string())
@@ -280,7 +273,7 @@ fn changes_target(op: &str) -> bool {
 }
 
 /// One file program run. `Ok(value)` is its JSON answer; `Err` is what the caller does.
-async fn fs(
+pub(super) async fn fs(
     client: &reqwest::Client,
     grant: &Grant,
     op: &str,
@@ -324,11 +317,15 @@ async fn fs(
             };
             return refuse(400, "vm_invalid_path", message.into());
         }
-        TOO_LARGE => {
-            let message = format!(
-                "the directory has over {DIR_MAX_ENTRIES} entries, or its listing is over {DIR_MAX_BYTES} bytes"
+        directory::CHANGED => {
+            return refuse(
+                409,
+                "vm_directory_changed",
+                "the directory changed; restart the listing".into(),
             );
-            return refuse(413, "vm_file_too_large", message);
+        }
+        directory::INVALID_CURSOR => {
+            return refuse(502, "vm_invalid_cursor", "the directory cursor was invalid".into());
         }
         CORRUPT => {
             return refuse(
@@ -361,10 +358,20 @@ pub(super) async fn run(client: &reqwest::Client, grant: &Grant, request: &Reque
     let mode = request.mode.map(|m| m.to_string());
     let result = match request.op {
         Op::Stat => fs(client, grant, "stat", path, &[], None).await,
-        Op::Dir => fs(client, grant, "dir", path, &[], None).await,
+        Op::Dir => {
+            return match directory::read(client, grant, path).await {
+                Ok(answer) => Direct::Done(answer),
+                Err(direct) => direct,
+            };
+        }
         Op::Mkdir => fs(client, grant, "mkdir", path, &[], None).await,
         Op::Remove => fs(client, grant, "remove", path, &[], None).await,
-        Op::Read => read(client, grant, path).await,
+        Op::Read => {
+            return match read(client, grant, path).await {
+                Ok(answer) => Direct::Done(answer),
+                Err(direct) => direct,
+            };
+        }
         Op::Write => match request.data() {
             Some(data) => write(client, grant, path, &data, mode).await,
             None => return Direct::Fallback,
@@ -380,11 +387,14 @@ pub(super) async fn run(client: &reqwest::Client, grant: &Grant, request: &Reque
 /// The file in ranged chunks, every chunk from the same version of it (device, inode, size and
 /// change times, read from the open file). A file that changes between chunks is read again from
 /// the start; one that keeps changing goes to the proxy, which reads it in one go.
-async fn read(client: &reqwest::Client, grant: &Grant, path: &str) -> Result<Value, Direct> {
+async fn read(client: &reqwest::Client, grant: &Grant, path: &str) -> Result<Answer, Direct> {
+    let mut file = private_spool().map_err(storage_error)?;
     'tries: for _ in 0..READ_TRIES {
-        let (mut bytes, mut version) = (Vec::new(), None::<String>);
+        file.set_len(0).map_err(storage_error)?;
+        file.rewind().map_err(storage_error)?;
+        let (mut received, mut version) = (0_u64, None::<String>);
         loop {
-            let args = [bytes.len().to_string(), READ_CHUNK.to_string()];
+            let args = [received.to_string(), READ_CHUNK.to_string()];
             let value = fs(client, grant, "read", path, &args, None).await?;
             let chunk = value
                 .get("dataBase64")
@@ -398,14 +408,23 @@ async fn read(client: &reqwest::Client, grant: &Grant, path: &str) -> Result<Val
             }
             version = Some(seen.to_owned());
             let empty = chunk.is_empty();
-            bytes.extend_from_slice(&chunk);
-            if empty || bytes.len() as u64 >= total {
-                if bytes.len() as u64 != total {
+            if chunk.len() as u64 > READ_CHUNK
+                || chunk.len() as u64 > total.saturating_sub(received)
+            {
+                return Err(Direct::Fallback);
+            }
+            file.write_all(&chunk).map_err(storage_error)?;
+            received += chunk.len() as u64;
+            if empty || received >= total {
+                if received != total {
                     continue 'tries;
                 }
-                return Ok(
-                    json!({ "path": path, "dataBase64": BASE64.encode(&bytes), "size": bytes.len() }),
-                );
+                return Ok(Answer {
+                    status: 200,
+                    body: json!({ "path": path, "size": received }),
+                    code: None,
+                    file: Some(Spool::Bytes(file)),
+                });
             }
         }
     }
@@ -444,10 +463,50 @@ async fn write(
     committed
 }
 
+/// The shell line that runs a command staged at `path` ([`stage_command`]): bash reads it from an
+/// open descriptor, and the file is removed before any of it runs.
+fn staged_command(path: &str) -> String {
+    let path = quote(path);
+    format!("exec 3<{path} && rm -f {path} && exec bash /dev/fd/3")
+}
+
+/// A command too long to go inline, written to a new 0600 file of the work user's (in pieces
+/// when it is longer than one exec's stdin, as any file write). Answers its path.
+async fn stage_command(
+    client: &reqwest::Client,
+    grant: &Grant,
+    command: &str,
+) -> Result<String, Direct> {
+    let path = format!("/tmp/.cmux-exec-{}", uuid::Uuid::new_v4().simple());
+    write(client, grant, &path, command.as_bytes(), Some("384".to_owned())).await?;
+    Ok(path)
+}
+
 async fn run_exec(client: &reqwest::Client, grant: &Grant, request: &Request) -> Direct {
     let command = request.command.as_deref().unwrap_or_default();
     let timeout = request.exec_timeout_ms();
-    match exec(client, grant, &exec_command(command), None, timeout).await {
+    let mut staged = None;
+    let line = if command.len() <= INLINE_COMMAND_MAX_BYTES {
+        exec_command(command)
+    } else {
+        match stage_command(client, grant, command).await {
+            Ok(path) => {
+                let line = exec_command(&staged_command(&path));
+                staged = Some(path);
+                line
+            }
+            Err(Direct::Auth) => return Direct::Auth,
+            // Nothing of the command ran: the proxy may take it.
+            Err(_) => return Direct::Fallback,
+        }
+    };
+    let ran = exec(client, grant, &line, None, timeout).await;
+    // Refused or never sent: the command never started, so its staged file goes (best effort; a
+    // run that started removed it itself).
+    if let (Some(path), Err(Failure::Auth | Failure::NotSent)) = (&staged, &ran) {
+        let _ = fs(client, grant, "remove", path, &[], None).await;
+    }
+    match ran {
         Ok(answer) => Direct::Done(Answer::ok(
             json!({ "exitCode": answer.exit_code, "stdout": answer.stdout, "stderr": answer.stderr }),
         )),

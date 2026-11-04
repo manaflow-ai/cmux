@@ -214,14 +214,19 @@ impl SessionJournalReader {
     }
 
     /// [`WorkspaceRegistry::session_journal_without_output_after`] on this
-    /// reader's own read-only connection (no registry lock).
+    /// reader's own read-only connection (no registry lock). The page reads
+    /// in one read transaction: the archive head and the active rows come
+    /// from one snapshot, so a seal that commits between the two reads
+    /// cannot hide the records it moved (the registry's own read is atomic
+    /// under the connection lock the seal also takes).
     pub(crate) fn without_output_after(
         &self,
         sequence: u64,
         through: u64,
         limit: usize,
     ) -> anyhow::Result<(Vec<SessionJournalRecord>, u64)> {
-        query_session_journal_without_output_after(&self.connection, sequence, through, limit)
+        let snapshot = self.connection.unchecked_transaction()?;
+        query_session_journal_without_output_after(&snapshot, sequence, through, limit)
     }
 
     pub(crate) fn after_subjects(

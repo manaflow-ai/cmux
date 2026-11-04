@@ -58,10 +58,13 @@ struct SidebarPriorityDragTests {
         }
 
         func escape(in target: NSWindow) throws {
-            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                                     windowNumber: target.windowNumber, context: nil, characters: "\u{1b}",
-                                                     charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
-            NSApplication.shared.sendEvent(event)
+            NSApplication.shared.sendEvent(try escapeEvent(in: target))
+        }
+
+        func escapeEvent(in target: NSWindow) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                          windowNumber: target.windowNumber, context: nil, characters: "\u{1b}",
+                                          charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
         }
 
         /// Presses `id`'s row at its middle, moves the pointer by each of `moves` (points, down is
@@ -251,12 +254,20 @@ struct SidebarPriorityDragTests {
         row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "c", dy: -height))
         #expect(harness.panel.draggingID == "c")
         // An unrelated window's Escape must not cancel this sidebar's gesture.
+        _ = sidebar.list.pointerMonitorSaw(try harness.escapeEvent(in: other))
         try harness.escape(in: other)
         #expect(harness.panel.draggingID == "c")
         #expect(harness.actions.isEmpty)
-        if fromChildWindow { harness.window.addChildWindow(other, ordered: .above) }
-        // Dispatch through the app so the list's event monitor and Priority callback must route it.
-        try harness.escape(in: fromChildWindow ? other : harness.window)
+        if fromChildWindow {
+            harness.window.addChildWindow(other, ordered: .above)
+            // A child window's Escape reaches the Priority view only through the list's app-wide key monitor (no
+            // responder chain leads here). Feed that monitor's handler directly: through `NSApp.sendEvent`, any
+            // local monitor still installed by an earlier suite runs first and, if it eats Escape, ours never runs.
+            #expect(sidebar.list.pointerMonitorSaw(try harness.escapeEvent(in: other)) != nil)
+        } else {
+            // Dispatch through the app so the list's event monitor and Priority callback must route it.
+            try harness.escape(in: harness.window)
+        }
         #expect(harness.panel.draggingID == nil)
         #expect(row.layer?.zPosition == 0)
         #expect(row.frame.minY == originalTop)

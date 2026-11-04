@@ -9,6 +9,8 @@ public import Foundation
 public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page loaded and wants the handshake.
     case ready
+    /// This Mac's opt-in iMessage connector. No daemon, peer or send operation.
+    case imessage(AgentPaneIMessageAction)
     /// The page lost its daemon and wants a fresh handshake (a restarted
     /// daemon has a new port and token), without starting one.
     case reconnect
@@ -33,6 +35,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
     /// keeps it with the tab, so a relaunch opens the chat with it.
     case unsentDraft(String)
+    /// What a new chat leaves when its tab opens another chat (`chat.leftover`, cmux#32276): its
+    /// typed text and prompts held for a trust answer, kept for its window's next new chat.
+    case newChatLeftover(String)
+    /// A New Tab page showed that leftover as its draft (`chat.leftoverTaken`): its window's slot gives it up.
+    case newChatLeftoverTaken(String)
     /// A settled transcript scroll's frame intervals in milliseconds, at
     /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
     case framePacing([Double])
@@ -193,6 +200,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// "openDiffViewer", cwd, mode, turn}`): the diff beside the chat, with that turn as its Last
     /// turn (``AgentPaneDiffTurn``).
     case diffTurn(AgentPaneDiffTurn, cwd: String?, toggle: Bool)
+    /// The header's Changes or an edited-files card carrying the turn's own patch (`pane.action {id:
+    /// "openDiffViewer", cwd, mode, patch}`): a folder in no repository, or a turn that wrote a file
+    /// outside it. The diff tab beside the chat shows that patch (``AgentPaneDiffPatch``).
+    case diffPatch(AgentPaneDiffPatch, cwd: String?, toggle: Bool)
     /// The header's Preview (`pane.action {id: "preview", url, mode}`): toggles or opens a browser tab
     /// beside the chat on `url`, the local page its last turn started or mentioned. A loopback
     /// address only; a click that closes the open preview may name none.
@@ -208,10 +219,15 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case tabRowTools(width: Double)
     /// The current page-owned Session Info model, or its withdrawal.
     case sessionInfo(AgentPaneSessionInfoModel?)
+    /// `pane.sessionInfo.overlays {rects}`: the page's open popups (viewport CSS pixels), which the
+    /// natively drawn Session Info steps behind; empty when none shows.
+    case sessionInfoOverlays([AgentPaneSessionInfoOverlay])
     /// Copies a native Session Info menu item through the platform clipboard.
     case copyText(String)
     /// `pane.tabRowTools.set {tools}`: declarative native controls for the shared tab row.
     case tabRowToolsSet([PaneTabRowTool])
+    /// `pane.tabRowTools.openMenu {id, menuItemId?}`: opens a native page menu for palette expansion.
+    case tabRowToolsOpenMenu(id: String, menuItemID: String?)
     /// `/btw <question>` asks acpmux for one bounded inline side answer.
     case btwInline(question: String, sessionId: String)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
@@ -227,6 +243,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// right by default, else the workspace whose tab shows it or a new workspace, as the person
     /// picked; never this chat replaced in place (``AgentPaneAskOpen``).
     case asksOpen(String, AgentPaneAskPlace)
+    /// `chat.attention.open {tabId}`: Needs you went to a marked tab.
+    case attentionOpen(String)
     /// `chat.asks.answer {sessionId, permissionId, optionId}`: the home's inbox answered another
     /// chat's ask in place, with that ask's allow once or deny once (``AgentPaneAskAnswer``).
     case asksAnswer(AgentPaneAskAnswer)

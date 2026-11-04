@@ -66,7 +66,7 @@ final class CaptureSceneRegistry {
         if definition.name == Self.workspaceAutoNameScene {
             return await renderWorkspaceAutoName(params, definition: definition, windowID: targetWindowID)
         }
-        if definition.name == Self.sessionInfoNativeScene { widenSessionInfoViewport(targetWindow) }
+        if definition.name == Self.sessionInfoNativeScene { AgentPaneSessionInfoDebugState.widenCaptureWindow(targetWindow.window) }
 
         // Every scene starts from the same dense production fixture. Scene-specific controls below
         // then make the named capture visibly different while preserving real app ownership.
@@ -223,22 +223,11 @@ final class CaptureSceneRegistry {
         case Self.sessionInfoNativeScene:
             let native = DebugTunables.handle(["action": .string("set"), "key": .string("agent.sessionInfo.native"),
                                                 "value": .bool(true)], services: services)
-            let click: CmuxNextSettings.JSONValue
-            if case .success((let pane, let view)) = DebugAgentPane.agentPane([:], services: services) {
-                let alreadyPressed = await view.debugSessionInfoHeaderPressed()
-                if alreadyPressed {
-                    // Showcase state can retain an open toggle across scene renders. Close it with
-                    // the real header click first, then click the same control again to prove opening works.
-                    let close = await DebugAgentPane.handle(["action": .string("click"), "text": .string("Session Info")], services)
-                    let open = await DebugAgentPane.handle(["action": .string("click"), "text": .string("Session Info")], services)
-                    click = .object(["pane": .string(pane), "initial_pressed": .bool(true), "close": close, "open": open])
-                } else {
-                    click = await DebugAgentPane.handle(["action": .string("click"), "text": .string("Session Info")], services)
-                }
-            } else {
-                click = await DebugAgentPane.handle(["action": .string("click"), "text": .string("Session Info")], services)
+            let click = { [services] in await DebugAgentPane.handle(["action": .string("click"), "text": .string("Session Info")], services) }
+            guard case .success((let pane, let view)) = DebugAgentPane.agentPane([:], services: services) else {
+                return .object(["native": native, "click": await click()])
             }
-            return .object(["native": native, "click": click])
+            return .object(["native": native, "click": await view.debugOpenSessionInfo(pane: pane, click: click)])
         case "hints-cmd-held":
             let hint = await DebugShortcutHintControl().handle(["modifier": .string("cmd")], services: services)
             let menu = await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Mode")], services)
@@ -702,21 +691,10 @@ extension CaptureSceneRegistry {
 }
 
 /// A deterministic capture of the native Session Info path. The fixture and click are the same
-/// production paths a person uses; only the tunable and the readiness witness are capture-only.
+/// production paths a person uses; only the tunable and the readiness witness are capture-only
+/// (``AgentPaneView/debugSessionInfoReadiness(pane:windowWidth:settle:)``).
 extension CaptureSceneRegistry {
     static let sessionInfoNativeScene = "session-info-native"
-
-    /// Keep the capture in the wide-gutter state: the native panel then reaches the pane's 8 px
-    /// foot instead of stopping above the composer. WindowController clamps this to the capture
-    /// screen when its visible frame is narrower.
-    private func widenSessionInfoViewport(_ controller: WindowController) {
-        guard let window = controller.window else { return }
-        let frame = window.frame
-        let width = max(frame.width, 1_500)
-        let height = max(frame.height, 850)
-        guard width != frame.width || height != frame.height else { return }
-        window.setFrame(CGRect(x: frame.minX, y: frame.minY, width: width, height: height), display: true)
-    }
 
     private func nativeSessionInfoReadiness(windowID: String) async -> (ready: Bool, report: CmuxNextSettings.JSONValue) {
         guard let controller = services.windows.controller(for: windowID),
@@ -724,46 +702,11 @@ extension CaptureSceneRegistry {
               let view = services.agentTabs.existingView(key) else {
             return (false, .object(["error": .string("native Session Info has no focused agent view")]))
         }
-        // The page click has already returned after its event report. Read the toggle once, then
-        // let display frames settle the AppKit panel geometry; no timer or polling loop is needed.
-        let togglePressed = await view.debugSessionInfoHeaderPressed()
-        frames.start()
-        let settled = await frames.settled(
-            until: { view.debugSessionInfoState.ready },
-            start: ContinuousClock.now,
-            window: 100,
-            deadline: 5_000,
-        )
-        let frameStats = frames.stop()
-        let state = view.debugSessionInfoState
-        func rect(_ value: AgentPaneSessionInfoDebugRect?) -> CmuxNextSettings.JSONValue {
-            guard let value else { return .null }
-            return .object([
-                "x": .number(value.x), "y": .number(value.y),
-                "width": .number(value.width), "height": .number(value.height),
-            ])
+        return await view.debugSessionInfoReadiness(pane: key, windowWidth: { Double(controller.window?.frame.width ?? 0) }) { [frames] until in
+            frames.start()
+            let settled = await frames.settled(until: until, start: ContinuousClock.now, window: 100, deadline: 5_000)
+            return (settled, frames.stop())
         }
-        let report: CmuxNextSettings.JSONValue = .object([
-            "pane": .string(key),
-            "native_host": .bool(state.nativeHost),
-            "open": .bool(state.open),
-            "visible": .bool(state.visible),
-            "frame_ready": .bool(state.frameReady),
-            "full_length": .bool(state.foot == nil),
-            "ready": .bool(state.ready),
-            "header_toggle_pressed": .bool(togglePressed),
-            "section_count": .number(Double(state.sectionCount)),
-            "panel": rect(state.panel),
-            "page": rect(state.page),
-            "top": state.top.map { .number($0) } ?? .null,
-            "foot": state.foot.map { .number($0) } ?? .null,
-            "zoom": .number(state.zoom),
-            "flipped": .bool(state.flipped),
-            "window_width": .number(Double(controller.window?.frame.width ?? 0)),
-            "settled_ms": settled.map { .number($0) } ?? .null,
-            "frames": frameStats,
-        ])
-        return (settled != nil && state.ready && state.foot == nil && togglePressed, report)
     }
 }
 

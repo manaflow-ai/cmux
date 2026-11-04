@@ -28,6 +28,19 @@ public nonisolated final class TerminalFrameChanges: Sendable {
         tell?()
     }
 
+    /// A change of whether the terminal shows (shown, hidden, drawn, paused, closed): tells the observer even when it
+    /// already was told and has not read since. A hidden terminal's keeper does not read after its hide (SWITCH FRAMES
+    /// SF-5: a read re-armed the tell, so every hidden output chunk woke the main actor about twice a second), so
+    /// output while hidden only counts; the next visibility change wakes it.
+    func wake() {
+        let tell = state.withLock { state -> (@Sendable () -> Void)? in
+            state.generation &+= 1
+            state.told = state.onChange != nil
+            return state.onChange
+        }
+        tell?()
+    }
+
     /// The changes so far; the next change tells the observer again.
     func take() -> UInt64 {
         state.withLock { state in

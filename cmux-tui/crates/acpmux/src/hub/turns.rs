@@ -502,6 +502,14 @@ impl Hub {
             && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
         let trigger = crate::prompt_provenance::is_trigger(opts.provenance.as_ref());
         let trigger_held = trigger || running.as_ref().is_some_and(|t| t.trigger);
+        if steer
+            && opts.steer_only
+            && opts.interrupt_turn.as_deref().is_some_and(|expected| {
+                running.as_ref().is_none_or(|turn| turn.turn_id != expected)
+            })
+        {
+            return Err(super::turn_cap::steer_unavailable(capped));
+        }
         let steer_now = steer
             && !trigger_held
             && session.steering.load(Ordering::SeqCst)
@@ -558,6 +566,7 @@ impl Hub {
             client,
             prompt_id: &prompt_id,
             control,
+            cloud_mobile: opts.cloud_mobile,
             trust_gate,
             // Held past the cap, it waits: it stops no turn (`turn_cap.rs`); nor does another
             // agent's message stop a review box's review, or go ahead of the person's prompt that
@@ -606,7 +615,8 @@ impl Hub {
             return Err(e);
         }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
-        let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
+        let (mut blocks, control, trust_gate, cloud_mobile) =
+            (run.blocks.clone(), run.control, run.trust_gate, run.cloud_mobile);
         // A queued prompt restored from the log may still name its uploads (`prompt_uploads.rs`).
         let web = control == Control::Web;
         let read = crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await;
@@ -624,6 +634,7 @@ impl Hub {
             .check_dispatch(
                 session,
                 control,
+                cloud_mobile,
                 trust_gate,
                 device.as_deref(),
                 &prompt_id,
@@ -806,12 +817,18 @@ impl Hub {
         if control == Control::Web || !family {
             session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
         }
+        session
+            .floor
+            .cloud_mobile_turn
+            .store(control == Control::Web && run.cloud_mobile, Ordering::SeqCst);
         self.reset_stream(session);
         // A forced Stop retires the logical turn even if Claude's compaction
         // finishes later. Do not let the stale compaction flag cancel the
         // next, explicit prompt immediately.
         session.compacting.store(false, Ordering::SeqCst);
-        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
+        // Its control and mobile origin go with it: a restart that finds its turn never started
+        // queues it again as it came (`unstarted_prompt.rs`).
+        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "cloudMobile": run.cloud_mobile});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
         self.append_prompt(session, msg, &blocks, display_parts.as_ref());
         if trigger {
@@ -865,6 +882,7 @@ impl Hub {
             .check_dispatch(
                 session,
                 control,
+                cloud_mobile,
                 trust_gate,
                 device.as_deref(),
                 &prompt_id,
@@ -922,7 +940,7 @@ impl Hub {
                 session,
                 "mux",
                 "turn_started",
-                json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate, "persons": persons, "trigger": trigger}),
+                json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate, "persons": persons, "trigger": trigger, "cloudMobile": run.cloud_mobile}),
             )
             .seq;
         // The prompt as the agent gets it, before the checks below: making its model-sized copies
@@ -1051,6 +1069,14 @@ impl Hub {
             } else {
                 None
             };
+            // A chat on a Cloud machine, or one a remote connection started, never falls over
+            // onto the local CodeRouter, nor names it in its error: the machine is signed in from
+            // the Mac (Leo, 2026-10-31: "STOP USING CODEROUTER").
+            if let Some(to) = &target
+                && self.no_coderouter_fallback(session, to).await
+            {
+                target = None;
+            }
             // Its route cannot start (a local router that is down): the chat stays where it is
             // rather than moving onto a profile every later turn fails on (`fallback_start.rs`).
             if let Some(to) = &target
@@ -1097,6 +1123,7 @@ impl Hub {
                         .check_dispatch(
                             session,
                             control,
+                            cloud_mobile,
                             trust_gate,
                             device.as_deref(),
                             &prompt_id,
@@ -1427,8 +1454,9 @@ impl Hub {
         // A Claude agent that is not signed in: say what it had, how the
         // person's terminal signs in, and the fix (`claude_auth.rs`).
         let mut signed_out = false;
+        let cloud_host = result.is_err() && self.config.read().await.cloud_host;
         if let Err(e) = &mut result
-            && let Some(text) = crate::claude_auth::explain(&session.id, &e.message)
+            && let Some(text) = crate::claude_auth::explain(&session.id, &e.message, cloud_host)
         {
             tracing::warn!(session = %session.id, "Claude agent is not signed in");
             e.message = text;
@@ -1746,6 +1774,16 @@ impl Hub {
         self.subsession_turn_ended(session, turn_result);
     }
 
+    /// Whether the failover onto profile `to` is skipped because it runs through the local
+    /// CodeRouter (the built-in `cmux` profile or route) and this chat is on a Cloud machine or
+    /// came over a remote connection (`fallback_start::coderouter_fallback_skipped`).
+    async fn no_coderouter_fallback(&self, session: &Session, to: &str) -> bool {
+        let cfg = self.config.read().await;
+        let Some(profile) = cfg.harnesses.get(to) else { return false };
+        let remote = session.meta().remote_origin;
+        super::fallback_start::coderouter_fallback_skipped(cfg.cloud_host, remote, to, profile)
+    }
+
     /// The profile to fall over to, when the current one names one that exists.
     async fn fallback_profile(&self, session: &Session) -> Option<String> {
         let cfg = self.config.read().await;
@@ -1990,10 +2028,40 @@ impl Hub {
         if at_spawn {
             session.meta.lock().unwrap().model_request = Some(model_id.to_owned());
             self.save_meta_answered(session)?;
-            self.detach_child(session).await;
-            self.append(session, "mux", "model", json!({"modelId": model_id, "atSpawn": true}));
+            // A switch never stops a running turn or cuts an open permission prompt (Leo
+            // 2026-10-22: "switching model/harness/whatever shouldnt immediately stop
+            // things"): the agent restarts on the new model when the turn ends, as a route
+            // switch does (`route_switch.rs`), so the next prompt runs on it. Between turns
+            // the process ends now, under the turn lock, and the next prompt starts it.
+            let idle = || {
+                if session.turn().is_none() && session.pending_permissions().is_empty() {
+                    session.turn_lock.try_lock().ok()
+                } else {
+                    None
+                }
+            };
+            let mut turn = idle();
+            if turn.is_none() {
+                session.route_switch.store(true, std::sync::atomic::Ordering::SeqCst);
+                // The turn may have ended before the flag was seen: then now.
+                turn = idle().filter(|_| {
+                    session.route_switch.swap(false, std::sync::atomic::Ordering::SeqCst)
+                });
+            }
+            let applied = if let Some(_turn) = turn {
+                self.detach_child(session).await;
+                "now"
+            } else {
+                "afterTurn"
+            };
+            self.append(
+                session,
+                "mux",
+                "model",
+                json!({"modelId": model_id, "atSpawn": true, "applied": applied}),
+            );
             super::start_defaults::model_applied(session, model_id);
-            return Ok(json!({}));
+            return Ok(json!({"applied": applied}));
         }
         // Prefer the config option named "model" when the agent exposes one.
         let has_model_option = session
@@ -2202,6 +2270,7 @@ impl Hub {
                     host_seq: None,
                 }),
                 remote: None,
+                update_line: Default::default(),
             });
             drop(sessions);
         }

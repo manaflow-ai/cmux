@@ -4,6 +4,8 @@
     "nightly.yml": {
       "decide": {
         "Mint the routing token for early nightly controls": {"plumbing": true},
+        "Read hosted Ubuntu's start wait": {"nightly_only": "reads how long hosted Ubuntu took to start this nightly-next push run's own job, which only that run has; tests/test_hosted_queue_wait.py covers the read and the signer route"},
+        "Place the light jobs on the all-nightly reservation while it has idle runners": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "guards-local.sh runs test_ci_portable_job_placement.py and test_nightly_dedicated_mini.py, which cover the reservation placement, its bounded wait and the runs-on fallbacks"},
         "Place credentialed early picker on owned minis": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "Existing portable placement tests cover unknown API capacity and owned-only eligibility"},
         "Start early Linux admission beside the Mac picker": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "guards-local.sh runs test_ci_portable_job_placement.py and test_nightly_linux_admission.py from the ci group; the reusable workflow excludes that matrix row because this job already runs it"},
         "Admit early controls on reserved fleet Linux": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "guards-local.sh runs test_ci_portable_job_placement.py and test_nightly_linux_admission.py from the ci group; the reusable workflow excludes that matrix row because this job already runs it"},
@@ -56,6 +58,7 @@
       "build-nightly-app": {
         "Mint the routing token for the light-job placement": {"plumbing": true},
         "Place the light jobs on a free mini": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"},
+        "Collect the light-job placement": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow", "note": "joins the background placement the step above starts and copies its outputs; tests/test_nightly_trusted_routing.py holds the pair"},
         "Resolve immutable SSH daemon metadata": {"nightly_only": "reads the compiled Release app version and checks the current nightly feed build floors"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Restore the original unsigned nightly inputs": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
@@ -68,9 +71,12 @@
         "Restore Xcode compilation cache": {"plumbing": true, "note": "local action: restores or saves a cache with actions/cache, WarpBuilds/cache or R2 and reports a receipt; no product check. Re-review this entry if the action gains a check"},
         "Install compilation dependencies": {"plumbing": true},
         "Check node is on PATH (cmux-next web bundles)": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow", "note": "tests/test_ensure_setup_node.py runs scripts/ci/ensure-setup-node.sh against a fake tool cache and dist"},
+        "Source key of the web bundles (cmux-next)": {"plumbing": true},
+        "Restore the published web bundles (cmux-next)": {"plumbing": true, "note": "Restores the same keyed bundle as cmux-next.yml; build-web-bundles.sh --from checks it before use"},
         "Build the web bundles (cmux-next)": {"pr": "cmux-next.yml:web-bundles:Build the web bundles for this source key"},
         "Stand in for the acpmux companion while the tree publishes": {"plumbing": true},
         "Fetch the resolved cmux-tui tree companions": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
+        "Prefetch the cmux-tui client while the tree publishes": {"plumbing": true, "note": "fills the client cache beside the compile; Bundle the cmux-tui client re-verifies every slice against the attested manifest"},
         "Build in-tree acpmux for the compilation cache": {"pr": "cmux-next.yml:cmux-scheme-compile:Build in-tree acpmux for the app bundle"},
         "Prepare the OptChat Chief cache key": {"plumbing": true, "note": "combines the portable source key with the Mac SDK, compiler and environment identity"},
         "Restore the OptChat Chief cache": {"plumbing": true, "note": "restores an exact source and environment keyed Chief artifact; no product check"},
@@ -107,6 +113,7 @@
         "Read whether the OptChat Chief was rebuilt": {"plumbing": true, "note": "reads the build script's reused/built result so only a rebuilt Chief entry is saved; scripts/cmux-next/tests/optchat-chief-input-cache.test.sh checks the result"},
         "Save the OptChat Chief cache": {"plumbing": true, "note": "publishes a rebuilt Chief artifact as a new generation of the exact source and environment key"},
         "Stop the helper builds still running": {"plumbing": true},
+        "Offer fleet Linux to the primary preparation": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"},
         "Bundle the cmux-tui client": {"pr": "ci-guards.yml:workflow-guard-tests:Validate cmux-tui client installation"}},
       "build-nightly-remote-daemon": {
         "Keep the resumed daemon assets": {"plumbing": true},
@@ -125,6 +132,9 @@
         "Give this job its own bun": {"plumbing": true},
         "Build the web bundles": {"pr": "cmux-next.yml:web-bundles:Build the web bundles for this source key"},
         "Generate the third-party notices": {"pr": "cmux-next-guards.yml:rust-notices-tree:Generate the Rust notices from this tree (as the nightly does)"}},
+      "check-nightly-webviews": {
+        "Webview checks on the build commit": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publishes no red webview tree and no known-bad commit", "note": "the same fast_gate_webviews_checks.py pieces run on every feat-cmux-next pull request in ci-web.yml react-apps-check (1); this test pins that the nightly runs them on its build commit and that publication waits for them"}
+      },
       "resolve-nightly-cmux-tui-client": {
         "Fix this run's build number": {"plumbing": true},
         "Install gh if this Linux runner lacks it": {"plumbing": true},
@@ -138,6 +148,7 @@
         "Leave the build slot to a newer nightly-next push": {"plumbing": true},
         "Record pending tree dependency": {"nightly_only": "records the selected nightly build's attempt-scoped cmux-tui tree dependency for publication recovery; pull requests do not select or publish a nightly tree"}},
       "prepare-nightly-variant-primary": {
+        "Add the workflow commit's new step scripts to an older build tree": {"plumbing": true, "note": "only runs when the build tree predates the step scripts it calls"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Reuse a successful primary preparation": {"plumbing": true, "note": "fallback leg only: skips a preparation the primary leg already uploaded (the primary's result or this run's artifacts)"},
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
@@ -155,6 +166,7 @@
         "Put llvm-lipo on PATH as lipo": {"plumbing": true},
         "Require the cmux-tui client build-nightly-app bundled": {"nightly_only": "compares the cmux-tui.version build-nightly-app wrote with the commit resolve-nightly-cmux-tui-client chose; only the nightly installs a resolved client into a Release app"}},
       "prepare-nightly-variant": {
+        "Add the workflow commit's new step scripts to an older build tree": {"plumbing": true, "note": "only runs when the build tree predates the step scripts it calls"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Reuse a successful primary preparation": {"plumbing": true, "note": "fallback leg only: skips a preparation the primary leg already uploaded (the primary's result or this run's artifacts)"},
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
@@ -202,6 +214,7 @@
         "Write notary test receipt": {"plumbing": true},
         "Cleanup keychain": {"nightly_only": "deletes the signing keychain"}},
       "verify-signed-nightly": {
+        "Add the workflow commit's new step scripts to an older build tree": {"plumbing": true, "note": "only runs when the build tree predates the step scripts it calls"},
         "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
         "Restore signed app": {"plumbing": true},
         "Verify version surfaces": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
@@ -212,27 +225,33 @@
         "Verify signed app entitlements and the Computer Use helper ticket": {"nightly_only": "reads the Developer ID signature, entitlements and the Computer Use helper's stapled ticket of the signed Release app that only the nightly signs"}},
       "verify-final-dmg-nightly": {
         "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
+        "Download final DMG (parallel ranges)": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts", "note": "tests/test_fetch_run_artifact.py runs the ranged fetch against a fake artifact service and blob host"},
         "Verify final DMG artifact": {"nightly_only": "statically verifies the notarized stapled final DMG and records its exact digest without launching app code"},
         "Launch smoke from a fresh home": {"nightly_only": "launches the final notarized DMG from a fresh home in the console session; only a release run has one (gate tested by tests/test_nightly_next_launch_smoke.py)"},
         "Apple's checks of a pool-signed DMG and the app in it": {"nightly_only": "Apple's tools on the notarized release-pool DMG and its app; only a release run has one"},
+        "Read the final DMG's image for the parallel launch smoke": {"nightly_only": "hashes the final notarized DMG's image (dmg_image_digest.py, tested by tests/test_nightly_parallel_launch_smoke.py) so publish-nightly matches it to the image launch-smoke-nightly smoked; only a release run has one"},
         "Bundle size budget": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"}},
+      "launch-smoke-nightly": {
+        "Download the unsigned DMG (parallel ranges)": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts", "note": "tests/test_fetch_run_artifact.py runs the ranged fetch against a fake artifact service and blob host"},
+        "Check the DMG is the one signer-dmg signs": {"nightly_only": "checks the release-pool unsigned DMG's digest and records its image (dmg_image_digest.py, tested by tests/test_nightly_parallel_launch_smoke.py); only a release run has one"},
+        "Launch smoke from a fresh home": {"nightly_only": "launches the release-pool DMG's app from a fresh home in the console session while signer-dmg signs it; only a release run has one (gate tested by tests/test_nightly_next_launch_smoke.py)"}},
       "signer-build": {"Set up Rust": {"plumbing": true},
         "Build the signer": {"nightly_only": "builds the pinned release signer; the build script's pins are tested by tests/test_release_signer_scripts.py"}},
       "signer-app": {"Install the signer": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Prepare the app": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"},
         "Sign the app, the Computer Use helper notarized first": {"nightly_only": "signs with the release environment's Developer ID; the signer's rules are tested by its script tests"},
-        "Pack the signed app": {"plumbing": true}},
-      "signer-app-notary": {"Install the signer": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"},
-        "Unpack the signed app": {"plumbing": true},
-        "Notarize the app": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}},
+        "Pack the signed app": {"plumbing": true},
+        "Start the app's notarization upload": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"},
+        "Finish the app's notarization upload": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}},
       "signer-dmg-image": {"Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
+        "Download the signed app (parallel ranges)": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts", "note": "tests/test_fetch_run_artifact.py runs the ranged fetch against a fake artifact service and blob host"},
         "Unpack the signed app": {"plumbing": true},
-        "Staple the app's notarization ticket": {"nightly_only": "Apple's stapler fetches the ticket of a release-pool app Apple notarized in signer-app-notary; only a release run has one"},
+        "Staple the app's notarization ticket": {"nightly_only": "Apple's stapler fetches the ticket of a release-pool app signer-app submitted to Apple; only a release run has one"},
         "Apple's checks of the stapled app": {"nightly_only": "Apple's tools on a notarized release build; only a release run has one"},
         "Start the signed-app checks": {"nightly_only": "the checks build-sign-notarize-nightly runs on its signed app, on the release-pool build"},
         "Start the verify-signed checks": {"nightly_only": "verify-signed-nightly's checks of the signed Release app (signer-verify-signed.sh), on the release-pool build that only the nightly signs"},
         "Finish the signed-app and verify-signed checks": {"nightly_only": "waits for the two background check runs above on the release-pool build and fails on their failure"},
         "Build the unsigned DMG": {"nightly_only": "packages the notarized release-pool app with create-dmg, as notarize-nightly-dmg.sh does"}},
-      "signer-dmg": {"Install the signer": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Sign, notarize and staple the DMG": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Write the appcast": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}},
+      "signer-dmg": {"Install the signer": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Wait for Apple to accept the app": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Sign, notarize and staple the DMG": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Write the appcast": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}},
       "find-nightly-next-recovery": {
         "Install gh if this Linux runner lacks it": {"plumbing": true},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
@@ -314,6 +333,8 @@
         "Mint release tag app token": {"nightly_only": "mints release tag App token"},
         "Record the published build in the release body": {"nightly_only": "edits published GitHub release body"},
         "Move the nightly-next tag to the published build": {"nightly_only": "moves channel release tag (update-release-tag.py tested by tests/test_update_release_tag.py)"}},
+      "sentry-dsyms-nightly": {
+        "Upload the build's dSYMs to Sentry": {"nightly_only": "uploads the build's dSYMs to Sentry with the Sentry token, off build-nightly-app's critical path"}},
       "keep-published-dsyms": {
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
         "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},
@@ -327,6 +348,7 @@
         "Mint the glaeda read token": {"nightly_only": "mints a glaeda-route GitHub App token with actions read only, for the pool snapshot reads, on nightly-next push and dispatch runs with owned pools on; its scope and the GITHUB_TOKEN fallback are checked by tests/test_nightly_sign_runner.py"},
         "Write the owned-pool watch marker": {"nightly_only": "writes the owned-pool rescue's watch marker only when a nightly-next dispatch or re-run picked an owned Mac; its guard is checked by tests/test_nightly_build_runner.py"}},
       "pick-nightly-sign-runner": {
+        "Read hosted Ubuntu's start wait": {"nightly_only": "reads how long hosted Ubuntu took to start this nightly-next push run's own job, which only that run has; tests/test_hosted_queue_wait.py covers the read and the signer route"},
         "Mint the glaeda read token": {"nightly_only": "mints a glaeda-route GitHub App token with actions read only, for the pool snapshot and signing-job reads, on nightly-next push and dispatch runs with owned pools on; its scope and the GITHUB_TOKEN fallback are checked by tests/test_nightly_sign_runner.py"},
         "Pick the Blacksmith macOS label with a moving queue": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"},
         "Pick the Blacksmith Linux label for release-pool signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"},
@@ -334,7 +356,8 @@
         "Mint the routing token without the org permission": {"nightly_only": "mints the glaeda-route GitHub App token with repository administration read only, when the org-permission mint failed on a nightly-next push"},
         "Pick an owned Mac for the verify jobs": {"nightly_only": "reads the live owned pool with the routing token through nightly_build_runner.py verify on nightly-next push and dispatch runs with owned pools on; its guard and continue-on-error are checked by tests/test_nightly_sign_runner.py"},
         "Write the owned-pool watch marker": {"nightly_only": "writes the owned-pool rescue's watch marker only when a nightly-next dispatch or re-run picked an owned Mac for the verify jobs; its guard is checked by tests/test_nightly_sign_runner.py"},
-        "Pick a drained owned Mac for the signing jobs": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"}},
+        "Pick a drained owned Mac for the signing jobs": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Leave notarization to a newer published build": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"}},
       "legacy-identity-target": {
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
         "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},
@@ -392,6 +415,7 @@
       "publish-nightly-identity-legacy": {
         "Take the old feed's publish lease": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next feed writers' R2 lease"},
         "Release the old feed's publish lease": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next feed writers' R2 lease"},
+        "Hold a build with a known-bad commit": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publishes no red webview tree and no known-bad commit"},
         "Read the old feed back": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the published feed read-back and the shipped app's channels"},
         "Mint the release App token that reads the Dev ring switch": {"nightly_only": "mints release GitHub App token"},
         "Read the Dev ring switch live": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the Dev ring switch is read live when publishing"},
@@ -427,10 +451,12 @@
         "Upload revised appcasts to R2": {"nightly_only": "uploads revised appcasts to R2"},
         "Upload revised nightly-next appcasts to R2": {"nightly_only": "uploads nightly-next appcasts to R2"}},
       "published-in": {
+        "Add the workflow commit's new step scripts to an older build tree": {"plumbing": true, "note": "only runs when the build tree predates the step scripts it calls"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Fetch the published span": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next release notes fetch (published span only)"},
         "Comment the build on its PRs": {"nightly_only": "posts comments on merged PRs (published_in_comments.py tested by tests/test_published_in_comments.py)"}},
       "sign-release-notes": {
+        "Add the workflow commit's new step scripts to an older build tree": {"plumbing": true, "note": "only runs when the build tree predates the step scripts it calls"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Start the span at the newest published notes": {"pr": "ci-guards.yml:workflow-guard-tests:Test What's New highlights and release notes"},
         "Fetch the commits since the newest published notes": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next release notes fetch (published span only)"},
@@ -444,6 +470,7 @@
         "Recheck the NEXT publication head": {"nightly_only": "reads live published tag, feed"},
         "Upload the signed release notes to R2": {"nightly_only": "uploads signed notes to R2"}},
       "publish-nightly-reel": {
+        "Add the workflow commit's new step scripts to an older build tree": {"plumbing": true, "note": "only runs when the build tree predates the step scripts it calls"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Install ffmpeg": {"plumbing": true},
         "Build and publish the reel": {"nightly_only": "publishes reel with media secrets (reel.py tested by tests/test_cmux_next_reel.py)"}},

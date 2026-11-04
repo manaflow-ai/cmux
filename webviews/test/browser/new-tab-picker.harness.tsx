@@ -32,7 +32,8 @@ import "../../src/agent-session/acpmux/newtab/screen.css";
 const noop = () => {};
 const query = new URLSearchParams(location.search);
 const reported = query.has("reported");
-const template = (query.get("template") ?? undefined) as ScreenTemplate | undefined;
+// Default unless the query names one: an unset NewTabScreen template is Minimal, which has no stage.
+const template = (query.get("template") ?? "default") as ScreenTemplate;
 const snapshot = noChat(
   [],
   reported

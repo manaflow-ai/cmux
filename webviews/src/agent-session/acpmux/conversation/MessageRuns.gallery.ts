@@ -76,9 +76,13 @@ function running() {
   });
 }
 
-/// Opens the run's line, as a click does.
+/// Opens the run's line, as a click does. A finished turn whose work folds under "Worked for" opens
+/// that first: the run's line is among the rows it holds.
 const openLine: Play = async (ctx) => {
   const line = () => ctx.document.querySelector<HTMLElement>("button[data-message-run]");
+  const worked = () => ctx.document.querySelector<HTMLElement>(".cv-worked.is-toggle");
+  await ctx.waitFor(() => line() ?? worked(), { capMs: 10_000 });
+  if (!line() && worked()?.getAttribute("aria-expanded") === "false") await ctx.click({ selector: ".cv-worked" });
   await ctx.waitFor(line, { capMs: 10_000 });
   if (line()?.getAttribute("aria-expanded") === "false") await ctx.click({ selector: "button[data-message-run]" });
   await ctx.waitFor(() => line()?.getAttribute("aria-expanded") === "true", { capMs: 10_000 });

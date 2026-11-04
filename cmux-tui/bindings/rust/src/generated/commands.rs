@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8.
+// cmux-tui mux protocol 12, IR bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -326,6 +326,22 @@ pub struct ChiefInspectResult {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub error: Optional<String>,
     pub status: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefWorkRequest {
+    pub chief: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefWorkResult {
+    pub agents: Vec<T::ChiefWorkAgent>,
+    #[serde(rename = "taskSources")]
+    pub task_sources: Vec<String>,
+    pub tasks: Vec<T::ChiefWorkTask>,
+    pub truncated: bool,
 }
 
 #[rustfmt::skip]
@@ -2307,6 +2323,8 @@ pub struct MoveTabToColumnRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub respawn: Optional<T::SplitRespawn>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub screen: Optional<T::Id>,
@@ -2524,6 +2542,9 @@ pub struct NewFrontendBrowserTabRequest {
     pub profile_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    /// With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub split: Optional<T::ConversationTabSplit>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub title: Optional<String>,
     pub url: String,
@@ -3276,6 +3297,19 @@ pub type SendKeyResult = T::EmptyResult;
 pub struct ServerStatsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub include: Optional<Vec<String>>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetAttachVisibilityRequest {
+    pub surface: T::Id,
+    pub visible: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetAttachVisibilityResult {
+    pub viewers: u32,
 }
 
 #[rustfmt::skip]
@@ -4255,6 +4289,10 @@ impl CmuxClient {
         self.execute(&CHIEF_INSPECT_METADATA, &request)
     }
 
+    pub fn chief_work(&mut self, request: ChiefWorkRequest) -> Result<ChiefWorkResult> {
+        self.execute(&CHIEF_WORK_METADATA, &request)
+    }
+
     pub fn clear_history(&mut self, request: ClearHistoryRequest) -> Result<ClearHistoryResult> {
         if !request.fallback_key.is_missing() {
             self.require_protocol_field("clear-history", 9)?;
@@ -4909,6 +4947,10 @@ impl CmuxClient {
             self.require_protocol_field("move-tab-to-column", 12)?;
             self.require_capability_field("move-tab-to-column", "tab-split-keep-focus-v1")?;
         }
+        if !request.pane_id.is_missing() {
+            self.require_protocol_field("move-tab-to-column", 12)?;
+            self.require_capability_field("move-tab-to-column", "tab-column-client-pane-v1")?;
+        }
         if !request.respawn.is_missing() {
             self.require_protocol_field("move-tab-to-column", 12)?;
             self.require_capability_field("move-tab-to-column", "tab-column-respawn-v1")?;
@@ -4999,6 +5041,9 @@ impl CmuxClient {
     }
 
     pub fn new_frontend_browser_tab(&mut self, request: NewFrontendBrowserTabRequest) -> Result<NewFrontendBrowserTabResult> {
+        if !request.split.is_missing() {
+            self.require_capability_field("new-frontend-browser-tab", "frontend-browser-tab-split-v1")?;
+        }
         self.execute(&NEW_FRONTEND_BROWSER_TAB_METADATA, &request)
     }
 
@@ -5379,6 +5424,10 @@ impl CmuxClient {
 
     pub fn server_stats(&mut self, request: ServerStatsRequest) -> Result<T::ServerStatsResult> {
         self.execute(&SERVER_STATS_METADATA, &request)
+    }
+
+    pub fn set_attach_visibility(&mut self, request: SetAttachVisibilityRequest) -> Result<SetAttachVisibilityResult> {
+        self.execute(&SET_ATTACH_VISIBILITY_METADATA, &request)
     }
 
     pub fn set_cell_pixels(&mut self, request: SetCellPixelsRequest) -> Result<T::SetCellPixelsResult> {

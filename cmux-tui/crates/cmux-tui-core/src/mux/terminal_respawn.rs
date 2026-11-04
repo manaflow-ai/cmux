@@ -287,8 +287,13 @@ impl Mux {
             let _kitty_expectation = kitty_expectation;
             let stopping =
                 || mux.shutting_down.load(Ordering::Acquire) || mux.session_shutdown.began();
+            // A terminal the person sees (shown when it took its place,
+            // selected while it waits, or lost while hidden respawns still
+            // wait) takes the next free slot before the hidden ones. It still
+            // takes a slot: the cap bounds it too.
+            let shown_now = || mux.respawn_slot_shown(plan.slot);
             let turn = match ticket {
-                Some(ticket) => match gate.turn(ticket, stopping) {
+                Some(ticket) => match gate.turn_first_if(ticket, stopping, shown_now) {
                     Some(turn) => Some(turn),
                     None => {
                         mux.abandon_terminal_respawn(&plan.terminal_id);
@@ -309,6 +314,18 @@ impl Mux {
             eprintln!("cmux-tui: no thread to respawn terminal {terminal_id}: {error}");
             self.abandon_terminal_respawn(terminal_id);
         }
+    }
+
+    /// Whether the tab `slot` (a respawn's first placement) is in the
+    /// workspace the person sees. Takes the state lock: never call it under
+    /// the respawn gate's lock.
+    #[cfg(any(unix, windows))]
+    fn respawn_slot_shown(&self, slot: SurfaceId) -> bool {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state
+            .pane_of(slot)
+            .and_then(|pane| state.screen_of(pane))
+            .is_some_and(|(workspace, _)| workspace == state.active_workspace)
     }
 
     #[cfg(any(unix, windows))]

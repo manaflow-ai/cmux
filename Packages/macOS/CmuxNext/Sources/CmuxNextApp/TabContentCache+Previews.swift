@@ -16,7 +16,7 @@ extension TabContentCache {
         if let entry = terminals[key] {
             guard entry.session.showsOutput || entry.session.showsHeldFrame else { return nil } // a new shell's prompt: nothing to picture
             if let image = await entry.session.shownFrameInBackground(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) { previews.insert(image, for: key); return image }
-        } else if let image = await lastFrames[key]?.snapshot(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) {
+        } else if let image = await lastFrames.preview(key)?.snapshot(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) {
             return image // an evicted terminal: its last frame, pictured on demand
         }
         // A loaded page on screen whose picture is older (or gone) is pictured on demand, one capture
@@ -24,10 +24,12 @@ extension TabContentCache {
         if let entry = browsers[key], !pagePictureIsCurrent(entry, key: key),
            (shownPages.contains(key) && entry.tab.state.phase == .finished) || (captureIfMissing && pageThumbnails.image(for: key) == nil),
            let image = await capturePage(entry, key: key, accepts: { [weak self] in self?.browsers[key] === entry }) {
-            return await TabPreviewFitting.fit(image, maxPixelSize)
+            return await PreviewImageCache.fit(image, maxPixelSize)
         }
         if let image = pageThumbnails.image(for: key) ?? previews.image(for: key) ?? hibernation?.snapshots.image(for: key) {
-            return await TabPreviewFitting.fit(image, maxPixelSize)
+            // Leave pictures and hibernation pictures decode from their JPEG when drawn: the card gets a bitmap made
+            // off the main thread, never a decode in its commit.
+            return await PreviewImageCache.decoded(image, maxPixelSize)
         }
         return nil
     }
@@ -76,10 +78,13 @@ extension TabContentCache {
         guard let image = try? await ControlDeadline.shared.run(method: "preview.capture", deadline: .now + budget, { @MainActor in
             try await capture.request.image()
         }) else { return nil }
-        let fitted = await TabPreviewFitting.fit(image, TabPreviewFitting.cachedPixelSize)
+        let fitted = await PreviewImageCache.fit(image, PreviewImageCache.pagePixelSize)
+        let blank = await ThumbnailStats.measure(fitted)?.isBlank == true
         guard accepts() else { return nil }
-        pageThumbnails.insert(fitted, for: key)
-        pageThumbnailVersions[key] = await ThumbnailStats.measure(fitted)?.isBlank == true ? nil : version
+        // Kept compressed, once per tab, for the tab's life: a hibernated Chromium tab wakes to it (fork API 24 pictures
+        // no hidden page); decoded 640 px pictures in the 16 MB budget kept only about 14 pages' (fleet e2fb152d, 05f0ba3c).
+        pageThumbnails.insertCompressingLater(fitted, for: key)  // nobody who waits for this picture waits for its encode
+        pageThumbnailVersions[key] = blank ? nil : version
         return image
     }
 

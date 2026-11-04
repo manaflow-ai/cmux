@@ -81,16 +81,6 @@
       "title" : "Model Picker Harness Placement",
       "type" : "string"
     },
-    "agentPane.display.inspector.placement" : {
-      "default" : "overlay",
-      "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
-      "enum" : [
-        "push",
-        "overlay"
-      ],
-      "title" : "Session Info",
-      "type" : "string"
-    },
     "agentPane.display.minimap" : {
       "default" : "compact",
       "description" : "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing.",
@@ -120,6 +110,16 @@
         "right"
       ],
       "title" : "Prompt Rail Side",
+      "type" : "string"
+    },
+    "agentPane.display.sessionInfo.placement" : {
+      "default" : "overlay",
+      "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+      "enum" : [
+        "push",
+        "overlay"
+      ],
+      "title" : "Session Info",
       "type" : "string"
     },
     "agentPane.display.transcriptView" : {
@@ -297,6 +297,12 @@
       "title" : "Chat Folders",
       "type" : "array"
     },
+    "agents.chats.sessionRecap" : {
+      "default" : true,
+      "description" : "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage.",
+      "title" : "Session Recap",
+      "type" : "boolean"
+    },
     "agents.defaultPermissionMode" : {
       "default" : "fullAccess",
       "description" : "What a new chat may do without asking. A mode you pick in a chat applies to that chat only.",
@@ -318,6 +324,16 @@
         "deepseek/deepseek-v4-pro"
       ],
       "title" : "cmux Model Router Model",
+      "type" : "string"
+    },
+    "agents.promptCache" : {
+      "default" : "1h",
+      "description" : "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more.",
+      "enum" : [
+        "1h",
+        "5m"
+      ],
+      "title" : "Prompt Cache",
       "type" : "string"
     },
     "agents.subsessions.answerQuestions" : {
@@ -1000,6 +1016,17 @@
       "title" : "Experimental Appearance Controls",
       "type" : "boolean"
     },
+    "appearance.favoriteThemes" : {
+      "default" : [
+
+      ],
+      "description" : "Themes starred in a theme picker. The picker lists them first.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Starred Themes",
+      "type" : "array"
+    },
     "appearance.focusIndicator" : {
       "default" : "tabs",
       "description" : "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither.",
@@ -1151,6 +1178,17 @@
         "perPane"
       ],
       "title" : "Pane Backgrounds",
+      "type" : "string"
+    },
+    "appearance.rotateFavoriteThemes" : {
+      "default" : "off",
+      "description" : "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on.",
+      "enum" : [
+        "off",
+        "launch",
+        "daily"
+      ],
+      "title" : "Rotate Starred Themes",
       "type" : "string"
     },
     "appearance.saturation" : {
@@ -1890,6 +1928,12 @@
       "title" : "Reactions Can Wake the Chief",
       "type" : "boolean"
     },
+    "cloud.agentsStartWithoutAsking" : {
+      "default" : false,
+      "description" : "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
+      "title" : "Let Agents Start Cloud Sessions Without Asking",
+      "type" : "boolean"
+    },
     "cloud.newWorkspaceFolder" : {
       "default" : "inherit",
       "description" : "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
@@ -1904,6 +1948,12 @@
       "default" : false,
       "description" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
       "title" : "Run New Workspaces in Cloud",
+      "type" : "boolean"
+    },
+    "cloud.useMyClaudeLoginOnMyCloudMachines" : {
+      "default" : false,
+      "description" : "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
+      "title" : "Use My Claude Login on My Own Cloud Machines",
       "type" : "boolean"
     },
     "computerUse.driver" : {
@@ -1926,6 +1976,11 @@
       "default" : true,
       "description" : "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
       "title" : "Live Preview in Chat",
+      "type" : "boolean"
+    },
+    "ComputerUseActsAsPerson" : {
+      "description" : "Computer use can act as me: clicks and key presses computer use makes in a chat count as the person's for Send, Retry and Approve, and nothing else. Off by default. Honored only as a forced value from an installed profile; the person can still turn it off until cmux restarts, and every action it lets through is logged.",
+      "title" : "ComputerUseActsAsPerson",
       "type" : "boolean"
     },
     "contextMenus.showCustomizeItem" : {
@@ -2437,8 +2492,8 @@
     },
     "feed.github.enabled" : {
       "default" : false,
-      "description" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first.",
-      "title" : "Connect GitHub",
+      "description" : "Inbox shows your GitHub notifications",
+      "title" : "GitHub Inbox",
       "type" : "boolean"
     },
     "feed.github.pollIntervalSeconds" : {
@@ -2465,6 +2520,12 @@
       ],
       "title" : "Copy Terminal Notifications to the Feed",
       "type" : "string"
+    },
+    "feed.needsYouInChief" : {
+      "default" : false,
+      "description" : "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them.",
+      "title" : "Pin Needs You in Chief",
+      "type" : "boolean"
     },
     "files.textEditor" : {
       "default" : "",
@@ -2664,6 +2725,18 @@
       ],
       "title" : "Server",
       "type" : "string"
+    },
+    "imessage.automationSkipped" : {
+      "default" : false,
+      "description" : "Remember skipping the Messages Automation step. This does not grant access or authorize sending.",
+      "title" : "Skip Messages Automation",
+      "type" : "boolean"
+    },
+    "imessage.enabled" : {
+      "default" : false,
+      "description" : "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click.",
+      "title" : "Connect iMessage",
+      "type" : "boolean"
     },
     "labs.classicHome" : {
       "default" : false,
@@ -4834,6 +4907,18 @@
       },
       "title" : "Tab Bar Buttons",
       "type" : "array"
+    },
+    "tabs.verticalTabs" : {
+      "default" : false,
+      "description" : "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu.",
+      "title" : "Use Vertical Tabs for All Workspaces",
+      "type" : "boolean"
+    },
+    "tabs.verticalTabsExpandOnHover" : {
+      "default" : true,
+      "description" : "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it.",
+      "title" : "Expand Collapsed Vertical Tabs on Hover",
+      "type" : "boolean"
     },
     "tasks.layout" : {
       "default" : "inbox",

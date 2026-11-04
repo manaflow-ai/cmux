@@ -107,6 +107,7 @@ const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
   "cloudStartup.setupHint": "Add a setup script to install dependencies and configure your environment.",
   "cloudStartup.cached": "cached",
   "cloudStartup.harness": "Started {harness}",
+  "cloudStartup.harnessStarting": "Starting {harness}",
   "cloudStartup.copyInstead": "Copying the folder instead",
   "cloudStartup.copyingFiles": "{done} of {total} files",
   "cloudStartup.ofSize": "{done} of {total}",
@@ -129,8 +130,9 @@ export function startupChecklist(
   language: string = paneLanguage(),
 ): ChecklistStep[] {
   const oldStep = start.step ? CLOUD_START_STEPS.indexOf(start.step) : -1;
+  // A start this Mac refused before it reached Cloud ran no step: none is marked failed.
   const failedStep =
-    start.state === "failed"
+    start.state === "failed" && !start.refusedHere
       ? oldStep === 0
         ? "machine"
         : oldStep === 1
@@ -198,10 +200,15 @@ export function startupChecklist(
       : {}),
     ...(hasScript === false ? { detail: t("cloudStartup.setupHint"), action: true } : {}),
   };
+  const harnessStatus: ChecklistStatus =
+    failedStep === "harness" ? "error" : start.initialized ? "done" : oldStep === 2 ? "running" : "pending";
   const harness: ChecklistStep = {
     id: "harness",
-    label: t("cloudStartup.harness", { harness: start.agent || "Harness" }),
-    status: failedStep === "harness" ? "error" : start.initialized ? "done" : oldStep === 2 ? "running" : "pending",
+    // "Started Claude" only once it has; before that the row says what it will do.
+    label: t(harnessStatus === "done" ? "cloudStartup.harness" : "cloudStartup.harnessStarting", {
+      harness: start.agent || "Harness",
+    }),
+    status: harnessStatus,
     duration: elapsed(start.harnessStartedAt, start.harnessFinishedAt, now),
   };
   return [machine, clone, setup, harness];

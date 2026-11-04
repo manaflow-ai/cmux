@@ -20,6 +20,9 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     /// The page holds or sends prompts waiting for a folder trust answer (webviews trustHeld.ts),
     /// each with its send's gesture ticket, which ends with the page: it is not let go.
     public var holdsPrompts: Bool?
+    /// The page holds edits, attachments or sends that its wake state cannot restore, or has an
+    /// input method or popup open. Only a hidden-page release asks to retain that state.
+    public var holdsPageState: Bool?
 
     public nonisolated struct Attachment: Codable, Sendable, Equatable {
         public var id: String
@@ -49,18 +52,21 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     }
 
     public init(attachments: [Attachment]? = nil, shell: Bool? = nil, shellText: String? = nil,
-                scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil, holdsPrompts: Bool? = nil) {
+                scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil, holdsPrompts: Bool? = nil,
+                holdsPageState: Bool? = nil) {
         self.attachments = attachments
         self.shell = shell
         self.shellText = shellText
         self.scrollAnchor = scrollAnchor
         self.atLatest = atLatest
         self.holdsPrompts = holdsPrompts
+        self.holdsPageState = holdsPageState
     }
 
     /// Nothing to hand back.
     public var isEmpty: Bool {
-        (attachments ?? []).isEmpty && shell != true && scrollAnchor == nil && atLatest != true && holdsPrompts != true
+        (attachments ?? []).isEmpty && shell != true && scrollAnchor == nil && atLatest != true
+            && holdsPrompts != true && holdsPageState != true
     }
 
     /// The page's `pane.wakeState` answer; empty when the page has no such action (an older page)
@@ -82,6 +88,16 @@ extension AgentPaneView {
     public func wakeState(limit: Duration = .seconds(1)) async -> AgentPaneWakeState? {
         await AgentPaneWakeState.read(self, limit: limit, ask: "{}")
     }
+
+    /// A retired page: prompts it holds for a folder trust answer live only in it, so it puts them
+    /// into their chats' drafts before its bridge goes (webviews trustHeld.ts); then `close` runs.
+    public func releaseHeldPrompts(then close: @escaping @MainActor (AgentPaneView) -> Void) {
+        // task-owner: one release then close per retired page; ends with its close
+        Task { @MainActor in
+            await AgentPaneWakeState.releaseHeldPrompts(in: self)
+            close(self)
+        }
+    }
 }
 
 extension AgentPaneWakeState {
@@ -100,6 +116,21 @@ extension AgentPaneWakeState {
         limit: Duration = AgentPaneRelaunchWake.askLimit
     ) async {
         _ = await read(view, limit: limit, ask: "{closing: true}")
+    }
+
+    /// Why a hidden page asked for its wake state (`wake`, nil when it did not answer in time) stays
+    /// instead of being let go, for the log; nil when it may go. A kept page is asked again after
+    /// the planner's `keptRecheck`.
+    public static func keepReason(_ wake: AgentPaneWakeState?, hasHandshake: Bool) -> String? {
+        // A connected page that did not say what it holds (a large attachment still encoding)
+        // stays: letting it go would drop its chips.
+        if wake == nil, hasHandshake { return "no wake state in time" }
+        // A page holding prompts for a folder trust answer stays: each keeps its send's gesture
+        // ticket, which ends with the page (webviews trustHeld.ts). Asked again, it goes once its
+        // prompts have.
+        if wake?.holdsPrompts == true { return "holds prompts for a trust answer" }
+        if wake?.holdsPageState == true { return "holds page state" }
+        return nil
     }
 
     @MainActor static func read(_ view: AgentPaneView, limit: Duration, ask: String) async -> AgentPaneWakeState? {

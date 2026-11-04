@@ -9,6 +9,7 @@ import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
+import { TRANSCRIPT_FOOTER_GAP, TRANSCRIPT_RUN_GAP } from "../transcriptGrid";
 import { checkRunningLineLoops, hasCompleteRunningLineShimmer } from "./runningLineMotion";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
@@ -815,19 +816,32 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
     throw new Error(`turn footer actions are not ${placement}-aligned`);
 };
 
-/// The live line at the bottom of a running turn stands clear of the row over it, never flush
-/// under it (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE"); its words shimmer, and
-/// its "⌃B to run in background" waits for the pointer.
+/// The live line at the bottom of a running turn never overlaps the row over it. Under a run of
+/// one-line rows it is one more line of the run, flush, 22 apart top to top (#31497,
+/// design/chat-transcript.md "One-line row pitch", transcriptGrid.ts `transcriptGap`), never a gap
+/// apart; under prose it keeps the footer slot's gap (`TRANSCRIPT_FOOTER_GAP`; Leo, 2026-10-21: "THE
+/// RUNNING A COMMAND IS WAY TOO CLOSE"). Its words shimmer, and its "⌃B to run in background" waits
+/// for the pointer.
 const liveLineClear = async (ctx: PlayContext) => {
   const doc = ctx.document;
   await ctx.waitFor(() => doc.querySelector(".cv-worked.is-below .cv-thinking"));
   const words = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-thinking")!.getBoundingClientRect();
-  const over = [...doc.querySelectorAll(".cv-tool, .cv-md")]
-    .map((node) => node.getBoundingClientRect().bottom)
-    .filter((bottom) => bottom <= words.top + 1);
+  // A stacked message row's first line under it (messageLineLook.ts) is the row's last line.
+  const over = [...doc.querySelectorAll(".cv-tool, .cv-msgline__preview, .cv-md")]
+    .map((node) => ({
+      step: node.matches(".cv-tool, .cv-msgline__preview"),
+      bottom: node.getBoundingClientRect().bottom,
+    }))
+    .filter(({ bottom }) => bottom <= words.top + 1);
   if (!over.length) throw new Error("no tool row or reply draws over the live line");
-  const gap = words.top - Math.max(...over);
-  if (!(gap >= 14)) throw new Error(`the live line sits ${gap.toFixed(1)}px under the row over it, not 14px or more`);
+  const nearest = over.reduce((a, b) => (b.bottom > a.bottom ? b : a));
+  const gap = words.top - nearest.bottom;
+  if (nearest.step && !(gap >= -0.5 && gap < TRANSCRIPT_RUN_GAP))
+    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not flush as one more line of it`);
+  if (!nearest.step && !(gap >= TRANSCRIPT_FOOTER_GAP))
+    throw new Error(
+      `the live line sits ${gap.toFixed(1)}px under the reply over it, not ${TRANSCRIPT_FOOTER_GAP}px or more`,
+    );
   const hint = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-command__bg");
   if (hint && getComputedStyle(hint).opacity !== "0")
     throw new Error("the ⌃B hint shows before the pointer is on the line");
@@ -1232,7 +1246,7 @@ const backgroundTurnRows = [
   summary(8.9, { status: "completed", durationMs: 3_000 }),
   row(BACKGROUND_TURN, 7, {
     id: backgroundTurnRowId("gallery-bg-quiet"),
-    background: { id: "gallery-bg-quiet", trigger: "task_notification", running: false, quiet: true },
+    background: { id: "gallery-bg-quiet", trigger: "task_notification", running: false, quiet: true, hasRows: true },
   }),
   activity(
     [tool("tail -n 5 out.log", "execute", "completed", { command: "tail -n 5 out.log", output: "12 passed" })],
@@ -1249,6 +1263,28 @@ const backgroundTurnRows = [
     4.9,
     { inBackground: "gallery-bg-loud" },
   ),
+];
+
+/// Turns the agent ran on its own with no rows of their own (Leo, 2026-11-03: "these background
+/// updates don't really expand out to anything? idk what those are even for"): their events only
+/// updated a call an earlier turn started. One that ended quiet draws nothing; one still running is
+/// a plain spinner line with no chevron, and no button, until a row of its own comes.
+const backgroundTurnEmptyRows = [
+  user("Run the migration tests", 9),
+  activity(
+    [tool("bun test migrations", "execute", "completed", { command: "bun test migrations", output: "14 passed" })],
+    8.95,
+  ),
+  assistant("The migration tests pass.", 8.9),
+  summary(8.9, { status: "completed", durationMs: 3_000 }),
+  row(BACKGROUND_TURN, 7, {
+    id: backgroundTurnRowId("gallery-bg-empty"),
+    background: { id: "gallery-bg-empty", trigger: "system", running: false, quiet: true },
+  }),
+  row(BACKGROUND_TURN, 5, {
+    id: backgroundTurnRowId("gallery-bg-waiting"),
+    background: { id: "gallery-bg-waiting", trigger: "system", running: true },
+  }),
 ];
 
 /// A long turn among turns opened by what the person never typed (incomingMessage.ts): a background
@@ -1503,14 +1539,13 @@ export default agentPaneEntry({
     },
     "grid-rhythm-hover": {
       height: 900,
-      note: "The rhythm scene with the reply action row shown; glyphs overlay the existing block gap.",
+      note: "The rhythm scene with the pointer on the reply mid-turn: it draws no action row of its own (Copy once per turn, #29740), so the block gap does not move on hover.",
       snapshot: gridRhythmSnapshot,
       play: async (ctx) => {
         await ctx.hover({ selector: '[data-row-id="grid-message"] .cv-md' });
-        await ctx.waitFor(() => {
-          const actions = ctx.document.querySelector('[data-row-id="grid-message"] .cv-reply-actions');
-          return actions && ctx.document.defaultView!.getComputedStyle(actions).opacity === "1";
-        });
+        await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="grid-message"]')?.matches(":hover"));
+        if (ctx.document.querySelector('[data-row-id="grid-message"] .cv-reply-actions'))
+          throw new Error("A reply mid-turn drew its own action row");
       },
     },
     "activity-tone-secondary": {
@@ -2359,7 +2394,14 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
       play: async (ctx: PlayContext) => {
-        await ctx.click({ selector: ".cv-tool.is-toggle" });
+        // The run of sends and the shell call folds into one line ("Sent 3 messages, ran a command",
+        // MessageRunLine.tsx, #31398): open it, then the shell call under it.
+        const run = () => ctx.document.querySelector("button[data-message-run]");
+        if (run()?.getAttribute("aria-expanded") === "false") {
+          await ctx.click({ selector: "button[data-message-run]" });
+          await ctx.waitFor(() => run()?.getAttribute("aria-expanded") === "true");
+        }
+        await ctx.click({ selector: ".cv-tool.is-toggle:not([data-message-run])" });
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__folder")));
       },
     },
@@ -2459,7 +2501,7 @@ export default agentPaneEntry({
       },
     },
     "codex-turn-raw-commands": {
-      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, 16px clear of the run over it; ⌃B to run in background shows on hover. Play: hover the line.",
+      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, flush under the run over it as one more 22px line of it (#31497); ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
         [
           user("What did the lanes decide? Relay it and answer.", 2),
@@ -3675,6 +3717,18 @@ export default agentPaneEntry({
         const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-quiet")}"] .cv-background-turn` };
         await ctx.click(line);
         await ctx.waitFor(() => ctx.find(line).getAttribute("aria-expanded") === "true");
+      },
+    },
+    "background-turns-nothing-to-open": {
+      note: "Two turns the agent ran on its own whose events only updated rows that are not theirs. The quiet one that ended draws nothing (before: a Background update line whose chevron opened to nothing). The one still running is a plain spinner line, Background update, with no chevron and no button.",
+      snapshot: chat(backgroundTurnEmptyRows),
+      play: async (ctx) => {
+        if (ctx.document.querySelector(`[data-row-id="${backgroundTurnRowId("gallery-bg-empty")}"]`))
+          throw new Error("an ended background turn with nothing to open drew a line");
+        const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-waiting")}"] .cv-background-turn` };
+        if (ctx.find(line).tagName === "BUTTON") throw new Error("a background line with nothing to open is a button");
+        if (ctx.find(line).querySelector(".cv-agent-activity__chevron"))
+          throw new Error("a background line with nothing to open has a chevron");
       },
     },
     "fold-no-blank-collapsed": {

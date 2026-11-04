@@ -48,6 +48,9 @@ fn hub() -> Arc<Hub> {
         "defaultHarness": "fake",
         "permissionPolicy": "ask",
         "defaultPermissionMode": "standard",
+        // The opt-in that holds a flagless agent start to its starter (`start_mode.rs`,
+        // "Inherit"); off, such a start runs the person's configured default (tests below).
+        "holdAgentStartsToStarter": true,
         "webAskingModes": {"fake": ["normal", "strict"], "kin": ["normal", "strict"], "lax": ["normal", "strict"]},
     }))
     .unwrap();
@@ -389,4 +392,63 @@ async fn a_starter_that_narrows_during_the_hold_holds_the_child_to_it() {
     let (mode, policy) = app.level(&child).await;
     assert_eq!(policy, json!("ask"), "the starter's policy at the end of the hold");
     assert_eq!(mode, "strict");
+}
+
+/// The person's own start level and policy (`defaultPermissionMode: fullAccess`, daemon policy
+/// approve-all), with no `holdAgentStartsToStarter`: the setup every machine we own runs.
+fn hub_yolo() -> Arc<Hub> {
+    let _ = &HERMETIC;
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {
+            "fake": {"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}},
+            "kin": {"argv": ["python3", FAKE], "family": "kin", "env": {"FAKE_FULL_ACCESS": "1"}},
+        },
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all",
+        "defaultPermissionMode": "fullAccess",
+        "webAskingModes": {"fake": ["normal", "strict"], "kin": ["normal", "strict"]},
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    Hub::new(cfg, store)
+}
+
+/// User (2026-11-03): "make sure cmux agent open by default will be in yolo mode (basically the
+/// configured one) ... another agent used it and it's in manual mode". `acpmux new` (and `cmux
+/// agents chat new`) from the shell of a chat in an asking mode, with no flags, starts at the
+/// person's configured start level, not at the starter's mode.
+#[tokio::test]
+async fn an_agent_in_an_asking_mode_starts_a_chat_in_the_configured_default() {
+    let hub = hub_yolo();
+    let mut app = Client::new(&hub);
+    let parent = starter(&mut app, None, Some("strict")).await;
+    let mut agent = Client::as_session(&hub, &parent).await;
+    for harness in ["fake", "kin"] {
+        let child = id(&agent.ok("session/new", new_params(json!({"harness": harness}))).await);
+        assert_eq!(
+            app.level(&child).await,
+            ("full-access".to_owned(), Value::Null),
+            "a {harness} chat an asking agent starts runs the configured default"
+        );
+    }
+}
+
+/// A starter whose own policy is narrower (ask, approve-edits) passes neither that policy nor
+/// the asking mode it keeps to a chat it starts with no flags.
+#[tokio::test]
+async fn an_agent_with_a_narrower_policy_starts_a_chat_with_the_default_policy() {
+    let hub = hub_yolo();
+    let mut app = Client::new(&hub);
+    for policy in ["approve-edits", "ask"] {
+        let parent = starter(&mut app, Some(policy), None).await;
+        assert_ne!(app.level(&parent).await.0, "full-access", "the {policy} starter asks");
+        let mut agent = Client::as_session(&hub, &parent).await;
+        let child = id(&agent.ok("session/new", new_params(json!({"harness": "fake"}))).await);
+        assert_eq!(
+            app.level(&child).await,
+            ("full-access".to_owned(), Value::Null),
+            "a chat a {policy} agent starts runs the configured default"
+        );
+    }
 }
