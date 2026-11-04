@@ -1,5 +1,6 @@
 // The kit a vibe-coded pane matches the app with: Toggle, Slider, Panel,
 // the tone names in `cmux.theme`, and `cmux.toast`.
+import { readFileSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
 import { app, FakeHost } from "./fake-host.ts"
 
@@ -100,5 +101,27 @@ describe("cmux.toast", () => {
     host.eval(`globalThis.result = cmux.toast("Hi").then(() => "ok", (e) => e.code)`)
     await host.settle()
     expect(await host.eval("result")).toBe("ok")
+  })
+})
+
+describe("the documented focus timer template", () => {
+  // skills/cmux-customization/references/local-app-views.md, "Focus timer script", as written.
+  const doc = readFileSync(new URL("../../../../../skills/cmux-customization/references/local-app-views.md", import.meta.url), "utf8")
+  const after = doc.slice(doc.indexOf("#### Focus timer script"))
+  const script = after.slice(after.indexOf("```js\n") + 6, after.indexOf("```", after.indexOf("```js\n") + 6))
+
+  test("renders from the kit alone, and Start toasts and swaps the slider for progress", async () => {
+    const host = new FakeHost(script)
+    host.handlers["toast.show"] = () => ({ ok: true, body: { value: null } })
+    expect(host.mount("m1", "renderFocus")).toBe("")
+    const types = new Set([...host.tree("m1").nodes.values()].map((n) => n.type))
+    for (const type of ["Panel", "Slider", "Toggle", "Button", "Menu", "Row"]) expect(types.has(type)).toBe(true)
+    const literal = [...host.tree("m1").nodes.values()].flatMap((n) => Object.values(n.props)).filter((v) => typeof v === "string" && /^#[0-9a-f]{6}/i.test(v))
+    expect(literal).toEqual([])
+    host.dispatch("m1", host.findNode("m1", (n) => n.type === "Button" && n.props.title === "Start")!, "tap")
+    await host.settle()
+    expect(host.calls.find((c) => c.name === "toast.show")?.params).toEqual({ title: "Focus for 25 minutes" })
+    expect(host.findNode("m1", (n) => n.type === "ProgressView")).toBeDefined()
+    expect(host.findNode("m1", (n) => n.type === "Slider")).toBeUndefined()
   })
 })

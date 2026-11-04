@@ -132,6 +132,14 @@ function install() {
           runHandler("dragChange", h && (() => h(payload.state ?? null)))
           break
         }
+        case "change": {
+          // Toggle and Slider: the new value, typed as the node's kind expects.
+          const h = record.handlers.change as ((v: unknown) => unknown) | undefined
+          const value = typeof payload.value === "boolean" || typeof payload.value === "number" ? payload.value : Number(payload.value)
+          const typed = record.kind === "Toggle" ? Boolean(payload.value) : value
+          runHandler("change", h && (() => h(typed)))
+          break
+        }
         case "submit":
         case "edit": {
           const h = record.handlers[event] as ((t: string) => unknown) | undefined

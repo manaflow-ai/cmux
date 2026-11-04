@@ -110,6 +110,8 @@ impl ScopeTable {
         ) && (params.get("argv").is_some() || params.get("shell").is_some());
         let scope = if launches { "workspace:execute" } else { scope.as_str() };
         let granted = match scope {
+            // Local, non-network ops every app may call (`toast.show`): no grant to hold.
+            "none" => true,
             "net:<host>" => grant.scopes.iter().any(|s| s.starts_with("net:")),
             "integration:<provider>" => match params.get("provider").and_then(Value::as_str) {
                 Some(provider) => {

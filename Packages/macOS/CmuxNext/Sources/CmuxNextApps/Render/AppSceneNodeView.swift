@@ -63,6 +63,12 @@ struct AppSceneNodeView: View {
             AppSceneBadge(text: node.string("text") ?? "", tone: node.props["tone"])
         case .emptyState:
             AppSceneEmptyState(node: node)
+        case .toggle:
+            AppSceneToggle(model: model, id: id, node: node)
+        case .slider:
+            AppSceneSlider(model: model, id: id, node: node)
+        case .panel:
+            AppScenePanel(node: node) { children(node) }
         }
     }
 
