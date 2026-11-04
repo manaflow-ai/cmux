@@ -4,10 +4,7 @@ import { CLOUD_TYPING_PREWARM_REFRESH_MS, CloudTypingPrewarm } from "./cloudTypi
 function harness() {
   let now = 0;
   const calls: string[] = [];
-  const prewarm = new CloudTypingPrewarm(
-    { prewarm: (machineID) => calls.push(machineID) },
-    () => now,
-  );
+  const prewarm = new CloudTypingPrewarm({ prewarm: (machineID) => calls.push(machineID) }, () => now);
   return { prewarm, calls, advance: (ms: number) => (now += ms) };
 }
 
