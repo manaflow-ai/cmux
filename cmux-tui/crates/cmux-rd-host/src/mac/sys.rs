@@ -256,8 +256,9 @@ pub fn string(object: Id) -> String {
         return String::new();
     }
     // SAFETY: -UTF8String returns a NUL-terminated buffer the string owns (copied at once).
-    let text =
-        unsafe { msg::<unsafe extern "C" fn(Id, Sel) -> *const c_char>()(object, sel(c"UTF8String")) };
+    let text = unsafe {
+        msg::<unsafe extern "C" fn(Id, Sel) -> *const c_char>()(object, sel(c"UTF8String"))
+    };
     if text.is_null() {
         return String::new();
     }

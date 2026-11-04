@@ -13,6 +13,7 @@ function host(handle?: (call: Call) => unknown | Promise<unknown>) {
     calls,
     call: async <R>(op: string, params: unknown): Promise<R> => {
       const call = { op, params: params as Record<string, unknown> };
+      if (Object.hasOwn(call.params, "origin")) throw new Error("origin is set by the host");
       calls.push(call);
       if (handle) {
         const result = await handle(call);
@@ -21,10 +22,16 @@ function host(handle?: (call: Call) => unknown | Promise<unknown>) {
       switch (op) {
         case OPS.detect:
           return {
-            sources: [{ source: "claude-code" }, { source: "codex" }, { source: "zip:/unasked.zip" }],
+            sources: [
+              { source: "claude-code", kind: "claude-code" },
+              { source: "codex", kind: "codex" },
+            ],
           } as R;
         case OPS.pickZip:
-          return { source: `zip:/selected/${String(call.params.kind)}.zip`, name: "export.zip" } as R;
+          return {
+            source: `zip:/selected/${String(call.params.kind)}.zip`,
+            name: "export.zip",
+          } as R;
         case OPS.prepareText:
           return { source: `text:/private/${String(call.params.summaryOrigin)}.txt` } as R;
         case OPS.dryRun:
@@ -39,7 +46,7 @@ function host(handle?: (call: Call) => unknown | Promise<unknown>) {
 }
 
 describe("Bring your history", () => {
-  test("only known local sources are prechecked; detection never asks to scan exports", async () => {
+  test("detected local sources are prechecked", async () => {
     const client = host();
     const store = new ImportHistoryStore(client);
     await store.start();
@@ -52,6 +59,105 @@ describe("Bring your history", () => {
     ).toEqual(["claude-code", "codex"]);
     expect(store.getSnapshot().rows.some((row) => row.id === "dot")).toBe(false);
     expect(canImport(store.getSnapshot())).toBe(true);
+  });
+  test("export discovery is opt-in after the passive mount scan", async () => {
+    const client = host(({ op, params }) =>
+      op === OPS.detect
+        ? {
+            sources: params.exports
+              ? [{ source: "zip:/Downloads/chatgpt.zip", kind: "chatgpt-export" }]
+              : [{ source: "codex", kind: "codex" }],
+          }
+        : undefined,
+    );
+    const store = new ImportHistoryStore(client);
+    await store.start();
+    await store.findExports();
+    expect(client.calls).toEqual([
+      { op: OPS.detect, params: {} },
+      { op: OPS.detect, params: { exports: true } },
+    ]);
+    expect(store.getSnapshot().rows.find((row) => row.id === "chatgpt")?.detected).toBe(true);
+  });
+  test("recognized export archives are prechecked and retain their path", async () => {
+    const client = host(({ op }) =>
+      op === OPS.detect
+        ? {
+            sources: [
+              {
+                source: "zip:/Downloads/chatgpt.zip",
+                kind: "chatgpt-export",
+                path: "/Downloads/chatgpt.zip",
+              },
+            ],
+          }
+        : undefined,
+    );
+    const store = new ImportHistoryStore(client);
+    await store.start();
+    const row = store.getSnapshot().rows.find((candidate) => candidate.id === "chatgpt");
+    expect(row?.selected).toBe(true);
+    expect(row?.detected).toBe(true);
+    expect(row?.source).toBe("zip:/Downloads/chatgpt.zip");
+  });
+  test("detected Dot archives use the saved Dot export label", async () => {
+    const client = host(({ op }) =>
+      op === OPS.detect ? { sources: [{ source: "zip:/Downloads/dot.zip", kind: "dots-export" }] } : undefined,
+    );
+    const store = new ImportHistoryStore(client);
+    await store.start();
+    const row = store.getSnapshot().rows.find((candidate) => candidate.id === "detected-0");
+    expect(row?.title).toBe("Dot export (.zip)");
+    expect(row?.selected).toBe(true);
+  });
+  test("detected archives can be replaced without adding another row", async () => {
+    const client = host(({ op }) =>
+      op === OPS.detect ? { sources: [{ source: "zip:/Downloads/dot.zip", kind: "dots-export" }] } : undefined,
+    );
+    const store = new ImportHistoryStore(client);
+    await store.start();
+    await store.pickZip("detected-0");
+    const archives = store.getSnapshot().rows.filter((row) => row.source?.startsWith("zip:"));
+    expect(archives).toHaveLength(1);
+    expect(archives[0]).toMatchObject({
+      id: "detected-0",
+      source: "zip:/selected/dot.zip",
+      detected: false,
+      selected: true,
+    });
+  });
+  test("retry replaces old detections and preserves manually picked archives", async () => {
+    let sources = [
+      { source: "zip:/Downloads/dot.zip", kind: "dots-export" },
+      { source: "zip:/Downloads/chatgpt.zip", kind: "chatgpt-export" },
+    ];
+    const client = host(({ op }) => (op === OPS.detect ? { sources } : undefined));
+    const store = new ImportHistoryStore(client);
+    await store.start();
+    await store.retryDetection();
+    expect(store.getSnapshot().rows.filter((row) => row.id.startsWith("detected-"))).toHaveLength(1);
+    await store.pickZip("claude");
+    await store.pickZip("chatgpt");
+    await store.retryDetection();
+    expect(store.getSnapshot().rows.find((row) => row.id === "chatgpt")?.source).toBe("zip:/selected/chatgpt.zip");
+    sources = [];
+    await store.retryDetection();
+    expect(store.getSnapshot().rows.some((row) => row.id.startsWith("detected-"))).toBe(false);
+    expect(store.getSnapshot().rows.find((row) => row.id === "codex")?.source).toBeUndefined();
+    expect(store.getSnapshot().rows.find((row) => row.id === "claude")?.source).toBe("zip:/selected/claude.zip");
+  });
+  test("app hints require pasted text and prepare a text source before import", async () => {
+    const client = host(({ op }) => (op === OPS.detect ? { sources: [{ source: "muse", kind: "muse" }] } : undefined));
+    const store = new ImportHistoryStore(client);
+    await store.start();
+    expect(canImport(store.getSnapshot())).toBe(false);
+    store.paste("muse", "Prefers tea.");
+    await store.run();
+    expect(client.calls.find((call) => call.op === OPS.prepareText)?.params).toEqual({
+      summaryOrigin: "muse",
+      text: "Prefers tea.",
+    });
+    expect(client.calls.find((call) => call.op === OPS.write)?.params.source).toBe("text:/private/muse.txt");
   });
   test("Dot exists only after a person picks its saved export; cancel changes nothing", async () => {
     let cancelled = true;

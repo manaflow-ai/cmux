@@ -69,6 +69,7 @@ import {
   isLiveStep,
   restRoom,
   linkUp,
+  type AcpmuxPlanEntry,
 } from "./model";
 import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
@@ -347,7 +348,12 @@ import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsConte
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { FisheyeFilters } from "../../ui/glass/Fisheye";
 import { latestTurnCheckpointPair, readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
-import { registerAttachmentViewHost, registerComposerHost, useComposerSettings } from "./composerSettings";
+import {
+  registerAttachmentViewHost,
+  registerComposerHost,
+  registerComposerRingHost,
+  useComposerSettings,
+} from "./composerSettings";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
 import {
@@ -374,7 +380,7 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { MessageFooterRow, PromptActions, ReceivedActions, ReplyActions } from "./conversation/MessageActions";
 import { AgentNamesContext, AgentOpenContext, agentNames, agentViews } from "./conversation/agentNames";
 import { setReadAloudState, stopReadingAloud } from "./conversation/readAloud";
-import { heightFoldInFlight, heightFoldPlaying } from "./conversation/fold";
+import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
 import {
   ANCHORED_COLLAPSE_EVENT,
   atFoldBottom,
@@ -487,6 +493,8 @@ import {
   type TurnView,
   trayWaitAgents,
   turnViewFrom,
+  liveTurnPlan,
+  samePlanEntries as sameEntries,
 } from "./conversation/turns";
 import { ArrowDown, ChevronRight } from "./conversation/icons";
 import { CopyButton } from "./conversation/CopyButton";
@@ -579,7 +587,7 @@ import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProg
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatSizing } from "./chatWidth";
-import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
+import { registerChatDisplayHost, useChatDisplay, useChatPinnedPlan } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { wrapOutputRow } from "./header/transcriptViewRow";
 import { presentationRow } from "./header/presentationRow";
@@ -1309,6 +1317,7 @@ if (typeof window !== "undefined")
     if (typeof tab === "string" && tab) setSessionInfoTab(tab);
   });
 registerAttachmentViewHost((view) => callNative("pane.setAttachmentView", { view }));
+registerComposerRingHost((ring) => callNative("pane.setComposerRing", { ring }));
 registerChatDisplayHost((key, value) => void callNative("pane.setDisplay", { key, value }).catch(() => undefined));
 /// A folder's `git.status` from the native host, named by the folder: a new chat has no session to
 /// name it by (the header's worktree pill, cx-lyqio.3b).
@@ -3566,6 +3575,33 @@ export function VirtualTranscript({
       return next ?? current;
     });
   }, []);
+  /// Reports the height `target` (a drawn row) lays out at now.
+  const reportRow = useCallback(
+    (target: HTMLElement) => {
+      const shown = rowsRef.current;
+      const index = Number(target.getAttribute("aria-posinset")) - 1;
+      const row = shown[index];
+      // With the frame's own flag: a height reported without it is taken for a stale one.
+      if (row && row.id === target.dataset.rowId)
+        reportDrawn(
+          row.id,
+          row.version,
+          drawnHeightOf(target),
+          keepsReplyRoom(row, nextDrawnRow(shown, index)),
+          statusEdge(row, nextDrawnRow(shown, index), prevDrawnRow(shown, index)),
+        );
+    },
+    [reportDrawn],
+  );
+  /// Places `target` at the height it lays out at now, in this task, before the browser scrolls: a
+  /// fold that just landed (`settleFoldsIn`) must not wait for the observer's next delivery.
+  const placeRowNow = useCallback(
+    (target: HTMLElement) => {
+      reportRow(target);
+      if (changesDrawn(drawnRef.current, pendingDrawn.current)) flushSync(flushDrawn);
+    },
+    [reportRow, flushDrawn],
+  );
   const observer = useMemo(
     () =>
       typeof ResizeObserver === "undefined"
@@ -3573,20 +3609,7 @@ export function VirtualTranscript({
         : new ResizeObserver((entries?: ResizeObserverEntry[]) => {
             const targets = (entries ?? []).map((entry) => entry.target as HTMLElement);
             const measure = () => {
-              for (const target of targets) {
-                const shown = rowsRef.current;
-                const index = Number(target.getAttribute("aria-posinset")) - 1;
-                const row = shown[index];
-                // With the frame's own flag: a height reported without it is taken for a stale one.
-                if (row && row.id === target.dataset.rowId)
-                  reportDrawn(
-                    row.id,
-                    row.version,
-                    drawnHeightOf(target),
-                    keepsReplyRoom(row, nextDrawnRow(shown, index)),
-                    statusEdge(row, nextDrawnRow(shown, index), prevDrawnRow(shown, index)),
-                  );
-              }
+              for (const target of targets) reportRow(target);
             };
             measure();
             // A late size change (a font loading) must not paint a frame of overlap first. Sizes
@@ -3613,7 +3636,7 @@ export function VirtualTranscript({
               }
             } else flushDrawn();
           }),
-    [reportDrawn, flushDrawn],
+    [reportRow, flushDrawn],
   );
   useEffect(() => () => observer?.disconnect(), [observer]);
   // Forget rows that left the transcript (a session switch, older history unloaded).
@@ -3861,7 +3884,8 @@ export function VirtualTranscript({
     from: number;
     /// Each drawn row's viewport top at the click.
     drawn: Map<Element, number>;
-    /// The toggle adds or removes whole rows (toggleRow): the thread slides instead.
+    /// The toggle adds or removes whole rows (toggleRow), or changes its row with no height fold of
+    /// its own (Show all lines, Details): the thread slides instead.
     rows?: boolean;
     animation?: Animation;
     /// The line the held rows start at, in the thread's own coordinates.
@@ -3879,7 +3903,7 @@ export function VirtualTranscript({
     bottomStackFold.current = undefined;
     foldAnchor.current = undefined;
     stack.row.removeAttribute("data-bottom-fold");
-    stack.row.removeAttribute("data-bottom-stack");
+    stack.row.removeAttribute("data-bottom-stack-fold");
     clearTimeout(stack.cleanupTimer);
     if (stack.animation) {
       stack.animation.onfinish = null;
@@ -3913,6 +3937,17 @@ export function VirtualTranscript({
   }, []);
   // Another chat starts with none (its first render already leaves it out, `keptEnd`).
   useLayoutEffect(() => dropFoldRoom(), [sessionId, dropFoldRoom]);
+  /// The reader took the view (a wheel, a key, a drag up) from a fold at the very bottom: the fold
+  /// lands at once and its row is placed at that height in this same task, so the browser clamps to
+  /// the new end before the reader's scroll applies. What was left of a closing body's shrink never
+  /// pulls a short scroll up back to the end, and no blank room stays under the rows.
+  const landForReader = useCallback(
+    (row: HTMLElement) => {
+      settleFoldsIn(row);
+      placeRowNow(row);
+    },
+    [placeRowNow],
+  );
   const trimFoldRoom = useCallback((node: HTMLElement) => {
     const kept = foldRoomRef.current;
     if (!kept) return;
@@ -4499,6 +4534,12 @@ export function VirtualTranscript({
       settleFollowBottom(node, latest);
       const delta = layoutScrollTop(node) - stack.beforeTop;
       const host = thread.current;
+      // A control with no height fold of its own (a shell block's Show all lines, a failure's
+      // Details, Raw, Wrap lines) lays out in one step: the thread slides to it, as whole rows do.
+      if (!stack.rows && !heightFoldInFlight(stack.row) && Math.abs(delta - stack.delta) > 0.5) {
+        stack.rows = true;
+        stack.row.setAttribute("data-bottom-fold", "");
+      }
       // A body's own height fold: this pass, run on each of its frames before paint, already moved
       // the offset with it. Nothing else plays.
       if (host && stack.rows && Math.abs(delta - stack.delta) > 0.5) {
@@ -4528,8 +4569,10 @@ export function VirtualTranscript({
             stack.animation.oncancel = stack.animation.onfinish;
           } else stopBottomStackFold();
         }
-        stack.delta = delta;
       }
+      // Every pass takes the offset it pinned as its base, a height fold's frames too: a late measure
+      // after that fold ends slides only by what it adds, never by the whole fold again.
+      stack.delta = delta;
       scrollPacer.current?.cancel();
       setScrollAt(node.scrollTop);
     } else if (folding && node) {
@@ -5369,6 +5412,7 @@ export function VirtualTranscript({
       revealing.current = undefined;
       revealWindow.current = 0;
       // A sideways wheel (a code block's own scroll) keeps a disclosure's hold; the rest lets go.
+      const held = bottomStackFold.current;
       if (!(event?.type === "wheel" && !verticalWheel(event as WheelEvent))) {
         stopBottomStackFold();
         foldAnchor.current = undefined;
@@ -5376,6 +5420,8 @@ export function VirtualTranscript({
       if (findFrame.current !== undefined) cancelAnimationFrame(findFrame.current);
       findFrame.current = undefined;
       if (reader(event)) followIntent(false);
+      // Up and away from a fold at the very bottom: it lands now, at its own height.
+      if (held && !bottomStackFold.current && !followingRef.current) landForReader(held.row);
       // Moving toward the latest row while following keeps following through the hold.
       else if (followingRef.current && movingDown(event)) followRequest.current = intent.request();
       if (jumpTarget.current !== undefined) {
@@ -5496,7 +5542,7 @@ export function VirtualTranscript({
       };
       bottomStackFold.current = stack;
       // The gallery's shift gate reads this: the text above this row rises or falls on purpose.
-      row.setAttribute("data-bottom-stack", "");
+      row.setAttribute("data-bottom-stack-fold", "");
       // The explicit toggle reacquires follow even a few pixels from the end. Streaming never does.
       followIntent(true);
       stack.cleanupTimer = setTimeout(
@@ -5609,7 +5655,7 @@ export function VirtualTranscript({
       gutterRelease.current = undefined;
       gutter?.remove();
     };
-  }, [dropFoldRoom, stopBottomStackFold, stopJump]);
+  }, [dropFoldRoom, landForReader, stopBottomStackFold, stopJump]);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
   // to its footer. Marked on the mounted rows, so a hover renders nothing.
   // The last ended turn's prompt offers Retry under its bubble (UserBubble.tsx); turns.ts names
@@ -7401,6 +7447,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => ({ store: subsessionStore.current!, open: openOfferChat, openSender: openSenderChat }),
     [],
   );
+  /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
+  const [surface, setSurface] = useState<PaneSurface>("pane");
+  const quick = surface === "quick";
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   /// Debug Settings `agent.sessionStatus`: a running turn's activity line under its todo list.
@@ -7528,6 +7577,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const lastPending = useRef<AcpmuxRow | undefined>(undefined);
   // acpmux's inbox notices next to each other draw as one (conversation/inboxNotice.ts): rows with
   // none in a run come back as they are.
+  // The running turn's todo list shows in the hat over the composer (subagents/SubagentTray.tsx
+  // `plan`), not pinned in the transcript (Leo, 2026-11-03: "we said earlier the composer hat is kinda
+  // ok?"), unless Settings > Agent Chat > Pin Task List in Chat is on, or there is no hat (the tray off
+  // in Debug Settings, the Quick Composer, a subagent's own view). Once the turn ends its list folds
+  // in the transcript, as before.
+  const pinnedPlan = useChatPinnedPlan();
+  // Debug Settings agent.sessionStatus draws its activity line under the pinned list, so it pins it.
+  const planInHat = subagentTray && !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
+  const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
+  // The list's entries hold while a step's state does not change, so streamed text never redraws the hat.
+  const hatPlanKept = useRef<readonly AcpmuxPlanEntry[] | undefined>(undefined);
+  const hatPlan = sameEntries(hatPlanKept.current, hatPlanRow?.plan)
+    ? hatPlanKept.current
+    : (hatPlanKept.current = hatPlanRow?.plan);
   const transcriptRows = useMemo(() => {
     const steers =
       childRows || chatPresentation === "messages" ? NO_ROWS : (lastTurns.current?.turns.pending ?? NO_ROWS);
@@ -7538,10 +7601,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const agents = people.length ? queuedRows.filter((row) => !isPersonQueuedRow(row)) : queuedRows;
     const group = pendingMessagesRow(steers, agents, lastPending.current);
     lastPending.current = group;
-    const merged = mergeInboxNotices(turnRowsShown);
+    const merged = mergeInboxNotices(hatPlanRow ? turnRowsShown.filter((row) => row !== hatPlanRow) : turnRowsShown);
     const rows = withWaitingRows(merged, group ? [...people, group] : people);
     return childRows ? rows : btwNotes.rows(rows, snapshot.sessionId, btwSnapshot);
-  }, [chatPresentation, childRows, turnRowsShown, queuedRows, btwNotes, btwSnapshot, snapshot.sessionId]);
+  }, [chatPresentation, childRows, turnRowsShown, hatPlanRow, queuedRows, btwNotes, btwSnapshot, snapshot.sessionId]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
   // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's
   // question is open, which acpmux would refuse again.
@@ -8601,9 +8664,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     void callNative("pane.moveToMachine", { machine, session }).catch(notRun);
   };
-  /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
-  const [surface, setSurface] = useState<PaneSurface>("pane");
-  const quick = surface === "quick";
   /// Run as is a new chat's choice, in a pane with tabs (not the floating chat).
   /// Not once a chat is starting here (a harness pick, a deferred start): its session would replace
   /// the sandbox's result. The host refuses `sandbox.run` then too (AcpmuxPaneReplacements). Not
@@ -9564,7 +9624,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     paused: cloudRecovery.state === "paused",
     unavailable: !!snapshot.unavailable,
   });
-  const hasTray = !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0);
+  const hasTray = !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0 || hatPlan !== undefined);
   // The tray's motion (subagents/trayMotion.tsx): the chat on screen as of this render, which the
   // tray reads as it goes (it plays its exit only while its own chat still shows), and the chat that
   // last rendered without one (a tray that appears in it eases in; one a chat opens with is there).
@@ -9580,40 +9640,40 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A chat switch, or the tray moving to another placement (another host), is not the tray leaving:
   // its kept copy goes before the frame paints.
   useLayoutEffect(() => settleTrayExit(), [shownSessionId, trayPlacement]);
-  const trayNode =
-    !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0) ? (
-      <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-        <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-          {/* A subagent naming no harness draws the chat's mark, as in the transcript. */}
-          <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
-            <SubagentTray
-              key={shownSessionId}
-              chat={shownSessionId}
-              items={trayList}
-              finished={trayFinished}
-              working={snapshot.isWorking}
-              waiting={waitingAgents}
-              onOpen={showSubagent}
-              onOpenCommand={openTrayCommand}
-              canOpenTerminal={opensProcessTerminal(snapshot.summary)}
-              canReadTail={
-                opensProcessTerminal(snapshot.summary) &&
-                clientEpoch > 0 &&
-                directClient.current !== undefined &&
-                backgroundTaskOutput !== undefined
-              }
-              onOpenSession={openOfferChat}
-              onOpenPanel={quick ? undefined : openBackgroundPanel}
-              stop={stopSubagent}
-              stopProcess={stopProcess}
-              placement={trayPlacement}
-              shown={trayChat}
-              enters={trayEnters}
-            />
-          </SubagentHarnessContext.Provider>
-        </SubagentClockContext.Provider>
-      </BackgroundTaskOutputContext.Provider>
-    ) : null;
+  const trayNode = hasTray ? (
+    <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
+      <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+        {/* A subagent naming no harness draws the chat's mark, as in the transcript. */}
+        <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
+          <SubagentTray
+            key={shownSessionId}
+            chat={shownSessionId}
+            items={trayList}
+            finished={trayFinished}
+            working={snapshot.isWorking}
+            waiting={waitingAgents}
+            onOpen={showSubagent}
+            onOpenCommand={openTrayCommand}
+            canOpenTerminal={opensProcessTerminal(snapshot.summary)}
+            canReadTail={
+              opensProcessTerminal(snapshot.summary) &&
+              clientEpoch > 0 &&
+              directClient.current !== undefined &&
+              backgroundTaskOutput !== undefined
+            }
+            onOpenSession={openOfferChat}
+            onOpenPanel={quick ? undefined : openBackgroundPanel}
+            stop={stopSubagent}
+            stopProcess={stopProcess}
+            placement={trayPlacement}
+            shown={trayChat}
+            enters={trayEnters}
+            plan={hatPlan}
+          />
+        </SubagentHarnessContext.Provider>
+      </SubagentClockContext.Provider>
+    </BackgroundTaskOutputContext.Provider>
+  ) : null;
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
   /// The composer itself, which takes back prompts a harness switch held; prompts handed back
@@ -14768,7 +14828,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         runMode: sandboxModeRows,
                         // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
                         // the prompt and attachments put back in its composer.
-                        ...(cloudStart ? { cloudStatus: <CloudStartView start={cloudStart} bubble={false} /> } : {}),
+                        ...(cloudStart
+                          ? {
+                              cloudStatus: (
+                                <CloudStartView start={cloudStart} bubble={cloudStart.state === "starting"} />
+                              ),
+                            }
+                          : {}),
                         cloudStarting,
                         onCloud: (
                           harness: string,
@@ -15111,6 +15177,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     machine={peerMachine.state}
                     onResume={peerMachine.resume}
                     onReconnect={reconnectPeer}
+                    // Only a Cloud machine pauses on its own: an ssh peer's offline copy says so at once.
+                    noteDelayMs={snapshot.peerKinds?.[snapshot.peerCopy.peer] === "ssh" ? 0 : undefined}
                   />
                 )}
                 {/* Computer use's live preview: the app this chat's agent drives, at the top right. Always
