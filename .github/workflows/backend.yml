@@ -93,6 +93,8 @@ env:
   VERCEL_ORG_ID: team_KndpHsJ15gO2OoAP2SO0thYn
   DASHBOARD_PROJECT_STAGING: prj_gAWWNokzcoomx3IvIVGl29iZM6JC
   DASHBOARD_PROJECT_PRODUCTION: prj_O6kHxZ4Etl6QWUVEoiJyGCPoS2Fh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
   test:
@@ -561,6 +563,7 @@ jobs:
         with:
           version: 0.16.0
       - name: Build Linux cmux-tui for the headless journey
+        id: build-cmux-tui
         working-directory: cmux-tui
         env:
           CARGO_NET_RETRY: "10"
@@ -568,10 +571,17 @@ jobs:
           GHOSTTY_ZIG_SOURCE: ghostty-next
           CMUX_GHOSTTY_SRC: ""
         run: |
+          target_dir="${CARGO_TARGET_DIR:-target}"
+          binary="$target_dir/debug/cmux-tui"
           cargo build -p cmux-tui --bin cmux-tui --locked
-          test -x target/debug/cmux-tui
-          file target/debug/cmux-tui | grep -q 'ELF 64-bit'
-          sha256sum target/debug/cmux-tui
+          test -x "$binary"
+          file "$binary" | grep -q 'ELF 64-bit'
+          sha256sum "$binary"
+          if [[ "$binary" = /* ]]; then
+            echo "path=$binary" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=$PWD/$binary" >> "$GITHUB_OUTPUT"
+          fi
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -580,7 +590,7 @@ jobs:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
-          CMUX_PATH: ${{ github.workspace }}/cmux-tui/target/debug/cmux-tui
+          CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
           JOURNEY_MODEL: stub
           TARGET: staging
         run: bash scripts/cmux-next/cloud-journey-ci.sh

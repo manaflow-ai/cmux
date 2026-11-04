@@ -329,6 +329,19 @@ impl WorkspaceRegistry {
         Ok(None)
     }
 
+    /// Write registry metadata that is no resource and no state change in one transaction:
+    /// it takes no resource revision, writes no journal record and publishes nothing.
+    pub(crate) fn write_meta<T>(
+        &self,
+        write: impl FnOnce(&Transaction<'_>) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        let db = self.connection.get();
+        let transaction = db.unchecked_transaction()?;
+        let value = write(&transaction)?;
+        transaction.commit()?;
+        Ok(value)
+    }
+
     /// Run a read against the registry connection.
     pub(crate) fn read_state<T>(
         &self,

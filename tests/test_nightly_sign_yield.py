@@ -34,10 +34,11 @@ def job(name, status, conclusion=None):
 
 
 class Fake:
-    """runs: {run id: [jobs]} of the in-progress nightly-next push runs."""
+    """runs: {run id: [jobs]} of the unfinished nightly-next push runs; statuses: {run id: run status}, in_progress
+    unless given. A run listing answers only the runs in the status it asks for."""
 
-    def __init__(self, runs, fail=None):
-        self.runs, self.fail, self.paths = runs, fail, []
+    def __init__(self, runs, fail=None, statuses=None):
+        self.runs, self.fail, self.paths, self.statuses = runs, fail, [], statuses or {}
 
     def __call__(self, path):
         self.paths.append(path)
@@ -45,8 +46,10 @@ class Fake:
             raise sy.Unreadable("refused")
         first = path.endswith("&page=1")
         if "/actions/workflows/nightly.yml/runs" in path:
-            items = [{"id": rid} for rid in self.runs] if first else []
-            return {"total_count": len(self.runs) + 7, "workflow_runs": items}  # total_count runs ahead, as GitHub's can
+            status = path.split("status=", 1)[1].split("&", 1)[0]
+            matching = [rid for rid in self.runs if self.statuses.get(rid, "in_progress") == status]
+            items = [{"id": rid} for rid in matching] if first else []
+            return {"total_count": len(matching) + 7, "workflow_runs": items}  # total_count runs ahead, as GitHub's can
         rid = int(path.split("/actions/runs/")[1].split("/")[0])
         jobs = self.runs[rid] if first else []
         return {"total_count": len(self.runs[rid]), "jobs": jobs}
@@ -72,6 +75,19 @@ class SignYieldTest(unittest.TestCase):
                 yielded, why = decide(103, {103: [job(SIGN, "queued")], 105: [job(SIGN, *state)]})
                 self.assertTrue(yielded)
                 self.assertIn("105", why)
+
+    def test_a_newer_run_waiting_pending_or_requested_is_read_too(self):
+        # cmuxterm-hq#7091: a newer run gated on an environment or a concurrency slot can hold a queued sign job.
+        for status in ("waiting", "pending", "requested"):
+            with self.subTest(status=status):
+                fake = Fake({103: [job(SIGN, "queued")], 105: [job(SIGN, "queued")]}, statuses={105: status})
+                yielded, why = sy.decide(env(103), fake, log=lambda _: None)
+                self.assertTrue(yielded)
+                self.assertIn("105", why)
+        fake = Fake({105: [job(SIGN, "queued")]})
+        sy.decide(env(103), fake, log=lambda _: None)
+        self.assertEqual(sorted({p.split("status=")[1].split("&")[0] for p in fake.paths if "status=" in p}),
+                         sorted(sy.ACTIVE_RUN_STATUSES))
 
     def test_a_newer_push_alone_never_counts(self):
         # #33109's rule still holds for a newer push: no sign job, or one that failed, was skipped or cancelled.

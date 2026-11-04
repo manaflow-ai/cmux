@@ -3,8 +3,9 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, cliExecNeedsDirectFallback, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { cliExecWithFallback, nativeProofSkip, oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
+import { machineIds, newMachineIds } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
@@ -43,6 +44,12 @@ describe("cloud journey", () => {
     expect(out).not.toContain("cmuxvm_sk_0123456789");
     expect(out).not.toContain("hunter22");
     expect(out).not.toMatch(/Bearer abc/);
+  });
+  test("CLI exec falls back only for the structured unsupported provider response", () => {
+    expect(cliExecNeedsDirectFallback(1, "", JSON.stringify({ code: "cloud_client_session.failed", message: "cmux: the cmux API refused the client session: 501 Not Implemented cloud.provider.unsupported" }))).toBe(true);
+    expect(cliExecNeedsDirectFallback(1, "", JSON.stringify({ code: "cloud_client_session.failed", message: "cmux: the cmux API refused the client session: 502 Bad Gateway cloud.provider.unsupported" }))).toBe(false);
+    expect(cliExecNeedsDirectFallback(1, "HTTP 501 cloud.provider.unsupported", "")).toBe(false);
+    expect(cliExecNeedsDirectFallback(0, "", "501 Not Implemented cloud.provider.unsupported")).toBe(false);
   });
   test("env files and the summary table", () => {
     expect(readEnvFile("export A='1'\nB=\"two\"\n# c\n")).toEqual({ A: "1", B: "two" });
@@ -188,5 +195,10 @@ describe("cloud journey: exec on a VM API machine", () => {
   test("keeps every other CLI failure as the step's own", async () => {
     const exec = cliExecWithFallback(async () => ({ code: 2, stdout: "", stderr: "boom" }), async () => { throw new Error("not used"); }, { meta: {} });
     expect((await exec("a")).code).toBe(2);
+  });
+  test("app cli: machines new since a create are listed, never picked", () => {
+    expect(machineIds([{ id: "vm_a" }, { machine_id: "vm_b" }, { id: "vm_c", status: "deleted" }, {}])).toEqual(["vm_a", "vm_b"]);
+    expect(newMachineIds(["vm_a"], ["vm_a", "vm_b", "vm_b"])).toEqual(["vm_b"]);
+    expect(newMachineIds(["vm_a"], ["vm_a"])).toEqual([]);
   });
 });
