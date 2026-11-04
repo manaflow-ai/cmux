@@ -45,6 +45,10 @@ function TooltipGallery({ mode = "detail" }: Props) {
 
 const hover: Play = async (ctx) => {
   await ctx.hover({ role: "button", name: /Copy|Fork/ });
+  await ctx.waitFor(() => {
+    const popup = ctx.document.querySelector<HTMLElement>('[role="tooltip"]');
+    return popup && ctx.document.defaultView?.getComputedStyle(popup).opacity === "1";
+  });
 };
 
 export default componentEntry<Props>({
