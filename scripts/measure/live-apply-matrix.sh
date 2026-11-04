@@ -9,6 +9,10 @@
 # pixels than the full build (a silent wrong result). Each row's change moves one mechanism's term
 # from 0 to 16 pt, so the badge is 64 px wider at 2x when the new code runs and unchanged when the
 # old code still runs.
+# Evidence class: SUPPORTING only. These are controlled pixels in the Debug view-shell prototype: they
+# say which language mechanisms a patch gets right. They are not proof of either real-app experience
+# (an isolated real cmux instance with the PR applied, or an in-place swap into a running real cmux),
+# which need a real-app functional probe (hq#7111).
 #   scripts/measure/live-apply-matrix.sh OUT [ROW...]   (OUT: logs, PNGs, diffs, rows.jsonl, result.json)
 # LIVE_APPLY_MATRIX_DIFFS_ONLY=1 writes each row's change.diff and stops: no build, any host.
 set -euo pipefail
@@ -360,6 +364,7 @@ else:
     verdict = "error"; runtime = "fail"
 row = {
   "label": "IMPLEMENTED",
+  "evidence": "supporting: Debug view-shell prototype, controlled pixels; not a real-app proof",
   "row": name, "category": category, "files_named_to_inject": names.split(),
   "patch": {"outcome": outcome, "runtime": runtime, "width_before_px": base_w, "width_after_px": patch_w,
             "inject_s": fl(inject_s), "edit_to_pixels_s": fl(e2p), "stale_symbol_pointers": stale or None,
@@ -389,6 +394,7 @@ for r in rows:
     summary[r["verdict"]] = summary.get(r["verdict"], 0) + 1
 covered = sum(1 for r in rows if r["verdict"] == "match")
 result = {"label": "IMPLEMENTED", "harness": "Prototypes/ViewShell headless, seeded base",
+          "evidence": "supporting: controlled pixels in the Debug view-shell prototype. Not proof of an isolated real cmux instance or an in-place swap into a running real cmux; covered_by_patch is per mechanism, not real-app PR coverage",
           "base_sha": base_sha, "seeded_base_sha256": seeded_digest,
           "covered_by_patch": covered, "needs_full_build": len(rows) - covered,
           "note": "needs_full_build counts MISMATCH, detected_fallback, error and invalid_row: every row stays in the denominator",
