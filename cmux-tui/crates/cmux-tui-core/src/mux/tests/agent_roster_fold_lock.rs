@@ -119,7 +119,7 @@ fn requests_do_not_wait_for_a_roster_catch_up_reading_the_journal_tail() {
             mux_ref.purge_terminal_side_tables(doomed_ref);
             let _ = done_sender.send(("close", started.elapsed()));
         });
-        let mut results = std::collections::HashMap::new();
+        let mut results = HashMap::new();
         let deadline = Instant::now() + budget;
         while results.len() < 2 {
             let left = deadline.saturating_duration_since(Instant::now());
