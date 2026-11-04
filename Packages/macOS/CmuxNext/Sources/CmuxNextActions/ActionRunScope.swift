@@ -35,7 +35,8 @@ public nonisolated struct ActionRunScope: Sendable, Hashable {
     /// run is built with the default user origin).
     public func nested(in outer: ActionRunScope?) -> ActionRunScope {
         guard let outer else { return self }
-        return ActionRunScope(origin: outer.origin, allowsViewChange: outer.allowsViewChange && allowsViewChange, menuPick: outer.menuPick)
+        return ActionRunScope(origin: outer.origin, allowsViewChange: outer.allowsViewChange && allowsViewChange,
+                              menuPick: outer.menuPick || menuPick)
     }
 }
 

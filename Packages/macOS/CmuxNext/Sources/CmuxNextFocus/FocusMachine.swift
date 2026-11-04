@@ -45,8 +45,8 @@ public nonisolated final class FocusMachine {
         let waited = state.awaitsOtherTab
         guard let result = read(reply, into: &state) else { return nil }
         // The person's focus choice counts (``FocusState/personMoveSeq``): a move from their own entry, the responder report
-        // of their click, or any focus choice of a run they chose from a menu; a key's responder change and automation never.
-        if event.choosesFocusAsPerson || menuPick && event.choosesFocus { state.personMoveSeq &+= 1 }
+        // of their click, or a focus choice of a run they chose from a menu; a key's responder change and automation never.
+        if event.choosesFocusAsPerson || menuPick && event.choosesFocusInMenuPick { state.personMoveSeq &+= 1 }
         for effect in result.effects { Self.mirror(effect, into: &state) }
         return Self.reapplyingOnWaitChange(result, waited: waited, state: state)
     }
