@@ -51,3 +51,33 @@ fn a_poisoned_roster_does_not_break_agent_list_or_terminal_close() {
     let failed = survived.iter().filter(|(_, ok)| !ok).map(|(path, _)| *path).collect::<Vec<_>>();
     assert!(failed.is_empty(), "panicked on a poisoned roster lock: {failed:?}");
 }
+
+/// A persistent session whose state lock was poisoned (a writer panicked while it held it) still shuts down: the
+/// output store's last write looks each terminal up, and that lookup must recover the poisoned guard as the rest of
+/// the shutdown does (`finalize_terminal_journal`). It panicked instead, inside `Mux::drop`, so the rest of the
+/// drop (the journal writer's stop, the browser runtime's shutdown) never ran (#35127 review).
+#[cfg(unix)]
+#[test]
+fn a_persistent_session_with_a_poisoned_state_still_shuts_down() {
+    const TERMINAL: &str = "0000000000004000800000000000005e";
+    const INCARNATION: &str = "1000000000004000800000000000005e";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-poisoned-drop-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = Mux::open_persistent("poisoned-drop", SurfaceOptions::default(), &root).unwrap();
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+    let terminal =
+        mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+    // Output the store must write at shutdown.
+    mux.output_store.append(&terminal, &Arc::from(INCARNATION), b"last line before quit\r\n", None);
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _state = mux.state.lock().unwrap_or_else(PoisonError::into_inner);
+        // crash-allow: test-only panic to poison the session state.
+        panic!("a writer panics while it holds the session state");
+    }));
+    assert!(mux.state.is_poisoned(), "the session state is poisoned");
+
+    let dropped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(mux)));
+    assert!(dropped.is_ok(), "the shutdown of a session with a poisoned state panicked");
+    let _ = std::fs::remove_dir_all(&root);
+}
