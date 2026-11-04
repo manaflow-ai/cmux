@@ -433,7 +433,11 @@ impl Remote {
     pub(super) fn readlink(&mut self, path: &str) -> anyhow::Result<Option<String>> {
         match self.call("fs.readlink", json!({ "path": path })) {
             Ok(answer) => Ok(Some(
-                answer["target"].as_str().context("fs.readlink answered no target")?.to_string(),
+                answer
+                    .get("target")
+                    .and_then(Value::as_str)
+                    .context("fs.readlink answered no target")?
+                    .to_string(),
             )),
             Err(error) if refusal_code(&error) == Some("fs.not_found") => Ok(None),
             Err(error) => Err(error),
