@@ -54,11 +54,11 @@ SECRET_PATTERNS = (
     re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
     re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+"),
     re.compile(
-        r"(?i)(?P<prefix>\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|token|password|secret|credential)\b\s*[:=]\s*[\"']?)(?P<value>[^\s,\"']+)"
+        r"(?i)(?P<prefix>\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|token|password|secret|credential|private[_-]?key|key)\b\s*[\"']?\s*[:=]\s*[\"']?)(?P<value>[^\s,\"']+)"
     ),
 )
 evidence = {
-    "tag": args.tag,
+    "tag": None,
     "agent": args.agent,
     "prompt_sha256": hashlib.sha256(args.prompt.encode("utf-8")).hexdigest(),
     "prompt_bytes": len(args.prompt.encode("utf-8")),
@@ -71,6 +71,9 @@ def clean(text: str, limit: int = 2000) -> str:
     for pattern in SECRET_PATTERNS:
         text = pattern.sub(lambda match: f"{match.groupdict().get('prefix', '')}[withheld]", text)
     return text[:limit]
+
+
+evidence["tag"] = clean(args.tag, 256)
 
 
 def cmux(*words: str, timeout: int = 120) -> tuple[int, str, str]:
