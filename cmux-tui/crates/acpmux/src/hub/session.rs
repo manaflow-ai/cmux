@@ -400,7 +400,7 @@ pub struct Session {
 
 impl Session {
     /// The fencing epoch currently held by this session owner.
-    pub(super) fn ownership_epoch(&self) -> u64 {
+    pub(crate) fn ownership_epoch(&self) -> u64 {
         self.ownership_epoch.load(Ordering::SeqCst)
     }
 

@@ -338,18 +338,7 @@ impl Hub {
         }
         // Fence every prior owner before any bundle bytes are exposed. The marker is persisted
         // before transfer_out so a daemon restart restores the same epoch while this move is in flight.
-        let epoch = session.bump_ownership_epoch();
-        // Persist the fencing marker before the durable transfer_out record. If the daemon dies
-        // after transfer_out is appended, startup can then always recover the epoch that fenced
-        // this move instead of leaving a frozen chat with an unmarked transfer directory.
         let dir = transfers_dir().join(&transfer_id);
-        if let Err(error) = std::fs::create_dir_all(&dir)
-            .and_then(|()| std::fs::write(dir.join("epoch"), epoch.to_string()))
-        {
-            self.end_move(session);
-            let _ = std::fs::remove_dir_all(&dir);
-            return Err(RpcError::internal(format!("transfer: epoch marker: {error}")));
-        }
         // The continuation of a turn the move stops (`restart_resume.rs`, `Cut::Move`): logged
         // before the Stop, which would leave the turn none, so the bundle's queue carries it and
         // the turn goes on where the chat lands. A move that does not happen queues it here.
@@ -407,8 +396,58 @@ impl Hub {
             drop(guard);
             return Err(unfreeze(transfer_error("busy", "a recovered turn is running"), carried));
         }
-        // The move is what withdraws the chat from this daemon's tabs (`transfer_authority.rs`):
-        // one that never reached the log does not begin.
+        // Export before the ownership scan so a concurrent log-scan callback cannot remove a
+        // held prompt before `held_prompts` captures the move's exact queue snapshot.
+        if let Err(error) = std::fs::create_dir_all(&dir) {
+            drop(guard);
+            return Err(unfreeze(
+                RpcError::internal(format!("transfer: bundle dir: {error}")),
+                carried,
+            ));
+        }
+        let made = self
+            .export(session, &dir)
+            .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
+            .and_then(|bundle| {
+                let approved_waiting = self.held_prompts(&bundle)?;
+                if !approved_waiting.is_empty() && !gates_receiver {
+                    return Err(approved_prompts_error(
+                        json!(approved_waiting),
+                        "the move's client does not check that its receiver approves",
+                    ));
+                }
+                let files = bundle_files(&bundle)
+                    .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))?;
+                Ok((files, approved_waiting))
+            });
+        let (files, approved_waiting) = match made {
+            Ok(made) => made,
+            Err(error) => {
+                // Preserve the historical rejection receipt even though export now precedes
+                // fencing: callers and recovery use this durable abort to clear the attempted
+                // move without leaving a transfer_out record for a bundle never offered.
+                let record = json!({"transferId": transfer_id, "epoch": session.ownership_epoch()});
+                let (_, logged) =
+                    self.append_at(session, "mux", "transfer_aborted", record, None, None);
+                drop(guard);
+                return Err(if logged { unfreeze(error, carried) } else { error });
+            }
+        };
+        if let Err(error) = self.restore_ownership_epoch(session) {
+            drop(guard);
+            return Err(unfreeze(
+                transfer_error("store", format!("ownership epoch unreadable: {error}")),
+                carried,
+            ));
+        }
+        let epoch = session.bump_ownership_epoch();
+        if let Err(error) = std::fs::write(dir.join("epoch"), epoch.to_string()) {
+            drop(guard);
+            return Err(unfreeze(
+                RpcError::internal(format!("transfer: epoch marker: {error}")),
+                carried,
+            ));
+        }
         let (_, logged) = self.append_at(
             session,
             "mux",
@@ -418,43 +457,13 @@ impl Hub {
             None,
         );
         if !logged {
-            let _ = std::fs::remove_dir_all(&dir);
             drop(guard);
             return Err(unfreeze(
                 transfer_error("store", "could not durably record transfer_out"),
                 carried,
             ));
         }
-        let made = self
-            .export(session, &dir)
-            .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
-            .and_then(|bundle| {
-                // Check exactly what the target will restore, even if the live queue changed.
-                let approved_waiting = self.held_prompts(&bundle)?;
-                // A prompt the owner approved that still waits goes only to a receiver whose own
-                // `initialize` listed queue approval, which only the move's client sees (it holds
-                // the connection that sends the bundle, `cli/run/transfer.rs`): a client that
-                // does not say it checks that is refused (review of #28859).
-                if !approved_waiting.is_empty() && !gates_receiver {
-                    let why = "the move's client does not check that its receiver approves";
-                    return Err(approved_prompts_error(json!(approved_waiting), why));
-                }
-                let files = bundle_files(&bundle)
-                    .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))?;
-                Ok((files, approved_waiting))
-            });
         drop(guard);
-        let (files, approved_waiting) = match made {
-            Ok(made) => made,
-            Err(error) => {
-                let _ = std::fs::remove_dir_all(&dir);
-                let record = json!({"transferId": transfer_id, "epoch": epoch});
-                // Its `transfer_out` is logged: it stays frozen unless its end is too.
-                let (_, logged) =
-                    self.append_at(session, "mux", "transfer_aborted", record, None, None);
-                return Err(if logged { unfreeze(error, carried) } else { error });
-            }
-        };
         if let Some(socket) = to {
             let _ = std::fs::write(dir.join("to"), socket);
         }

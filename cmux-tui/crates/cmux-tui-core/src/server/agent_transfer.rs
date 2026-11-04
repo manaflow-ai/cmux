@@ -265,7 +265,12 @@ impl AgentTransfers {
 
     fn move_epoch(&self, transfer_id: &str) -> Result<u64, Refusal> {
         let mut moves = lock(&self.moves);
-        let entry = moves.get_mut(transfer_id).ok_or(Refusal::UnknownTransfer)?;
+        let Some(entry) = moves.get_mut(transfer_id) else {
+            // The move table is intentionally in-memory; after a daemon restart the source
+            // acpmux remains authoritative and the commit/abort path refreshes its epoch via
+            // `_acpmux/info` before issuing the fenced write.
+            return Ok(0);
+        };
         entry.touched = Instant::now();
         Ok(entry.epoch)
     }
@@ -906,6 +911,14 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
         }
         params
     };
+    let refresh_epoch = |session: &str, epoch: u64| -> Result<u64, Failure> {
+        if epoch != 0 {
+            return Ok(epoch);
+        }
+        let info =
+            call("_acpmux/info", json!({"sessionId": session, "waitLogs": false}), CALL_TIMEOUT)?;
+        Ok(info.get("ownershipEpoch").and_then(Value::as_u64).unwrap_or(0))
+    };
     let manifest_epoch = |value: Option<&Value>| -> Result<u64, Failure> {
         let Some(value) = value else { return Ok(0) };
         value.as_u64().ok_or(Refusal::BadRequest.into())
@@ -1015,6 +1028,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             })
         }
         Prepared::Commit { session, transfer_id, to, epoch } => {
+            let epoch = refresh_epoch(&session, epoch)?;
             let params = with_epoch(
                 json!({"sessionId": session, "transferId": transfer_id, "to": to}),
                 epoch,
@@ -1026,6 +1040,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             Ok(json!({"committed": true}))
         }
         Prepared::Abort { session, transfer_id, epoch } => {
+            let epoch = refresh_epoch(&session, epoch)?;
             let params =
                 with_epoch(json!({"sessionId": session, "transferId": transfer_id}), epoch);
             let aborted = call("_acpmux/transfer_abort", params, CALL_TIMEOUT);

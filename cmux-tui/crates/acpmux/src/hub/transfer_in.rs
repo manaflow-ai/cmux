@@ -379,7 +379,9 @@ impl Hub {
             // A delayed bundle for an older owner must not replace a newer moved copy.
             self.restore_ownership_epoch(existing)
                 .map_err(|e| transfer_error("store", format!("ownership epoch unreadable: {e}")))?;
-            reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
+            if incoming_floor != 0 || schema != TRANSFER_SCHEMA {
+                reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
+            }
         }
         if here.is_some_and(|s| !self.moved_away(&s)) {
             return Err(transfer_error("exists", format!("chat {id} is here already")));
@@ -522,7 +524,9 @@ impl Hub {
             }
             self.restore_ownership_epoch(existing)
                 .map_err(|e| transfer_error("store", format!("ownership epoch unreadable: {e}")))?;
-            reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
+            if incoming_floor != 0 || manifest["schema"].as_str() != Some(TRANSFER_SCHEMA) {
+                reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
+            }
         }
         let replacing_durable = old.as_ref().is_some_and(|existing| {
             let existing_meta = existing.meta();
