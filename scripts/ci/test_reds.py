@@ -938,7 +938,7 @@ def classify_web(head_logs: list, base_logs: list, job: str = "", base: str = "t
     return Verdict(bool(reasons), reasons, shared)
 
 
-# A coalesced feat-cmux-next web run (cmux-next-web.yml runs its web checks at most once every 15 minutes, on the
+# A coalesced feat-cmux-next web run (cmux-next-web.yml runs its web checks at most once every 30 minutes, on the
 # newest push, routed from the last run's commit) covers several commits. When its webview tests go red, its
 # `web bisect` job (scripts/ci/web_coalesce.py bisect) re-runs only the new red files, only on those commits, and
 # prints one line a file. bisect_report reads them, so a reader of push verdicts (HQ's base-red-watch) still names the

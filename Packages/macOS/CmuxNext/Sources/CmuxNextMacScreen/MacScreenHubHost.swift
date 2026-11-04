@@ -9,8 +9,8 @@ import os
 /// This Mac as a device hub host: "Allow Mac Screen on this Mac" (the hub's
 /// `mac_screen_shared`), and the sessions the hub approves. Each
 /// `session.ticket` for the host role is served by its own
-/// `ScreenStreamHost` (View Only sessions pass no input) over the ticket's
-/// signaling; a revocation or end closes it at once. One session at a time:
+/// `MacScreenRdHost` (cmux.rd/1; View Only sessions apply no input) over the
+/// ticket's signaling; a revocation or end closes it at once. One session at a time:
 /// a newer one replaces the older. Permissions (Screen Recording,
 /// Accessibility) are checked by `MacScreenShareHost`.
 @MainActor @Observable
@@ -32,17 +32,13 @@ public final class MacScreenHubHost {
 
     @ObservationIgnored var hub: @MainActor () -> DeviceHub? = { nil }
     @ObservationIgnored public let share: MacScreenShareHost
-    @ObservationIgnored private var host: ScreenStreamHost?
+    @ObservationIgnored private var host: MacScreenRdHost?
     @ObservationIgnored private var serveTask: Task<Void, Never>?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private let indicator = MacScreenShareIndicator()
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-hub-host")
     /// Makes the host for one session; tests replace it.
-    @ObservationIgnored var makeHost: (_ name: String, _ viewOnly: Bool) -> ScreenStreamHost = { name, viewOnly in
-        let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-hub-host")
-        let log: @Sendable (String) -> Void = { line in logger.info("\(line, privacy: .public)") }
-        return ScreenStreamHost(name: name, viewOnly: viewOnly, backend: { ScreenCaptureBackend(log: log) }, log: log)
-    }
+    @ObservationIgnored var makeHost: (MacScreenRdHost.Session) -> MacScreenRdHost = { MacScreenRdHost(session: $0) }
     /// The hub calls the host's controls make; tests replace them.
     @ObservationIgnored var endSession: @MainActor (DeviceHub, String, String) async -> Void = { hub, id, reason in
         try? await hub.endSession(id, reason: reason)
@@ -149,8 +145,9 @@ public final class MacScreenHubHost {
             end(ticket.sessionId, reason: .failed, hub: hub)
             return
         }
-        let host = makeHost(MacScreenShareHost.computerName, ticket.scope == .view)
-        let (events, sink) = AsyncStream.makeStream(of: ScreenStreamHost.Event.self, bufferingPolicy: .bufferingNewest(64))
+        let host = makeHost(MacScreenRdHost.Session(id: ticket.sessionId, name: MacScreenShareHost.computerName, viewerID: ticket.peer.id, viewOnly: ticket.scope == .view,
+                                                    servers: MacScreenRdServers(hub.iceServers(for: ticket).map(\.config))))
+        let (events, sink) = AsyncStream.makeStream(of: MacScreenRdHost.Event.self, bufferingPolicy: .bufferingNewest(64))
         host.onEvent = { event in sink.yield(event) }
         self.host = host
         session = Session(id: ticket.sessionId, viewerID: ticket.peer.id, viewerName: ticket.peer.name, scope: ticket.scope,
@@ -176,26 +173,25 @@ public final class MacScreenHubHost {
         closeLocal()
     }
 
-    private func handle(_ event: ScreenStreamHost.Event, session id: String) {
+    private func handle(_ event: MacScreenRdHost.Event, session id: String) {
         guard session?.id == id else { return }
         switch event {
         case .viewerConnected:
             session?.connected = true
             updateIndicator()
-        case .viewerEnded:
+        case let .viewerEnded(reason):
+            logger.info("session ended: \(reason, privacy: .public)")
             closeLocal()
         case let .sourceFailed(message):
-            logger.error("screen capture failed: \(message, privacy: .public)")
+            logger.error("screen host failed: \(message, privacy: .public)")
             stopSession(reason: .failed)
-        case .waiting, .roomLost:
-            break
         }
     }
 
     /// The host's serve loop returned (bye, closed, revoked).
     /// A connected session outlives its signaling (a dropped hub link): the
     /// viewer leaving, the hub's revocation or end, or Stop Sharing ends it.
-    private func served(_ host: ScreenStreamHost, session id: String) {
+    private func served(_ host: MacScreenRdHost, session id: String) {
         guard self.host === host, let current = session, current.id == id, !current.connected else { return }
         closeLocal()
     }
@@ -257,8 +253,8 @@ public final class MacScreenHubHost {
         let host = self.host
         self.host = nil
         host?.onEvent = nil
-        // Closing the peer connection waits on WebRTC's threads: never on the main actor.
-        if let host { Task.detached { host.disconnectViewer() } }
+        // The host process stops its session and exits (writes on its own queue).
+        host?.disconnectViewer()
         serveTask = nil
         eventTask?.cancel()
         eventTask = nil

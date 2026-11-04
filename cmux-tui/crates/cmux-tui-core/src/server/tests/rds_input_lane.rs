@@ -52,9 +52,15 @@ struct TypingConnection {
 }
 
 impl TypingConnection {
+    /// A typing connection with stage S1 on (the lane under test).
     fn open() -> Self {
+        Self::open_with(true)
+    }
+
+    /// A typing connection with stage S1 `lane` on or off (off: the old path, a test's control).
+    fn open_with(lane: bool) -> Self {
         let mux = test_mux();
-        mux.set_input_lane_for_test(true);
+        mux.set_input_lane_for_test(lane);
         let terminal = mux.new_workspace(Some("typing".into()), Some((80, 24))).unwrap();
         let (sent, input) = mpsc::channel();
         terminal.replace_input_writer_for_test(Box::new(TimedInput(sent)));
@@ -140,46 +146,68 @@ fn hold_session(mux: &Arc<Mux>, hold: &dyn Fn()) {
     mux.with_state(|_| hold());
 }
 
+fn hold_surface_admission(mux: &Arc<Mux>, hold: &dyn Fn()) {
+    mux.surface_operation_admission.hold_for_test(hold);
+}
+
 fn hold_workspace_registry(mux: &Arc<Mux>, hold: &dyn Fn()) {
     let _held = mux.workspace_registry.lock().unwrap_or_else(|e| e.into_inner());
     hold();
 }
 
-/// Sends two keys while another thread holds each lock in turn, and fails when a key waited for one of them.
-fn assert_keys_wait_for_none(locks: &[(&str, Holder)]) {
-    let connection = TypingConnection::open();
-    // The first key of a view may take the long way; every key after it must not wait.
+fn hold_link_peers(mux: &Arc<Mux>, hold: &dyn Fn()) {
+    let _held = mux.remote_relay().peers.lock().unwrap_or_else(|e| e.into_inner());
+    hold();
+}
+
+fn hold_proxy_authors(mux: &Arc<Mux>, hold: &dyn Fn()) {
+    mux.control_clients.agent_sessions.hold_proxy_authors_for_test(hold);
+}
+
+/// How long two keys took to reach their PTY while another thread held one lock (the later key's arrival from the
+/// first key's submit; `Duration::MAX` when a key never arrived), on a connection that `connection` is.
+fn key_wait_while_held(connection: &TypingConnection, index: usize, holder: Holder) -> Duration {
+    let first = b'a' + u8::try_from(index * 2).unwrap_or(0);
+    let second = first + 1;
+    let (held, holding) = mpsc::channel();
+    let (release, released) = mpsc::channel::<()>();
+    let mux = connection.mux.clone();
+    let other = std::thread::spawn(move || {
+        holder(&mux, &|| {
+            let _ = held.send(());
+            let _ = released.recv_timeout(HOLD);
+        });
+    });
+    holding.recv().expect("the other thread took its lock");
+    let started = Instant::now();
+    let (first_id, second_id) = (format!("{index}-first"), format!("{index}-second"));
+    connection.submit(&first_id, first);
+    connection.submit(&second_id, second);
+    let first_at = connection.arrival(first);
+    let second_at = connection.arrival(second);
+    let _ = release.send(());
+    other.join().expect("the lock holder ended");
+    connection.settle(&[first_id.as_str(), second_id.as_str()]);
+    match (first_at, second_at) {
+        (Some(first_at), Some(second_at)) => first_at.max(second_at) - started,
+        _ => Duration::MAX,
+    }
+}
+
+/// A connection whose first key took the long way already: every key after it must not wait.
+fn warmed(connection: TypingConnection) -> TypingConnection {
     connection.submit("warm", b'w');
     assert!(connection.arrival(b'w').is_some(), "the first key never reached its terminal");
     connection.settle(&["warm"]);
+    connection
+}
 
+/// Sends two keys while another thread holds each lock in turn, and fails when a key waited for one of them.
+fn assert_keys_wait_for_none(locks: &[(&str, Holder)]) {
+    let connection = warmed(TypingConnection::open());
     let mut waits = Vec::new();
     for (index, (name, holder)) in locks.iter().copied().enumerate() {
-        let first = b'a' + u8::try_from(index * 2).unwrap_or(0);
-        let second = first + 1;
-        let (held, holding) = mpsc::channel();
-        let (release, released) = mpsc::channel::<()>();
-        let mux = connection.mux.clone();
-        let other = std::thread::spawn(move || {
-            holder(&mux, &|| {
-                let _ = held.send(());
-                let _ = released.recv_timeout(HOLD);
-            });
-        });
-        holding.recv().expect("the other thread took its lock");
-        let started = Instant::now();
-        let (first_id, second_id) = (format!("{index}-first"), format!("{index}-second"));
-        connection.submit(&first_id, first);
-        connection.submit(&second_id, second);
-        let first_at = connection.arrival(first);
-        let second_at = connection.arrival(second);
-        let _ = release.send(());
-        other.join().expect("the lock holder ended");
-        connection.settle(&[first_id.as_str(), second_id.as_str()]);
-        let waited = match (first_at, second_at) {
-            (Some(first_at), Some(second_at)) => first_at.max(second_at) - started,
-            _ => Duration::MAX,
-        };
+        let waited = key_wait_while_held(&connection, index, holder);
         eprintln!("SHARED-LOCKS key wait while {name} is held {HOLD:?}: {waited:?}");
         waits.push((name, waited));
     }
@@ -198,14 +226,54 @@ fn assert_keys_wait_for_none(locks: &[(&str, Holder)]) {
     );
 }
 
+/// The control of a lock test: on the old path (stage S1 off) the key does wait for the held lock, so the hold is
+/// real and the lane's result is not a test that holds nothing.
+fn assert_old_path_waits_for(name: &str, holder: Holder) {
+    let connection = warmed(TypingConnection::open_with(false));
+    let waited = key_wait_while_held(&connection, 0, holder);
+    connection.close();
+    eprintln!("SHARED-LOCKS control (lane off) key wait while {name} is held {HOLD:?}: {waited:?}");
+    assert!(
+        waited >= BUDGET,
+        "control: with stage S1 off the key took {waited:?} while {name} was held {HOLD:?}; the hold does not reach \
+         the old path, so the lane's test proves nothing"
+    );
+}
+
 /// Stage S1 step 1: the key line reads the facts of the session's connections from the client registry's published
 /// projection, never through its lock.
 #[test]
 fn a_key_waits_for_no_client_registry_lock() {
+    assert_old_path_waits_for("client registry (ClientRegistry.state)", hold_client_registry);
     assert_keys_wait_for_none(&[(
         "client registry (ClientRegistry.state)",
         hold_client_registry as Holder,
     )]);
+}
+
+/// Stage S1 step 3: every request of every connection reserves its bytes from one daemon-wide budget; the reservation
+/// is an atomic compare-and-swap, so a key never waits for another connection's request to reserve or release.
+#[test]
+fn a_key_waits_for_no_surface_admission_lock() {
+    let name = "surface admission (ServerSurfaceOperationAdmission)";
+    assert_old_path_waits_for(name, hold_surface_admission);
+    assert_keys_wait_for_none(&[(name, hold_surface_admission as Holder)]);
+}
+
+/// Stage S1 step 2: the key line asks whether its connection has a link peer record (the remote-client check and the
+/// request's actor) and whether it is a host proxy's link for a teammate. It reads both from published values, never
+/// through the link peers lock (every remote bind, disconnect and revocation sweep holds it) or the proxy authors lock
+/// (every proxy bind and every client's disconnect holds it).
+#[test]
+fn a_key_waits_for_neither_the_link_peers_nor_the_proxy_authors_lock() {
+    let peers = "link peers (RemoteRelayState.peers)";
+    let authors = "host proxy authors (AgentSessions.proxy_authors)";
+    assert_old_path_waits_for(peers, hold_link_peers);
+    assert_old_path_waits_for(authors, hold_proxy_authors);
+    assert_keys_wait_for_none(&[
+        (peers, hold_link_peers as Holder),
+        (authors, hold_proxy_authors as Holder),
+    ]);
 }
 
 /// #31940 and TYPING FIX 2 took these two off the key; this keeps them off on the stage's new path.
