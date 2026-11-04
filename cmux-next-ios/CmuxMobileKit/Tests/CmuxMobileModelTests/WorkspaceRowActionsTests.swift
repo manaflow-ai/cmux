@@ -163,10 +163,48 @@ import Testing
         func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace { placeholder }
         func canManage(on macID: String) -> Bool { true }
         func canEditTabs(on macID: String) -> Bool { true }
+        /// The source's panes after the moves (nil: the Mac lists it with no layout).
+        var after: WorkspaceLayout?
+        weak var store: AppStore?
         func moveTab(_ tab: WorkspaceTab, from workspace: Workspace, toWorkspace destination: Workspace?) async throws -> Workspace? {
             moves.append("\(tab.id) \(workspace.id) -> \(destination?.id ?? "new")")
+            let layout = after
+            store?.updateWorkspace(workspace.id) { ws in
+                ws.tabs.removeAll { $0.id == tab.id }
+                ws.layout = layout
+            }
             return destination
         }
+        func close(_ workspace: Workspace) async throws { moves.append("close \(workspace.id)") }
+    }
+
+    private func merging(after: WorkspaceLayout?) async -> [String] {
+        let store = AppStore.mock(tabMemory: .inMemory())
+        let mac = store.activeTeam!.macs.first { $0.isOnline }!
+        let tabs = ["s1", "s2"].map { WorkspaceTab(id: $0, kind: .terminal, title: $0) }
+        let source = Workspace(id: "src", macID: mac.id, title: "Source", directory: "~", tabs: tabs, lastActivityAt: Date())
+        let into = Workspace(id: "dst", macID: mac.id, title: "Dest", directory: "~", tabs: [], lastActivityAt: Date())
+        store.workspaces = [source, into]
+        let mover = Mover()
+        mover.store = store
+        mover.after = after
+        let creator = WorkspaceCreator(store: store, backend: mover, defaults: UserDefaults(suiteName: "merge-\(UUID().uuidString)")!)
+        creator.merge(source, into: into)
+        await creator.settle()
+        return mover.moves
+    }
+
+    /// The Mac reports no tab left: the emptied source closes, as on the Mac.
+    @Test func anEmptiedSourceCloses() async {
+        let empty = WorkspaceLayout(screens: [.init(id: 1, isActive: true, panes: [.init(id: 1, tabIDs: [], tabCount: 0)], root: .pane(1))])
+        #expect(await merging(after: empty).last == "close src")
+    }
+
+    /// A tab the phone does not list stays on the Mac: the source stays open; so does one with no layout.
+    @Test func aSourceWithUnlistedTabsStaysOpen() async {
+        let unlisted = WorkspaceLayout(screens: [.init(id: 1, isActive: true, panes: [.init(id: 1, tabIDs: [], tabCount: 1)], root: .pane(1))])
+        #expect(!(await merging(after: unlisted)).contains("close src"))
+        #expect(!(await merging(after: nil)).contains("close src"))
     }
 
     @Test func mergeMovesEveryTabIntoTheDestinationInOrder() async {

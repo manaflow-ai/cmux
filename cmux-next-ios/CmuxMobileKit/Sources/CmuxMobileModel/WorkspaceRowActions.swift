@@ -85,7 +85,10 @@ extension WorkspaceCreator {
                 // The Mac closes the emptied source itself (`WorkspaceMerge.run`); a source the Mac
                 // still lists with no tabs goes the same way. One that keeps tabs the phone does not
                 // list stays open.
-                if let self, let left = store.workspace(id: source.id), left.tabs.isEmpty {
+                // Only when the Mac reports no tab at all: its layout counts the tabs the phone
+                // does not list too (a source without a layout stays).
+                if let self, let left = store.workspace(id: source.id), left.tabs.isEmpty,
+                   left.layout.map({ $0.panes.allSatisfy { $0.tabCount == 0 } }) ?? false {
                     try await backend.close(left)
                 }
             } catch {
