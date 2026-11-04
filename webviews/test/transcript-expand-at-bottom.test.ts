@@ -330,7 +330,10 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     await scrollToEnd();
     const MORE = '[data-row-id="expand-at-bottom-run"] .cv-output-more[aria-expanded="false"]';
     await page.locator(MORE).last().waitFor();
-    await page.locator(MORE).last().evaluate((node) => node.setAttribute("data-more-probe", ""));
+    await page
+      .locator(MORE)
+      .last()
+      .evaluate((node) => node.setAttribute("data-more-probe", ""));
     const PROBE = "[data-more-probe]";
     const before = (await watchOpen(page, PROBE, 0, false))[0]!;
     expect(before.fromEnd).toBeLessThanOrEqual(2);

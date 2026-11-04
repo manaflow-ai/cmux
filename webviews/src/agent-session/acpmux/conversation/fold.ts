@@ -99,7 +99,7 @@ const settling = new Map<HTMLElement, () => void>();
 /// transcript calls it when the reader takes the view during a fold at the very bottom, so the rest
 /// of a closing body's shrink cannot clamp their short scroll up back to the end.
 export function settleFoldsIn(root: Element): void {
-  for (const [node, settle] of [...settling]) if (root.contains(node)) settle();
+  for (const [node, settle] of settling) if (root.contains(node)) settle();
 }
 
 /// The resize each box is playing (`playResize`), so a resize that ends late lets go of only its own.
