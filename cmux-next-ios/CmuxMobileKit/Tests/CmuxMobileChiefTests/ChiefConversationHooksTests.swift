@@ -109,10 +109,10 @@ struct ChiefConversationHooksTests {
         controller.composer.text = "and tell me"
         controller.beginTextSelection(rowID: source.rowID)
         let selection = try #require(controller.textSelection)
-        // The selection's own menu (UITextView adds its context menu interaction, a subclass).
         // The menu leads with Reply with Selection, then the system's own actions.
-        let interaction = try #require(selection.interactions.first { type(of: $0) == UIEditMenuInteraction.self } as? UIEditMenuInteraction)
-        #expect(interaction.delegate === selection)
+        // UITextView keeps its own edit menu interactions; the selection adds one it delegates.
+        let editMenus = selection.interactions.compactMap { $0 as? UIEditMenuInteraction }
+        let interaction = try #require(editMenus.first { $0.delegate === selection })
         let copy = UIAction(title: "Copy") { _ in }
         let menu = selection.editMenuInteraction(interaction, menuFor: UIEditMenuConfiguration(identifier: nil, sourcePoint: .zero),
                                                  suggestedActions: [copy])
@@ -132,8 +132,9 @@ struct ChiefConversationHooksTests {
         defer { ConversationTextSizeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
         controller.beginTextSelection(rowID: source.rowID)
         let selection = try #require(controller.textSelection)
-        let interaction = try #require(selection.interactions.first { type(of: $0) == UIEditMenuInteraction.self } as? UIEditMenuInteraction)
-        #expect(interaction.delegate == nil)
+        let editMenus = selection.interactions.compactMap { $0 as? UIEditMenuInteraction }
+        #expect(!editMenus.isEmpty)
+        #expect(!editMenus.contains { $0.delegate === selection })
         #expect(selection.textView(selection, editMenuForTextIn: selection.selectedRange, suggestedActions: []) == nil)
         #expect(!selection.replyWithSelection())
         controller.endTextSelection()
