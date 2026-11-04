@@ -75,7 +75,6 @@ extension AppDelegate {
         // The shared chunks into memory on the files lane, so WebKit page views get them in one turn.
         WebBundleOverlay.shared.readBundledShared(on: services.work)
         services.configureChromiumSpares()
-        services.cache.cef.setAdBlockerAtFirstTab(services.features.isEnabled(.chromiumAdBlockerAtFirstTab))
         // The page host already exists (`services.iconPicker` above reads it) but has opened no page;
         // the statics forward to it for page views not yet made through `webUI.open`
         // (p13-webui-006 to 009 move them, 010 deletes the statics).

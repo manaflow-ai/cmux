@@ -21,9 +21,6 @@ final class CEFPaneHost {
         /// Host mode: the first tab waits for the host's verdict on its profile's proxy before the window
         /// is asked for (`awaitProfileProxy`); later tabs join the wait as they join `creating`.
         case awaitingProfileProxy
-        /// The profile's first tab waits for its built-in extensions before the window is asked for
-        /// (`CEFPaneHost+BuiltInExtensions`); later tabs join the wait as they join `creating`.
-        case awaitingExtensions
         case creating(request: Int32)
         case live(window: Int32)
     }
@@ -95,7 +92,7 @@ final class CEFPaneHost {
 
     var isCreatingWindow: Bool {
         switch window {
-        case .creating, .awaitingProfileProxy, .awaitingExtensions: true
+        case .creating, .awaitingProfileProxy: true
         case .none, .live: false
         }
     }
@@ -284,8 +281,6 @@ final class CEFPaneHost {
                     return false
                 }
             }
-            // After the proxy gates: the extensions' first requests use the profile's proxy.
-            guard builtInExtensionsReady(for: tab) else { return false }
             tab.isCreationPending = true
             windowTab = tab
             window = .creating(request: request)
@@ -323,7 +318,7 @@ final class CEFPaneHost {
                 runtime.spareWindow.noteWindowBuilt(for: key)
             }
             return false
-        case .awaitingProfileProxy, .awaitingExtensions, .creating:
+        case .awaitingProfileProxy, .creating:
             // Joins the window once it exists (windowCreated), or the proxy or extensions wait.
             tab.isCreationPending = true
             return false
@@ -340,8 +335,6 @@ final class CEFPaneHost {
             window = .none
             return false
         }
-        // `tab_add` navigates in the call: the profile's built-in extensions are in first.
-        guard builtInExtensionsReady(for: tab) else { return false }
         tab.isCreationPending = true
         runtime.tabBeingAdded = tab
         let activates = visibleTab === tab

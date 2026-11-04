@@ -31,7 +31,6 @@ enum BrowserLinkClickPreference {
                        on mainWork: MainWorkScheduler) -> [AnyObject] {
         chromium.whenBuilt { [weak settings] cef in
             cef.builtInAdBlocker = { [weak settings] in settings?.snapshot.browserBuiltInAdBlocker ?? true }  // browser.builtInAdBlocker, read at Chromium start
-            cef.builtInAdBlockerChosen = { [weak settings] in settings?.snapshot.browserBuiltInAdBlockerChosen ?? false }
             if let settings { cef.linkClicks = BrowserLinkClickMapping(settings.snapshot.browserLinkClicks) }
         }
         // `background`: the mapping is read at the next click; nothing on screen waits for it.

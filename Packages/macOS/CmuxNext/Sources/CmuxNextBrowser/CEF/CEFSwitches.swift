@@ -32,11 +32,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Extensions the app bundle ships (`CEFBuiltInExtensions`); they do not
     /// turn on the extensions developer mode.
     var builtInExtensions: [String] = []
-    /// The default-off feature `chromiumAdBlockerAtFirstTab` on a fork with `cmux_ext_load_command_line_async`:
-    /// ``builtInExtensions`` stay off `--load-extension` and load into each persistent profile right
-    /// before its first browser tab (``CEFBuiltInExtensionLoads``), so Home with no browser tab runs no
-    /// extension background page.
-    var builtInExtensionsAtFirstTab = false
     /// Unpacked extensions stay enabled without developer mode: true while
     /// the built-in uBlock Origin loads or the person has their own unpacked
     /// copy of it (`CEFBuiltInExtensions.Plan`).
@@ -153,7 +148,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         if useMockKeychain {
             result.append("use-mock-keychain")
         }
-        let loaded = (builtInExtensionsAtFirstTab ? [] : builtInExtensions) + loadExtensions
+        let loaded = builtInExtensions + loadExtensions
         if !loaded.isEmpty {
             result.append("load-extension=" + loaded.joined(separator: ","))
         }
@@ -373,7 +368,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
-        builtInExtensionsAtFirstTab: Bool = false,
         keepsUnpackedEnabled: Bool = false,
         pageSiteCaps: [PageSiteCap] = [],
         sharedRendererMemoryCaps: CEFSharedRendererMemoryCaps? = nil
@@ -408,7 +402,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             useMockKeychain: mockKeychain,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
-            builtInExtensionsAtFirstTab: builtInExtensionsAtFirstTab && !builtInExtensions.isEmpty,
             keepsUnpackedEnabled: keepsUnpackedEnabled,
             extraSwitches: extra,
             benchSwitches: bench,

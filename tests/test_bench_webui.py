@@ -736,9 +736,9 @@ class PageCodeCacheTests(unittest.TestCase):
         self.assertEqual(off, {"CMUX_NEXT_DEBUG_TUNABLES_FILE": "/t.json"})
 
     def test_enable_feature_turns_features_on_for_the_run(self):
-        """p13-webui-055: the home bench's arm with an off feature on (chromiumAdBlockerAtFirstTab)."""
-        opts = webui.parse(["home", "--app", "x", "--enable-feature", "chromiumAdBlockerAtFirstTab", "--enable-feature", "other"])
-        self.assertEqual(webui.launch_env(opts, "/t.json")["CMUX_ENABLE_FEATURES"], "chromiumAdBlockerAtFirstTab,other")
+        """The home bench's arm with an off feature on."""
+        opts = webui.parse(["home", "--app", "x", "--enable-feature", "pageLifecycle", "--enable-feature", "other"])
+        self.assertEqual(webui.launch_env(opts, "/t.json")["CMUX_ENABLE_FEATURES"], "pageLifecycle,other")
         self.assertNotIn("CMUX_ENABLE_FEATURES", webui.launch_env(webui.parse(["home", "--app", "x"]), "/t.json"))
 
     def test_switched_renderers_measure_and_are_counted(self):

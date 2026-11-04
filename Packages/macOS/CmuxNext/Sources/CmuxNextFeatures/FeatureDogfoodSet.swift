@@ -6,8 +6,7 @@
 /// is a Release build, which compiles them out, and a name here would be a bench-only string in the shipped app
 /// (`check-no-bench-hooks.sh` refuses it: cefHelperHost and chromiumHostIdleExit left the set for that); perfLabCanary
 /// delays every key press by 2 ms and perfLabKillProbe kills processes on purpose; nor are switches whose own description
-/// says to turn them on later (cefLayerHostingEveryPage, hangReportsSchema3), nor chromiumAdBlockerAtFirstTab until a
-/// pinned fork has the first-tab load (fork API 41): on a fork without it the feature runs no built-in ad blocker.
+/// says to turn them on later (cefLayerHostingEveryPage, hangReportsSchema3).
 public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
     /// The chrome-parity dogfood builds (`chrome-parity-v2-1`, ...): every switch the chrome-parity work added that is
     /// off by default in DEV, less the ones above. Names this build's registry does not declare are ignored, as
