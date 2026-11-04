@@ -545,8 +545,10 @@ struct Persisted {
 static REVISION: AtomicU64 = AtomicU64::new(1);
 
 fn next_revision() -> u64 {
-    let clock =
-        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0);
+    let clock = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+        .unwrap_or(0);
     clock.wrapping_add(REVISION.fetch_add(1, Ordering::Relaxed))
 }
 
