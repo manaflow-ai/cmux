@@ -4671,8 +4671,15 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     clients.append(client)
     if (env.get("SWEEP") or "").strip() == "1":
         # One job for every marked run (sweep()); its per-run lines go to the log only.
+        import hosted_light_rescue
+        light_log = lambda text: print(text, flush=True)
+        try:
+            light_rescue = hosted_light_rescue.from_env(env, repository, now=clock, log=light_log)
+        except (OSError, ValueError) as error:
+            light_log(f"hosted light rescue policy unavailable ({error}); primary owned-pool rescue continues")
+            light_rescue = None
         outcomes = sweep(client, repository, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
-                         now=clock, log=lambda text: print(text, flush=True), side_seconds=side_seconds)
+                         now=clock, log=light_log, side_seconds=side_seconds, light_rescue=light_rescue)
         return finish("swept: " + (", ".join(f"{count} {outcome}" for outcome, count in sorted(outcomes.items()))
                                    or "no run needed a watch"))
     run_id = (env.get("WATCH_RUN_ID") or "").strip()
@@ -5029,7 +5036,7 @@ def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_re
 # DEV daily runs with the code #26047 replaced for 3 hours after it merged.
 CODE_DIRECTORY = "scripts/ci"
 CODE_FILES = ("owned_pool_rescue.py", "pr_runner_pool.py", "simple_pool_picker.py", "owned_pool_sources.py",
-              "ui_tests_dispatch.py")
+              "ui_tests_dispatch.py", "hosted_light_rescue.py")
 CODE_CHECK_TICKS = 5
 RESCUE_WORKFLOW_FILE = "ci-owned-pool-rescue.yml"
 # A handover dispatches a sweeper only when none waits already (GitHub.waiting_sweeper()). The sweeper
@@ -5079,7 +5086,8 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
           now: Callable[[], dt.datetime], log: Callable[[str], None],
           sweep_seconds: int = SWEEP_SECONDS, tick_seconds: float = SWEEP_TICK_SECONDS,
           wait: Callable[[float], None] = time.sleep, light_retry: bool = False,
-          side_seconds: int | None = None, running_code: Mapping[str, str] | None = None) -> dict[str, int]:
+          side_seconds: int | None = None, running_code: Mapping[str, str] | None = None,
+          light_rescue: Callable[[], None] | None = None) -> dict[str, int]:
     """Watch every marked run until `sweep_seconds` pass, or main's code changes (code_changed()).
     Returns outcome counts."""
     # The sweeper's own listings raise on a rate limit as before (a failed read is tried next
@@ -5178,6 +5186,16 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         threads.append(thread)
         watching[run_id] = thread
         return True
+
+    if light_rescue is not None:
+        import hosted_light_rescue
+        # This watch has its own workflow-token quota and minute clock. The routing App's pace()
+        # may sleep until its reset without delaying light-job recovery. One thread per sweeper.
+        worker = threading.Thread(target=hosted_light_rescue.follow, args=(light_rescue,),
+                                  kwargs={"stopped": stopping.wait, "seconds": sweep_seconds, "log": log},
+                                  name="hosted-light-rescue", daemon=True)
+        worker.start()
+        threads.append(worker)
 
     code = dict(running_code_shas() if running_code is None else running_code)
     replaced: list[str] = []
