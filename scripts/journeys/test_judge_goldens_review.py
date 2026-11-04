@@ -103,21 +103,24 @@ class NoVerdictTests(Blessed):
         self.assertEqual(code, 2, out)
         self.assertIn("no film", out)
 
-    def test_a_file_the_table_does_not_pin_is_no_verdict(self):
+    def test_a_file_the_table_does_not_pin_changes_no_result(self):
+        # One store serves every manifest (review 6 of #33930, finding A): a file this table does not pin is another
+        # manifest's, and no judge sees it (sealed views: display.json, an input of every film in its folder, too).
         folder = self.w.store / "films" / "build-a-120x2"
         os.chmod(folder, 0o755)
         (folder / "display.json").write_text(json.dumps({"asked": {"scale": 3}}))
         code, out = self.w.run()
-        self.assertEqual(code, 2, out)
-        self.assertIn("display.json", out)
+        self.assertEqual(code, 0, out)
+        self.assertIn("reproduced 12 of 12", out)
+        self.assertIn("1 file", out)
 
-    def test_a_file_beside_the_film_folders_is_no_verdict(self):
+    def test_a_file_beside_the_film_folders_changes_no_result(self):
         films = self.w.store / "films"
         os.chmod(films, 0o755)
         (films / "diag-tiers.json").write_text("{}")
         code, out = self.w.run()
-        self.assertEqual(code, 2, out)
-        self.assertIn("diag-tiers.json", out)
+        self.assertEqual(code, 0, out)
+        self.assertIn("reproduced 12 of 12", out)
 
     def test_a_blessed_result_that_is_gone_is_no_verdict(self):
         expected = json.loads((self.w.manifest / "expected.json").read_text())
@@ -554,7 +557,8 @@ class FourthReviewTests(unittest.TestCase):
         def load_trace(path):
             return json.loads(open(path).read())
         def judge(trace, frames=None, scale=2.0, events=None):
-            return {"motion": {"first": 0, "last": 2}, "motions": [{"first": 0, "last": 2}], "defects": [], "counts": {}}
+            return {"motion": {"first": 0, "last": 2}, "motions": [{"first": 0, "last": 2, "travel": {"a": {"right": 40.0}}}],
+                    "defects": [], "counts": {}}
         """
 
     def test_an_absence_on_a_trace_with_no_motion_is_no_verdict(self):
@@ -642,7 +646,7 @@ class FifthReviewTests(unittest.TestCase):
     skipped unit test."""
 
     JUDGED = {"frames": 10, "motion": [[0.0, 0.5]], "pacing": {"trace": True}, "tracked_dividers": 2,
-              "model_lag": {"0": 5}, "findings": []}
+              "model_lag": {"0": 5}, "hid_clock": {"offset_s": 0.0}, "findings": []}
 
     def result(self, findings=(), **fields):
         r = dict(self.JUDGED, findings=list(findings))
@@ -710,7 +714,8 @@ class FifthReviewTests(unittest.TestCase):
                      "shown geometry not in the model"):
             with self.subTest(name=name):
                 self.assertIn("tracked no divider", self.verdict(untracked, {"absent_check": name}))
-                self.assertEqual(self.verdict(self.result(), {"absent_check": name}), "holds")
+                # (jump back also needs a drag the judge placed: review 6, finding B.3)
+                self.assertEqual(self.verdict(self.result(), {"absent_check": name}, hid_drag=True), "holds")
 
     def test_an_absence_of_a_model_check_needs_the_trace(self):
         untraced = self.result(pacing={"trace": False}, model_lag={})
@@ -756,7 +761,7 @@ class FifthReviewTests(unittest.TestCase):
     def test_an_absence_of_gap_or_overlap_on_the_trace_needs_two_panes_at_rest(self):
         def trace(panes):
             motion = {"first_frame": 1, "last_frame": 9, "frames": 9, "panes_at_rest": panes}
-            return {"motion": motion, "motions": [{"motion": motion}], "defects": []}
+            return {"motion": motion, "motions": [{"motion": motion, "travel": {"a": {"right": 40.0}}}], "defects": []}
 
         for name in ("gap", "overlap", "overlap-fading"):
             with self.subTest(name=name):
@@ -862,6 +867,180 @@ class FifthReviewTests(unittest.TestCase):
         self.assertIn("JUDGE_GOLDENS_STORE", real)
         # r4, the round the test always read (the store's copy has the same bytes as the scratch folder it read).
         self.assertIn('"pt-feat-5851715-b-120x1" / "bv-dt-bottom-light-dark-r4"', real)
+
+
+class SixthReviewTests(unittest.TestCase):
+    """Review 6 of #33930 at f971818773c (FIX, comment 6624684656). A: one store serves every manifest: a run does not
+    refuse another manifest's folders, and a snapshot never replaces a stored file. B: an absence holds only where its
+    own check looked, for 5 more names (judge_trace reverse, lurch and end-jump on an edge that travelled; video_judge
+    divider not shown with trace samples; jump back against a drag). Notes: tests for needs that no test held, a fact
+    of an absence that can never be checked is refused before judging, and other fields that are not text."""
+
+    verdict = staticmethod(FifthReviewTests.verdict)
+    JUDGED = FifthReviewTests.JUDGED
+
+    def result(self, findings=(), **fields):
+        r = dict(self.JUDGED, findings=list(findings))
+        r.update(fields)
+        return r
+
+    # -- A: two manifests on one store --
+    @staticmethod
+    def cli(w, manifest, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = jg.guarded_main([args[0], "--store", str(w.store), "--manifest", str(manifest), *args[1:]])
+        return code, out.getvalue() + err.getvalue()
+
+    def test_another_manifests_folder_does_not_stop_a_run(self):
+        w = base.Workspace()
+        try:
+            self.assertEqual(w.snapshot()[0], 0)
+            self.assertEqual(w.bless()[0], 0)
+            other_gallery, other = w.root / "gallery-b", w.root / "manifest-b"
+            base.write_film(other_gallery / "build-b-120x2", "row-drag", frames=6)
+            code, out = self.cli(w, other, "snapshot", "--source", str(other_gallery), "--settled-minutes", "0")
+            self.assertEqual(code, 0, out)
+            code, out = w.run()
+            self.assertEqual(code, 0, out)
+            self.assertIn("reproduced 12 of 12", out)
+            self.assertIn("1 folder", out)
+        finally:
+            w.close()
+
+    def test_a_snapshot_never_replaces_a_stored_file(self):
+        w = base.Workspace()
+        try:
+            self.assertEqual(w.snapshot()[0], 0)
+            self.assertEqual(w.bless()[0], 0)
+            stored = w.store / "films" / "build-a-120x2" / "col-drag.meta.json"
+            before = jg.sha256_file(stored)
+            (w.gallery / "build-a-120x2" / "col-drag.meta.json").write_text(json.dumps({"start": {"scale": 3}}))
+            code, out = self.cli(w, w.root / "manifest-b", "snapshot", "--source", str(w.gallery), "--settled-minutes", "0")
+            self.assertEqual(code, 2, out)
+            self.assertIn("col-drag.meta.json", out)
+            self.assertEqual(jg.sha256_file(stored), before)
+            code, out = w.run()
+            self.assertEqual(code, 0, out)
+        finally:
+            w.close()
+
+    def test_a_snapshot_records_a_stored_identical_file_without_a_copy(self):
+        w = base.Workspace()
+        try:
+            self.assertEqual(w.snapshot()[0], 0)
+            stored = w.store / "films" / "build-a-120x2" / "col-drag.meta.json"
+            inode = os.stat(stored).st_ino
+            other = w.root / "manifest-b"
+            code, out = self.cli(w, other, "snapshot", "--source", str(w.gallery), "--settled-minutes", "0")
+            self.assertEqual(code, 0, out)
+            self.assertEqual(os.stat(stored).st_ino, inode)
+            films_b = json.loads((other / "films.json").read_text())
+            self.assertIn("col-drag.meta.json", jg.files_table(w.store, films_b)["build-a-120x2"])
+        finally:
+            w.close()
+
+    # -- B: 5 more names --
+    @staticmethod
+    def trace(travel):
+        motion = {"first_frame": 1, "last_frame": 9, "frames": 9, "panes_at_rest": ["a", "b"]}
+        return {"motion": motion, "motions": [{"motion": motion, "travel": travel}], "defects": []}
+
+    def test_reverse_lurch_and_end_jump_need_an_edge_that_travelled(self):
+        for name in ("reverse", "lurch", "end-jump"):
+            with self.subTest(name=name):
+                self.assertIn("travelled", self.verdict(self.trace({}), {"judge": "judge_trace", "absent_kind": name}))
+                self.assertEqual(self.verdict(self.trace({"a": {"right": 40.0}}), {"judge": "judge_trace", "absent_kind": name}),
+                                 "holds")
+        # dropped and off-grid look at every motion, travelled or not
+        self.assertEqual(self.verdict(self.trace({}), {"judge": "judge_trace", "absent_kind": "dropped"}), "holds")
+
+    def test_divider_not_shown_needs_the_trace(self):
+        got = self.verdict(self.result(pacing={"trace": False}), {"absent_check": "divider not shown"})
+        self.assertIn("no trace samples", got)
+
+    def test_jump_back_needs_a_drag_the_judge_placed(self):
+        placed = {"offset_s": 0.0}
+        self.assertIn("drag", self.verdict(self.result(hid_clock=placed), {"absent_check": "jump back"}))
+        self.assertIn("drag", self.verdict(self.result(hid_clock={"offset_s": None}), {"absent_check": "jump back"},
+                                            hid_drag=True))
+        self.assertEqual(self.verdict(self.result(hid_clock=placed), {"absent_check": "jump back"}, hid_drag=True), "holds")
+
+    def test_the_drag_is_read_from_the_films_pinned_events(self):
+        import test_judge_goldens_truth as truth
+        for drag, code_wanted in ((None, 2), ("key", 2), ("drag", 0)):
+            with self.subTest(drag=drag):
+                stub = truth.video_stub().replace('"motion": [{"a": 0, "b": 8}],', '"motion": [{"a": 0, "b": 8}], '
+                                                  '"hid_clock": {"offset_s": 0.0},')
+                w = truth.TruthWorkspace(video=stub)
+                try:
+                    hid = [{"kind": drag, "t_sent": 100.0, "t_returned": 100.05, "args": {}}] if drag else []
+                    (w.gallery / "px-build-120x2" / "px-keys.events.json").write_text(json.dumps({"hid": hid, "journal": []}))
+                    w.write_truth(expect=[{"judge": "video_judge", "absent_check": "jump back"}])
+                    self.assertEqual(w.snapshot()[0], 0)
+                    code, out = w.bless()
+                    self.assertEqual(code, code_wanted, out)
+                    if drag != "drag":  # no HID entry, or one that is no drag
+                        self.assertIn("drag", out)
+                finally:
+                    w.close()
+
+    # -- notes --
+    def test_movie_checks_need_the_trace_too(self):
+        for name in ("blank pane", "flash", "content stretched", "reflow"):
+            with self.subTest(name=name):
+                got = self.verdict(self.result(pacing={"trace": False}), {"absent_check": name}, movie=True)
+                self.assertIn("no trace samples", got)
+
+    def test_pacing_blend_and_capture_checks_need_a_motion_window(self):
+        for name in ("dropped frames", "idle refresh in motion", "half-pixel blend", "capture stall"):
+            with self.subTest(name=name):
+                self.assertIn("no motion window", self.verdict(self.result(motion=[]), {"absent_check": name}))
+
+    def test_a_positive_check_needs_no_coverage(self):
+        # A judge that did not look, and so missed it, fails a must-report fact; it is never NO VERDICT.
+        reported = self.result([{"check": "jump", "severity": "defect", "frames": [3, 4], "t": [0, 0], "detail": "x"}],
+                               tracked_dividers=0, motion=[])
+        self.assertEqual(self.verdict(reported, {"check": "jump"}), "holds")
+        self.assertTrue(self.verdict(self.result(pacing={"trace": False}, motion=[]),
+                                     {"check": "divider not shown"}).startswith("fails"))
+        self.assertTrue(self.verdict(self.trace({}), {"judge": "judge_trace", "kind": "lurch"}).startswith("fails"))
+
+    def test_an_absence_that_can_never_be_checked_is_refused_before_judging(self):
+        import test_judge_goldens_truth as truth
+        w = truth.TruthWorkspace()
+        try:
+            w.write_truth(expect=[{"judge": "video_judge", "absent_check": "frame gap during slow input"}])
+            self.assertEqual(w.snapshot()[0], 0)
+            code, out = w.bless()
+            self.assertEqual(code, 2, out)
+            self.assertIn("truth.json has facts that cannot be checked", out)
+            self.assertIn("px-keys-shell-band", out)
+        finally:
+            w.close()
+
+    def test_a_film_id_or_ruler_value_that_is_not_text_or_a_number_is_no_verdict_that_names_the_fact(self):
+        import test_judge_goldens_truth as truth
+        for field, value in (("film", ["px-build-120x2/px-keys"]), ("id", ["x"]), ("min_run_px", [8])):
+            with self.subTest(field=field):
+                w = truth.TruthWorkspace()
+                try:
+                    w.write_truth()
+                    path = w.manifest / "truth.json"
+                    doc = json.loads(path.read_text())
+                    fact = doc["facts"][0]
+                    if field == "min_run_px":
+                        fact["ruler"]["min_run_px"] = value
+                    else:
+                        fact[field] = value
+                    path.write_text(json.dumps(doc))
+                    self.assertEqual(w.snapshot()[0], 0)
+                    code, out = w.bless()
+                    self.assertEqual(code, 2, out)
+                    self.assertNotIn("the runner failed", out)
+                    self.assertIn("truth.json has facts that cannot be checked", out)  # refused before judging
+                finally:
+                    w.close()
 
 
 if __name__ == "__main__":
