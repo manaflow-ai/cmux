@@ -1272,11 +1272,7 @@
       "center-line:row user-8",
       "center-line:row user-9"
     ],
-    "agent-pane.incoming-message#minimal-open": [
-      "center-line:row user-10",
-      "center-line:row user-8",
-      "center-line:row user-9"
-    ],
+    "agent-pane.incoming-message#minimal-open": [],
     "agent-pane.incoming-message#notice": [],
     "agent-pane.incoming-message#opened": [
       "center-line:row user-52"
