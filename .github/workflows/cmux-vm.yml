@@ -727,7 +727,8 @@ jobs:
     # Action tail-production: streams the production Worker's live events (`wrangler tail`) for tail_minutes,
     # so a 503 "temporarily unavailable" shows the dependency behind it while someone reproduces it. Only the
     # repository Cloudflare secrets are read (no environment), so it runs from any ref. Printed per event:
-    # time, method, path, status, outcome, log lines and exceptions; no headers, no bodies, emails redacted.
+    # time, method, path, status, outcome, Durable Object RPC, log lines and exceptions (scripts/tail-filter.mjs);
+    # no headers, bodies or query strings, emails redacted.
     name: tail production
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'tail-production'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
@@ -757,20 +758,11 @@ jobs:
           case "$minutes" in ''|*[!0-9]*) minutes=10 ;; esac
           [ "$minutes" -le 25 ] || minutes=25
           echo "tailing cmux-vm-production for ${minutes}m"
-          timeout "${minutes}m" node_modules/.bin/wrangler tail cmux-vm-production --format json 2>&1 \
-            | jq --unbuffered -Rc '
-                fromjson? // {raw: .}
-                | if has("raw") then {raw} else {
-                    t: (.eventTimestamp // 0 | . / 1000 | todate),
-                    method: .event.request.method,
-                    path: (.event.request.url // "" | sub("^https?://[^/]+"; "") | sub("\\?.*$"; "")),
-                    status: .event.response.status,
-                    cron: .event.cron,
-                    outcome,
-                    logs: [.logs[]? | {level, message}],
-                    exceptions: [.exceptions[]? | {name, message}]
-                  } end' \
-            | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<email>/g'
+          # wrangler prints pretty JSON events on stdout and its banner on stderr; the filter keeps only the
+          # summary of each event (no headers or bodies: this log is public).
+          timeout "${minutes}m" node_modules/.bin/wrangler tail cmux-vm-production --format json 2> "$RUNNER_TEMP/wrangler-tail.err" \
+            | node scripts/tail-filter.mjs
+          tail -n 5 "$RUNNER_TEMP/wrangler-tail.err" | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<email>/g'
           echo "tail ended"
 
   migrate-production:
