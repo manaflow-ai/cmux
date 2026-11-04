@@ -72,7 +72,7 @@ struct CloudLinkEndedHeaderTests {
         #expect(SidebarBridge.paneUse(session.machineID, in: services.machines) == .coming,
                 "a send waits for the read instead of reconnecting a machine a pause may have parked")
         answer.yield()
-        for await confirming in ObservationStream({ session.linkEndConfirming }) where !confirming { break }
+        for await confirming in ObservationStream({ session.linkEndRead.confirming }) where !confirming { break }
         let header = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
         #expect(header.status == .pausedIdle)
         #expect(SectionHeaderRowView.statusText(header.status, hostGroup: false) == "Paused (idle)")
@@ -90,7 +90,7 @@ struct CloudLinkEndedHeaderTests {
         await Self.connectAndEnd(session)
         var iterator = reads.makeAsyncIterator()
         #expect(await iterator.next() == true)
-        for await confirming in ObservationStream({ session.linkEndConfirming }) where !confirming { break }
+        for await confirming in ObservationStream({ session.linkEndRead.confirming }) where !confirming { break }
         let header = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
         #expect(header.status == .disconnected)
     }
@@ -104,11 +104,11 @@ struct CloudLinkEndedHeaderTests {
                                           appLink: CloudLinkSession(key: CloudLinkKey(machine: id), resolver: resolver),
                                           localIdentity: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         defer { session.disconnect() }
-        session.linkEndConfirming = true
+        session.linkEndRead.confirming = true
         session.connect(origin: .user)
         var opened = resolver.opened.makeAsyncIterator()
         _ = await opened.next()
-        #expect(!session.linkEndConfirming, "the connect is the link's answer")
+        #expect(!session.linkEndRead.confirming, "the connect is the link's answer")
         await resolver.finish()
     }
 
