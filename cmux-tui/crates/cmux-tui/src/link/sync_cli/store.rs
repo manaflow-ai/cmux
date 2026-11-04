@@ -77,12 +77,24 @@ fn configured() -> Option<&'static Config> {
 }
 
 /// Whether the machine at `socket` serves `blob-fetch-v2`: a fetch job of an
-/// earlier push may still be running there.
-pub(super) fn fetch_served(socket: &std::path::Path) -> bool {
-    super::super::machine_gate::identify(socket).is_some_and(|identity| {
-        super::super::machine_gate::served(&identity)
-            .is_some_and(|served| served.contains(&cmux_tui_core::blob_fetch::BLOB_FETCH_CAPABILITY))
-    })
+/// earlier push may still be running there. `None` when `identify` did not
+/// answer: such a machine may serve it, so the caller still fences.
+pub(super) fn fetch_served(socket: &std::path::Path) -> Option<bool> {
+    let identity = super::super::machine_gate::identify(socket)?;
+    Some(super::super::machine_gate::served(&identity).is_some_and(|served| {
+        served.contains(&cmux_tui_core::blob_fetch::BLOB_FETCH_CAPABILITY)
+    }))
+}
+
+/// [`fence`], for a machine whose capabilities are not known: one that
+/// refuses the cancel serves no fetch, so nothing of it can be running.
+pub(super) fn fence_unknown(remote: &mut Remote, remote_root: &str) -> anyhow::Result<Left> {
+    match fence(remote, remote_root) {
+        Err(error) if error.root_cause().downcast_ref::<super::remote::FsRefusal>().is_some() => {
+            Ok(Left::default())
+        }
+        other => other,
+    }
 }
 
 /// Whether a push goes through the store, given [`fetch_served`].
@@ -421,11 +433,17 @@ pub(super) fn send(
             });
         }
     };
-    let job = started
-        .get("job")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("blob.fetch.start answered no job"))?
-        .to_string();
+    // An answer with no job may still have started one: it is stopped before
+    // the link writes, as for a lost answer.
+    let Some(job) = started.get("job").and_then(Value::as_str).map(str::to_owned) else {
+        return Err(match fence(remote, remote_root) {
+            Ok(_) => anyhow!("blob.fetch.start answered no job"),
+            Err(fenced) => {
+                Unsettled(format!("blob.fetch.start answered no job; and the cancel failed: {fenced:#}"))
+                    .into()
+            }
+        });
+    };
     let deadline = Instant::now() + FETCH_DEADLINE;
     // A job whose end is not known is stopped before the link writes; one
     // that cannot be stopped fails the push.

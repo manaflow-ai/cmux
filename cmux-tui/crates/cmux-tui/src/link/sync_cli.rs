@@ -618,8 +618,13 @@ fn push_inner(
     remote.mkdir_all(remote_root)?;
     // A store fetch of an earlier push may still be running there: it stops
     // before this push deletes or writes anything.
-    let fetch_served = store::fetch_served(socket);
-    let left = if fetch_served { store::fence(&mut remote, remote_root)? } else { Default::default() };
+    let served = store::fetch_served(socket);
+    let left = match served {
+        Some(true) => store::fence(&mut remote, remote_root)?,
+        Some(false) => store::Left::default(),
+        None => store::fence_unknown(&mut remote, remote_root)?,
+    };
+    let fetch_served = served == Some(true);
     let manifest_path = format!("{remote_root}/{manifest_name}");
     let mut previous: Manifest = remote
         .read(&manifest_path)?
