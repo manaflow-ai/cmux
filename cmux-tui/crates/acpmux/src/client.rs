@@ -440,7 +440,7 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
     let socket = crate::config::socket_path().exists();
     let why = match (pid, alive, socket) {
         (Some(p), true, _) => format!(
-            "the daemon (pid {p}) is still running but dropped this connection, usually because it was restarted (`acpmux daemon shutdown`, `acpmux host update`, a reinstall) or hit an internal error"
+            "the daemon (pid {p}) is still running but dropped this connection, usually because it was restarted (`acpmux daemon shutdown`, `acpmux machine update`, a reinstall) or hit an internal error"
         ),
         (Some(p), false, _) => {
             format!("the daemon (pid {p}) exited without cleaning up, most likely a crash")
