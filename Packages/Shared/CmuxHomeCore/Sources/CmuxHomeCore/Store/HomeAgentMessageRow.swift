@@ -22,12 +22,14 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
 
     /// The row's role in its fold.
     public enum Kind: Hashable, Sendable {
-        /// The fold: `count` messages with `peers` (agent ids, first-seen order), shown in full when `expanded`.
+        /// The agents row (one pill per agent): `count` messages and status notes, one or more, with `peers`
+        /// (agent ids, first-seen order), shown in full after it when `expanded`.
         case fold(count: Int, peers: [String], expanded: Bool)
         /// One message from `from` to `to`; `outgoing` is the Chief's message to the agent, else the agent's report.
         case message(from: String, to: String, outgoing: Bool, text: String)
         /// The fold of `count` status notes (agents that stopped with no report) from `peers`, shown in
-        /// full when `expanded`; `reason` is their one shared reason, nil when they differ.
+        /// full when `expanded`; `reason` is their one shared reason, nil when they differ. `HomeAgentMessages`
+        /// no longer makes it (status notes join the agents row since 2026-11-03); renderers still draw it.
         case notes(count: Int, peers: [String], reason: StatusNote?, expanded: Bool)
         /// One status note from `peer`: why it stopped, and the note's own words (no parentheses).
         case note(peer: String, reason: StatusNote, text: String)
@@ -62,6 +64,23 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
     public var peerStates: [PeerState] = []
     /// For a fold or notes row: the newest message's words (a one-line preview); nil for other rows.
     public var latest: String?
+    /// For a fold or notes row: each agent's title, in the order of its `peers`: the `Title:` line of the
+    /// first message the Chief sent it (a spawn task's first line), else its first words; the agent's id
+    /// when the Chief sent it nothing here. Empty for other rows.
+    public var peerTitles: [String] = []
+
+    /// A task's title: its `Title:` line, else the first line's first five words (Markdown marks dropped).
+    public static func title(of text: String) -> String? {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map { $0.trimmingCharacters(in: .whitespaces) }
+        if let line = lines.first(where: { $0.lowercased().hasPrefix("title:") }) {
+            let title = line.dropFirst("title:".count).trimmingCharacters(in: .whitespaces)
+            if !title.isEmpty { return title }
+        }
+        guard let first = lines.first else { return nil }
+        let words = first.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
+            .split(separator: " ").prefix(5).joined(separator: " ")
+        return words.isEmpty ? nil : words
+    }
 
     /// Creates a row of `group`.
     ///

@@ -16,7 +16,7 @@ import {
   resolvedModel,
 } from "./defaultChoice";
 import { loadLastChips, rememberLastChips } from "./chipMemory";
-import type { AcpmuxSnapshot } from "./model";
+import type { AcpmuxSnapshot, AcpmuxUsageLimits } from "./model";
 import type { SpeedSection } from "./EffortPicker";
 import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
@@ -55,6 +55,8 @@ import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT } from "../../ui/hoverIntent";
 import { useHoverCard } from "./chips/useHoverCard";
 import { ContextCardBody } from "./ContextCard";
+import { PlanUsageCardBody } from "./PlanUsageCard";
+import { planUsedFraction } from "./usageLimits";
 import { contextBreakdown } from "./session-info/ContextSection";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
@@ -509,7 +511,12 @@ export function ComposerPickers({
     fork?.to(picked);
   };
   const land = (pickedModel: string, pickedEffort?: string) => {
-    // Any new pick replaces a combo still waiting on its effort.
+    // Any new pick replaces a combo still waiting on its effort, but a second pick of the model that
+    // combo waits for (its Fast, its level, from a menu that stays open) keeps waiting with it.
+    const waiting =
+      pending.current?.model === pickedModel && pending.current.sessionId === summary?.sessionId
+        ? pending.current
+        : undefined;
     pending.current = undefined;
     const pickEffort = (value: string) => {
       if (presession && harness) setHeldPick({ harness, value });
@@ -523,6 +530,8 @@ export function ComposerPickers({
           : undefined;
       onModel(pickedModel);
       if (pickedEffort && presession) pickEffort(pickedEffort);
+    } else if (waiting && current !== pickedModel) {
+      pending.current = pickedEffort ? { ...waiting, effort: pickedEffort } : waiting;
     } else if (
       pickedEffort &&
       pickedEffort !== currentEffort &&
@@ -611,11 +620,16 @@ export function ComposerPickers({
   // harness's default last resolved to, else the model placeholder.
   // The model a New Tab starts a chat on `agent` with (newTabStart, newTabChipSnapshot): the last
   // pick here, else its profile's, else its first listed model, else the catalog's default.
-  const startingModel = (agent: string) => {
+  const startingId = (agent: string) => {
     const entry = pickerCatalog?.harnesses.find((candidate) => (candidate.acpmuxHarness ?? candidate.id) === agent);
     const asked = defaultModel(agent, snapshot.catalog, harnessProfiles, folder ?? summary?.cwd);
     const id = asked && !isDefaultChoice({ id: asked }) ? asked : entry?.defaultModel;
-    if (!id || isDefaultChoice({ id })) return undefined;
+    return id && !isDefaultChoice({ id }) ? id : undefined;
+  };
+  const startingModel = (agent: string) => {
+    const entry = pickerCatalog?.harnesses.find((candidate) => (candidate.acpmuxHarness ?? candidate.id) === agent);
+    const id = startingId(agent);
+    if (!id) return undefined;
     const name =
       entry?.models.find((choice) => choice.id === id)?.name ??
       models.find((choice) => choice.id === id)?.name ??
@@ -733,6 +747,9 @@ export function ComposerPickers({
     snapshot.catalog.find((entry) => entry.id === chipHarness),
     models,
   );
+  // The model the chip names before the session reports one: the model menu checks it.
+  const predictedModel =
+    shown === undefined || defaulted ? (starting && chipHarness ? startingId(chipHarness) : resolvedId) : undefined;
   const modelName =
     listedName ??
     (opensListed
@@ -1020,6 +1037,7 @@ export function ComposerPickers({
           catalog={pickerEntries}
           harness={harness}
           model={shown}
+          {...(predictedModel ? { predictedModel } : {})}
           label={modelName ?? t(PICKER_LABELS.model)}
           sessionAuth={signIn?.sessionAuth}
           onSessionLogin={signIn?.loginSession}
@@ -1392,7 +1410,9 @@ const TABBABLE =
 /// Details ›, which opens Session Info's Context section. A click pins the card until a press
 /// outside; Escape closes it however it opened. Tab from the ring moves into the card's buttons,
 /// and Tab past them goes on to what follows the ring. The ring itself never takes a hover pill
-/// (contextCard.css).
+/// (contextCard.css). With `plan` (`agentPane.composerRing` is "planUsage") and a limit the harness
+/// reported, the ring draws the plan window closest to its cap instead and its card is the plan
+/// usage popover (PlanUsageCard.tsx); with none reported it stays on the context, never a 0%.
 export function ContextRing({
   used,
   size,
@@ -1401,6 +1421,7 @@ export function ContextRing({
   now,
   breakdown: reported,
   onOpenDetails,
+  plan,
 }: {
   used?: number;
   size?: number;
@@ -1414,18 +1435,32 @@ export function ContextRing({
   breakdown?: unknown;
   /// Opens Session Info at its Context section; the card shows Details › only with it.
   onOpenDetails?(): void;
+  /// The ring shows the account's plan usage: its limits (acpmux `usageLimits`) and the chat's
+  /// harness family, which names the usage page.
+  plan?: { limits?: AcpmuxUsageLimits; family?: string };
 }) {
   const t = useT();
+  const planFraction = plan ? planUsedFraction(plan.limits) : undefined;
+  const planShown = planFraction !== undefined;
   const hover = useHoverCard(HOVER_INTENT.tooltipDelay);
   const [pinned, setPinned] = useState(false);
   const wrapper = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const card = useRef<HTMLDivElement>(null);
-  const known = used !== undefined && size !== undefined && size > 0;
-  const fraction = known ? Math.min(1, Math.max(0, used / size)) : 0;
+  const contextKnown = used !== undefined && size !== undefined && size > 0;
+  const known = planShown || contextKnown;
+  const fraction = planShown
+    ? Math.min(1, Math.max(0, planFraction))
+    : contextKnown
+      ? Math.min(1, Math.max(0, used / size))
+      : 0;
   const percent = Math.round(fraction * 100);
-  const label = known ? t(PICKER_LABELS.context, { percent }) : t("context.title");
-  const breakdown = known ? contextBreakdown(reported) : undefined;
+  const label = planShown
+    ? t("planUsage.ringLabel", { percent })
+    : known
+      ? t(PICKER_LABELS.context, { percent })
+      : t("context.title");
+  const breakdown = contextKnown && !planShown ? contextBreakdown(reported) : undefined;
   const shown = known && (pinned || hover.open);
   const dismissHover = hover.dismiss;
   const closeCard = useCallback(() => {
@@ -1528,9 +1563,14 @@ export function ContextRing({
         aria-haspopup="dialog"
         aria-expanded={shown}
         // Before the first usage report there is nothing to show: the ring keeps its place, off.
-        disabled={!known}
+        // aria-disabled, not disabled: a disabled button gets no contextmenu in WebKit, and its
+        // right-click (UsageRingMenu) must still hide it or switch it to plan usage (Leo
+        // 2026-11-04: "i want to be able to right click disable it"). The click stays inert.
+        aria-disabled={known ? undefined : true}
         {...hover.trigger}
-        onClick={() => setPinned((was) => !was)}
+        onClick={() => {
+          if (known) setPinned((was) => !was);
+        }}
         onKeyDown={(event) => {
           // Tab goes into the open card (it sits in a portal, out of the page's tab order).
           if (event.key !== "Tab" || event.shiftKey || !shown) return;
@@ -1569,17 +1609,22 @@ export function ContextRing({
       <AnchoredCard
         anchor={shown ? trigger.current : null}
         // AnchoredCard makes it the shared glass hover card (ui-tooltip ui-card ui-glass).
-        className={`acpmux-context-card acpmux-context-pop${breakdown ? " acpmux-context-pop--breakdown" : " acpmux-context-pop--compact"}`}
+        className={`acpmux-context-card acpmux-context-pop${planShown ? " acpmux-plan-pop" : breakdown ? " acpmux-context-pop--breakdown" : " acpmux-context-pop--compact"}`}
         side="top"
         interactive
-        ariaLabel={t("context.title")}
+        ariaLabel={planShown ? t("planUsage.title") : t("context.title")}
         popupRef={card}
         hoverBridgeId={hover.card["data-cmux-hover-bridge"]}
         // On the card's outer element, so its padding counts as inside the card.
         onPointerEnter={hover.card.onPointerEnter}
         onPointerLeave={hover.card.onPointerLeave}
       >
-        {known && (
+        {planShown && (
+          <div onFocusCapture={hover.card.onFocusCapture} onBlurCapture={hover.card.onBlurCapture}>
+            <PlanUsageCardBody limits={plan?.limits} family={plan?.family} now={now} />
+          </div>
+        )}
+        {contextKnown && !planShown && (
           <div onFocusCapture={hover.card.onFocusCapture} onBlurCapture={hover.card.onBlurCapture}>
             <ContextCardBody
               used={used}

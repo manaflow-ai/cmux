@@ -12,6 +12,16 @@
       "title" : "Attachment View",
       "type" : "string"
     },
+    "agentPane.composerRing" : {
+      "default" : "context",
+      "description" : "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them.",
+      "enum" : [
+        "context",
+        "planUsage"
+      ],
+      "title" : "Composer Ring",
+      "type" : "string"
+    },
     "agentPane.display.code.family" : {
       "description" : "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font.",
       "title" : "Chat Code Font",
@@ -23,6 +33,14 @@
       "minimum" : 0.6,
       "title" : "Chat Code Size",
       "type" : "number"
+    },
+    "agentPane.display.commandLabels" : {
+      "default" : [
+
+      ],
+      "description" : "How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label.",
+      "title" : "Command Labels",
+      "type" : "string"
     },
     "agentPane.display.environment.placement" : {
       "default" : "left",
@@ -91,6 +109,12 @@
       ],
       "title" : "Chat Minimap",
       "type" : "string"
+    },
+    "agentPane.display.pinnedPlan" : {
+      "default" : false,
+      "description" : "While the agent works, its task list stays under the latest message instead of in the bar over the composer.",
+      "title" : "Pin Task List in Chat",
+      "type" : "boolean"
     },
     "agentPane.display.presentation" : {
       "default" : "transcript",
@@ -1929,7 +1953,7 @@
       "type" : "boolean"
     },
     "cloud.agentsStartWithoutAsking" : {
-      "default" : false,
+      "default" : true,
       "description" : "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
       "title" : "Let Agents Start Cloud Sessions Without Asking",
       "type" : "boolean"
@@ -1948,12 +1972,6 @@
       "default" : false,
       "description" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
       "title" : "Run New Workspaces in Cloud",
-      "type" : "boolean"
-    },
-    "cloud.tunnel.enabled" : {
-      "default" : false,
-      "description" : "Lets every app on this Mac reach your Cloud machines' private addresses, like a VPN for your Cloud network only. macOS asks you to allow the cmux network extension once. cmux itself does not need it.",
-      "title" : "Cloud Tunnel",
       "type" : "boolean"
     },
     "cloud.useMyClaudeLoginOnMyCloudMachines" : {
@@ -1982,6 +2000,11 @@
       "default" : true,
       "description" : "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
       "title" : "Live Preview in Chat",
+      "type" : "boolean"
+    },
+    "ComputerUseActsAsPerson" : {
+      "description" : "Computer use can act as me: clicks and key presses computer use makes in a chat count as the person's for Send, Retry and Approve, and nothing else. Off by default. Honored only as a forced value from an installed profile; the person can still turn it off until cmux restarts, and every action it lets through is logged.",
+      "title" : "ComputerUseActsAsPerson",
       "type" : "boolean"
     },
     "contextMenus.showCustomizeItem" : {
@@ -2521,6 +2544,12 @@
       ],
       "title" : "Copy Terminal Notifications to the Feed",
       "type" : "string"
+    },
+    "feed.needsYouInChief" : {
+      "default" : false,
+      "description" : "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them.",
+      "title" : "Pin Needs You in Chief",
+      "type" : "boolean"
     },
     "files.textEditor" : {
       "default" : "",
@@ -5193,7 +5222,7 @@
       "type" : "string"
     },
     "window.titlebar" : {
-      "default" : "minimal",
+      "default" : "standard",
       "description" : "Minimal has no titlebar strip; the top row moves the window.",
       "enum" : [
         "minimal",

@@ -313,19 +313,6 @@ const GROUPS: &[Group] = &[
                 "Replace this Mac's tunnel key",
                 "この Mac のトンネル鍵を置き換え",
             ),
-            verb(
-                "tunnel on",
-                "",
-                "Let every app on this Mac reach your Cloud machines (installs a network extension)",
-                "この Mac のすべてのアプリから Cloud マシンに接続（ネットワーク拡張をインストール）",
-            ),
-            verb(
-                "tunnel off",
-                "",
-                "Stop the Cloud Tunnel for other apps",
-                "他のアプリ向けの Cloud Tunnel を停止",
-            ),
-            verb("tunnel status", "", "Show the Cloud Tunnel's state", "Cloud Tunnel の状態を表示"),
             verb("firewall-list", "", "List firewall rules", "ファイアウォールルールを一覧表示"),
             verb(
                 "firewall-get",
@@ -534,8 +521,10 @@ FOLLOW-UPS (MACHINE_ID and SESSION_ID from the answer)
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
 
-Run from an agent chat, the app first asks the person with a card in that
-chat (Start, Not now); `cmux agents dialog list` lists it.
+Run from an agent chat, it starts at once, as from a terminal: no card asks
+the person. Only when they turned off cloud.agentsStartWithoutAsking does the
+app ask first with a card in that chat (Start, Not now); `cmux agents dialog
+list` lists it.
 ";
 
 /// The new spelling of a hidden old verb.

@@ -154,7 +154,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
     /// Answers the page's requests for its dynamic paths (a cmux page whose scheme entry has
     /// ``CEFPageSchemes/Entry/dynamicPrefixes``); nil answers every one with a 404.
-    @ObservationIgnored public var pageResources: (@MainActor (URL) async -> CEFPageResponse)?
+    @ObservationIgnored public var pageResources: (@MainActor (URL, String?) async -> CEFPageResponse)?
     /// A drag of these files from outside the app entered the page (a cmux page hands such a drop
     /// to its host); nil ignores it.
     @ObservationIgnored public var pageFilesDragged: (@MainActor ([URL]) -> Void)?
@@ -292,8 +292,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var hasDocument = false
     /// The current document is a real page that finished loading, or an error page (not an aborted load).
     @ObservationIgnored var documentLoaded = false
-    /// The current document painted content (its first contentful paint, `CEFFirstPaintBridge`). Chromium drops input to
-    /// a new document before its first paint (lead on STATUS 8055: 11 keys sent 4 ms after loading stopped were lost).
+    /// The current document presented its first frame, with or without content (Chromium's `firstPaint` or
+    /// `firstContentfulPaint`, `CEFFirstPaintBridge`, or the page's own answer). Chromium drops input to a new document
+    /// before its first paint (lead on STATUS 8055: 11 keys sent 4 ms after loading stopped were lost).
     @ObservationIgnored var documentPainted = false
     /// Chromium stopped loading (its last `.loadingState`).
     @ObservationIgnored var loadingStopped = false
@@ -337,12 +338,13 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         return value == .bool(true) ? true : nil
     }
 
-    /// The main frame's document painted content (`CEFFirstPaintBridge`).
-    func documentDidFirstPaint() {
+    /// The main frame's document presented its first frame (`CEFFirstPaintBridge`): `contentful` for Chromium's
+    /// `firstContentfulPaint`, else its `firstPaint` (a frame with no content: an empty field). Either takes keys.
+    func documentDidFirstPaint(contentful: Bool = true) {
         // Chromium's own load (its `.loadingState(true)`), not the app's: a load the app asked for before Chromium began
         // it is no load yet, and a paint then is the document before it.
         if !committedThisLoad { paintBeforeCommit = chromiumLoading } else { documentPainted = true }
-        if !hasDocument { host.lifecycleTrace.record(id, "cef-first-paint committed=\(committedThisLoad) loading=\(chromiumLoading)") }
+        if !hasDocument { host.lifecycleTrace.record(id, "cef-first-paint\(contentful ? "" : " frame-only") committed=\(committedThisLoad) loading=\(chromiumLoading)") }
         documentMayTakeKeys()
     }
     /// The document the tab was asked to show is blank (a New Tab page): its blank document counts as loaded.

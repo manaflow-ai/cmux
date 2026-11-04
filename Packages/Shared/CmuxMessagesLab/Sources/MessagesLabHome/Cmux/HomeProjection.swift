@@ -649,6 +649,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
             for (hash, files) in item.localAttachments { media.useLocal(files, for: hash) }
             let id = HomeMapping.id(item, aliases: aliases)
             guard let message = store.state.message(id) else { continue }
+            refreshTablePictures(item, id: id, in: message)
             for part in item.parts {
                 if case .linkPreview(let link) = part {
                     refreshLinkPicture(link, in: message)
@@ -656,6 +657,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
                 }
                 guard case .attachment(let ref) = part else { continue }
                 media.request(ref)
+                guard !tableHashes(item).contains(ref.hash) else { continue }
                 let want = HomeMapping.attachment(ref, picture: media.asset(ref.hash), progress: Self.shownProgress(item, ref))
                 let have = message.parts.lazy.compactMap { p -> Attachment? in
                     if case let .attachment(a) = p, a.id == ref.hash { return a }
@@ -663,6 +665,25 @@ final class HomeProjection: @preconcurrency ChatIntents {
                 }.first
                 if let have, have != want { updates.append((id: id, attachment: want)) }
             }
+        }
+    }
+
+    /// The attachment hashes `item`'s agent tables show in their cells (``HomeMapping/tableAttachmentHashes(_:)``).
+    private func tableHashes(_ item: TranscriptItem) -> Set<String> {
+        guard HomeMapping.isAgent(item.author, shownSummary) else { return [] }
+        return item.parts.reduce(into: []) { hashes, part in
+            if case .text(let text, _) = part { hashes.formUnion(HomeMapping.tableAttachmentHashes(text)) }
+        }
+    }
+
+    /// A table card whose pictures changed (one became ready) draws again with them, in place.
+    private func refreshTablePictures(_ item: TranscriptItem, id: ID, in message: Message) {
+        guard !tableHashes(item).isEmpty else { return }
+        let parts = HomeMapping.projectedParts(item, summary: shownSummary, media: core.media, links: core.links).parts
+        for (index, part) in parts.enumerated() {
+            guard case let .custom(want) = part, want.kind == HomeTableRowProvider.kind,
+                  case let .custom(have)? = message.parts[checked: index], have.kind == want.kind, have != want else { continue }
+            controller.dispatch(.setCustomPart(id, index, want))
         }
     }
 
@@ -953,9 +974,9 @@ struct ProjectionCore {
         installed = true
         let roots = HomeMapping.roots(in: items, aliases: aliases, summary: summary, media: media, links: links)
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
-                                participants: HomeMapping.participants(summary, me: me, avatars: avatars),
+                                participants: HomeMapping.participants(summary, me: me, avatars: avatars, items: items),
                                 messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) },
-                                cmuxGroup: summary?.showsSenderNames(me: me) == true)
+                                cmuxGroup: HomeMapping.showsSenders(summary, me: me, items: items))
         return (conv, HomeMapping.window(items))
     }
 
@@ -965,7 +986,7 @@ struct ProjectionCore {
     mutating func setAvatars(_ new: [String: Participant.Avatar]) -> Action? {
         guard new != avatars else { return nil }
         avatars = new
-        return installed ? .cmuxSetParticipants(HomeMapping.participants(summary, me: me, avatars: new)) : nil
+        return installed ? .cmuxSetParticipants(HomeMapping.participants(summary, me: me, avatars: new, items: shown)) : nil
     }
 
     /// The actions from the shown snapshot to this one.
@@ -974,8 +995,15 @@ struct ProjectionCore {
         // Mapping every row again cost 3.5 ms per token at 60 rows on the main thread, which a
         // drag over the field waits for (DragWhileStreamingTests).
         if items == shown, new == summary { return HomeDiff() }
-        let d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media, links: links,
+        var d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media, links: links,
                               handOff: streamingTurns)
+        // An agent that sent through my CLI appeared (or its last message left the window): its name and avatar
+        // are in the participants before its message arrives (HomeAgentSender).
+        if HomeAgentSender.all(in: items, me: me) != HomeAgentSender.all(in: shown, me: me) {
+            d.actions.insert(.cmuxSetSenders(HomeMapping.participants(new, me: me, avatars: avatars, items: items),
+                                             group: HomeMapping.showsSenders(new, me: me, items: items)), at: 0)
+            if let at = d.handOffAt { d.handOffAt = at + 1 }
+        }
         shown = items
         summary = new
         return d

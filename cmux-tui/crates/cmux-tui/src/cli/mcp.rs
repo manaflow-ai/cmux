@@ -21,8 +21,10 @@ mod agent_dispatch_tools;
 mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
+mod automation_tools;
 mod browser_tools;
 mod caller_scope;
+mod chat_tools;
 mod cloud_repo_tools;
 mod code_mode;
 mod computer_use_gate;
@@ -205,6 +207,20 @@ pub(super) trait Backend {
             "this server cannot reach acpmux agent dispatch",
         ))
     }
+    /// One `cmux automation WORDS…` verb, run by the CLI's own code
+    /// (`automation_tools`); `idempotency_key` keys a Cloud mutation.
+    fn automation(
+        &self,
+        _words: &[String],
+        _idempotency_key: Option<&str>,
+    ) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "automation.unavailable",
+            "this server cannot reach the automation store",
+        ))
+    }
+
     /// Cloud chat repo actions run on the selected machine daemon.
     fn cloud_repo(&self, _action: &str, _args: Value) -> Result<Value, CallFailure> {
         Err(CallFailure::local(
@@ -324,6 +340,21 @@ impl Backend for LiveBackend {
 
     fn cloud_repo(&self, action: &str, args: Value) -> Result<Value, CallFailure> {
         super::cloud_repo::call(&self.global, action, args)
+    }
+
+    fn automation(
+        &self,
+        words: &[String],
+        idempotency_key: Option<&str>,
+    ) -> Result<Value, CallFailure> {
+        let mut global = self.global.clone();
+        global.output = OutputMode::Json;
+        global.idempotency_key = idempotency_key.map(str::to_owned);
+        super::automation::run_json(&global, words).map_err(|(error, unknown)| CallFailure {
+            kind: if unknown { FailureKind::InProgress } else { FailureKind::Rejected },
+            error,
+            idempotency_key: idempotency_key.map(str::to_owned),
+        })
     }
 
     fn resource(
@@ -710,6 +741,7 @@ impl<B: Backend> Server<B> {
         let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
         let result = match method {
             "initialize" => {
+                chat_tools::remember_client(&params);
                 Ok(initialize(&params, self.list_changed, self.code_mode && self.allowed.is_none()))
             }
             "ping" => Ok(json!({})),
@@ -770,6 +802,7 @@ impl<B: Backend> Server<B> {
         tools.extend(agent_dispatch_tools::descriptors());
         tools.push(workflow_tools::descriptor());
         tools.extend(cloud_repo_tools::descriptors());
+        tools.extend(chat_tools::descriptors());
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
         tools.push(agent_events_tool::descriptor());
@@ -779,6 +812,7 @@ impl<B: Backend> Server<B> {
         tools.extend(video_tools::descriptors());
         tools
             .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
+        tools.extend(automation_tools::descriptors());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
@@ -892,6 +926,9 @@ impl<B: Backend> Server<B> {
         }
         if let Some(job) = self.proxied_tool(name, &arguments) {
             return Ok(job.run(self.call_cap));
+        }
+        if let Some(result) = chat_tools::call(name, &arguments) {
+            return Ok(result);
         }
         if let Some(result) = cloud_repo_tools::call(&self.backend, name, &arguments) {
             return Ok(result);
@@ -1022,6 +1059,9 @@ impl<B: Backend> Server<B> {
         }
         if let Some(tool) = settings_tools::find(name) {
             return Ok(tool.call(&self.backend, &arguments));
+        }
+        if let Some(result) = automation_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
         }
         if let Some(tool) = keybinding_tools::find(name) {
             return Ok(match tool.params(&arguments) {

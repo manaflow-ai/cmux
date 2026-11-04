@@ -64,7 +64,7 @@ enum AppActions {
         SidebarGroupByActions.bind(into: registry, context: context)
         VerticalTabsActions(host: context, store: services.workspaceVerticalTabs).bind(into: registry)
         SidebarMinimalToggle.bind(into: registry, context: context)
-        MatchTerminalBackgroundToggle.bind(into: registry, context: context)
+        AgentChatRailActions(settings: { [weak services] in services?.settings }, managed: RefusalStrings.settingManaged, notLoaded: RefusalStrings.settingsNotLoaded).bind(into: registry)
         SidebarDensityActions.bind(into: registry, context: context)
         SettingsHandlers.bind(into: registry, context: context)
         AppearanceHandlers.bind(into: registry, context: context)
@@ -130,7 +130,7 @@ enum AppActions {
         LinkHandlers.bind(into: registry, context: context)
         IconMenuVisibility.install(registry, context: context)
         TabSelectionTitles(context: context).install(in: registry)
-        TopPages.installTabTargetReasons(services)
+        TopPages.installActionRules(services)
         ActionTargetReasons.refuseHeadlessNameEditors(in: registry) { RefusalStrings.nameArgumentRequired }
         HomeRules.install(services)
         TopPages.registerProviders(services)
@@ -214,7 +214,9 @@ enum AppActions {
             services.windows.active?.window?.closeWithoutButtonFlash()
         }
         registry.bind("toggleFullScreen") { services.windows.active?.window?.toggleFullScreen(nil) }
+        ActionTargetTitles.setPaletteState("toggleFullScreen", in: registry) { services.windows.active?.window?.styleMask.contains(.fullScreen) == true }
         registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggle() }
+        ActionTargetTitles.setPaletteState("toggleSidebar", in: registry) { services.windows.active?.sidebar.model.isHidden == false }
         // The workspace list takes the keyboard; a hidden sidebar shows first.
         // Keyboard focus there survives the workspace switches its arrows make.
         registry.bind("focusSidebar") {
