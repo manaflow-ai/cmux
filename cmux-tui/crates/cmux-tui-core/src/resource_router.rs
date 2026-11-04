@@ -955,7 +955,10 @@ fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
         .get("notification_id")
         .map(|value| {
             NotificationPublicId::parse(
-                value.as_str().expect("catalog resource-id validation").to_string(),
+                value
+                    .as_str()
+                    .ok_or_else(|| validation_error("notification_id must be a string", json!({})))?
+                    .to_string(),
             )
         })
         .transpose()?;
