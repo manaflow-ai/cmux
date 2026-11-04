@@ -190,8 +190,12 @@ test("a personal steer keeps reply A and final reply B expanded while other chat
       expect(Boolean(document.querySelector('[data-row-id="steer"]'))).toBe(steered);
       expect(document.querySelector('[data-row-id="a2"]')).not.toBeNull();
       for (const id of ["t1", "interim", "t2"]) expect(document.querySelector(`[data-row-id="${id}"]`)).toBeNull();
-      expect(document.querySelectorAll(".cv-turn-actions").length).toBe(1);
-      expect(document.querySelectorAll(".cv-reply-actions").length).toBe(0);
+      // Reply A, which the steer ends for the reader, keeps its own Copy row (model.ts hasReplyActions);
+      // the turn's footer stays the only other one.
+      expect(document.querySelectorAll(".cv-turn-actions").length).toBe(steered ? 2 : 1);
+      const own = document.querySelectorAll(".cv-reply-actions");
+      expect(own.length).toBe(steered ? 1 : 0);
+      if (steered) expect(document.querySelector('[data-row-id="a1"] .cv-reply-actions')).not.toBeNull();
     } finally {
       await act(async () => root.unmount());
     }
