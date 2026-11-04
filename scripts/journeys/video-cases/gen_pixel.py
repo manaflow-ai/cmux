@@ -53,6 +53,9 @@ Cases (layouts: T terminal fixture, P page fixture, A agent pane; | a vertical d
   px-col-drag-*      a vertical divider dragged 150 pt right in 1 s (slow), back in 0.1 s (fast)    T|P and T|P|(A/T)
   px-row-drag-*      the horizontal divider dragged 120 pt down in 1 s, back in 0.1 s               T|(P/T)
   px-keys-single-*   Ctrl-Shift-L, H, J, K, one press each                                         T|(T/P), 3x2 mixed
+  px-keys-rk-3t      cmux-ad m6 (d): the open-P0 journey resize-keyboard's presses (Ctrl-Shift-L, H, J, K, then
+                     Ctrl-Cmd-Right, Left, Down, Up on p1), read from its journey file, on terminal fixtures in its
+                     places; judged by video-cases/judge_m6.py (each terminal's content edge on its pane's edge)    T|(T/T)
   px-keys-held-*     Ctrl-Shift-L held 1.5 s (debug.key repeat), then 30 real H presses 33 ms apart T|P
   px-keys-held-2-tabclose  the same, with p0 in 3 terminal tabs, every tab outlined (motion.frameOwner.tabOutline,
                      required), and p0's middle tab closed by a script 50 ms after the hold's first key-down (one tab
@@ -117,7 +120,10 @@ EST_TAB = 5  # one more terminal tab with its fixture (px_tab_new, the neutral p
 MARGIN, BUDGET_MIN = 1.2, 40
 H, J, K, L = (("h", ["control", "shift"]), ("j", ["control", "shift"]), ("k", ["control", "shift"]),
               ("l", ["control", "shift"]))
-NAMES = {"h": "Ctrl-Shift-H", "j": "Ctrl-Shift-J", "k": "Ctrl-Shift-K", "l": "Ctrl-Shift-L"}
+NAMES = {"h": "Ctrl-Shift-H", "j": "Ctrl-Shift-J", "k": "Ctrl-Shift-K", "l": "Ctrl-Shift-L",
+         "right": "Ctrl-Cmd-Right", "left": "Ctrl-Cmd-Left", "down": "Ctrl-Cmd-Down", "up": "Ctrl-Cmd-Up"}
+# The open-P0 journey of the key resize P0 (cmux-ad 2026-11-02; gen_keys.py case 1): px-keys-rk-3t plays its presses.
+RESIZE_KEYBOARD = os.path.join(os.path.dirname(HERE), "journeys", "video", "resize-keyboard.json")
 BUDGET_MAX = 250  # run.py refuses over 260 (one lease: 540 s less the set-up reserve)
 # The app's tab film fixture (TabFrameFixture, #33874; DEV and bench builds): a 1 device-px #FFFF00 border on every tab cell,
 # so a film finds each tab's two edges on the strip row. It is a `springs` section tunable: the Reduce Motion film's reset of
@@ -297,6 +303,9 @@ T6 = Layout("6", "columns (p0 T / p3 T) | (p1 P / p4 A) | (p2 T / p5 P)",
              ("p1", "page", GREEN, ("newColumn", None)), ("p4", "agent", AGENT_FILL, ("newRow", None)),
              ("p2", "tui", YELLOW, ("newColumn", None)), ("p5", "page", GREEN, ("newRow", None))],
             window=[0.0, 0.05, 1.0, 0.9], widths="column.widthOneThird")
+# resize-keyboard's panes (gen_keys.row2_down: p0 | (p1 over p2), p1 under test), each a terminal fixture.
+T3RK = Layout("3t", "p0 T | (p1 T / p2 T)",
+             [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("splitRight", None)), ("p2", "tui", YELLOW, ("splitDown", None))])
 T3S = Layout("3", "p0 T | p1 T | p2 P (splits)",
              [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("splitRight", None)), ("p2", "page", YELLOW, ("splitRight", None))])
 # The split tree is binary (SplitNode), so the order of the splits decides which divider a close keeps. T3S splits p1 right
@@ -439,6 +448,23 @@ def low_prompt_reverse_play(speed):
              "title": "debug.terminal_display stop (host_present_calls, host_fresh_presents)"}]
 
 
+def resize_keyboard_keys():
+    """[(key, modifiers)] of the open-P0 journey resize-keyboard, in order (its rk_press steps, one press each)."""
+    with open(RESIZE_KEYBOARD) as f:
+        steps = json.load(f)["steps"]
+    keys = [(st["key"], list(st["modifiers"])) for st in steps if st["do"] == "rk_press"]
+    if not keys or any(st.get("count", 1) != 1 for st in steps if st["do"] == "rk_press"):
+        raise ValueError(f"{RESIZE_KEYBOARD}: px-keys-rk-3t plays single presses; the journey has {keys}")
+    return keys
+
+
+def resize_keyboard_play(speed):
+    steps = []
+    for i, key in enumerate(resize_keyboard_keys()):
+        steps += [press(key, f"key{i}"), rest(land(speed))]
+    return steps
+
+
 def held_play(speed):
     return [{"do": "rk_hold", "key": "l", "modifiers": ["control", "shift"], "seconds": 1.5, "mark": "hold",
              "title": "Ctrl-Shift-L held 1.5 s (debug.key auto-repeat)"}, rest(land(speed)),
@@ -570,6 +596,10 @@ def cases():
                     f"its prompt on the last row under an orange bar ({T3KP.text})", T3KP, low_prompt_reverse_play, "move", "keys (reverse)",
                     before=[focus("p1")], play_seconds=lambda s: 0.2 + 0.4 * RESPONSE["move"] / (s or 1.0) + land(s),
                     speeds=(("s025", 0.25),)))
+    # cmux-ad m6 (d): resize-keyboard's presses on terminal fixtures, so judge_m6.py reads each terminal's edge per frame.
+    out.append(Case(f"px-keys-rk-{T3RK.key}", f"the resize-keyboard presses (Ctrl-Shift-L, H, J, K, Ctrl-Cmd-Right, Left, Down, "
+                    f"Up) on p1 ({T3RK.text})", T3RK, resize_keyboard_play, "move", "keys", before=[focus("p1")],
+                    play_seconds=lambda s: len(resize_keyboard_keys()) * (0.1 + land(s))))
     out.append(Case(f"px-keys-held-{T2.key}", f"Ctrl-Shift-L held, then Ctrl-Shift-H x30 every 33 ms, on p0 ({T2.text})", T2,
                     held_play, None, "held keys", before=held_start(), play_seconds=lambda s: 2.6 + 2 * land(s)))
     # Stage S1B 1b (frame-owner-s1b): a tab closes while the held key resizes its pane; every tab outlined, so the judge can
