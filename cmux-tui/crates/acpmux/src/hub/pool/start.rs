@@ -300,7 +300,8 @@ async fn wait_for_start<T>(
     let mut tick = tokio::time::interval_at(began + START_PROGRESS, START_PROGRESS);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     tokio::pin!(start);
-    let mut cpu_since = None;
+    let mut last_cpu_ms = None;
+    let mut no_progress_since = None;
     loop {
         tokio::select! {
             done = &mut start => return done,
@@ -312,14 +313,18 @@ async fn wait_for_start<T>(
                 let waited = began.elapsed();
                 match seen {
                     crate::cpu_class::HarnessSeen::Running(state) => {
-                        if state.cpu_ms > 0 {
-                            let since = *cpu_since.get_or_insert(tokio::time::Instant::now());
+                        let cpu_progressed = last_cpu_ms.is_some_and(|last| state.cpu_ms > last);
+                        if state.cpu_ms > 0 && !cpu_progressed {
+                            let since = *no_progress_since.get_or_insert(tokio::time::Instant::now());
                             if since.elapsed() >= START_HAZARD {
                                 return Err(RpcError::internal(format!(
                                     "pooled agent made no progress for {START_HAZARD:?}: {state}"
                                 )));
                             }
+                        } else {
+                            no_progress_since = None;
                         }
+                        last_cpu_ms = Some(state.cpu_ms);
                         tracing::info!(
                             waited_ms = waited.as_millis() as u64,
                             cpu_ms = state.cpu_ms,
@@ -333,6 +338,7 @@ async fn wait_for_start<T>(
                     crate::cpu_class::HarnessSeen::NotStarted
                     | crate::cpu_class::HarnessSeen::Unread
                     | crate::cpu_class::HarnessSeen::Ended => {
+                        no_progress_since = None;
                         tracing::info!(
                             waited_ms = waited.as_millis() as u64,
                             "pooled agent start waiting; machine busy"

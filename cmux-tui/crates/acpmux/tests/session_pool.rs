@@ -503,12 +503,15 @@ async fn a_pooled_start_still_running_ends_with_the_daemon() {
 }
 
 /// A live harness may take longer than the historical 90 s pooled-start
-/// budget on a loaded machine. It remains warming and eventually becomes a
-/// ready entry; only an exited process should fail the prewarm.
+/// budget on a loaded machine. The fake keeps the 95 s logical delay while
+/// the test clock scales it down, so this remains a fast integration test. It
+/// remains warming and eventually becomes a ready entry; only an exited
+/// process should fail the prewarm.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_slow_but_alive_pooled_start_eventually_becomes_ready() {
     let mut slow = profile("b");
-    slow["env"]["FAKE_NEW_DELAY_MS"] = json!("95000");
+    slow["env"]["FAKE_INIT_DELAY_MS"] = json!("95000");
+    slow["env"]["FAKE_DELAY_SCALE"] = json!("1000");
     let daemon = Daemon::with_fakeb("long-alive", 0, &slow);
     let home = daemon.home.clone();
     let mut rpc = daemon.rpc().await;
@@ -516,7 +519,7 @@ async fn a_slow_but_alive_pooled_start_eventually_becomes_ready() {
         .call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home}))
         .await;
     assert_eq!(hint["accepted"], true, "{hint}");
-    let deadline = Instant::now() + Duration::from_secs(120);
+    let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let status = rpc.call("_acpmux/status", json!({})).await;
         let ready = status["pool"]["entries"]
@@ -528,7 +531,7 @@ async fn a_slow_but_alive_pooled_start_eventually_becomes_ready() {
             break;
         }
         assert!(Instant::now() < deadline, "slow live pooled start failed: {status}");
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
     rpc.call("_acpmux/shutdown", json!({})).await;
     daemon.wait_exit();
