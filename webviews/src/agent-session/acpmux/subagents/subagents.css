@@ -1009,6 +1009,17 @@ button.cv-subagent > :last-child {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.acpmux-running-tray__command {
+  flex: 1 1 100%;
+  min-width: 0;
+  color: var(--agent-muted);
+  font-family: var(--cv-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.acpmux-running-tray__tail a,
 .acpmux-running-tray__tail button {
   display: inline-flex;
   align-items: center;
@@ -1020,6 +1031,11 @@ button.cv-subagent > :last-child {
   background: transparent;
   cursor: default;
 }
+.acpmux-running-tray__tail a {
+  text-decoration: none;
+}
+.acpmux-running-tray__tail a:hover,
+.acpmux-running-tray__tail a:focus-visible,
 .acpmux-running-tray__tail button:hover,
 .acpmux-running-tray__tail button:focus-visible {
   color: var(--agent-text);
