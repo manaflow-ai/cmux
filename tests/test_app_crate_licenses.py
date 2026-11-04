@@ -102,6 +102,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-bookmarks-core",
                     # The Cloud start's harness login decision (cmux-cloud-start-core).
                     "cmux-cloud-start-core",
+                    # NEXT Cloud's configuration rules (cmux-cloud-config).
+                    "cmux-cloud-config",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",
                 ]

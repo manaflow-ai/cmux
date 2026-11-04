@@ -4411,7 +4411,8 @@ a.cv-sha:focus-visible {
   letter-spacing: var(--text-caption--letter-spacing);
   white-space: nowrap;
 }
-.cv-iconbtn.cv-turn-continue:disabled {
+.cv-iconbtn.cv-turn-continue:disabled,
+.cv-user__queued-hover .cv-message-retry .cv-iconbtn:disabled {
   opacity: 0.5;
   pointer-events: none;
 }
@@ -4804,9 +4805,13 @@ a.cv-sha:focus-visible {
 }
 
 /* R104: the newest revealed characters fade in (RevealedMarkdown); opacity only, on the
- * compositor. The text holds its final layout while transparent, so no line ever reflows. */
+ * compositor. The text holds its final layout while transparent, so no line ever reflows. The fade
+ * runs three of the host's fade-in steps (FRESH_FADE_STEPS), so the last few words of a streaming
+ * reply read as a soft trailing edge, as Claude's and ChatGPT's do; one step (120 ms) was too quick
+ * to see (Leo, 2026-11-03: "hey even u have that text fading in! i want that..."). A zero token
+ * (motion off) still makes it zero. */
 .cv-fresh {
-  animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  animation: cv-enter-fade calc(var(--agent-motion-in, 180ms) * 3) var(--agent-ease-out, ease-out) both;
 }
 
 /* Footnotes (Markdown.tsx): a superscript number that scrolls to its note, and the notes
@@ -5688,6 +5693,14 @@ a.cv-sha:focus-visible {
 .cv-plan__chevron {
   color: var(--cv-text-muted);
 }
+/* Its ink --cv-chevron-gap after the progress words, like every row's chevron: the summary's 8px gap
+   and the glyph's own inset taken back (test/transcript-chevron-after-label.test.ts). */
+.cv-plan__summary .cv-plan__chevron {
+  flex: none;
+  width: var(--cv-chevron-glyph);
+  height: var(--cv-chevron-glyph);
+  margin-inline-start: calc(var(--cv-chevron-gap) - 8px - var(--cv-chevron-ink));
+}
 /* Folded, the list is that line alone: no card around it, like the turn's other summary lines. */
 .cv-plan[data-folded] {
   /* The folded 12px mark sits centred in the transcript's icon column (gallery invariant icon-column). */
@@ -5995,7 +6008,8 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   top: calc((var(--grid-gap-turn) - var(--grid-transcript-action-control)) / 2 - 1.5px);
 }
 
-/* An unread steer shows only Send now and remove, with the same quiet height as hover actions. */
+/* An unread steer shows Send now at rest, and Copy, Retry, Fork and remove on hover (PendingSteer.tsx),
+   with the same quiet height as hover actions. */
 .cv-user__pending {
   display: inline-flex;
   align-items: center;

@@ -20,12 +20,15 @@ extension WorkspacesList {
         let status = inbox.status(ws)
         let canManage = status != .offline && creator.canManage(ws)
         let macName = mac(ws.macID).map(displayName) ?? "Unknown Mac"
+        // Settings → Long-Press Menus: the items the person hid stay out.
+        let shown = CmuxMobileMenuCustomization.hidden()
+        func offered(_ item: String) -> Bool { !shown.contains("workspaceRow.\(item)") }
         var header: [UIMenuElement] = []
         if status == .offline {
             if scope == .all {
                 header.append(action("Show \(macName)", "line.3.horizontal.decrease") { select(.mac(ws.macID)) })
             }
-        } else {
+        } else if offered("tabs") {
             for tab in ws.tabs {
                 // An agent tab by its task (as on the row), the agent as the subtitle.
                 let title = tab.isAgent ? (tab.task ?? tab.title) : tab.title
@@ -37,21 +40,45 @@ extension WorkspacesList {
         var children: [UIMenuElement] = [UIMenu(title: menuHeader(ws, macName: macName, offline: status == .offline),
                                                 options: .displayInline, children: header)]
         // Send Message… (the Mac's row action): a message to the Chief with a link to this workspace.
-        if status != .offline, ChiefMessenger.shared.isAvailable, let subject = ChiefMessageAbout(workspace: ws) {
+        if status != .offline, offered("sendMessage"), ChiefMessenger.shared.isAvailable, let subject = ChiefMessageAbout(workspace: ws) {
             children.append(UIMenu(options: .displayInline, children: [
                 action("Send Message…", "paperplane") { ChiefMessenger.shared.messageAbout(subject) },
             ]))
         }
+        // The Mac's Copy rows (Copy Workspace Link, Copy Workspace ID, Copy Workspace ID and
+        // Ref), each only when the Mac sent the workspace's public id.
+        if status != .offline {
+            let rows: [(title: String, symbol: String, text: String?)] = [
+                ("Copy Workspace Link", "link", ws.copyLinkText),
+                ("Copy Workspace ID", "number", ws.copyIDText),
+                ("Copy Workspace ID and Ref", "number.square", ws.copyIDAndRefText),
+            ]
+            var copies: [UIMenuElement] = []
+            for row in rows {
+                guard let text = row.text else { continue }
+                copies.append(action(row.title, row.symbol) { UIPasteboard.general.string = text })
+            }
+            if !copies.isEmpty {
+                children.append(UIMenu(title: "Copy", image: UIImage(systemName: "doc.on.doc"), children: copies))
+            }
+        }
         if canManage {
-            if creator.canArrange(ws) { children.append(arrangeMenu(ws, inbox: inbox)) }
+            if creator.canArrange(ws), offered("arrange") { children.append(arrangeMenu(ws, inbox: inbox)) }
             var manage: [UIMenuElement] = []
             if let new = newWorkspaceMenu(ws) { manage.append(new) }
-            manage.append(action("Rename", "pencil") { startRename(ws) })
-            if creator.canDuplicate(ws) {
+            if offered("rename") { manage.append(action("Rename", "pencil") { startRename(ws) }) }
+            if creator.canDuplicate(ws), offered("duplicate") {
                 manage.append(action(WorkspaceCreator.duplicateTitle, "plus.square.on.square") { creator.duplicate(ws) })
+                // Only a workspace with a page: without one it is the same as Duplicate Workspace.
+                if ws.tabs.contains(where: { $0.kind == .browser }) {
+                    manage.append(action(WorkspaceCreator.duplicateTerminalsOnlyTitle, "terminal") {
+                        creator.duplicate(ws, browsers: false)
+                    })
+                }
             }
+            // Close Workspace is never hidden: the row's swipe has it too, but a menu keeps one way out.
             manage.append(action("Close Workspace", "xmark", destructive: true) { confirmClose(ws) })
-            if let bulk = bulkCloseMenu(ws, inbox: inbox) { manage.append(bulk) }
+            if offered("bulkClose"), let bulk = bulkCloseMenu(ws, inbox: inbox) { manage.append(bulk) }
             children.append(UIMenu(options: .displayInline, children: manage))
         }
         return UIMenu(children: children)
@@ -102,6 +129,17 @@ extension WorkspacesList {
             }
             if order.last?.id == ws.id { down.attributes.insert(.disabled) }
             move += [up, down]
+        }
+        // Move Workspace Above… / Below…: a row of the same container to go next to.
+        for side in WorkspaceNeighborMove.allCases {
+            let targets = side.targets(for: ws, in: container)
+            guard !targets.isEmpty else { continue }
+            let choices = targets.map { target in
+                UIAction(title: target.title) { _ in
+                    withAnimation(theme.motion.smooth.animation) { creator.move(ws, side, target) }
+                }
+            }
+            move.append(UIMenu(title: side.title, image: UIImage(systemName: side.systemImage), children: choices))
         }
         if container.count > 1 {
             for edge in WorkspaceEdge.allCases {

@@ -32,7 +32,7 @@ import { TurnActionsContext } from "../conversation/turnActions";
 import { ReactionMark, ReactionReply } from "../conversation/ReactionMark";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { AgentIdentity, SUBAGENT_FALLBACK } from "./AgentIdentity";
+import { AgentIdentity, foreignHarness, SUBAGENT_FALLBACK } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
 import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
@@ -97,8 +97,8 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   const nav = useContext(SubagentNavContext);
   const pane = useContext(SubagentPaneContext);
   const affordance = useContext(RetryAffordanceContext);
-  // The chat's harness when the subagent names none, as its open group's avatar and the tray draw
-  // it (Leo, 2026-10-29: "one of these is Codex, one of these is Claude").
+  // The chat's harness: a subagent of another family draws its mark, one of the chat's own draws the
+  // subagent mark in its tone, as the tray does (AgentIdentity.tsx `foreignHarness`).
   const chatHarness = useContext(SubagentHarnessContext);
   const { restartSubagent, retryAgent, retryCapabilities } = useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
@@ -199,7 +199,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
         >
           <span className="cv-tool__icon">
             <AgentIdentity
-              harness={agent.harness ?? chatHarness}
+              harness={foreignHarness(agent.harness, chatHarness)}
               tone={agentTone(agent.id)}
               size={16}
               fallback={SUBAGENT_FALLBACK}
