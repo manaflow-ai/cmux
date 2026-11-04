@@ -107,5 +107,5 @@ final class SettingsThemeFiles {
         return "cmux.settings.theme.\(suffix)"
     }
 
-    private static func importName(_ file: URL) -> String { GhosttyThemeFiles.importedName(file) }
+    private static func importName(_ file: URL) -> String { ThemeFileColors.importedName(file) }
 }
