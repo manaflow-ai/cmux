@@ -10142,9 +10142,16 @@ struct ContentView: View {
             return
         }
         if isAgentInboxPresented { dismissAgentInbox() }
+        // Opened from the palette, find-window takes over the palette's saved focus
+        // target: the palette holds focus now, so a fresh capture would lose it.
+        let paletteFocusTarget = isCommandPalettePresented ? commandPaletteRestoreFocusTarget : nil
         if isCommandPalettePresented { dismissCommandPalette(restoreFocus: false) }
         guard let app = AppDelegate.shared else { return }
-        captureCommandPaletteRestoreFocusTarget()
+        if let paletteFocusTarget {
+            commandPaletteRestoreFocusTarget = paletteFocusTarget
+        } else {
+            captureCommandPaletteRestoreFocusTarget()
+        }
         let model = app.makeRemoteTmuxFindWindowModel(
             focusedWorkspaceId: tabManager.selectedTabId,
             jumper: remoteTmuxFindWindow.jumper,
