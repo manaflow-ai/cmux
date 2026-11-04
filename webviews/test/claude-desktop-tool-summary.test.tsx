@@ -123,7 +123,7 @@ test("a failed call's row is its description, then its failure tag, then its che
   );
   expect(background).toMatch(/class="cv-command__failed"[^>]*>failed</);
   // The tag reads "Failed" on screen.
-  expect(css).toMatch(/\.cv-command > \.cv-command__failed::first-letter \{\s*text-transform: uppercase;/);
+  expect(css).toMatch(/\.cv-command > \.cv-command__failed::first-letter,\s*\.cv-tool > \.cv-tool__failed:not\(\.cv-tool__icon\)::first-letter \{\s*text-transform: uppercase;/);
   // Without a description the row keeps its command.
   expect(words(renderToStaticMarkup(<CommandRow item={shell(undefined)} />))).toContain("make check");
 });
