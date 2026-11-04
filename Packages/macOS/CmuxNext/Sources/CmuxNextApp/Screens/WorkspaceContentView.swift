@@ -35,11 +35,9 @@ final class WorkspaceContentView: NSView {
         notifyParkingChange()
     }
 
-    /// Showing a hidden parked view shows it (the side-by-side view unhides companions directly). Every hide
-    /// and show reaches the main pane that holds this view, whoever sets it (a switch, the side-by-side view).
+    /// Showing a hidden parked view shows it (the side-by-side view unhides companions directly).
     override var isHidden: Bool {
         willSet { if !newValue, isHidden, isParkedOffScreen { isParkedOffScreen = false } }
-        didSet { if isHidden != oldValue { (superview as? MainPaneCardView)?.workspaceDidChangeHidden(self) } }
     }
 
     init(layoutView: NSView, bar: TabStripView) {
