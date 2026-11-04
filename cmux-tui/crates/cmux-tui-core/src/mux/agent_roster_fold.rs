@@ -27,6 +27,14 @@ pub(super) struct AgentRosterFold {
     /// Pauses the next fold after it reads one journal page (test seam).
     #[cfg(test)]
     page_hook: Option<(SyncSender<()>, Receiver<()>)>,
+    /// Pauses the next fold after it took the requests and read the journal
+    /// head, before it reads the roster cursor (test seam).
+    #[cfg(test)]
+    head_hook: Option<(SyncSender<()>, Receiver<()>)>,
+    /// The thread of each journal read (head or page) and snapshot save of
+    /// the roster, by name (test seam: only the roster's owner may do them).
+    #[cfg(test)]
+    io_threads: Vec<Option<String>>,
 }
 
 impl AgentRosterFold {
@@ -56,6 +64,19 @@ impl AgentRosterFold {
             let _ = release.recv();
         }
     }
+
+    #[cfg(test)]
+    fn pause_after_head_for_test(&mut self) {
+        if let Some((entered, release)) = self.head_hook.take() {
+            let _ = entered.send(());
+            let _ = release.recv();
+        }
+    }
+
+    #[cfg(test)]
+    fn note_io_for_test(&mut self) {
+        self.io_threads.push(std::thread::current().name().map(str::to_owned));
+    }
 }
 
 impl Mux {
@@ -69,6 +90,36 @@ impl Mux {
     ) {
         self.agent_roster_fold.lock().unwrap_or_else(PoisonError::into_inner).page_hook =
             Some((entered, release));
+    }
+
+    /// The next roster fold signals `entered` after it took the requests and
+    /// read the journal head, and waits for `release` before it goes on.
+    #[cfg(test)]
+    pub(crate) fn pause_agent_roster_fold_after_head_for_test(
+        &self,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
+    ) {
+        self.agent_roster_fold.lock().unwrap_or_else(PoisonError::into_inner).head_hook =
+            Some((entered, release));
+    }
+
+    /// The names of the threads that read the journal for the roster or
+    /// saved its snapshot since the last call, in order.
+    #[cfg(test)]
+    pub(crate) fn take_agent_roster_io_threads_for_test(&self) -> Vec<Option<String>> {
+        std::mem::take(
+            &mut self.agent_roster_fold.lock().unwrap_or_else(PoisonError::into_inner).io_threads,
+        )
+    }
+
+    /// Waits until no roster work recorded before this call is left: true
+    /// when it is done. Here every request does its work, or hands it to the
+    /// thread that holds the fold, before it returns, so nothing is left once
+    /// those threads returned.
+    #[cfg(test)]
+    pub(crate) fn settle_agent_roster_for_test(&self) -> bool {
+        true
     }
 
     /// Committed agent hook events double as the live agent-status feed:
@@ -393,6 +444,8 @@ impl Mux {
             (host.requests.wanted, std::mem::take(&mut host.requests.retire))
         };
         if from_head || !retire.is_empty() {
+            #[cfg(test)]
+            fold.note_io_for_test();
             let head = match fold.reader(&self.journal_kernel) {
                 Some(reader) => reader.head(),
                 None => self.session_journal_head(),
@@ -402,10 +455,14 @@ impl Mux {
                 Err(error) => eprintln!("cmux-tui: reading the journal head failed: {error}"),
             }
         }
+        #[cfg(test)]
+        fold.pause_after_head_for_test();
         let start = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner).cursor;
         let mut cursor = start;
         let mut deltas = Vec::new();
         while cursor < target {
+            #[cfg(test)]
+            fold.note_io_for_test();
             // Terminal output between agent events is skipped by the read:
             // the roster ignores it.
             let page = match fold.reader(&self.journal_kernel) {
@@ -456,6 +513,8 @@ impl Mux {
         if !progressed {
             return (deltas, false);
         }
+        #[cfg(test)]
+        fold.note_io_for_test();
         // The connection alone, never the workspace registry lock, so state
         // commits do not wait behind the snapshot write (issue 23038).
         if let Err(error) = self.registry_connection.put_journal_reducer_state(
