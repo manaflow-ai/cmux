@@ -32109,6 +32109,138 @@
           }
         }
       }
+    },
+    "refusal.daemon.timedOut": {
+      "comment": "A reason after '<action> did not apply: ': cmux-tui did not answer the request within its deadline, so the change may still apply later. Full sentence; no retry advice (a retry could apply it twice).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’s background service was busy and did not answer in time, so it may still apply."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كانت خدمة cmux في الخلفية مشغولة ولم تستجب في الوقت المناسب، لذا قد يُطبَّق التغيير لاحقًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozadinska usluga cmuxa bila je zauzeta i nije odgovorila na vrijeme, pa se promjena možda ipak primijeni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’ baggrundstjeneste havde travlt og svarede ikke i tide, så ændringen kan stadig blive anvendt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Hintergrunddienst von cmux war ausgelastet und hat nicht rechtzeitig geantwortet, daher kann die Änderung noch wirksam werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio en segundo plano de cmux estaba ocupado y no respondió a tiempo, así que el cambio aún podría aplicarse."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service d’arrière-plan de cmux était occupé et n’a pas répondu à temps ; la modification peut encore s’appliquer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il servizio in background di cmux era occupato e non ha risposto in tempo, quindi la modifica potrebbe ancora essere applicata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のバックグラウンドサービスが混み合っていて時間内に応答しなかったため、変更は後で反映される可能性があります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាកម្មផ្ទៃខាងក្រោយរបស់ cmux រវល់ ហើយមិនបានឆ្លើយតបទាន់ពេល ដូច្នេះការផ្លាស់ប្តូរអាចនៅតែត្រូវបានអនុវត្ត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 백그라운드 서비스가 바빠서 제때 응답하지 않았으므로 변경 사항이 나중에 적용될 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’ bakgrunnstjeneste var opptatt og svarte ikke i tide, så endringen kan fortsatt bli tatt i bruk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usługa w tle cmux była zajęta i nie odpowiedziała na czas, więc zmiana może jeszcze zostać zastosowana."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O serviço em segundo plano do cmux estava ocupado e não respondeu a tempo, então a alteração ainda pode ser aplicada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фоновая служба cmux была занята и не ответила вовремя, поэтому изменение ещё может примениться."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการเบื้องหลังของ cmux ไม่ว่างและไม่ตอบกลับทันเวลา การเปลี่ยนแปลงจึงอาจยังมีผลอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’un arka plan hizmeti meşguldü ve zamanında yanıt vermedi, bu yüzden değişiklik yine de uygulanabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фонова служба cmux була зайнята й не відповіла вчасно, тож зміна ще може застосуватися."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ nền của cmux đang bận và không phản hồi kịp, nên thay đổi vẫn có thể được áp dụng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 的后台服务正忙，未能及时响应，因此更改仍可能生效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 的背景服務正忙，未能及時回應，因此變更仍可能生效。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
