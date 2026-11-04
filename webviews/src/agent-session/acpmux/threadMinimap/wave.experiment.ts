@@ -8,8 +8,13 @@ import { defineExperiment } from "../../../experiments/experiment";
 /// hovered row (26, 20, 14, 10, then 6 px), each tick on its own 120 ms transition, so a sweep moved
 /// in row-sized jumps. The other arms follow the pointer's own y: each tick's length is a smooth bump
 /// of its fractional distance from the pointer (model.ts `waveProgress`), eased by one loop
-/// (hoverWave.ts). The gallery compares them mid-sweep; cosine-4 ships. Dogfood switches from
-/// `cmux.experiments`: {"thread-minimap-wave":"gaussian"}.
+/// (hoverWave.ts). Leo, later that day: "the in-between feels a bit strange and gooey i'd rather keep
+/// it per zipper rail thing", "chatgpt has an animation for when it shrinks", and "you guys kinda
+/// messed up the selected one being the center tallest one". The zipper arm ships: the stepped
+/// lengths (ChatGPT's own), the hovered tick always the single longest, each tick easing on its own
+/// to its new length as the hovered row changes, and the ticks shrinking back to rest when the
+/// pointer leaves (model.ts `zipRetarget`). The gallery compares them mid-sweep. Dogfood switches
+/// from `cmux.experiments`: {"thread-minimap-wave":"cosine-4"}.
 export const threadMinimapWave = defineExperiment({
   id: "thread-minimap-wave",
   title: "Thread minimap hover wave",
@@ -19,6 +24,11 @@ export const threadMinimapWave = defineExperiment({
     stepped: {
       label: "Stepped",
       description: "Lengths by whole rows from the hovered row, as before: 26, 20, 14, 10 px.",
+    },
+    zipper: {
+      label: "Zipper",
+      description:
+        "Lengths by whole rows from the hovered row (26, 20, 14, 10 px), each tick easing to its own; shrinks back on leave.",
     },
     "cosine-4": {
       label: "Cosine, 4 rows",
@@ -31,7 +41,7 @@ export const threadMinimapWave = defineExperiment({
     },
     gaussian: { label: "Gaussian", description: "A bell (sigma 1.4 rows) that tapers to rest by 4.5 rows." },
   },
-  defaultArm: "cosine-4",
+  defaultArm: "zipper",
 });
 
 export type WaveArm = keyof typeof threadMinimapWave.arms;

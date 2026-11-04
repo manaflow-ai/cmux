@@ -10,6 +10,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { playFailures } from "./support/galleryPlay";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -232,6 +233,26 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
       }
       expect(before.line - frames.at(-1)!.line).toBeGreaterThan(40);
       await page.close();
+    });
+  }
+
+  /// The scene's own plays (ExpandAtBottom.gallery.ts) check where the bottom and the clicked line
+  /// end up; each throws, and the stage reports it, when they are off. Leo, 2026-11-03: "it's weird
+  /// to collapse and get all that empty space at the bottom".
+  for (const variant of ["expand-at-bottom", "collapse-at-bottom", "collapse-tall-group", "expand-away"]) {
+    test(`gallery play ${variant}`, async () => {
+      const port = (vite!.httpServer!.address() as { port: number }).port;
+      const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
+      await page.addInitScript(() => localStorage.clear());
+      await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant })}`);
+      await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
+        timeout: 60_000,
+      });
+      const report = await page.evaluate(() =>
+        JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
+      );
+      await page.close();
+      expect(playFailures(report)).toEqual([]);
     });
   }
 
