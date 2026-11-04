@@ -24,7 +24,7 @@ run() { # label, extra args...
   local label="$1"; shift
   local dir="$out/${phase:+$phase-}$label"
   mkdir -p "$dir"
-  if bun "$here/cloud-journey.ts" --backend "$TARGET" --out "$dir" "$@"; then :; else status=1; fi
+  if bun "$here/cloud-journey.ts" --backend "$TARGET" --out "$dir" --skip sync "$@"; then :; else status=1; fi
   { printf '### %s%s\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
   if [ "$phase" = after ]; then
     # Only exit 3 is a proven green-to-red step; any other nonzero exit is the compare itself failing,

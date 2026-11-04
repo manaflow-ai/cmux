@@ -110,19 +110,13 @@ public final class CloudAuth {
             // A capture must not inherit or persist this machine's auth state.
             authDefaults = CaptureFixtureKeyValueStore()
         } else {
-            let productionStore = FallbackTokenStore(
-                primary: KeychainStackTokenStore(service: configuration.keychainService),
-                fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
-            )
+            let productionStore = Self.tokenStore(configuration: configuration)
             tokenStore = productionStore
             authDefaults = defaults
             client = Self.stackClient(configuration: configuration, tokenStore: productionStore)
         }
         #else
-        let productionStore = FallbackTokenStore(
-            primary: KeychainStackTokenStore(service: configuration.keychainService),
-            fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
-        )
+        let productionStore = Self.tokenStore(configuration: configuration)
         tokenStore = productionStore
         authDefaults = defaults
         client = Self.stackClient(configuration: configuration, tokenStore: productionStore)
@@ -201,6 +195,24 @@ public final class CloudAuth {
         )
     }
 
+    /// This build's own Keychain store with its file fallback. Signed NEXT DEV on the NIGHTLY account
+    /// (``CloudConfiguration/nightlySession``) adopts cmux NIGHTLY's session into it when it has none:
+    /// NIGHTLY's Keychain item (readable only when DEV is signed with NIGHTLY's access group), then
+    /// NIGHTLY's file fallback. NIGHTLY's own session is only read, never changed or cleared.
+    static func tokenStore(configuration: CloudConfiguration) -> any StackAuthTokenStoreProtocol {
+        let own = FallbackTokenStore(
+            primary: KeychainStackTokenStore(service: configuration.keychainService),
+            fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
+        )
+        guard let nightly = configuration.nightlySession else { return own }
+        let keychain = KeychainTokenReader(service: nightly.keychainService, accessGroup: nightly.accessGroup)
+        let file = FileStackTokenStore(directory: nightly.credentialsDirectory)
+        return ImportingTokenStore(primary: own, sources: [
+            { keychain.read() },
+            { ImportedTokenPair(accessToken: await file.getStoredAccessToken(), refreshToken: await file.getStoredRefreshToken()) },
+        ])
+    }
+
     private static func stackClient(configuration: CloudConfiguration,
                                     tokenStore: some StackAuthTokenStoreProtocol) -> any AuthClient {
         let config = AuthConfig(
@@ -208,8 +220,16 @@ public final class CloudAuth {
             magicLinkCallbackURL: configuration.authWebOrigin.appendingPathComponent("auth/callback").absoluteString,
             apiBaseURL: configuration.apiBaseURL.absoluteString
         )
+        // A session adopted from cmux NIGHTLY is NIGHTLY's own: a sign-out here leaves it alive on the server.
+        var keepsServerSession: (@Sendable (String) async -> Bool)?
+        if let importing = tokenStore as? ImportingTokenStore {
+            keepsServerSession = { (refreshToken: String) async -> Bool in
+                await importing.isShared(refreshToken: refreshToken)
+            }
+        }
         return StackAuthClient(config: config, tokenStore: .custom(tokenStore),
-                               baseURL: configuration.stackBaseURL.absoluteString, noAutomaticPrefetch: true)
+                               baseURL: configuration.stackBaseURL.absoluteString, noAutomaticPrefetch: true,
+                               keepsServerSession: keepsServerSession)
     }
 
     /// Starts restoring the stored session (and dev auto sign-in).
