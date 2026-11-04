@@ -977,6 +977,8 @@ export type AcpmuxSnapshot = {
     machine?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
+    /// The folders the chat sees beside its own (acpmux `additionalDirectories`, cmux#32811).
+    additionalDirectories?: readonly string[];
     branch?: string;
     worktree?: string;
     title?: string;
@@ -1284,17 +1286,17 @@ const TOOL_RUN_TOP = 0;
 /// MARK_STEP).
 const isStepRow = (row: AcpmuxRow) =>
   row.kind === "activity" || (row.kind === ACTIVITY_LINE && !row.below) || isLineRow(row);
+/// The running turn's live line, drawn as its last row (`below`, conversation/turns.ts).
+export const isLiveLine = (row: AcpmuxRow) =>
+  row.below === true && (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE);
 /// The running turn's line as its last row (`below`) right under a step row or a status row ("Subagent
 /// finished", "Scheduled check", a compaction): one more line of the run, 22 under it and 22 tall
-/// (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32 slot, so a step row after it
-/// (the waiting messages' head) is 22 under it too (#29965). Under a status row it took the footer's
+/// (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32 slot (#29965); the waiting
+/// messages' head draws over it (pendingMessages.ts `withWaitingRows`). Under a status row it took the footer's
 /// slot a block gap away, 55 and 70 from its neighbours (Leo, 2026-11-03: "this is pretty bad
 /// spacing and formatting"; design/transcript-spacing.md rule 3).
 export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
-  row.below === true &&
-  (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE) &&
-  prev !== undefined &&
-  (isStepRow(prev) || isStatusRow(prev));
+  isLiveLine(row) && prev !== undefined && (isStepRow(prev) || isStatusRow(prev));
 const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
@@ -1307,8 +1309,9 @@ const TOOL_RUN_BOTTOM = 0;
 const LINE_FRAME = TOOL_RUN_TOP + TOOL_RUN_BOTTOM;
 const lineRow = () => LINE_FRAME + toolRowHeight();
 /// A message row (a send, SentMessageLine.tsx and AgentMessageRow.tsx; another agent's received line;
-/// a folded group's head): one tool row, and in the stacked look (conversation/messageLineLook.ts,
-/// the default) its first line's own line under it while it is shut and has one.
+/// a folded group's head): one tool row (the single look, conversation/messageLineLook.ts, the
+/// default), and in the stacked gallery look its first line's own line under it while it is shut and
+/// has one.
 const messagePreviewLine = (shown: boolean) =>
   shown && messageLineLook() === "stacked" ? MESSAGE_PREVIEW_LINE_PT * chromeScale : 0;
 const messageRowHeight = (preview: boolean) => toolRowHeight() + messagePreviewLine(preview);

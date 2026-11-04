@@ -1,5 +1,8 @@
 import CmuxNextCompat
 import CmuxNextWakeups
+#if DEBUG || CMUX_BENCH_HOOKS
+import Darwin
+#endif
 
 /// Decides, on the thread that calls it, whether a CEF `OnScheduleMessagePumpWork` request from a
 /// Chromium thread must wake the main thread (``CEFMessagePump``).
@@ -21,7 +24,8 @@ import CmuxNextWakeups
 /// The decision and the main thread's ``take()`` hold one lock, so a request is either merged by
 /// the next take or decided against the deadline that take publishes; none falls between them.
 /// A request that goes through is one main wake, recorded in the wakeup ledger (owner
-/// `CEFMessagePump`, reason `cross-thread request`); a kept one is a counter (``kept``).
+/// `CEFMessagePump`, reason `cross-thread request`, in DEBUG and bench builds followed by the
+/// requesting thread's name and immediate or delayed); a kept one is a counter (``kept``).
 nonisolated final class CEFPumpCrossThreadGate: Sendable {
     private struct State {
         /// The armed fire's deadline, `CLOCK_UPTIME_RAW` nanoseconds; nil when none may be trusted.
@@ -73,9 +77,25 @@ nonisolated final class CEFPumpCrossThreadGate: Sendable {
                 return false
             }
         }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // Which Chromium thread asks, and for now or later (bench builds): names the cause of a wake (HOT PATH AUDIT
+        // browser: the pump woke main 8 -> 104 times/s as busy hidden terminals went 0 -> 24, STATUS 9946).
+        ledger.record("CEFMessagePump", reason: "cross-thread request (\(Self.threadName()), \(delayMilliseconds > 0 ? "delayed" : "immediate"))")
+        #else
         ledger.record("CEFMessagePump", reason: "cross-thread request")
+        #endif
         return true
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The calling thread's name (Chromium names its threads: `ThreadPoolBackgroundWorker`, `Chrome_IOThread`...).
+    private static func threadName() -> String {
+        withUnsafeTemporaryAllocation(of: CChar.self, capacity: 64) { buffer in  // 64: MAXTHREADNAMESIZE, on the stack
+            guard let base = buffer.baseAddress, pthread_getname_np(pthread_self(), base, buffer.count) == 0, base[0] != 0 else { return "unnamed" }
+            return String(cString: base)
+        }
+    }
+    #endif
 
     /// Delayed cross-thread requests kept with no main wake because an earlier fire was armed.
     var kept: UInt64 { keptRequests.load(ordering: .relaxed) }
