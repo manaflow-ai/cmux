@@ -284,6 +284,32 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
   },
 ];
 
+/** A lone system line between turns, under the turn's footer row (design/transcript-spacing.md
+ * "Lone system rows"; Leo, 2026-11-04, on a lone "Background update" a block gap under the footer and a
+ * turn gap over the next prompt: "this bare background update tool call floating in teh air is so
+ * weird loking proportionally"). The agent's own work that came in after the turn ended ("Background
+ * update", "Background task finished", "3 background tasks finished", "Subagent finished") is that
+ * turn's tail: 8 under the footer row, as the footer is under the reply, so its centre is as far from
+ * the footer's glyph as the reply's last line is (prose-to-footer, 35.375); the next prompt keeps the
+ * turn gap under it. Another agent's line there keeps footer-to-received. Measured over gallery entry
+ * agent-pane.lone-system-rows by test/transcript-lone-system-rows.test.ts. */
+export const LONE_SYSTEM_ROWS = {
+  /** The footer's glyph centre to the line's centre: 16 + 8 + 11. */
+  footerToLine: 35,
+  /** The line's centre to the next prompt bubble's top edge: 11 + 32 (step-to-prompt). */
+  lineToPrompt: 43,
+  /** Another agent's line under the footer: footer-to-received. */
+  footerToReceived: 51,
+  tolerance: 1,
+  variants: [
+    "background-update",
+    "background-update-running",
+    "background-task",
+    "background-tasks-run",
+    "subagent-finished",
+  ],
+} as const;
+
 /** A session link chip on a one-line row (a received line's sender, "Sent to"'s recipient): no taller
  * than the row's text, so the row reads as one line of words (Leo, 2026-11-03, on a bordered chip
  * taller than its row's text: "i thought we made this stuff smaller"). Claude Code desktop names the
