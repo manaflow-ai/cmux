@@ -32,10 +32,12 @@ struct CreationHoldReplyBoundTests {
             let other = try await read(.other, false)
             #expect(!other.ran, "\(move): the line ran in the other terminal: \(other.screen.debugDescription)")
             guard move == .scriptThenTyping else { return }
-            let lines = pressed.screen.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
-            let held = lines.firstIndex(of: "held"), also = lines.firstIndex(of: "also")
-            #expect(held != nil && also != nil && held! < also!, "the two lines did not run in typing order: \(pressed.screen.debugDescription)")
-            #expect(!other.screen.contains("echo also"), "the second line ran in the terminal the script focused")
+            // The outputs, in screen order (the typed commands do not contain them; a second line typed while the first
+            // runs is echoed before the first one's output, as in any terminal).
+            let held = pressed.screen.range(of: "held"), also = pressed.screen.range(of: "also")
+            #expect(held != nil && also != nil && held!.lowerBound < also!.lowerBound,
+                    "the two lines did not run in typing order: \(pressed.screen.debugDescription)")
+            #expect(!other.screen.contains("al''so") && !other.screen.contains("also"), "the second line ran in the terminal the script focused")
         }
     }
 
@@ -70,7 +72,8 @@ struct CreationHoldReplyBoundTests {
     /// Two terminal panes (Cmd-D twice; the window's first pane may show an agent chat), and what `move` needs (a second tab
     /// in the first pane, a second workspace); the person's Cmd-N hold over the first terminal (`beginWorkspace(in:)`, as
     /// Cmd-N opens it for a person: a test window is never key, so `newTab` performed here has no source window and opens no
-    /// person hold; PersonTerminalKeyboardClaimTests does the same), "echo held" Return typed, then `move`. The reply never
+    /// person hold; PersonTerminalKeyboardClaimTests does the same), `echo hel''d` Return typed (it prints `held`, a word its
+    /// command line does not contain), then `move`. The reply never
     /// comes: nothing resolves the ticket, as when the daemon never answers. `check` gets the hold's end reason (by name:
     /// the red build has no such case) and reads a terminal's screen: whether it ran the line, waiting up to 15 s for it
     /// to show (`expected` true) or 3 s for it not to (false).
@@ -146,7 +149,7 @@ struct CreationHoldReplyBoundTests {
                     #expect(router.interceptKeyDown(event, in: window), "the hold did not take \(text.debugDescription)")
                 }
             }
-            try typeLine("echo held\r")
+            try typeLine("echo hel''d\r")
             switch move {
             case .noMove: break
             case .paneClick: // a click in the other pane's view: the window's report of its new first responder, from a mouse-down
@@ -176,17 +179,15 @@ struct CreationHoldReplyBoundTests {
             }
             if move == .scriptThenTyping { // more keys typed during the hold, after the script's move
                 #expect(coordinator.isHolding(in: window), "the hold ended before the second line")
-                try typeLine("echo also\r")
+                try typeLine("echo al''so\r")
             }
             // Within the bound and a margin, the hold ends.
             try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: window) }, within: .seconds(6),
                                                       report: { "the hold did not end at its reply bound" })
             let end = coordinator.lastHoldEnd(in: window).map { "\($0)" } ?? "none"
             coordinator.resolve(ticket, landed: false, in: window) // a reply after the bound belongs to no hold
-            // What the person sees: whether a terminal shows the line and the shell's answer.
-            func ran(_ text: String) -> Bool {
-                text.contains("echo held") && text.components(separatedBy: "\n").contains { $0.trimmingCharacters(in: .whitespaces) == "held" }
-            }
+            // What the person sees: whether a terminal shows the shell's answer `held` (only the command's run prints it).
+            func ran(_ text: String) -> Bool { text.contains("held") }
             let (pressedSurface, otherSurface) = (pressed.surface, other.surface)
             try await check(end) { terminal, expected in
                 let surface = terminal == .pressed ? pressedSurface : otherSurface
