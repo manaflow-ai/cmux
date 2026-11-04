@@ -31,9 +31,10 @@ import Testing
 @Suite(.serialized, .closesItsWindows)
 struct TabStripFollowsPaneTickTests {
     /// A pane's content view: every size it takes. It answers a pane spring's start with `anchor`, the edge its held
-    /// content rides: content that still keeps one size through a key resize (a page until S5, an agent chat). A terminal
-    /// no longer holds: it follows its pane in every frame (cmux-ad m6,
-    /// ``aKeyResizeKeepsEachStripAndTerminalOnItsPaneInEveryFrame(direction:)``).
+    /// content rides: content that still keeps one size through a key resize (a page until S5, an agent chat). With
+    /// `motion.frameOwner.terminals` on, a terminal does not hold: it follows its pane in every frame (cmux-ad m6,
+    /// ``aKeyResizeKeepsEachStripAndTerminalOnItsPaneInEveryFrame(direction:)``); with it off (the default until the
+    /// flip), it keeps one size per press.
     final class Content: NSView, PaneMotionTargeting {
         var sizes: [CGSize] = []
         var anchor = PaneMotionAnchor.top

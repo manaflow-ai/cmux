@@ -11,14 +11,17 @@ import Testing
 
 /// FRAME OWNER REFACTOR S3: the rules the content policy keeps beside PaneGroundCoversPaneTests (the shell never shows
 /// inside a pane rect).
-/// - In a key resize the terminal surface stays on the pane edge that does not move, for each side a pane can grow or
-///   shrink on, while its host (the container) follows the pane in every frame.
-/// - Pixels per frame, program size per press (cmux-ad m6, the lead's contract): in every frame each terminal's surface
-///   has the size its pane shows it at, so its text follows the pane (S3 held it at one size per press: the text froze,
-///   then jumped; Lawrence on dogfood 363e39f2: "tabbar moves smoothly on ctrl shift hjkl but browsers/terminals do not
-///   anymore"); each terminal asks its PTY for its final grid once, by the press's first frame tick (FRAME OWNER S1B).
-///   With the window on screen, a size whose frame Ghostty has not drawn yet keeps the last frame, top-left
-///   (TerminalKeyResizeFrameTests); these windows draw nothing, so each size shows at once.
+/// - In a key resize with `motion.frameOwner.terminals` off (the default until the flip), the terminal surface stays
+///   on the pane edge that does not move, for each side a pane can grow or shrink on, while its host (the container)
+///   follows the pane in every frame; the surface takes one size per press, at the press, and none in a spring frame
+///   or at the landing (the tests named `...WithTheSwitchOff`).
+/// - Pixels per frame, program size per press (cmux-ad m6, the lead's contract; the switch on, which these tests set):
+///   in every frame each terminal's surface has the size its pane shows it at, so its text follows the pane (S3 held it
+///   at one size per press: the text froze, then jumped; Lawrence on dogfood 363e39f2: "tabbar moves smoothly on ctrl
+///   shift hjkl but browsers/terminals do not anymore"). In both states each terminal asks its PTY for its final grid
+///   once, by the press's first frame tick (FRAME OWNER S1B). With the window on screen, a size whose frame Ghostty
+///   has not drawn yet keeps the last frame, top-left (TerminalKeyResizeFrameTests); these windows draw nothing, so
+///   each size shows at once.
 /// - S3c: a closing pane shows its ground as it was at the close, the same host comes back when a close is taken back,
 ///   and nothing of it is left in the view tree after the landing.
 @MainActor

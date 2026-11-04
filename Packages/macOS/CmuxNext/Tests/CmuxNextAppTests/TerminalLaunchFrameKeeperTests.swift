@@ -213,8 +213,9 @@ import Testing
         frame.size.width /= 2
         shown.window.setFrame(frame, display: true)
         shown.session.view.layoutSubtreeIfNeeded()
-        // The surface takes its new size in the commit that shows its frame drawn at that size (FRAME OWNER S4,
-        // `motion.frameOwner.terminals`), a refresh or two after the layout: the change counts then.
+        // With `motion.frameOwner.terminals` on (FRAME OWNER S4), the surface takes its new size in the commit that
+        // shows its frame drawn at that size, a refresh or two after the layout, and the change counts then; with it off
+        // (the default), in the layout. The wait covers both.
         let counted = try await Self.eventually(2) { shown.session.frameChanges.generation > before }
         #expect(counted, "the surface's new size counted as no change")
         let resaved = try await Self.eventually(3) { frames.keepSaves > saves }
@@ -236,7 +237,8 @@ import Testing
         frame.size.width /= 2
         shown.window.setFrame(frame, display: true)
         shown.session.view.layoutSubtreeIfNeeded()
-        // The surface shows its new size with its frame drawn at it (FRAME OWNER S4), a refresh or two after the layout.
+        // The surface shows its new size in the layout (the default), or with its frame drawn at it a refresh or two
+        // later with `motion.frameOwner.terminals` on (FRAME OWNER S4). The wait covers both.
         let host = shown.session.view, target = host.surfaceSize(forHostSize: host.bounds.size)
         let showsNewSize = try await Self.eventually(2) { shown.session.surfaceView.bounds.size == target }
         try #require(showsNewSize, "the surface never showed its new size \(target)")
