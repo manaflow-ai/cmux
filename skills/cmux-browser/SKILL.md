@@ -174,9 +174,10 @@ the URL, both error lists, and a temporary PNG path. The transcript recognizes
 that path as an image attachment and renders it with the error report. Pass
 `screenshot: { fullPage: true }` when the whole page is needed; the default is
 the viewport. The helper closes its tab on success or failure, preserving the
-user's active tab and the REPL's current page. For errors that appear after
-load, pass `settleMs: 1000` to wait that many milliseconds before capture
-(default `0`). Pass `timeout: 5000` to bound navigation in milliseconds
+user's active tab and the REPL's current page. The screenshot is taken after
+load. For errors that appear later, pass `settleMs: 1000` to wait that many
+milliseconds after the screenshot before reading errors (default `0`).
+Pass `timeout: 5000` to bound navigation in milliseconds
 (default `30000`, `0` disables the navigation timeout). Both timing options
 must be finite nonnegative numbers.
 
