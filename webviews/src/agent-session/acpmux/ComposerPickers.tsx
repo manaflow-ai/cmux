@@ -1159,8 +1159,10 @@ export function ComposerPickers({
       )}
       {/* A custom harness's other settings: each config option no chip above owns, picked like the
           effort level. Codex's collaboration mode stays on its command/mode paths. */}
+      {/* A chat still opening, or starting another harness, carries its last session's options
+          (another chat's recap and suggestions switches), so Options waits for this chat's own. */}
       <AgentOptionsMenu
-        options={extraOptions}
+        options={opening || snapshot.switching?.phase === "starting" ? [] : extraOptions}
         managed={fullAccessManaged}
         managedReason={t(PICKER_LABELS.fullAccessManaged)}
         onPick={(configId, value) => onEffort(configId, value)}

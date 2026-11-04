@@ -257,7 +257,7 @@ import {
 } from "./computerUse/computerUsePreview";
 import { ComputerUsePreviewCard } from "./computerUse/ComputerUsePreviewCard";
 import { PermissionCard } from "./PermissionCard";
-import { cardTakesShortcuts } from "./permissionKeys";
+import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKeys";
 import { QuestionCard } from "./question/QuestionCard";
 import { PermissionQuestion } from "./question/PermissionQuestion";
 import { QUESTION_RECORD } from "./question/record";
@@ -6025,6 +6025,17 @@ const answerSecret = (ask: AcpmuxSecretAsk) => (value?: string) => {
   return value ? sent : sent.catch(() => undefined);
 };
 
+/// A peer's chat, reached over this Mac's own acpmux (server/peer_forward.rs), as ComposerPickers'
+/// `onThisMac` reads it: its summary or its listed row names the peer. The peer takes only a signed
+/// one-time Allow and a Deny from this Mac (mac_approvers.rs).
+function chatOnPeer(snapshot: AcpmuxSnapshot): boolean {
+  const summary = snapshot.summary;
+  const listedPeer = summary?.sessionId
+    ? snapshot.sessions.find((session) => session.sessionId === summary.sessionId)?.peer
+    : undefined;
+  return snapshot.origin === "peer" || !!summary?.peer || !!listedPeer;
+}
+
 /// The native label of the mode the chat runs now when it is its family's highest (Claude Code's
 /// Bypass permissions, Codex's Full access), else nothing.
 function fullAccessModeName(summary: AcpmuxSnapshot["summary"]): string | undefined {
@@ -6042,6 +6053,8 @@ function PermissionAsk({
   shownChat,
   shortcuts,
   waiting = 0,
+  alwaysAtSource,
+  onDraft,
 }: {
   permission: AcpmuxPermission;
   harness?: string;
@@ -6055,18 +6068,24 @@ function PermissionAsk({
   shortcuts?: boolean;
   /// More asks waiting behind this one (snapshot `permissionsWaiting`).
   waiting?: number;
+  /// A peer's chat, which takes no lasting grant from this Mac (PermissionCard).
+  alwaysAtSource?: boolean;
+  /// The card's deny instructions opened or closed (PermissionCard `onDraft`).
+  onDraft?: (open: boolean) => void;
 }) {
   const t = useT();
   if (!permission.question)
     return (
       <PermissionCard
         permission={permission}
+        alwaysAtSource={alwaysAtSource}
         harness={harness}
         fullAccessMode={fullAccessMode}
         focusComposer={focusComposer}
         shortcuts={shortcuts}
         onAnswer={answerPermission(permission)}
         onDenyWithFeedback={shownChat && denyWithFeedback(permission, shownChat)}
+        onDraft={onDraft}
         waiting={waiting}
       />
     );
@@ -7159,10 +7178,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       return;
     if (trustRoute(pending.error, pending.again, pending.declined)) pendingTrustRefusal.current = undefined;
   }, [trustRoute]);
+  /// The ask whose card has a deny's instructions open: it stays the single card (`heldOnCard`).
+  const [draftAsk, setDraftAsk] = useState<AcpmuxPermission>();
   const individualPermission =
-    snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
-      ? snapshot.permission
-      : undefined;
+    heldOnCard(draftAsk, snapshot.permission, snapshot.permissionGroups) ??
+    (askOnSingleCard(snapshot.permission, snapshot.permissionGroups) ? snapshot.permission : undefined);
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
   const fileRoot = snapshot.summary?.cwd;
@@ -13892,6 +13912,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               fullAccessMode={fullAccessModeName(snapshot.summary)}
               focusComposer={() => composerHandle.current?.focus()}
               shownChat={shownChat}
+              alwaysAtSource={chatOnPeer(snapshot)}
+              onDraft={(open) => setDraftAsk(open ? individualPermission : undefined)}
             />
           )}
           {secret && (
