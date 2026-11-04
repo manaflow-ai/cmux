@@ -1,5 +1,5 @@
 .race-panel {
-  padding: 20px;
+  padding: 24px;
   overflow: auto;
   min-height: 0;
   color: var(--page-text);
@@ -27,7 +27,7 @@
   background: transparent;
   border: 1px solid var(--page-separator);
   border-radius: 6px;
-  padding: 6px 10px;
+  padding: 8px 12px;
 }
 .race-panel button {
   cursor: pointer;
@@ -61,7 +61,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 8px;
-  margin-block: 10px;
+  margin-block: 8px;
   max-height: 240px;
   overflow: auto;
 }
