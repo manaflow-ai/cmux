@@ -345,4 +345,37 @@ struct AgentSessionCarrierSwitchTests {
         #expect(AgentSessionCarrierSwitch.covered(partial, by: AgentSessionPage(limit: 2)) == 9)
         #expect(AgentSessionCarrierSwitch.covered(partial, by: AgentSessionPage(beforeSeq: 3)) == 2)
     }
+
+    /// Codex re-review of cmux#35770 at c74aa8f3, F1: a refused re-attach keeps the attachment the page
+    /// had live; its pushes still reach the page.
+    @Test func aRefusedReattachKeepsTheLiveAttachment() async throws {
+        let relay = Carrier()
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        let page = Page()
+        _ = try await chat.attach(AgentSessionPage(), events: page.handler)
+        relay.push(1)
+        // The old subscription stays on the fake (it keeps the first handler) while the re-attach fails.
+        let live = relay.state.withLock { $0.handler }
+        relay.state.withLock { $0.attachFails = true }
+        await #expect(throws: AgentSessionRemoteError.self) {
+            _ = try await chat.attach(AgentSessionPage(afterSeq: 1), events: page.handler)
+        }
+        relay.state.withLock { $0.handler = live }
+        relay.push(2)
+        #expect(page.seqs == [1, 2])
+    }
+
+    /// F2: a watch answer never moves the cursor, since the page never gets its record.
+    @Test func aWatchAnswerDoesNotMoveTheCursor() async throws {
+        let relay = Carrier()
+        let direct = Carrier(log: [1, 2, 3])
+        let chat = AgentSessionCarrierSwitch(fallback: relay)
+        let page = Page()
+        _ = try await chat.attach(AgentSessionPage(afterSeq: 0), events: page.handler)
+        relay.state.withLock { $0.log = [1, 2, 3] }
+        _ = try await chat.attach(RemoteAcpmuxWire.watchPage, events: page.handler)
+        #expect(await chat.move(to: direct))
+        #expect(direct.state.withLock { $0.attaches.first?.afterSeq } == 0)
+        #expect(page.seqs == [1, 2, 3])
+    }
 }

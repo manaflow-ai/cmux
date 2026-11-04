@@ -334,17 +334,34 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
     // MARK: AgentSessionRemoteClient
 
     public func attach(_ page: AgentSessionPage, events handler: @escaping @Sendable (AgentSessionRemoteEvent) -> Void) async throws -> Data {
-        let (client, generation) = state.withLock { state -> (any AgentSessionRemoteClient, UInt64) in
+        // A watch's one-record transcript read: the wire answers it as a sessions list and the page
+        // never gets its record, so it sets neither what a move re-attaches with nor how far it reads.
+        let watch = page == RemoteAcpmuxWire.watchPage
+        let (client, generation, before) = state.withLock { state in
+            let before = (handler: state.handler, page: state.page, live: state.live)
             state.handler = handler
-            // A watch's one-record transcript read never sets what a move re-attaches with.
-            if page != RemoteAcpmuxWire.watchPage || state.page == nil { state.page = page }
+            if !watch || state.page == nil { state.page = page }
             state.nextGeneration += 1
             state.live = state.nextGeneration
-            return (state.current, state.live)
+            return (state.current, state.live, before)
         }
-        let answer = try await client.attach(page, events: self.handler(for: generation))
-        let covered = Self.covered(answer, by: page)
-        state.withLock { $0.newest = max($0.newest, covered) }
+        let answer: Data
+        do {
+            answer = try await client.attach(page, events: self.handler(for: generation))
+        } catch {
+            // A refused re-attach leaves the attachment the page had live, unless another took over.
+            state.withLock { state in
+                guard state.live == generation else { return }
+                state.handler = before.handler
+                state.page = before.page
+                state.live = before.live
+            }
+            throw error
+        }
+        if !watch {
+            let covered = Self.covered(answer, by: page)
+            state.withLock { $0.newest = max($0.newest, covered) }
+        }
         return answer
     }
 
