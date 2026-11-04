@@ -21,6 +21,15 @@
         "webviews/src/pages/home-channels/ChiefWorkStore.ts"
       ]
     },
+    "chief-pages": {
+      "spec": "leo-workspace design/chief-pages.md",
+      "aliases": ["Chief Usage", "Chief views", "Chief inspector"],
+      "paths": [
+        "webviews/src/pages/chief-usage/",
+        "webviews/src/pages/chief-views/",
+        "webviews/src/pages/chief-inspector/"
+      ]
+    },
     "chief-web": {
       "spec": "leo-workspace design/chief-web.md",
       "aliases": ["Chief mobile web", "Chief web address"],
@@ -240,6 +249,16 @@
         "webviews/src/agent-session/acpmux/conversation/artifactVersions.ts",
         "webviews/src/agent-session/acpmux/conversation/RenderCard.tsx",
         "webviews/src/agent-session/acpmux/conversation/renderCall.ts"
+      ]
+    },
+    "chat-multiplayer": {
+      "spec": "leo-workspace design/chat-multiplayer.md",
+      "aliases": ["share sheet", "invite people", "share with guest", "guest link", "chat invites"],
+      "paths": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Share/AgentShareInviteSheet.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Share/AgentShareInviteRowView.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/AgentShareInviteSheetModel.swift",
+        "webviews/src/agent-session/guest/"
       ]
     }
   }

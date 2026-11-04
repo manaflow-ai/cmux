@@ -34,6 +34,13 @@ public final class AgentPaneModel {
     /// opening an existing chat only while this holds (`NewTabSparePool.takeConnectedSpare`).
     @ObservationIgnored public internal(set) var clientReady = false
 
+    /// The tab this pane shows (the store's id), asked each time: what a pane keeps per view, not per
+    /// chat, is kept by it (its transcript's place, ``AgentPaneScrollAnchors``; its Session Info, the
+    /// page's `sessionInfoState.ts`), since one chat can be open in two tabs at once. Nil for a page
+    /// that is no tab's (a prewarmed spare until a tab adopts it, the quick panel): those keep by chat.
+    @ObservationIgnored public var tabKey: @MainActor () -> String? = { nil } { didSet { onTabKeyChange?() } }
+    /// The view tells a page that already had its handshake (a spare a tab adopted) its tab.
+    @ObservationIgnored var onTabKeyChange: (() -> Void)?
     /// Called when the page switches to or creates a session, so the App can keep it with the tab.
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
     @ObservationIgnored var onQuestionKeySessionChange: (() -> Void)?
