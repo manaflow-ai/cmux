@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 564,
+  "count": 565,
   "sections": [
     {
       "id": "general",
@@ -1723,6 +1723,14 @@
             "full",
             "off"
           ]
+        },
+        {
+          "key": "agentPane.display.pinnedPlan",
+          "title": "Pin Task List in Chat",
+          "help": "While the agent works, its task list stays under the latest message instead of in the bar over the composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.presentation",
