@@ -158,6 +158,9 @@ import CmuxNextCompat
 
     /// How long a reserved gesture waits for its frame (a pick held while a harness starts).
     public nonisolated static let ticketLifetime: TimeInterval = 60
+    /// Cloud's platform reservation may take up to its 120-second lease window. The Send ticket
+    /// spans that same window while the speculative machine allocation settles.
+    public nonisolated static let cloudStartTicketLifetime: TimeInterval = 120
     /// How long a prompt held for the folder trust answer keeps its send's gesture.
     public nonisolated static let heldPromptLifetime: TimeInterval = 600
     /// The most prompt tickets older than the live gesture that one connection keeps. Fresh

@@ -9,6 +9,7 @@ function harness(reserve: () => Promise<unknown> = async () => ({})) {
   let sequence = 0;
   const call = async (method: string, params: Record<string, unknown>) => {
     calls.push([method, params]);
+    if (method === "transport.gesture") return { ticket: "ticket-1" };
     return method === "cloud.reserve" ? reserve() : {};
   };
   const reservation = new CloudComposeReservation(
@@ -69,7 +70,7 @@ test("first character with Cloud selected reserves; whitespace does not", async 
   expect(h.calls).toEqual([["cloud.reserve", { composeKey: "compose-1" }]]);
 });
 
-test("Send waits for reserve, ignores a second Return, and page close cannot release its lease", async () => {
+test("Send reserves its native gesture before a slow reserve, ignores a second Return, and page close cannot release its lease", async () => {
   let ready!: () => void;
   const h = harness(() => new Promise<void>((resolve) => (ready = resolve)));
   h.reservation.selected();
@@ -78,12 +79,16 @@ test("Send waits for reserve, ignores a second Return, and page close cannot rel
   expect(h.start(request, "send-1")).toBeUndefined();
   h.reservation.abandon();
   await settle();
-  expect(h.calls).toEqual([["cloud.reserve", { composeKey: "compose-1" }]]);
+  expect(h.calls).toEqual([
+    ["transport.gesture", { intent: { method: "cloud.startChat", params: { key: "send-1" } } }],
+    ["cloud.reserve", { composeKey: "compose-1" }],
+  ]);
   ready();
   expect(await sent).toEqual({ ok: true });
   expect(h.calls).toEqual([
+    ["transport.gesture", { intent: { method: "cloud.startChat", params: { key: "send-1" } } }],
     ["cloud.reserve", { composeKey: "compose-1" }],
-    ["cloud.startChat", { task: "reply PONG", home: true, key: "send-1", reservationKey: "compose-1" }],
+    ["cloud.startChat", { task: "reply PONG", home: true, key: "send-1", reservationKey: "compose-1", gestureTicket: "ticket-1" }],
   ]);
 });
 
@@ -97,8 +102,29 @@ test("a failed speculative request falls back to an ordinary Send without retryi
   h.reservation.typed("hello again");
   await settle();
   expect(h.calls).toEqual([
+    ["transport.gesture", { intent: { method: "cloud.startChat", params: { key: "send-1" } } }],
     ["cloud.reserve", { composeKey: "compose-1" }],
     ["cloud.startChat", { task: "hello", key: "send-1" }],
+  ]);
+});
+
+test("a reservation that settles after the live 30-second gesture still reaches Cloud with authorization", async () => {
+  let settleReserve!: () => void;
+  const h = harness(() => new Promise<void>((resolve) => (settleReserve = resolve)));
+  h.reservation.selected();
+  const sent = h.start({ task: "slow warm", reservationKey: h.reservation.handoff() }, "send-slow");
+  await settle();
+  // The native ticket was reserved before the allocation wait. A real platform response can
+  // arrive after the ordinary 30-second gesture has expired without yielding gesture_required.
+  expect(h.calls).toContainEqual([
+    "transport.gesture",
+    { intent: { method: "cloud.startChat", params: { key: "send-slow" } } },
+  ]);
+  settleReserve();
+  expect(await sent).toEqual({ ok: true });
+  expect(h.calls.at(-1)).toEqual([
+    "cloud.startChat",
+    { task: "slow warm", key: "send-slow", reservationKey: "compose-1", gestureTicket: "ticket-1" },
   ]);
 });
 

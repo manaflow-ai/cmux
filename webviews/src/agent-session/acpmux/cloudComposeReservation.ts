@@ -112,9 +112,23 @@ export function reservedCloudCall(
   reservation: CloudComposeReservation,
 ): (method: string, params?: Record<string, unknown>) => Promise<unknown> {
   return async (method, params = {}) => {
-    if (typeof params.reservationKey === "string" && !(await reservation.ready(params.reservationKey))) {
-      const { reservationKey: _reservationKey, ...ordinary } = params;
-      return call(method, ordinary);
+    const reservationKey = params.reservationKey;
+    if (method === "cloud.startChat" && typeof reservationKey === "string" && typeof params.key === "string") {
+      // Reserve the Send gesture before waiting for the platform lease. Native's hand-off can
+      // then redeem this ticket after a slow reserve instead of trying to consume the 30-second
+      // live gesture at the end of the wait.
+      const ticket = await call("transport.gesture", {
+        intent: { method: "cloud.startChat", params: { key: params.key } },
+      }).then((reply) => (reply as { ticket?: unknown } | undefined)?.ticket)
+        .catch(() => undefined);
+      if (!(await reservation.ready(reservationKey))) {
+        const { reservationKey: _reservationKey, gestureTicket: _gestureTicket, ...ordinary } = params;
+        return call(method, ordinary);
+      }
+      return call(method, {
+        ...params,
+        ...(typeof ticket === "string" ? { gestureTicket: ticket } : {}),
+      });
     }
     return call(method, params);
   };

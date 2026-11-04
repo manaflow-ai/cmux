@@ -22,6 +22,8 @@ export type CloudStart = {
   model?: string;
   environment?: string;
   reservationKey?: string;
+  /** A native gesture ticket reserved before waiting for a Cloud machine lease. */
+  gestureTicket?: string;
 };
 
 /// Which folder a Cloud chat starts in: the chat's project on this Mac, copied to the machine, when
@@ -141,6 +143,7 @@ export async function startCloudChat(
   if (start.model) params.model = start.model;
   if (start.environment) params.environment = start.environment;
   if (start.reservationKey) params.reservationKey = start.reservationKey;
+  if (start.gestureTicket) params.gestureTicket = start.gestureTicket;
   try {
     await call("cloud.startChat", params);
     return { ok: true };

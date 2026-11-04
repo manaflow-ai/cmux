@@ -400,9 +400,13 @@ struct AgentPaneCloudReservationTests {
 
     @Test func sendForwardsOnlyAValidReservationKey() throws {
         let reservation = UUID().uuidString
-        let params: [String: Any] = ["task": "hello", "key": UUID().uuidString, "reservationKey": reservation]
+        let ticket = UUID().uuidString
+        let params: [String: Any] = ["task": "hello", "key": UUID().uuidString, "reservationKey": reservation, "gestureTicket": ticket]
         #expect(try #require(AgentPaneCloudStart(params: params)).reservationKey == reservation)
+        #expect(try #require(AgentPaneCloudStart(params: params)).gestureTicket == ticket)
         #expect(AgentPaneCloudStart(params: params.merging(["reservationKey": "invalid"]) { $1 }) == nil)
         #expect(AgentPaneCloudStart(params: params.merging(["reservationKey": 123]) { $1 }) == nil)
+        #expect(AgentPaneCloudStart(params: params.merging(["gestureTicket": "invalid"]) { $1 }) == nil)
+        #expect(AgentPaneCloudStart(params: params.merging(["gestureTicket": 123]) { $1 }) == nil)
     }
 }

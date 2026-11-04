@@ -24,6 +24,8 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var environment: String?
     /// The warm machine reserved by this compose; Send binds it using ``key``.
     public var reservationKey: String?
+    /// Native Send authorization reserved before waiting for the speculative lease.
+    var gestureTicket: String?
     /// The page's send: a second call with the same key while one runs is the same send.
     public var key: String
     /// The folder the copy uploads (the Git working copy that holds ``cwd``, else ``cwd``), set by
@@ -31,10 +33,11 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// the page named no folder. The App copies only this folder, never one it finds anew.
     public var uploadRoot: String?
 
-    public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String, environment: String? = nil, reservationKey: String? = nil) {
+    public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String, environment: String? = nil, reservationKey: String? = nil, gestureTicket: String? = nil) {
         (self.task, self.cwd, self.harness, self.model, self.key) = (task, cwd, harness, model, key)
         self.environment = environment
         self.reservationKey = reservationKey
+        self.gestureTicket = gestureTicket
     }
 
     /// The page's params, checked; nil for anything else.
@@ -57,11 +60,13 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
               let harness = name("harness"), let model = name("model"), let environment = name("environment") else { return nil }
         let reservationKey = params?["reservationKey"]
         if let reservationKey, (reservationKey as? String).flatMap(UUID.init(uuidString:)) == nil { return nil }
+        let gestureTicket = params?["gestureTicket"]
+        if let gestureTicket, (gestureTicket as? String).flatMap(UUID.init(uuidString:)) == nil { return nil }
         let cwd = params?["cwd"]
         if let cwd, !((cwd as? String).map { $0.hasPrefix("/") && !$0.contains("\0") && $0.count <= 4096 } ?? false) { return nil }
         let home = params?["home"]
         if let home, !(home is Bool) || cwd != nil { return nil }
-        self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment, reservationKey: reservationKey as? String)
+        self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment, reservationKey: reservationKey as? String, gestureTicket: gestureTicket as? String)
         self.home = home as? Bool ?? false
         self.attachments = attachments
     }
@@ -243,7 +248,7 @@ struct AgentPaneHandOff {
             start.cwd = folder
             start.uploadRoot = root
         }
-        return await held("cloud.startChat") { [start] replacements in
+        return await held("cloud.startChat", gestureTicket: start.gestureTicket, gestureParams: ["key": start.key]) { [start] replacements in
             let reply = await run(start)
             // A chat that started on the machine keeps the hold: this pane never starts one too,
             // also when the App could not close it.
@@ -270,7 +275,8 @@ struct AgentPaneHandOff {
     }
 
     /// The shared guards, then `body` with the replacements held (it ends the hold).
-    private func held(_ method: String, _ body: @MainActor (AcpmuxPaneReplacements) async -> [String: Any]) async -> [String: Any] {
+    private func held(_ method: String, gestureTicket: String? = nil, gestureParams: [String: Any]? = nil,
+                      _ body: @MainActor (AcpmuxPaneReplacements) async -> [String: Any]) async -> [String: Any] {
         guard model.sessionId == nil else { return AgentPaneModel.unsupported(method) }
         let notNow = AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
         let transport = model.transport
@@ -278,7 +284,13 @@ struct AgentPaneHandOff {
         if let refusal = model.sandboxRuns.refusal { return AgentPaneReply.failure(code: refusal, message: refusal) }
         let replacements = transport.replacements
         guard replacements.beginSandbox() else { return notNow }
-        guard transport.gestures.consume() else {
+        let authorized: Bool
+        if let gestureTicket, let connection = transport.connection, let gestureParams {
+            authorized = transport.gestures.redeem(gestureTicket, connection: connection, method: method, params: gestureParams)
+        } else {
+            authorized = transport.gestures.consume()
+        }
+        guard authorized else {
             replacements.endSandbox()
             return AgentPaneModel.transportFailure(.gestureRequired)
         }
