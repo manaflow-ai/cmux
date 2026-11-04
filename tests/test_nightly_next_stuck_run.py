@@ -455,5 +455,35 @@ class StuckRun(unittest.TestCase):
                         names.index("Re-run a cancelled nightly-next tip"))
         self.assertIn("python3 tests/test_nightly_next_stuck_run.py", CI_GUARDS.read_text())
 
+
+class TipRead(unittest.TestCase):
+    """2026-11-04: the installation's API budget ran out and the refs API read of nightly-next
+    failed. git ls-remote reads the head with no API budget; the refs API is the fallback."""
+
+    def refs_api(self, calls):
+        def gh(args, write):
+            calls.append(args[-1])
+            return json.dumps({"object": {"sha": "c" * 40}})
+        return gh
+
+    def test_ls_remote_answers_without_an_api_read(self):
+        calls = []
+        api = stuck.Api("o/r", self.refs_api(calls), ls_remote=lambda repo, branch: "a" * 40)
+        self.assertEqual(api.tip(), "a" * 40)
+        self.assertEqual(calls, [])
+
+    def test_a_failed_or_odd_ls_remote_falls_back_to_the_refs_api(self):
+        def broken(repo, branch):
+            raise OSError("no git")
+        for reader in (broken, lambda repo, branch: ""):
+            calls = []
+            api = stuck.Api("o/r", self.refs_api(calls), ls_remote=reader)
+            self.assertEqual(api.tip(), "c" * 40)
+            self.assertEqual(calls, ["repos/o/r/git/ref/heads/nightly-next"])
+
+    def test_main_reads_with_ls_remote(self):
+        self.assertIn("Api(argv[1], ls_remote=ls_remote_sha)", Path(stuck.__file__).read_text())
+
+
 if __name__ == "__main__":
     unittest.main()

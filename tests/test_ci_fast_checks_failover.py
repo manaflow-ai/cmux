@@ -202,6 +202,8 @@ class FastChecksFailoverTests(unittest.TestCase):
         self.assertRegex(admission, r"(?m)^          ref: [0-9a-f]{40}$")
         self.assertIn("python3 .fast-checks-tools/scripts/ci/fast_checks_runner.py", text)
         self.assertRegex(text, r"sparse-checkout: \|\n\s+scripts/ci/fast_checks_runner\.py\n\s+scripts/ci/pr_runner_pool\.py")
+        # pr_runner_pool imports github_spend at load (#34270): without it every admit step failed.
+        self.assertRegex(admission, r"\n\s+scripts/ci/github_spend\.py\n")
         self.assertIn("needs: admit", text)
         self.assertIn("if: startsWith(needs.admit.outputs.runner, 'blacksmith-')", text)
 

@@ -235,7 +235,7 @@ struct cmuxApp: App {
             workspaceCustomizationStore: workspaceCustomizationStore,
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
             cloudWorkspaceSelection: cloudWorkspaceCoordinator.makeSelectionState(),
-            sshClipboardWriteTrustStore: AppDelegate.shared?.sshClipboardWriteTrustStore
+            sshClipboardWriteTrustStore: _appDelegate.wrappedValue.sshClipboardWriteTrustStore
         )
         let historyMenuCoordinator = HistoryMenuCoordinator(
             closedItemHistoryStore: closedItemHistoryStore,
