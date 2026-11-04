@@ -325,7 +325,7 @@ final class CloudService {
             // `cloud.link.changed` arrives on the local daemon as an app server event.
             let machines = machines
             linkEvents = machines.local.store.sideEvents.subscribe { event in
-                guard let change = CloudAppLinks.change(in: event) else { return }
+                guard let change = CloudLinkChange(event) else { return }
                 machines.session(change.key.machine)?.linkChanged(change)
             }
             // task-owner: observers; cancelled in stop()

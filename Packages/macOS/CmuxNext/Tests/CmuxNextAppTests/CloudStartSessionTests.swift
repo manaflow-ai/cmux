@@ -112,22 +112,23 @@ struct CloudStartSessionTests {
     }
 
     /// A terminal's or a script's start (the CLI `cmux cloud start-chat` runs `cloud start-session`)
-    /// creates its machine with no "Create a Cloud machine?" card, the same as the person's Send, unless the
-    /// person turned `cloud.agentsStartWithoutAsking` off; only the person's own run opens the cap card
-    /// (`capCard`), so a refusal at the plan's cap answers the run (Leo, 2026-11-04: "just auto/bypass
-    /// permissions by default").
+    /// creates its machine as the person's would, never waiting on the "Create a Cloud machine?" card,
+    /// unless the person turned `cloud.agentsStartWithoutAsking` off.
     @Test func aCLIStartCreatesWithoutTheCardUnlessThePersonTurnedAskingOn() async throws {
-        for origin in [ActionOrigin.cli, .script, .remote] {
-            #expect(CloudStartSession.startsAsPerson(Self.invocation(["agent": .string("claude")], origin: origin), delegated: true),
-                    "a \(origin) start would wait on the create card or leave a paused machine paused")
-            #expect(!CloudStartSession.startsAsPerson(Self.invocation(["agent": .string("claude")], origin: origin), delegated: false),
-                    "asking turned on, a \(origin) start still asks")
+        func startsAsPerson(_ origin: ActionOrigin, delegated: Bool) -> Bool {
+            let invocation = Self.invocation(["agent": .string("claude")], origin: origin)
+            return CloudStartCore().startsAsPerson(byPerson: CloudHandlers.origin(of: invocation) == .user, delegated: delegated)
         }
-        #expect(CloudStartSession.startsAsPerson(Self.invocation(["agent": .string("claude")], origin: .user), delegated: false), "the person's own run never asks")
+        for origin in [ActionOrigin.cli, .script, .remote] {
+            #expect(startsAsPerson(origin, delegated: true), "a \(origin) start would wait on the create card")
+            #expect(!startsAsPerson(origin, delegated: false), "asking turned on, a \(origin) start still asks")
+        }
+        #expect(startsAsPerson(.user, delegated: false), "the person's own run never asks")
+        // The create flow's own question (Leo, 2026-11-04: "just auto/bypass permissions by default").
         let services = Self.fixture().services
-        #expect(!services.agentsAskBeforeUsingCloud, "by default a CLI start waits on the create card")
+        #expect(!services.agentsAskBeforeUsingCloud, "by default a CLI start would wait on the create card")
         try await Self.askingFirst(services)
-        #expect(services.agentsAskBeforeUsingCloud, "asking turned on, a CLI start does not ask")
+        #expect(services.agentsAskBeforeUsingCloud, "asking turned on, a CLI start would not ask")
     }
 
     // MARK: Refusals before anything starts
@@ -561,11 +562,11 @@ struct CloudStartSessionTests {
     }
 
     @Test func theRetryCommandKeepsTheNameOneShellWord() {
-        #expect(CloudStartSession.shellQuoted("dev-1") == "dev-1")
-        #expect(CloudStartSession.shellQuoted("my dev") == "'my dev'")
-        #expect(CloudStartSession.shellQuoted("it's") == "'it'\\''s'")
-        #expect(CloudStartSession.shellQuoted("a;rm -rf ~") == "'a;rm -rf ~'")
-        let message = CloudStartSessionStrings.createFailed("my dev", quoted: CloudStartSession.shellQuoted("my dev"), agent: "claude", reason: "x")
+        #expect(CloudStartCore.shellQuoted("dev-1") == "dev-1")
+        #expect(CloudStartCore.shellQuoted("my dev") == "'my dev'")
+        #expect(CloudStartCore.shellQuoted("it's") == "'it'\\''s'")
+        #expect(CloudStartCore.shellQuoted("a;rm -rf ~") == "'a;rm -rf ~'")
+        let message = CloudStartSessionStrings.createFailed("my dev", quoted: CloudStartCore.shellQuoted("my dev"), agent: "claude", reason: "x")
         #expect(message.contains("`cmux cloud start-session --name 'my dev' --agent claude`"))
         #expect(message.hasPrefix("Couldn't create Cloud machine `my dev` (x)"))
     }
