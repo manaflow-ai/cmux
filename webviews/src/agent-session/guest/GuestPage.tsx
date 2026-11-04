@@ -14,7 +14,7 @@ import type { AcpmuxSnapshot } from "../acpmux/model";
 import { PresenceStack } from "../acpmux/multiplayer/Faces";
 import { displayName, participant, type Participant } from "../acpmux/multiplayer/participants";
 import { GuestComposer, GuestMessages } from "./GuestComposer";
-import { GuestPrompts } from "./guestPrompts";
+import { adoptUnscopedPrompts, GuestPrompts, guestScope } from "./guestPrompts";
 import { GuestSendQueue } from "./guestSendQueue";
 import { type Accept, type GuestRole, type JoinedVia, joinName, type Redeem, type RedeemError } from "./redeem";
 import { TypingSignal } from "./typingSignal";
@@ -397,7 +397,12 @@ export function GuestPage({
   const [guestId, setGuestId] = useState(joinedAs);
   const [name, setName] = useState(joinedName);
   const [role, setRole] = useState(joinedRole);
-  const prompts = useMemo(() => new GuestPrompts(shareId, storage), [shareId, storage]);
+  // One outbox per guest: an invite accepted after a link join starts empty (cmux#34013).
+  const prompts = useMemo(() => {
+    if (!guestId) return undefined;
+    if (guestId === joinedAs) adoptUnscopedPrompts(storage, shareId, guestId);
+    return new GuestPrompts(guestScope(shareId, guestId), storage);
+  }, [shareId, guestId, joinedAs, storage]);
   const [ended, setEnded] = useState<GuestEnded | undefined>(endedAtStart);
   const join = async (name: string): Promise<RedeemError | undefined> => {
     if (!secret) return "failed";
@@ -427,7 +432,7 @@ export function GuestPage({
   };
   if (ended) return <EndedPage reason={ended} />;
   if (!guestId && invite) return <InviteJoinPage signIn={`/i/${encodeURIComponent(shareId)}`} onJoin={acceptInvite} />;
-  if (!guestId) return <JoinPage hasSecret={!!secret} onJoin={join} />;
+  if (!guestId || !prompts) return <JoinPage hasSecret={!!secret} onJoin={join} />;
   return (
     <LiveChat
       guestId={guestId}

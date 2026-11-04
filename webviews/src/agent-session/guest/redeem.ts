@@ -9,6 +9,7 @@
 // signs the visitor in with their cmux account before it serves the page, and Join POSTs `accept`
 // with only the attempt id; the room takes the account and the name from that sign-in.
 import { displayName } from "../acpmux/multiplayer/participants";
+import { forgetPrompts } from "./guestPrompts";
 
 /** A share or secret id as the daemon makes them: 128-bit, URL-safe. */
 const ID = /^[A-Za-z0-9_-]{8,128}$/;
@@ -128,6 +129,10 @@ export function rememberJoined(
 ): void {
   storage.removeItem(key(shareId, "secret"));
   storage.removeItem(key(shareId, "attempt"));
+  // Joined as another guest (a link guest that accepted the invite): the old guest's waiting
+  // messages are its own, so this tab stops showing and resending them (cmux#34013).
+  const before = storage.getItem(key(shareId, "joined"));
+  if (before !== null && before !== guestId) forgetPrompts(storage, shareId, before);
   storage.setItem(key(shareId, "joined"), guestId);
   storage.setItem(key(shareId, "via"), via);
   if (name) storage.setItem(key(shareId, "name"), name);

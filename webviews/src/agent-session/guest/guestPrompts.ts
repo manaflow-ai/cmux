@@ -4,6 +4,10 @@
 // acpmux prompt id, and acpmux runs one id once). The room answers with `prompt_state`: held until
 // the owner decides, then approved or declined; refused (with a reason) when the daemon would not
 // hold it. A message the room never acknowledged stays `sending` and goes again on the next snapshot.
+//
+// The messages belong to one guest of the share (`guestScope`), never to the share: a tab that
+// joined by the link and then accepts an invite is a second guest, and the link guest's messages
+// must not go again, or be asked about, as the invitee (cmux#34013).
 import type { GuestPromptState } from "./shareSocket";
 
 export type GuestPromptStatus = "sending" | GuestPromptState["state"];
@@ -18,12 +22,38 @@ export const promptBytes = (text: string) => new TextEncoder().encode(text).leng
 /** Whether the message is still waiting on the room or the owner. */
 export const isOpen = (prompt: GuestPrompt) => prompt.state === "sending" || prompt.state === "held";
 
-const key = (shareId: string) => `cmux.guest.${shareId}.prompts`;
+const key = (scope: string) => `cmux.guest.${scope}.prompts`;
+
+/** The outbox of one guest of a share; its messages are never another guest's. */
+export const guestScope = (shareId: string, guestId: string) => `${shareId}.guest.${encodeURIComponent(guestId)}`;
+
+/** Forget a guest's outbox (the tab joined the share as someone else). */
+export function forgetPrompts(storage: Storage, shareId: string, guestId?: string): void {
+  if (guestId !== undefined) storage.removeItem(key(guestScope(shareId, guestId)));
+  // The outbox kept by share alone, before it was kept per guest, was that guest's too.
+  storage.removeItem(key(shareId));
+}
+
+/**
+ * A tab that kept its outbox by share alone (before it was kept per guest) reloads as the guest that
+ * wrote it: move those messages to that guest's outbox once.
+ */
+export function adoptUnscopedPrompts(storage: Storage, shareId: string, guestId: string): void {
+  const unscoped = storage.getItem(key(shareId));
+  if (unscoped === null) return;
+  try {
+    if (storage.getItem(key(guestScope(shareId, guestId))) === null)
+      storage.setItem(key(guestScope(shareId, guestId)), unscoped);
+    storage.removeItem(key(shareId));
+  } catch {
+    // A full or refused storage keeps the old outbox where it was.
+  }
+}
 const STATES = new Set(["sending", "held", "approved", "declined", "removed", "refused"]);
 
-function read(storage: Storage, shareId: string): GuestPrompt[] {
+function read(storage: Storage, scope: string): GuestPrompt[] {
   try {
-    const kept = JSON.parse(storage.getItem(key(shareId)) ?? "[]");
+    const kept = JSON.parse(storage.getItem(key(scope)) ?? "[]");
     return Array.isArray(kept)
       ? kept.filter(
           (prompt): prompt is GuestPrompt =>
@@ -42,13 +72,14 @@ export class GuestPrompts {
   private prompts: GuestPrompt[];
   private readonly listeners = new Set<() => void>();
 
+  /** `scope`: whose messages these are (`guestScope` for a share's guest). */
   constructor(
-    private readonly shareId: string,
+    private readonly scope: string,
     private readonly storage: Storage,
     private readonly random: (bytes: Uint8Array) => Uint8Array = (bytes) => crypto.getRandomValues(bytes),
     private readonly now: () => number = Date.now,
   ) {
-    this.prompts = read(storage, shareId);
+    this.prompts = read(storage, scope);
   }
 
   /** The messages, oldest first; a new array after each change (useSyncExternalStore). */
@@ -108,7 +139,7 @@ export class GuestPrompts {
     const decided = next.filter((prompt) => !isOpen(prompt)).slice(-DECIDED_KEPT);
     this.prompts = next.filter((prompt) => isOpen(prompt) || decided.includes(prompt));
     try {
-      this.storage.setItem(key(this.shareId), JSON.stringify(this.prompts));
+      this.storage.setItem(key(this.scope), JSON.stringify(this.prompts));
     } catch {
       // A full or refused storage only loses the messages across a reload.
     }

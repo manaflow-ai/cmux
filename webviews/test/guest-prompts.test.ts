@@ -68,3 +68,26 @@ test("retry keeps the refused send's text and original identity across reload", 
   reloaded.retry(first.clientId);
   expect(reloaded.unsent()).toEqual([]);
 });
+
+test("each guest of a share keeps its own outbox; an old by-share outbox moves to its guest once", async () => {
+  const { adoptUnscopedPrompts, forgetPrompts, guestScope } = await import("../src/agent-session/guest/guestPrompts");
+  const tab = memoryStorage();
+  const link = new GuestPrompts(guestScope("share", "g-link"), tab, random);
+  link.add("Link guest's");
+  expect(new GuestPrompts(guestScope("share", "g-invitee"), tab, random).list()).toEqual([]);
+  expect(new GuestPrompts(guestScope("share", "g-link"), tab, random).list().map((each) => each.text)).toEqual([
+    "Link guest's",
+  ]);
+  // A tab from before: its messages were kept by share alone, and the guest it joined as reloads.
+  const old = memoryStorage();
+  new GuestPrompts("share", old, random).add("Kept by share");
+  adoptUnscopedPrompts(old, "share", "g1");
+  expect(old.getItem("cmux.guest.share.prompts")).toBeNull();
+  expect(new GuestPrompts(guestScope("share", "g1"), old, random).list().map((each) => each.text)).toEqual([
+    "Kept by share",
+  ]);
+  adoptUnscopedPrompts(old, "share", "g1");
+  expect(new GuestPrompts(guestScope("share", "g1"), old, random).list().length).toBe(1);
+  forgetPrompts(old, "share", "g1");
+  expect(new GuestPrompts(guestScope("share", "g1"), old, random).list()).toEqual([]);
+});

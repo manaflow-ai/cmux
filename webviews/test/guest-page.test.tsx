@@ -281,7 +281,7 @@ test("a link guest's waiting messages stay its own: accepting the invite neither
   const tab = memoryStorage(SHARE, [
     { clientId: "c-sending", text: "Link guest, never acknowledged", at: 1, state: "sending" },
     { clientId: "c-held", text: "Link guest, waiting for the owner", at: 2, state: "held" },
-  ]);
+  ], "g-link");
   rememberJoined(SHARE, "g-link", tab, "Ana");
   const sent: Record<string, unknown>[] = [];
   const frames = joinFrames(askingRecords());
