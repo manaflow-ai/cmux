@@ -176,6 +176,9 @@ fn quick_start_commands_parse() {
             .map(str::trim)
             .filter(|line| line.starts_with("cmux cloud ") && !line.contains('<'))
             .filter(|line| !line.contains("secret") && !line.contains("client-session"))
+            // The BACKEND lines (`env set local|dev|…`) are a usage pattern, not one
+            // command; cloud_environment.rs tests that grammar.
+            .filter(|line| !line.starts_with("cmux cloud env "))
             .collect::<Vec<_>>();
         // Two start-chat lines, three follow-ups and five machine lines; the quick start's
         // create is `cmux machine new`.
