@@ -11,6 +11,26 @@ thread_local! {
     /// Tests: the next sync of this folder on this thread (`sync_directory`) fails.
     pub(crate) static FAIL_DIR_SYNC: std::cell::RefCell<Option<std::path::PathBuf>> =
         const { std::cell::RefCell::new(None) };
+    /// Tests: the checkpoint's `sync_log` on this thread stops right after it cloned the open
+    /// log, before its own sync of it.
+    pub(crate) static HOLD_AFTER_LOG_CLONE: Hold = const { std::cell::RefCell::new(None) };
+    /// Tests: a log's close on this thread whose sync failed stops right before it notes the
+    /// failure in `sync_failed`.
+    pub(crate) static HOLD_BEFORE_CLOSE_NOTE: Hold = const { std::cell::RefCell::new(None) };
+}
+
+/// Tests: a stop on one thread: it says so on the first channel and waits for the second.
+#[cfg(test)]
+pub(crate) type Hold =
+    std::cell::RefCell<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>;
+
+/// Tests: the stop in `slot`, if this thread has one.
+#[cfg(test)]
+pub(super) fn hold(slot: &'static std::thread::LocalKey<Hold>) {
+    if let Some((arrived, release)) = slot.with(|hold| hold.borrow_mut().take()) {
+        let _ = arrived.send(());
+        let _ = release.recv();
+    }
 }
 
 /// Tests: whether this sync of the folder at `path` fails ([`FAIL_DIR_SYNC`]).
@@ -82,6 +102,8 @@ impl LocalStore {
             }
         };
         if let Some(file) = open {
+            #[cfg(test)]
+            hold(&HOLD_AFTER_LOG_CLONE);
             sync_segment(&file, true).map_err(SyncFailed)?;
         }
         let session = self.dir(id);
