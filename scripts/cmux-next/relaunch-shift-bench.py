@@ -108,6 +108,14 @@ def main():
     longs = [r for r in report["journey"] if "long chat" in str(r.get("item")) or r.get("area") == "seed"]
     if longs:
         text += "\n\nLong chat and failed seed rows:\n" + "\n".join(f"- {'PASS' if r.get('ok') else 'FAIL'} {r.get('item')}: {r.get('detail', '')}" for r in longs)
+    if any(r.get("area") == "seed" and not r.get("ok") for r in longs):
+        # The step log keeps only the journey log's tail: a failed seed's own lines (acpmux, a part that raised) would be lost.
+        try:
+            with open(os.path.join(journey_out, "journey.log"), errors="replace") as f:
+                said = [line.rstrip() for line in f if any(w in line.lower() for w in ("seed", "acpmux", "failed", "not seeded", "no "))]
+            text += "\n\nSeed log (first 40 matching lines):\n" + "\n".join(said[:40])
+        except OSError:
+            pass
     with open(os.path.join(out, "report.md"), "w") as f:
         f.write(text + "\n")
     print(text)
