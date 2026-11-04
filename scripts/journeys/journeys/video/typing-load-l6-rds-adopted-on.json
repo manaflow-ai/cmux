@@ -140,7 +140,9 @@
       "args": [
         "--rate",
         "120",
-        "--devtools"
+        "--devtools",
+        "--workers",
+        "12"
       ]
     },
     {

@@ -311,6 +311,42 @@ class StormL1(Base):
         self.assert_no_focus_verbs()
         self.assert_torn_down(app)
 
+    def test_more_workers_keep_each_workers_sequence(self):
+        # --workers lifts the cap (workers / call latency) and keeps the mix: with the same seed, worker 0 makes the
+        # same calls with 12 workers as with the default 8 (its own seeded sequence; the rate is shared).
+        fake = self.app()
+
+        def worker0(workers):
+            done, out, app = self.run_tool("L1", "--duration", "3", "--rate", "60", "--workers", str(workers),
+                                           "--keep", "pane_keep", app=fake)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            m = self.manifest(out, "L1")
+            self.assertEqual(m["workers"], workers)
+            self.assertEqual(m["calls"]["failed"], 0, m["calls"])
+            with open(os.path.join(out, "L1", "calls.jsonl")) as f:
+                calls = [json.loads(line) for line in f if line.strip()]
+            calls = [c for c in calls if not c["kind"].startswith("teardown")]
+            self.assertEqual({c["worker"] for c in calls}, set(range(workers)))
+            self.assert_torn_down(app)
+            shutil.rmtree(out)
+            return [c["kind"] for c in calls if c["worker"] == 0]
+        eight, twelve = worker0(8), worker0(12)
+        n = min(len(eight), len(twelve))
+        self.assertGreater(n, 2)
+        self.assertEqual(eight[:n], twelve[:n])
+        plan = json.loads(subprocess.run([PY, TOOL, "plan", "L1", "--seed", "3", "--workers", "12"], capture_output=True,
+                                         text=True, timeout=60).stdout)
+        self.assertEqual(plan["workers"], 12)
+
+    def test_l6_passes_workers_to_l1(self):
+        sys.path.insert(0, os.path.dirname(TOOL))
+        import load_profiles
+        a = load_profiles.main.__globals__["argparse"].Namespace(
+            app_socket="/s", seed=7, duration=1.0, rate=120, workers=12, agent_cps=400, agents_where="hidden",
+            heavy_shape="40,200,12", home=None, keep=None, socket=None, cli=None, app=None, devtools=False, acp=False)
+        argv = load_profiles.passthrough(a)
+        self.assertEqual(argv[argv.index("--workers") + 1], "12")
+
     def test_focus_change_is_reported(self):
         open(os.path.join(self.tmp, "steal-focus"), "w").close()  # the stand-in moves focus on tab create
         done, out, _ = self.run_tool("L1", "--duration", "3", "--rate", "60")

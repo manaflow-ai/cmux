@@ -115,6 +115,11 @@ def rds_journey(arm, target="new_tab"):
     for i, step in enumerate(steps):
         if i == relaunch:
             step = dict(step, new_daemon=True, env={"CMUX_NEXT_TUI_RDS_INPUT": "1"} if arm == "on" else {})
+        if step["do"] == "load_start":
+            # 12 L1 workers, not 8: at ~66 ms a call, 120 calls/s keeps ~7.9 workers busy, so 8 workers were all busy
+            # 79-82 % of the time and the storm reached 108.9-112.4 of 120 (build-2 rounds, 2026-11-04). The rate, the
+            # seeds and each worker's call sequence stay the same; only the cap (workers / call latency) rises.
+            step = dict(step, args=list(step["args"]) + ["--workers", "12"])
         if step["do"] == "echo_start" and target == "new_tab":
             # The set-up terminal is adopted (above) so the key window and its pane are the typing pane's; the
             # typed terminal is a new tab there, from the new daemon.

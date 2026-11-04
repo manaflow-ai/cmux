@@ -286,6 +286,9 @@ class Journeys(unittest.TestCase):
             for want in (("daemon_arm", "before"), ("daemon_arm", "after"), ("server_stats", "before"),
                          ("server_stats", "after")):
                 self.assertIn(want, steps)
+            # the L1 storm runs 12 workers at the same 120 calls/s
+            load = next(s for s in spec["steps"] if s["do"] == "load_start")
+            self.assertEqual(load["args"], ["--rate", "120", "--devtools", "--workers", "12"])
             # echo.py writes its records when it ends: the journey ends it after its last check and in finally
             self.assertEqual(spec["steps"][-1], {"do": "echo_stop"})
             self.assertEqual(spec["finally"][0], {"do": "echo_stop"})

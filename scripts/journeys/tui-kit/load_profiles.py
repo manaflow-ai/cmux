@@ -6,7 +6,7 @@ the person's focus, and they only use the socket named on the command line.
                    [--duration S] [--out DIR] [--rate R]
   load_profiles.py plan L1..L6 [--seed N]       what a profile would do (no app)
 
-  L1  CLI storm: 8 workers call the bundled cmux CLI and the app socket in a seeded mix (workspace, pane, tab
+  L1  CLI storm: 8 workers (--workers) call the bundled cmux CLI and the app socket in a seeded mix (workspace, pane, tab
       and terminal list; tab create and close; terminal write; screen read; notify; workspace status,
       progress and log) at --rate calls a second in total (50..200). The achieved rate is logged.
   L2  MCP storm: 4 clients of `cmux mcp serve --all-tools` call tools back to back: workspace_list,
@@ -326,12 +326,15 @@ class L1(Profile):
     WORKERS = 8
 
     def setup(self):
+        # --workers (default WORKERS): each worker has its own seeded call sequence and they share the rate, so more
+        # workers keep the mix and the asked rate and only lift the cap (workers / call latency).
+        self.workers = getattr(self.a, "workers", None) or self.WORKERS
         self.ws = self.workspace("storm")
-        self.mine = [[] for _ in range(self.WORKERS)]  # tabs each worker made (it closes only its own)
+        self.mine = [[] for _ in range(self.workers)]  # tabs each worker made (it closes only its own)
         self.lock = threading.Lock()
         self.manifest["rate"] = self.a.rate
         self.calls.asked = self.a.rate
-        self.manifest["workers"] = self.WORKERS
+        self.manifest["workers"] = self.workers
         self.manifest["mix"] = dict(L1_KINDS)
         self.save()
 
@@ -401,7 +404,7 @@ class L1(Profile):
                     return
                 self.call(self.pick(rng), rng, index)
 
-        threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(self.WORKERS)]
+        threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(self.workers)]
         for t in threads:
             t.start()
         self.stop.wait()
@@ -885,7 +888,8 @@ def l6_exit(codes):
 
 def passthrough(a):
     out = ["--app-socket", a.app_socket, "--seed", str(a.seed), "--duration", str(a.duration), "--rate", str(a.rate),
-           "--agent-cps", str(a.agent_cps), "--agents-where", a.agents_where, "--heavy-shape", a.heavy_shape]
+           "--workers", str(a.workers), "--agent-cps", str(a.agent_cps), "--agents-where", a.agents_where,
+           "--heavy-shape", a.heavy_shape]
     for flag, value in (("--home", a.home), ("--keep", a.keep), ("--socket", a.socket), ("--cli", a.cli),
                         ("--app", a.app)):
         if value:
@@ -916,6 +920,9 @@ def cmd_run(a):
         return 2
     if not 1 <= a.rate <= 1000:
         print("load_profiles: --rate is 1..1000", file=sys.stderr)
+        return 2
+    if not 1 <= a.workers <= 64:
+        print("load_profiles: --workers is 1..64", file=sys.stderr)
         return 2
     a.out = os.path.abspath(a.out or os.path.join(os.environ.get("TMPDIR") or "/tmp", "tk-load-%d" % a.seed))
     if a.profile == "L6":
@@ -989,7 +996,7 @@ def cmd_plan(a):
     if a.profile == "L1":
         rng = random.Random("L1-%d-0" % a.seed)
         plan["first_calls_worker0"] = [L1.pick(None, rng) for _ in range(20)]
-        plan["workers"], plan["rate"] = L1.WORKERS, a.rate
+        plan["workers"], plan["rate"] = a.workers, a.rate
     elif a.profile == "L3":
         plan["visible"], plan["hidden"] = list(L3.VISIBLE), L3.HIDDEN
     elif a.profile == "L4":
@@ -1016,6 +1023,8 @@ def main(argv=None):
     p.add_argument("--duration", type=float, default=120.0, help="seconds of load after LOAD-READY (0: until SIGTERM)")
     p.add_argument("--out", help="folder (default $TMPDIR/tk-load-SEED)")
     p.add_argument("--rate", type=int, default=100, help="L1: CLI and socket calls a second in total")
+    p.add_argument("--workers", type=int, default=L1.WORKERS,
+                   help="L1: worker threads sharing --rate, each with its own seeded call sequence (default %d)" % L1.WORKERS)
     p.add_argument("--agent-cps", type=int, default=400, help="L4: characters a second each agent streams")
     p.add_argument("--agents-where", choices=("hidden", "beside"), default="hidden")
     p.add_argument("--devtools", action="store_true",
@@ -1028,6 +1037,7 @@ def main(argv=None):
     p.add_argument("profile", choices=PROFILES)
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--rate", type=int, default=100)
+    p.add_argument("--workers", type=int, default=L1.WORKERS)
     p.set_defaults(fn=cmd_plan)
     a = ap.parse_args(argv)
     return a.fn(a)
