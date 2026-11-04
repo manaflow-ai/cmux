@@ -15,13 +15,18 @@ import CmuxNextWakeups
 /// - `liveResize.setFrame_ms`: the `setFrame`: AppKit's resize, the tree layout and what AppKit flushes inside it
 ///   (`lead_ms` minus this is the slack at its end);
 /// - `liveResize.commit_slack_ms`: from the end of the turn's Core Animation commit (an observer one order after it)
-///   to that display time; below 0 the turn's commit came after it, and what the commit carried showed a refresh late.
+///   to that display time; below 0 the turn's commit came after it, and what the commit carried showed a refresh late;
+/// - `liveResize.layouts_inside`: window layout passes (`-[NSWindow layoutIfNeeded]`, any window) begun inside the
+///   `setFrame` (AppKit's own tree layout there is not one). Above 0, the overlay's held page update can go out before
+///   the window's didResize, and the drag posts twice (Codex review of f9c15782c94).
 @MainActor
 final class LiveResizeFrameProbe {
     /// A `setFrame` of the resize: when it started and the display time it can first make (nil: no recent display link).
     struct Frame {
         let start: CFTimeInterval
         let target: CFTimeInterval?
+        /// ``LayoutPassGuard/windowLayoutsBegun`` when the `setFrame` started.
+        let layoutsBegun: Int
     }
 
     /// How old the window's last display-link frame may be for its target to place a `setFrame` on the refresh.
@@ -43,12 +48,13 @@ final class LiveResizeFrameProbe {
         if let eventTime { MotionTrace.sample("liveResize.wait_ms", (start - eventTime) * 1000) }
         MotionTrace.sample("liveResize.at_tick", atTick ? 1 : 0)
         if let target { MotionTrace.sample("liveResize.lead_ms", (target - start) * 1000) }
-        return Frame(start: start, target: target)
+        return Frame(start: start, target: target, layoutsBegun: LayoutPassGuard.shared.windowLayoutsBegun)
     }
 
     /// That `setFrame` returned: its time now, its commit's when the turn commits.
     func frameDidApply(_ frame: Frame) {
         MotionTrace.sample("liveResize.setFrame_ms", (CACurrentMediaTime() - frame.start) * 1000)
+        MotionTrace.sample("liveResize.layouts_inside", Double(LayoutPassGuard.shared.windowLayoutsBegun - frame.layoutsBegun))
         guard let target = frame.target else { return }
         awaitingCommit.append(target)
         guard observer == nil else { return }

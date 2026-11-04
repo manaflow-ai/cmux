@@ -73,6 +73,9 @@ public final class LayoutPassGuard {
     /// One integer add per layout call, beside the class count every build keeps.
     public private(set) var viewLayoutCalls = 0
     public private(set) var windowLayoutPasses = 0
+    /// Outermost window layout passes begun since launch, all windows, also those that laid out no view (which
+    /// ``windowLayoutPasses`` leaves out): the S7 live-resize probe counts the passes inside a window's `setFrame`.
+    public private(set) var windowLayoutsBegun = 0
 
     /// One `layoutIfNeeded` of a window in progress: its nesting depth, the
     /// layout calls per view in it (the weak reference tells a reused
@@ -200,7 +203,10 @@ public final class LayoutPassGuard {
     fileprivate func windowLayoutWillBegin(_ window: NSWindow) {
         let id = ObjectIdentifier(window)
         windowLayouts[id, default: WindowLayout()].depth += 1
-        if windowLayouts[id]?.depth == 1 { windowLayouts[id]?.viewCallsAtStart = viewLayoutCalls }
+        if windowLayouts[id]?.depth == 1 {
+            windowLayouts[id]?.viewCallsAtStart = viewLayoutCalls
+            windowLayoutsBegun &+= 1
+        }
     }
 
     fileprivate func windowLayoutDidEnd(_ window: NSWindow) {
