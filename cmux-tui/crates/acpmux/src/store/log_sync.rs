@@ -11,6 +11,7 @@ thread_local! {
     /// Tests: the next sync of this folder on this thread (`sync_directory`) fails.
     pub(crate) static FAIL_DIR_SYNC: std::cell::RefCell<Option<std::path::PathBuf>> =
         const { std::cell::RefCell::new(None) };
+    pub(crate) static NOTE_BEFORE_CLOSE_NOTE_READ: Note = const { std::cell::RefCell::new(None) };
     /// Tests: the checkpoint's `sync_log` on this thread stops right after it cloned the open
     /// log, before its own sync of it.
     pub(crate) static HOLD_AFTER_LOG_CLONE: Hold = const { std::cell::RefCell::new(None) };
@@ -32,6 +33,11 @@ pub(super) fn hold(slot: &'static std::thread::LocalKey<Hold>) {
         let _ = release.recv();
     }
 }
+
+/// Tests: a note a thread sends once, when it reaches a point of the code (red proof: the
+/// seam's declaration only, with no call on this code).
+#[cfg(test)]
+pub(crate) type Note = std::cell::RefCell<Option<std::sync::mpsc::Sender<&'static str>>>;
 
 /// Tests: whether this sync of the folder at `path` fails ([`FAIL_DIR_SYNC`]).
 #[cfg(test)]
