@@ -4,10 +4,7 @@
 //! those words into the window it trusts and the loss it reports.
 //!
 //! This file holds no mapping, descriptor or `unsafe`: the words are plain
-//! atomics and the data is reached through the caller's closures, so
-//! `cmux-tui/verify/loom-ring` includes it through `#[path]` and runs it
-//! under loom. With `--cfg loom` the atomics and the fence are loom's;
-//! the holder build uses std's.
+//! atomics and the data is reached through the caller's closures.
 //!
 //! Writer order for one write of up to `len` bytes at `end` (one process
 //! writes a segment at a time):
@@ -30,9 +27,6 @@
 
 use std::ops::Range;
 
-#[cfg(loom)]
-use loom::sync::atomic::{AtomicU64, Ordering, fence};
-#[cfg(not(loom))]
 use std::sync::atomic::{AtomicU64, Ordering, fence};
 
 /// The header words both the writer and a later reader of a segment use.
@@ -41,25 +35,6 @@ pub(crate) struct Words<'a> {
     pub(crate) oldest: &'a AtomicU64,
     /// 1 + the offset a `read` in flight started at, 0 for none.
     pub(crate) reading: &'a AtomicU64,
-    /// The model's kill point after each word the writer stores.
-    #[cfg(loom)]
-    pub(crate) kill_point: &'a dyn KillPoint,
-}
-
-/// Under loom: where the model may SIGKILL the writer, once each header
-/// word store is in the segment (the data stores are the caller's).
-#[cfg(loom)]
-pub(crate) trait KillPoint {
-    fn reached(&self);
-}
-
-impl Words<'_> {
-    /// A header word store is done.
-    #[inline]
-    fn stored(&self) {
-        #[cfg(loom)]
-        self.kill_point.reached();
-    }
 }
 
 /// The writer's view of a ring: its capacity and the window it keeps,
@@ -193,7 +168,6 @@ impl Cursor {
     fn publish(&mut self, words: &Words<'_>, end: u64) {
         self.end = end;
         words.end.store(end, Ordering::Release);
-        words.stored();
     }
 
     /// Before a write of up to `len` bytes at `end`: drop out of the ring
@@ -215,7 +189,6 @@ impl Cursor {
     fn publish_reading(&mut self, words: &Words<'_>, at: Option<u64>) {
         let word = at.map_or(0, |at| at + 1);
         words.reading.store(word, Ordering::Release);
-        words.stored();
         fence(Ordering::SeqCst);
     }
 
@@ -224,7 +197,6 @@ impl Cursor {
     fn publish_oldest(&mut self, words: &Words<'_>, oldest: u64) {
         self.oldest = oldest;
         words.oldest.store(oldest, Ordering::Release);
-        words.stored();
     }
 }
 

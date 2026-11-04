@@ -3,8 +3,8 @@
 `scripts/cmux-next/sanitizer-sweep.sh` runs the Swift package tests of the CmuxNext closure under
 ThreadSanitizer, AddressSanitizer, UndefinedBehaviorSanitizer and the strict cooperative pool. It is
 the Swift half of queue Q15 and done check 13 in
-[stability-DESIGN.md](../../plans/cmux-next/stability-DESIGN.md). The Rust half is
-`cmux-tui/scripts/sanitize.sh`.
+[stability-DESIGN.md](../../plans/cmux-next/stability-DESIGN.md). The Rust sanitizer and Miri lane
+was removed in the 2026-11-04 deletion wave.
 
 ## Run it
 

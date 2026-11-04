@@ -55,7 +55,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::sync::atomic::AtomicU64;
 
 // The offset protocol (publication order, adopted window, loss marker):
-// no `unsafe`, so cmux-tui/verify/loom-ring runs it under loom.
+// no `unsafe`.
 #[path = "ring_protocol.rs"]
 mod protocol;
 
