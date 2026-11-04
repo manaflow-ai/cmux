@@ -294,7 +294,7 @@ export default componentEntry({
   id: "agent-pane.neko-icon-family",
   title: "Neko icon family comparison",
   area: "Agent pane",
-  height: 480,
+  height: 640,
   covers: [
     "agent-session/acpmux/icons/Icon.tsx#Icon",
     "agent-session/acpmux/conversation/icons.tsx#Copy",
