@@ -918,7 +918,13 @@ fn write_found(
     file: &LocalFile,
     progress: &mut dyn FnMut(),
 ) -> anyhow::Result<String> {
-    match found {
+    // A folder from a listing is asked again before it goes: a symlink
+    // swapped in since (to an empty folder, say) must not be deleted.
+    let fresh = match found {
+        Some("dir") if remote.no_follow() => remote.kind(target)?,
+        found => found.map(str::to_string),
+    };
+    match fresh.as_deref() {
         Some("dir") if remote.list(target)?.is_some_and(|entries| entries.is_empty()) => {
             remote.delete(&[target.to_string()])?;
         }

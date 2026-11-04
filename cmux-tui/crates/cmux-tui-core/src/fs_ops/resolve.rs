@@ -241,10 +241,9 @@ impl<'a> Walk<'a> {
                 EntryKind::Symlink => self.splice(&part, &mut pending)?,
                 EntryKind::Dir if !last => {
                     let fd = match sys::open_dir_at(self.top()?, &part) {
-                        // Swapped for a symlink since the look above.
-                        Err(error)
-                            if self.refuse_links && error.raw_os_error() == Some(libc::ELOOP) =>
-                        {
+                        // Swapped for a symlink since the look above (Linux
+                        // answers ENOTDIR, macOS ELOOP).
+                        Err(_) if self.refuse_links && self.became_link(&part) => {
                             return Err(FsError::SymlinkInPath);
                         }
                         opened => opened?,
@@ -256,6 +255,14 @@ impl<'a> Walk<'a> {
             }
         }
         self.finish(None)
+    }
+
+    /// Whether `name` in the top directory is a symlink now.
+    fn became_link(&self, name: &str) -> bool {
+        self.top()
+            .ok()
+            .and_then(|dir| sys::lstat_at(dir, name).ok())
+            .is_some_and(|stat| Meta::of(&stat).kind == EntryKind::Symlink)
     }
 
     /// Replaces the symlink `name` (in the top directory) by its target's

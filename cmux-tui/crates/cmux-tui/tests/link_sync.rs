@@ -24,8 +24,9 @@ fn serve_fs(socket: &Path, home: &Path) -> &'static Mutex<Vec<Planted>> {
 }
 
 /// [`serve_fs`] whose `identify` lists `capabilities`, as a Cloud daemon's
-/// does (`cmux_tui_core::fs_ops::advertised`). Its listings leave out
-/// symlinks: they stand in for a listing read before the machine made one.
+/// does (`cmux_tui_core::fs_ops::advertised`). Its listings stand in for
+/// one read before the machine made its symlinks: a link to a folder is
+/// listed as that folder, and any other link is left out.
 fn serve_fs_advertising(socket: &Path, home: &Path, capabilities: &'static [&'static str]) {
     serve_hostile_fs(socket, home, capabilities);
 }
@@ -71,7 +72,14 @@ fn serve_hostile_fs(
                                 if !capabilities.is_empty()
                                     && let Some(entries) = reply["data"]["entries"].as_array_mut()
                                 {
-                                    entries.retain(|entry| entry["kind"] != "symlink");
+                                    entries.retain(|entry| {
+                                        entry["kind"] != "symlink" || entry["target_kind"] == "dir"
+                                    });
+                                    for entry in entries.iter_mut() {
+                                        if entry["kind"] == "symlink" {
+                                            entry["kind"] = json!("dir");
+                                        }
+                                    }
                                 }
                             }
                             reply
@@ -1333,6 +1341,11 @@ fn a_no_follow_push_never_writes_through_a_link_the_machine_changed() {
     std::fs::write(folder.join("a.txt"), "mine\n").unwrap();
     std::fs::write(folder.join("sub/b.txt"), "mine\n").unwrap();
     std::fs::write(folder.join("new.txt"), "new\n").unwrap();
+    // A link to an empty folder, listed as a folder: it is asked again and
+    // stays, never deleted as an empty folder in the way.
+    std::fs::create_dir_all(remote.join("hollow")).unwrap();
+    std::os::unix::fs::symlink("hollow", remote.join("c.txt")).unwrap();
+    std::fs::write(folder.join("c.txt"), "c\n").unwrap();
 
     let (ok, pushed, _) = push_output(&socket, &folder, &remote);
     assert!(ok, "{pushed}");
@@ -1341,6 +1354,8 @@ fn a_no_follow_push_never_writes_through_a_link_the_machine_changed() {
     assert!(!remote.join("elsewhere/b.txt").exists(), "{pushed}");
     let skipped = skipped_by_path(&pushed);
     assert!(skipped.contains_key("a.txt") && skipped.contains_key("sub/b.txt"), "{pushed}");
+    assert_eq!(std::fs::read_link(remote.join("c.txt")).unwrap(), Path::new("hollow"));
+    assert!(skipped.contains_key("c.txt"), "{pushed}");
     assert_eq!(std::fs::read_to_string(remote.join("new.txt")).unwrap(), "new\n");
 }
 
