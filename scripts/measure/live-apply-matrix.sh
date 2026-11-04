@@ -432,6 +432,11 @@ elif lab.get("apply", {}).get("outcome") != "applied":
 else:
     verdict = "in_place_fail"
 probe_discriminates = p.get("base") == "fail" and parity_ok
+# Whether a Release app (NIGHTLY, DEV) can read this probe at all. chat_scroll_jumps needs the
+# Debug-only debug.agent_pane: the lab build can run it, but its result says nothing about Release,
+# so that row is neither covered nor failed for Release.
+release_probe = {"chat_scroll_jumps": "unsupported", "post_frame_feeds_mark": "accessible",
+                 "close_key_turn": "accessible"}.get(probe, "unsupported")
 apply_s = lab.get("apply", {}).get("seconds")
 row = {
   "label": "IMPLEMENTED",
@@ -459,6 +464,8 @@ row = {
   "runtime": "pass" if parity_ok else ("fail" if head_app else "not_run"),
   "verdict": verdict,
   "needs_full_build": verdict != "in_place_pass",
+  "release_probe": release_probe,
+  "counted_for_release": release_probe == "accessible",
   "seconds": {
       "selection_to_probe_green_in_place": lab.get("probe_green_at") - t0 if verdict == "in_place_pass" and lab.get("probe_green_at") else None,
       "apply_only": apply_s,
