@@ -42,6 +42,9 @@ SIGN_JOB = "build-sign-notarize-nightly"
 # A sign job that holds or waits for a slot, or already signed. Any other state (failed, cancelled,
 # skipped) is no reason to yield.
 WAITING = frozenset({"queued", "in_progress", "waiting", "pending", "requested"})
+# Every unfinished run status but queued, as signing_runner.ACTIVE_RUN_STATUSES: a newer run waiting on an
+# environment or a concurrency slot can hold a queued sign job too (cmuxterm-hq#7091). A queued run has no job yet.
+ACTIVE_RUN_STATUSES = ("in_progress", "waiting", "pending", "requested")
 PAGE = 100
 MAX_PAGES = 5
 
@@ -95,15 +98,15 @@ def signing(job: dict[str, Any]) -> bool:
 def newer_signer(get: Get, repo: str, run_id: int) -> tuple[int, str] | None:
     """The newest nightly-next push run above RUN_ID whose sign job is queued, running or signed,
     with that job's state; or None."""
-    runs = listing(get, f"repos/{repo}/actions/workflows/nightly.yml/runs?branch=nightly-next&event=push&status=in_progress",
-                   "workflow_runs")
-    newer = []
-    for run in runs:
-        rid = run.get("id")
-        if not isinstance(rid, int) or isinstance(rid, bool):
-            raise Unreadable(f"a run id {rid!r}")
-        if rid > run_id:
-            newer.append(rid)
+    newer: set[int] = set()
+    for status in ACTIVE_RUN_STATUSES:
+        for run in listing(get, f"repos/{repo}/actions/workflows/nightly.yml/runs?branch=nightly-next&event=push&status={status}",
+                           "workflow_runs"):
+            rid = run.get("id")
+            if not isinstance(rid, int) or isinstance(rid, bool):
+                raise Unreadable(f"a run id {rid!r}")
+            if rid > run_id:
+                newer.add(rid)
     for rid in sorted(newer, reverse=True):
         for job in listing(get, f"repos/{repo}/actions/runs/{rid}/jobs?filter=latest", "jobs"):
             name = job.get("name")
