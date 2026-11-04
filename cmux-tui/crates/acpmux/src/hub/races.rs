@@ -764,6 +764,28 @@ async fn wait_transition(
 mod tests {
     use super::*;
 
+    fn test_meta(id: &str, status: &str, parent: Option<&str>) -> SessionMeta {
+        let mut value = json!({
+            "schema": crate::store::META_SCHEMA,
+            "id": id,
+            "name": id,
+            "harness": "codex",
+            "cwd": "/tmp",
+            "status": status,
+            "createdAt": 1,
+            "updatedAt": 2
+        });
+        if let Some(parent) = parent {
+            value["subsession"] = json!({
+                "startedBy": parent,
+                "shortName": id,
+                "depth": 1,
+                "offered": false
+            });
+        }
+        serde_json::from_value(value).unwrap()
+    }
+
     fn race() -> Race {
         serde_json::from_value(json!({
             "id": "019a0000000070008000000000000000", "parent": "parent", "prompt": "fix it",
@@ -897,5 +919,71 @@ mod tests {
             host_seq: None,
         };
         assert!(recovery_prompt_accepted(None, false, &[queued]));
+    }
+
+    #[tokio::test]
+    async fn recovery_finishes_persisted_verdict_after_reviewer_closed() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let hub = Arc::new(Hub::new(config, Box::new(crate::store::MemoryStore::default())));
+        let parent = hub.insert_test_session(test_meta("parent", "idle", None));
+        let reviewer = hub.insert_test_session(test_meta("reviewer", "closed", Some("parent")));
+        hub.save_meta(&parent);
+        hub.save_meta(&reviewer);
+        let race: Race = serde_json::from_value(json!({
+            "id": "race-recovery",
+            "parent": "parent",
+            "prompt": "fix it",
+            "state": "reviewing",
+            "candidates": [
+                {"id":"c1","target":{"harness":"codex","model":"sol"},"state":"completed"},
+                {"id":"c2","target":{"harness":"codex","model":"astra"},"state":"completed"}
+            ],
+            "reviewer":{"harness":"codex"},
+            "reviewerSessionId":"reviewer",
+            "reviewerTurnId":"review-turn",
+            "winnerId":"c1",
+            "reason":"tests passed",
+            "createdAt":1,
+            "updatedAt":2,
+            "cleanupPending":true
+        }))
+        .unwrap();
+        parent.meta.lock().unwrap().races = Arc::new(vec![race]);
+        hub.save_meta(&parent);
+
+        hub.finish_review_cleanup(&parent, "race-recovery").await.unwrap();
+        let done = hub.race_get(&parent, "race-recovery").unwrap();
+        assert_eq!(done.state, "completed");
+        assert_eq!(done.winner_id.as_deref(), Some("c1"));
+        assert_eq!(done.reason.as_deref(), Some("tests passed"));
+        assert!(!done.cleanup_pending);
+        assert!(done.reviewer_cleanup_done);
+        assert_eq!(done.reviewer_session_id.as_deref(), Some("reviewer"));
+        assert_eq!(done.reviewer_turn_id.as_deref(), Some("review-turn"));
+        assert_eq!(done.candidates.iter().filter(|c| c.state == "discarded").count(), 1);
+        assert_eq!(hub.race_stats(&parent)["models"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn historical_cancelled_race_does_not_close_reopened_child() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let hub = Arc::new(Hub::new(config, Box::new(crate::store::MemoryStore::default())));
+        let parent = hub.insert_test_session(test_meta("parent", "idle", None));
+        let child = hub.insert_test_session(test_meta("cancel-child", "idle", Some("parent")));
+        hub.save_meta(&parent);
+        hub.save_meta(&child);
+        let race: Race = serde_json::from_value(json!({
+            "id":"cancelled-old", "parent":"parent", "prompt":"fix", "state":"cancelled",
+            "candidates":[{"id":"c1","target":{"harness":"codex"},"state":"running","sessionId":"cancel-child"}],
+            "reviewer":{"harness":"codex"}, "winnerId":null, "reason":"cancelled",
+            "createdAt":1,"updatedAt":2,"cleanupPending":false
+        }))
+        .unwrap();
+        parent.meta.lock().unwrap().races = Arc::new(vec![race]);
+        hub.save_meta(&parent);
+        hub.run_race(&parent, "cancelled-old", true).await.unwrap();
+        assert_eq!(child.meta().status, SessionStatus::Idle);
     }
 }
