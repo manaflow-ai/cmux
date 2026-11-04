@@ -297,6 +297,7 @@ jobs:
             scripts/ci/pr_runner_pool.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/ui_tests_dispatch.py
+            .github/workflows/nightly.yml
           sparse-checkout-cone-mode: false
 
       - name: Wait through GitHub API rate limits in this job's gh calls
@@ -327,6 +328,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NIGHTLY_NEXT_TRAIN: ${{ vars.NIGHTLY_NEXT_TRAIN }}
+          OWNED_STUCK_MINUTES: ${{ vars.NIGHTLY_NEXT_OWNED_STUCK_MINUTES || '15' }}
           GH_BUDGET_WAIT_ATTEMPTS: "1"
         run: python3 -u .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"
 

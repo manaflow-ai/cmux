@@ -54,6 +54,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any
 
 # A non-owned label that stops serving is retried quickly.  Owned labels normally
@@ -66,6 +67,7 @@ SETTLE_SECONDS = float(os.environ.get("SETTLE_SECONDS", "15"))
 FORCE_AFTER = int(os.environ.get("FORCE_AFTER", "6"))
 PAGE = 100
 PROMOTION_TITLE = "Promote nightly-next to"
+WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/nightly.yml"
 
 RUN_STATUSES = frozenset({"queued", "in_progress", "completed", "waiting", "requested", "pending",
                           "action_required"})
@@ -78,6 +80,61 @@ TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z")
 
 class Unreadable(Exception):
     """An answer that failed, or that is not the shape this reads. Nothing is cancelled on it."""
+
+
+def _workflow_graph() -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """Return workflow job aliases and their `needs` edges, or empty maps when unavailable.
+
+    The unstick job checks out this workflow beside the script. Keeping the dependency graph
+    declarative means an owned build's downstream jobs receive its rescue grace without
+    delaying an unrelated queued job.
+    """
+    try:
+        import yaml
+        with WORKFLOW.open(encoding="utf-8") as stream:
+            jobs = yaml.safe_load(stream).get("jobs", {})
+    except (ImportError, OSError, AttributeError, TypeError, ValueError):
+        return {}, {}
+    if not isinstance(jobs, dict):
+        return {}, {}
+    aliases: dict[str, set[str]] = {}
+    needs: dict[str, set[str]] = {}
+    for job_id, spec in jobs.items():
+        if not isinstance(job_id, str) or not isinstance(spec, dict):
+            continue
+        display = spec.get("name")
+        names = {job_id.lower()}
+        if isinstance(display, str):
+            names.add(display.lower().split(" (", 1)[0].strip())
+        aliases[job_id] = names
+        raw_needs = spec.get("needs", [])
+        if isinstance(raw_needs, str):
+            raw_needs = [raw_needs]
+        needs[job_id] = {item for item in raw_needs if isinstance(item, str)} if isinstance(raw_needs, list) else set()
+    return aliases, needs
+
+
+def _owned_grace_jobs(jobs: Sequence["Job"]) -> set[str]:
+    """Names of an owned job and its workflow dependents that may use the owned grace."""
+    aliases, needs = _workflow_graph()
+    if not aliases:
+        return set()
+    owned_ids: set[str] = set()
+    for item in jobs:
+        if any(label.startswith("glaeda-") for label in item.labels):
+            name = item.name.lower().split(" (", 1)[0].strip()
+            owned_ids.update(job_id for job_id, names in aliases.items() if name in names)
+    if not owned_ids:
+        return set()
+    downstream = set(owned_ids)
+    changed = True
+    while changed:
+        changed = False
+        for job_id, job_needs in needs.items():
+            if job_id not in downstream and job_needs & downstream:
+                downstream.add(job_id)
+                changed = True
+    return {name for job_id in downstream for name in aliases.get(job_id, set())}
 
 
 # ---- the typed reader
@@ -282,14 +339,11 @@ def stuck_job(run: Run, jobs: list[Job], now: dt.datetime) -> Job | None:
     # as it becomes runnable. Waiting from the latest executed completion is conservative
     # even when that job is not this one's dependency; no workflow graph read is needed.
     completed = max((job.completed for job in jobs if job.completed is not None), default=None)
-    owned_queued = any(queued_without_runner(job)
-                       and any(label.startswith("glaeda-") for label in job.labels)
-                       for job in jobs)
+    owned_grace_jobs = _owned_grace_jobs(jobs)
 
     def wait_limit(job: Job) -> float:
-        # A downstream job can be created before its owned-pool dependency runs. Keep
-        # the whole run under the rescue grace until that dependency has had its chance.
-        return OWNED_STUCK_MINUTES if owned_queued else STUCK_MINUTES
+        name = job.name.lower().split(" (", 1)[0].strip()
+        return OWNED_STUCK_MINUTES if name in owned_grace_jobs else STUCK_MINUTES
 
     stuck = [job for job in jobs if queued_without_runner(job)
              and (now - max(job.created, completed or job.created)).total_seconds() / 60 >= wait_limit(job)]

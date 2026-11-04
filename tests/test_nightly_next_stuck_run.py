@@ -209,7 +209,8 @@ class StuckRun(unittest.TestCase):
         self.assertEqual(gh.writes(), [], "an unknown dependency completion time is not proof of a stall")
 
     def test_a_queued_owned_build_gets_a_grace_period_before_the_fallback(self):
-        mixed = [job("build-nightly-app", 10, label="glaeda-trusted-next-nightly"), job("signer", 10)]
+        mixed = [job("build-nightly-app", 10, label="glaeda-trusted-next-nightly"),
+                 job("build-sign-notarize-nightly", 10)]
         for case, reads, expected in (
             ("discovery", [mixed], []),
             ("before cancel", [STUCK, mixed], []),
@@ -441,11 +442,13 @@ class StuckRun(unittest.TestCase):
         steps = job_spec["steps"]
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
         self.assertIn("scripts/ci/nightly_next_stuck_run.py", tooling["with"]["sparse-checkout"].split())
+        self.assertIn(".github/workflows/nightly.yml", tooling["with"]["sparse-checkout"].split())
         names = [step.get("name") for step in steps]
         step = steps[names.index("Cancel a nightly-next run stuck without a runner")]
         self.assertTrue(step["continue-on-error"])
         self.assertGreater(step["timeout-minutes"], 5)
         self.assertEqual(step["env"]["NIGHTLY_NEXT_TRAIN"], "${{ vars.NIGHTLY_NEXT_TRAIN }}")
+        self.assertEqual(step["env"]["OWNED_STUCK_MINUTES"], "${{ vars.NIGHTLY_NEXT_OWNED_STUCK_MINUTES || '15' }}")
         self.assertEqual(step["run"], 'python3 -u .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"')
         # Never for a dispatch with a sha; one fixed group, which runs one rescue at a time.
         self.assertIn("inputs.sha == ''", job_spec["if"])
