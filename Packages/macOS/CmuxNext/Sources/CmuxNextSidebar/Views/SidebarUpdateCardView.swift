@@ -155,6 +155,11 @@ final class SidebarUpdateCardView: NSView {
             return
         }
         if highlights == nil { highlights = surfaces?.island(.ready) }
+        // The card just took the slot (the download's notice card turns into it in place, the
+        // Restart button where the Download or Cancel button was): a click meant for the card it
+        // replaced must not restart cmux (Leo 2026-11-04: "i only clicked the "download" button
+        // and it allegedly "updated" but i didnt restart the app/get a prompt to?").
+        if previous == nil || !wasShowing || previous?.detail != card.detail { button.ignorePointer() }
         // Restart to Update becoming Installing… crossfades instead of popping.
         if let previous, wasShowing, previous.title != card.title || previous.detail != card.detail
             || previous.buttonTitle != card.buttonTitle || previous.isEnabled != card.isEnabled {

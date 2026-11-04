@@ -314,6 +314,17 @@ impl Hub {
                 if subagent.is_none() && !muted && !kind.ends_with(".replay") {
                     tap_hub.background_turn_update(&tap_session, &params["update"]);
                 }
+                // A predicted next prompt reaches the composer only when likely to be taken
+                // (`suggestion_gate.rs`); a withheld one goes on with no suggestion.
+                if subagent.is_none() && !muted && kind == "prompt_suggestion" {
+                    let harness =
+                        tap_session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness.clone();
+                    crate::suggestion_gate::filter_update(
+                        &tap_session.id,
+                        &harness,
+                        &mut params["update"],
+                    );
+                }
             }
             // A live update's workflow changes feed the daemon's index of them.
             if d == "in"
