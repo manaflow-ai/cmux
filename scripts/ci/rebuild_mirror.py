@@ -22,7 +22,6 @@ import job_input_fingerprint as inputs
 import job_reuse
 
 TABLE = ".github/warm-sources.json"
-EVIDENCE = ".github/rebuild-mirror-evidence.json"
 SCRIPT = "scripts/ci/rebuild_mirror.py"
 SCHEMA = "ci-rebuild-mirror/v1"
 
@@ -74,11 +73,6 @@ def candidate(root: str, rev: str, job: str, full: dict) -> tuple[str, dict]:
             continue
         meta, path_bytes = entry.split(b"\t", 1)
         path = path_bytes.decode("utf-8", errors="strict")
-        # Promotion evidence is control-plane metadata.  It is deliberately
-        # excluded from the job's candidate closure so recording a completed
-        # mirror day cannot invalidate the key it is meant to promote.
-        if path == EVIDENCE:
-            continue
         if any(under(path, p) for p in independent) and not any(under(path, p) for p in keep):
             omitted.append(path)
         else:
@@ -198,10 +192,15 @@ def report(records: list[dict]) -> dict:
             "note": "Execution-step estimate only; reconcile runner minutes and merged PRs separately."}
 
 
-def verify_evidence(root: str, rev: str, job: str, evidence: Path) -> tuple[bool, str]:
-    """Fail closed unless committed promotion evidence proves a full mirror day."""
+def verify_evidence(root: str, rev: str, job: str, evidence: Path | None = None,
+                    raw: str | None = None) -> tuple[bool, str]:
+    """Fail closed unless protected promotion evidence proves a full mirror day."""
     try:
-        value = json.loads(evidence.read_text(encoding="utf-8"))
+        if raw is None:
+            if evidence is None:
+                return False, "evidence is unavailable"
+            raw = evidence.read_text(encoding="utf-8")
+        value = json.loads(raw)
         if value.get("schema") != "ci-rebuild-evidence/v1" or value.get("enabled") is not True:
             return False, "evidence is not enabled"
         if value.get("policy") != policy_identity(root, rev, job):
@@ -233,14 +232,15 @@ def main() -> int:
     verify.add_argument("--root", default=".")
     verify.add_argument("--rev", default="HEAD")
     verify.add_argument("--job", default="fast-tier-cargo")
-    verify.add_argument("--evidence", type=Path, required=True)
+    verify.add_argument("--evidence", type=Path)
+    verify.add_argument("--evidence-json")
     args = parser.parse_args()
     if args.command == "finish":
         finish(args.plan, args.outcome, args.output, args.execution_receipt)
     elif args.command == "report":
         print(json.dumps(report([json.loads(p.read_text()) for p in args.receipts]), indent=2))
     else:
-        eligible, reason = verify_evidence(args.root, args.rev, args.job, args.evidence)
+        eligible, reason = verify_evidence(args.root, args.rev, args.job, args.evidence, args.evidence_json)
         print(f"eligible={'true' if eligible else 'false'}")
         print(f"reason={reason}")
     return 0

@@ -1682,7 +1682,8 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
         evidence = steps[index_of(steps, lambda s: s.get("id") == "planner-evidence")]
         self.assertIn("vars.CI_REBUILD_MIRROR) == 'enforce'", evidence["if"])
         self.assertIn("verify-evidence", evidence["run"])
-        self.assertIn(".github/rebuild-mirror-evidence.json", evidence["run"])
+        self.assertIn("--evidence-json", evidence["run"])
+        self.assertEqual(evidence["env"]["CI_REBUILD_MIRROR_EVIDENCE"], "${{ vars.CI_REBUILD_MIRROR_EVIDENCE }}")
         self.assertIs(evidence.get("continue-on-error"), True)
         lookup = steps[index_of(steps, lambda s: s.get("id") == "planner-reuse")]
         self.assertIn("vars.CI_REBUILD_MIRROR) == 'enforce'", lookup["if"])

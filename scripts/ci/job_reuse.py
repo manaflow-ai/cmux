@@ -72,11 +72,12 @@ def pick(artifacts: list[dict], key: str, repository_id: str,
                     continue
                 if str(head_repo.get("id", details.get("head_repository_id"))) != repository_id:
                     continue
-                if details.get("status") not in (None, "completed"):
+                if details.get("status") != "completed" or details.get("conclusion") != "success":
                     continue
-            elif repository is None or head_repository is None:
-                # With no authoritative run and no repository identity in the
-                # artifact listing, this candidate cannot be trusted.
+            else:
+                # A trusted planner lookup never falls back to artifact-list
+                # metadata.  The list can be stale or incomplete, and an API
+                # miss must remain a miss.
                 continue
             if event != trusted_event:
                 continue
@@ -138,7 +139,10 @@ def run_listing(path: str | None) -> dict[int, dict] | None:
     """Read an optional fixture of authoritative workflow-run records."""
     if not path:
         return None
-    data = json.loads(open(path, encoding="utf-8").read())
+    try:
+        data = json.loads(open(path, encoding="utf-8").read())
+    except (OSError, ValueError) as error:
+        raise Miss(f"the workflow-run listing does not parse: {error}") from error
     rows = data.get("workflow_runs", data) if isinstance(data, dict) else data
     if not isinstance(rows, list):
         raise Miss("the workflow-run listing has no list")

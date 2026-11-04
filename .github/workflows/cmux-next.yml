@@ -3485,18 +3485,21 @@ jobs:
           echo "Reused $RUN_URL: it passed on \`${SHA:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
 
       # The mode switch is deliberately insufficient on its own.  Promotion
-      # needs a committed HQ receipt for this exact planner policy after a
-      # complete 24-hour mirror window with a measured zero false-skip rate.
-      # Missing, stale, or malformed evidence leaves this step false and the
-      # job runs in full.
+      # needs a protected repository variable carrying an HQ receipt for this
+      # exact planner policy after a complete 24-hour mirror window with a
+      # measured zero false-skip rate.  A pull request cannot edit vars, so
+      # its checkout cannot forge promotion evidence. Missing, stale, or
+      # malformed evidence leaves this step false and the job runs in full.
       - name: Verify planner promotion evidence
         id: planner-evidence
         if: ${{ format('{0}', vars.CI_REBUILD_MIRROR) == 'enforce' && steps.reuse.outputs.hit != 'true' && inputs.no_reuse != true }}
         continue-on-error: true
+        env:
+          CI_REBUILD_MIRROR_EVIDENCE: ${{ vars.CI_REBUILD_MIRROR_EVIDENCE }}
         run: |
           python3 -I scripts/ci/rebuild_mirror.py verify-evidence \
             --root . --rev "$GITHUB_SHA" --job fast-tier-cargo \
-            --evidence .github/rebuild-mirror-evidence.json >> "$GITHUB_OUTPUT"
+            --evidence-json "$CI_REBUILD_MIRROR_EVIDENCE" >> "$GITHUB_OUTPUT"
 
       # Enforcement is promoted only after the HQ mirror collector has a complete
       # 24-hour window with zero false skips. Its producer is a trusted push on

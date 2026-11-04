@@ -121,7 +121,10 @@ class Lookup(unittest.TestCase):
             artifact(89, branch="feat-cmux-next", event="pull_request", created="2026-10-21T13:00:00Z"),
             artifact(90, branch="feat-cmux-next", event="push", created="2026-10-21T11:00:00Z"),
         ]
-        outputs, _, code = lookup(artifacts, trusted_branch="feat-cmux-next", trusted_event="push")
+        runs = [{"id": 90, "event": "push", "status": "completed", "conclusion": "success",
+                 "head_branch": "feat-cmux-next", "repository": {"id": REPO_ID},
+                 "head_repository": {"id": REPO_ID}}]
+        outputs, _, code = lookup(artifacts, trusted_branch="feat-cmux-next", trusted_event="push", runs=runs)
         self.assertEqual(code, 0)
         self.assertEqual(outputs["hit"], "true")
         self.assertTrue(outputs["run_url"].endswith("/runs/90"))
@@ -133,7 +136,7 @@ class Lookup(unittest.TestCase):
 
     def test_planner_lookup_resolves_event_from_authoritative_run(self):
         source = artifact(92, branch="feat-cmux-next", event="")
-        run = {"id": 92, "event": "push", "status": "completed",
+        run = {"id": 92, "event": "push", "status": "completed", "conclusion": "success",
                "head_branch": "feat-cmux-next",
                "repository": {"id": REPO_ID}, "head_repository": {"id": REPO_ID}}
         outputs, _, code = lookup([source], trusted_branch="feat-cmux-next",
@@ -142,9 +145,18 @@ class Lookup(unittest.TestCase):
 
     def test_planner_lookup_rejects_authoritative_non_push(self):
         source = artifact(93, branch="feat-cmux-next", event="")
-        run = {"id": 93, "event": "pull_request", "status": "completed",
+        run = {"id": 93, "event": "pull_request", "status": "completed", "conclusion": "success",
                "head_branch": "feat-cmux-next",
                "repository": {"id": REPO_ID}, "head_repository": {"id": REPO_ID}}
+        outputs, _, code = lookup([source], trusted_branch="feat-cmux-next",
+                                  trusted_event="push", runs=[run])
+        self.assertEqual((code, outputs["hit"]), (0, "false"))
+
+    def test_planner_lookup_rejects_a_failed_completed_run(self):
+        source = artifact(95, branch="feat-cmux-next", event="")
+        run = {"id": 95, "event": "push", "status": "completed", "conclusion": "failure",
+               "head_branch": "feat-cmux-next", "repository": {"id": REPO_ID},
+               "head_repository": {"id": REPO_ID}}
         outputs, _, code = lookup([source], trusted_branch="feat-cmux-next",
                                   trusted_event="push", runs=[run])
         self.assertEqual((code, outputs["hit"]), (0, "false"))
@@ -154,7 +166,7 @@ class Lookup(unittest.TestCase):
         source["workflow_run"].pop("repository_id")
         source["workflow_run"].pop("head_repository_id")
         source["workflow_run"].pop("head_branch")
-        run = {"id": 94, "event": "push", "status": "completed",
+        run = {"id": 94, "event": "push", "status": "completed", "conclusion": "success",
                "head_branch": "feat-cmux-next",
                "repository": {"id": REPO_ID}, "head_repository": {"id": REPO_ID}}
         outputs, _, code = lookup([source], trusted_branch="feat-cmux-next",

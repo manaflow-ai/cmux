@@ -100,12 +100,6 @@ class CandidateInputs(unittest.TestCase):
         self.commit()
         self.assertNotEqual(before, self.key())
 
-    def test_promotion_evidence_does_not_invalidate_the_candidate_key(self):
-        before = self.key()
-        self.write(mirror.EVIDENCE, '{"schema":"ci-rebuild-evidence/v1","enabled":false}\n')
-        self.commit()
-        self.assertEqual(before, self.key())
-
     def test_deleted_input_invalidates_candidate(self):
         before = self.key()
         (self.root / "other/input.txt").unlink()
