@@ -348,10 +348,11 @@ It stops watching, doing nothing, when:
   that job uploaded its marker (it moved jobs onto owned root runners);
 - the run finished, or the watch limit passed.
 
-Request budget: the reads use a manaflow-glaeda-route App token when the
-workflow could mint one (READ_TOKEN; its own 5000 requests an hour), else
-GITHUB_TOKEN, which allows about 1000 requests an hour for the whole
-repository. Cancels and re-runs always use GITHUB_TOKEN (GitHub.__doc__). A run on an ephemeral pool costs a jobs listing every
+Request budget: the reads use the workflow's existing token (READ_TOKEN,
+which is the cmux-bot token when the workflow can mint one, otherwise
+GITHUB_TOKEN). They never mint or fall back to the runner-routing App, so
+polling cannot drain that installation's quota. Cancels and re-runs always
+use GITHUB_TOKEN (GitHub.__doc__). A run on an ephemeral pool costs a jobs listing every
 POLL_SECONDS until `changes` finishes (usually two or three) plus one artifact
 listing. A run on a persistent pool adds a jobs listing every POLL_SECONDS
 while one of its jobs waits for a runner and every IDLE_POLL_SECONDS otherwise,
@@ -1641,14 +1642,15 @@ def _kind(path: str) -> str:
 class GitHub:
     """The Actions API. Reads may use `read_token`, writes always use `token`.
 
-    `read_token` is a manaflow-glaeda-route App installation token, so the
-    watch's polling draws on the App's own 5000 requests an hour instead of
-    the repository's GITHUB_TOKEN budget. Cancels and re-runs keep
-    GITHUB_TOKEN: a re-run's triggering actor must stay github-actions[bot],
-    which ci-macos.yml's attempt-2 routing checks. An installation token
-    lasts an hour and a watch may outlive it, so a 401 on a read drops back to
-    `token` for the rest of the watch. A 403 is a read the App may not make
-    (branch_head needs contents, which it lacks): that one read uses `token`.
+    The workflow supplies its existing cmux-bot token (or GITHUB_TOKEN) for
+    both values. Keeping reads on that workflow token avoids minting the
+    runner-routing App, whose installation quota is shared with the pickers.
+    Cancels and re-runs keep GITHUB_TOKEN: a re-run's triggering actor must
+    stay github-actions[bot], which ci-macos.yml's attempt-2 routing checks.
+    An installation token lasts an hour and a watch may outlive it, so a 401
+    on a read drops back to `token` for the rest of the watch. A 403 is a read
+    the App may not make (branch_head needs contents, which it lacks): that
+    one read uses `token`.
     """
 
     def __init__(self, token: str, repo: str, read_token: str = "") -> None:

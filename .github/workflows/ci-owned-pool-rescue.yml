@@ -151,22 +151,6 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
-      # Prefer cmux-bot for both reads and mutations so this watcher has its own
-      # API budget. Keep the runner-routing App as a read fallback while the
-      # organization rolls cmux-bot out; a failed mint falls back to GITHUB_TOKEN.
-      - name: Mint the read token
-        id: read-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          permission-actions: read
-          permission-pull-requests: read
-          skip-token-revoke: true
-
       # The rescue reads a failed side-lane run's `needs` graph from its workflow file
       # (owned_pool_rescue.downstream_of_refusals()), which needs PyYAML. Best effort:
       # without it that check excuses nothing and the rescue runs as before.
@@ -180,7 +164,10 @@ jobs:
 
       - name: Watch runs on persistent pools
         env:
-          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.read-token.outputs.token }}
+          # Keep every Actions read on the workflow's existing token. The
+          # routing App is reserved for picker decisions, not this polling
+          # loop, so a busy sweeper cannot drain its installation quota.
+          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           # A CI run's budget grows by a round per queue round the picker allows.
           QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
