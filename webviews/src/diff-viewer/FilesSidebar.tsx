@@ -346,6 +346,8 @@ function PierreFileTree({
   usePierreFileTreeSelection(model, selectedPath, syncingSelection);
 
   const [contextMenu, setContextMenu] = useState<{ path: string; x: number; y: number } | null>(null);
+  // The host refused to draw this opening's rows (an older host): the page menu shows it instead.
+  const [contextRefused, setContextRefused] = useState(false);
   const contextModel = useMemo<NativePopupDescription>(() => {
     const path = contextMenu?.path;
     const viewed = path ? viewedStateByPath.get(path) === "viewed" : false;
@@ -372,6 +374,7 @@ function PierreFileTree({
         setContextMenu(null);
       },
       onDismiss: () => setContextMenu(null),
+      onRefused: () => setContextRefused(true),
     }),
     [contextMenu, contextModel, onToggleViewedPath],
   );
@@ -394,12 +397,13 @@ function PierreFileTree({
         const rect = box?.getBoundingClientRect();
         const left = box && rect ? rect.left + box.clientLeft : 0;
         const top = box && rect ? rect.top + box.clientTop : 0;
+        setContextRefused(false);
         setContextMenu({ path, x: event.clientX - left, y: event.clientY - top });
       }}
     >
       <Menu
         open={contextMenu !== null}
-        native={contextNative}
+        native={contextRefused ? undefined : contextNative}
         onOpenChange={(open) => {
           if (!open) setContextMenu(null);
         }}
@@ -428,10 +432,14 @@ function PierreFileTree({
               setContextMenu(null);
             }}
           >
-            <Icon name={contextMenu && viewedStateByPath.get(contextMenu.path) === "viewed" ? "eye" : "check"} />
-            {contextMenu && viewedStateByPath.get(contextMenu.path) === "viewed"
-              ? label("markNotViewed")
-              : label("markViewed")}
+            <span className="ui-menu-icon" aria-hidden="true">
+              <Icon name={contextMenu && viewedStateByPath.get(contextMenu.path) === "viewed" ? "eye" : "check"} />
+            </span>
+            <span className="ui-menu-label">
+              {contextMenu && viewedStateByPath.get(contextMenu.path) === "viewed"
+                ? label("markNotViewed")
+                : label("markViewed")}
+            </span>
           </MenuItem>
         </MenuPopup>
       </Menu>

@@ -1529,6 +1529,10 @@ body[data-loading="true"] #status::before {
   min-width: 180px;
   box-shadow: var(--elevation-2);
 }
+.file-tree-context-menu .ui-menu-icon > svg {
+  width: var(--cmux-menu-icon-size);
+  height: var(--cmux-menu-icon-size);
+}
 .file-tree-context-anchor {
   position: fixed;
   z-index: var(--layer-backdrop);
