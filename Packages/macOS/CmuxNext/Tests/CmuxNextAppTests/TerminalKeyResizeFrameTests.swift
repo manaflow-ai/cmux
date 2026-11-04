@@ -114,24 +114,27 @@ struct TerminalKeyResizeFrameTests {
             let grid = try #require(session.surfaceView.fittedGrid, "a terminal fits no grid at rest")
             io.send(.resize(cols: grid.columns, rows: grid.rows))
         }
-        // p1 holds its frames from here (Ghostty ends a hold after 1 s by itself: the press lands well before).
-        screen.ios[0].send(.output(Data("\u{1b}[?2026h".utf8)))
-        for _ in 0..<3 { await Self.commit() }
+        // p1 holds its frames from here. Ghostty ends a hold 1 s after the program's last `ESC[?2026h`, so the spring
+        // below sends it again in each frame.
+        let hold = Data("\u{1b}[?2026h".utf8)
+        screen.ios[0].send(.output(hold))
+        await Self.settle(screen)
         let presenter = TerminalFramePresenter.forWindow(screen.window)
-        let keepsBefore = presenter.stats.keeps
         let resizesBefore = screen.ios.map { $0.resizes.count }
 
         _ = PaneResize.press("p2", .right, model: screen.model, view: screen.root)
-        var steps = 0, moving = true, waitingAtLanding = false
+        var steps = 0, moving = true, waitedInSpring = 0, waitingAtLanding = false
         while moving, steps < 240 {
+            screen.ios[0].send(.output(hold))
             moving = screen.root.advanceFrame(1.0 / 120)
             screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
+            if presenter.isWaiting(screen.sessions[0].surfaceView) { waitedInSpring += 1 }
             if !moving { waitingAtLanding = presenter.isWaiting(screen.sessions[0].surfaceView) }
             await Self.commit()
             steps += 1
         }
         try #require(steps >= 4, "the press's spring ran \(steps) frames: no spring ran")
-        try #require(presenter.stats.keeps > keepsBefore, "no size of the press waited for its frame: p1 did not hold its frames")
+        try #require(waitedInSpring > 1, "p1's sizes waited in \(waitedInSpring) of \(steps) frames: p1 did not hold its frames")
         try #require(waitingAtLanding, "p1 had no size in flight at the landing: the case under test did not happen")
         screen.ios[0].send(.output(Data("\u{1b}[?2026l".utf8)))
         await Self.settle(screen)
