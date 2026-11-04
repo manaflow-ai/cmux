@@ -533,7 +533,9 @@ public final class DaemonService {
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
-            return "\(label): \(notConnectedReason ?? DaemonError.notConnected.description)"
+            var failure = ActionWorkFailure("\(label): \(notConnectedReason ?? DaemonError.notConnected.description)")
+            failure.cause = .connection
+            return failure
         }
         do {
             try await body(connection)

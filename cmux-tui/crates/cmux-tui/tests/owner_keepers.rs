@@ -190,6 +190,36 @@ impl Client {
         client
     }
 
+    /// One `cmux.protocol/2` request, which must succeed; returns its
+    /// `result`.
+    fn request_v2(
+        &mut self,
+        operation: &str,
+        params: serde_json::Value,
+        idempotency_key: Option<&str>,
+    ) -> serde_json::Value {
+        let id = format!("okp-{}", self.next);
+        self.next += 1;
+        let mut value = serde_json::json!({
+            "protocol": "cmux.protocol/2", "type": "request", "id": id,
+            "operation": operation, "params": params,
+        });
+        if let Some(key) = idempotency_key {
+            value["idempotency_key"] = serde_json::json!(key);
+        }
+        writeln!(self.stream, "{value}").unwrap();
+        loop {
+            let mut line = String::new();
+            let read = self.reader.read_line(&mut line).unwrap();
+            assert!(read > 0, "the owner closed the connection before answering {value}");
+            let Ok(reply) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+            if reply["id"] == serde_json::json!(id) {
+                assert_eq!(reply["ok"], true, "{operation}: {reply}");
+                return reply["result"].clone();
+            }
+        }
+    }
+
     fn request(&mut self, mut value: serde_json::Value) -> serde_json::Value {
         let id = self.next;
         self.next += 1;
@@ -293,6 +323,51 @@ mod owner_keepers {
         // keepers rule.
         owner.wait_for_host(Some(&record.incarnation), STOP_BOUND + STOP_BOUND);
         owner.assert_kept("the respawned terminal");
+    }
+
+    #[test]
+    fn a_kept_tab_of_an_ended_command_keeps_the_owner_until_it_closes() {
+        // `on_exit: keep` keeps the tab and the final screen of an ended
+        // command. Only this owner holds that screen: a new owner detaches the
+        // tab (`detach_exited_terminal_topology_only`), so the tab keeps it.
+        let owner = Owner::ensure("kept-exit");
+        let mut app = Client::app(&owner.socket);
+        let here = |more: serde_json::Value| {
+            let mut params = serde_json::json!({"machine": "current", "session": "current"});
+            for (key, value) in more.as_object().into_iter().flatten() {
+                params[key] = value.clone();
+            }
+            params
+        };
+        let created = app.request_v2(
+            "workspace.create",
+            here(serde_json::json!({"name": "Kept", "initial_content": "empty"})),
+            Some("okp-kept-workspace"),
+        );
+        let workspace = created["value"]["workspace_id"].as_str().unwrap().to_string();
+        let run = app.request_v2(
+            "workspace.run",
+            here(serde_json::json!({
+                "workspace": workspace, "argv": ["/bin/sh", "-c", "exit 3"], "on_exit": "keep",
+            })),
+            Some("okp-kept-run"),
+        );
+        let terminal = run["value"]["terminal_id"].as_str().unwrap().to_string();
+        app.request_v2(
+            "terminal.wait_exit",
+            here(serde_json::json!({"terminal": terminal, "timeout_ms": "10000"})),
+            None,
+        );
+        drop(app);
+        owner.assert_kept("a kept tab of an ended command");
+        let mut cli = Client::connect(&owner.socket);
+        cli.request_v2(
+            "terminal.close",
+            here(serde_json::json!({"terminal": terminal})),
+            Some("okp-kept-close"),
+        );
+        drop(cli);
+        owner.assert_stops("its kept tab closed");
     }
 }
 

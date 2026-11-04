@@ -258,12 +258,15 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
                          avatarMotion: item.chiefAvatar == nil ? nil : avatarState(item))
     }
 
-    /// The state a Chief's avatar shows (the Codex pet's states): a failed send first, then its turn
-    /// running, then an unread reply waiting for the person, else idle.
+    /// The state a Chief's avatar shows (the Codex status dot's states): a failed send first, then its
+    /// turn running in a tool or the model, then a question or approval waiting on the person, then an
+    /// unread reply (done), else idle.
     static func avatarState(_ item: HomeSidebarItem) -> CmuxSidebarEntry.AvatarMotion {
         if item.chiefSendFailed { return .failed }
-        if item.chiefIsWorking { return .working }
-        return item.unread ? .waiting : .idle
+        if item.chiefIsInTool { return .tool }
+        if item.chiefIsWorking { return .thinking }
+        if item.chiefWaitsOnYou { return .waiting }
+        return item.unread ? .done : .idle
     }
 
     /// The Chief's avatar as the list draws it: the picture, else its text
