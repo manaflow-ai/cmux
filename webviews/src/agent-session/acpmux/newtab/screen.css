@@ -1,5 +1,5 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat; the theme accent only marks focus and the selected row. */
-.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:var(--ds-space-3);padding:clamp(40px,14vh,140px) max(var(--cv-edge,18px),calc((100% - var(--cv-column,720px))/2)) 24px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
+.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:var(--ds-space-3);--nt-screen-top:clamp(40px,14vh,140px);--nt-screen-inset:var(--cv-inset,max(var(--cv-edge,16px),round(down,(100% - var(--cv-column,720px))/2,4px)));padding:var(--nt-screen-top) var(--nt-screen-inset) 24px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
 /* A short pane gives the location strip over the card (26px) back from the space above the card, so the
    All chats list keeps its room and stays the page's only scroller (new-tab-scroll): 12px at 360px tall
    and under, rising with the height to the 14vh above 480px. One continuous curve, so a window resized
@@ -642,14 +642,16 @@
 .nt-extra-quote blockquote{margin:0;font:inherit}
 .nt-extra-quote figcaption{margin-top:2px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .nt-widgets{display:flex;flex-direction:column;gap:var(--ds-space-3);margin-top:var(--ds-space-2)}
-.nt-widget{display:flex;flex-direction:column;box-sizing:border-box;padding:6px;border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge)}
+/* --nt-card-inset: the 6 px a widget or stage card holds its 14 px rows off its edge; its hairline rules
+   run edge to edge by taking that inset back. */
+.nt-widget{--nt-card-inset:6px;display:flex;flex-direction:column;box-sizing:border-box;padding:var(--nt-card-inset);border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge)}
 .nt-widget-row{display:flex;align-items:center;gap:var(--ds-space-3);min-width:0;height:36px;padding:0 var(--ds-space-3);box-sizing:border-box;border:0;border-radius:14px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;letter-spacing:var(--text-body--letter-spacing)}
 button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-widget-row[aria-pressed=true]{color:var(--agent-text)}
 .nt-widget-icon{flex:none;color:var(--acpmux-composer-dim)}
 .nt-widget-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nt-widget-check{flex:none;color:var(--agent-text)}
-.nt-widget-rule{height:0;margin:4px -6px;border:0;border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
+.nt-widget-rule{height:0;margin:4px calc(-1 * var(--nt-card-inset));border:0;border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
 .nt-widget-attention{gap:var(--ds-space-1)}
 .nt-widget-chat{display:flex;align-items:center;gap:var(--ds-space-1);min-width:0;padding-right:var(--ds-space-1);border-radius:14px}
 /* A Needs you chat's hover lights the control under the pointer alone: its open button, or its x. The row never takes a wash around its small x (Leo 2026-10-27: "why are you giving it the entire row when it's only this small little section? Just don't do that. Don't ever do that."). */
@@ -717,9 +719,10 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 /* A floating card: the composer's surface and rim, its shadow, a small radius. */
 .nt-stage-card {
+  --nt-card-inset: 6px;
   display: flex;
   flex-direction: column;
-  padding: 6px;
+  padding: var(--nt-card-inset);
   box-sizing: border-box;
   border-radius: 14px;
   background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
@@ -809,7 +812,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-stage-divider {
   height: 0;
-  margin: 4px -6px;
+  margin: 4px calc(-1 * var(--nt-card-inset));
   border: 0;
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge);
 }

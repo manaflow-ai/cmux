@@ -130,8 +130,9 @@ export function startupChecklist(
   language: string = paneLanguage(),
 ): ChecklistStep[] {
   const oldStep = start.step ? CLOUD_START_STEPS.indexOf(start.step) : -1;
+  // A start this Mac refused before it reached Cloud ran no step: none is marked failed.
   const failedStep =
-    start.state === "failed"
+    start.state === "failed" && !start.refusedHere
       ? oldStep === 0
         ? "machine"
         : oldStep === 1

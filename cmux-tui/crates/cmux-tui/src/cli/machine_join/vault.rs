@@ -1,12 +1,16 @@
-//! `cmux machine vault set|ls|rm|grant|revoke`: the person's vault on the cmux
+//! `cmux machine vault set|policy|ls|rm|grant|revoke`: the person's vault on the cmux
 //! platform, the env vars and API keys a machine of theirs gets when it joins
 //! with `cmux machine add --vault` (or is granted it later).
 //!
 //! - `set NAME`: the value comes from a no-echo prompt on a terminal, else
 //!   stdin (never argv), and goes to `PUT /v1/vault/env/NAME` as
-//!   `{valueBase64, fingerprint}`; nothing prints it.
-//! - `ls`: `GET /v1/vault/env`, names, revisions and times only (any other
-//!   field of the answer is dropped, never printed).
+//!   `{valueBase64, fingerprint}`; nothing prints it. With `--host H`, `--no-hosts`
+//!   or `--env` it also sends `{delivery, allowedHosts}` (see [`policy`]); without
+//!   them the platform keeps the entry's policy (or picks the default of a new one).
+//! - `policy NAME (--host H... | --no-hosts | --env)`: `PUT /v1/vault/env/NAME/policy`,
+//!   which changes no value and no revision.
+//! - `ls`: `GET /v1/vault/env`, names, revisions, times and delivery policy only
+//!   (any other field of the answer is dropped, never printed).
 //! - `rm NAME`: `DELETE /v1/vault/env/NAME`.
 //! - `grant|revoke MACHINE`: `PUT /v1/machines/:id/vault {granted}`.
 //!
@@ -24,8 +28,16 @@ use sha2::{Digest as _, Sha256};
 use super::{CallError, Failure, Hooks, Platform, clean, find};
 use crate::cli::{OutputMode, UsageError};
 
-const USAGE: &str = "usage: cmux machine vault set NAME   (the value from a hidden prompt or stdin)
+mod policy;
+
+pub(in crate::cli) use policy::Policy;
+
+const USAGE: &str = "usage: cmux machine vault set NAME [--host H]... [--no-hosts | --env]   (the value from a hidden prompt or stdin)
+       cmux machine vault policy NAME (--host H... | --no-hosts | --env)
        cmux machine vault ls
+  --host H     agents get a placeholder; the machine sends the real value only to H (repeat for more)
+  --no-hosts   agents get a placeholder that is never replaced
+  --env        agents get the real value in their env (weaker: agents can read the value)
        cmux machine vault rm NAME
        cmux machine vault grant|revoke MACHINE
   each takes --platform URL and --cloud-token-file PATH, --cloud-token-stdin or CMUX_CLOUD_ACCESS_TOKEN.";
@@ -34,7 +46,8 @@ const ENV_PATH: &str = "/v1/vault/env";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::cli) enum VaultVerb {
-    Set { name: String },
+    Set { name: String, policy: Option<Policy> },
+    Policy { name: String, policy: Policy },
     Ls,
     Rm { name: String },
     Grant { machine: String, granted: bool },
@@ -44,6 +57,8 @@ pub(in crate::cli) enum VaultVerb {
 pub(super) fn parse(rest: &[String]) -> Result<super::Command, UsageError> {
     let usage = || UsageError::new(USAGE);
     let mut auth = super::Auth::default();
+    let mut flags = policy::PolicyFlags::default();
+    let mut policy_flag = false;
     let mut positional = Vec::new();
     let mut words = rest.iter();
     while let Some(word) = words.next() {
@@ -55,6 +70,11 @@ pub(super) fn parse(rest: &[String]) -> Result<super::Command, UsageError> {
             Some((flag, value)) => (flag, Some(value.to_owned())),
             None => (flag, None),
         };
+        let mut next = || words.next().cloned();
+        if flags.take(flag, inline.clone(), &mut next)? {
+            policy_flag = true;
+            continue;
+        }
         match flag {
             "platform" | "cloud-token-file" => {
                 let value = match inline {
@@ -79,8 +99,20 @@ pub(super) fn parse(rest: &[String]) -> Result<super::Command, UsageError> {
             "give the credential one way: --cloud-token-file or --cloud-token-stdin",
         ));
     }
+    let policy = flags.policy()?;
     let verb = match positional.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
-        ["set", name] => VaultVerb::Set { name: checked_name(name)? },
+        ["set", name] => VaultVerb::Set { name: checked_name(name)?, policy },
+        ["policy", name] => VaultVerb::Policy {
+            name: checked_name(name)?,
+            policy: policy.ok_or_else(|| {
+                UsageError::new(
+                    "vault policy takes --host H (repeatable), --no-hosts or --env (weaker: agents can read the value)",
+                )
+            })?,
+        },
+        _ if policy_flag && !matches!(positional.first().map(String::as_str), Some("set")) => {
+            return Err(UsageError::new("--host, --no-hosts and --env go with vault set or vault policy"));
+        }
         ["ls" | "list"] => VaultVerb::Ls,
         ["rm" | "remove", name] => VaultVerb::Rm { name: checked_name(name)? },
         ["grant", machine] => VaultVerb::Grant { machine: (*machine).to_owned(), granted: true },
@@ -137,16 +169,21 @@ fn vault_failure(error: &CallError, what: &str) -> Failure {
         | CallError::Status { code: "vault.too_large", .. } => {
             Failure::new("machine_vault.too_large", "the platform refused the value: too large")
         }
+        CallError::Status { code: "vault.invalid_hosts", .. } => Failure::new(
+            "machine_vault.invalid_hosts",
+            "the platform refused the hosts: give DNS names like api.github.com or *.example.com",
+        ),
         error => error.failure(what),
     }
 }
 
-/// One listed var, as printed: never anything but its name, revision and time.
+/// One listed var, as printed: never anything but its name, revision, time and policy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Entry {
     pub name: String,
     pub revision: Option<u64>,
     pub updated_at: Value,
+    pub policy: Policy,
 }
 
 /// The vars of a `GET /v1/vault/env` answer; entries without a usable name are skipped.
@@ -166,6 +203,7 @@ pub(super) fn entries(body: &Value) -> Option<Vec<Entry>> {
                     name: name.to_owned(),
                     revision: row.get("revision").and_then(Value::as_u64),
                     updated_at,
+                    policy: Policy::from_answer(row),
                 })
             })
             .collect(),
@@ -210,7 +248,7 @@ pub(super) fn run(
 ) -> Result<i32, Failure> {
     let io = |e: std::io::Error| Failure::new("io", e.to_string());
     let (human, value) = match verb {
-        VaultVerb::Set { name } => {
+        VaultVerb::Set { name, policy } => {
             let value = (hooks.read_value)(name)
                 .map_err(|_| Failure::usage(format!("the value for {name} could not be read")))?;
             if value.is_empty() {
@@ -219,20 +257,62 @@ pub(super) fn run(
             if value.contains('\0') {
                 return Err(Failure::usage(format!("the value for {name} has a NUL byte")));
             }
-            let body = json!({
+            let mut body = json!({
                 "valueBase64": base64::engine::general_purpose::STANDARD.encode(value.as_bytes()),
                 "fingerprint": fingerprint(value.as_bytes()),
             });
             drop(value);
+            if let (Some(policy), Some(fields)) = (policy, body.as_object_mut()) {
+                fields.insert("delivery".into(), policy.delivery.wire().into());
+                fields.insert("allowedHosts".into(), json!(policy.allowed_hosts));
+            }
             let answer = platform
                 .request(reqwest::Method::PUT, &format!("{ENV_PATH}/{name}"), Some(body))
                 .map_err(|e| vault_failure(&e, "the value"))?;
             let revision = answer.get("revision").and_then(Value::as_u64);
-            let human = match revision {
+            let mut human = match revision {
                 Some(revision) => format!("{name} saved to your vault (revision {revision})."),
                 None => format!("{name} saved to your vault."),
             };
-            (human, json!({ "name": name, "revision": revision }))
+            let mut value = json!({ "name": name, "revision": revision });
+            if let Some(policy) = policy {
+                human = format!("{human}\nDelivery: {}", policy.label());
+                if let Some(fields) = value.as_object_mut() {
+                    fields.insert("delivery".into(), policy.delivery.wire().into());
+                    fields.insert("allowedHosts".into(), json!(policy.allowed_hosts));
+                }
+            }
+            (human, value)
+        }
+        VaultVerb::Policy { name, policy } => {
+            let answer = platform
+                .request(
+                    reqwest::Method::PUT,
+                    &format!("{ENV_PATH}/{name}/policy"),
+                    Some(policy.wire()),
+                )
+                .map_err(|e| match e {
+                    CallError::Status { code: "vault.no_entry" | "vault.not_found", .. } => {
+                        Failure::new("machine_vault.not_found", format!("your vault has no {name}"))
+                    }
+                    e => vault_failure(&e, "the policy"),
+                })?;
+            // What the platform stored; an answer without a policy is what was sent.
+            let stored = if answer.get("delivery").is_some() {
+                Policy::from_answer(&answer)
+            } else {
+                policy.clone()
+            };
+            let revision = answer.get("revision").and_then(Value::as_u64);
+            (
+                format!("{name}: {}", stored.label()),
+                json!({
+                    "name": name,
+                    "revision": revision,
+                    "delivery": stored.delivery.wire(),
+                    "allowedHosts": stored.allowed_hosts,
+                }),
+            )
         }
         VaultVerb::Ls => {
             let body = platform
@@ -252,14 +332,22 @@ pub(super) fn run(
                         let revision = e.revision.map_or_else(String::new, |r| format!("  r{r}"));
                         let at =
                             e.updated_at.as_str().map_or_else(String::new, |t| format!("  {t}"));
-                        format!("{}{revision}{at}", e.name)
+                        format!("{}{revision}{at}  {}", e.name, e.policy.label())
                     })
                     .collect::<Vec<_>>()
                     .join("\n")
             };
             let value: Vec<Value> = rows
                 .iter()
-                .map(|e| json!({ "name": e.name, "revision": e.revision, "updatedAt": e.updated_at }))
+                .map(|e| {
+                    json!({
+                        "name": e.name,
+                        "revision": e.revision,
+                        "updatedAt": e.updated_at,
+                        "delivery": e.policy.delivery.wire(),
+                        "allowedHosts": e.policy.allowed_hosts,
+                    })
+                })
                 .collect();
             (human, json!({ "entries": value }))
         }
