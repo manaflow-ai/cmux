@@ -2,8 +2,14 @@
 //! running daemon's endpoint. The app uses this path instead of CLI auto-start.
 
 use std::path::Path;
+#[cfg(unix)]
+use std::time::Duration;
 
 use serde_json::{Value, json};
+
+/// How long a start waits for a DEV daemon it asked to hand over before going on as usual.
+#[cfg(unix)]
+const RECLAIM_WAIT: Duration = Duration::from_secs(30);
 
 pub(super) enum Started {
     /// The old daemon was stopping; this start is its successor.
@@ -45,5 +51,24 @@ pub(super) async fn wait(home: &Path, socket: &Path) -> Option<Started> {
             })));
         }
         tokio::time::sleep(super::HANDOVER_RETRY).await;
+    }
+}
+
+/// A start of a home of NIGHTLY's whose lock a DEV build holds asks that daemon to hand the home
+/// over (agents kept) and waits for it to let go, so this launch serves the home instead of
+/// reporting the DEV daemon as its winner (`exe_path::reclaims_home`). Any other holder is left
+/// alone. Best effort: a holder that stays is waited on as any holder is ([`wait`]).
+#[cfg(unix)]
+pub(super) async fn reclaim_from_dev(lock: &Path, socket: &Path) {
+    let Some(pid) = super::lock::live_holder_pid(lock) else { return };
+    let Some(exe) = crate::agent_host::tree::exe(pid) else { return };
+    if !super::exe_path::current_reclaims_home(&exe) {
+        return;
+    }
+    tracing::warn!(pid, exe = %exe.display(), "a DEV build's daemon holds this home; taking it back");
+    super::take_over_holder(socket).await;
+    let release = super::wait_for_lock_release(lock.to_owned());
+    if tokio::time::timeout(RECLAIM_WAIT, release).await.is_err() {
+        tracing::warn!(pid, "the DEV build's daemon has not let go of this home yet");
     }
 }

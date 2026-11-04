@@ -2785,6 +2785,17 @@ async fn dispatch_request_with_identity(
                 return Err(RpcError::new(-32000, why)
                     .with_data(json!({"reason": "shutdown.refused_client"})));
             }
+            // Name who stopped it: the log's "a client asked it to" alone cannot tell an app's
+            // update from another build's or a script's stop.
+            tracing::warn!(
+                client = conn
+                    .peer
+                    .as_ref()
+                    .and_then(cmux_link::app_caller::executable_path)
+                    .map_or_else(|| "unknown".to_owned(), |exe| exe.display().to_string()),
+                origin = ?conn.origin,
+                "a client asked this daemon to stop"
+            );
             // `endAgents: true` (the app's Quit Everything) ends agents that
             // run under agent hosts; otherwise they keep running for the next
             // daemon.

@@ -207,6 +207,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let _ = std::env::set_current_dir(home());
     exe_path::check_run(opts.ready_fd)?;
     let lock = home().join("daemon.lock");
+    #[cfg(unix)]
+    handover::reclaim_from_dev(&lock, &socket_path()).await;
     let _lock_file = match acquire_daemon_lock(&lock, opts.take_over).await {
         Ok(lock) => lock,
         Err(e) => {
