@@ -13,8 +13,10 @@ import Testing
     final class Threads: HomeAgentThreadReading {
         var threads: [String: HomeAgentThread] = [:]
         var seen: [String] = []
+        var sent: [String] = []
         func agentThread(_ peer: String, in conversation: ConversationID) -> HomeAgentThread? { threads[peer] }
         func markAgentSeen(_ peer: String, in conversation: ConversationID) { seen.append(peer) }
+        func sendToAgent(_ text: String, peer: String, in conversation: ConversationID) { sent.append("\(peer): \(text)") }
     }
 
     static let start = Date(timeIntervalSince1970: 1_000)
@@ -91,5 +93,42 @@ import Testing
         pane.close("a1")
         view.apply()
         #expect(view.side.peers == ["a2"])
+    }
+
+    // MARK: Slice 3: the shared composer and its sender labels (user 2026-11-03, msgs 19960/19968)
+
+    @Test func everyMessageToTheAgentSaysWhoSentIt() {
+        var thread = Self.thread("a1", title: "Fix")
+        thread.entries = [
+            .init(id: "n1", outgoing: true, text: "Use the 2x shot.", date: Self.start.addingTimeInterval(30), sender: .you),
+            .init(id: "t2", outgoing: true, text: "Also add a test.", date: Self.start.addingTimeInterval(60), sender: .chief),
+            .init(id: "r1", outgoing: false, text: "Done: landed.", date: Self.start.addingTimeInterval(335)),
+        ]
+        let content = HomeAgentChatContent(thread, now: .distantFuture)
+        #expect(content.messages == [.init(sender: .you, text: "Use the 2x shot."), .init(sender: .chief, text: "Also add a test."),
+                                     .init(sender: .agent, text: "Done: landed.")])
+        #expect(content.messages.map(\.sender.label) == [HomeAgentChatContent.Sender.you.label, HomeAgentChatContent.Sender.chief.label, nil])
+    }
+
+    @Test func theShippedPaneHasTheComposerAndItsMessageGoesToTheAgentThroughTheChief() throws {
+        let threads = Threads()
+        threads.threads = ["a1": Self.thread("a1", title: "Fix")]
+        let pane = HomeAgentPane(conversation: ConversationID("c"), threads: threads)
+        let view = HomeAgentPaneView(pane: pane)
+        defer { view.stop() }
+        view.frame = NSRect(x: 0, y: 0, width: 420, height: 600)
+        pane.open("a1")
+        view.apply()
+        let chat = try #require(view.selectedChat)
+        #expect(chat.hasComposer)
+        chat.sendFromComposer("Use the 2x shot.")
+        #expect(threads.sent == ["a1: Use the 2x shot."])
+        // A new message in the agent's chat redraws it in place: the composer the person types in stays.
+        var newer = Self.thread("a1", title: "Fix")
+        newer.entries.append(.init(id: "n1", outgoing: true, text: "Use the 2x shot.", date: Self.start.addingTimeInterval(400), sender: .you))
+        threads.threads["a1"] = newer
+        view.apply()
+        #expect(view.selectedChat === chat)
+        #expect(chat.content.messages.last == .init(sender: .you, text: "Use the 2x shot."))
     }
 }

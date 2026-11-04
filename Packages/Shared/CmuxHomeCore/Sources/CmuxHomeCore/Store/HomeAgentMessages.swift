@@ -172,7 +172,7 @@ struct HomeAgentMessages {
     /// `peer`'s chat with the Chief over every run of the conversation (``HomeAgentThread``), or nil
     /// when no run has a message with it. `items` are the conversation's own rows: the Chief's link
     /// to the agent's session comes from its words there.
-    func thread(peer: String, in items: [TranscriptItem]) -> HomeAgentThread? {
+    func thread(peer: String, in items: [TranscriptItem], me: ParticipantID? = nil) -> HomeAgentThread? {
         let messages = runs.values.flatMap { run in run.messages.filter { $0.peer == peer } }
             .sorted { ($0.date, $0.sequence, $0.id) < ($1.date, $1.sequence, $1.id) }
         guard let first = messages.first, let last = messages.last else { return nil }

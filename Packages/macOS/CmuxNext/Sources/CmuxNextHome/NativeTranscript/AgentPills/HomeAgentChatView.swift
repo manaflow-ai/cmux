@@ -227,6 +227,20 @@ final class HomeAgentChatView: NSView {
     }
     #endif
 
+    /// True when the chat has the shared composer (tests).
+    var hasComposer: Bool { field.superview != nil }
+
+    /// Types `text` into the composer and sends it, as the person does (tests, the playground's capture drive).
+    func sendFromComposer(_ text: String) {
+        #if DEBUG
+        debugSend(text)
+        #endif
+    }
+
+    /// Shows `content` in place: the composer keeps what the person is typing (red stub).
+    func update(_ content: HomeAgentChatContent) {
+    }
+
     /// The header's Go to workspace button; nil when the content has no workspace link (tests).
     private(set) var goToWorkspaceButton: NSButton?
 
