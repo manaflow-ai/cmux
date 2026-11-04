@@ -996,10 +996,15 @@ fn a_checkpoint_never_goes_past_a_sync_that_is_failing_on_another_thread() {
     };
     arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the failing sync never arrived: {e}"));
     // A checkpoint now, while that failure is not recorded yet.
-    let checkpointed = store.flush();
+    let flusher = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || store.flush())
+    };
+    std::thread::sleep(Duration::from_millis(300));
     let _ = release.send(());
     let failed = failing.join().unwrap_or_else(|_| panic!("the failing thread panicked"));
     assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
+    let checkpointed = flusher.join().unwrap_or_else(|_| panic!("the flush panicked"));
     drop(store);
     let store = open(home.path(), &journal);
     store.flush().unwrap_or_else(|e| panic!("{e:#}"));
