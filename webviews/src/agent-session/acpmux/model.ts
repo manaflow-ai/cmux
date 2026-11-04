@@ -974,6 +974,8 @@ export type AcpmuxSnapshot = {
     machine?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
+    /// The folders the chat sees beside its own (acpmux `additionalDirectories`, cmux#32811).
+    additionalDirectories?: readonly string[];
     branch?: string;
     worktree?: string;
     title?: string;

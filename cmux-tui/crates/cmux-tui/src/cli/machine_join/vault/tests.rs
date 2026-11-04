@@ -518,6 +518,84 @@ fn policy_flags_parse_and_refuse_what_does_not_fit() {
     assert!(policy::host_ok("example.com:65535"));
 }
 
+/// The platform's allowed-host pattern, which `host_pattern_ok` checks by hand.
+const HOST_PATTERN: &str =
+    r"^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}(:[1-9][0-9]{0,4})?$";
+
+#[test]
+fn the_host_check_accepts_what_the_platform_pattern_accepts() {
+    let pattern = regex::Regex::new(HOST_PATTERN).unwrap();
+    let same = |host: &str| {
+        assert_eq!(policy::host_pattern_ok(host), pattern.is_match(host), "{host:?}");
+    };
+    let label63 = "a".repeat(63);
+    let label64 = "a".repeat(64);
+    for host in [
+        "api.github.com",
+        "*.example.com:8443",
+        "a.b",
+        "0.a",
+        "a-b.c",
+        "a.b-",
+        "a.b-c9",
+        "-a.b",
+        "a-.b",
+        "a.-b",
+        "a.0b",
+        "a.b:1",
+        "a.b:0",
+        "a.b:01",
+        "a.b:99999",
+        "a.b:999999",
+        "a.b:",
+        "a.b:1:2",
+        "a.b:1a",
+        "a..b",
+        ".a.b",
+        "a.b.",
+        "*.a",
+        "*.*.a.b",
+        "**.a.b",
+        "*a.b",
+        "A.b",
+        "a.B",
+        "a.b\n",
+        "\na.b",
+        "a.b c",
+        "é.com",
+        "a.côm",
+        "a.b:１",
+    ] {
+        same(host);
+    }
+    for host in [
+        format!("{label63}.{label63}"),
+        format!("{label64}.a"),
+        format!("a.{label64}"),
+        format!("*.{label63}.{label63}:65535"),
+    ] {
+        same(&host);
+    }
+    // Every host up to six characters from the pattern's alphabet.
+    let alphabet = ['a', '0', '1', '-', '.', '*', ':', 'Z'];
+    let mut hosts = vec![String::new()];
+    for _ in 0..6 {
+        hosts = hosts
+            .iter()
+            .flat_map(|host| {
+                alphabet.iter().map(move |c| {
+                    let mut longer = host.clone();
+                    longer.push(*c);
+                    longer
+                })
+            })
+            .collect();
+        for host in &hosts {
+            same(host);
+        }
+    }
+}
+
 /// The body of the first request, as JSON.
 fn body_of(request: &str) -> Value {
     serde_json::from_str(request.split_once("\r\n\r\n").unwrap().1).unwrap()
