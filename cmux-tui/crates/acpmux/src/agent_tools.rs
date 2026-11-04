@@ -55,6 +55,8 @@
 //! - Kept servers (`ACPMUX_AGENT_TOOL_SERVERS`, a profile or preset env):
 //!   only the named MCP servers; the Chief's turns keep `cmux` (cx-4a5w2).
 
+pub mod prompt_sources;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 

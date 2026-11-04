@@ -89,20 +89,7 @@ const BOILERPLATE: [&str; 4] = [
      focus.",
 ];
 
-pub(super) const INSTRUCTIONS: &str = "This chat runs in cmux: a terminal, tab or workspace \
-    the person asks for (\"on my right\", \"a new workspace\") is a cmux one, made and run with \
-    these tools, not your own shell. cmux tools run through cmux_exec scripts; its \
-    description lists the common ones. Selectors take a public id (ws_…, pane_…, tab_…, \
-    term_…), a unique prefix, <session>:<id> or an exact name; workspace, screen, pane and tab \
-    also take `current` (this chat's own) or `focused` (the one the person looks at). Tools of the chat's \
-    other cmux servers (cua_*: computer use on Mac \
-    apps; secrets_*, sessions_*, subsessions_*, forum_*) come with their \
-    rules in `servers` of a cmux.docs answer: follow them. A change takes idempotency_key: on \
-    in_progress, retry with the key from the error; another server's call that fails \
-    in_progress has no key and may have run, so check its effect first. Tools never move the \
-    person's focus unless the call passes focus: true or the tool's purpose is focus. Name workspaces and tabs to the person \
-    by title, never by id. When they must act in a tab (log in, confirm), tab_update {tab, \
-    attention: \"reason\"} marks it. In a reply, ![alt](/abs/path.png) shows an image.";
+pub(super) const INSTRUCTIONS: &str = acpmux::agent_tools::prompt_sources::CODE_MODE_INSTRUCTIONS;
 
 /// The tool family of the computer use server (`cmux-cua` folds as `cua_*`).
 pub(super) const COMPUTER_USE_FAMILY: &str = "cua";

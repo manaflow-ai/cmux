@@ -235,12 +235,21 @@ pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
 
 /// Append the captured additions on the first dispatched turn, never at queue time.
 pub fn append_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
-    for part in parts.into_iter().flatten().filter(|p| p.included && p.source != "cmux-preset") {
+    for part in parts.into_iter().flatten().filter(|p| {
+        p.included && matches!(p.source.as_str(), "cmux-default" | "cmux-user" | "cmux-project")
+    }) {
         if let Some(text) = part.text.as_deref() {
             let scope = part.source.strip_prefix("cmux-").unwrap_or("user");
             blocks.push(override_block(text, scope));
         }
     }
+}
+
+/// Refresh launch-derived rows while preserving creation-time guidance/preset bytes.
+pub fn record_tool_sources(meta: &mut SessionMeta, parts: Vec<ContextPart>) {
+    let snapshot = meta.cmux_context.get_or_insert_with(Vec::new);
+    snapshot.retain(|part| !part.id.starts_with("cmux-source-"));
+    snapshot.extend(parts);
 }
 
 /// Capture settings once when the session is created. Project text replaces user text.
@@ -333,5 +342,29 @@ mod tests {
         assert_eq!(overrides.for_project(cwd), Some(("project", "p")));
         overrides.set("project", Some(cwd), None).unwrap();
         assert_eq!(overrides.for_project(cwd), Some(("user", "u")));
+    }
+
+    #[test]
+    fn tool_source_snapshots_are_replaced_without_reinjecting_or_replacing_guidance() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
+        let mut cfg = Config::default();
+        cfg.context_overrides.user = Some("read concurrently".into());
+        meta.cmux_context = Some(snapshot(&cfg, &meta.cwd));
+        let mut description = meta.cmux_context.as_ref().unwrap()[0].clone();
+        description.id = "cmux-source-skill-example".into();
+        description.source = "cmux-skill-listing".into();
+        description.editable = false;
+        description.text = Some("name: example\ndescription: skill listing only".into());
+        description.channel = Some("skill-listing".into());
+        record_tool_sources(&mut meta, vec![description.clone()]);
+        record_tool_sources(&mut meta, vec![description]);
+        let snapshot = meta.cmux_context.as_deref().unwrap();
+        assert_eq!(snapshot.len(), 2);
+        let mut blocks = Vec::new();
+        append_snapshot(Some(snapshot), &mut blocks);
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0]["text"].as_str().unwrap().contains("read concurrently"));
+        record_tool_sources(&mut meta, Vec::new());
+        assert_eq!(meta.cmux_context.as_ref().unwrap().len(), 1);
     }
 }

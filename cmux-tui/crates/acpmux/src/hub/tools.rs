@@ -37,16 +37,22 @@ impl Hub {
         // Claude Code also leaves them out for `--strict-mcp-config`; an ACP
         // harness gets them in `mcpServers` whatever its args.
         let args: &[String] = if claude { &profile.argv } else { &[] };
-        let remote = session.meta().remote_origin;
+        let meta = session.meta();
+        let remote = meta.remote_origin;
         let left_out = crate::agent_tools::left_out(remote, &profile.env, args);
         session.launched_with_tools.store(if left_out { 2 } else { 1 }, Ordering::SeqCst);
         self.record_preview_format(session, crate::agent::preview_format(profile));
-        let mut cmux = if left_out {
-            Vec::new()
+        let tools = if left_out {
+            crate::agent_tools::AgentTools::default()
         } else {
-            crate::agent_tools::current().scoped(&profile.env).tool_rows(claude, claude)
+            crate::agent_tools::current().scoped(&profile.env)
         };
+        let mut cmux = tools.tool_rows(claude, claude);
+        let all =
+            crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
+        let sources = tools.listing(all).without_off(&profile.env).context_parts(claude);
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        crate::context_inventory::record_tool_sources(&mut m, sources);
         for row in &mut cmux {
             row.enabled = !m.tools.off.contains(&row.id);
             // What the harness last said of it stays until its next report.
