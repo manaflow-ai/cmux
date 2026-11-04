@@ -105,9 +105,8 @@ impl Dir {
         Ok(Some(out))
     }
 
-    /// A new, uniquely named, empty file in this folder: its name and a handle to write it.
-    pub(super) fn temp(&self) -> io::Result<(String, File)> {
-        let name = fresh_name()?;
+    /// Creates the new, empty file `name` in this folder for writing (`AlreadyExists` if taken).
+    pub(super) fn create(&self, name: &str) -> io::Result<File> {
         let c = cstr(name.as_bytes())?;
         let flags =
             libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC;
@@ -116,7 +115,7 @@ impl Dir {
             libc::openat(self.0.as_raw_fd(), c.as_ptr(), flags, 0o666 as libc::c_uint)
         })?;
         // SAFETY: as in `adopt`.
-        Ok((name, unsafe { File::from_raw_fd(fd) }))
+        Ok(unsafe { File::from_raw_fd(fd) })
     }
 
     /// The permission bits of `name` (not following a link), if it is there.
@@ -156,14 +155,6 @@ impl Dir {
         let fd = self.0.as_raw_fd();
         // SAFETY: valid folder fds and NUL-terminated names.
         check(unsafe { libc::linkat(fd, a.as_ptr(), fd, b.as_ptr(), 0) }).map(drop)
-    }
-
-    /// Renames `from` to `to`, replacing `to`.
-    pub(super) fn rename(&self, from: &str, to: &str) -> io::Result<()> {
-        let (a, b) = (cstr(from.as_bytes())?, cstr(to.as_bytes())?);
-        let fd = self.0.as_raw_fd();
-        // SAFETY: valid folder fds and NUL-terminated names.
-        check(unsafe { libc::renameat(fd, a.as_ptr(), fd, b.as_ptr()) }).map(drop)
     }
 
     /// Swaps the names `a` and `b` atomically; both must exist.
@@ -224,13 +215,4 @@ impl Dir {
 enum Flag {
     Exchange,
     NoReplace,
-}
-
-/// A hidden name in a folder that no other call picks.
-pub(super) fn fresh_name() -> io::Result<String> {
-    let mut b = [0u8; 8];
-    getrandom::fill(&mut b)
-        .map_err(|e| io::Error::other(format!("the OS random generator: {e}")))?;
-    let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
-    Ok(format!(".cmux-journal-{hex}.tmp"))
 }

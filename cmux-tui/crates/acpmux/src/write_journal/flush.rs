@@ -26,9 +26,18 @@ pub trait MachineFs {
     fn read(&self, path: &str) -> io::Result<Option<Vec<u8>>>;
     /// Replace the whole file atomically (readers see the old or the new bytes, never a mix),
     /// only while it is still `expected`; [`Mutation::Changed`] (nothing written) otherwise.
-    fn write(&self, path: &str, bytes: &[u8], expected: &Version) -> io::Result<Mutation>;
+    /// `seq` names any staging state, so [`MachineFs::recover`] finds it after a crash.
+    fn write(&self, seq: u64, path: &str, bytes: &[u8], expected: &Version)
+    -> io::Result<Mutation>;
     /// Remove the file, only while it is still `expected`; an absent file is not an error.
-    fn remove(&self, path: &str, expected: &Version) -> io::Result<Mutation>;
+    fn remove(&self, seq: u64, path: &str, expected: &Version) -> io::Result<Mutation>;
+    /// Finish or undo a mutation for `entry` that an earlier flush started and never finished
+    /// (it died part way), so the machine's own copy is never left aside. The flush calls this
+    /// before it looks at the file.
+    fn recover(&self, entry: &Entry) -> io::Result<()> {
+        let _ = entry;
+        Ok(())
+    }
     /// Make the file's current state (its bytes, or its absence) survive a power loss, with every
     /// folder on the way to it. `write` and `remove` already do this; the flush calls it for an
     /// entry an earlier flush applied, whose own sync may not have finished.
@@ -50,21 +59,58 @@ pub enum Mutation {
 /// what came out was not the expected version, so a save made at any moment before the swap is
 /// kept. Only a process writing in place through a handle it opened before the swap can still
 /// lose that write, as with any editor that saves by replacing the file. Unix only.
+///
+/// Staging files are named after the entry (`.cmux-journal-<seq>.tmp` and `.aside`) next to
+/// the file, so a flush that dies part way leaves state the next one resolves
+/// ([`MachineFs::recover`]). Nothing this does ever deletes a version saved on the machine: a
+/// copy it cannot put back is kept as `<name>.journal-conflict-<seq>`.
 pub struct DirMachineFs {
     root: PathBuf,
+    /// Called at named points of a mutation, so tests can act between its steps.
+    #[cfg(test)]
+    hook: Option<Box<dyn Fn(&str) + Send + Sync>>,
 }
 
 impl DirMachineFs {
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+        Self {
+            root: root.into(),
+            #[cfg(test)]
+            hook: None,
+        }
     }
+
+    #[cfg(test)]
+    pub(crate) fn with_hook(mut self, hook: impl Fn(&str) + Send + Sync + 'static) -> Self {
+        self.hook = Some(Box::new(hook));
+        self
+    }
+
+    #[cfg(test)]
+    fn at(&self, stage: &str) {
+        if let Some(h) = &self.hook {
+            h(stage);
+        }
+    }
+
+    #[cfg(not(test))]
+    fn at(&self, _: &str) {}
 }
 
 #[cfg(unix)]
 mod dir_impl {
-    use super::super::nofollow::{Dir, fresh_name};
+    use super::super::nofollow::Dir;
+    use super::super::{Entry, Op};
     use super::{DirMachineFs, MachineFs, Mutation, Version};
     use std::io::{self, Write};
+
+    fn staging(seq: u64) -> String {
+        format!(".cmux-journal-{seq}.tmp")
+    }
+
+    fn aside(seq: u64) -> String {
+        format!(".cmux-journal-{seq}.aside")
+    }
 
     impl DirMachineFs {
         /// The open folders from the root to `path`'s folder (the root first), and the file's
@@ -95,6 +141,38 @@ mod dir_impl {
         matches!(dir.read(name), Ok(b) if Version::of(b.as_deref()) == *expected)
     }
 
+    fn is(dir: &Dir, name: &str, expected: &Version) -> bool {
+        // A link, a folder or an unreadable file there is never the expected version.
+        matches!(dir.read(name), Ok(b) if Version::of(b.as_deref()) == *expected)
+    }
+
+    fn exists(dir: &Dir, name: &str) -> io::Result<bool> {
+        Ok(dir.mode(name)?.is_some())
+    }
+
+    /// Moves a machine version that could not be put back to a name of its own beside the file.
+    fn keep(dir: &Dir, from: &str, name: &str, seq: u64, path: &str) -> io::Result<()> {
+        let to = format!("{name}.journal-conflict-{seq}");
+        dir.rename_noreplace(from, &to).map_err(|e| {
+            io::Error::new(
+                e.kind(),
+                format!("{path} changed during the flush; its copy is kept as {from}: {e}"),
+            )
+        })?;
+        dir.sync()
+    }
+
+    /// After a swap back, `tmp` holds what was at the file just before it: our own staged bytes,
+    /// or a save made on the machine in that moment, which is kept, never deleted.
+    fn settle(dir: &Dir, tmp: &str, ours: &Version, name: &str, seq: u64, path: &str) -> io::Result<()> {
+        if is(dir, tmp, ours) {
+            dir.unlink(tmp)?;
+            dir.sync()
+        } else {
+            keep(dir, tmp, name, seq, path)
+        }
+    }
+
     impl MachineFs for DirMachineFs {
         fn read(&self, path: &str) -> io::Result<Option<Vec<u8>>> {
             match self.folder(path, false)? {
@@ -103,20 +181,28 @@ mod dir_impl {
             }
         }
 
-        fn write(&self, path: &str, bytes: &[u8], expected: &Version) -> io::Result<Mutation> {
+        fn write(
+            &self,
+            seq: u64,
+            path: &str,
+            bytes: &[u8],
+            expected: &Version,
+        ) -> io::Result<Mutation> {
             let Some((dir, name)) = self.folder(path, true)? else {
                 return Err(io::Error::other(format!("{path}: its folder could not be made")));
             };
-            let (tmp, mut file) = dir.temp()?;
+            let tmp = staging(seq);
+            let mut file = dir.create(&tmp)?;
             let staged = file.write_all(bytes).and_then(|()| file.sync_data());
             if let Err(e) = staged {
                 let _ = dir.unlink(&tmp);
                 return Err(e);
             }
+            let ours = Version::of(Some(bytes));
             if *expected == Version::Absent {
                 // A second name for the new file, never over one created in the meantime.
                 let linked = dir.link_noclobber(&tmp, &name);
-                let _ = dir.unlink(&tmp);
+                dir.unlink(&tmp)?;
                 return match linked {
                     Ok(()) => dir.sync().map(|()| Mutation::Applied),
                     Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(Mutation::Changed),
@@ -128,26 +214,19 @@ mod dir_impl {
                 use std::os::unix::fs::PermissionsExt;
                 let _ = file.set_permissions(std::fs::Permissions::from_mode(mode));
             }
-            match dir.exchange(&tmp, &name) {
-                Ok(()) => {}
-                Err(e) => {
-                    let _ = dir.unlink(&tmp);
-                    return if e.kind() == io::ErrorKind::NotFound {
-                        Ok(Mutation::Changed)
-                    } else {
-                        Err(e)
-                    };
-                }
+            if let Err(e) = dir.exchange(&tmp, &name) {
+                dir.unlink(&tmp)?;
+                return if e.kind() == io::ErrorKind::NotFound {
+                    Ok(Mutation::Changed)
+                } else {
+                    Err(e)
+                };
             }
+            self.at("swapped");
             // `tmp` now names what was there. Anything but the expected version goes back.
             if !is(&dir, &tmp, expected) {
-                dir.exchange(&tmp, &name).map_err(|e| {
-                    io::Error::new(
-                        e.kind(),
-                        format!("{path} changed during the flush; its copy is kept as {tmp}: {e}"),
-                    )
-                })?;
-                let _ = dir.unlink(&tmp);
+                dir.exchange(&tmp, &name)?;
+                settle(&dir, &tmp, &ours, &name, seq, path)?;
                 return Ok(Mutation::Changed);
             }
             dir.unlink(&tmp)?;
@@ -157,30 +236,73 @@ mod dir_impl {
             Ok(Mutation::Applied)
         }
 
-        fn remove(&self, path: &str, expected: &Version) -> io::Result<Mutation> {
+        fn remove(&self, seq: u64, path: &str, expected: &Version) -> io::Result<Mutation> {
             let absent =
                 if *expected == Version::Absent { Mutation::Applied } else { Mutation::Changed };
             let Some((dir, name)) = self.folder(path, false)? else { return Ok(absent) };
-            let aside = fresh_name()?;
-            match dir.rename(&name, &aside) {
+            let aside = aside(seq);
+            match dir.rename_noreplace(&name, &aside) {
                 Ok(()) => {}
                 Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(absent),
                 Err(e) => return Err(e),
             }
+            self.at("aside");
             if !is(&dir, &aside, expected) {
-                dir.rename_noreplace(&aside, &name).map_err(|e| {
-                    io::Error::new(
-                        e.kind(),
-                        format!(
-                            "{path} changed during the flush; its copy is kept as {aside}: {e}"
-                        ),
-                    )
-                })?;
+                match dir.rename_noreplace(&aside, &name) {
+                    Ok(()) => dir.sync()?,
+                    // Saved again in the meantime: both versions stay.
+                    Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                        keep(&dir, &aside, &name, seq, path)?;
+                    }
+                    Err(e) => return Err(e),
+                }
                 return Ok(Mutation::Changed);
             }
             dir.unlink(&aside)?;
             dir.sync()?;
             Ok(Mutation::Applied)
+        }
+
+        fn recover(&self, entry: &Entry) -> io::Result<()> {
+            let Some((dir, name)) = self.folder(&entry.path, false)? else { return Ok(()) };
+            let (seq, path) = (entry.seq, entry.path.as_str());
+            match &entry.op {
+                Op::Write { .. } => {
+                    let tmp = staging(seq);
+                    if !exists(&dir, &tmp)? {
+                        return Ok(());
+                    }
+                    let result = entry.result();
+                    // Our staged bytes, or the base the edit legitimately replaced.
+                    if is(&dir, &tmp, &result) || is(&dir, &tmp, &entry.base) {
+                        dir.unlink(&tmp)?;
+                        return dir.sync();
+                    }
+                    // A machine save swapped out before the check could undo it: put it back.
+                    if is(&dir, &name, &result) {
+                        dir.exchange(&tmp, &name)?;
+                        return settle(&dir, &tmp, &result, &name, seq, path);
+                    }
+                    keep(&dir, &tmp, &name, seq, path)
+                }
+                Op::Delete => {
+                    let aside = aside(seq);
+                    if !exists(&dir, &aside)? {
+                        return Ok(());
+                    }
+                    if is(&dir, &aside, &entry.base) {
+                        dir.unlink(&aside)?;
+                        return dir.sync();
+                    }
+                    match dir.rename_noreplace(&aside, &name) {
+                        Ok(()) => dir.sync(),
+                        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                            keep(&dir, &aside, &name, seq, path)
+                        }
+                        Err(e) => Err(e),
+                    }
+                }
+            }
         }
 
         fn make_durable(&self, path: &str) -> io::Result<()> {
@@ -201,10 +323,10 @@ impl MachineFs for DirMachineFs {
     fn read(&self, _: &str) -> io::Result<Option<Vec<u8>>> {
         Err(unsupported())
     }
-    fn write(&self, _: &str, _: &[u8], _: &Version) -> io::Result<Mutation> {
+    fn write(&self, _: u64, _: &str, _: &[u8], _: &Version) -> io::Result<Mutation> {
         Err(unsupported())
     }
-    fn remove(&self, _: &str, _: &Version) -> io::Result<Mutation> {
+    fn remove(&self, _: u64, _: &str, _: &Version) -> io::Result<Mutation> {
         Err(unsupported())
     }
     fn make_durable(&self, _: &str) -> io::Result<()> {
@@ -304,6 +426,7 @@ fn apply(
     already: &mut bool,
 ) -> io::Result<Option<(Version, Option<Vec<u8>>)>> {
     let Some(entry) = entries.first() else { return Ok(None) };
+    machine.recover(entry)?;
     let now = machine.read(&entry.path)?;
     let found = Version::of(now.as_deref());
     if already_applied(entries, &found) {
@@ -317,8 +440,10 @@ fn apply(
         return Ok(Some((found, now)));
     }
     let done = match &entry.op {
-        Op::Write { content } => machine.write(&entry.path, content.as_bytes(), &entry.base)?,
-        Op::Delete => machine.remove(&entry.path, &entry.base)?,
+        Op::Write { content } => {
+            machine.write(entry.seq, &entry.path, content.as_bytes(), &entry.base)?
+        }
+        Op::Delete => machine.remove(entry.seq, &entry.path, &entry.base)?,
     };
     match done {
         Mutation::Applied => Ok(None),

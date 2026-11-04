@@ -152,7 +152,7 @@ fn the_replica_never_follows_a_symlink_out_of_its_folder() {
     assert_eq!(replica.read("link").unwrap(), replica::ReplicaRead::MachineOnly);
     assert_eq!(replica.read("up/secret").unwrap(), replica::ReplicaRead::MachineOnly);
     let machine = DirMachineFs::new(&root);
-    assert!(machine.write("up/secret", b"x", &Version::Absent).is_err());
+    assert!(machine.write(1, "up/secret", b"x", &Version::Absent).is_err());
     assert_eq!(std::fs::read_to_string(dir.path().join("secret")).unwrap(), "s");
 }
 
@@ -393,14 +393,20 @@ impl MachineFs for Failing<'_> {
     fn read(&self, path: &str) -> std::io::Result<Option<Vec<u8>>> {
         self.inner.read(path)
     }
-    fn write(&self, path: &str, bytes: &[u8], expected: &Version) -> std::io::Result<Mutation> {
+    fn write(
+        &self,
+        seq: u64,
+        path: &str,
+        bytes: &[u8],
+        expected: &Version,
+    ) -> std::io::Result<Mutation> {
         if path == self.bad {
             return Err(std::io::Error::other("disk full"));
         }
-        self.inner.write(path, bytes, expected)
+        self.inner.write(seq, path, bytes, expected)
     }
-    fn remove(&self, path: &str, expected: &Version) -> std::io::Result<Mutation> {
-        self.inner.remove(path, expected)
+    fn remove(&self, seq: u64, path: &str, expected: &Version) -> std::io::Result<Mutation> {
+        self.inner.remove(seq, path, expected)
     }
     fn make_durable(&self, path: &str) -> std::io::Result<()> {
         self.inner.make_durable(path)
@@ -417,11 +423,17 @@ impl MachineFs for Recording<'_> {
     fn read(&self, path: &str) -> std::io::Result<Option<Vec<u8>>> {
         self.inner.read(path)
     }
-    fn write(&self, path: &str, bytes: &[u8], expected: &Version) -> std::io::Result<Mutation> {
-        self.inner.write(path, bytes, expected)
+    fn write(
+        &self,
+        seq: u64,
+        path: &str,
+        bytes: &[u8],
+        expected: &Version,
+    ) -> std::io::Result<Mutation> {
+        self.inner.write(seq, path, bytes, expected)
     }
-    fn remove(&self, path: &str, expected: &Version) -> std::io::Result<Mutation> {
-        self.inner.remove(path, expected)
+    fn remove(&self, seq: u64, path: &str, expected: &Version) -> std::io::Result<Mutation> {
+        self.inner.remove(seq, path, expected)
     }
     fn make_durable(&self, path: &str) -> std::io::Result<()> {
         self.synced.lock().unwrap().push(path.to_owned());
@@ -447,11 +459,17 @@ impl MachineFs for Racing<'_> {
         }
         Ok(now)
     }
-    fn write(&self, path: &str, bytes: &[u8], expected: &Version) -> std::io::Result<Mutation> {
-        self.inner.write(path, bytes, expected)
+    fn write(
+        &self,
+        seq: u64,
+        path: &str,
+        bytes: &[u8],
+        expected: &Version,
+    ) -> std::io::Result<Mutation> {
+        self.inner.write(seq, path, bytes, expected)
     }
-    fn remove(&self, path: &str, expected: &Version) -> std::io::Result<Mutation> {
-        self.inner.remove(path, expected)
+    fn remove(&self, seq: u64, path: &str, expected: &Version) -> std::io::Result<Mutation> {
+        self.inner.remove(seq, path, expected)
     }
     fn make_durable(&self, path: &str) -> std::io::Result<()> {
         self.inner.make_durable(path)
@@ -499,8 +517,8 @@ fn a_linked_folder_root_is_refused_for_reads_and_flushes() {
     assert!(replica.read("a.txt").is_err());
     let machine = DirMachineFs::new(&link);
     assert!(machine.read("a.txt").is_err());
-    assert!(machine.write("a.txt", b"x", &Version::of(Some(b"secret"))).is_err());
-    assert!(machine.remove("a.txt", &Version::of(Some(b"secret"))).is_err());
+    assert!(machine.write(1, "a.txt", b"x", &Version::of(Some(b"secret"))).is_err());
+    assert!(machine.remove(1, "a.txt", &Version::of(Some(b"secret"))).is_err());
     assert_eq!(std::fs::read_to_string(outside.join("a.txt")).unwrap(), "secret");
 }
 
@@ -525,6 +543,95 @@ fn sequence_numbers_run_out_instead_of_repeating() {
     assert_eq!(j.record("a", Op::Delete, Version::Absent, 1).unwrap(), u64::MAX - 1);
     assert!(j.record("a", Op::Delete, Version::Absent, 2).is_err());
     assert_eq!(j.entries().len(), 1);
+}
+
+/// The file names in the machine folder `dir`, sorted.
+fn names(dir: &std::path::Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    v.sort();
+    v
+}
+
+#[cfg(unix)]
+#[test]
+fn a_second_save_during_the_swap_back_is_kept_not_deleted() {
+    let f = fixture(&[("a.txt", "one")]);
+    let mut j = open(&f);
+    journaled(write_text(&mut j, &f.replica, "a.txt", Some("agent"), 1).unwrap());
+    let root = f.machine_root.clone();
+    // The second save lands after the first swap, before the swap back.
+    let fs = DirMachineFs::new(&f.machine_root).with_hook(move |stage| {
+        if stage == "swapped" {
+            std::fs::write(root.join("a.txt"), "guest 2").unwrap();
+        }
+    });
+    let machine = Racing {
+        inner: &fs,
+        root: &f.machine_root,
+        path: "a.txt",
+        guest: "guest 1",
+        raced: std::sync::atomic::AtomicBool::new(false),
+    };
+    let report = flush(&mut j, &machine).unwrap();
+    assert!(report.applied.is_empty(), "{report:?}");
+    assert_eq!(report.conflicts.len(), 1, "{report:?}");
+    // Both machine saves are still on disk; the agent's bytes are gone.
+    let mut texts: Vec<String> = names(&f.machine_root)
+        .iter()
+        .map(|n| std::fs::read_to_string(f.machine_root.join(n)).unwrap())
+        .collect();
+    texts.sort();
+    assert_eq!(texts, vec!["guest 1".to_owned(), "guest 2".to_owned()]);
+    assert!(names(&f.machine_root).contains(&"a.txt.journal-conflict-1".to_owned()));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_flush_that_died_after_its_swap_puts_the_machine_copy_back_and_reports_it() {
+    let f = fixture(&[("a.txt", "one")]);
+    let mut j = open(&f);
+    journaled(write_text(&mut j, &f.replica, "a.txt", Some("agent"), 1).unwrap());
+    // The state a crash right after the swap leaves when the machine had saved "guest" first.
+    std::fs::write(f.machine_root.join("a.txt"), "agent").unwrap();
+    std::fs::write(f.machine_root.join(".cmux-journal-1.tmp"), "guest").unwrap();
+    let report = flush(&mut j, &f.machine).unwrap();
+    assert!(report.already.is_empty() && report.applied.is_empty(), "{report:?}");
+    assert!(matches!(
+        report.conflicts.first().map(|c| c.machine_copy.as_deref()),
+        Some(Some("guest"))
+    ));
+    assert_eq!(machine_text(&f, "a.txt").as_deref(), Some("guest"));
+    assert_eq!(names(&f.machine_root), vec!["a.txt".to_owned()]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_flush_that_died_after_a_clean_swap_counts_as_applied() {
+    let f = fixture(&[("a.txt", "one")]);
+    let mut j = open(&f);
+    journaled(write_text(&mut j, &f.replica, "a.txt", Some("agent"), 1).unwrap());
+    std::fs::write(f.machine_root.join("a.txt"), "agent").unwrap();
+    std::fs::write(f.machine_root.join(".cmux-journal-1.tmp"), "one").unwrap();
+    let report = flush(&mut j, &f.machine).unwrap();
+    assert_eq!(report.already, vec![1], "{report:?}");
+    assert_eq!(names(&f.machine_root), vec!["a.txt".to_owned()]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_remove_that_died_after_moving_a_machine_save_aside_puts_it_back() {
+    let f = fixture(&[("a.txt", "one")]);
+    let mut j = open(&f);
+    journaled(write_text(&mut j, &f.replica, "a.txt", None, 1).unwrap());
+    std::fs::remove_file(f.machine_root.join("a.txt")).unwrap();
+    std::fs::write(f.machine_root.join(".cmux-journal-1.aside"), "guest").unwrap();
+    let report = flush(&mut j, &f.machine).unwrap();
+    assert_eq!(report.conflicts.len(), 1, "{report:?}");
+    assert_eq!(machine_text(&f, "a.txt").as_deref(), Some("guest"));
+    assert_eq!(names(&f.machine_root), vec!["a.txt".to_owned()]);
 }
 
 #[test]
