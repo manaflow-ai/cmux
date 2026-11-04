@@ -25,8 +25,9 @@ final class FocusCoordinator {
     private var reduced = FocusState()
     /// Topologies their owners marked changed, built when next needed (`setNeedsTopology`).
     private var pendingTopologies: [(owner: ObjectIdentifier, build: @MainActor () -> FocusTopology?)] = []
-    /// The state and rules (`cmux-focus-core`); the view above mirrors it.
-    private let machine = FocusMachine()
+    /// The state and rules (`cmux-focus-core`, in the app's one input router); the view above mirrors it.
+    private let machine: FocusMachine
+    init(machine: FocusMachine) { self.machine = machine }
     private var appliedCloseFocus: CloseFocusPolicy?
     /// The close-focus setting (tests inject one).
     var closeFocus: () -> CloseFocusPolicy = { DesignSettings.shared.closeFocus }

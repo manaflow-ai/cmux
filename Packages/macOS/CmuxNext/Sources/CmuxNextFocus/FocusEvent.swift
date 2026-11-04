@@ -117,3 +117,19 @@ public extension FocusEvent {
         return isPersonsOwn
     }
 }
+
+public extension FocusEvent.Responder {
+    /// Stable name of an AppKit responder for `debug.focus`.
+    var debugName: String {
+        switch self {
+        case .content(let pane): "content:\(pane)"
+        case .addressBar(let pane): "addressBar:\(pane)"
+        case .findBar(let pane): "findBar:\(pane)"
+        case .devTools(let pane): "devTools:\(pane)"
+        case .sidebar: "sidebar"
+        case .sidebarField: "sidebarField"
+        case .textField: "textField"
+        case .windowOrNone: "windowOrNone"
+        }
+    }
+}
