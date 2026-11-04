@@ -197,7 +197,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorFallback
     /// `focus.inactiveTabStyle`; "fade" when unset or invalid.
     public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleFallback
-    /// `window.titlebar`; "standard" when unset or invalid.
+    /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
     /// `window.titlebarButtons`; "hover" when unset or invalid.
     public var titlebarButtons: TitlebarButtonsMode = TitlebarButtonsSetting.fallback
@@ -230,6 +230,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var verticalTabs: Bool = VerticalTabsSetting.fallback
     /// `tabs.verticalTabsExpandOnHover`; on when unset or invalid.
     public var verticalTabsExpandOnHover: Bool = VerticalTabsSetting.expandOnHoverFallback
+    /// `tabs.hideLoneChatTab`; off when unset or invalid.
+    public var hideLoneChatTab: Bool = LoneChatTabSetting.fallback
     /// `tabs.swapCmdTAndCmdN`; off when unset or invalid.
     public var swapCmdTAndCmdN: Bool = SwapCmdTAndCmdNSetting.fallback
     /// `tabs.commandDigits`; workspaces when unset or invalid.
@@ -438,6 +440,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(TabOverflowSetting.parse(root), \.tabOverflow)
         snapshot.take(VerticalTabsSetting.parse(root), \.verticalTabs)
         snapshot.take(VerticalTabsSetting.parseExpandOnHover(root), \.verticalTabsExpandOnHover)
+        snapshot.take(LoneChatTabSetting.parse(root), \.hideLoneChatTab)
         let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
         snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN
         if let swapCmdTAndCmdNDiagnostic { snapshot.diagnostics.append(swapCmdTAndCmdNDiagnostic) }

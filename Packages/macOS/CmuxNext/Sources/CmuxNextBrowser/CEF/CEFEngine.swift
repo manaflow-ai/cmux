@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextDesign
 public import Foundation
 
@@ -157,34 +157,10 @@ public final class CEFEngine: BrowserEngine {
         try? await CEFRuntime.shared.start(layout: layout, trigger: reason)
     }
 
-    /// Builds a spare Chromium window (`CEFSpareWindow`) once Chromium runs
-    /// and no Chromium window exists, so the first tab skips building one.
-    /// Call at an idle moment: building it holds the main thread. True when
-    /// it started.
-    @discardableResult
-    public func prepareSpareWindow() -> Bool {
-        adoptStores()
-        return CEFSpareWindow.shared.prepare(runtime: .shared)
-    }
-
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The new Chromium tab bench's recorder (`debug.new_tab bench_browser`).
     public var benchMarks: CEFBenchMarks { CEFRuntime.shared.benchMarks }
     #endif
-
-    /// Closes the untaken spare Chromium window, if one is up (`debug.cef drop_spare`: what the
-    /// spare costs). The next take-free idle moment does not make another; a warm start or a
-    /// take does.
-    public func dropSpareWindow() {
-        CEFSpareWindow.shared.drop(runtime: .shared)
-    }
-
-    /// Runs when no spare Chromium window is ready (a pane took it, or a tab's own window came
-    /// up first), so the caller can make one at an idle moment (`prepareSpareWindow`). Nil: none.
-    public var onSpareWindowNeeded: (@MainActor () -> Void)? {
-        get { CEFSpareWindow.shared.onNeeded }
-        set { CEFSpareWindow.shared.onNeeded = newValue }
-    }
 
     /// Returns once the framework load that `preload` started ended (at once
     /// when none runs).
@@ -221,9 +197,6 @@ public final class CEFEngine: BrowserEngine {
         }
     }
 
-    /// `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).
-    public var spareWindowState: String { CEFSpareWindow.shared.state.rawValue }
-
     /// Main-thread time in Chromium's start steps so far (`MainThreadEngineStart`).
     public var engineStartMainThreadTime: Duration { MainThreadEngineStart.shared.total }
 
@@ -255,6 +228,12 @@ public final class CEFEngine: BrowserEngine {
 
     /// Recent renderer and helper process failures (`debug.crashes`).
     public var crashLog: BrowserCrashLog { CEFRuntime.shared.crashLog }
+    /// Each renderer end and main-frame load failure a person saw, with the engine versions (cancelled loads
+    /// included: the receiver filters). The App sends them to crash reporting.
+    public var onEngineFailure: ((BrowserEngineFailure) -> Void)? {
+        get { CEFRuntime.shared.failureReports.onFailure }
+        set { CEFRuntime.shared.failureReports.onFailure = newValue }
+    }
 
     /// Runs once CEF is initialized in this process (process-wide), after the
     /// person's password settings (`setPasswordPolicy`) and search engine
@@ -356,7 +335,7 @@ public final class CEFEngine: BrowserEngine {
 
     /// Hands the stores and sign-in tabs to the process's runtime before it starts or makes a tab
     /// (not in `init`: the runtime is built on Chromium's first use, not at launch).
-    private func adoptStores() {
+    func adoptStores() {
         CEFRuntime.shared.adopt(stores: stores, signInCallbacks: signInCallbacks)
     }
 

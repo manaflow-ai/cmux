@@ -9,6 +9,15 @@ pack in the text color, Solid when `selected`, with Cat-accent layers in `--agen
 `design/icons/source/`. Do not edit it by hand; rerun the script (`--check` verifies it is current).
 Native draws the same pack through `CmuxNextIcons`.
 
+Static transcript glyphs in `conversation/icons.tsx` are semantic aliases of this pack. Add a missing
+meaning in `design/icons/source/`, then regenerate; do not draw a second inline SVG in a transcript
+component (`check:transcript-icons` enforces the boundary).
+
+Line icons render at 1.25px stroke at 16px, proportional at 12/14/20 and the composer's 18px exception.
+The renderer compensates for plain, row-cropped and optically fitted viewports, including knockout
+gaps. Selected Solid drawings retain their authored geometry. The shared Spinner and third-party
+brand marks retain their settled drawings. Gallery: `agent-pane.icon-system`.
+
 `nekoCandidate.json` is a gallery-only experiment generated from the existing Cat drawings and
 copy/pin fill-ins. It is not imported by the production icon map. The reserved `neko` family falls
 back to the default until a complete comparison clears the quality bar. See

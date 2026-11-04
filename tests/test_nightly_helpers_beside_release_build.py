@@ -82,8 +82,10 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertEqual(job["steps"][0]["with"]["ref"], "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}")
         self.assertNotIn("environment", job)
         self.assertEqual(job["permissions"], {"contents": "read"})
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_32", job["runs-on"])
-        self.assertNotIn("macos", job["runs-on"])
+        # Our nightly-only Macs, never Blacksmith (nightlies run only on our runners).
+        self.assertIn("'glaeda-nightly-only-m4pro'", job["runs-on"])
+        self.assertNotIn("RUNNER_POOLS", job["runs-on"])
+        self.assertNotIn("macos-", job["runs-on"])
         self.assertNotIn("secrets.", yaml.safe_dump(job))
         uploads = [step["with"]["name"] for step in job["steps"] if "upload-artifact" in step.get("uses", "")]
         self.assertEqual(uploads, ["cmux-nightly-web-bundles", "cmux-nightly-notices"])

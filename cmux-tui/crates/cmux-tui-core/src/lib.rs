@@ -42,6 +42,8 @@ mod event_bus;
 pub mod fs_ops;
 mod git_ops;
 #[cfg(unix)]
+pub mod blob_fetch;
+#[cfg(unix)]
 pub mod git_seed;
 mod history_ops;
 pub mod history_search;
@@ -71,7 +73,7 @@ mod pty_input_room;
 #[cfg(unix)]
 mod pty_write;
 /// A mutex-guarded value whose readers load a published projection without the lock (R-DAEMON-STATE).
-mod published;
+use cmux_tui_util::published;
 mod terminal_title;
 use cmux_tui_remote_access::remote_relay_state;
 mod login_shell;

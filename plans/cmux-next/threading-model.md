@@ -71,6 +71,7 @@ and changes both with the code).
 | **Per-stream lanes** | Not on feat-cmux-next yet (PL-conn, `pl-conn`) | | | Added here when it lands |
 | **Holder** (`cmux-holder`, one `poll` loop; daemon side `holder-link`) | PTYs that outlive the daemon | `poll` | not set | 1 MiB ring per terminal, 1 MiB link queue, 512 KiB credit window; daemon attached: the holder stops reading the PTY (the shell blocks); no daemon: the ring keeps the newest bytes |
 | **acpmux** (tokio multi-thread; `acpmux-socket-read` / `-write` bridges) | Agent sessions | Socket I/O on its runtime | not set | In 256 / out 4096 per connection, full outbox drops (`try_send`), oversized notices become `_acpmux/lagged`; hub broadcast 8192 with `lagged {dropped}`. Owner PL-acpmux (cmux-4f) |
+| **acpmux event journal** (`store.journal`, default off; R-DURABILITY S2/S2c): the `cmux-journal` writer thread, `acpmux-journal-checkpoint` (one thread), one outbound gate task per connection (tokio) | Durable event-log records (group commit); the checkpoint (log syncs, retirement); holding a connection's lines until what they show is durable | The writer: disk syncs. The checkpointer: log syncs. A gate task: nothing (an async wait on the durable watch). Appends and reads take the appends' lock only around memory work and one buffered log write | With the journal on, the daemon keeps the default disk tier (a reply the person waits for never waits on a throttled sync); the checkpointer runs at utility (thread scope) | The writer's queue (a refused append fails the request); a gate waits at most 10 s for the journal, then the store asks the daemon to stop for a restart (exit 74); a checkpoint every 30 s while there is work, past 64 MiB of journal, at shutdown. Owner R-DURABILITY |
 | **Chromium** (in-process browser: UI thread = the app's main thread; Chromium's own IO and worker threads; renderer, GPU and utility helper processes; out-of-process host prototype `com.cmuxterm.chromium-host.read` / `.exit`) | Web pages | Chromium's IO thread blocks on its own sockets, never the UI thread | Chromium's | Child exits on `com.cmuxterm.app.next.cef-children`; host prototype: 256 KiB send buffer, 4096 frames, over: the connection ends |
 
 ## QoS and task priority (PL-qos, 2026-10-24)
@@ -136,6 +137,11 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   one thread per call: its pipe write blocks only it; it ends when the child has read the request or closed its
   stdin, and a kill at the call's deadline or a cancel closes it, so it never outlives the child; CloudMachineIO),
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
+  `com.cmuxterm.mac-screen.rd-stdin` (one Mac Screen session's JSON lines into its bundled `cmux rd`
+  process, user-initiated, serial: its pipe writes block only it; a few lines per session, candidates and
+  stop, so no back-pressure; MacScreenRdProcess), `com.cmuxterm.mac-screen.rd-socket` (the viewer's
+  Unix socket to `cmux rd connect`, user-initiated: Network delivers the stream's bytes here, it blocks on
+  nothing, the decode pipeline reads them; MacScreenUnixStream),
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`, `com.cmuxterm.mobile.paired-devices` (the iPhone
   host's paired-phone list and its Keychain seal, utility, serial: its file and Keychain calls block this queue,
   never main; one item per save, read or withdrawal, each from a person's action or an account change, so no back-pressure;

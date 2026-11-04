@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextChiefViews
+import CmuxNextPages
 
 /// The Chief view gallery (``ChiefViewsPage``, CmuxNextChiefViews) as a page tab: in the home
 /// workspace it lands in Home's right column beside the Chief dock. The app passes its machines
@@ -21,5 +22,20 @@ enum ChiefViewsPageTab {
         registry.bind(ChiefViewsPage.actionID, unavailable: { ChiefViewsPage.unavailableReason }, invoke: { [weak services] invocation in
             if let services { _ = services.pages.show(page, in: services.windows.active, focus: invocation.allowsViewChange) }
         })
+        bindGalleryStage(into: registry, context: context)
+    }
+
+    static let galleryStage = InternalPageID(rawValue: "gallery-stage")
+
+    /// Gallery Stage (``GalleryStageTabs``, CmuxNextPages), the other DEV gallery: one more page tab per run.
+    static func bindGalleryStage(into registry: ActionRegistry, context: AppActionContext) {
+        let services = context.services, stages = GalleryStageTabs()
+        services.pages.register(WebPageTab(galleryStage, symbol: GalleryStageTabs.symbol, title: GalleryStageTabs.title, view: { stages.view(for: $0) }))
+        registry.bindEffect(ActionID(rawValue: GalleryStageTabs.actionID), unavailable: { GalleryStageTabs.unavailableReason }) { [weak services] invocation in
+            let refusal = stages.open(entry: invocation["entry"]?.stringValue, variant: invocation["variant"]?.stringValue) {
+                services?.pages.openNew(galleryStage, in: services?.windows.active, focus: invocation.allowsViewChange) != nil
+            }
+            return refusal.map { ActionEffect.refused($0) } ?? .done
+        }
     }
 }
