@@ -101,6 +101,23 @@ thread_local! {
     > = const { std::cell::RefCell::new(None) };
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Tests (red proof): a checkpoint on this thread stops right after its start.
+    pub(crate) static HOLD_AFTER_START: std::cell::RefCell<
+        Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
+    > = const { std::cell::RefCell::new(None) };
+}
+
+/// Tests (red proof): the stop of [`HOLD_AFTER_START`].
+#[cfg(test)]
+fn hold_after_start() {
+    if let Some((arrived, release)) = HOLD_AFTER_START.with(|hold| hold.borrow_mut().take()) {
+        let _ = arrived.send(());
+        let _ = release.recv();
+    }
+}
+
 /// Tests: the stop of [`HOLD_BEFORE_FREEZE`].
 #[cfg(test)]
 fn hold_before_freeze() {

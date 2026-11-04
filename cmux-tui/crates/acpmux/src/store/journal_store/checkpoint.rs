@@ -111,6 +111,8 @@ impl Inner {
             order.bytes = 0;
             (order.applied, std::mem::take(&mut order.dirty), order.metas.clone())
         };
+        #[cfg(test)]
+        super::hold_after_start();
         // Every record up to `lsn` durable first (one group commit, on this background thread):
         // the checkpoint is never past the journal's durable end, and a metadata image written
         // below names only lines the journal holds (E13).

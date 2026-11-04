@@ -7,8 +7,10 @@
 //! in a temporary folder; an OS crash of them is modelled as the worst case: every log file goes
 //! back to its length at the last `flush` (the kernel lost every write since).
 
-use super::journal_store::{FencedStorage, HOLD_BEFORE_FREEZE, JournalStore, STOP_AFTER_CUT};
-use super::log_sync::FAIL_NEXT_LOG_SYNC;
+use super::journal_store::{
+    FencedStorage, HOLD_AFTER_START, HOLD_BEFORE_FREEZE, JournalStore, STOP_AFTER_CUT,
+};
+use super::log_sync::{FAIL_NEXT_LOG_SYNC, NOTE_BEFORE_SYNCS_WAIT};
 use super::sync_model;
 use super::*;
 use cmux_journal::{Crash, SimStorage};
@@ -923,10 +925,11 @@ fn a_read_that_shows_a_line_covers_its_record() {
 
 // ---------------------------------------------------------------- review of #35866: a checkpoint and a freeze
 
-/// The reviewer's test (review of #35866, finding 2's base part): a checkpoint in flight when a
-/// log sync fails on another thread (a request's `flush_session`; the store freezes). The
-/// checkpoint checked `frozen` only at its start, went on, and its own sync of that log may
-/// report success for the pages the failed sync dropped: it must not retire the line's record.
+/// The reviewer's test (review of #35866, finding 2's base part): a checkpoint in flight (past
+/// its start, where it read `frozen`) when a log sync fails on another thread (a request's
+/// `flush_session`; the store freezes). The checkpoint's own sync of that log may report success
+/// for the pages the failed sync dropped: it must not retire the line's record. The checkpoint is
+/// held right after its start (test seam `HOLD_AFTER_START`) while the sync fails: no timer.
 #[test]
 fn a_checkpoint_in_flight_does_not_go_past_a_freeze() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
@@ -937,21 +940,23 @@ fn a_checkpoint_in_flight_does_not_go_past_a_freeze() {
     store.flush().unwrap_or_else(|e| panic!("{e:#}"));
     store.append(CHAT, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
-    // A checkpoint in flight: it waits in a 2 s sync of chat-b's record.
-    journal.set_sync_delay(Duration::from_secs(2));
-    store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    // A checkpoint in flight: held right after its start.
+    let (started_tx, started) = std::sync::mpsc::channel();
+    let (go, go_rx) = std::sync::mpsc::channel();
     let flusher = {
         let store = Arc::clone(&store);
-        std::thread::spawn(move || store.flush())
+        std::thread::spawn(move || {
+            HOLD_AFTER_START.with(|hold| *hold.borrow_mut() = Some((started_tx, go_rx)));
+            store.flush()
+        })
     };
-    std::thread::sleep(Duration::from_millis(300));
+    started.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the checkpoint never started: {e}"));
     FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
     let failed = store.flush_session(CHAT);
     FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
-    journal.set_sync_delay(Duration::ZERO);
     assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
+    let _ = go.send(());
     let in_flight = flusher.join().unwrap_or_else(|_| panic!("the flush panicked"));
-    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     // The daemon stops for a restart (no crash); the restart's first checkpoint runs.
     drop(store);
     let store = open(home.path(), &journal);
@@ -969,7 +974,10 @@ fn a_checkpoint_in_flight_does_not_go_past_a_freeze() {
 }
 
 /// The same race at its narrowest: another thread's log sync has failed and has not frozen the
-/// store yet when a checkpoint runs. The checkpoint must not retire the line's record either.
+/// store yet when a checkpoint is about to write its LSN. The checkpoint must not retire the
+/// line's record either: it waits for that sync, which freezes the store when the test lets it
+/// go on. The test knows that the checkpoint waits from its note (test seam
+/// `NOTE_BEFORE_SYNCS_WAIT`), sent right before it blocks: no timer.
 #[test]
 fn a_checkpoint_never_goes_past_a_sync_that_is_failing_on_another_thread() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
@@ -995,12 +1003,25 @@ fn a_checkpoint_never_goes_past_a_sync_that_is_failing_on_another_thread() {
         })
     };
     arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the failing sync never arrived: {e}"));
-    // A checkpoint now, while that failure is not recorded yet.
+    // A checkpoint now, while that failure is not recorded yet: it says when it waits, or that it
+    // returned.
+    let (events_tx, events) = std::sync::mpsc::channel();
     let flusher = {
         let store = Arc::clone(&store);
-        std::thread::spawn(move || store.flush())
+        std::thread::spawn(move || {
+            NOTE_BEFORE_SYNCS_WAIT.with(|note| *note.borrow_mut() = Some(events_tx.clone()));
+            let result = store.flush();
+            let _ = events_tx.send("returned");
+            result
+        })
     };
-    std::thread::sleep(Duration::from_millis(300));
+    let first =
+        events.recv_timeout(WAIT).unwrap_or_else(|e| panic!("no word from the checkpoint: {e}"));
+    let waited = first != "returned";
+    if waited {
+        // Blocked on the held sync's ticket: it cannot return before the release.
+        assert!(!flusher.is_finished(), "the checkpoint returned while it waited for a sync");
+    }
     let _ = release.send(());
     let failed = failing.join().unwrap_or_else(|_| panic!("the failing thread panicked"));
     assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
@@ -1015,7 +1036,9 @@ fn a_checkpoint_never_goes_past_a_sync_that_is_failing_on_another_thread() {
     assert_eq!(
         seqs(store.as_ref(), CHAT),
         vec![1, 2],
-        "a checkpoint went past a sync that was failing on another thread (it returned {})",
+        "a checkpoint went past a sync that was failing on another thread (it {} and returned {})",
+        if waited { "waited" } else { "did not wait" },
         if checkpointed.is_ok() { "ok" } else { "an error" }
     );
+    assert!(waited, "the checkpoint did not wait for the failing sync");
 }
