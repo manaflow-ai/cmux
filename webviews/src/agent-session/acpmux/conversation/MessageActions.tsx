@@ -1,14 +1,16 @@
 // The buttons of a message's action row, shared by a prompt's (UserBubble.tsx, PromptActions for
 // the Chief's), another agent's message's (ReceivedActions) and an answer's (TurnRows.tsx TurnFooter), as Claude Code desktop
 // draws them: the message's age ("8 minutes ago"; "Oct 20, 2026, 10:16 PM" above it on hover), a
-// prompt's read receipt, Copy, Retry, Fork from here (its title and what it does), Pin, Read
-// aloud and More (the message's right-click menu), each glyph ROW_ICON px in a 24 px button. The rows show on hover or keyboard focus only,
+// prompt's read receipt, Copy, Retry, Fork from here (its title and what it does), a prompt's
+// Bookmark, an answer's Pin, Read aloud and More (the message's right-click menu), each glyph
+// ROW_ICON px in a 24 px button. The rows show on hover or keyboard focus only,
 // with Claude's fade (conversation.css).
 import { useContext, useRef, useState, type ReactNode } from "react";
 import { useLabelClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
+import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
 import { useRowMark } from "../threadMinimap/promptMarks";
 import { AlertCircle, Check, DoubleCheck, Pin, Retry, Speaker, Spinner, StopReading, TurnFork } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
@@ -191,6 +193,28 @@ export function PinButton({ rowId }: { rowId: string }) {
       onClick={mark.toggle}
     >
       <Pin size={ROW_ICON} filled={mark.marked} />
+    </button>
+  );
+}
+
+/// Bookmarks prompt row `rowId`, as the thread minimap's card does: the same mark (a bookmarked
+/// prompt shows in the rail, and Previous and Next Bookmarked Prompt reach it). Nothing for a prompt
+/// acpmux has not logged yet.
+export function BookmarkButton({ rowId }: { rowId: string }) {
+  const t = useT();
+  const mark = useRowMark({ id: rowId });
+  if (!mark.can) return null;
+  const label = t(mark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd");
+  return (
+    <button
+      type="button"
+      className="cv-iconbtn cv-iconbtn--compact cv-message-bookmark"
+      aria-pressed={mark.marked}
+      aria-label={label}
+      title={label}
+      onClick={mark.toggle}
+    >
+      <BookmarkIcon filled={mark.marked} size={ROW_ICON} />
     </button>
   );
 }

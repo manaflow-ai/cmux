@@ -1,10 +1,12 @@
 // A prompt's bubble, with its action row under its right edge (Leo's spec, after Claude Code
 // desktop's): the prompt's age ("3 days ago"; "Oct 18, 2026, 10:16 PM" above it on
-// hover), then Copy, Edit, Retry and Fork from here, each naming itself on hover. The ellipsis
-// is gone; its menu remains on right-click. No Pin here: an
-// answer's row has it. Fork hides where the harness cannot fork there (cx-ncc.60, Claude parity;
-// Leo, GUI push 2026-10-20/21). The row shows on hover or keyboard focus only, its height kept, so
-// nothing moves when it appears. Edit opens the prompt in place; Send forks the chat through the
+// hover), then Copy, Edit, Retry, Fork from here and Bookmark, each naming itself on hover. The
+// ellipsis is gone; its menu remains on right-click. No Pin here (an answer's row has it): a prompt
+// has the rail's bookmark instead, the ChatGPT-style mark (Leo, 2026-11-04: "we have the chatgpt
+// bookmarks available for user prompts but we dont have a bookmark button there i think we ought to").
+// Fork hides where the harness cannot fork there (cx-ncc.60, Claude parity; Leo, GUI push
+// 2026-10-20/21). The row shows on hover or keyboard focus only, its height kept, so nothing moves
+// when it appears. Edit opens the prompt in place; Send forks the chat through the
 // turn before it and sends the edited text there (the App's `edit.send`), Escape or Cancel puts the
 // bubble back. Edit shows only on a prompt the chat can fork before (`editableTurns`), so it is
 // never dead. Retry sends the prompt again (MessageActions.tsx PromptRetry). A prompt with versions
@@ -41,6 +43,7 @@ import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import { SourceBadge, useSourceLabel, withSourceLabel } from "../composer/SourceBadge";
 import {
+  BookmarkButton,
   ForkButton,
   forkWithFeedback,
   MessageCopy,
@@ -289,6 +292,7 @@ export function UserBubble({
               )}
               {retry}
               {forkButton}
+              <BookmarkButton rowId={row.id} />
             </MessageFooterRow>
           </UserFooter>
         )}
