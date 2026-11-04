@@ -170,10 +170,10 @@ class TruthRunTests(unittest.TestCase):
             w.close()
 
     def test_a_finding_the_truth_forbids_fails_the_run(self):
-        w = TruthWorkspace(video=video_stub(extra=["jump back"]))
+        w = TruthWorkspace(video=video_stub(extra=["dropped frames"]))
         try:
             w.write_truth(expect=[{"judge": "video_judge", "check": "gap or overlap", "frames": list(BAND_FRAMES)},
-                                  {"judge": "video_judge", "absent_check": "jump back"}])
+                                  {"judge": "video_judge", "absent_check": "dropped frames"}])
             self.assertEqual(w.snapshot()[0], 0)
             code, out = w.bless()
             self.assertEqual(code, 2, out)

@@ -471,7 +471,7 @@ class ThirdReviewTests(unittest.TestCase):
             .replace("__EXTRA__", "[]")
         w = truth.TruthWorkspace(video=empty)
         try:
-            w.write_truth(expect=[{"judge": "video_judge", "absent_check": "jump"}])
+            w.write_truth(expect=[{"judge": "video_judge", "absent_check": "dropped frames"}])
             self.assertEqual(w.snapshot()[0], 0)
             code, out = w.cli("bless", "--judges", str(w.judges), "--reason", "t", "--jobs", "2", "--no-git-check")
             self.assertEqual(code, 2, out)
@@ -557,7 +557,8 @@ class FourthReviewTests(unittest.TestCase):
         def load_trace(path):
             return json.loads(open(path).read())
         def judge(trace, frames=None, scale=2.0, events=None):
-            return {"motion": {"first": 0, "last": 2}, "motions": [{"first": 0, "last": 2, "travel": {"a": {"right": 40.0}}}],
+            return {"motion": {"first": 0, "last": 2},
+                    "motions": [{"first": 0, "last": 2, "motion": {"frames": 3}, "travel": {"a": {"right": 40.0}}}],
                     "defects": [], "counts": {}}
         """
 
@@ -582,7 +583,7 @@ class FourthReviewTests(unittest.TestCase):
     def test_an_absence_on_a_video_judge_with_no_motion_window_is_no_verdict(self):
         import test_judge_goldens_truth as truth
         still = truth.video_stub().replace('"motion": [{"a": 0, "b": 8}]', '"motion": []')
-        w = self.workspace([{"judge": "video_judge", "absent_check": "jump"}], video=still)
+        w = self.workspace([{"judge": "video_judge", "absent_check": "dropped frames"}], video=still)
         try:
             code, out = self.bless(w)
             self.assertEqual(code, 2, out)
@@ -616,7 +617,7 @@ class FourthReviewTests(unittest.TestCase):
     def test_a_result_without_its_list_is_no_verdict(self):
         import test_judge_goldens_truth as truth
         bare = truth.video_stub().replace('"findings": findings}', '"findings_v2": findings}')
-        w = self.workspace([{"judge": "video_judge", "absent_check": "jump"}], video=bare)
+        w = self.workspace([{"judge": "video_judge", "absent_check": "gap or overlap"}], video=bare)
         try:
             code, out = self.bless(w)
             self.assertEqual(code, 2, out)
@@ -710,7 +711,8 @@ class FifthReviewTests(unittest.TestCase):
 
     def test_an_absence_of_a_divider_check_needs_a_tracked_divider(self):
         untracked = self.result(tracked_dividers=0, model_lag={})
-        for name in ("gap or overlap", "divider not shown", "jump", "jump back", "jump back (animation)",
+        # (jump, jump back and jump back (animation) also need a divider that moved, which no result shows: review 7)
+        for name in ("gap or overlap", "divider not shown",
                      "shown geometry not in the model"):
             with self.subTest(name=name):
                 self.assertIn("tracked no divider", self.verdict(untracked, {"absent_check": name}))
@@ -960,28 +962,26 @@ class SixthReviewTests(unittest.TestCase):
         self.assertIn("no trace samples", got)
 
     def test_jump_back_needs_a_drag_the_judge_placed(self):
+        # jump back's needs include "drag" (a HID drag in the pinned events.json that video_judge placed). Its absence
+        # is refused before judging today (it also needs "moved", review 7); the drag need itself:
+        self.assertIn("drag", jg.NAMES["video_judge"]["jump back"][1])
+        shows = jg.NEEDS["drag"][1]
         placed = {"offset_s": 0.0}
-        self.assertIn("drag", self.verdict(self.result(hid_clock=placed), {"absent_check": "jump back"}))
-        self.assertIn("drag", self.verdict(self.result(hid_clock={"offset_s": None}), {"absent_check": "jump back"},
-                                            hid_drag=True))
-        self.assertEqual(self.verdict(self.result(hid_clock=placed), {"absent_check": "jump back"}, hid_drag=True), "holds")
+        self.assertFalse(shows(self.result(hid_clock=placed), {"movie": False, "hid_drag": False}))
+        self.assertFalse(shows(self.result(hid_clock={"offset_s": None}), {"movie": False, "hid_drag": True}))
+        self.assertTrue(shows(self.result(hid_clock=placed), {"movie": False, "hid_drag": True}))
 
     def test_the_drag_is_read_from_the_films_pinned_events(self):
         import test_judge_goldens_truth as truth
-        for drag, code_wanted in ((None, 2), ("key", 2), ("drag", 0)):
+        for drag, wanted in ((None, False), ("key", False), ("drag", True)):
             with self.subTest(drag=drag):
-                stub = truth.video_stub().replace('"motion": [{"a": 0, "b": 8}],', '"motion": [{"a": 0, "b": 8}], '
-                                                  '"hid_clock": {"offset_s": 0.0},')
-                w = truth.TruthWorkspace(video=stub)
+                w = truth.TruthWorkspace()
                 try:
                     hid = [{"kind": drag, "t_sent": 100.0, "t_returned": 100.05, "args": {}}] if drag else []
                     (w.gallery / "px-build-120x2" / "px-keys.events.json").write_text(json.dumps({"hid": hid, "journal": []}))
-                    w.write_truth(expect=[{"judge": "video_judge", "absent_check": "jump back"}])
                     self.assertEqual(w.snapshot()[0], 0)
-                    code, out = w.bless()
-                    self.assertEqual(code, code_wanted, out)
-                    if drag != "drag":  # no HID entry, or one that is no drag
-                        self.assertIn("drag", out)
+                    films = json.loads((w.manifest / "films.json").read_text())
+                    self.assertEqual(jg._film_hid_drag(w.store, films, "px-build-120x2/px-keys"), wanted)
                 finally:
                     w.close()
 
@@ -1041,6 +1041,213 @@ class SixthReviewTests(unittest.TestCase):
                     self.assertIn("truth.json has facts that cannot be checked", out)  # refused before judging
                 finally:
                     w.close()
+
+
+class SeventhReviewTests(unittest.TestCase):
+    """Review 7 of #33930 at 029604eea31 (FIX, comment 6625895023). A: an absence of jump, jump back or jump back
+    (animation) needs a tracked divider that moved, which no result shows: refused before judging. B: no unpinned file
+    decides a result: snapshot plans each folder against what the store holds (whatever its manifest records), the
+    TRUTH ruler reads only pinned files, a judge in its sealed view never sees an unpinned file, and the drag need reads
+    only a pinned events.json. Notes: tests for the ruler's at and class types and the TypeError catch; a drag entry
+    with no times; judge_trace motions of one frame; a ruler that is no object; two snapshots at the same time."""
+
+    verdict = staticmethod(FifthReviewTests.verdict)
+    cli = staticmethod(SixthReviewTests.cli)
+
+    def truth_workspace(self, expect=None, **kw):
+        import test_judge_goldens_truth as truth
+        w = truth.TruthWorkspace(**kw)
+        if expect is not None:
+            w.write_truth(expect=expect)
+        return w
+
+    # -- A --
+    def test_an_absence_of_a_step_check_is_refused_before_judging(self):
+        for name in ("jump", "jump back", "jump back (animation)"):
+            with self.subTest(name=name):
+                w = self.truth_workspace([{"judge": "video_judge", "absent_check": name}])
+                try:
+                    self.assertEqual(w.snapshot()[0], 0)
+                    code, out = w.bless()
+                    self.assertEqual(code, 2, out)
+                    self.assertIn("truth.json has facts that cannot be checked", out)
+                    self.assertIn("moved", out)
+                finally:
+                    w.close()
+
+    def test_a_positive_step_check_still_holds(self):
+        reported = FifthReviewTests.result(FifthReviewTests(), [{"check": "jump", "severity": "defect", "frames": [3, 4],
+                                                                 "t": [0, 0], "detail": "x"}])
+        self.assertEqual(self.verdict(reported, {"check": "jump"}), "holds")
+
+    # -- B --
+    def test_snapshot_refuses_a_new_input_of_a_film_another_manifest_stores(self):
+        w = self.truth_workspace()
+        try:
+            scan = w.gallery / "px-build-120x2" / "px-keys.mov.scan"
+            data = scan.read_bytes()
+            scan.unlink()  # manifest A stores px-keys without its scan
+            self.assertEqual(w.snapshot()[0], 0)
+            scan.write_bytes(data)  # the gallery gets the scan later
+            code, out = self.cli(w, w.root / "manifest-b", "snapshot", "--source", str(w.gallery), "--settled-minutes", "0")
+            self.assertEqual(code, 2, out)
+            self.assertIn("px-keys.mov.scan", out)
+            self.assertFalse((w.store / "films" / "px-build-120x2" / "px-keys.mov.scan").exists())
+        finally:
+            w.close()
+
+    def test_the_ruler_reads_only_pinned_files(self):
+        w = self.truth_workspace()
+        try:
+            w.write_truth()
+            scan = w.gallery / "px-build-120x2" / "px-keys.mov.scan"
+            data = scan.read_bytes()
+            scan.unlink()
+            self.assertEqual(w.snapshot()[0], 0)
+            folder = w.store / "films" / "px-build-120x2"
+            os.chmod(folder, 0o755)
+            (folder / "px-keys.mov.scan").write_bytes(data)  # in the store, not pinned
+            os.chmod(folder, 0o555)
+            code, out = w.bless()
+            self.assertEqual(code, 2, out)
+            self.assertIn("pinned", out)
+        finally:
+            w.close()
+
+    def test_a_judge_never_sees_an_unpinned_file_of_its_folder(self):
+        w = base.Workspace()
+        try:
+            self.assertEqual(w.snapshot()[0], 0)
+            folder = w.store / "films" / "build-a-120x2"
+            os.chmod(folder, 0o755)
+            (folder / "col-drag.extra.json").write_text("{}")  # a file of a pinned film that the table does not pin
+            os.chmod(folder, 0o555)
+            lister = base.write_judges(w.root / "judges-lister", keys=textwrap.dedent('''
+                import os
+                def judge(base):
+                    return {"folder": sorted(os.listdir(os.path.dirname(base)))}
+                '''))
+            self.assertEqual(w.cli("bless", "--judges", str(lister), "--reason", "t", "--jobs", "2", "--no-git-check")[0], 0)
+            expected = json.loads((w.manifest / "expected.json").read_text())
+            seen = jg.load_expected(w.store, expected["films"]["build-a-120x2/col-drag"]["judge_keys"]["sha256"])
+            self.assertNotIn("col-drag.extra.json", seen["folder"])
+        finally:
+            w.close()
+
+    def test_the_drag_need_reads_only_a_pinned_events_json(self):
+        import test_judge_goldens_truth as truth
+        stub = truth.video_stub().replace('"motion": [{"a": 0, "b": 8}],', '"motion": [{"a": 0, "b": 8}], '
+                                          '"hid_clock": {"offset_s": 0.0},')
+        w = self.truth_workspace([{"judge": "video_judge", "absent_check": "divider not shown"}], video=stub)
+        try:
+            events = w.gallery / "px-build-120x2" / "px-keys.events.json"
+            events.unlink()  # not pinned
+            self.assertEqual(w.snapshot()[0], 0)
+            folder = w.store / "films" / "px-build-120x2"
+            os.chmod(folder, 0o755)
+            (folder / "px-keys.events.json").write_text(json.dumps({"hid": [{"kind": "drag", "t_sent": 100.0,
+                                                                              "t_returned": 100.05}], "journal": []}))
+            os.chmod(folder, 0o555)
+            self.assertFalse(jg._film_hid_drag(w.store, json.loads((w.manifest / "films.json").read_text()),
+                                               "px-build-120x2/px-keys"))
+        finally:
+            w.close()
+
+    # -- notes --
+    def test_a_ruler_at_class_or_shape_of_the_wrong_type_is_refused(self):
+        for field, value in (("at", 10.5), ("class", 16711935), ("ruler", ["row", 10])):
+            with self.subTest(field=field):
+                w = self.truth_workspace()
+                try:
+                    w.write_truth()
+                    path = w.manifest / "truth.json"
+                    doc = json.loads(path.read_text())
+                    if field == "ruler":
+                        doc["facts"][0]["ruler"] = value
+                    else:
+                        doc["facts"][0]["ruler"][field] = value
+                    path.write_text(json.dumps(doc))
+                    self.assertEqual(w.snapshot()[0], 0)
+                    code, out = w.bless()
+                    self.assertEqual(code, 2, out)
+                    self.assertNotIn("the runner failed", out)
+                    self.assertIn("truth.json has facts that cannot be checked", out)
+                finally:
+                    w.close()
+
+    def test_a_ruler_that_raises_a_type_error_is_no_verdict_naming_the_fact(self):
+        w = self.truth_workspace()
+        real = jg.ruler_check
+        try:
+            w.write_truth()
+            self.assertEqual(w.snapshot()[0], 0)
+
+            def broken(base, fact):
+                raise TypeError("a value of another type")
+
+            jg.ruler_check = broken
+            code, out = w.bless()
+            self.assertEqual(code, 2, out)
+            self.assertNotIn("the runner failed", out)
+            self.assertIn("px-keys-shell-band", out)
+        finally:
+            jg.ruler_check = real
+            w.close()
+
+    def test_a_drag_entry_with_no_times_is_no_drag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "e.json"
+            path.write_text(json.dumps({"hid": [{"kind": "drag", "args": {}}], "journal": []}))
+            self.assertFalse(jg._has_hid_drag(path))
+            path.write_text(json.dumps({"hid": [{"kind": "drag", "t_sent": 1.0, "t_returned": 1.1}], "journal": []}))
+            self.assertTrue(jg._has_hid_drag(path))
+
+    def test_a_judge_trace_motion_of_one_frame_has_not_travelled(self):
+        def trace(frames):
+            motion = {"first_frame": 1, "last_frame": frames, "frames": frames, "panes_at_rest": ["a", "b"]}
+            return {"motion": motion, "motions": [{"motion": motion, "travel": {"a": {"right": 40.0}}}], "defects": []}
+
+        self.assertIn("travelled", self.verdict(trace(1), {"judge": "judge_trace", "absent_kind": "lurch"}))
+        self.assertEqual(self.verdict(trace(2), {"judge": "judge_trace", "absent_kind": "lurch"}), "holds")
+
+    def test_a_stored_file_that_appears_while_copying_is_not_replaced(self):
+        # Two snapshots at the same time: the second's file must not replace the first's.
+        w = base.Workspace()
+        try:
+            self.assertEqual(w.snapshot()[0], 0)
+            src = w.root / "gallery-c" / "build-c-120x2"
+            base.write_film(src.parent / "build-c-120x2", "row-drag", frames=6)
+            films = w.store / "films"
+            folder = films / "build-c-120x2"
+            take = {n: [p.stat().st_size, jg.sha256_file(p)] for n, p in ((p.name, p) for p in src.iterdir())
+                    if n.endswith(jg.KEEP_SUFFIXES)}
+            os.chmod(films, 0o755)
+            folder.mkdir()
+            (folder / "row-drag.meta.json").write_text("{\"other\": 1}")  # the other snapshot's, other bytes
+            problems = jg.copy_folder(src.parent, w.store, "build-c-120x2", take)
+            self.assertTrue(problems)
+            self.assertEqual((folder / "row-drag.meta.json").read_text(), "{\"other\": 1}")
+            self.assertFalse([p.name for p in folder.iterdir() if p.name.startswith(".")])  # no part file left
+        finally:
+            w.close()
+
+    def test_bless_counts_the_other_files_and_a_nested_folder_is_no_extra(self):
+        w = base.Workspace()
+        try:
+            base.write_film(w.gallery / "build-n" / "nested-120x2", "deep", frames=5)
+            self.assertEqual(w.snapshot()[0], 0)
+            code, out = w.bless()
+            self.assertEqual(code, 0, out)
+            self.assertNotIn("the store also holds", out)
+            films = w.store / "films"
+            os.chmod(films, 0o755)
+            (films / "diag-tiers.json").write_text("{}")
+            os.chmod(films, 0o555)
+            code, out = w.bless()
+            self.assertEqual(code, 0, out)
+            self.assertIn("0 folder(s) and 1 file(s)", out)
+        finally:
+            w.close()
 
 
 if __name__ == "__main__":
