@@ -670,6 +670,9 @@ impl Mux {
                 self.workspace_notification_members(workspace)
                     .with_context(|| format!("unknown workspace {}", workspace.as_str()))?,
             ),
+            NotificationClearScope::Notification(notification) => {
+                Some(self.notification_row_members(notification))
+            }
             _ => None,
         };
         let cleared_scope = ClearedScope { scope, members: members.as_ref() };
@@ -771,31 +774,9 @@ impl Mux {
             extra,
         )?;
         if !commit.replayed {
-            // Where a one-row clear's row was shown, and whether another row of the same
-            // terminal or view stays: its marker goes only with the last of them.
-            let mut single_row_source = None;
             {
                 let mut ledger = self.notification_ledger.lock().unwrap();
-                if let NotificationClearScope::Notification(_) = cleared_scope.scope {
-                    single_row_source = ledger
-                        .iter()
-                        .find(|entry| cleared.contains(&entry.id))
-                        .map(|entry| (entry.terminal_id.clone(), entry.surface));
-                }
                 ledger.retain(|entry| !cleared.contains(&entry.id));
-                if let Some((terminal, surface)) = &single_row_source {
-                    let shown_elsewhere = ledger.iter().any(|entry| match terminal {
-                        Some(terminal) => entry.terminal_id.as_ref() == Some(terminal),
-                        None => {
-                            entry.terminal_id.is_none()
-                                && surface.is_some()
-                                && entry.surface == *surface
-                        }
-                    });
-                    if shown_elsewhere {
-                        single_row_source = None;
-                    }
-                }
             }
             {
                 let mut reads = self.notification_reads.lock().unwrap();
@@ -824,7 +805,10 @@ impl Mux {
                     self.terminal_notifications.lock().unwrap().remove(terminal_id);
                 }
                 (NotificationClearScope::Terminal(_), _) => {}
-                (NotificationClearScope::Workspace(_), Some(members)) => {
+                (
+                    NotificationClearScope::Workspace(_) | NotificationClearScope::Notification(_),
+                    Some(members),
+                ) => {
                     self.terminal_notifications.lock().unwrap().retain(|terminal, _| {
                         !members.terminals.contains(terminal) || terminal_unread(terminal)
                     });
@@ -832,19 +816,10 @@ impl Mux {
                         !members.surfaces.contains(surface) || tab_unread(&members.tabs, surface)
                     });
                 }
-                (NotificationClearScope::Workspace(_), None) => {}
-                (NotificationClearScope::Notification(_), _) => match single_row_source {
-                    Some((Some(terminal), _)) if !terminal_unread(&terminal) => {
-                        self.terminal_notifications.lock().unwrap().remove(&terminal);
-                    }
-                    Some((None, Some(surface))) => {
-                        let tabs = self.with_state(|state| state.resource_indexes.tab_ids.clone());
-                        if !tab_unread(&tabs, &surface) {
-                            self.placement_notifications.lock().unwrap().remove(&surface);
-                        }
-                    }
-                    _ => {}
-                },
+                (
+                    NotificationClearScope::Workspace(_) | NotificationClearScope::Notification(_),
+                    None,
+                ) => {}
                 (NotificationClearScope::Session, _) => {
                     let tabs = self.with_state(|state| state.resource_indexes.tab_ids.clone());
                     self.terminal_notifications.lock().unwrap().retain(|t, _| terminal_unread(t));
@@ -916,23 +891,67 @@ impl ClearedScope<'_> {
         match self.scope {
             NotificationClearScope::Session => true,
             NotificationClearScope::Terminal(wanted) => terminal == Some(wanted.as_str()),
-            // A feed item follows its terminal or tab, not one ledger row: a one-row
-            // clear reads none (marking the row read is notification.ack's).
-            NotificationClearScope::Notification(_) => false,
-            NotificationClearScope::Workspace(_) => self.members.is_some_and(|members| {
-                terminal.is_some_and(|terminal| {
-                    members.terminals.iter().any(|known| known.as_str() == terminal)
-                }) || item
-                    .context
-                    .tab
-                    .as_deref()
-                    .is_some_and(|tab| members.tabs.values().any(|known| known.as_str() == tab))
-            }),
+            // A one-row clear's members are the row's terminal or tab only when it is that
+            // source's last row: its unread items go with it, so the tab's ring does too.
+            NotificationClearScope::Workspace(_) | NotificationClearScope::Notification(_) => {
+                self.members.is_some_and(|members| {
+                    terminal.is_some_and(|terminal| {
+                        members.terminals.iter().any(|known| known.as_str() == terminal)
+                    }) || item
+                        .context
+                        .tab
+                        .as_deref()
+                        .is_some_and(|tab| members.tabs.values().any(|known| known.as_str() == tab))
+                })
+            }
         }
     }
 }
 
 impl Mux {
+    /// What a one-row clear of `notification` reads with it: the row's
+    /// terminal, or its view and tab for a row without one, when no other
+    /// ledger row of that source remains; else nothing (its marker stays).
+    pub(crate) fn notification_row_members(
+        &self,
+        notification: &NotificationPublicId,
+    ) -> WorkspaceNotificationMembers {
+        let mut members = WorkspaceNotificationMembers::default();
+        let source = {
+            let ledger = self.notification_ledger.lock().unwrap();
+            let Some(row) = ledger.iter().find(|entry| entry.id == *notification) else {
+                return members;
+            };
+            let same_source = |entry: &ResourceNotification| match &row.terminal_id {
+                Some(terminal) => entry.terminal_id.as_ref() == Some(terminal),
+                None => {
+                    entry.terminal_id.is_none()
+                        && row.surface.is_some()
+                        && entry.surface == row.surface
+                }
+            };
+            if ledger.iter().any(|entry| entry.id != row.id && same_source(entry)) {
+                return members;
+            }
+            (row.terminal_id.clone(), row.surface)
+        };
+        match source {
+            (Some(terminal), _) => {
+                members.terminals.insert(terminal);
+            }
+            (None, Some(surface)) => {
+                members.surfaces.insert(surface);
+                let tab =
+                    self.with_state(|state| state.resource_indexes.tab_ids.get(&surface).cloned());
+                if let Some(tab) = tab {
+                    members.tabs.insert(surface, tab);
+                }
+            }
+            (None, None) => {}
+        }
+        members
+    }
+
     /// The terminals, views and tabs `workspace` shows; None when it is not
     /// a workspace of this session.
     pub(crate) fn workspace_notification_members(
