@@ -1,3 +1,4 @@
+import CmuxNextBridge
 import CmuxNextAppCore
 import Testing
 
