@@ -39,7 +39,7 @@ public final class CreationInputBuffer {
     private var strandedWorkspaces: Set<Int> = []
     /// The terminal the person typed into when they asked for each new workspace, and their intent target then, by ticket:
     /// at the reply bound its keys go there only while that target did not change (#35275).
-    private var pressLanes: [Int: (lane: HeldLane, personTarget: String?)] = [:]
+    private var pressLanes: [Int: (lane: HeldLane, personMoves: UInt64)] = [:]
     /// Keys typed for a new workspace's terminal that no terminal could take: counted, never typed.
     public private(set) var untypedTerminalKeys = 0
     /// The longest the newest creation's reply keeps the keys (``replyWaitBound``; the coordinator's setting).
@@ -79,15 +79,15 @@ public final class CreationInputBuffer {
     /// shows that workspace with its terminal, also after the person left it (``shownWorkspaceToWaitFor``,
     /// ``leftWorkspaceWithKeys``), and are dropped when it fails or has not shown by the hold's limit
     /// (``resolve(_:awaitsFocus:workspace:)``, ``dropKeys(ofWorkspacesOtherThan:)``); at the reply bound they go into the
-    /// press terminal if the person did not move, else nowhere (``endReplyWait(personTarget:shows:)``, cmux-ad m12).
+    /// press terminal if the person did not move, else nowhere (``endReplyWait(personMoves:shows:)``, cmux-ad m12).
     /// `at`: when the creation began (tests pass an earlier time).
-    /// `pressTerminal`, `personTarget`: a new workspace's: the terminal that had the keyboard at the press, and the person's
-    /// intent target then (``pressLanes``).
+    /// `pressTerminal`, `personMoves`: a new workspace's: the terminal that had the keyboard at the press, and the count of
+    /// the person's focus choices then (``FocusState/personMoveSeq``, ``pressLanes``).
     public func open(generation: UInt64, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil, newWorkspace: Bool = false,
-                     pressTerminal: HeldLane? = nil, personTarget: String? = nil, at start: ContinuousClock.Instant = .now) -> Ticket {
+                     pressTerminal: HeldLane? = nil, personMoves: UInt64 = 0, at start: ContinuousClock.Instant = .now) -> Ticket {
         nextID += 1
         (newestCreation, newestOpenedAt) = (nextID, start)
-        if newWorkspace, let pressTerminal { pressLanes[nextID] = (pressTerminal, personTarget) }
+        if newWorkspace, let pressTerminal { pressLanes[nextID] = (pressTerminal, personMoves) }
         armReplyBound()
         pending[nextID] = generation
         newestGeneration = generation
@@ -385,17 +385,17 @@ public final class CreationInputBuffer {
     }
 
     /// The reply bound passed: no creation waits for its reply any more. A new workspace's keys go into the terminal the
-    /// person typed into at the press (``pressLanes``) only while the person's intent target (`personTarget`, the focus
-    /// machine's ``FocusState/personTarget``: no script's move changes it) is still the one of the press, and the window still
-    /// shows that terminal (`shows`). Else they are counted and logged, never typed (lead on #35275). Another creation's keys
-    /// run as typed in what has the keyboard; a close keeps its lane.
-    public func endReplyWait(personTarget: String?, shows: (String) -> Bool) {
+    /// person typed into at the press (``pressLanes``) only if the person made no focus choice since (`personMoves`, the
+    /// focus machine's ``FocusState/personMoveSeq``, is the count of the press; no script's move counts) and the window still
+    /// shows that terminal (`shows`: the selected tab of its pane in the shown workspace). Else they are counted and logged,
+    /// never typed (lead on #35275). Another creation's keys run as typed in what has the keyboard; a close keeps its lane.
+    public func endReplyWait(personMoves: UInt64?, shows: (String) -> Bool) {
         let waiting = Set(pending.keys).subtracting(closingTabs.keys)
         for id in waiting {
             (pending[id], tabs[id], earlyTabs[id]) = (nil, nil, nil)
             if !workspaceTickets.contains(id) {
                 (laneTabs[id], laneMachines[id]) = (nil, nil) // run as typed in what has the keyboard (its provisional view)
-            } else if let press = pressLanes[id], press.personTarget == personTarget, shows(press.lane.tab) {
+            } else if let press = pressLanes[id], press.personMoves == personMoves, shows(press.lane.tab) {
                 (laneTabs[id], laneMachines[id]) = (press.lane.tab, press.lane.machine) // the person did not move: the press terminal
             } else {
                 strandedWorkspaces.insert(id) // the person moved on, or no terminal: never typed into anything

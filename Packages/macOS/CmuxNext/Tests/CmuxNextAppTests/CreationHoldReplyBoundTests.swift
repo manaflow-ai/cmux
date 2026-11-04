@@ -301,14 +301,15 @@ struct CreationHoldReplyBoundTests {
         #expect(fresh.holds(letter, limit: .seconds(2), expiring: true, closes: false, replyLimit: .seconds(10)))
     }
 
-    /// Cmd-N over terminal T and a typed command: at the reply bound the keys go to T only while the person's intent target is
-    /// still the one of the press and the window still shows T (lead on #35275: a script's move changes no person target, so
-    /// it costs the person no key). The person moving on, or T no longer shown, keeps them out of T: counted, never typed.
-    @Test(arguments: [("press_tab", true, true), ("other_tab", true, false), ("press_tab", false, false)] as [(String?, Bool, Bool)])
-    func aNewWorkspacesKeysGoToThePressTerminalOnlyWhileThePersonDidNotMove(_ personTarget: String?, _ shown: Bool, _ typesIntoPress: Bool) throws {
+    /// Cmd-N over terminal T and a typed command: at the reply bound the keys go to T only while the count of the person's
+    /// focus choices is the one of the press and the window still shows T (lead on #35275: a script's move is no choice of
+    /// the person's, so it costs the person no key). A choice of theirs (any, also one that ends where they were before the
+    /// press), an unknown count, or T no longer shown keeps them out of T: counted, never typed.
+    @Test(arguments: [(UInt64(7), true, true), (8, true, false), (nil, true, false), (7, false, false)] as [(UInt64?, Bool, Bool)])
+    func aNewWorkspacesKeysGoToThePressTerminalOnlyWhileThePersonDidNotMove(_ personMoves: UInt64?, _ shown: Bool, _ typesIntoPress: Bool) throws {
         let buffer = CreationInputBuffer(began: .now)
         let press = CreationInputBuffer.HeldLane(tab: "press_tab", machine: nil)
-        _ = buffer.open(generation: 1, newWorkspace: true, pressTerminal: press, personTarget: "press_tab")
+        _ = buffer.open(generation: 1, newWorkspace: true, pressTerminal: press, personMoves: 7)
         var typed = 0
         for character in "rm -rf build\r" {
             let text = String(character)
@@ -318,11 +319,11 @@ struct CreationHoldReplyBoundTests {
             buffer.capture(event, focusedTab: press.tab, forNewWorkspace: true)
             typed += 1
         }
-        buffer.endReplyWait(personTarget: personTarget, shows: { _ in shown })
+        buffer.endReplyWait(personMoves: personMoves, shows: { _ in shown })
         let keys = buffer.take(focused: nil, isShortcut: { _, _ in false })
         let intoPress = keys.flatMap(\.keys).filter { $0.lane == press }.count
         #expect(intoPress == (typesIntoPress ? typed : 0),
-                "\(intoPress) of \(typed) key(s) went to the press terminal, person target \(personTarget ?? "none"), shown \(shown)")
+                "\(intoPress) of \(typed) key(s) went to the press terminal, person moves \(personMoves.map(String.init) ?? "unknown"), shown \(shown)")
         #expect(keys.flatMap(\.keys).count == intoPress, "keys went somewhere else: \(keys.flatMap(\.keys).map { $0.event.characters ?? "" })")
         #expect(buffer.untypedTerminalKeys == (typesIntoPress ? 0 : typed))
     }
@@ -333,7 +334,7 @@ struct CreationHoldReplyBoundTests {
     @Test func thePressTerminalsHeldLinesGoOnAsOneRunInTypingOrder() throws {
         let buffer = CreationInputBuffer(began: .now)
         let press = CreationInputBuffer.HeldLane(tab: "press_tab", machine: nil)
-        _ = buffer.open(generation: 1, newWorkspace: true, pressTerminal: press, personTarget: "press_tab")
+        _ = buffer.open(generation: 1, newWorkspace: true, pressTerminal: press, personMoves: 3)
         func capture(_ line: String, focusedTab: String) throws {
             for character in line {
                 let text = String(character)
@@ -345,7 +346,7 @@ struct CreationHoldReplyBoundTests {
         }
         try capture("echo hel''d\r", focusedTab: press.tab)
         try capture("echo al''so\r", focusedTab: "other_tab") // after a script moved the focus; the person's claim holds
-        buffer.endReplyWait(personTarget: "press_tab", shows: { _ in true })
+        buffer.endReplyWait(personMoves: 3, shows: { _ in true })
         let keys = buffer.take(focused: "other_tab", isShortcut: { _, _ in false })
         #expect(keys.count == 1, "the held keys went on in \(keys.count) runs")
         guard case .type(let events, let lane)? = keys.first else {

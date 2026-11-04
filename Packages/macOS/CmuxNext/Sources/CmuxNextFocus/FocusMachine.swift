@@ -44,9 +44,9 @@ public nonisolated final class FocusMachine {
         }
         let waited = state.awaitsOtherTab
         guard let result = read(reply, into: &state) else { return nil }
-        // The person's focus choice sets their intent target (``FocusState/personTarget``): a move from their own entry or
-        // the responder report of their click; a key's responder change, automation's and the app's events never do.
-        if event.choosesFocusAsPerson { state.personTarget = state.typingTab }
+        // The person's focus choice counts (``FocusState/personMoveSeq``): a move from their own entry or the responder report
+        // of their click; a key's responder change, automation's and the app's events never do.
+        if event.choosesFocusAsPerson { state.personMoveSeq &+= 1 }
         for effect in result.effects { Self.mirror(effect, into: &state) }
         return Self.reapplyingOnWaitChange(result, waited: waited, state: state)
     }

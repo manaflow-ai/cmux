@@ -108,11 +108,12 @@ public extension FocusEvent {
         }
     }
 
-    /// A focus choice of the person's (``FocusState/personTarget``): a focus or selection move from their own entry (mouse,
+    /// A focus choice of the person's (``FocusState/personMoveSeq``): a focus or selection move from their own entry (mouse,
     /// keyboard, palette), or the window's responder report of their click in a view. A responder change inside a key's
-    /// dispatch is none (a key typed after a script's move must not copy its target), nor is any move of automation's.
+    /// dispatch is none, nor is any move of automation's. (`focusPane`, `selectTab` and `focusTarget`, the other events
+    /// ``isPersonsOwn`` names, always change the view: no FFI call to ask.)
     var choosesFocusAsPerson: Bool {
         if case .responder(_, let source) = self { return source == .mouse }
-        return isPersonsOwn && changesView
+        return isPersonsOwn
     }
 }
