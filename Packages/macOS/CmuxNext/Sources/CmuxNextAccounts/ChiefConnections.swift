@@ -40,6 +40,8 @@ public final class ChiefConnections {
     private var working: Set<Provider> = []
     private var failedScope: Scope?
     private var generation = 0
+    @ObservationIgnored private var connectKeys: [ConnectKey: String] = [:]
+    private struct ConnectKey: Hashable { var scope: Scope; var provider: Provider }
 
     public init(scope: @escaping @MainActor () -> Scope?, call: @escaping GitHubConnections.Call, open: @escaping (URL) -> Void) {
         self.scope = scope
@@ -54,26 +56,34 @@ public final class ChiefConnections {
     public func state(_ provider: Provider) -> State {
         guard let current = scope() else { return .signedOut }
         guard loadedScope == current, configured.contains(provider) else { return .unavailable }
-        let mine = rows.filter { $0["provider"]?.stringValue == provider.rawValue }
-        let account = { (row: JSONValue) in row["account"]?["name"]?.stringValue }
-        if let row = mine.first(where: { $0["status"]?.stringValue == "active" }) {
-            return .connected(account: account(row) ?? "")
+        guard let row = shownRow(provider) else { return .notConnected }
+        let account = row["account"]?["name"]?.stringValue
+        switch row["status"]?.stringValue {
+        case "active": return .connected(account: account ?? "")
+        case "pending": return .pending
+        default: return .needsReauth(account: account)
         }
-        if let row = mine.first(where: { ["needs_reauth", "error"].contains($0["status"]?.stringValue ?? "") }) {
-            return .needsReauth(account: account(row))
-        }
-        if mine.contains(where: { $0["status"]?.stringValue == "pending" }) { return .pending }
-        return .notConnected
     }
 
-    /// The person's own active or broken connection of `provider`, which Disconnect revokes; nil
-    /// for a team connection someone else made (only its maker may revoke it).
+    /// The row the provider's state shows: an active one first (the person's own before a
+    /// teammate's), then a broken one, then a pending one, the person's own first in each.
+    private func shownRow(_ provider: Provider) -> JSONValue? {
+        let user = scope()?.user
+        let mine = rows.filter { $0["provider"]?.stringValue == provider.rawValue }
+        for statuses in [["active"], ["needs_reauth", "error"], ["pending"]] {
+            let matching = mine.filter { statuses.contains($0["status"]?.stringValue ?? "") }
+            if let row = matching.first(where: { $0["created_by"]?.stringValue == user }) ?? matching.first { return row }
+        }
+        return nil
+    }
+
+    /// The shown connection of `provider` when the person made it, which Disconnect revokes; nil for
+    /// a team connection someone else made (only its maker may revoke it), so Disconnect never
+    /// revokes a row other than the one the card shows.
     func ownConnection(_ provider: Provider) -> String? {
-        guard let current = scope(), loadedScope == current else { return nil }
-        return rows.first {
-            $0["provider"]?.stringValue == provider.rawValue && $0["created_by"]?.stringValue == current.user
-                && ["active", "needs_reauth", "error", "pending"].contains($0["status"]?.stringValue ?? "")
-        }?["id"]?.stringValue
+        guard let current = scope(), loadedScope == current, let row = shownRow(provider),
+              row["created_by"]?.stringValue == current.user else { return nil }
+        return row["id"]?.stringValue
     }
 
     public func canDisconnect(_ provider: Provider) -> Bool { ownConnection(provider) != nil }
@@ -85,6 +95,7 @@ public final class ChiefConnections {
         let ticket = generation
         do {
             try await load(bound, ticket: ticket)
+            if scope() == bound, generation == ticket { failedScope = nil }
         } catch {
             if scope() == bound, generation == ticket { failedScope = bound }
         }
@@ -93,8 +104,11 @@ public final class ChiefConnections {
     /// Starts connecting `provider` (a private connection) and opens Google's approval page.
     public func connect(_ provider: Provider) async {
         await gesture(provider) { bound in
-            let value = try await self.call(bound, "integration.connect", ["provider": .string(provider.rawValue), "sharing": "private"],
-                                            UUID().uuidString)
+            // One key per account and provider: a second click while Google's page is still open
+            // replays the same pending connection instead of making another.
+            let key = self.connectKeys[ConnectKey(scope: bound, provider: provider), default: UUID().uuidString]
+            self.connectKeys[ConnectKey(scope: bound, provider: provider)] = key
+            let value = try await self.call(bound, "integration.connect", ["provider": .string(provider.rawValue), "sharing": "private"], key)
             guard let raw = value["authorize_url"]?.stringValue, let url = Self.authorizeURL(raw) else { throw Failure.invalidReply }
             guard self.scope() == bound else { throw Failure.changedAccount }
             self.open(url)
@@ -113,15 +127,16 @@ public final class ChiefConnections {
         guard let bound = scope(), !working.contains(provider) else { return }
         working.insert(provider)
         defer { working.remove(provider) }
-        generation += 1
-        let ticket = generation
         failedScope = nil
         do {
             try await work(bound)
-            try await load(bound, ticket: ticket)
+            // The list read after the gesture wins over a refresh that started before it landed.
+            generation += 1
+            try await load(bound, ticket: generation)
         } catch {
             if scope() == bound { failedScope = bound }
             // The gesture may have taken even when its answer was lost: show what the list says now.
+            generation += 1
             try? await load(bound, ticket: generation)
         }
     }
@@ -137,6 +152,11 @@ public final class ChiefConnections {
             item["configured"]?.boolValue == true ? Provider(rawValue: item["provider"]?.stringValue ?? "") : nil
         })
         loadedScope = bound
+        for provider in Provider.allCases where !rows.contains(where: {
+            $0["provider"]?.stringValue == provider.rawValue && $0["status"]?.stringValue == "pending"
+        }) {
+            connectKeys[ConnectKey(scope: bound, provider: provider)] = nil
+        }
     }
 
     /// Only Google's OAuth consent page may open: https, accounts.google.com, the v2 auth path, no

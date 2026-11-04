@@ -115,6 +115,57 @@ import Testing
         #expect(model.state(.gmail) == .unavailable)
     }
 
+    @Test func aSuccessfulRefreshClearsAnEarlierFailure() async {
+        var failing = true
+        let model = ChiefConnections(scope: { self.scope }, call: { _, _, _, _ in
+            if failing { throw URLError(.timedOut) }
+            return ["connections": [], "providers": self.providers]
+        }, open: { _ in })
+        await model.refresh()
+        #expect(model.failed)
+        failing = false
+        await model.refresh()
+        #expect(!model.failed)
+        #expect(model.state(.gmail) == .notConnected)
+    }
+
+    @Test func disconnectRevokesOnlyTheConnectionTheRowShows() async {
+        var revoked: [JSONValue] = []
+        // A teammate's active team connection and the person's own broken one.
+        let model = ChiefConnections(scope: { self.scope }, call: { _, op, params, _ in
+            if op == "integration.revoke" { revoked.append(params) }
+            return ["connections": [
+                ["id": "conn_eeeeeeeeeeeeeeeeeeee", "provider": "gmail", "status": "active", "created_by": "user_teammate", "sharing": "team",
+                 "account": ["key": "gmail:2", "name": "team@example.com"]],
+                ["id": "conn_ffffffffffffffffffff", "provider": "gmail", "status": "needs_reauth", "created_by": "user_me",
+                 "account": ["key": "gmail:1", "name": "me@example.com"]],
+            ], "providers": self.providers]
+        }, open: { _ in })
+        await model.refresh()
+        #expect(model.state(.gmail) == .connected(account: "team@example.com"))
+        #expect(!model.canDisconnect(.gmail))
+        await model.disconnect(.gmail)
+        #expect(revoked.isEmpty)
+    }
+
+    @Test func aSecondConnectWhileGoogleIsOpenReplaysTheSameKey() async {
+        var keys: [String?] = []
+        let model = ChiefConnections(scope: { self.scope }, call: { _, op, _, key in
+            if op == "integration.connect" {
+                keys.append(key)
+                return ["connection": ["id": "conn_aaaaaaaaaaaaaaaaaaaa"], "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth?state=s"]
+            }
+            let rows: JSONValue = keys.isEmpty ? [] : [["id": "conn_aaaaaaaaaaaaaaaaaaaa", "provider": "gmail", "status": "pending", "created_by": "user_me"]]
+            return ["connections": rows, "providers": self.providers]
+        }, open: { _ in })
+        await model.refresh()
+        await model.connect(.gmail)
+        #expect(model.state(.gmail) == .pending)
+        await model.connect(.gmail)
+        #expect(keys.count == 2)
+        #expect(keys[0] != nil && keys[0] == keys[1])
+    }
+
     @Test func theVaultListsEachNameOnceWithoutItsScope() {
         let index: [String: Int64] = ["*/OPENAI_API_KEY": 1, "manaflow-ai/cmux/OPENAI_API_KEY": 2, "*/STRIPE_KEY": 3]
         #expect(CloudMachineSecrets.names(in: index) == ["OPENAI_API_KEY", "STRIPE_KEY"])
