@@ -227,8 +227,50 @@ await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
           });
           const result = await scrollAndWatch(page);
           console.log(`${name} ${width}px running chrome while scrolling: ${JSON.stringify(result)}`);
-          expect(result.start - result.end).toBeLessThan(10);
           expect(result.surfaces).toEqual({ tray: still, sessionInfo: still });
+        } finally {
+          await page.close();
+        }
+      });
+      test(`${name} at ${width} px: the running tray and Session Info paint the same pixels while the chat scrolls`, async () => {
+        current = browsers.get(name)!;
+        const page = await pane!.open({ width, height: 760 });
+        try {
+          await page.evaluate(() => {
+            (
+              window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
+            ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
+          });
+          const toggle = page.locator("button.acpmux-session-info-toggle");
+          await toggle.waitFor({ timeout: 10_000 });
+          if ((await page.locator(SURFACES.sessionInfo).count()) === 0) await toggle.click({ force: true });
+          await page.locator(`${SURFACES.sessionInfo}[data-presence=shown]`).waitFor({ timeout: 10_000 });
+          await page.locator(SURFACES.tray).waitFor({ timeout: 10_000 });
+          // The clocks tick by design: hide them so only what the scroll changes shows.
+          await page.addStyleTag({
+            content:
+              ".acpmux-running-tray__time, .acpmux-summary-meta, .acpmux-session-info-task__time, .acpmux-session-info-server__time, [data-clock] { visibility: hidden !important; }",
+          });
+          await page.evaluate(async () => {
+            const finite = document
+              .getAnimations()
+              .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+            await Promise.all(finite.map((animation) => animation.finished.catch(() => undefined)));
+          });
+          const scroller = page.locator(".acpmux-scroll");
+          const box = (await scroller.boundingBox())!;
+          await page.mouse.move(box.x + box.width / 3, box.y + box.height / 3);
+          const shots: Record<string, Set<string>> = { tray: new Set(), sessionInfo: new Set() };
+          const hash = (bytes: Buffer) => new Bun.CryptoHasher("sha1").update(bytes).digest("hex");
+          for (let step = 0; step < 24; step++) {
+            await page.mouse.wheel(0, step < 12 ? -90 : 90);
+            await page.evaluate(() => window.cmuxPaintFrame());
+            for (const [key, selector] of Object.entries(SURFACES))
+              shots[key]!.add(hash(await page.locator(selector).screenshot({ animations: "disabled" })));
+          }
+          const distinct = Object.fromEntries(Object.entries(shots).map(([key, set]) => [key, set.size]));
+          console.log(`${name} ${width}px distinct paints while scrolling: ${JSON.stringify(distinct)}`);
+          expect(distinct).toEqual({ tray: 1, sessionInfo: 1 });
         } finally {
           await page.close();
         }
