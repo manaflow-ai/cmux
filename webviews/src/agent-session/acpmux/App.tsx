@@ -7413,7 +7413,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             liveRuns: codexRuns,
             sessionStatus,
             lineBelow,
-            // A finished turn folds as its harness family's app does: Codex under one Worked for, Claude per run.
+            // A finished turn folds under one Worked for; opened, a Claude turn folds per run, as Claude desktop does.
             agentFamily: snapshot.summary?.family,
             // Other sessions' messages among them, two or more in a run, draw as one card.
             waitingSteers: snapshot.waitingSteers,
