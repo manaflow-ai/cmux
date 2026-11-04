@@ -378,8 +378,9 @@ public final class CreationInputBuffer {
     /// The newest creation's reply keeps the keys at most ``replyWaitLimit``: then ``onBound`` with ``Bound/reply``.
     private func armReplyBound() {
         let (opened, bound) = (newestCreation, replyWaitLimit)
-        // task-owner: one-shot bound on this hold's reply wait; a hold that ended or opened a newer creation makes it a no-op
-        Task { @MainActor [weak self] in
+        // task-owner: one-shot bound on this hold's reply wait; a hold that ended or opened a newer creation makes it a no-op.
+        // Detached: the held keys run again in a turn of their own, never under the opening run's task locals (review of #35874); high: the person's held keys wait for it.
+        Task.detached(priority: .high) { @MainActor [weak self] in
             try? await Task.sleep(for: bound) // wakeup-allow: one-shot bound on a key hold whose creation's reply never comes
             guard let self, awaitsCreationReply, newestCreation == opened else { return }
             onBound?(self, .reply)

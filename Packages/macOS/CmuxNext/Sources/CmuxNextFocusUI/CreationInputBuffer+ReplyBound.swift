@@ -55,8 +55,9 @@ extension CreationInputBuffer {
     /// Calls ``onBound`` with ``Bound/limit`` after `limit` unless a creation of this hold still waits for its reply then
     /// (its reply arms the bound again: the coordinator calls this from `resolve`).
     public func expire(after limit: Duration) {
-        // task-owner: one-shot bound on this hold; a hold that ended first makes it a no-op
-        Task { @MainActor [weak self] in
+        // task-owner: one-shot bound on this hold; a hold that ended first makes it a no-op. Detached: the held keys run
+        // again in a turn of their own, never under the arming run's task locals (review of #35874); high: the person's held keys wait for it.
+        Task.detached(priority: .high) { @MainActor [weak self] in
             // wakeup-allow: one-shot bound on a key hold, so a hold whose terminal never shows ends
             try? await Task.sleep(for: limit)
             guard let self, !hasPendingCreation else { return }
