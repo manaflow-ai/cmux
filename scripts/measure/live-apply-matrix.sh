@@ -227,6 +227,14 @@ def topology(sock):
     return (rpc(sock, "snapshot.get") or {}).get("topology") or {}
 
 
+def started(pid):
+    """PID's start time as ps prints it, or None: with the pid, it names one process (pids are reused)."""
+    if not isinstance(pid, int):
+        return None
+    done = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True)
+    return done.stdout.strip() or None
+
+
 def state(sock, daemon, seeded):
     ident = rpc(sock, "system.identify") or {}
     topo = topology(sock)
@@ -242,8 +250,9 @@ def state(sock, daemon, seeded):
                 alive = True
             except OSError:
                 alive = False
-        loops[str(surface)] = {"scrollback_rows": total, "shell_pid": pids[0] if pids else None, "shell_alive": alive}
-    return {"pid": ident.get("pid"), "workspaces": [w.get("id") for w in topo.get("workspaces") or []],
+        loops[str(surface)] = {"scrollback_rows": total, "shell_pid": pids[0] if pids else None, "shell_alive": alive,
+                               "shell_started": started(pids[0]) if pids else None}
+    return {"pid": ident.get("pid"), "pid_started": started(ident.get("pid")), "workspaces": [w.get("id") for w in topo.get("workspaces") or []],
             "windows": [w.get("id") for w in topo.get("windows") or []],
             "chat_tabs": [t.get("id") for _, _, t in tabs_of(topo) if t.get("kind") == "conversation"],
             "loops": loops, "debug_methods": any(str(m).startswith("debug.") for m in ident.get("methods") or [])}
@@ -362,14 +371,21 @@ def after_render(process, socket_path, env, app, out, report):
             if v2 == "pass":
                 rec["probe_green_at"] = now()
             rec["state_after"] = after = state(socket_path, daemon, seeded)
-            rec["same_pid"] = before.get("pid") is not None and before.get("pid") == after.get("pid") == process.pid
-            grew = all(((after["loops"].get(k) or {}).get("scrollback_rows") or 0) >= (v.get("scrollback_rows") or 0)
-                       for k, v in before["loops"].items())
-            rec["state_intact"] = bool(rec["same_pid"] and set(before["workspaces"]) <= set(after["workspaces"])
+            # The same process: its pid and its start time (a pid can be reused), and the one we launched.
+            rec["same_pid"] = bool(before.get("pid") is not None and before.get("pid") == after.get("pid") == process.pid
+                                   and before.get("pid_started") and before.get("pid_started") == after.get("pid_started"))
+            # Exactly the seeded state: no workspace, window or chat added or lost, and each loop still
+            # the same shell process (pid and start time), alive, its scrollback not shrunk.
+            loops_same = (len(before["loops"]) >= 2 and set(before["loops"]) == set(after["loops"])
+                          and all((a := after["loops"][k]).get("shell_alive") is True
+                                  and b.get("shell_pid") is not None and a.get("shell_pid") == b.get("shell_pid")
+                                  and b.get("shell_started") and a.get("shell_started") == b.get("shell_started")
+                                  and (a.get("scrollback_rows") or 0) >= (b.get("scrollback_rows") or 0)
+                                  for k, b in before["loops"].items()))
+            rec["state_intact"] = bool(rec["same_pid"] and set(before["workspaces"]) == set(after["workspaces"])
                                        and before["windows"] == after["windows"]
-                                       and set(before["chat_tabs"]) <= set(after["chat_tabs"]) and before["chat_tabs"]
-                                       and all((v or {}).get("shell_alive") for v in after["loops"].values()) and grew
-                                       and len(before["loops"]) >= 2)
+                                       and before["chat_tabs"] and set(before["chat_tabs"]) == set(after["chat_tabs"])
+                                       and loops_same)
             reverted, _ = overlay(LAB["env"], "off", 120)
             time.sleep(1.0)  # harness: pages reload on the overlay's removal
             v3, d3 = probe(socket_path, report)
@@ -422,8 +438,10 @@ ident = load(f"{out}/identity-{pr}/base.json") or {}
 cls = load(f"{out}/classifier-{pr}.json") or {}
 nightly_commit = "8a134ee405f83893b3950c45ee60305ffc20859f"
 p = lab.get("probe", {})
+revert = lab.get("revert") or {}
 inplace_ok = (p.get("base") == "fail" and p.get("after_apply") == "pass" and lab.get("same_pid") is True
-              and lab.get("state_intact") is True)
+              and lab.get("state_intact") is True
+              and revert.get("done") is True and p.get("after_revert") == "fail")
 parity_ok = (parity.get("probe") or {}).get("base") == "pass"
 if lab.get("apply", {}).get("outcome") == "applied" and inplace_ok and parity_ok:
     verdict = "in_place_pass"
