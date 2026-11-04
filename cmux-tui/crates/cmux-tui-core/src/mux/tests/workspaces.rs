@@ -523,3 +523,211 @@ fn registry_identity_does_not_wait_on_the_registry_lock() {
     drop(held);
     assert_eq!(read.ok(), Some(expected), "the identity waited on the held registry lock");
 }
+
+/// The workspace changes the journal states after `revision`: (upserts, deletes) by workspace public id.
+fn workspace_changes_after(mux: &Mux, revision: u64) -> (Vec<String>, Vec<String>) {
+    let mut upserts = Vec::new();
+    let mut deletes = Vec::new();
+    for batch in mux.resource_events_after(revision).unwrap().batches {
+        for change in batch.changes.as_array().cloned().unwrap_or_default() {
+            if change["resource"] != "workspace" {
+                continue;
+            }
+            let id = change["id"].as_str().unwrap().to_string();
+            if change["kind"] == "upsert" {
+                upserts.push(id);
+            } else if change["kind"] == "delete" {
+                deletes.push(id);
+            }
+        }
+    }
+    (upserts, deletes)
+}
+
+/// The journal, folded from revision 0, states every live workspace as the session snapshot shows it (name, index,
+/// focus, and the decorations: title, color, icon), and no other.
+fn assert_journal_states_the_session(mux: &Mux) {
+    let mut stated = std::collections::BTreeMap::<String, Value>::new();
+    for batch in mux.resource_events_after(0).unwrap().batches {
+        for change in batch.changes.as_array().cloned().unwrap_or_default() {
+            if change["resource"] != "workspace" {
+                continue;
+            }
+            let id = change["id"].as_str().unwrap().to_string();
+            if change["kind"] == "delete" {
+                stated.remove(&id);
+            } else if change["kind"] == "upsert" {
+                stated.insert(id, change["value"].clone());
+            }
+        }
+    }
+    let snapshot = crate::resource_api::public_session_snapshot(mux).unwrap();
+    let live = snapshot["workspaces"].as_array().unwrap();
+    assert_eq!(
+        stated.len(),
+        live.len(),
+        "the journal states {} workspaces, the session has {}",
+        stated.len(),
+        live.len()
+    );
+    for workspace in live {
+        let id = workspace["id"].as_str().unwrap();
+        let journal = &stated[id];
+        for field in ["name", "index", "focused"] {
+            assert_eq!(
+                journal[field], workspace[field],
+                "workspace {id}: journal {field} {} vs session {}",
+                journal[field], workspace[field]
+            );
+        }
+        for field in ["title", "color", "icon"] {
+            assert_eq!(
+                journal["extra"][field], workspace["extra"][field],
+                "workspace {id}: journal extra.{field} {} vs session {}",
+                journal["extra"][field], workspace["extra"][field]
+            );
+        }
+    }
+}
+
+/// `count` workspaces, then one full resource effect projection (as a session's first terminal create runs when the
+/// fold is empty), which restates every resource and seeds the journal's public fold, as in a live session.
+fn mux_with_workspaces(count: usize) -> Arc<Mux> {
+    let mux = test_mux();
+    for index in 0..count {
+        let key = format!("018f6e21-7b70-7e70-8000-{index:012}");
+        mux.create_empty_workspace(Some(format!("ws {index}")), Some(key), None).unwrap();
+    }
+    let (key, operation) = ("seed-public-fold", "test.seed_public_fold");
+    let fingerprint = serde_json::json!({"operation": operation, "fixture": key});
+    let expected_revision = mux.with_state(|state| state.resource_revision);
+    mux.prepare_resource_effect(
+        &WorkspaceMutation::daemon(key, "test").unwrap(),
+        operation,
+        &fingerprint,
+        &serde_json::json!({}),
+        None,
+        Some(expected_revision),
+    )
+    .unwrap();
+    mux.mark_resource_effect_executing(key, operation, &fingerprint).unwrap();
+    mux.commit_full_resource_effect_projection(key, operation, &fingerprint, serde_json::json!({}))
+        .unwrap();
+    assert!(
+        mux.workspace_registry.lock().unwrap().public_fold_seeded(),
+        "the full projection did not seed the fold"
+    );
+    mux
+}
+
+/// A workspace create states only what it changes in the journal (#32408). Each create restated every workspace
+/// (an upsert of each, with its index and focus), so its journal record and its WAL bytes grew with the session:
+/// 542 KB per create at 50 workspaces, 3434 KB at 500, in the classic import. A create at the end changes the new
+/// workspace and, when it takes the focus, the one that loses it.
+#[test]
+fn a_workspace_create_journals_only_the_workspaces_it_changes() {
+    let mux = mux_with_workspaces(40);
+    let before = mux.with_state(|state| state.resource_revision);
+    mux.create_empty_workspace(
+        Some("last".into()),
+        Some("018f6e21-7b70-7e70-8000-000000009999".into()),
+        None,
+    )
+    .unwrap();
+    let (upserts, _) = workspace_changes_after(&mux, before);
+    assert!(
+        (1..=2).contains(&upserts.len()),
+        "one create at 40 workspaces journaled {} workspace upserts (the new one, and the one losing focus)",
+        upserts.len()
+    );
+    assert_journal_states_the_session(&mux);
+}
+
+/// A move to the middle shifts the index of every workspace between its old and new place: each of those is
+/// stated again, and only those.
+#[test]
+fn a_workspace_move_journals_every_workspace_it_shifts() {
+    let mux = mux_with_workspaces(40);
+    let moved = mux.with_state(|state| state.workspaces[30].id);
+    let before = mux.with_state(|state| state.resource_revision);
+    mux.move_workspace_at_revision_as(&Actor::Daemon, moved, 10, None).unwrap();
+    let (upserts, _) = workspace_changes_after(&mux, before);
+    // Index 30 to 10: the moved one and the 20 that shift down by one (10..=29), plus at most one focus change.
+    assert!(
+        (21..=22).contains(&upserts.len()),
+        "a move from 30 to 10 journaled {} workspace upserts",
+        upserts.len()
+    );
+    assert_journal_states_the_session(&mux);
+}
+
+/// A rename states the renamed workspace only.
+#[test]
+fn a_workspace_rename_journals_only_that_workspace() {
+    let mux = mux_with_workspaces(40);
+    let renamed = mux.with_state(|state| state.workspaces[17].id);
+    let before = mux.with_state(|state| state.resource_revision);
+    mux.rename_workspace_at_revision_as(&Actor::Daemon, renamed, "renamed".into(), None).unwrap();
+    let (upserts, _) = workspace_changes_after(&mux, before);
+    assert_eq!(
+        upserts.len(),
+        1,
+        "a rename at 40 workspaces journaled {} workspace upserts",
+        upserts.len()
+    );
+    assert_journal_states_the_session(&mux);
+}
+
+/// A metadata commit (a color) changes only the workspace's decorations, through its extra rows: that workspace is
+/// still stated, with the new color.
+#[test]
+fn a_workspace_metadata_commit_journals_its_workspace() {
+    let mux = mux_with_workspaces(40);
+    let key = mux.with_state(|state| state.workspaces[5].key.clone());
+    let before = mux.with_state(|state| state.resource_revision);
+    let update = crate::workspace_registry::WorkspacePresentationUpdate {
+        color: Some(Some("red".into())),
+        ..Default::default()
+    };
+    mux.set_workspace_metadata(
+        None,
+        Some(&key),
+        update,
+        None,
+        None,
+        &WorkspaceMutation::daemon_local("cmux-tui"),
+    )
+    .unwrap();
+    let (upserts, _) = workspace_changes_after(&mux, before);
+    assert!(!upserts.is_empty(), "a color change journaled no workspace upsert");
+    assert!(
+        upserts.len() <= 2,
+        "a color change at 40 workspaces journaled {} workspace upserts",
+        upserts.len()
+    );
+    assert_journal_states_the_session(&mux);
+}
+
+/// A resource-path move (`workspace.move`, `SetWorkspaceOrder` in a resource patch) moves positions outside the
+/// legacy workspace commit; a later workspace create must still leave the journal stating every workspace's index.
+#[test]
+fn a_create_after_a_resource_move_keeps_the_journal_equal_to_the_session() {
+    let mux = mux_with_workspaces(40);
+    let moved = mux.with_state(|state| state.workspaces[30].public_id.clone());
+    mux.resource_move_workspace(
+        &moved,
+        5,
+        None,
+        None,
+        &WorkspaceMutation::daemon_local("cmux-tui"),
+    )
+    .unwrap();
+    assert_journal_states_the_session(&mux);
+    mux.create_empty_workspace(
+        Some("after-move".into()),
+        Some("018f6e21-7b70-7e70-8000-000000009998".into()),
+        None,
+    )
+    .unwrap();
+    assert_journal_states_the_session(&mux);
+}
