@@ -23,9 +23,21 @@ export function ImportHistoryGallery({
     const rows = initialRows().map((row) => {
       if (row.kind === "local" && !empty && phase !== "detecting") return { ...row, source: row.id, selected: true };
       if (autodetected && row.id === "chatgpt")
-        return { ...row, source: "zip:/Users/example/Downloads/chatgpt-export.zip", name: "chatgpt-export.zip", selected: true, detected: true };
+        return {
+          ...row,
+          source: "zip:/Users/example/Downloads/chatgpt-export.zip",
+          name: "chatgpt-export.zip",
+          selected: true,
+          detected: true,
+        };
       if (autodetected && row.id === "claude")
-        return { ...row, source: "zip:/Users/example/Desktop/claude-export.zip", name: "claude-export.zip", selected: true, detected: true };
+        return {
+          ...row,
+          source: "zip:/Users/example/Desktop/claude-export.zip",
+          name: "claude-export.zip",
+          selected: true,
+          detected: true,
+        };
       if (row.id === "grok-bot" && paste)
         return {
           ...row,
@@ -38,7 +50,11 @@ export function ImportHistoryGallery({
     if (phase === "done") {
       for (const row of rows.filter((row) => row.selected)) {
         row.phase = "done";
-        row.report = { plan: { total: 12, new: 12, duplicate: 0, secrets: 0 }, est_cost_usd: 0.02, written: 12 };
+        row.report = {
+          plan: { total: 12, new: 12, duplicate: 0, secrets: 0 },
+          est_cost_usd: 0.02,
+          written: 12,
+        };
       }
     } else if (["importing", "error"].includes(phase)) {
       const first = rows[0];

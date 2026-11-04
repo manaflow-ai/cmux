@@ -1,7 +1,16 @@
 import type { PageClient } from "../shared/pageClient";
 
 export type Origin = "grok-bot" | "muse" | "dots" | "instinct";
-export type RowID = "claude-code" | "codex" | "codex-sessions" | "claude-memory" | "chatgpt" | "claude" | Origin | "dot" | `detected-${number}`;
+export type RowID =
+  | "claude-code"
+  | "codex"
+  | "codex-sessions"
+  | "claude-memory"
+  | "chatgpt"
+  | "claude"
+  | Origin
+  | "dot"
+  | `detected-${number}`;
 export type Phase = "idle" | "detecting" | "ready" | "importing" | "done" | "error";
 export type RowPhase = "idle" | "planning" | "writing" | "done" | "error";
 export interface ImportReport {
@@ -119,40 +128,49 @@ export class ImportHistoryStore {
     this.set({ phase: "detecting" });
     try {
       if (!this.client) throw new Error("cmux.importHistory.unavailable");
-      const result = await this.client.call<{ sources: { source: string; kind?: string; title?: string; path?: string }[] }>(OPS.detect, {});
+      const result = await this.client.call<{
+        sources: { source: string; kind?: string; title?: string; path?: string }[];
+      }>(OPS.detect, {});
       const detected = result.sources ?? [];
       this.set({
         phase: "ready",
-        rows: this.snapshot.rows.map((row) => {
-          const found = detected.find((source) => source.source === row.id || source.kind === row.id);
-          const exportKind = row.id === "chatgpt" ? "chatgpt-export" : row.id === "claude" ? "claude-ai-export" : undefined;
-          const exportFound = exportKind && detected.find((source) => source.kind === exportKind);
-          const match = found ?? exportFound;
-          return match
-            ? {
-                ...row,
+        rows: this.snapshot.rows
+          .map((row) => {
+            const found = detected.find((source) => source.source === row.id || source.kind === row.id);
+            const exportKind =
+              row.id === "chatgpt" ? "chatgpt-export" : row.id === "claude" ? "claude-ai-export" : undefined;
+            const exportFound = exportKind && detected.find((source) => source.kind === exportKind);
+            const match = found ?? exportFound;
+            return match
+              ? {
+                  ...row,
+                  selected: true,
+                  expanded: row.kind === "text" ? true : row.expanded,
+                  source: match.source,
+                  detected: true,
+                  name: match.title ?? match.path,
+                }
+              : row;
+          })
+          .concat(
+            detected
+              .filter(
+                (source) =>
+                  source.source.startsWith("zip:") &&
+                  !["chatgpt-export", "claude-ai-export"].includes(source.kind ?? ""),
+              )
+              .map((source, index) => ({
+                id: `detected-${index}` as const,
+                kind: "zip" as const,
                 selected: true,
-                expanded: row.kind === "text" ? true : row.expanded,
-                source: match.source,
+                source: source.source,
+                name: source.title ?? source.path,
+                title: source.kind === "dots-export" ? "Dot export (.zip)" : "Saved export (.zip)",
+                icon: source.kind === "dots-export" ? "D" : "↗",
                 detected: true,
-                name: match.title ?? match.path,
-              }
-            : row;
-        }).concat(
-          detected
-            .filter((source) => source.source.startsWith("zip:") && !["chatgpt-export", "claude-ai-export"].includes(source.kind ?? ""))
-            .map((source, index) => ({
-              id: `detected-${index}` as const,
-              kind: "zip" as const,
-              selected: true,
-              source: source.source,
-              name: source.title ?? source.path,
-              title: source.kind === "dots-export" ? "Dot export (.zip)" : "Saved export (.zip)",
-              icon: source.kind === "dots-export" ? "D" : "↗",
-              detected: true,
-              phase: "idle" as const,
-            })),
-        ),
+                phase: "idle" as const,
+              })),
+          ),
       });
     } catch (error) {
       this.set({ phase: "error", error: message(error) });
@@ -246,7 +264,12 @@ export class ImportHistoryStore {
       try {
         const origin = row.kind === "text" ? (row.id as Origin) : undefined;
         const source = origin
-          ? (await client.call<{ source: string }>(OPS.prepareText, { summaryOrigin: origin, text: row.text ?? "" })).source
+          ? (
+              await client.call<{ source: string }>(OPS.prepareText, {
+                summaryOrigin: origin,
+                text: row.text ?? "",
+              })
+            ).source
           : row.source;
         if (this.stopped) return;
         if (!source) throw new Error("cmux.importHistory.missing_source");

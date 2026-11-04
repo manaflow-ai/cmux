@@ -33,7 +33,7 @@ export function ImportHistory({ store, strings, layout = "list" }: ImportHistory
       <output className="history-notice" aria-live="polite">
         {t(`history.state.${snapshot.phase}`)}
       </output>
-      <div className="history-sources" aria-label={t("history.sources") }>
+      <div className="history-sources" aria-label={t("history.sources")}>
         {snapshot.rows.map((row) => (
           <SourceRow
             key={row.id}
@@ -127,7 +127,12 @@ function SourceRow({
             }}
           />
           <span className="history-source-icon">
-            <AgentMark agent={markFor(row.id, row.title)} size={24} label={title} fallback={<MonogramMark name={title} size={24} label={title} />} />
+            <AgentMark
+              agent={markFor(row.id, row.title)}
+              size={24}
+              label={title}
+              fallback={<MonogramMark name={title} size={24} label={title} />}
+            />
           </span>
           {row.kind === "zip" && !row.detected ? (
             <button
@@ -145,7 +150,13 @@ function SourceRow({
         <div className="history-source-action">
           {row.kind === "local" && (
             <span className="history-muted">
-              {t(snapshot.phase === "detecting" ? "history.row.planning" : row.source ? "history.detected" : "history.notFound")}
+              {t(
+                snapshot.phase === "detecting"
+                  ? "history.row.planning"
+                  : row.source
+                    ? "history.detected"
+                    : "history.notFound",
+              )}
             </span>
           )}
           {row.kind === "zip" && !row.detected && (
@@ -221,11 +232,13 @@ function markFor(id: string, title?: string): string {
 }
 
 function titleFor(id: string): string {
-  return {
-    "codex-sessions": "Codex chats",
-    "grok-bot": "Grok Bot",
-    muse: "Muse",
-    dots: "ChatGPT Dots",
-    instinct: "Instinct",
-  }[id] ?? "Saved export (.zip)";
+  return (
+    {
+      "codex-sessions": "Codex chats",
+      "grok-bot": "Grok Bot",
+      muse: "Muse",
+      dots: "ChatGPT Dots",
+      instinct: "Instinct",
+    }[id] ?? "Saved export (.zip)"
+  );
 }
