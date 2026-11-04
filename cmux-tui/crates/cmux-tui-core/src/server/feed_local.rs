@@ -37,9 +37,9 @@ pub(super) fn dispatch(mux: &Mux, actor: &Actor, cmd: Command) -> anyhow::Result
         Command::FeedLocalHandoffAbort(params) => {
             Ok(json!({"item": item_json(mux, &mux.feed_local_handoff_abort(&params.item)?)}))
         }
-        Command::FeedLocalHandoffDone(params) => {
-            Ok(json!({"item": item_json(mux, &mux.feed_local_handoff_done(&params.item, &params.home)?)}))
-        }
+        Command::FeedLocalHandoffDone(params) => Ok(
+            json!({"item": item_json(mux, &mux.feed_local_handoff_done(&params.item, &params.home)?)}),
+        ),
         _ => anyhow::bail!("not a feed-local command"),
     }
 }

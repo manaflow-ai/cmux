@@ -129,7 +129,8 @@ pub(crate) fn approval_text(native: &Value) -> Option<String> {
     if let Some(command) = command {
         text.push_str("\n\n");
         text.push_str(&fenced(&command));
-    } else if let Some(target) = ["file_path", "path", "url", "pattern"].into_iter().find_map(field) {
+    } else if let Some(target) = ["file_path", "path", "url", "pattern"].into_iter().find_map(field)
+    {
         text.push_str(": `");
         text.push_str(&target.replace('`', "'"));
         text.push('`');

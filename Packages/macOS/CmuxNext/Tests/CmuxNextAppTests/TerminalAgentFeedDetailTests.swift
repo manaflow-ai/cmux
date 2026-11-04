@@ -6,7 +6,8 @@ import Testing
 
 /// A terminal agent's Feed card says what the agent said, as a GUI chat's does. The daemon keeps
 /// the agent's answer, question or approval command in memory and sends it as a local feed item's
-/// `detail` (never in the durable row); the handoff puts it in the Feed as the body. Before, a
+/// `detail` (never in the durable row); the handoff puts it in the Feed as the body when the person allows agent text there
+/// (`feed.agentPermissionPrompts`). Before, a
 /// Claude Code terminal's card read "Claude finished" and nothing more: only the live event had
 /// the answer, and the item the Mac handed to the Feed had an empty body.
 @Suite
@@ -26,7 +27,9 @@ struct TerminalAgentFeedDetailTests {
     }
 
     @Test func theHandoffSendsTheAgentsAnswerAsTheFeedBody() {
-        let policy = FeedHandoffPolicy(preferences: NotificationPreferences(), mutedWorkspaces: [])
+        var preferences = NotificationPreferences()
+        preferences.feedMirror.agentPermissionPrompts = true
+        let policy = FeedHandoffPolicy(preferences: preferences, mutedWorkspaces: [])
         let item = FeedLocalItem(id: "fi_aaaaaaaaaaaaaaaaaaaa", dedupeKey: "k", title: "Claude finished", body: "",
                                  source: "agent", context: .init(terminal: "term_1"), createdAtMs: 1,
                                  detail: Self.answer)
@@ -36,6 +39,16 @@ struct TerminalAgentFeedDetailTests {
         let body = FeedHandoffDriver.adoptBody(item, install: "inst_1", content: content ?? ("", ""))
         let cloud = (body["params"] as? [String: Any])?["item"] as? [String: Any]
         #expect(cloud?["body"] as? String == Self.answer)
+    }
+
+    /// Agent text reaches the Cloud feed only with the person's consent (`feed.agentPermissionPrompts`,
+    /// off by default), as a GUI chat's prompts do: by default the body stays the durable row's.
+    @Test func theAgentsTextStaysOffTheCloudFeedByDefault() {
+        let policy = FeedHandoffPolicy(preferences: NotificationPreferences(), mutedWorkspaces: [])
+        let item = FeedLocalItem(id: "fi_cccccccccccccccccccccc", dedupeKey: "k", title: "Claude needs approval",
+                                 body: "Bash", source: "agent", context: .init(terminal: "term_1"), createdAtMs: 1,
+                                 detail: "Bash\n\n```\nrm -rf build\n```")
+        #expect(policy.content(for: item)?.body == "Bash")
     }
 
     @Test func anItemWithoutDetailKeepsItsBody() {

@@ -21,7 +21,6 @@
 //! its notification takes it, and the terminal keeps it while the agent waits on it, so
 //! `list-notifications` and the notification event can show the question and its options
 //! (cmux-next-ios answers it from the phone). It never reaches the durable ledger.
-
 //!
 //! Each agent notification's texts (`FeedTexts`: its reply, error, approval, plan or question
 //! text, and the prompt of its turn) are also kept, memory only and bounded, by its ledger id
@@ -79,10 +78,12 @@ impl Mux {
     pub(super) fn keep_agent_feed_texts(&self, keys: &[&str], texts: FeedTexts) {
         let texts = Arc::new(texts);
         let mut kept = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        // A key kept again moves to the back: the newest texts are the last to age out, and
+        // each key holds one slot (a forgotten key's old slot goes too).
+        kept.feed_order.retain(|kept_key| !keys.contains(&kept_key.as_str()));
         for key in keys {
-            if kept.feed.insert((*key).to_owned(), Arc::clone(&texts)).is_none() {
-                kept.feed_order.push_back((*key).to_owned());
-            }
+            kept.feed.insert((*key).to_owned(), Arc::clone(&texts));
+            kept.feed_order.push_back((*key).to_owned());
         }
         while kept.feed_order.len() > FEED_TEXT_KEYS {
             if let Some(oldest) = kept.feed_order.pop_front() {
@@ -91,9 +92,12 @@ impl Mux {
         }
     }
 
-    /// Drops the Feed texts kept under `key` (its order slot goes when it ages out).
+    /// Drops the Feed texts kept under `key`, and its order slot.
     pub(super) fn forget_agent_feed_texts(&self, key: &str) {
-        self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner).feed.remove(key);
+        let mut kept = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        if kept.feed.remove(key).is_some() {
+            kept.feed_order.retain(|kept_key| kept_key != key);
+        }
     }
 
     /// The Feed texts of the notification or local feed item `key`, while this daemon keeps them.
