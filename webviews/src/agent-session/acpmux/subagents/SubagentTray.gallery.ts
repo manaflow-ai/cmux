@@ -735,13 +735,16 @@ export default agentPaneEntry({
       })(),
     },
     "counts-equal-rows": {
-      note: "What Leo called lying, told straight: the header counts only what runs (2 subagents, 2 chats it started, all subagents; 2 commands) and equals the rows under it. A command reads as what it does, not its cd prefix; a chat says what its turn does now. What ended stays visible as bounded status cards.",
+      note: "What Leo called lying, told straight: the header counts what runs kind by kind (2 subagents, 2 sessions it started, 2 commands), then the 3 that ended in the list, and equals the rows under it. A command reads as what it does, not its cd prefix; a chat says what its turn does now. What ended stays visible as bounded status cards.",
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         await ctx.click({ selector: ".acpmux-running-tray__head" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 3);
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
-        if (title !== "4 subagents running · 2 commands") throw new Error(`the header must count the rows: ${title}`);
+        // Kind by kind (trayHeadKinds.ts): the chats it started read as sessions, and what ended in
+        // the list counts after what runs.
+        if (title !== "2 subagents running · 2 sessions · 2 commands · 3 done")
+          throw new Error(`the header must count the rows: ${title}`);
       },
       snapshot: (() => {
         const base = chat(
