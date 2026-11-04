@@ -801,6 +801,24 @@ def merge_base_of(repo: str, pr: dict) -> str:
         return pr["base"]["sha"]
 
 
+def event_pull_request(path: str | None, number: str) -> dict | None:
+    """The pull request as the triggering event delivered it ($GITHUB_EVENT_PATH), or None when there
+    is no such file or it is about another pull request. It is the same object `GET pulls/N` returns
+    (body, labels, user, author_association, head and base), as of the event, and saves that REST
+    call on every run. A later event runs this again, and its run cancels this one."""
+    if not path:
+        return None
+    try:
+        pull = json.loads(Path(path).read_text()).get("pull_request")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if not isinstance(pull, dict) or str(pull.get("number")) != str(number):
+        return None
+    if not ((pull.get("head") or {}).get("sha") and (pull.get("base") or {}).get("sha")):
+        return None
+    return pull
+
+
 def pr_mode(args: argparse.Namespace) -> int:
     base = f"repos/{args.repo}/pulls/{args.number}"
     entries = gh_items(f"{base}/files?per_page=100")
@@ -808,7 +826,7 @@ def pr_mode(args: argparse.Namespace) -> int:
     patches = {f["filename"]: f.get("patch") or "" for f in entries}
     # A rename moves the old path too: grade both ends.
     files += [f["previous_filename"] for f in entries if f.get("previous_filename")]
-    pr = gh_json("api", base)
+    pr = event_pull_request(getattr(args, "event", None), args.number) or gh_json("api", base)
     # Rust product files that add or remove a delete: read on that side, they place each line in or
     # out of a test module.
     rust = {e["filename"]: e for e in entries if e["filename"].endswith(".rs") and in_delete_scope(e["filename"])}
@@ -1027,6 +1045,8 @@ def main(argv: list[str] | None = None) -> int:
                    "for the takeback check (skipped without it)")
     p.add_argument("--github-output")
     p.add_argument("--summary")
+    p.add_argument("--event", help="the event payload ($GITHUB_EVENT_PATH); its pull_request saves the "
+                   "GET pulls/N call")
     args = parser.parse_args(argv)
 
     if args.mode == "classify":
