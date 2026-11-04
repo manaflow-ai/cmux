@@ -20,7 +20,6 @@
   border: 0;
   background: none;
   color: var(--agent-muted);
-  cursor: pointer;
 }
 .acpmux-tray-grabber[data-side="left"] {
   left: var(--acpmux-tray-inset, 8px);
