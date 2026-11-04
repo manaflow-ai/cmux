@@ -76,6 +76,10 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape("an address with %s or {searchTerms}, or \"\"")
     } else if row.validation == super::Validation::Domain(DomainKind::CustomDensities) {
         Accepted::Shape("an array of density objects, each with a lowercase id and a name")
+    } else if row.validation == super::Validation::Domain(DomainKind::CommandLabels) {
+        Accepted::Shape(
+            "an array of preset names and rule objects, each with a label and a program or match",
+        )
     } else {
         accepted(&row.kind, domains)
     };
@@ -114,6 +118,9 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         }
         super::Validation::Domain(DomainKind::CustomDensities) => {
             return value.as_array().is_some_and(|items| items.iter().all(is_custom_density));
+        }
+        super::Validation::Domain(DomainKind::CommandLabels) => {
+            return value.as_array().is_some_and(|items| items.iter().all(is_command_label));
         }
         _ => {}
     }
@@ -242,6 +249,31 @@ fn is_custom_density(value: &Value) -> bool {
     id_ok && name_ok && numbers_ok && tokens_ok
 }
 
+/// Swift `CommandLabelsSetting.isItem`: a non-blank preset name, or an object
+/// with a non-blank `label`, a non-blank `program` (or a non-empty list of
+/// them) or `match`, and string `link` and `icon` when present.
+fn is_command_label(value: &Value) -> bool {
+    let non_blank = |value: &Value| value.as_str().is_some_and(|text| !text.trim().is_empty());
+    if value.is_string() {
+        return non_blank(value);
+    }
+    let Some(members) = value.as_object() else { return false };
+    if !members.get("label").is_some_and(non_blank) {
+        return false;
+    }
+    let program_ok = members.get("program").is_none_or(|program| match program.as_array() {
+        Some(names) => !names.is_empty() && names.iter().all(non_blank),
+        None => non_blank(program),
+    });
+    let match_ok = members.get("match").is_none_or(non_blank);
+    let strings_ok =
+        ["link", "icon"].iter().all(|key| members.get(*key).is_none_or(Value::is_string));
+    program_ok
+        && match_ok
+        && strings_ok
+        && (members.contains_key("program") || members.contains_key("match"))
+}
+
 /// Swift `BrowserOmnibarSetting.isSearchTemplate`: empty, or an address
 /// with a `%s` or `{searchTerms}` placeholder that is valid once filled.
 fn is_search_template(text: &str) -> bool {
@@ -342,5 +374,6 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::ChatRoots => "chat_roots",
         DomainKind::SearchTemplate => "search_template",
         DomainKind::CustomDensities => "custom_densities",
+        DomainKind::CommandLabels => "command_labels",
     }
 }

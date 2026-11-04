@@ -27,6 +27,8 @@ export interface AcpmuxRequests {
   "_acpmux/tailnet/start": { params: unknown; result: unknown };
   "_acpmux/tailnet/state": { params: unknown; result: unknown };
   "_acpmux/status": { params: unknown; result: unknown };
+  "_acpmux/context": { params: unknown; result: unknown };
+  "_acpmux/context_override": { params: unknown; result: unknown };
   "agent-session-turn-prepare": { params: unknown; result: unknown };
   "agent-session-turn-abandon": { params: unknown; result: unknown };
   "trigger/chat.ensure": { params: unknown; result: unknown };
@@ -262,6 +264,7 @@ export interface AcpmuxRequests {
   "_acpmux/pair_redeem": { params: unknown; result: unknown };
   "_acpmux/vault_pull": { params: unknown; result: unknown };
   "_acpmux/vault_forget": { params: unknown; result: unknown };
+  "_acpmux/vault_status": { params: unknown; result: unknown };
   "_acpmux/turn_attestation": { params: unknown; result: unknown };
 }
 
@@ -335,6 +338,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/tailnet/start", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tailnet/state", kind: "request", acp: false, typed: false },
   { name: "_acpmux/status", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/context", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/context_override", kind: "request", acp: false, typed: false },
   { name: "agent-session-turn-prepare", kind: "request", acp: false, typed: false },
   { name: "agent-session-turn-abandon", kind: "request", acp: false, typed: false },
   { name: "trigger/chat.ensure", kind: "request", acp: false, typed: false },
@@ -574,6 +579,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/pair_redeem", kind: "request", acp: false, typed: false },
   { name: "_acpmux/vault_pull", kind: "request", acp: false, typed: false },
   { name: "_acpmux/vault_forget", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/vault_status", kind: "request", acp: false, typed: false },
   { name: "_acpmux/turn_attestation", kind: "request", acp: false, typed: false },
   { name: "_acpmux/event", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/message", kind: "notification", acp: false, typed: true },

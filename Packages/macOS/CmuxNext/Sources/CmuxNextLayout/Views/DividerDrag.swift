@@ -36,6 +36,7 @@ struct DividerDrag {
             screen.activeDrag = drag
             screen.columnWidths.drop() // a person's drag sets widths on purpose (R3b)
             model.setGestureActive(true)
+            catchShown(kind, at: windowPoint)
         case let .moved(windowPoint, flags):
             guard screen.activeDrag != nil else { return }
             screen.activeDrag?.modifiers = DividerDragModifiers(flags)
@@ -43,8 +44,7 @@ struct DividerDrag {
             let point = contentPoint(fromWindow: windowPoint, kind: kind)
             screen.activeDrag?.sample(point, at: CACurrentMediaTime())
             screen.resizeGestureMoved()
-            guard screen.context.dragsOnFrameTick else { return apply(at: windowPoint, phase: .changed) }
-            // Control's trail follows every event, with the keys held at it, as `apply` did for each one.
+            // Control's trail follows every event, with the keys held at it; the frame tick writes the newest point.
             _ = screen.activeDrag?.effective(point)
             waitForFrame()
         case let .modifiersChanged(flags):
@@ -53,7 +53,7 @@ struct DividerDrag {
             screen.activeDrag?.modifiers = modifiers
             // A press that has not moved yet stays a click: nothing to re-apply.
             guard drag.pointer != nil else { return }
-            if screen.context.dragsOnFrameTick { waitForFrame() } else { apply(at: drag.lastWindowPoint, phase: .changed) }
+            waitForFrame()
         case .cancelled:
             cancel(redraw: true)
         case let .ended(windowPoint, flags):
@@ -64,7 +64,7 @@ struct DividerDrag {
             screen.activeDrag?.modifiers = DividerDragModifiers(flags)
             if case .split = kind {
                 // The layout this release makes springs on from the pointer's velocity.
-                screen.releasedDivider = (kind, drag.releaseVelocity(at: CACurrentMediaTime()), CACurrentMediaTime())
+                screen.releasedDivider = (kind, drag.releaseVelocity(at: CACurrentMediaTime()), CACurrentMediaTime(), drag.sharedEdges)
             }
             apply(at: windowPoint, phase: .ended)
             screen.activeDrag?.hintToast?.dismiss()
@@ -87,6 +87,8 @@ struct DividerDrag {
             if redraw { screen.reconcile(animated: false) }
         }
         model.cancelGesture(drag.transaction)
+        // A press that caught a springing value: the release it replaced lands as it would have.
+        if let replaced = drag.replaced { set(replaced, transaction: .make(), phase: .ended) }
         model.setGestureActive(false)
         screen.resizeGestureReleased()
     }
@@ -104,10 +106,10 @@ struct DividerDrag {
         }
     }
 
-    /// With `motion.frameOwner.timing` on, a move or a key change only keeps the pointer and keys for the window's
-    /// next frame tick, and asks for it: that tick writes the newest ones once (``applyWaiting()``), so a burst of events
-    /// in one display frame costs one model write and one layout pass (Chrome aligns input to the begin-frame). The
-    /// release (`ended`) still applies in its own turn, at its own point; a cancel drops what waits.
+    /// A move or a key change only keeps the pointer and keys for the window's next frame tick, and asks for it: that
+    /// tick writes the newest ones once (``applyWaiting()``), so a burst of events in one display frame costs one model
+    /// write and one layout pass (Chrome aligns input to the begin-frame). The release (`ended`) still applies in its
+    /// own turn, at its own point; a cancel drops what waits.
     private func waitForFrame() {
         screen.activeDrag?.waiting = true
         screen.activeDrag?.ticksLeft = ScreenContentView.panTickTail
@@ -123,12 +125,12 @@ struct DividerDrag {
 
     /// Writes this frame's values. A split or column the drag set before and does not set now goes
     /// back to its start first. The model's observation lays each value out (one sync per turn: events that arrive
-    /// together show once), or with `motion.frameOwner.timing` on the frame tick's own sync does; a still pointer asks
-    /// for no frames.
+    /// together show once), or in the frame tick its own sync does (`LayoutFrameInput`); a still pointer asks for no
+    /// frames.
     func apply(at windowPoint: NSPoint, phase: LayoutGesturePhase) {
         guard var drag = screen.activeDrag else { return }
         let point = drag.effective(contentPoint(fromWindow: windowPoint, kind: drag.kind))
-        let targets: [DividerDragValue]
+        var targets: [DividerDragValue]
         switch drag.kind {
         case let .split(id):
             targets = splitTargets(id, drag: &drag, point: point, phase: phase)
@@ -138,12 +140,21 @@ struct DividerDrag {
             screen.activeDrag = drag
             return applyRowEdge(column, upper: upper, drag: drag, windowPoint: windowPoint, phase: phase)
         }
-        let keys = Set(targets.map(\.key))
+        var keys = Set(targets.map(\.key))
+        // The caught value is this drag's start for its key (rule C): a mode that stops setting it puts it back there.
+        if let caught = drag.caughtValue, drag.touched.contains(caught.key), !keys.contains(caught.key) {
+            (targets, keys) = (targets + [caught], keys.union([caught.key]))
+        }
         let restored = drag.touched.subtracting(keys)
         drag.touched = keys
         drag = phase == .ended ? drag : showingHint(drag)
         screen.activeDrag = drag
         model.restoreGestureValues(restored, transaction: drag.transaction)
+        // The release's values are one change, all or nothing (`EndedValues`): what the app cannot send takes the drag back.
+        if phase == .ended {
+            EndedValues(targets, transaction: drag.transaction).send(in: model)
+            return
+        }
         for target in targets {
             switch target {
             case let .ratio(split, ratio): model.setSplitRatio(split, ratio: ratio, transaction: drag.transaction, phase: phase)

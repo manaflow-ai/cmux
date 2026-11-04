@@ -95,8 +95,12 @@ pub const CAPABILITIES: &[Capability] = &[
     // asks the daemon to pull or forget when the values live only in its memory.
     Capability {
         id: crate::vault::CAPABILITY,
-        wire: &[method::MUX_VAULT_PULL, method::MUX_VAULT_FORGET],
+        wire: &[method::MUX_VAULT_PULL, method::MUX_VAULT_FORGET, method::MUX_VAULT_STATUS],
     },
+    // Proxy-delivered vault entries reach agents as `cmux-secret://NAME`,
+    // filled in by the daemon's egress proxy for their allowed hosts only;
+    // `machine vault status` names each entry's delivery and hosts.
+    Capability { id: crate::vault::EGRESS_CAPABILITY, wire: &[method::MUX_VAULT_STATUS] },
     Capability {
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],

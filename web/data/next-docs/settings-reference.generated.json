@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 563,
+  "count": 567,
   "sections": [
     {
       "id": "general",
@@ -17,6 +17,18 @@
             "inline",
             "strip",
             "both"
+          ]
+        },
+        {
+          "key": "agentPane.composerRing",
+          "title": "Composer Ring",
+          "help": "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them.",
+          "kind": "choice",
+          "default": "context",
+          "group": "Agent Chat",
+          "values": [
+            "context",
+            "planUsage"
           ]
         },
         {
@@ -1144,6 +1156,14 @@
           "group": "Tabs"
         },
         {
+          "key": "tabs.hideLoneChatTab",
+          "title": "Hide the Tab of a Chat Alone in Its Pane",
+          "help": "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
           "key": "tabs.nativeNewTabPage",
           "title": "Native New Tab Page",
           "help": "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now.",
@@ -1723,6 +1743,14 @@
             "full",
             "off"
           ]
+        },
+        {
+          "key": "agentPane.display.pinnedPlan",
+          "title": "Pin Task List in Chat",
+          "help": "While the agent works, its task list stays under the latest message instead of in the bar over the composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.presentation",
@@ -5531,6 +5559,14 @@
           ]
         },
         {
+          "key": "feed.needsYouInChief",
+          "title": "Pin Needs You in Chief",
+          "help": "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Feed"
+        },
+        {
           "key": "notifications.attention.agentChatBlinkCount",
           "title": "Agent Chat Blinks",
           "help": "",
@@ -5984,10 +6020,10 @@
         },
         {
           "key": "cloud.agentsStartWithoutAsking",
-          "title": "Let Agents Start Cloud Sessions Without Asking",
-          "help": "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
+          "title": "Let Agents Use Cloud Without Asking",
+          "help": "Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Cloud Workspaces"
         },
         {

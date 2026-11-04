@@ -5,6 +5,17 @@ import CmuxNextDesign
 struct DividerDragState {
     var kind: DividerHandleView.Kind
     var transaction: LayoutTransactionID
+    /// `motion.frameOwner.sharedEdges` (FRAME OWNER S2B) when the drag started (`DividerDrag.start`): a flip applies
+    /// from the next drag.
+    var sharedEdges = false
+    /// The press's pass that lays out the value it caught (rule C, `DividerDrag.catchShown`): every frame keeps where
+    /// it shows.
+    var catching = false
+    /// The press's catch (`DividerDrag.catchShown`): the value it caught, the drag's start for that key (a modifier mode
+    /// that stops setting it puts it back there), and the local value the layout showed before it, if any (a release
+    /// the daemon has not confirmed): a cancel sends that again, in a new transaction.
+    var caughtValue: DividerDragValue?
+    var replaced: DividerDragValue?
     var grabOffset: CGFloat
     var container: CGRect
     var axis: SplitAxis
@@ -37,7 +48,7 @@ struct DividerDragState {
     var pointerShift: CGFloat = 0
     /// The last window point of the drag: a modifier change with no move re-applies there.
     var lastWindowPoint: NSPoint = .zero
-    /// With `motion.frameOwner.timing` on: the pointer and keys of an event the window's next frame tick writes
+    /// The pointer and keys of an event that the window's next frame tick writes
     /// (`DividerDrag.applyWaiting`), and the frame ticks the drag still keeps after its last event, so a still pointer
     /// between two events does not drop the window's display link (`ScreenContentView.panTickTail`, as a strip pan).
     var waiting = false

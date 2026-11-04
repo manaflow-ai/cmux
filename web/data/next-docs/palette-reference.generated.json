@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1281,
+    "entries": 1291,
     "shortcuts": 189
   },
   "sections": [
@@ -44,6 +44,12 @@
           "title": "Chat Colors…",
           "shortcut": null,
           "command": "cmux chat colors"
+        },
+        {
+          "id": "home.chiefTeleportPlayground",
+          "title": "Chief Teleport Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "home.zoomReset",
@@ -1508,6 +1514,12 @@
           "title": "Set Workspace Group Icon…",
           "shortcut": null,
           "command": "cmux workspace-group set-icon"
+        },
+        {
+          "id": "workspaceGroup.setSort",
+          "title": "Set Workspace Group Sort Order…",
+          "shortcut": null,
+          "command": "cmux workspace-group set-sort"
         },
         {
           "id": "workspace.setIcon",
@@ -5290,8 +5302,20 @@
           "command": null
         },
         {
+          "id": "sidebar.revealAndFocusWorkspace",
+          "title": "Reveal and Focus Workspace in Sidebar",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "fileExplorerReveal",
           "title": "Reveal in Finder",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "sidebar.revealWorkspace",
+          "title": "Reveal Workspace in Sidebar",
           "shortcut": null,
           "command": null
         },
@@ -5728,6 +5752,12 @@
           "command": null
         },
         {
+          "id": "chief.importMemories",
+          "title": "Bring Your History",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentChat.subagentLimit",
           "title": "Chat Subagent Limit…",
           "shortcut": null,
@@ -6004,12 +6034,6 @@
           "command": null
         },
         {
-          "id": "chief.importMemories",
-          "title": "Import Memories…",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "agentPane.togglePointerInspector",
           "title": "Inspect UI Element",
           "shortcut": null,
@@ -6186,6 +6210,12 @@
         {
           "id": "agentPane.permission.revoke",
           "title": "Revoke Chat Permission",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "chief.moveRollback",
+          "title": "Roll Back Chief Move",
           "shortcut": null,
           "command": null
         },
@@ -6760,6 +6790,12 @@
           "command": "cmux cloud api-key-revoke"
         },
         {
+          "id": "cloudPreviewRevoke",
+          "title": "Revoke Machine Preview Link…",
+          "shortcut": null,
+          "command": "cmux cloud preview-revoke"
+        },
+        {
           "id": "cloudTunnelRotateKey",
           "title": "Rotate Cloud Tunnel Key",
           "shortcut": null,
@@ -6776,6 +6812,12 @@
           "title": "Set Up GitHub on This Machine",
           "shortcut": null,
           "command": "cmux cloud setup-github"
+        },
+        {
+          "id": "cloudPreviewShare",
+          "title": "Share Machine Preview…",
+          "shortcut": null,
+          "command": "cmux cloud preview-share"
         },
         {
           "id": "cloudShareMachine",
@@ -7270,6 +7312,12 @@
           "command": "cmux settings keyboard-shortcuts"
         },
         {
+          "id": "agentPane.display.railOnRight",
+          "title": "Prompt Rail on Right Edge",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "reloadConfiguration",
           "title": "Reload Configuration",
           "shortcut": "⇧⌘,",
@@ -7390,6 +7438,12 @@
           "command": "cmux settings show-announcements"
         },
         {
+          "id": "agentPane.display.showMinimap",
+          "title": "Show Chat Minimap",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "help.showCrashLogs",
           "title": "Show Crash Logs",
           "shortcut": null,
@@ -7418,6 +7472,12 @@
           "title": "Show Media Card",
           "shortcut": null,
           "command": "cmux media show-card"
+        },
+        {
+          "id": "debug.sidebarStatesPlayground",
+          "title": "Sidebar States Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "links.signInPagesByLinkSettings",

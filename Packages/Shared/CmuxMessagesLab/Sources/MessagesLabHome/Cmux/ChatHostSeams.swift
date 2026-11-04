@@ -85,7 +85,7 @@ protocol ChatIntents: AnyObject {
     func openVideo(_ ref: PartRef, _ attachment: ID)
     /// A click on an agent-message fold's row: its messages show in full, or fold again.
     func toggleAgentMessages(_ group: String)
-    /// A click on the row of message `message`: an agent-message fold or notes row opens or closes
+    /// A click on the row of message `message`: an agents row opens or closes
     /// (true); false for every other row, which keeps its own click.
     func agentRowClicked(_ message: ID) -> Bool
     /// What a click on the row of message `message` opens when it is a Feed row; nil for every other row.

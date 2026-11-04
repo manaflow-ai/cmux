@@ -88,6 +88,276 @@ fn hosted_receipted_input_requests_pipeline_through_surface_reader() {
     });
 }
 
+/// A hosted surface on a fake host connection (the host end is the second value), with the mux's stage S1 switch
+/// `lane`.
+#[cfg(unix)]
+fn hosted_typing_surface(
+    name: &str,
+    lane: bool,
+) -> (Arc<Mux>, Arc<Surface>, std::os::unix::net::UnixStream) {
+    let mux = Mux::new_for_test(name, SurfaceOptions::default());
+    mux.set_input_lane_for_test(lane);
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    let (mut attachment, host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+    let terminal_id = attachment.record.terminal_id.clone();
+    attachment.record.workspace_key = workspace.key.clone();
+    mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
+    let surface = Surface::spawn_hosted(
+        1,
+        SurfaceOptions::default(),
+        Arc::downgrade(&mux),
+        HostedSurfaceLaunch {
+            adopted: false,
+            attachment,
+            kitty_reservation: None,
+            terminate_on_error: false,
+            defer_launch_activation: false,
+            lifetime: PtyLifetime::SessionOwned,
+            terminal_public_id: None,
+            resource_identity: None,
+        },
+    )
+    .unwrap();
+    host.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    (mux, surface, host)
+}
+
+/// How long the fake host reads nothing before it drains its socket.
+#[cfg(unix)]
+const HOST_STALL: Duration = Duration::from_millis(600);
+
+/// A key while another client's large paste to the same hosted terminal is in its socket write and the host reads
+/// nothing for [`HOST_STALL`]: how long the key took to return, and the frame kinds the host then read, in order.
+/// The host drains on its own thread after the stall, so the old path (the key waits for the paste) cannot hang.
+#[cfg(unix)]
+fn key_behind_a_blocked_paste(lane: bool) -> (Duration, Vec<MessageKind>) {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port", lane);
+    // Far larger than the socket buffer: its write blocks while the host reads nothing.
+    let paste = vec![b'p'; 8 * 1024 * 1024];
+    std::thread::scope(|scope| {
+        let reader = scope.spawn(move || {
+            std::thread::sleep(HOST_STALL);
+            let mut kinds = Vec::new();
+            while kinds.last() != Some(&MessageKind::Input) {
+                let frame = crate::terminal_host_protocol::read_frame(
+                    &mut host,
+                    crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+                )
+                .expect("the host reads the queued frames")
+                .expect("the host connection stays open");
+                kinds.push(frame.kind);
+            }
+            kinds
+        });
+        let pasting = scope.spawn(|| surface.write_paste(&paste));
+        // Long enough for the paste's writer to be inside its blocked socket write, well inside the stall.
+        std::thread::sleep(Duration::from_millis(150));
+        let started = Instant::now();
+        // The person's key: it answers when the port took it (on the old path, after its write).
+        surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the key was accepted");
+        let took = started.elapsed();
+        pasting.join().unwrap().expect("the paste was written");
+        (took, reader.join().unwrap())
+    })
+}
+
+/// R-DAEMON-STATE stage S1 step 6 (DESIGN.md section 2.6.1): a key to a hosted terminal never waits for another
+/// writer's blocked write to the same terminal's host socket. On the old path the paste's write holds the
+/// terminal's runtime lock and the host writer for the whole write (bounded only by the socket's send timeout), and
+/// the key waits behind it. With the stage on, the key is handed to the terminal's own input port and returns at
+/// once; the port writes in order, the paste first, once the host reads.
+#[cfg(unix)]
+#[test]
+fn a_key_does_not_wait_for_another_writers_blocked_host_socket() {
+    let (old_took, old_kinds) = key_behind_a_blocked_paste(false);
+    assert!(
+        old_took >= HOST_STALL / 2,
+        "control: on the old path the key took {old_took:?} behind a paste blocked {HOST_STALL:?}; the hold does not \
+         reach the old path, so the lane's test proves nothing"
+    );
+    assert_eq!(old_kinds.last(), Some(&MessageKind::Input), "old path: the key reached the host");
+
+    let (took, kinds) = key_behind_a_blocked_paste(true);
+    assert!(
+        took < Duration::from_millis(100),
+        "the key waited {took:?} for another writer's blocked host socket"
+    );
+    // The host stops reading at the first key frame, so this proves the key arrived (after the paste, below), not
+    // that it arrived only once: `keys_on_the_input_port_reach_the_host_once_each_in_order` checks that.
+    assert_eq!(
+        kinds.iter().filter(|kind| **kind == MessageKind::Input).count(),
+        1,
+        "the key reached the host: {kinds:?}"
+    );
+    // Both must be there: the host stops reading at the first key, so a key that passed the paste leaves no paste.
+    let paste_at = kinds.iter().position(|kind| *kind == MessageKind::Paste);
+    let key_at = kinds.iter().position(|kind| *kind == MessageKind::Input);
+    assert!(
+        matches!((paste_at, key_at), (Some(paste), Some(key)) if paste < key),
+        "the paste, written first, reached the host before the key: {kinds:?}"
+    );
+}
+
+/// A key to a terminal whose host connection the reader shut down (`Failed`, still retrying) is refused at once, as
+/// the old path's write to the shut connection failed (`cmux send` exits non-zero); once a replacement's route is
+/// published, keys go through again (#34544 review 3).
+#[cfg(unix)]
+#[test]
+fn a_key_to_a_failed_link_is_refused_until_a_live_route_is_published() {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-failed", true);
+    let pty = surface.as_pty().expect("a terminal");
+    pty.input_route.store(Some(Arc::new(input_port::InputRoute::Failed)));
+    let refused = surface.write_bytes(b"x").expect_err("a key to a failed link was accepted");
+    assert_eq!(refused.kind(), std::io::ErrorKind::NotConnected, "{refused}");
+
+    let live = PtyTerminalRuntime::input_route_of(&pty.runtime.lock().unwrap());
+    pty.input_route.store(live);
+    surface.write_bytes(b"y").expect("the key after the replacement was refused");
+    let frame = loop {
+        let frame = crate::terminal_host_protocol::read_frame(
+            &mut host,
+            crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+        )
+        .expect("the host reads the key")
+        .expect("the host connection stays open");
+        if frame.kind == MessageKind::Input {
+            break frame;
+        }
+    };
+    assert_eq!(frame.payload, b"y", "the refused key must not reach the host");
+}
+
+/// R-DAEMON-STATE S1.6b: a frame another writer sends to a hosted terminal's host connection (a viewer size, cell
+/// pixels, receipted input, a clear history, Kitty limits, a clipboard reply, a terminate) after a key the input port
+/// took reaches the host after that key, though the port has not written it yet.
+#[cfg(unix)]
+#[test]
+fn a_frame_sent_after_a_key_the_port_holds_reaches_the_host_after_it() {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-order-barrier", true);
+    let pty = surface.as_pty().expect("a terminal");
+    let resume = pty.input_port.pause_writes_for_test();
+    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
+    std::thread::scope(|scope| {
+        let direct = scope.spawn(|| {
+            let runtime = pty.runtime.lock().unwrap();
+            let PtyRuntime::Hosted(attachment) = &*runtime else {
+                panic!("the fixture's terminal is hosted");
+            };
+            attachment.send(MessageKind::Activate, &[]).expect("the direct frame was written");
+        });
+        // The direct sender is now inside its send, while the port holds the key.
+        std::thread::sleep(Duration::from_millis(200));
+        resume.send(()).expect("the port's writer waits");
+        direct.join().unwrap();
+    });
+    drop(resume);
+    let mut kinds = Vec::new();
+    while !(kinds.contains(&MessageKind::Input) && kinds.contains(&MessageKind::Activate)) {
+        let frame = crate::terminal_host_protocol::read_frame(
+            &mut host,
+            crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+        )
+        .expect("the host reads both frames")
+        .expect("the host connection stays open");
+        kinds.push(frame.kind);
+    }
+    let key_at = kinds.iter().position(|kind| *kind == MessageKind::Input);
+    let frame_at = kinds.iter().position(|kind| *kind == MessageKind::Activate);
+    assert!(
+        matches!((key_at, frame_at), (Some(key), Some(frame)) if key < frame),
+        "a frame sent after a key the port held passed it: {kinds:?}"
+    );
+}
+
+/// R-DAEMON-STATE S1.6b: a write that is not the person's key (a script's `cmux send`, a resource input effect, the
+/// creating-input flush) answers when the input port wrote it, as the old path answered after its socket write, so
+/// it never answers ok for bytes the port has not written.
+#[cfg(unix)]
+#[test]
+fn an_automation_write_answers_after_the_port_wrote_it() {
+    let (_mux, surface, mut host) =
+        hosted_typing_surface("hosted-input-port-automation-reply", true);
+    let pty = surface.as_pty().expect("a terminal");
+    let resume = pty.input_port.pause_writes_for_test();
+    std::thread::scope(|scope| {
+        let writing = scope.spawn(|| surface.write_bytes(b"a"));
+        std::thread::sleep(Duration::from_millis(200));
+        let answered_early = writing.is_finished();
+        resume.send(()).expect("the port's writer waits");
+        writing.join().unwrap().expect("the write");
+        assert!(!answered_early, "an automation write answered before the port wrote it");
+    });
+    let frame = crate::terminal_host_protocol::read_frame(
+        &mut host,
+        crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+    )
+    .expect("the host reads the write")
+    .expect("the host connection stays open");
+    assert_eq!((frame.kind, frame.payload.as_slice()), (MessageKind::Input, &b"a"[..]));
+}
+
+/// R-DAEMON-STATE S1.6b: a write that is not the person's key gets the error of its own frame (here the reader
+/// shut the connection down after the port took the bytes), as the old path's write failed, so `cmux send` exits
+/// non-zero and a resource input effect is marked failed.
+#[cfg(unix)]
+#[test]
+fn an_automation_write_gets_the_error_of_its_frame() {
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-automation-error", true);
+    let pty = surface.as_pty().expect("a terminal");
+    let resume = pty.input_port.pause_writes_for_test();
+    std::thread::scope(|scope| {
+        let writing = scope.spawn(|| surface.write_bytes(b"b"));
+        // The route fails after the port took the frame (else the write is refused at enqueue, with the same error).
+        wait_until("the port took the write", || pty.input_port.accepted_for_test() == 1);
+        pty.input_route.store(Some(Arc::new(input_port::InputRoute::Failed)));
+        resume.send(()).expect("the port's writer waits");
+        let error = writing
+            .join()
+            .unwrap()
+            .expect_err("an automation write the port could not write answered ok");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotConnected, "{error}");
+    });
+}
+
+/// Keys to a hosted terminal on the input port reach the host once each, in the order they were typed (the port's
+/// one writer thread), and a key the port took returns before the host read anything (#34544 review).
+#[cfg(unix)]
+#[test]
+fn keys_on_the_input_port_reach_the_host_once_each_in_order() {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-order", true);
+    let keys: Vec<u8> = (b'a'..=b'z').collect();
+    for key in &keys {
+        surface.write_bytes_replying(&[*key], InputReply::Accepted).expect("the port took the key");
+    }
+    let mut written = Vec::new();
+    while written.len() < keys.len() {
+        let frame = crate::terminal_host_protocol::read_frame(
+            &mut host,
+            crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+        )
+        .expect("the host reads the keys")
+        .expect("the host connection stays open");
+        if frame.kind == MessageKind::Input {
+            written.extend_from_slice(&frame.payload);
+        }
+    }
+    assert_eq!(written, keys, "the keys reached the host in another order or more than once");
+    // Nothing more: no key is written twice.
+    host.set_read_timeout(Some(Duration::from_millis(150))).unwrap();
+    // Ends at the read timeout (nothing more) or at end of stream.
+    while let Ok(Some(frame)) = crate::terminal_host_protocol::read_frame(
+        &mut host,
+        crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+    ) {
+        assert_ne!(
+            frame.kind,
+            MessageKind::Input,
+            "a key reached the host twice: {:?}",
+            frame.payload
+        );
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn hosted_stager_exposes_coupled_state_only_after_colors() {
@@ -604,4 +874,320 @@ fn hosted_reconnect_backoff_releases_geometry_before_waiting() {
         geometry_released_before_backoff,
         "host reconnect backoff held the geometry transaction lock"
     );
+}
+
+/// A host connection whose host end is closed: a send on its route fails as a lost host's send does (EPIPE).
+#[cfg(unix)]
+fn dead_host_route() -> input_port::InputRoute {
+    let (attachment, host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+    drop(host);
+    input_port::InputRoute::Hosted(attachment.input_route())
+}
+
+/// Waits (at most 5 s) until `ready` holds, or fails the test with `what`.
+#[cfg(unix)]
+fn wait_until(what: &str, ready: impl Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !ready() {
+        assert!(Instant::now() < deadline, "timed out waiting until {what}");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+/// The frames `host` reads until it reads nothing for `quiet` or its connection ends.
+#[cfg(unix)]
+fn frames_until_quiet(host: &mut std::os::unix::net::UnixStream, quiet: Duration) -> Vec<Frame> {
+    host.set_read_timeout(Some(quiet)).unwrap();
+    let mut frames = Vec::new();
+    while let Ok(Some(frame)) = crate::terminal_host_protocol::read_frame(
+        host,
+        crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+    ) {
+        frames.push(frame);
+    }
+    frames
+}
+
+/// The payloads of the `Input` frames in `frames`, in order.
+#[cfg(unix)]
+fn input_payloads(frames: &[Frame]) -> Vec<Vec<u8>> {
+    frames
+        .iter()
+        .filter(|frame| frame.kind == MessageKind::Input)
+        .map(|f| f.payload.clone())
+        .collect()
+}
+
+/// Installs a live replacement connection as the reader does (`PtyTerminalRuntime::replace_runtime` under the
+/// runtime lock, which it then releases); returns the replacement's host end.
+#[cfg(unix)]
+fn install_replacement(pty: &PtySurface) -> std::os::unix::net::UnixStream {
+    let (replacement, host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+    let mut runtime = pty.runtime.lock().unwrap();
+    pty.replace_runtime(&mut runtime, PtyRuntime::Hosted(Box::new(replacement)));
+    host
+}
+
+/// R-DAEMON-STATE S1.6b review 1 (must-fix 1): after the reader installs a live replacement connection
+/// (`replace_runtime`) and before its stream notify (the VT replay comes between), another writer's frame on the new
+/// connection must not pass the keys the input port took while the connection was lost. The port's reconnect wait
+/// ended only at the stream notify, and the barrier skipped while the port waited, so the frame went first.
+#[cfg(unix)]
+#[test]
+fn a_frame_sent_after_a_replacement_install_waits_for_the_keys_the_port_held() {
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-install-order", true);
+    let pty = surface.as_pty().expect("a terminal");
+    pty.input_route.store(Some(Arc::new(dead_host_route())));
+    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
+    wait_until("the port's writer waits for a reconnect", || {
+        pty.input_port.reconnecting_for_test()
+    });
+    let mut replacement_host = install_replacement(pty);
+    {
+        let runtime = pty.runtime.lock().unwrap();
+        let PtyRuntime::Hosted(attachment) = &*runtime else {
+            panic!("the replacement is hosted");
+        };
+        attachment.send(MessageKind::Activate, &[]).expect("the direct frame was written");
+    }
+    let kinds: Vec<_> = frames_until_quiet(&mut replacement_host, Duration::from_millis(1500))
+        .into_iter()
+        .map(|frame| frame.kind)
+        .collect();
+    let key_at = kinds.iter().position(|kind| *kind == MessageKind::Input);
+    let frame_at = kinds.iter().position(|kind| *kind == MessageKind::Activate);
+    assert!(
+        matches!((key_at, frame_at), (Some(key), Some(frame)) if key < frame),
+        "a frame sent after the replacement install passed the key the port held: {kinds:?}"
+    );
+}
+
+/// R-DAEMON-STATE S1.6b review 1 (must-fix 2): a host connection lost again later (here after a replacement that got
+/// no write) gives its writes their own reconnect wait, as the old path gave each write. The port kept the first
+/// loss's deadline until a write succeeded, so the later write failed at once.
+#[cfg(unix)]
+#[test]
+fn a_later_host_loss_waits_for_its_own_reconnect() {
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-second-loss", true);
+    let pty = surface.as_pty().expect("a terminal");
+    pty.input_port.set_reconnect_wait_for_test(Duration::from_millis(300));
+    pty.input_route.store(Some(Arc::new(dead_host_route())));
+    surface.write_bytes(b"1").expect_err("a write to a lost host that never came back answered ok");
+    let replacement_host = install_replacement(pty);
+    // The first loss's wait is long over when the replacement's host is lost too.
+    std::thread::sleep(Duration::from_millis(400));
+    drop(replacement_host);
+    std::thread::scope(|scope| {
+        let writing = scope.spawn(|| surface.write_bytes(b"2"));
+        wait_until("the write waits for a reconnect or has answered", || {
+            writing.is_finished() || pty.input_port.reconnecting_for_test()
+        });
+        if writing.is_finished() {
+            let answered = writing.join().unwrap();
+            panic!("the later loss's write did not wait for its reconnect: {answered:?}");
+        }
+        let mut next_host = install_replacement(pty);
+        writing.join().unwrap().expect("the write after the second reconnect");
+        let written =
+            input_payloads(&frames_until_quiet(&mut next_host, Duration::from_millis(300)));
+        assert_eq!(written, vec![b"2".to_vec()], "the write reached the next replacement once");
+    });
+}
+
+/// While the port's writer waits for a reconnect, a frame another writer sends under the runtime lock does not wait
+/// for it: the connection that frame goes to is gone, and the replacement the port waits for is installed under the
+/// lock that writer holds (S1.6b; a regression stalls every such frame for the order wait during a reconnect).
+#[cfg(unix)]
+#[test]
+fn a_frame_sent_while_the_port_waits_for_a_reconnect_does_not_wait_for_it() {
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-reconnect-skip", true);
+    let pty = surface.as_pty().expect("a terminal");
+    pty.input_route.store(Some(Arc::new(dead_host_route())));
+    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
+    wait_until("the port's writer waits for a reconnect", || {
+        pty.input_port.reconnecting_for_test()
+    });
+    let runtime = pty.runtime.lock().unwrap();
+    let PtyRuntime::Hosted(attachment) = &*runtime else {
+        panic!("the fixture's terminal is hosted");
+    };
+    let started = Instant::now();
+    let _ = attachment.send(MessageKind::Activate, &[]);
+    let took = started.elapsed();
+    assert!(
+        took < Duration::from_millis(500),
+        "a frame under the runtime lock waited {took:?} for a port that waits for a reconnect"
+    );
+}
+
+/// Writes queued behind a lost host that does not come back fail together, one reconnect wait after they were sent
+/// (as the old path's concurrent writes did), not one wait after another.
+#[cfg(unix)]
+#[test]
+fn writes_queued_behind_a_lost_host_fail_together() {
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-fail-together", true);
+    let pty = surface.as_pty().expect("a terminal");
+    let wait = Duration::from_millis(300);
+    pty.input_port.set_reconnect_wait_for_test(wait);
+    pty.input_route.store(Some(Arc::new(dead_host_route())));
+    let target: &Surface = &surface;
+    let started = Instant::now();
+    std::thread::scope(|scope| {
+        let writes: Vec<_> = (0..5u8)
+            .map(|index| scope.spawn(move || target.write_bytes(&[b'0' + index])))
+            .collect();
+        for write in writes {
+            write
+                .join()
+                .unwrap()
+                .expect_err("a write to a lost host that never came back answered ok");
+        }
+    });
+    let took = started.elapsed();
+    assert!(
+        took < wait * 3,
+        "5 writes behind a lost host took {took:?} with a reconnect wait of {wait:?}"
+    );
+}
+
+/// Receipted input (the `terminal.input.*` operations' path) sent after a key the input port holds reaches the host
+/// after that key (S1.6b: every direct writer of the connection, not only `HostAttachment::send`).
+#[cfg(unix)]
+#[test]
+fn receipted_input_sent_after_a_key_the_port_holds_reaches_the_host_after_it() {
+    let (_mux, surface, mut host) =
+        hosted_typing_surface("hosted-input-port-receipted-order", true);
+    let pty = surface.as_pty().expect("a terminal");
+    let resume = pty.input_port.pause_writes_for_test();
+    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
+    std::thread::scope(|scope| {
+        let receipted = scope.spawn(|| {
+            let runtime = pty.runtime.lock().unwrap();
+            let PtyRuntime::Hosted(attachment) = &*runtime else {
+                panic!("the fixture's terminal is hosted");
+            };
+            attachment.begin_input_confirmed(b"r").map(|_| ()).map_err(|_| "not written")
+        });
+        std::thread::sleep(Duration::from_millis(200));
+        resume.send(()).expect("the port's writer waits");
+        receipted.join().unwrap().expect("the receipted input was written");
+    });
+    drop(resume);
+    let written = input_payloads(&frames_until_quiet(&mut host, Duration::from_millis(300)));
+    assert_eq!(
+        written,
+        vec![b"k".to_vec(), b"r".to_vec()],
+        "receipted input passed the key the port held"
+    );
+}
+
+/// R-DAEMON-STATE S1.6b review 1 (item 6): a write whose wait for the port ends before the port's writer took its
+/// frame is never written: its error says so, and nothing reaches the host later (the creating-input flush gives
+/// such bytes back, so writing them too would type them twice).
+#[cfg(unix)]
+#[test]
+fn a_write_whose_wait_ends_before_the_port_takes_it_is_never_written() {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-reply-timeout", true);
+    let pty = surface.as_pty().expect("a terminal");
+    pty.input_port.set_reply_wait_for_test(Duration::from_millis(300));
+    let resume = pty.input_port.pause_writes_for_test();
+    // The writer holds a key at its pause; the write queues behind it.
+    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
+    wait_until("the writer took the key", || pty.input_port.queued_frames_for_test() == 0);
+    let error =
+        surface.write_bytes(b"x").expect_err("a write the port did not reach in time answered ok");
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut, "{error}");
+    assert!(!input_may_be_written(&error), "a frame the port never took may be written: {error}");
+    drop(resume);
+    let written = input_payloads(&frames_until_quiet(&mut host, Duration::from_millis(500)));
+    assert_eq!(
+        written,
+        vec![b"k".to_vec()],
+        "a write that answered 'not written' reached the host"
+    );
+}
+
+/// R-DAEMON-STATE S1.6b review 1 (item 6): a write whose wait ends while the port's writer is writing its frame says
+/// that the bytes may still be written, so a caller that gives input back keeps these.
+#[cfg(unix)]
+#[test]
+fn a_write_whose_wait_ends_during_its_write_may_be_written() {
+    let (_mux, surface, mut host) =
+        hosted_typing_surface("hosted-input-port-reply-in-flight", true);
+    let pty = surface.as_pty().expect("a terminal");
+    pty.input_port.set_reply_wait_for_test(Duration::from_millis(300));
+    let resume = pty.input_port.pause_writes_for_test();
+    let error = surface.write_bytes(b"y").expect_err("a write still being written answered ok");
+    assert!(
+        input_may_be_written(&error),
+        "a frame the port was writing was 'not written': {error}"
+    );
+    drop(resume);
+    let written = input_payloads(&frames_until_quiet(&mut host, Duration::from_millis(500)));
+    assert_eq!(written, vec![b"y".to_vec()], "the frame the port was writing reached the host");
+}
+
+/// R-DAEMON-STATE S1.6b review 1 (item 6): the creating-input flush gives back the bytes it could not write, but not
+/// bytes whose write may still reach the program; giving those back too types them twice.
+#[cfg(unix)]
+#[test]
+fn the_creating_input_flush_keeps_input_that_may_have_been_written() {
+    let (mux, surface, mut host) = hosted_typing_surface("hosted-input-port-creating-flush", true);
+    let pty = surface.as_pty().expect("a terminal");
+    let terminal_id = surface.terminal_host_identity().expect("a hosted terminal").terminal_id;
+    let generation =
+        mux.begin_creating_input(&terminal_id).expect("no live terminal has the id yet");
+    let given_back = Arc::new(Mutex::new(Vec::new()));
+    for bytes in [&b"a"[..], &b"b"[..]] {
+        let given_back = given_back.clone();
+        let notice: crate::mux::creating_input::UnclaimedNotice =
+            Arc::new(move |_terminal: &str, bytes: &[u8], _reason: &str| {
+                given_back.lock().unwrap().extend_from_slice(bytes);
+            });
+        mux.write_terminal_input(&terminal_id, 7, bytes, false, notice)
+            .expect("queued while creating");
+    }
+    mux.insert_surface_runtime_for_test(surface.clone());
+    pty.input_port.set_reply_wait_for_test(Duration::from_millis(300));
+    let resume = pty.input_port.pause_writes_for_test();
+    // The flush writes "a"; the port's writer holds it at its pause until the flush's wait ends.
+    mux.finish_creating_input(&terminal_id, generation, None);
+    assert_eq!(
+        given_back.lock().unwrap().as_slice(),
+        b"b",
+        "the flush gave back input whose write may still reach the program"
+    );
+    drop(resume);
+    let written = input_payloads(&frames_until_quiet(&mut host, Duration::from_millis(500)));
+    assert_eq!(written, vec![b"a".to_vec()], "the input the flush kept reached the host once");
+}
+
+/// R-DAEMON-STATE S1.6c (#35082 review 2, should-do 1): a write that waits out a lost host connection fails as soon
+/// as the reader gives that host up (the link is `Failed` and nothing will install a replacement), as the old path's
+/// write failed then, not at its own reconnect deadline. The reader's wake reached only `stream_progress`, which the
+/// port's writer no longer waits on.
+#[cfg(unix)]
+#[test]
+fn a_write_waiting_for_a_reconnect_fails_when_the_reader_gives_up() {
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-give-up", true);
+    let pty = surface.as_pty().expect("a terminal");
+    pty.input_port.set_reconnect_wait_for_test(Duration::from_secs(5));
+    pty.input_route.store(Some(Arc::new(dead_host_route())));
+    std::thread::scope(|scope| {
+        let writing = scope.spawn(|| {
+            let started = Instant::now();
+            (surface.write_bytes(b"g"), started.elapsed())
+        });
+        wait_until("the write waits for a reconnect", || pty.input_port.reconnecting_for_test());
+        // The reader gives the host up, as `wait_or_fail` does at the end of its budget.
+        pty.host_connection_state
+            .store(TerminalHostConnectionState::Failed as u8, Ordering::Release);
+        pty.reader_gave_up();
+        let (written, took) = writing.join().unwrap();
+        written.expect_err("a write to a host the reader gave up on answered ok");
+        assert!(
+            took < Duration::from_secs(2),
+            "a write to a host the reader gave up on waited {took:?}, its reconnect deadline, not the give-up"
+        );
+    });
 }

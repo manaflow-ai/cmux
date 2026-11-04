@@ -302,6 +302,19 @@ extension AgentPaneView {
             open: { [weak self] url in self?.openLink(url) },
             linkItems: { LinkMenu().linkItems(for: $0) },
             pathItems: { [weak self] path in self?.pathMenuItems(path) },
+            openSession: { [weak self] session, sender in
+                guard let self else { return }
+                AgentPanePersonInput.record(self.model.transport.gestures, sources: self.eventSources)
+                _ = AgentPaneOfferOpen.respond(session, sender: sender, in: self.model)
+            },
+            goToSession: { [weak self] session, sender in
+                guard let self, let goTo = AgentPaneOfferOpen.goTo(session, sender: sender, in: self.model) else { return nil }
+                return { [weak self] in
+                    guard let self else { return }
+                    AgentPanePersonInput.record(self.model.transport.gestures, sources: self.eventSources)
+                    goTo()
+                }
+            },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
             pinChapter: { [weak self] rowId, sessionId in
                 self?.runMessageAction("chat.pinChapter", ["rowId": rowId, "sessionId": sessionId])

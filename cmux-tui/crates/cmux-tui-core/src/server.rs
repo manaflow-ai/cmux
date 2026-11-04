@@ -161,8 +161,10 @@ use command_args::{
 };
 mod origin_gate;
 mod orphan_shutdown;
+mod owner_keepers;
 mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
+pub use owner_keepers::{Keepers, OwnerKeepersWatch, watch_owner_keepers};
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 mod starter_exit;
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
@@ -315,6 +317,7 @@ mod url_open;
 #[cfg(test)]
 use capabilities::advertised_capabilities;
 use capabilities::identify_capabilities;
+use cmd_panes::LayoutSizeWire;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
@@ -322,6 +325,8 @@ pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guar
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
 pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
+/// `set-layout-sizes`: a resize gesture's divider values as one change (R-DAEMON-STATE DESIGN 2.10.1).
+pub const LAYOUT_SIZES_BATCH_CAPABILITY: &str = "layout-sizes-batch-v1";
 /// `set-column-dock` and the optional `Screen.columns[].dock` field: at
 /// most one viewport column per edge stays pinned while the others scroll.
 pub const DOCK_COLUMNS_CAPABILITY: &str = "dock-columns-v1";
@@ -1520,6 +1525,13 @@ enum Command {
         width: f32,
         #[serde(default)]
         transaction: Option<u64>,
+    },
+    /// `layout-sizes-batch-v1`: the divider values one resize gesture ends with (a key trade's two widths, a drag
+    /// release's widths and ratios) as one change of the resize transaction `transaction`: one commit and one undo
+    /// step with the gesture's earlier values, or nothing when a value is refused (R-DAEMON-STATE DESIGN 2.10.1).
+    SetLayoutSizes {
+        values: Vec<LayoutSizeWire>,
+        transaction: u64,
     },
     /// `dock-columns-v1`: pin or unpin the viewport column containing
     /// `pane`. `edge`, `mode` and `role` (`dock-column-role-v1`) stay strings

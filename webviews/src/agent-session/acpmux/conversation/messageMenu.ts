@@ -12,6 +12,8 @@ import type { AcpmuxSnapshot } from "../model";
 import { menuPartAt, type MenuPart } from "./menuParts";
 import { retryHelps, sendCause } from "../sendFailure";
 import { withoutSkillDollars } from "../slashCommands";
+import { currentLanguage } from "../i18n";
+import { replyMenuTime } from "./relativeTime";
 
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
@@ -22,6 +24,8 @@ export type MessageMenuTarget = {
   sessionId?: string;
   text: string;
   markdown?: string;
+  /// A reply's localized date and time, shown as its menu's non-interactive header.
+  replyTime?: string;
   forkSeq?: number;
   /// The chat opens a side chat through `forkSeq` (the chat menu's New side chat, from this turn).
   sideChat?: true;
@@ -172,6 +176,7 @@ export function messageMenuTarget(
           ...(sessionId ? { sessionId } : {}),
           text: plainText(row.text),
           markdown: row.text,
+          replyTime: replyMenuTime(row.at, Date.now(), currentLanguage()),
         };
   if (forkSeq !== undefined) target.forkSeq = forkSeq;
   if (forkSeq !== undefined && sideChat) target.sideChat = true;
