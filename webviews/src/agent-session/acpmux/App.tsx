@@ -15169,10 +15169,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   <TaskGoalStrip
                     key={composerSnapshot.summary.sessionId}
                     goal={composerSnapshot.summary.goal}
+                    harness={composerSnapshot.summary.harness}
                     command={(action) => {
-                      const command = composerSnapshot.summary?.goal?.provider === "claude" ? "/loop" : "/goal";
                       return callNative("chat.send", {
-                        text: `${command} ${action === "delete" ? "clear" : action}`,
+                        text: `/goal ${action === "delete" ? "clear" : action}`,
                         attachments: [],
                       });
                     }}

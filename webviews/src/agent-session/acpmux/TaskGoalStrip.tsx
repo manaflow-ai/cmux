@@ -9,15 +9,25 @@ import "./TaskGoalStrip.css";
 /** The harness's goal stays visible between turns and after reopening the chat. */
 export function TaskGoalStrip({
   goal,
+  harness,
   command,
 }: {
   goal: TaskGoal;
+  /** The session harness fills in provider metadata for legacy persisted goals. */
+  harness?: string;
   command(action: "pause" | "resume" | "delete"): Promise<unknown>;
 }) {
   const t = useT();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
   const [expanded, setExpanded] = useState(false);
+  const harnessProvider = harness?.toLowerCase().startsWith("codex")
+    ? "codex"
+    : harness?.toLowerCase().startsWith("claude")
+      ? "claude"
+      : undefined;
+  const provider = goal.provider ?? harnessProvider;
+  const canControl = provider === "codex";
   const live = goal.status === "running" || goal.status === "active";
   const now = useNow(live);
   const start = goal.startedAt;
@@ -50,7 +60,7 @@ export function TaskGoalStrip({
     <section
       className="acpmux-goal"
       data-state={goal.status}
-      data-provider={goal.provider}
+      data-provider={provider}
       aria-label={t("goal.label")}
       aria-busy={pending}
     >
@@ -69,7 +79,7 @@ export function TaskGoalStrip({
         )}
       </span>
       {elapsed !== undefined && <time className="acpmux-goal-time">{formatDuration(elapsed)}</time>}
-      {goal.status !== "done" && goal.status !== "complete" && (
+      {canControl && goal.status !== "done" && goal.status !== "complete" && (
         <button
           type="button"
           className="acpmux-goal-action"
@@ -85,16 +95,18 @@ export function TaskGoalStrip({
           )}
         </button>
       )}
-      <button
-        type="button"
-        className="acpmux-goal-action"
-        disabled={pending}
-        aria-label={t("inspector.clear")}
-        title={t("inspector.clear")}
-        onClick={() => void run("delete")}
-      >
-        <span aria-hidden="true">×</span>
-      </button>
+      {canControl && (
+        <button
+          type="button"
+          className="acpmux-goal-action"
+          disabled={pending}
+          aria-label={t("inspector.clear")}
+          title={t("inspector.clear")}
+          onClick={() => void run("delete")}
+        >
+          <span aria-hidden="true">×</span>
+        </button>
+      )}
       {(goal.steps?.length || goal.detail) && (
         <button
           type="button"
