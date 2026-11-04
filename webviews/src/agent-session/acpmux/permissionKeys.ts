@@ -43,15 +43,15 @@ export function cardTakesShortcuts(groups: PermissionClientState | undefined): b
   );
 }
 
-/// Whether `permission` draws as the single card: unless a permission group on screen holds it. A
-/// grouped ask whose group is not read yet (a peer's read waits on its attach) is the single card
-/// at once, and the group's panel takes it when the read lands; an ask restored groups already hold
-/// is the panel's only, never on both.
+/// Whether `permission` draws as the single card: a grouped ask only while no permission group on
+/// screen holds it. One whose group is not read yet (a peer's read waits on its attach) is the single
+/// card at once, and the group's panel takes it when the read lands; one restored groups already
+/// hold is the panel's only, never on both. An ask acpmux did not group stays the single card.
 export function askOnSingleCard(
-  permission: { pending?: boolean; permissionId: string } | undefined,
+  permission: { pending?: boolean; permissionId: string; groupId?: string } | undefined,
   groups: PermissionClientState | undefined,
 ): boolean {
   if (!permission?.pending) return false;
-  if (!groups?.supported) return true;
+  if (!groups?.supported || !permission.groupId) return true;
   return !groups.groups.some((group) => group.items.some((item) => item.permissionId === permission.permissionId));
 }
