@@ -471,6 +471,8 @@ fi
 if [[ "$experience" == in-place ]]; then
   same_pid="no"; kill -0 "$base_pid" 2>/dev/null && [[ "$pid" == "$base_pid" && "$(started "$pid")" == "$start_before" ]] && same_pid=yes
   state_after="$(state_json)"; survived="$(state_verdict "$state_before" "$state_after")"
+  # Both are needed: a state probe without a seed could report state nobody made.
+  [[ -n "$seed" || "$survived" == changed* ]] || survived="not proven: no --seed, so the state was never seeded"
   note state_before "$state_before"; note state_after "$state_after"
   note integrity "same process: $same_pid; seeded state: $survived"
   [[ "$same_pid" == yes ]] || { result fail fail "in-place: the app relaunched or exited"; exit 0; }
