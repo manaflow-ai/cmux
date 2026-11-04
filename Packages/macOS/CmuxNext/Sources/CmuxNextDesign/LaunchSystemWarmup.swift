@@ -17,10 +17,11 @@ public nonisolated struct LaunchSystemWarmup: Sendable {
         for display in displays.prefix(Int(count)) { _ = CGDisplayCreateUUIDFromDisplayID(display)?.takeRetainedValue() }
     }
 
-    /// The system Apple menu fills on the first key-equivalent walk of a launch (the first Control chord: 13-38 ms on the
-    /// main thread, R-INPUT first-key menu stall). Most of that is the device image of "About This Mac": UTType's lookup
-    /// of this Mac's model (MobileGestalt, an IOKit call), made once per process. The Computer image and the model's
-    /// UTType make the same lookup here first; the menu keeps every item and image it shows.
+    /// The system Apple menu fills on the first key-equivalent walk of a launch (the first Control chord, R-INPUT
+    /// first-key menu stall). Its device image of "About This Mac" makes UTType's lookup of this Mac's model
+    /// (MobileGestalt, an IOKit call), once per process: the slow, variable part of that walk (12 fresh launches an arm
+    /// on one Mac: the first Control-C's dispatch p50 15.8 -> 11.4 ms, max 44.0 -> 24.0 ms). The Computer image and the
+    /// model's UTType make the same lookup here first; the menu keeps every item and image it shows.
     public nonisolated func appleMenuDevice() {
         _ = NSImage(named: NSImage.computerName)?.bestRepresentation(for: NSRect(x: 0, y: 0, width: 16, height: 16), context: nil, hints: nil)
         var size = 0
