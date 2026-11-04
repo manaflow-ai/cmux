@@ -84,8 +84,11 @@ struct SharedEdgeDuringSpringTests {
         /// The same slide; the split in B is grabbed while B slides, then held still.
         case columnSlideThenSplitDrag
         /// A grows by width so A's edge springs right into B while b1's split, near b1's minimum, is held: the split
-        /// stops at A's edge plus b1's minimum.
+        /// stops at A's edge plus b1's minimum, and comes to rest there while still held.
         case anchorPushesSplitToMinimum
+        /// The same clamp; before the split reaches the clamp, the pointer moves past it: from that frame on the split is
+        /// where the pointer puts it (the clamp's spring is dropped, not carried along).
+        case pointerPassesTheClampBeforeItLands
     }
 
     final class Panes: LayoutPaneContentProvider {
@@ -524,7 +527,26 @@ struct SharedEdgeDuringSpringTests {
             rig.model.setColumnWidth("A", width: a + 0.07, transaction: .make(), phase: .ended)
             rig.root.syncWithModel()
             rig.frame(edges, "growth frame 1")
-            try rig.drag(.split("x"), dragged: "b1", moves: 1, step: 1, still: 30, floor: minimum, edges: edges)
+            // Held still until the clamp's spring is done: the split rests at A's rest edge plus b1's minimum.
+            try rig.drag(.split("x"), dragged: "b1", moves: 1, step: 1, still: 120, floor: minimum, edges: edges) { view, pointer in
+                let shown = try rig.edge("b1", \.maxX), clamp = try rig.restEdge("b1", \.minX) + minimum, tolerance = try rig.halfPixel
+                #expect(abs(shown - clamp) <= tolerance, "held still, the split rests at \(Rig.pt(shown)) pt, the clamp is \(Rig.pt(clamp)) pt")
+                view.mouseUp(with: rig.event(.leftMouseUp, pointer))
+                rig.root.syncWithModel()
+                rig.check(edges, "release")
+            }
+            rig.land(edges, "landing")
+        case .pointerPassesTheClampBeforeItLands:
+            // The clamp as above; one frame after the press, the pointer moves 30 pt past the clamp in one step, while
+            // the split still springs toward it. From then on the split shows where the pointer puts it.
+            let minimum = rig.root.context.style.minimumPaneSize.width
+            let a = try #require(rig.model.screens.first?.layout.columns.first { $0.id == "A" }).width
+            rig.model.setColumnWidth("A", width: a + 0.07, transaction: .make(), phase: .ended)
+            rig.root.syncWithModel()
+            rig.frame(edges, "growth frame 1")
+            let drawn = try rig.edge("b1", \.maxX), clamp = try rig.restEdge("b1", \.minX) + minimum
+            try #require(clamp - drawn > 40, "the split is \(Rig.pt(clamp - drawn)) pt from the clamp: no clamp to pass")
+            try rig.drag(.split("x"), dragged: "b1", moves: 1, step: (clamp - drawn + 30).rounded(), still: 12, floor: minimum, edges: edges)
             rig.land(edges, "landing")
         case .clickDuringReleaseSpring:
             let room = try #require(try rig.screen.geometry.dividers.first { $0.id == "x" }).container.width
