@@ -34,11 +34,7 @@ fn clamp_index(index: i64, len: usize) -> usize {
     // Compare before converting to usize.  Swift's Int is wider than a
     // 32-bit tab id on some hosts, and an arbitrary caller value must still
     // clamp to the end without wrapping.
-    if (index as u128) >= (len as u128) {
-        len
-    } else {
-        index as usize
-    }
+    if (index as u128) >= (len as u128) { len } else { index as usize }
 }
 
 fn as_i64(value: usize) -> i64 {
@@ -131,12 +127,7 @@ pub unsafe extern "C" fn cmux_tab_move_group_index(
     let Some(members) = (unsafe { ids(members, members_len) }) else { return -1 };
     let shown: Vec<u32> = display.iter().copied().filter(|id| *id != moving).collect();
     let prefix_len = clamp_index(display_index, shown.len());
-    as_i64(
-        shown[..prefix_len]
-            .iter()
-            .filter(|id| members.contains(id))
-            .count(),
-    )
+    as_i64(shown[..prefix_len].iter().filter(|id| members.contains(id)).count())
 }
 
 /// Decide the client-side reveal after a tab move.
@@ -162,7 +153,9 @@ pub extern "C" fn cmux_drop_reveal_decide(
     }
 
     let (shows_workspace, new_window) = match outcome {
-        OUTCOME_CANCEL | OUTCOME_MOVE_WINDOW | OUTCOME_MOVE_WORKSPACE_TO_NEW_WINDOW
+        OUTCOME_CANCEL
+        | OUTCOME_MOVE_WINDOW
+        | OUTCOME_MOVE_WORKSPACE_TO_NEW_WINDOW
         | OUTCOME_MOVE_WORKSPACE => return DROP_REVEAL_NONE,
         OUTCOME_STRIP | OUTCOME_NEW_SPLIT | OUTCOME_NEW_COLUMN | OUTCOME_NEW_DOCK => (false, false),
         OUTCOME_NEW_WORKSPACE | OUTCOME_WORKSPACE => (true, false),
@@ -180,4 +173,3 @@ pub extern "C" fn cmux_drop_reveal_decide(
     }
     flags
 }
-

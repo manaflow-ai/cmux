@@ -55,14 +55,7 @@ fn pane_final_index_removes_then_inserts_and_clamps() {
     );
     assert_eq!(
         unsafe {
-            cmux_tab_move_pane_final_index(
-                std::ptr::null(),
-                1,
-                20,
-                0,
-                pane.as_ptr(),
-                pane.len(),
-            )
+            cmux_tab_move_pane_final_index(std::ptr::null(), 1, 20, 0, pane.as_ptr(), pane.len())
         },
         -1
     );
@@ -100,14 +93,7 @@ fn group_index_counts_only_members_before_display_slot() {
     );
     assert_eq!(
         unsafe {
-            cmux_tab_move_group_index(
-                std::ptr::null(),
-                1,
-                members.as_ptr(),
-                members.len(),
-                30,
-                0,
-            )
+            cmux_tab_move_group_index(std::ptr::null(), 1, members.as_ptr(), members.len(), 30, 0)
         },
         -1
     );
@@ -132,20 +118,11 @@ fn drop_reveal_maps_outcomes_and_guards() {
         cmux_drop_reveal_decide(OUTCOME_WORKSPACE, 1, 1, 0, 0, 1, 1, 0, 1),
         DROP_REVEAL_FOCUSES_TAB | DROP_REVEAL_SHOWS_WORKSPACE | DROP_REVEAL_MAKES_KEY
     );
-    assert_eq!(
-        cmux_drop_reveal_decide(OUTCOME_STRIP, 1, 0, 0, 0, 0, 1, 0, 1),
-        DROP_REVEAL_NONE
-    );
-    assert_eq!(
-        cmux_drop_reveal_decide(OUTCOME_STRIP, 1, 1, 0, 1, 0, 1, 0, 1),
-        DROP_REVEAL_NONE
-    );
+    assert_eq!(cmux_drop_reveal_decide(OUTCOME_STRIP, 1, 0, 0, 0, 0, 1, 0, 1), DROP_REVEAL_NONE);
+    assert_eq!(cmux_drop_reveal_decide(OUTCOME_STRIP, 1, 1, 0, 1, 0, 1, 0, 1), DROP_REVEAL_NONE);
     assert_eq!(
         cmux_drop_reveal_decide(OUTCOME_MOVE_WINDOW, 1, 1, 0, 0, 1, 1, 0, 1),
         DROP_REVEAL_NONE
     );
-    assert_eq!(
-        cmux_drop_reveal_decide(255, 1, 1, 0, 0, 0, 1, 0, 1),
-        DROP_REVEAL_NONE
-    );
+    assert_eq!(cmux_drop_reveal_decide(255, 1, 1, 0, 0, 0, 1, 0, 1), DROP_REVEAL_NONE);
 }
