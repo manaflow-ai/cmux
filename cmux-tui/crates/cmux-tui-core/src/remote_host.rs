@@ -47,7 +47,7 @@ use std::path::{Path, PathBuf};
 /// macOS the app names the folder itself; Windows and Linux use this.
 #[cfg(any(unix, windows))]
 pub fn computer_use_endpoint_dir(daemon_socket: &Path) -> PathBuf {
-    imp::runtime_dir_for(daemon_socket).join("cu")
+    runtime_dir_for(daemon_socket).join("cu")
 }
 
 #[cfg(any(unix, windows))]
