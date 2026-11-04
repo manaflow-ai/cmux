@@ -14,8 +14,8 @@ const arg = (key, fallback) => {
 const model = arg("model", "claude-sonnet-5-5");
 const samples = Number(arg("samples", "3"));
 const out = resolve(arg("out", process.env.FAST_CHECKS_OUT ?? "artifacts/prompt-behavior"));
-const baseUrl = process.env.ANTHROPIC_BASE_URL ?? "http://sr2-gateway.tail137216.ts.net:4016";
-const auth = process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? "";
+const baseUrl = arg("base-url", process.env.ANTHROPIC_BASE_URL ?? "http://sr2-gateway.tail137216.ts.net:4016");
+const auth = arg("auth", process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? "");
 const template = JSON.parse(gunzipSync(readFileSync(new URL("./templates/claude.json.gz", import.meta.url))));
 // Freeze the pre-change arm: rebasing onto the shipped rule must not change it.
 // Source: agent_tools.rs at 6dedb9cc163f68759c193491592b30950a78fe34.
@@ -151,7 +151,7 @@ const median = (values) => {
 };
 async function main() {
   mkdirSync(out, { recursive: true });
-  const manifest = { model, samples, tasks: tasks.map((t) => t.id), template_source: template.source,
+  const manifest = { model, samples, base_url: baseUrl, tasks: tasks.map((t) => t.id), template_source: template.source,
     template_sha256: createHash("sha256").update(JSON.stringify(template)).digest("hex"),
     fixture_sha256: createHash("sha256").update(JSON.stringify(tasks)).digest("hex"),
     baseline_source: "cmux-tui/crates/acpmux/src/agent_tools.rs@6dedb9cc163f68759c193491592b30950a78fe34",

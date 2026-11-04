@@ -80,7 +80,7 @@ captured-Claude harness against fixed synthetic repository fixtures:
 
 ```sh
 cmux-ci test --setup none --timeout 1800 --artifact /tmp/prompt-behavior -- \
-  node tests/tool-evals/prompt-behavior.mjs --samples 3
+  node tests/tool-evals/prompt-behavior.mjs --samples 3 --base-url https://coderouter.cmux.internal --auth cmux-vm-edge-placeholder
 ```
 
 It alternates arm order for each paired task/sample. It uses the captured Claude
