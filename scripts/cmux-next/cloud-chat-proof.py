@@ -440,6 +440,7 @@ SESSION_FILE = (Path.home() / "Library/Application Support/cmux/com.cmuxterm.app
 RESERVATION_PLATFORM = os.environ.get("CMUX_PROOF_RESERVATION_PLATFORM",
                                       "https://cmux-platform-development.debussy.workers.dev").rstrip("/")
 MACHINE_ID = re.compile(r"vm_[0-9a-z]{1,64}")
+SECRET_KEY = re.compile(r"(?i)token|password|secret|credential|authori[sz]ation|cookie|api[_-]?key|private[_-]?key")
 
 
 def http_json(method: str, url: str, access: str | None = None, team: str | None = None,
@@ -473,8 +474,10 @@ def safe_body(value: object, depth: int = 0) -> object:
     """A platform answer for the evidence: scalars through `scalar` (a secret-shaped string is left
     out), objects and lists kept to a few levels and entries."""
     if isinstance(value, dict) and depth < 3:
-        return {str(key)[:64]: safe_body(item, depth + 1) for key, item in list(value.items())[:24]
-                if not EVIDENCE_SCAN.search(str(key))}
+        # A secret-named key keeps its name but never its value: `{"token": "opaque"}` has no
+        # secret-shaped value, and the workflow's scan does not see a quoted key.
+        return {str(key)[:64]: "[left out]" if SECRET_KEY.search(str(key)) else safe_body(item, depth + 1)
+                for key, item in list(value.items())[:24]}
     if isinstance(value, list) and depth < 3:
         return [safe_body(item, depth + 1) for item in value[:12]]
     return scalar(value)
@@ -546,6 +549,16 @@ def platform_machine(access: str, team: str | None, machine: str) -> dict:
     return {"http_status": status, **fields, **({"body": safe_body(body)} if status >= 400 or status == 0 else {})}
 
 
+def platform_machine_ids(access: str, team: str | None) -> tuple[set, bool]:
+    """The ids of the team's machines on the platform, and whether the list was read."""
+    status, body = http_json("GET", f"{RESERVATION_PLATFORM}/v1/machines", access, team)
+    rows = body.get("machines", body) if isinstance(body, dict) else body
+    if status != 200 or not isinstance(rows, list):
+        return set(), False
+    return {row["id"] for row in rows if isinstance(row, dict) and isinstance(row.get("id"), str)
+            and MACHINE_ID.fullmatch(row["id"])}, True
+
+
 def reservation_proof(owner: object) -> dict:
     """POST /v1/machines/reservations with the app's session and x-cmux-team, then release it and
     destroy the machine it reserved, falling back to the app's kill-machine. Never raises."""
@@ -565,15 +578,20 @@ def reservation_proof(owner: object) -> dict:
     result["x_cmux_team"] = team
     compose = str(uuid.uuid4())
     result["compose_key"] = compose
+    before, listed_before = platform_machine_ids(access, team)
     machine = None
     try:
-        started = time.monotonic()
-        status, body = http_json("POST", f"{RESERVATION_PLATFORM}/v1/machines/reservations", access, team,
-                                 {"composeKey": compose}, timeout=130)
-        result["reserve"] = {"method": "POST", "path": "/v1/machines/reservations", "http_status": status,
-                             "ms": int((time.monotonic() - started) * 1000), "body": safe_body(body)}
-        found = body.get("machine") if isinstance(body, dict) else None
-        machine = found if isinstance(found, str) and MACHINE_ID.fullmatch(found) else None
+        for attempt in (1, 2):  # a lost answer is asked again with the same compose key (one carrier per key)
+            started = time.monotonic()
+            status, body = http_json("POST", f"{RESERVATION_PLATFORM}/v1/machines/reservations", access, team,
+                                     {"composeKey": compose}, timeout=130)
+            result["reserve" if attempt == 1 else "reserve_retry"] = {
+                "method": "POST", "path": "/v1/machines/reservations", "http_status": status,
+                "ms": int((time.monotonic() - started) * 1000), "body": safe_body(body)}
+            found = body.get("machine") if isinstance(body, dict) else None
+            machine = found if isinstance(found, str) and MACHINE_ID.fullmatch(found) else None
+            if machine or (status != 0 and status < 500):
+                break
         result["machine"] = machine
         result["ok"] = status == 200 and machine is not None
         if machine:
@@ -583,7 +601,9 @@ def reservation_proof(owner: object) -> dict:
                                  access, team, timeout=30)
         result["release"] = {"method": "DELETE", "path": "/v1/machines/reservations/{compose_key}",
                              "http_status": status, "body": safe_body(body)}
-        result["cleaned"] = machine is None and status in (200, 404)
+        # A reservation the platform made must be released; one it never made answers 404.
+        released = status == 200 or (machine is None and status == 404)
+        gone = True
         if machine:
             status, body = http_json("DELETE", f"{RESERVATION_PLATFORM}/v1/machines/{machine}", access, team,
                                      timeout=60)
@@ -598,7 +618,15 @@ def reservation_proof(owner: object) -> dict:
                 # The proof's own cleanup: the app's kill-machine, as for the chat's machine.
                 gone = kill_machine(machine)
                 result["app_kill_machine"] = gone
-            result["cleaned"] = gone
+        else:
+            # No answer named a machine, but the platform may have made one: name every machine that
+            # appeared since the reserve (never destroyed here: another caller may own it) so a
+            # cleanup_machine dispatch can take it, and fail the proof.
+            after_ids, listed_after = platform_machine_ids(access, team)
+            appeared = sorted(after_ids - before) if listed_before and listed_after else []
+            result["machines_appeared_without_answer"] = appeared
+            gone = listed_before and listed_after and not appeared
+        result["cleaned"] = bool(released and gone)
     return result
 
 

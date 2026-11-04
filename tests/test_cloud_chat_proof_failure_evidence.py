@@ -269,6 +269,8 @@ class FakePlatform(http.server.BaseHTTPRequestHandler):
     """Stack's refresh and the platform's health, reservation, release, machine read and destroy."""
     calls: list = []
     destroyed = False
+    mode = "ok"  # "release_fails": the release answers 500; "lost": the reserve answers 503 but makes a machine
+    reserved = False
 
     def log_message(self, *args) -> None:
         pass
@@ -294,6 +296,11 @@ class FakePlatform(http.server.BaseHTTPRequestHandler):
         self.record()
         if self.path == "/v1/health":
             return self.answer(200, {"status": "ok", "commit": "c0ffee"})
+        if self.path == "/v1/machines":
+            rows = [{"id": "vm_someoneelse00000000"}]
+            if FakePlatform.reserved and not FakePlatform.destroyed:
+                rows.append({"id": "vm_reserved00000000000"})
+            return self.answer(200, rows)
         if self.path == "/v1/machines/vm_reserved00000000000":
             if FakePlatform.destroyed:
                 return self.answer(404, {"code": "machine.not_found", "message": "gone"})
@@ -305,13 +312,18 @@ class FakePlatform(http.server.BaseHTTPRequestHandler):
         if self.path == "/api/v1/auth/sessions/current/refresh":
             return self.answer(200, {"access_token": FRESH})
         if self.path == "/v1/machines/reservations":
+            FakePlatform.reserved = True
+            if FakePlatform.mode == "lost":
+                return self.answer(503, {"code": "upstream"})
             return self.answer(200, {"leaseId": "lease-1", "machine": "vm_reserved00000000000",
-                                     "expiresAt": 120000, "note": "token=abcdef123456"})
+                                     "expiresAt": 120000, "note": "token=abcdef123456", "token": "opaque-secret"})
         self.answer(404, {})
 
     def do_DELETE(self) -> None:
         self.record()
         if self.path.startswith("/v1/machines/reservations/"):
+            if FakePlatform.mode == "release_fails":
+                return self.answer(500, {"code": "reservation.unavailable"})
             return self.answer(200, {"released": True})
         if self.path == "/v1/machines/vm_reserved00000000000":
             FakePlatform.destroyed = True
@@ -320,7 +332,8 @@ class FakePlatform(http.server.BaseHTTPRequestHandler):
 
 
 class CloudChatProofReservationTests(unittest.TestCase):
-    def test_reservation_posts_with_the_session_and_team_then_cleans_up(self) -> None:
+    def run_proof(self, mode: str) -> tuple[subprocess.CompletedProcess, str]:
+        FakePlatform.calls, FakePlatform.destroyed, FakePlatform.reserved, FakePlatform.mode = [], False, False, mode
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakePlatform)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         origin = f"http://127.0.0.1:{server.server_address[1]}"
@@ -353,9 +366,29 @@ class CloudChatProofReservationTests(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
-        for secret in (FRESH, "stale-access", "refresh-0123456789", "abcdef123456", "10.0.0.9"):
+        for secret in (FRESH, "stale-access", "refresh-0123456789", "abcdef123456", "10.0.0.9", "opaque-secret"):
             self.assertNotIn(secret, text)
             self.assertNotIn(secret, done.stdout)
+        return done, text
+
+    def test_a_failed_release_is_not_clean(self) -> None:
+        _, text = self.run_proof("release_fails")
+        reservation = json.loads(text)["reservation"]
+        self.assertEqual(reservation["release"]["http_status"], 500)
+        self.assertEqual(reservation["destroy"]["http_status"], 200)
+        self.assertFalse(reservation["cleaned"])
+
+    def test_a_lost_answer_is_retried_and_a_new_machine_is_named(self) -> None:
+        _, text = self.run_proof("lost")
+        reservation = json.loads(text)["reservation"]
+        self.assertEqual(reservation["reserve"]["http_status"], 503)
+        self.assertEqual(reservation["reserve_retry"]["http_status"], 503)
+        self.assertFalse(reservation["ok"])
+        self.assertEqual(reservation["machines_appeared_without_answer"], ["vm_reserved00000000000"])
+        self.assertFalse(reservation["cleaned"])
+
+    def test_reservation_posts_with_the_session_and_team_then_cleans_up(self) -> None:
+        done, text = self.run_proof("ok")
         result = json.loads(text)
         hex20 = lambda value: hashlib.sha256(value.encode()).hexdigest()[:20]
         team = "team_" + hex20("personal:user_" + hex20(f"stack:{PROJECT}:{SUB}"))
@@ -366,6 +399,7 @@ class CloudChatProofReservationTests(unittest.TestCase):
         self.assertEqual(reservation["reserve"]["http_status"], 200)
         self.assertEqual(reservation["reserve"]["body"]["machine"], "vm_reserved00000000000")
         self.assertEqual(reservation["reserve"]["body"]["note"], "[left out]")
+        self.assertEqual(reservation["reserve"]["body"]["token"], "[left out]")
         self.assertTrue(reservation["ok"])
         self.assertEqual(reservation["release"]["http_status"], 200)
         self.assertEqual(reservation["destroy"]["http_status"], 200)
