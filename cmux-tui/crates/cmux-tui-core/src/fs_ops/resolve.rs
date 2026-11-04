@@ -46,6 +46,9 @@ pub struct Resolved {
     pub name: Option<String>,
     /// True when `dir` is the root and `name` is `None`.
     pub is_root: bool,
+    /// How many folders `dir` lies below its root (0: the root itself),
+    /// after every symlink on the way was followed.
+    pub depth: usize,
 }
 
 impl Resolved {
@@ -187,7 +190,8 @@ impl<'a> Walk<'a> {
     fn finish(mut self, name: Option<String>) -> Result<Resolved, FsError> {
         let is_root = name.is_none() && self.stack.len() == 1;
         let dir = self.stack.pop().ok_or(FsError::PermissionDenied)?;
-        Ok(Resolved { dir, name, is_root })
+        let depth = self.stack.len();
+        Ok(Resolved { dir, name, is_root, depth })
     }
 
     fn run(

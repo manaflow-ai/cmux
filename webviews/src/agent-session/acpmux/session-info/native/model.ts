@@ -107,6 +107,9 @@ export type NativeSessionInfo = {
   /// Over the chat's column, how far above the pane's foot it stops (the composer's stack), CSS
   /// pixels; none runs it to the foot less the float margin.
   foot?: number;
+  /// It lies over the chat's column (Session Info's `overlay` stage), a short pane's popover too: the
+  /// App puts its glass under it so the transcript never shows through it. A popover sends no `foot`.
+  overChat?: boolean;
   /// The panel's accessible name ("Session Info", in the page's language).
   label: string;
   /// A subagent's own panel names the subagent at its top (its breadcrumb).

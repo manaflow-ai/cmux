@@ -306,7 +306,7 @@ final class TabContentCache {
             // By id, not the captured TabModel: a tab moved while its page
             // started (`cmux browser open` then split) has a new model.
             browserTabs.track(page, tabID: key)
-            if let tab = browserTabs.tabModel(key), let notice = browserTabs.takeNotice(for: tab) { entry.chrome.showNotice(notice) }
+            if let tab = browserTabs.tabModel(key), let notice = browserTabs.takeNotice(for: tab) { entry.state.showNotice(notice) }
             onBrowserReady?(key)
         }
         return nil
@@ -390,9 +390,9 @@ final class TabContentCache {
     private func tracked(_ entry: BrowserEntry, _ tab: TabModel) -> BrowserEntry {
         browserTabs.track(entry.tab, for: tab)
         if let notice = browserTabs.fallbacks.takeNotice(machine: browserTabs.daemon(for: tab).machineID, surface: tab.surface) {
-            entry.chrome.showNotice(notice)
+            entry.state.showNotice(notice)
         }
-        if let notice = browserTabs.takeNotice(for: tab) { entry.chrome.showNotice(notice) }
+        if let notice = browserTabs.takeNotice(for: tab) { entry.state.showNotice(notice) }
         return entry
     }
 
@@ -408,7 +408,7 @@ final class TabContentCache {
         let incognito = cef.stores.offTheRecord.isOffTheRecord(page.profileID) ? incognitoMemory : nil
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page),
                                  history: incognito?.history ?? history(for: page.profileID))
-        pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
+        pageRequests.routeOmnibarOpens(of: entry.state, page: page)
         mount(entry, as: key)
         return entry
     }
@@ -418,17 +418,17 @@ final class TabContentCache {
     /// stand-in's entry moves to its daemon tab (`moveBrowser`): each hook replaces what it set.
     private func mount(_ entry: BrowserEntry, as key: String) {
         let page = entry.tab
-        entry.chrome.addressBar.tabKey = key
+        entry.state.tabKey = key
         showPendingNotice(on: entry, key: key); MachineBrowserPages(cache: self).wireChip(entry, page: page, key: key)
-        entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
+        entry.state.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
         serveAppPages(entry, key: key)
-        entry.chrome.addressBar.setProfileBadge(profileBadge?(key))
-        entry.chrome.addressBar.profileBadgeMenu = { [weak self] in self?.profileBadgeMenu?(key) }
+        entry.state.profileBadge = profileBadge?(key)
+        entry.state.profileBadgeMenu = { [weak self] in self?.profileBadgeMenu?(key) }
         onBrowserEntryCreated?(entry)
         if Self.isBrowserPage(page) { onBrowserTab?() }
         if page.engineKind == .cef, let handler = makeExtensionMenuHandler?(key) {
             entry.extensionMenuHandler = handler
-            entry.chrome.extensionMenuHandler = handler
+            entry.state.extensionMenuHandler = handler
         }
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
@@ -474,7 +474,7 @@ final class TabContentCache {
         browserTabs.untrack(key)
         browsers.removeValue(forKey: key)?.close()
         installReplacement(page, for: key)
-        if let asleep { browsers[key]?.chrome.holdAddress(whileWaking: asleep) }
+        if let asleep { browsers[key]?.state.holdAddress(whileWaking: asleep) }
         if !(page is HibernatedBrowserTab) { browserTabs.track(page, tabID: key) }
         onBrowserReady?(key)
     }

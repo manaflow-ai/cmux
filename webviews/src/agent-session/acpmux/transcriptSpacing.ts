@@ -94,18 +94,19 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     source: "consecutive one-line rows sit flush, whether in one run or two rows",
   },
   {
-    id: "step-to-live",
-    between: 'a one-line row and the live line under it ("Sending message to …"), centre to centre',
-    value: 22,
-    tolerance: 0.5,
-    source: "the live line is a one-line row",
-  },
-  {
-    id: "live-to-step",
-    between: 'the live line and the waiting group under it ("2 messages from 2 sessions"), centre to centre',
+    id: "step-to-waiting",
+    between: 'a one-line row and the waiting group under it ("2 messages from 2 sessions"), centre to centre',
     value: 22,
     tolerance: 0.5,
     source: "the waiting group's head is a one-line row",
+  },
+  {
+    id: "step-to-live",
+    between: 'the waiting group and the live line under it ("Sending message to …"), centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source:
+      'the live line is a one-line row, and the running turn\'s last (Leo, 2026-11-03: "thinking shimmer not being at the bottom looks bad")',
   },
 ];
 
@@ -216,20 +217,20 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     source: "one-line rows sit flush (rule 3)",
   },
   {
-    id: "subagent-to-live",
+    id: "subagent-to-waiting",
     variant: "working-bottom",
-    between: '"Subagent finished" and the live "Thinking" line under it, centre to centre',
+    between: '"Subagent finished" and "1 message from 1 session" under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source: "the waiting group's head is a one-line row (rule 3, step-to-waiting)",
+  },
+  {
+    id: "waiting-to-live",
+    variant: "working-bottom",
+    between: '"1 message from 1 session" and the live "Thinking" line under it, the turn\'s last, centre to centre',
     value: 22,
     tolerance: 0.5,
     source: "the live line is a one-line row (rule 3, step-to-live)",
-  },
-  {
-    id: "live-to-waiting",
-    variant: "working-bottom",
-    between: 'the live "Thinking" line and "1 message from 1 session" under it, centre to centre',
-    value: 22,
-    tolerance: 0.5,
-    source: "the waiting group's head is a one-line row (rule 3, live-to-step)",
   },
   {
     id: "reply-footer-to-received",

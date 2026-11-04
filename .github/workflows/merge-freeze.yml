@@ -24,10 +24,14 @@ permissions:
 
 jobs:
   check:
-    if: github.event_name == 'pull_request_target'
+    # Into feat-cmux-next, a label event the check does not read (anything but freeze-ok) skips the job
+    # and takes a concurrency group of its own, so it never cancels a real check in flight
+    # (tests/test_ci_label_events_skip_full_ci.py). Bots set and clear risk, hold and landing labels
+    # on hundreds of open pull requests, and each of those events queued a runner for the same answer.
+    if: ${{ (github.event_name == 'pull_request_target') && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok') }}
     name: merge freeze
     concurrency:
-      group: merge-freeze-${{ github.event.pull_request.number }}
+      group: merge-freeze-${{ github.event.pull_request.number }}${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok' && format('-label-{0}', github.run_id) || '' }}
       cancel-in-progress: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target with a read token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 5

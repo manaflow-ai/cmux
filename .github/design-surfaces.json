@@ -11,6 +11,13 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Model/OnboardingModel.swift"
       ]
     },
+    "whats-new": {
+      "spec": "leo-workspace design/whats-new.md",
+      "aliases": ["what's new", "changelog", "release notes"],
+      "paths": [
+        "webviews/src/pages/changelog/"
+      ]
+    },
     "chief-work": {
       "spec": "leo-workspace design/chief-work.md",
       "aliases": ["Chief background tasks", "Chief subagents", "Chief work"],
@@ -259,7 +266,8 @@
       "aliases": ["share sheet", "invite people", "share with guest", "guest link", "chat invites"],
       "paths": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Share/AgentShareInviteSheet.swift",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Share/AgentShareInviteRowView.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/Share/AgentShareInviteCard.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/Share/AgentShareInviteRowView.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/AgentShareInviteSheetModel.swift",
         "webviews/src/agent-session/guest/"
       ]
