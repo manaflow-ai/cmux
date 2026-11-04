@@ -46,6 +46,12 @@ impl Mux {
     /// Takes the terminal the input was written to, not its id: a key's turn never looks it up through the session
     /// lock, which automation's lists, snapshots and durable mutations hold (TYPING UNDER LOAD F4).
     pub(crate) fn note_terminal_input(&self, surface: &Surface, client: u64) {
+        // The key's view is the terminal's settled newest: the note would change nothing, so the key takes no sizing
+        // lock (R-DAEMON-STATE stage S1, mux/sizing_fast_path.rs).
+        if self.control_clients.input_lane.on() && surface.skips_sizing_note(client) {
+            self.activity.note_user_input();
+            return;
+        }
         if self.note_terminal_activity_of(surface, client, None).is_some() {
             self.activity.note_user_input();
         }
@@ -81,9 +87,15 @@ impl Mux {
         // a key can change, so a key does not re-expand it: that asks for the terminal's workspace default, which
         // reads the session lock (TYPING FIX 2).
         self.mutate_terminal_sizing_keeping_participants(runtime, |_, sizing| {
+            let publishing = sizing.terminal_sizing.publishing();
             let entry = sizing.terminal_sizing.get_mut(&runtime)?;
             if entry.members.get(&id).is_none_or(|member| member.client != client) {
                 return None;
+            }
+            // The key's terminal may be a respawn of the entry's runtime: its fast path follows it (stage S1 only;
+            // with the switch off nothing is published).
+            if publishing {
+                entry.follow_runtime_of(runtime, surface);
             }
             let changed = entry.engine.note_activity(&id);
             sizing.note_size_state(runtime, changed);
@@ -370,9 +382,17 @@ impl Mux {
             let resolved = mux.resolved_size_policy(sizing, runtime, surface);
             let entry = mux.terminal_sizing_entry(sizing, runtime, surface);
             let changed = entry.engine.set_policy(resolved);
+            let state = entry.engine.state().clone();
             sizing.note_size_state(runtime, changed);
-            sizing.terminal_sizing[&runtime].engine.state().clone()
+            state
         }))
+    }
+
+    /// Runs `hold` while this thread holds the client sizing lock (tests: a person's key must not wait for it).
+    #[cfg(test)]
+    pub(crate) fn hold_client_sizing_for_test(&self, hold: &dyn Fn()) {
+        let _held = self.client_sizing.lock().unwrap_or_else(PoisonError::into_inner);
+        hold();
     }
 
     /// Pins the `latest` policy on the workspace that shows `surface`, for
@@ -519,11 +539,17 @@ impl Mux {
         runtime: SurfaceId,
         placement: SurfaceId,
     ) -> &'a mut TerminalSizingEntry {
+        // The surface is looked up only to make the entry: with the switch off the lookup takes the session lock,
+        // under the sizing lock (#34261 review 2). A respawn's new runtime is followed by its first key's sizing
+        // note (`note_terminal_activity_of`), which holds the surface already.
         if !sizing.terminal_sizing.contains_key(&runtime) {
-            let (cols, rows) = self
-                .surface(placement)
-                .or_else(|| self.surface(runtime))
-                .map_or((80, 24), |surface| surface.size());
+            let surface = self.surface(placement).or_else(|| self.surface(runtime));
+            let (cols, rows) = surface.as_ref().map_or((80, 24), |surface| surface.size());
+            // Only a surface of this runtime: a placement that a respawn moved to a new runtime id keeps its slot.
+            let fast_path_slot = surface
+                .as_ref()
+                .filter(|surface| surface.terminal_runtime_id() == Some(runtime))
+                .and_then(|surface| surface.sizing_fast_path_slot());
             let policy = self.resolved_size_policy(sizing, runtime, placement);
             sizing.terminal_sizing.insert(
                 runtime,
@@ -534,6 +560,7 @@ impl Mux {
                     applied: std::cell::Cell::new(None),
                     applied_participants: std::cell::RefCell::new(std::collections::BTreeMap::new()),
                     hold: std::cell::Cell::new(None),
+                    fast_path_slot,
                 },
             );
         }

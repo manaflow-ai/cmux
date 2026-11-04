@@ -311,7 +311,9 @@ def report_lines(found: dict, commits: list[str], subjects: dict[str, str], name
 def bisect(args, run=subprocess.run) -> int:
     import webviews_test_history as history  # noqa: PLC0415
 
-    report: dict = {"base": args.base, "head": args.head, "files": {}, "lines": []}
+    requested_base = args.base
+    base, base_source = choose_bisect_base(requested_base, getattr(args, "last_known_green", ""), args.head)
+    report: dict = {"base": base, "head": args.head, "files": {}, "lines": [], "base_source": base_source}
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
 
     def finish(note: str | None = None) -> int:
@@ -324,21 +326,21 @@ def bisect(args, run=subprocess.run) -> int:
             print(line)
         return 0
 
-    if not SHA.fullmatch(args.base or "") or not SHA.fullmatch(args.head or ""):
+    if not SHA.fullmatch(base or "") or not SHA.fullmatch(args.head or ""):
         return finish("no base for this run")
     head = history.results(args.results)
     runs = history.load(args.history) if args.history else []
-    base_runs = [r for r in runs if r["sha"] == args.base]
+    base_runs = [r for r in runs if r["sha"] == base]
     base_run = max(base_runs, key=lambda r: r.get("attempt", 1)) if base_runs else None
     flaky = set(history.flaky(runs, sorted(reds_of(head)))) if runs else set()
     names, skipped = new_reds(head, base_run, flaky)
     if not names and not skipped:
         return finish("no webview test is red at the head")
     try:
-        git("merge-base", "--is-ancestor", args.base, args.head)
+        git("merge-base", "--is-ancestor", base, args.head)
     except subprocess.CalledProcessError:
-        return finish(f"{args.base[:12]} is not an ancestor of {args.head[:12]}")
-    commits = [args.base] + git("rev-list", "--first-parent", "--reverse", f"{args.base}..{args.head}").split()
+        return finish(f"{base[:12]} is not an ancestor of {args.head[:12]}")
+    commits = [base] + git("rev-list", "--first-parent", "--reverse", f"{base}..{args.head}").split()
     if len(commits) - 1 > MAX_COMMITS:
         return finish(f"{len(commits) - 1} commits in the range, more than {MAX_COMMITS}")
     subjects = dict(line.split(" ", 1) for line in git("log", "--no-walk=unsorted", "--format=%H %s", *commits[1:])
@@ -375,7 +377,10 @@ def bisect(args, run=subprocess.run) -> int:
         found = search(sorted(names), points, known, probe, args.max_probes)
     report["files"] = {f: list(v) for f, v in found.items()}
     report["skipped"] = skipped
-    report["lines"] = report_lines(found, commits, subjects, names, skipped, args.base)
+    report["lines"] = report_lines(found, commits, subjects, names, skipped, base)
+    if base_source == "last-known-green":
+        line = f"web bisect: lower bound last-known-green at {base} (coalesced base {requested_base})"
+        report["lines"].insert(0, line)
     return finish()
 
 
@@ -416,6 +421,29 @@ def exists(sha: str, file: str) -> bool:
         return False
 
 
+def choose_bisect_base(base: str, last_known_green: str, head: str) -> tuple[str, str]:
+    """Use the published last-known-green as the lower bound when it covers HEAD.
+
+    The coalesce marker normally gives a short range, but a red may have
+    appeared in an earlier run.  A reconciler-published green ref lets this
+    job identify the merged PR that introduced the red.  Invalid, unrelated,
+    or stale refs are ignored and the marker's range remains the safe fallback.
+    The bounded check belongs here, before the history is loaded: otherwise a
+    stale ref can replace a usable coalesced range and make the bisector return
+    no result merely because the old range exceeds ``MAX_COMMITS``.
+    """
+    if not SHA.fullmatch(last_known_green or "") or not SHA.fullmatch(head or ""):
+        return base, "coalesced"
+    try:
+        git("merge-base", "--is-ancestor", last_known_green, head)
+        distance = git("rev-list", "--first-parent", "--count", f"{last_known_green}..{head}")
+        if not distance.isdigit() or int(distance) > MAX_COMMITS:
+            return base, "coalesced"
+    except (subprocess.CalledProcessError, OSError, subprocess.SubprocessError):
+        return base, "coalesced"
+    return last_known_green, "last-known-green"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -430,6 +458,7 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--out", required=True)
     b = sub.add_parser("bisect")
     b.add_argument("--base", default="")
+    b.add_argument("--last-known-green", default="", help="optional last-known-green SHA; used when it is an ancestor of HEAD")
     b.add_argument("--head", required=True)
     b.add_argument("--results", nargs="*", default=[])
     b.add_argument("--history")
