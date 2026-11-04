@@ -16,8 +16,8 @@ mod open_file_limit;
 #[cfg(unix)]
 pub(crate) use lock::socket_held_by_other;
 use lock::{
-    DaemonLock, LockHeld, acquire_lock, lock_has_live_holder, wait_for_lock_release,
-    wait_for_lock_release_with_budget,
+    DaemonLock, LockHeld, acquire_lock, live_holder_pid, lock_has_live_holder,
+    wait_for_lock_release, wait_for_lock_release_with_budget,
 };
 mod running;
 pub use running::connect_running;
@@ -1776,8 +1776,9 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
     }
     // Async pipe I/O keeps the client runtime responsive while the detached
     // process writes readiness or closes the pipe on exit.
-    let ready = tokio::net::unix::pipe::Receiver::from_file(spawn_detached(key)?)
-        .context("wait for acpmux daemon")?;
+    let (ready, child_pid) = spawn_detached(key)?;
+    let ready =
+        tokio::net::unix::pipe::Receiver::from_file(ready).context("wait for acpmux daemon")?;
     // The daemon writes one line to the pipe once its socket is bound, or
     // the pipe reaches end of file when it exits first (another daemon won
     // the lock, bad config). Either way the caller connects once afterwards.
@@ -1793,7 +1794,10 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
     loop {
         match tokio::time::timeout(START_BUDGET, &mut wait).await {
             Ok(read) => return Ok(read?),
-            Err(_) if lock_has_live_holder(&home().join("daemon.lock")) => {
+            Err(_)
+                if lock_has_live_holder(&home().join("daemon.lock"))
+                    && live_holder_pid(&home().join("daemon.lock")) != Some(child_pid) =>
+            {
                 // A live winner may be slow on a busy machine; keep waiting on
                 // its lock/pipe liveness instead of failing the caller.
             }
@@ -1927,7 +1931,7 @@ fn daemon_command(this: &crate::self_command::SelfCommand) -> std::process::Comm
 /// gets `--person-key-fd M`, one end of a socket pair: the key is written
 /// only after the daemon wrote [`KEY_READY`] on it.
 #[cfg(unix)]
-fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::File> {
+fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::File, u32)> {
     let this = crate::self_command::SelfCommand::current()?;
     crate::config::private_state_dir(&home())?;
     let log = open_daemon_log(&home().join("daemon.log"))?;
@@ -1995,6 +1999,7 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     tokio::spawn(async move {
         let _ = child.wait().await;
     });
+    let child_pid = child.id().unwrap_or_default();
     // Close this process's copy so end of file means the daemon closed it.
     drop(writer);
     if let (Some(key), Some((ours, theirs))) = (key, pair) {
@@ -2006,7 +2011,7 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
             .name("acpmux-person-key".into())
             .spawn(move || hand_key(ours, &key));
     }
-    Ok(reader)
+    Ok((reader, child_pid))
 }
 
 /// Write the key on the daemon's key socket after the daemon said it is
