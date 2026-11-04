@@ -1707,6 +1707,26 @@ class Wiring(unittest.TestCase):
         self.assertIs(evaluate("${{ vars.A > 0 || vars.A < 1 }}", numbers), False)
         self.assertIs(evaluate("${{ startsWith(vars.MISSING, 'a') }}", context), False)
 
+    def test_rebuild_mirror_unset_switch_observes_and_zero_restores_existing_reuse(self):
+        workflow = steps("cmux-next.yml", "fast-tier-cargo")
+        key = next(step for step in workflow if step.get("id") == "reuse-key")
+        reuse = next(step for step in workflow if step.get("id") == "reuse")
+        for switch, enabled in ((None, True), ("", True), ("1", True), ("0", False)):
+            for existing_reuse in ("", "1"):
+                with self.subTest(switch=switch, existing_reuse=existing_reuse):
+                    variables = {"CI_NEXT_JOB_REUSE": existing_reuse}
+                    if switch is not None:
+                        variables["CI_REBUILD_MIRROR"] = switch
+                    context = {"vars": variables, "github": {"event_name": "push"},
+                               "runner": {"temp": "/tmp/runner"},
+                               "steps": {"reuse-key": {"outputs": {"key": "job-pass-key"}}},
+                               "inputs": {"no_reuse": False}}
+                    self.assertEqual(bool(evaluate(key["if"], context)), enabled or existing_reuse == "1")
+                    self.assertEqual(evaluate(key["env"]["MIRROR_PLAN"], context),
+                                     "/tmp/runner/ci-rebuild-plan.json" if enabled else "")
+                    self.assertEqual(bool(evaluate(reuse["if"], context)),
+                                     not enabled and existing_reuse == "1")
+
     def test_no_workflow_compares_a_bare_variable_with_zero(self):
         bare = re.compile(r"vars\.[A-Z0-9_]+\s*[!=]=\s*'0'")
         offenders = [

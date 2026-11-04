@@ -1,5 +1,6 @@
 import { acpmuxPerf } from "./perf";
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
@@ -128,6 +129,17 @@ import { SLASH_MAX_VIEWPORT_PX, slashActiveAfterScroll, slashScrollForActive, sl
 import { compactingUsage } from "./usageStats";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
+import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
+import { EmojiMenu } from "./EmojiMenu";
+import {
+  emojiMatches,
+  emojiTrigger,
+  loadEmojiShortcodes,
+  loadRecentEmoji,
+  rememberEmoji,
+  type EmojiMatch,
+  type EmojiShortcodes,
+} from "./emojiShortcodes";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -328,6 +340,9 @@ type Props = {
   /// The person edited the prompt of a chat that has a session: the pane tells acpmux it types
   /// (multiplayer). A draft coming back is not an edit.
   onTyping?(text: string, sessionId?: string): void;
+  /** The person took the agent's suggested next prompt into the field (Tab, Right-arrow): acpmux
+   * counts it taken (`suggestion_gate.rs`). */
+  onSuggestionTaken?(): void;
   /// Where the host keeps the chat's unsent chips, so they come back when the chat shows again.
   keptAttachments?: KeptAttachments;
   /// Reads a transcript chosen by the cmux-owned `/import` command.
@@ -364,6 +379,8 @@ type Props = {
   /// A chat on another machine: that machine's own folders (`project.list`), for its folder menu.
   machineFolders?: Project[];
   onBrowseProject?(): void;
+  /// A new chat's extra folders, in its folder menu (ComposerContext `extraFolders`).
+  extraFolders?: ExtraFolderControl;
   /// New Worktree: a new chat on this Mac starts in a worktree of its folder (cx-lyqio.2).
   onNewWorktree?(cwd: string): void;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
@@ -451,6 +468,7 @@ export function Composer({
   onCmuxCommand,
   onUnsentDraft,
   onTyping,
+  onSuggestionTaken,
   keptAttachments,
   onImportFile,
   importSandboxed,
@@ -466,6 +484,7 @@ export function Composer({
   projectChoices,
   machineFolders,
   onBrowseProject,
+  extraFolders,
   onNewWorktree,
   onBrowseFolder,
   onConnect,
@@ -1213,6 +1232,44 @@ export function Composer({
     !!searchFiles && !!mentionWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
   const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending);
   useEffect(() => setMentionActive(undefined), [mentionWord]);
+  // `:` and two letters at a word start list emoji by shortcode; a text emoticon (`:)`, `:DD`,
+  // `<3`) lists its face with no row chosen, so Return still sends it as typed (emojiShortcodes.ts).
+  // The table loads in its own chunk once the composer is idle after its first paint.
+  const [emojiData, setEmojiData] = useState<EmojiShortcodes | undefined>();
+  // mount-read: the emoji table is a static bundled chunk, cached per page, so a remount reads no data.
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      void loadEmojiShortcodes().then(
+        (data) => alive && setEmojiData(data),
+        () => undefined,
+      );
+    const idle = globalThis.requestIdleCallback?.(load, { timeout: 2000 });
+    const timer = idle === undefined ? setTimeout(load, 0) : undefined;
+    return () => {
+      alive = false;
+      if (idle !== undefined) globalThis.cancelIdleCallback?.(idle);
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, []);
+  const [emojiActive, setEmojiActive] = useState<string | undefined>();
+  const [emojiDismissed, setEmojiDismissed] = useState<string | undefined>();
+  const [emojiRecents, setEmojiRecents] = useState(loadRecentEmoji);
+  const otherMenu = open || Boolean(mentionTyped) || recalling || shell;
+  const emojiTyped = useMemo(
+    () => (!otherMenu && emojiDismissed !== text ? emojiTrigger(text, markdownOffset(text, caret)) : undefined),
+    [otherMenu, emojiDismissed, text, caret],
+  );
+  const emojiKey = emojiTyped ? `${emojiTyped.start}:${emojiTyped.token}` : undefined;
+  const emojiRows = useMemo(
+    () => (emojiTyped && emojiData ? emojiMatches(emojiData, emojiTyped, emojiRecents) : []),
+    [emojiTyped, emojiData, emojiRecents],
+  );
+  const emojiAt = emojiRows.length > 0 ? emojiTyped : undefined;
+  const emojiChosen = emojiActive === undefined ? -1 : emojiRows.findIndex((row) => row.key === emojiActive);
+  const emojiSelected = emojiChosen >= 0 ? emojiChosen : emojiAt && !emojiAt.emoticon ? 0 : -1;
+  useEffect(() => setEmojiActive(undefined), [emojiKey]);
+  const emojiLook = experimentArm(emojiShortcodeLook);
   // A live command update can shrink the list under the selection.
   const selected = Math.min(active, Math.max(matches.length - 1, 0));
   useLayoutEffect(() => {
@@ -1292,6 +1349,17 @@ export function Composer({
     const at = caret - 1 - mentionAt.query.length + shown.length;
     pendingCaret.current = at;
     edit(text.slice(0, mentionAt.start) + markdown + after, at);
+    field.current?.focus();
+  };
+  /// Writes the picked emoji, and a space, over the `:word` or emoticon being typed.
+  const pickEmoji = (match: EmojiMatch) => {
+    if (!emojiAt) return;
+    setEmojiRecents(rememberEmoji(match.emoji));
+    // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
+    const after = text.slice(markdownOffset(text, caret)).replace(/^\s+$/, "");
+    const at = caret - emojiAt.token.length + match.emoji.length + 1;
+    pendingCaret.current = at;
+    edit(`${text.slice(0, emojiAt.start)}${match.emoji} ${after}`, at);
     field.current?.focus();
   };
   /// Sends the draft; false when there was nothing to send or the host refused it.
@@ -1619,6 +1687,7 @@ export function Composer({
   const returnInput = () => {
     if (shell) return;
     if (mentionAt && mentions[mentionSelected]) return pickMention(mentions[mentionSelected]);
+    if (emojiAt && emojiRows[emojiSelected]) return pickEmoji(emojiRows[emojiSelected]);
     if (returnSends()) return void sendOnReturn({ preventDefault() {} });
     if (matches.length > 0) pick(matches[selected].command);
   };
@@ -1633,6 +1702,7 @@ export function Composer({
     // empty while it shows, so the caret is at its end.
     if (suggested && plain && (event.key === "Tab" || (agentSuggestion && event.key === "ArrowRight"))) {
       event.preventDefault();
+      if (agentSuggested) onSuggestionTaken?.();
       if (field.current) field.current.type(suggested);
       else {
         setText(suggested);
@@ -1690,6 +1760,35 @@ export function Composer({
       if ((event.key === "Enter" || event.key === "Tab") && plain && mentions[mentionSelected]) {
         event.preventDefault();
         pickMention(mentions[mentionSelected]);
+        return;
+      }
+    }
+    // The emoji menu owns arrows (and Ctrl-N/P/J/K) and Esc; Return picks only a chosen row (an
+    // emoticon's menu opens with none, so Return sends), Tab the chosen or the first.
+    if (emojiAt) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setEmojiDismissed(text);
+        return;
+      }
+      const control = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+      const step =
+        (event.key === "ArrowDown" && plain) || (control && (event.key === "n" || event.key === "j"))
+          ? 1
+          : (event.key === "ArrowUp" && plain) || (control && (event.key === "p" || event.key === "k"))
+            ? -1
+            : 0;
+      if (step) {
+        event.preventDefault();
+        const next = emojiSelected < 0 ? (step > 0 ? 0 : emojiRows.length - 1) : emojiSelected + step;
+        setEmojiActive(emojiRows[(next + emojiRows.length) % emojiRows.length]!.key);
+        return;
+      }
+      const row = emojiRows[emojiSelected] ?? (event.key === "Tab" ? emojiRows[0] : undefined);
+      if ((event.key === "Enter" || event.key === "Tab") && plain && row) {
+        event.preventDefault();
+        pickEmoji(row);
         return;
       }
     }
@@ -2001,6 +2100,7 @@ export function Composer({
     if (original !== text) edit(original, original.length);
     else if (open) setDismissed(text);
     else if (mentionAt) setMentionDismissed(text);
+    else if (emojiAt) setEmojiDismissed(text);
   };
   // The prompt's context menu, as a text field's (POLISH.md): Undo and Redo, the edit items and
   // Select All, then Attach Files… and Insert Mention. Cut and Copy need a selection in the field,
@@ -2125,6 +2225,7 @@ export function Composer({
       projectChoices={projectChoices}
       machineFolders={machineFolders}
       onBrowseProject={onBrowseProject}
+      {...(extraFolders ? { extraFolders } : {})}
       onNewWorktree={onNewWorktree}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
@@ -2330,15 +2431,23 @@ export function Composer({
             role: "combobox",
             "aria-label": t(COMPOSER_LABELS.prompt),
             "aria-multiline": "true",
-            "aria-expanded": String(open || Boolean(mentionAt)),
-            "aria-controls": open ? "acpmux-slash-menu" : mentionAt ? "acpmux-mention-menu" : undefined,
+            "aria-expanded": String(open || Boolean(mentionAt) || Boolean(emojiAt)),
+            "aria-controls": open
+              ? "acpmux-slash-menu"
+              : mentionAt
+                ? "acpmux-mention-menu"
+                : emojiAt
+                  ? "acpmux-emoji-menu"
+                  : undefined,
             "aria-autocomplete": "list",
             "aria-activedescendant":
               open && matches.length > 0
                 ? `acpmux-slash-${selected}`
                 : mentionAt && mentionSelected >= 0
                   ? `acpmux-mention-${mentionSelected}`
-                  : undefined,
+                  : emojiAt && emojiSelected >= 0
+                    ? `acpmux-emoji-${emojiSelected}`
+                    : undefined,
             spellcheck: String(spellChecking),
             // WEB-SWAP: the prompt keeps its own draft (composerDraft.ts holds until it is written).
             [WEB_SWAP_KEPT_TEXT]: "",
@@ -2443,6 +2552,19 @@ export function Composer({
                   active={mentionSelected}
                   onHover={(index) => setMentionActive(mentions[index]?.key)}
                   onPick={pickMention}
+                />
+              </ComposerListLayer>
+            )}
+            {emojiAt && (
+              <ComposerListLayer>
+                <EmojiMenu
+                  key={emojiAt.start}
+                  look={emojiLook}
+                  matches={emojiRows}
+                  active={emojiSelected}
+                  back={emojiAt.token.length}
+                  onHover={(index) => setEmojiActive(emojiRows[index]?.key)}
+                  onPick={pickEmoji}
                 />
               </ComposerListLayer>
             )}

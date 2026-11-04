@@ -189,7 +189,9 @@ mod remote_cli_docs {
             // Cloud verbs are app actions whose existence is checked by the
             // socket. Require a catalog match rather than generic parsing.
             // Resource commands still resolve through the CLI parser.
+            // `cmux agents` routes before the core parser; its own grammar decides.
             let parser = builtin_command(&parser_words)
+                || (parser_words[0] == "agents" && agents::command(&parser_words[1..]).is_ok())
                 || (parser_words[0] != "cloud" && parse(&parser_words, Surface::Cmux).is_ok());
             if action.is_none() && !parser {
                 missing.push(words.join(" "));
@@ -241,6 +243,19 @@ mod remote_cli_docs {
             })
             .collect::<Vec<_>>();
         assert!(missing.is_empty(), "documented cmux command drifted:\n{}", missing.join("\n"));
+    }
+
+    #[test]
+    fn documented_agents_commands_resolve_through_the_agents_grammar() {
+        // `cmux agents` routes before the core parser, so its own grammar
+        // decides which documented lines are real; a stale one still fails.
+        let names = action_names();
+        let missing = missing_commands(
+            "`cmux agents chat new`, `cmux agents chat new --harness codex -- \"hi\"`, \
+             `cmux agents chat deliberately-stale-verb`",
+            &names,
+        );
+        assert_eq!(missing, vec!["cmux agents chat deliberately-stale-verb"]);
     }
 
     #[test]
@@ -510,6 +525,17 @@ fn server_stats_help_routes_to_the_stats_topic() {
     };
     assert_eq!(topic, "server stats");
     assert!(scope_help_for(&topic, crate::localization::catalog()).contains("--json"));
+}
+
+#[test]
+fn help_workflow_shows_the_workflow_usage_not_the_root_help() {
+    for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+        let help = scope_help_for("workflow", crate::localization::catalog_for_locale(locale));
+        assert!(help.contains("USAGE"), "{locale}: {help}");
+        assert!(help.contains("cmux workflow start <file>"), "{locale}: {help}");
+        assert!(help.contains("cmux workflow pause|resume <run-id>"), "{locale}: {help}");
+        assert!(!help.contains("GLOBAL OPTIONS"), "{locale}: root help shown instead: {help}");
+    }
 }
 
 #[test]
