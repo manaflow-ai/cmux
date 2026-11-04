@@ -2062,13 +2062,13 @@ pre.cv-math-source {
   flex: none;
   margin-inline-start: 6px;
 }
-/* Past the turn's first step its clock reads as the total ("· 4m total", Thinking.tsx): the words
-   around it sit at the count's own gap. */
 /* The words around the turn's total ("· 12m 9s total") read at the time's own dim tone: one
    tone for the whole count, never a brighter "total" after a dim clock (Leo, 2026-11-03). */
 .cv-worked__total {
   color: var(--cv-text-dim);
 }
+/* Past the turn's first step its clock reads as the total ("· 4m total", Thinking.tsx): the words
+   around it sit at the count's own gap. */
 .cv-worked__total .cv-worked__time {
   margin-inline: 0;
 }
@@ -2409,17 +2409,19 @@ pre.cv-math-source {
    run's or group's summary line lights on hover only (below), so its focus is left out. */
 /* A message row keeps one steady tone (design/chat-transcript.md, as a received message's line):
    a sent row the reader clicked never reads brighter than the ones around it (Leo, 2026-11-02, on
-   rows "in bright and dim text with no clear rule": "i also think this is quite weird looking"). */
+   rows "in bright and dim text with no clear rule": "i also think this is quite weird looking").
+   An activity row (TranscriptActivityRow) is left out: a click leaves it focused, and its words
+   keep their rest tone (TranscriptActivityRow.css). */
 /* Only the "Worked for" button lifts: the live line (`div.cv-worked`, Thinking.tsx) has nothing
    behind it, so it never lights up under the pointer (Leo, 2026-11-03: "this thing appears/lights
    up on hover for no reason!?"). */
-.cv-tool:not(.is-run, .cv-sent):focus-within:not(:has(.cv-agent-tag.is-open:focus)),
+.cv-tool:not(.is-run, .cv-sent, .cv-agent-activity__control):focus-within:not(:has(.cv-agent-tag.is-open:focus)),
 button.cv-worked:hover,
 button.cv-worked:focus-visible {
   color: var(--cv-text);
 }
-.cv-tool:not(.is-run, .cv-sent):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__chevron,
-.cv-tool:not(.is-run, .cv-sent):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__detail {
+.cv-tool:not(.is-run, .cv-sent, .cv-agent-activity__control):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__chevron,
+.cv-tool:not(.is-run, .cv-sent, .cv-agent-activity__control):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__detail {
   color: var(--cv-text);
 }
 /* The running rows' mark (`Spinner`: compaction, tool groups, MCP calls, command and shell rows).

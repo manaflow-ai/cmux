@@ -65,6 +65,16 @@ test("a transcript line with no action behind it never lifts on hover", () => {
   expect(found).toEqual([]);
 });
 
+test("a clicked activity row's focus never lights its words", () => {
+  // `.cv-tool` is also every activity row's control: a click leaves it focused, so the tool rows'
+  // focus lift leaves it out (TranscriptActivityRow.css lights only its chevron).
+  const found = rules("conversation.css")
+    .filter(({ selector, body }) => /\.cv-tool(?![\w-])[^ >]*:focus-within/.test(subject(selector)) && INK.test(body))
+    .filter(({ selector }) => !/\.cv-agent-activity__control/.test(selector))
+    .map(({ selector }) => selector);
+  expect(found).toEqual([]);
+});
+
 test("the live line's total reads at the time's dim tone", () => {
   const css = rules("conversation.css");
   const total = css.find(({ selector }) => selector === ".cv-worked__total");
