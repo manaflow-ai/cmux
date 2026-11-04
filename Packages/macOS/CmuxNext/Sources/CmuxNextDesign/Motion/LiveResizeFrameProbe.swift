@@ -36,8 +36,8 @@ import CmuxNextWakeups
 ///   `strip_edge_err_pt` / `strip_layer_edge_err_pt` (left edge against the pane's tab strip), with `..._before`;
 ///   `liveResize.pixel_lag_px` (a terminal's shown IOSurface against its layer's size) and `liveResize.page_window_err_pt`
 ///   (each shown page window against the page host nearest it, all edges), both just before the commit;
-/// - `liveResize.witness_ok`: 1 when the turn's commit showed in the witness (its `commit_inside` readings are valid), 0
-///   when even the turn's commit did not (they mean nothing);
+/// - `liveResize.witness_ok`: 1 when a commit after the last `setFrame` of the turn showed in the witness by the end of
+///   the turn's commit (its readings are valid), 0 when none did (they mean nothing);
 /// - which call moves a page window (``PageWindowMoves``; while a page window shows): the largest edge change of any shown
 ///   page window, in points, `liveResize.page_moved_before_setframe_pt` from the last step to this `setFrame`'s start
 ///   (between turns, or in this turn before the `setFrame`); inside the `setFrame`, `..._before_didresize_pt` up to the
@@ -50,6 +50,14 @@ import CmuxNextWakeups
 /// - `liveResize.didmove_at_ms` (the `setFrame`'s start to the window delegate's didMove), `liveResize.didmove_first` (1
 ///   when it came before the didResize, 0 after it) and `liveResize.page_moved_before_didmove_pt` (a page window's move
 ///   from the last checkpoint to it: the fork's tracker also observes didMove, after the delegate);
+/// - where the `setFrame`'s Core Animation commit happened (the run loop's commit observer sees only what is left; the
+///   doc of ``MotionCommitProbe``: AppKit flushes inside a window's live resize): `liveResize.committed_by_gesture_end`
+///   (a drag the input gave AppKit, at the frame tick or at its event: 1 when the commit already happened when AppKit's
+///   resize gesture returned), `liveResize.gesture_tail_ms` (from the `setFrame`'s end to that return) and, when it had,
+///   `liveResize.flush_slack_ms` (from that return to the display time: the commit's slack is at least this);
+///   `liveResize.committed_before_ca` (every applied `setFrame`: 1 when the commit already happened when the run loop
+///   reached Core Animation's commit observer, so `commit_slack_ms` times the turn's end, not the commit). Each reads a
+///   commit after the `setFrame` returned (the witness is armed again then);
 /// - `liveResize.commit_ms`: the turn's Core Animation commit (Chromium's pre- and post-commit resize waits run in it);
 ///   `liveResize.page_move_to_commit_ms`: from the turn's first step that saw a page window move to the commit's end;
 /// - only with `motion.frameOwner.liveResize.windowServerProbe` on (default off: each read is a window server round trip
@@ -101,6 +109,8 @@ final class LiveResizeFrameProbe {
     /// The turn's first step that saw a page window move, and its commit's start (nil: none yet).
     private var firstPageMove: CFTimeInterval?
     private var commitStart: CFTimeInterval?
+    /// The display time the last applied `setFrame` aimed at (nil: none, or no recent display link).
+    private var lastTarget: CFTimeInterval?
     /// The last read of the window server's frames and AppKit's, by window number (nil: none in this resize yet).
     private var lastServerRead: (time: CFTimeInterval, server: [Int: CGRect], appKit: [Int: CGRect])?
 
@@ -171,6 +181,17 @@ final class LiveResizeFrameProbe {
         pageStep("liveResize.page_moved_at_page_post_pt", in: window, at: CACurrentMediaTime())
     }
 
+    /// AppKit's resize gesture returned from a drag the input gave it (`super.sendEvent`): whether the last applied
+    /// `setFrame`'s commit already happened, and when.
+    func gestureDidReturn() {
+        guard let lastApplied, let target = lastTarget else { return }
+        let now = CACurrentMediaTime()
+        let committed = witness.committed
+        MotionTrace.sample("liveResize.committed_by_gesture_end", committed ? 1 : 0)
+        MotionTrace.sample("liveResize.gesture_tail_ms", (now - lastApplied.end) * 1000)
+        if committed { MotionTrace.sample("liveResize.flush_slack_ms", (target - now) * 1000) }
+    }
+
     /// That `setFrame` returned: its time now, its commit's when the turn commits.
     func frameDidApply(_ frame: Frame) {
         MotionTrace.sample("liveResize.setFrame_ms", (CACurrentMediaTime() - frame.start) * 1000)
@@ -179,15 +200,19 @@ final class LiveResizeFrameProbe {
         if let window { pageStep("liveResize.page_moved_at_release_pt", in: window, at: CACurrentMediaTime()) }
         MotionTrace.sample("liveResize.commit_inside", witness.committed ? 1 : 0)
         MotionTrace.sample("liveResize.commit_before_didresize", committedBeforeResize.map { $0 ? 1 : 0 } ?? -1)
+        // From here the witness shows a commit after the `setFrame`: the one that carries its final state.
+        witness.arm()
         let viewLayouts = LayoutPassGuard.shared.viewLayoutCalls
         MotionTrace.sample("liveResize.view_layouts_inside", Double(viewLayouts - frame.viewLayouts))
         lastApplied = (CACurrentMediaTime(), viewLayouts)
+        lastTarget = frame.target
         if let target = frame.target { awaitingCommit.append(target) }
         turn.arm()
     }
 
     private func contentEdgesBeforeCommit() {
         guard let window else { return }
+        if lastApplied != nil { MotionTrace.sample("liveResize.committed_before_ca", witness.committed ? 1 : 0) }
         defer {
             pageStep("liveResize.page_moved_after_setframe_pt", in: window, at: CACurrentMediaTime())
             sampleWindowServerMoves(in: window, afterCommit: false)
@@ -218,7 +243,7 @@ final class LiveResizeFrameProbe {
         if let commitStart { MotionTrace.sample("liveResize.commit_ms", (end - commitStart) * 1000) }
         if let firstPageMove { MotionTrace.sample("liveResize.page_move_to_commit_ms", (end - firstPageMove) * 1000) }
         let probed = lastApplied != nil
-        (lastApplied, commitStart, firstPageMove) = (nil, nil, nil)
+        (lastApplied, lastTarget, commitStart, firstPageMove) = (nil, nil, nil, nil)
         if probed, let window { sampleWindowServerMoves(in: window, afterCommit: true) }
     }
 

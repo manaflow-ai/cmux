@@ -281,6 +281,9 @@ public final class LiveResizeDragInput {
         let event = Self.carrying(waiting.event, dx: waiting.dx, dy: waiting.dy)
         noteApplying(event, atTick: atTick)
         deliver(event)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        probe.gestureDidReturn()
+        #endif
     }
 
     /// AppKit applies `event` next (``LiveResizeFrameProbe``; nothing in a shipped build).
