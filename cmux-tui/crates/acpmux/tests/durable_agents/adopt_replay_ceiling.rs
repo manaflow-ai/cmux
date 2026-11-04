@@ -11,13 +11,37 @@ fn live_tick(line: &str) -> bool {
     text.contains("agent_message_chunk") && text.contains("\"tick")
 }
 
-fn mux_kinds(daemon: &Daemon, session: &str) -> Vec<String> {
-    daemon
-        .events(session)
-        .iter()
-        .filter(|e| e["dir"] == "mux")
-        .map(|e| format!("{}@{}", e["kind"].as_str().unwrap_or("?"), e["at"]))
-        .collect()
+fn mux_kinds(daemon: &Daemon, session: &str) -> String {
+    let events = daemon.events(session);
+    let t0 = events.first().and_then(|e| e["at"].as_u64()).unwrap_or(0);
+    let mut out = Vec::new();
+    let mut ticks = 0;
+    for e in &events {
+        let at = e["at"].as_u64().unwrap_or(0).saturating_sub(t0);
+        if e["msg"]["params"]["update"]["sessionUpdate"] == "agent_message_chunk" {
+            ticks += 1;
+            continue;
+        }
+        if ticks > 0 {
+            out.push(format!("{ticks}ticks"));
+            ticks = 0;
+        }
+        out.push(format!("{}/{}@{at}", e["dir"].as_str().unwrap_or("?"), e["kind"].as_str().unwrap_or("?")));
+    }
+    if ticks > 0 {
+        out.push(format!("{ticks}ticks"));
+    }
+    out.join(" ")
+}
+
+fn daemon_logs(daemon: &Daemon) {
+    for name in ["daemon.log", "acpmux.log", "logs/daemon.log"] {
+        if let Ok(text) = std::fs::read_to_string(daemon.home.join(name)) {
+            for line in text.lines().filter(|l| l.contains("WARN") || l.contains("ERROR")) {
+                eprintln!("LOG {}", &line[..line.len().min(240)]);
+            }
+        }
+    }
 }
 
 fn replace_binary(copy: &Path) {
@@ -86,7 +110,7 @@ async fn two_rounds(tag: &str, kill_harness: bool, kill_host: bool, idle: usize)
     let started = Instant::now();
     daemon.start();
     let r1 = first_live(&daemon, &session, started, Duration::from_secs(15)).await;
-    eprintln!("[{tag}] round 1 first live tick: {r1:?}; mux: {:?}", mux_kinds(&daemon, &session));
+    eprintln!("[{tag}] round 1 first live tick: {r1:?}; mux: {}", mux_kinds(&daemon, &session));
     std::thread::sleep(Duration::from_secs(8));
     // Round 2: an ordinary handoff (the app asks the old daemon to stop, starts the new build).
     replace_binary(&copy);
@@ -97,18 +121,9 @@ async fn two_rounds(tag: &str, kill_harness: bool, kill_host: bool, idle: usize)
     daemon.start();
     std::thread::sleep(Duration::from_millis(800));
     let r2 = first_live(&daemon, &session, started, Duration::from_secs(150)).await;
-    eprintln!("[{tag}] round 2 first live tick: {r2:?}; mux: {:?}", mux_kinds(&daemon, &session));
+    eprintln!("[{tag}] round 2 first live tick: {r2:?}; mux: {}", mux_kinds(&daemon, &session));
+    daemon_logs(&daemon);
     let _ = daemon.rpc().await.send("session/cancel", json!({"sessionId": session})).await;
-}
-
-#[tokio::test]
-async fn diag_plain() {
-    two_rounds("rcplain", false, false, 5).await;
-}
-
-#[tokio::test]
-async fn diag_harness_killed() {
-    two_rounds("rcharn", true, false, 5).await;
 }
 
 #[tokio::test]
