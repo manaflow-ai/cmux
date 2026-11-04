@@ -123,7 +123,7 @@ on:
 concurrency:
   # A label event for any other label gets a group of its own, so it never
   # cancels the running check; `check` skips on it.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok' && format('-label-{0}', github.run_id) || '' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok' && format('-label-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -530,11 +530,14 @@ jobs:
         run: bun scripts/smoke.ts
 
   deploy-production:
-    # Production (cx-b4h.5): dispatch only, from feat-cmux-next, in the same run as and after the green
-    # staging deploy of this exact SHA. The cmux-vm-production environment admits only
+    # Production (cx-b4h.5): dispatch only, from feat-cmux-next. The cmux-vm-production environment admits only
     # feat-cmux-next. cmux-old never calls vm.cmux.dev; the schema is applied by the release rails first.
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production' && github.ref == 'refs/heads/feat-cmux-next'
-    needs: smoke-staging
+    # Only the code check, not the staging deploy and smoke: NEXT production has no outside users, so a
+    # production deploy no longer waits on staging (Leo, 2026-11-04: "why did we have to take so long doing
+    # a song and dance ON AN EMPTY DATABASE"). The deploy ordering gate below still refuses a commit whose
+    # migrations production lacks.
+    needs: check
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 25
     environment: cmux-vm-production
