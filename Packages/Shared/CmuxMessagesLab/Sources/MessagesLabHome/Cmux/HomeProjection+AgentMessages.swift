@@ -20,13 +20,13 @@ extension HomeProjection {
         return ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") ? url : nil
     }
 
-    /// A click on a fold or notes row toggles its group; a click on any other row is not ours.
+    /// A click on an agents row toggles its group; a click on any other row is not ours.
     func agentRowClicked(_ message: ID) -> Bool {
         guard !stopped, let row = shown.first(where: { HomeMapping.id($0, aliases: aliases) == message })?.agentMessage else {
             return false
         }
         switch row.kind {
-        case .fold, .notes: toggleAgentMessages(row.group)
+        case .fold: toggleAgentMessages(row.group)
         case .message, .note: return false
         }
         return true

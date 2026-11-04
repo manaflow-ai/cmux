@@ -18,8 +18,12 @@
 //! - The bearer is this machine's join credential (`acpmux machine join`),
 //!   sent only to its own hub (`remote.rs`). Archives go up in 64 MiB parts,
 //!   each SHA-256 checked, and a download is verified before it is unpacked.
+//! - A restore runs only when it is expected to beat a cold install on this
+//!   machine (`stats.rs`), and after a cold install the archive is packed and
+//!   uploaded by a detached `machine deps upload`, so a miss costs no wait.
 
 pub mod archive;
 pub mod detect;
 pub mod remote;
+pub mod stats;
 pub mod warm;

@@ -395,6 +395,10 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
       }
     }, 320);
   }
+  if (state.action === "ports-shared") {
+    clickLater(".cloud-machine");
+    setTimeout(() => document.querySelector<HTMLElement>(".cloud-forward-share")?.click(), 320);
+  }
 }
 
 export async function mountCodeRouterPage(state: CodeRouterPageVariant, _context: StageContext): Promise<void> {

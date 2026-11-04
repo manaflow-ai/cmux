@@ -12,6 +12,10 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     weak var delegate: SidebarDelegate?
     /// "No Results" in 15 pt semibold, made once (a font made per call can race its release; cx-qpqs).
     private static let noResultsFont = NSFont.systemFont(ofSize: 15, weight: .semibold)
+    /// cmux: No Results one and two points larger (the host's sidebar Text Size), made once too.
+    private static let steppedNoResultsFonts = [16, 17].map { NSFont.systemFont(ofSize: CGFloat($0), weight: .semibold) }
+    /// cmux: Show All's text at the host's larger Text Sizes, made once (its own size is 11 to 13 pt).
+    private static let steppedShowAllFonts = [12, 13, 14, 15].map { NSFont.systemFont(ofSize: CGFloat($0)) }
     /// The selected conversation (nil: none, or a row of the host's extra search section).
     var selectedID: ConversationID? { highlightID.flatMap { SidebarController.isExtra($0) ? nil : $0 } }
     /// v1.1: extra search results from the host (a section under the matching conversations).
@@ -135,6 +139,17 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     let showAll = NSButton(title: "", target: nil, action: nil)
     /// cmux: Show All's click, after the filter went off (the host's toggle and chip follow it).
     var onShowAll: (() -> Void)?
+    /// cmux: points added to the empty list's text (No Results, No Unread Chats, Show All): the
+    /// host's sidebar Text Size. 0 keeps MessagesLab's sizes.
+    var emptyTextStep: CGFloat = 0 {
+        didSet {
+            guard emptyTextStep != oldValue else { return }
+            applyEmptyTextStep()
+            view.needsLayout = true
+        }
+    }
+    /// cmux: Show All's font before any ``emptyTextStep`` (its small control size's).
+    private var showAllBaseFont: NSFont?
 
     /// Counters for the bench and the self-test.
     struct Stats {
@@ -579,6 +594,16 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     }
 
     // MARK: Filter (v1.2)
+
+    /// cmux: No Results and Show All at ``emptyTextStep`` points over their own sizes, from fonts made
+    /// once (cx-qpqs); a step without one keeps the own size.
+    private func applyEmptyTextStep() {
+        let step = emptyTextStep
+        noResults.font = Self.steppedNoResultsFonts.first { $0.pointSize == Self.noResultsFont.pointSize + step } ?? Self.noResultsFont
+        guard let base = showAllBaseFont ?? showAll.font else { return }
+        showAllBaseFont = base
+        showAll.font = step == 0 ? base : Self.steppedShowAllFonts.first { $0.pointSize == base.pointSize + step } ?? base
+    }
 
     @objc private func showAllClicked() {
         filter = .all

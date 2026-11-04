@@ -376,6 +376,22 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
                     item.extra.insert(AUTO_ARCHIVE_KEY.into(), rule.value());
                 }
             }
+            match &patch.sort {
+                Patch::Keep => {}
+                Patch::Clear => {
+                    item.extra.remove(GROUP_SORT_KEY);
+                }
+                Patch::Set(value) => {
+                    match GroupSort::read(value).ok_or(Refusal::InvalidValue)?.value() {
+                        Some(stored) => {
+                            item.extra.insert(GROUP_SORT_KEY.into(), Value::String(stored.into()));
+                        }
+                        None => {
+                            item.extra.remove(GROUP_SORT_KEY);
+                        }
+                    }
+                }
+            }
             Ok(())
         }),
         Op::GroupUngroup { id } => {
