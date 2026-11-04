@@ -29,6 +29,8 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     let view: NSView
     private(set) var contentHeight: CGFloat = 0
     private(set) var contentWidth: CGFloat = 0
+    /// The page has reported a size: its first report reaches the host even when it is 0 (a page with nothing to show).
+    private var reported = false
     var onHeightChange: (() -> Void)?
     var onAction: (() -> Void)?
     var onDismiss: (() -> Void)?
@@ -50,12 +52,10 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     /// `height` and `width` are in CSS px; the page is zoomed (the interface scale), so
     /// one CSS px is `pageZoom * magnification` points. A width of 0: the page fills its host.
     private func setSize(height: CGFloat, width: CGFloat) {
-        let web = (view as? PageWebView)?.webKitView
-        let zoom = (web?.pageZoom ?? 1) * (web?.magnification ?? 1)
+        let zoom = ((view as? PageWebView)?.webKitView).map { $0.pageZoom * $0.magnification } ?? 1
         let height = max(0, ceil(height * zoom)), width = max(0, ceil(width * zoom))
-        guard height != contentHeight || width != contentWidth else { return }
-        contentHeight = height
-        contentWidth = width
+        guard height != contentHeight || width != contentWidth || !reported else { return }
+        (contentHeight, contentWidth, reported) = (height, width, true)
         onHeightChange?()
     }
 }

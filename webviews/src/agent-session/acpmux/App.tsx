@@ -190,6 +190,7 @@ import {
   cloudTypingMachineID,
   type CloudIdentityView,
 } from "./cloudTypingPrewarm";
+import { CloudComposeReservation, reservedCloudCall } from "./cloudComposeReservation";
 import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
@@ -6589,15 +6590,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ),
       }),
   );
+  const [cloudReservation] = useState(() => new CloudComposeReservation(callNative, browserSwitchClock));
+  const cloudComposeEligible = useRef(false);
   // The page going away (its tab closed) with an unsent prompt gives the warm agent back now.
   useEffect(() => {
-    const gone = () => newChatPrewarm.abandon();
+    const gone = () => {
+      newChatPrewarm.abandon();
+      cloudReservation.abandon();
+    };
     window.addEventListener("pagehide", gone);
     return () => {
       window.removeEventListener("pagehide", gone);
       gone();
     };
-  }, [newChatPrewarm]);
+  }, [newChatPrewarm, cloudReservation]);
   const queryClient = useQueryClient();
   // Each Cmd-T adoption of this page (kept mounted or not, newtab/adoption.ts): the folder's trust and
   // harnesses are read again with the tab's roots (a parked spare's reads had none, SHORTCUT FRAMES F2).
@@ -8961,6 +8967,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       cloudTypingPrewarm.reset();
       runModePicked.current = true;
       sandbox.setMode(mode);
+      cloudComposeEligible.current = mode === "cloud" && sandboxOffered;
+      if (cloudComposeEligible.current) {
+        newChatPrewarm.abandon();
+        cloudReservation.selected();
+      } else cloudReservation.abandon();
     },
   };
   /// The composer's Run as rows: picking Cloud there is the person's pick of the chat's folder too,
@@ -8995,8 +9006,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The host says its own progress and failures (toasts), and the chat shows the start under the
   /// message as it goes (CloudStartView; the host's `cloudStartProgress` pushes fill it in).
   const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
+  cloudComposeEligible.current = cloudPicked && sandboxOfferable;
   const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
-  const [startCloud] = useState(() => grantedCloudStart(callNative, cloudFolderGrant));
+  const [startCloud] = useState(() =>
+    grantedCloudStart(reservedCloudCall(callNative, cloudReservation), cloudFolderGrant),
+  );
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
   /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
@@ -9014,7 +9028,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const refused = cloudPageRefusal(sandboxOffered);
     if (refused === "cloud_not_now")
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
-    const request: CloudStart = { task: text, attachments, ...start };
+    if (cloudStartPending.current) return false;
+    const reservationKey = cloudReservation.handoff(start.environment);
+    const request: CloudStart = { task: text, attachments, ...start, ...(reservationKey ? { reservationKey } : {}) };
     // A retry of the same start reuses its first key, so the host reaches the machine it made (#33493).
     const key = cloudStartKeys.keyFor(request);
     const started = startCloud(request, key);
@@ -9061,6 +9077,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setSandboxViewing(false);
     sandboxWake.current = undefined;
     runModePicked.current = false;
+    cloudReservation.reset();
     // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
     setCloudStart(undefined);
     cloudDraftMachineID.current = undefined;
@@ -9068,11 +9085,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const view = { ...(snapshot.sessionId ? { session: snapshot.sessionId } : {}), generation: newTabGeneration };
     if (!cloudIdentityKept(shownView.current, view)) cloudIdentityBound.current = false;
     shownView.current = view;
-  }, [snapshot.sessionId, newTabGeneration, cloudTypingPrewarm]);
+  }, [snapshot.sessionId, newTabGeneration, cloudTypingPrewarm, cloudReservation]);
   /// The person picked another place to run after a Cloud start failed: its card goes.
   useEffect(() => {
-    if (sandbox.mode !== "cloud") setCloudStart((current) => (current?.state === "failed" ? undefined : current));
-  }, [sandbox.mode]);
+    if (sandbox.mode !== "cloud") {
+      cloudReservation.abandon();
+      setCloudStart((current) => (current?.state === "failed" ? undefined : current));
+    }
+  }, [sandbox.mode, cloudReservation]);
   /// Run on This Mac from the cap card (runHereSend): the kept prompt sends once the mode is this Mac's.
   useEffect(() => {
     if (!runHereSend.current || sandbox.mode !== "persistent") return;
@@ -13703,13 +13723,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (text: string) => {
       newChatDraft.typed = text;
       const sent = postNewChatDraft();
+      if (cloudComposeEligible.current) {
+        cloudReservation.typed(text);
+        return sent;
+      }
       const { harness } = freshPick.current;
       const cwd = freshPick.current.cwd ?? directClient.current?.newChatCwd();
       const target: PrewarmTarget | undefined = cwd ? { ...(harness ? { harness } : {}), cwd } : undefined;
       newChatPrewarm.typed(text, target);
       return sent;
     },
-    [newChatPrewarm],
+    [newChatPrewarm, cloudReservation],
   );
   const onNewTabPromptTyped = useCallback(
     (text: string, target?: { harness?: string; cwd?: string }) => {
@@ -13719,12 +13743,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         cloudIdentityBound.current ? cloudChatIdentity?.id : undefined,
       );
       if (machineID && handshaken && !reconnectingRef.current) cloudTypingPrewarm.typed(text, { machineID });
+      if (cloudComposeEligible.current) {
+        cloudReservation.typed(text);
+        return;
+      }
       newChatPrewarm.typed(
         text,
         target?.cwd ? { ...(target.harness ? { harness: target.harness } : {}), cwd: target.cwd } : undefined,
       );
     },
-    [cloudChatIdentity, cloudTypingPrewarm, handshaken, newChatPrewarm, newTabFieldEdited],
+    [cloudChatIdentity, cloudTypingPrewarm, handshaken, newChatPrewarm, newTabFieldEdited, cloudReservation],
   );
   const onCloudTyping = useCallback(
     (text: string, sessionId?: string) => {
