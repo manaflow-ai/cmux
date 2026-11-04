@@ -1105,7 +1105,36 @@ impl Hub {
     /// truncated.
     pub(crate) fn last_reply_unbounded(&self, s: &Session) -> Option<String> {
         let last = s.meta().last_seq;
-        self.reply_between_with_limit(s, last.saturating_sub(4000), last, None)
+        // Read backwards in pages until this turn's start. A turn can emit more
+        // than 4,000 update records, so the summary path's fixed tail is not
+        // sufficient for a race verdict.
+        let mut before = last.saturating_add(1);
+        let mut pages = Vec::new();
+        loop {
+            let page = self
+                .events_page(
+                    &s.id,
+                    0,
+                    Some(before),
+                    512,
+                    None,
+                    true,
+                    &crate::hub::EventFilter::all(),
+                )
+                .ok()?;
+            if page.events.is_empty() {
+                break;
+            }
+            let starts_turn = page.events.iter().any(|e| e.kind == "turn_started");
+            before = page.events.first().map(|e| e.seq)?;
+            pages.push(page.events);
+            if starts_turn || !page.has_more {
+                break;
+            }
+        }
+        pages.reverse();
+        let events = pages.into_iter().flatten().collect::<Vec<_>>();
+        masked_reply(&events, last, None)
     }
 
     /// [`Hub::last_reply`] among the records after `after` up to `upto` only (the last 4000 of
@@ -1187,20 +1216,26 @@ mod reply_tests {
 
     #[test]
     fn unbounded_reply_keeps_long_reviewer_text() {
-        let text = "x".repeat(MAX_REPLY_CHARS + 128);
-        let events = vec![crate::store::EventRecord {
-            seq: 1,
-            at: 0,
-            dir: "in".into(),
-            kind: "agent_message_chunk".into(),
-            msg: json!({
-                "method": method::SESSION_UPDATE,
-                "params": {"update": {"content": {"text": text}}}
-            }),
-            host_seq: None,
-        }];
-        assert_eq!(masked_reply(&events, 1, None).unwrap(), text);
-        assert!(masked_reply(&events, 1, Some(MAX_REPLY_CHARS)).unwrap().ends_with('…'));
+        let text = format!(r#"{{"winnerId":"c1","reason":"{}"}}"#, "x".repeat(4_480));
+        let events = text
+            .chars()
+            .enumerate()
+            .map(|(index, chunk)| crate::store::EventRecord {
+                seq: u64::try_from(index + 1).unwrap(),
+                at: 0,
+                dir: "in".into(),
+                kind: "agent_message_chunk".into(),
+                msg: json!({
+                    "method": method::SESSION_UPDATE,
+                    "params": {"update": {"content": {"text": chunk.to_string()}}}
+                }),
+                host_seq: None,
+            })
+            .collect::<Vec<_>>();
+        let last = u64::try_from(events.len()).unwrap();
+        assert!(events.len() > MAX_REPLY_CHARS);
+        assert_eq!(masked_reply(&events, last, None).unwrap(), text);
+        assert!(masked_reply(&events, last, Some(MAX_REPLY_CHARS)).unwrap().ends_with('…'));
     }
 }
 

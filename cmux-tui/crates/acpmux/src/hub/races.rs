@@ -362,7 +362,10 @@ impl Hub {
             if !race.candidates.iter().any(|c| c.state == "completed") {
                 return Err(RpcError::internal("no candidate completed; all worktrees retained"));
             }
-            self.race_update(parent, id, |r| r.state = "reviewing".into())?;
+            let reviewing = self.race_update(parent, id, |r| r.state = "reviewing".into())?;
+            if !reviewing.active() {
+                return Ok(());
+            }
             let (child, started) = self
                 .race_launch(parent, &race, "review", &race.reviewer, review_prompt(&race))
                 .await?;
