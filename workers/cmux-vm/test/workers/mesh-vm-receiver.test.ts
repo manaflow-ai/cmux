@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ALL_SCOPES, bearer } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
+import { parseReceiverPolicyLease } from "../../src/mesh/config.ts";
 import { addressBody, enrollBody, makeInstallKey, rotateBody } from "../support/mesh-signing.ts";
 
 const TEAM = "team_alpha";
@@ -54,6 +55,23 @@ describe("VM receiver policy", () => {
     expect(Number(body["checkedAt"])).toBeGreaterThanOrEqual(started);
     expect(Number(body["expiresAt"]) - Number(body["checkedAt"])).toBe(30_000);
     expect(h.upstreamRequests.slice(before).every((r) => r.method === "GET")).toBe(true);
+  });
+
+  it("leases as long as the configured receiving-policy lease", async () => {
+    await h.dispose();
+    h = await makeHarness({ mesh: { budgets: { receiverPolicyLeaseMs: 120_000 } } });
+    admin = await h.addKey(TEAM, ALL_SCOPES);
+    mesh = String((await json(await call("/v1/meshes", admin, "POST", {})))["id"]);
+    vm = h.addVm(TEAM).vmId;
+    expect((await call(`/v1/meshes/${mesh}/vms/${vm}`, admin, "PUT")).status).toBe(200);
+    const body = await json(await policy());
+    expect(Number(body["expiresAt"]) - Number(body["checkedAt"])).toBe(120_000);
+  });
+
+  it("reads the lease from its variable and keeps 30 s for anything out of range", () => {
+    expect(parseReceiverPolicyLease("120000")).toBe(120_000);
+    expect(parseReceiverPolicyLease(" 45000 ")).toBe(45_000);
+    for (const v of [undefined, "", "0", "999", "120001", "1e5", "-30000", "30s", "60000.5"]) expect(parseReceiverPolicyLease(v)).toBe(30_000);
   });
 
   it("returns only the exact VM's incoming service permissions and current public identities", async () => {

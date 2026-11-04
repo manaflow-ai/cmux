@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 567,
+  "count": 568,
   "sections": [
     {
       "id": "general",
@@ -2866,6 +2866,14 @@
           "help": "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color.",
           "kind": "string_map",
           "default": {},
+          "group": "App Theme"
+        },
+        {
+          "key": "appearance.themeFile",
+          "title": "Theme File",
+          "help": "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies.",
+          "kind": "text",
+          "default": null,
           "group": "App Theme"
         },
         {
@@ -6020,8 +6028,8 @@
         },
         {
           "key": "cloud.agentsStartWithoutAsking",
-          "title": "Let Agents Start Cloud Sessions Without Asking",
-          "help": "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
+          "title": "Let Agents Use Cloud Without Asking",
+          "help": "Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this.",
           "kind": "toggle",
           "default": true,
           "group": "Cloud Workspaces"

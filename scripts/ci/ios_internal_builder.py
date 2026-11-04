@@ -316,11 +316,38 @@ def package_drift(repo: str, head: str, pairs: list[tuple[str, str]]) -> str | N
     return "; ".join(drifted) or None
 
 
-def builder_has_script() -> bool:
-    """Whether the signing branch carries this layout's testflight-build.sh (fails open on API errors)."""
+def _git_has_builder_script(repo: str) -> bool | None:
+    """The signing branch's answer from git: a depth-1 blobless fetch of its tip, then a tree lookup. No REST call
+    (the public repo's git fetch does not spend the shared Actions token's budget). None when git cannot tell."""
     branch = BUILDER_REF.removeprefix("refs/heads/")
-    repo = os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux")
-    r = subprocess.run(["gh", "api", "-X", "GET", f"repos/{repo}/contents/{BUILDER_SCRIPT}", "-f", f"ref={branch}",
+    ref = f"refs/ios-internal-upstream/{branch}"
+    try:
+        depth = ["--depth=1"] if _git(repo, "rev-parse", "--is-shallow-repository").strip() == "true" else []
+        fetched = subprocess.run(["git", "-C", repo, "fetch", "-q", "--no-tags", *depth, "--filter=blob:none",
+                                  "origin", f"+{BUILDER_REF}:{ref}"], capture_output=True, timeout=300)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        return None
+    if fetched.returncode != 0:
+        return None
+    try:
+        found = subprocess.run(["git", "-C", repo, "ls-tree", "--name-only", ref, "--", BUILDER_SCRIPT],
+                               capture_output=True, text=True, timeout=60)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if found.returncode != 0:
+        return None
+    return found.stdout.strip() == BUILDER_SCRIPT
+
+
+def builder_has_script(repo: str = ".") -> bool:
+    """Whether the signing branch carries this layout's testflight-build.sh. Read with git first; the contents API
+    is the fallback, which fails open on API errors."""
+    answer = _git_has_builder_script(repo)
+    if answer is not None:
+        return answer
+    branch = BUILDER_REF.removeprefix("refs/heads/")
+    gh_repo = os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux")
+    r = subprocess.run(["gh", "api", "-X", "GET", f"repos/{gh_repo}/contents/{BUILDER_SCRIPT}", "-f", f"ref={branch}",
                         "--jq", ".path"], capture_output=True, text=True)
     if r.returncode == 0:
         return True
@@ -347,7 +374,7 @@ def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep, forc
         print(f"::warning::GitHub API unavailable after retries: {error}")
         _write_outputs(Decision(False, "GitHub API rate-limited or down; the next push re-plans", None))
         return 0
-    ready = builder_has_script()
+    ready = builder_has_script(repo)
     first = plan(head, runs, [], has_cmux_next_ios, dt.datetime.now(dt.timezone.utc), STATIC_PREFIXES, ready)
     changed = changed_files(repo, first.base, head) if first.base else None
     _, newest_failure = failure_streak(sorted(runs, key=lambda r: (_parse(r["created_at"]), r.get("id", 0)),

@@ -1,10 +1,10 @@
-#if canImport(UIKit)
 import Foundation
 import Testing
-import UIKit
 @testable import CmuxConversationCore
-@testable import CmuxConversationUI
 @testable import CmuxMobileChief
+#if canImport(UIKit)
+import UIKit
+@testable import CmuxConversationUI
 
 /// The Chief zoom (Zoom In, Zoom Out, Actual Size: the Mac's `home.zoomIn`,
 /// `home.zoomOut`, `home.zoomReset`), saved on the phone.

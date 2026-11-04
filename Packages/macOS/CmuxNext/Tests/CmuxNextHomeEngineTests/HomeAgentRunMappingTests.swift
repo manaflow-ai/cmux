@@ -75,4 +75,22 @@ struct HomeAgentRunMappingTests {
         let failureLabel = try #require(StatusIndicatorState.error.shortLabel)
         #expect(run.messages.first?.text == "check\n[\(failureLabel)]")
     }
+
+    /// Slice 3 (user 2026-11-03, msg 19968): the prompt's `_meta.cmux.sender` says who wrote a tell, the person
+    /// or the Chief, in the direct input and in a Codex envelope.
+    @Test func aTellKeepsItsSenderMeta() throws {
+        let run = try mapped([
+            ["id": "tool:1", "kind": "tool", "status": "done", "at": 1000,
+             "tool": ["name": "tell", "input": ["id": "a1", "message": "from the person",
+                                                "_meta": ["cmux": ["sender": "human:p_lawrence"]]]]],
+            ["id": "tool:2", "kind": "tool", "status": "done", "at": 2000,
+             "tool": ["name": "mcp_tool_call", "input": ["server": "optchat", "tool": "tell",
+                                                          "arguments": ["id": "a1", "message": "from the Chief",
+                                                                        "_meta": ["cmux": ["sender": "chief:agent_mux"]]]]]],
+            ["id": "tool:3", "kind": "tool", "status": "done", "at": 3000,
+             "tool": ["name": "tell", "input": ["id": "a1", "message": "no meta", "_meta": ["cmux": ["sender": 7]]]]],
+        ])
+        #expect(run.messages.map(\.text) == ["from the person", "from the Chief", "no meta"])
+        #expect(run.messages.map(\.sender) == ["human:p_lawrence", "chief:agent_mux", nil])
+    }
 }

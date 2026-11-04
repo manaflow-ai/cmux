@@ -21,11 +21,13 @@ const UNCOUNTED = new Set([
 
 /// Below the daemon's 64, so a page never meets its refusal from its own requests.
 export const WORK_LIMIT = 48;
-/// A busy reply's first wait before the request goes again; doubles per refusal up to BUSY_MAX_MS.
+/// A busy reply's first wait before the request goes again. The delay reaches BUSY_MAX_MS, but the
+/// request remains pending while the socket is alive; it never becomes a terminal busy failure.
 export const BUSY_BASE_MS = 250;
 export const BUSY_MAX_MS = 4_000;
-/// Refusals one request takes before its caller sees the busy error.
-export const BUSY_TRIES = 6;
+/// Busy reads retry for the life of their connection. `Infinity` is also a sentinel for controls,
+/// which are never retried (`requestBudget` only retries methods with a send callback).
+export const BUSY_TRIES = Number.POSITIVE_INFINITY;
 
 /// The reads that wait for a slot and go again after a busy refusal: side-effect free, so a late
 /// or repeated one changes nothing, and they are what floods a connection (a slow peer's chat list,

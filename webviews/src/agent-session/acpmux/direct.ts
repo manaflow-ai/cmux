@@ -1771,6 +1771,9 @@ function seedRoots(
 }
 
 export class AcpmuxDirectClient {
+  // A busy daemon may legitimately emit no frame for many seconds. This is only the cleanup bound
+  // for a peer that has gone silent while its socket remains open; a frame resets the grace window.
+  private static readonly DAEMON_LIVENESS_GRACE_MS = 120_000;
   /// Coalesces the snapshots of acpmux events that land within one display frame: a fast stream
   /// sends several deltas per frame, and each snapshot re-renders the transcript. The page that
   /// draws the transcript sets it (main.tsx: ``nextFrame``); unset, each event snapshots at once.
@@ -1798,12 +1801,19 @@ export class AcpmuxDirectClient {
       resolve: (value: any) => void;
       reject: (error: Error) => void;
       timer?: ReturnType<typeof setTimeout>;
+      waiting?: boolean;
+      retryable: boolean;
       /// Puts the request on the wire again (a busy refusal's retry).
       send: () => void;
       /// Busy refusals it has had.
       busy: number;
     }
   >();
+  /// A request crossed its progress threshold on an open socket. This is a UI state, never a
+  /// failure: a busy daemon may answer later, while a close still rejects promptly.
+  private daemonWaitingSince?: number;
+  private daemonLastFrameAt = Date.now();
+  private daemonLivenessTimer?: ReturnType<typeof setTimeout>;
   /// The daemon's count of this connection's work requests: a page never sends past it
   /// (requestBudget.ts). Reset with the connection.
   private budget = new RequestBudget();
@@ -2540,6 +2550,7 @@ export class AcpmuxDirectClient {
       let opened = false;
       socket.onopen = () => {
         opened = true;
+        this.daemonLastFrameAt = Date.now();
         this.wire.lifecycle("open");
         resolve(socket);
       };
@@ -3422,7 +3433,10 @@ export class AcpmuxDirectClient {
   private scheduleReconnect(): void {
     if (this.reconnectTimer !== undefined || this.closed) return;
     const delay = this.reconnectDelay;
-    this.reconnectDelay = Math.min(delay * 2, 30_000);
+    // Keep retrying forever while the daemon is unavailable. The only bound is the browser's
+    // maximum setTimeout delay; once reached, retries continue at that interval and the pane's
+    // waiting snapshot remains visible instead of becoming a terminal failure.
+    this.reconnectDelay = Math.min(delay * 2, 2_147_483_647);
     this.wire.lifecycle("reconnect scheduled", { delayMs: delay });
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = undefined;
@@ -3431,6 +3445,7 @@ export class AcpmuxDirectClient {
   }
 
   private receive(raw: string, stale = false): void {
+    if (!stale) this.daemonLastFrameAt = Date.now();
     // A frame that is not a JSON object is dropped like one that is not JSON (`null` would throw at `in`).
     // Parsed once: the wire log takes the parsed frame.
     const parsed = parseJsonObjectFrame(raw);
@@ -3440,15 +3455,20 @@ export class AcpmuxDirectClient {
     if ("id" in message && (typeof message.id === "number" || typeof message.id === "string")) {
       const request = this.pending.get(message.id);
       const busy = (message.error?.data as { reason?: unknown } | undefined)?.reason === "connection.busy";
-      if (request && busy && request.busy + 1 < BUSY_TRIES) {
+      if (request && busy && request.retryable) {
         // The daemon's count and this page's drifted: the request goes again later, never at once.
         request.busy += 1;
+        request.waiting = true;
+        this.daemonWaitingSince ??= Date.now();
+        this.armDaemonLiveness();
+        this.emit("waiting: daemon");
         this.wire.lifecycle("busy retry", { id: message.id, tries: request.busy });
         this.budget.retryLater(message.id, request.send, busyDelay(request.busy));
         return;
       }
       this.budget.settled(message.id);
       if (!request) return;
+      this.noteRequestSettled(message.id);
       this.pending.delete(message.id);
       if (request.timer) clearTimeout(request.timer);
       // The failure's code (`validation.invalid`, ...) and details ride along for callers that
@@ -4276,6 +4296,7 @@ export class AcpmuxDirectClient {
         socket.send(text);
       } catch (error) {
         const request = this.pending.get(id);
+        this.noteRequestSettled(id);
         this.pending.delete(id);
         if (request?.timer) clearTimeout(request.timer);
         this.budget.settled(id);
@@ -4291,18 +4312,16 @@ export class AcpmuxDirectClient {
   /// native host sends, or any but a read) a busy refusal fails it like any other.
   private expectReply(id: number | string, method: string, deadline?: number, send?: () => void): Promise<any> {
     return new Promise((resolve, reject) => {
+      // `deadline` is a progress threshold, not a wall-clock failure. An open socket with a live
+      // daemon keeps the request pending; the pane says it is waiting and the eventual reply wins.
       const timer = deadline
         ? setTimeout(() => {
-            this.pending.delete(id);
-            // One on the wire holds the daemon's slot until its late answer (receive); one still
-            // waiting for a slot never goes.
-            if (!this.budget.onWire(id)) this.budget.settled(id);
-            reject(
-              Object.assign(new Error(translate("error.timedOut")), {
-                code: "native.timed_out",
-                origin: "native",
-              }),
-            );
+            const request = this.pending.get(id);
+            if (!request || request.waiting) return;
+            request.waiting = true;
+            this.daemonWaitingSince ??= Date.now();
+            this.armDaemonLiveness();
+            this.emit("waiting: daemon");
           }, deadline)
         : undefined;
       this.pending.set(id, {
@@ -4314,8 +4333,41 @@ export class AcpmuxDirectClient {
         timer,
         send: send ?? (() => {}),
         busy: send ? 0 : BUSY_TRIES,
+        retryable: Boolean(send),
       });
     });
+  }
+
+  private noteRequestSettled(id: number | string): void {
+    const wasWaiting = this.daemonWaitingSince !== undefined;
+    const request = this.pending.get(id);
+    if (request) request.waiting = false;
+    if (![...this.pending.values()].some((entry) => entry.waiting)) this.daemonWaitingSince = undefined;
+    if (this.daemonWaitingSince === undefined && this.daemonLivenessTimer !== undefined) {
+      clearTimeout(this.daemonLivenessTimer);
+      this.daemonLivenessTimer = undefined;
+    }
+    if (wasWaiting && this.daemonWaitingSince === undefined) this.emit("daemon resumed");
+  }
+
+  private armDaemonLiveness(): void {
+    if (this.daemonLivenessTimer !== undefined || this.closed) return;
+    this.daemonLivenessTimer = setTimeout(() => {
+      this.daemonLivenessTimer = undefined;
+      if (this.daemonWaitingSince === undefined || this.socket?.readyState !== WebSocket.OPEN) return;
+      const quietFor = Date.now() - this.daemonLastFrameAt;
+      if (quietFor < AcpmuxDirectClient.DAEMON_LIVENESS_GRACE_MS) {
+        this.daemonLivenessTimer = setTimeout(
+          () => this.armDaemonLiveness(),
+          AcpmuxDirectClient.DAEMON_LIVENESS_GRACE_MS - quietFor,
+        );
+        return;
+      }
+      // The socket stayed open but the daemon stopped producing any frame: treat that peer as dead
+      // so pending requests fail through the normal close/reconnect path.
+      this.wire.lifecycle("liveness timeout", { quietForMs: quietFor });
+      this.socket.close();
+    }, AcpmuxDirectClient.DAEMON_LIVENESS_GRACE_MS);
   }
 
   /// The newest turn-opening prompt before `events` when they start mid-turn and older history
@@ -5564,6 +5616,7 @@ export class AcpmuxDirectClient {
       weight: cause.weight,
       ...(prior?.text && { text: prior.text }),
       ...(fresh && { fresh: true }),
+      ...(cause.status === "interim" && { interim: true }),
     };
     if (!this.react(cause.origin, reaction)) return false;
     this.reactionOrigins.set(turn.id, cause.origin);
@@ -7091,6 +7144,7 @@ export class AcpmuxDirectClient {
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       summary: this.publishedSummary(summary, effort, limits),
       connection,
+      ...(this.daemonWaitingSince !== undefined ? { daemonWaitingSince: this.daemonWaitingSince } : {}),
       origin: this.origin,
       ...(this.listedSessions ? { listedSessions: true as const } : {}),
       ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),
@@ -10329,6 +10383,8 @@ export class AcpmuxDirectClient {
     this.stopPageListeners();
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
+    if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
+    this.daemonLivenessTimer = undefined;
     this.permissions.disconnected();
     this.socket?.close();
     this.socket = undefined;
@@ -10356,6 +10412,9 @@ export class AcpmuxDirectClient {
       );
     }
     this.pending.clear();
+    this.daemonWaitingSince = undefined;
+    if (this.daemonLivenessTimer !== undefined) clearTimeout(this.daemonLivenessTimer);
+    this.daemonLivenessTimer = undefined;
   }
 }
 
@@ -10529,7 +10588,7 @@ type BackgroundUpdate = Omit<AcpmuxBackgroundTask, "state"> & {
   state: AcpmuxBackgroundState["state"];
 };
 
-function backgroundTask(update: any): BackgroundUpdate | undefined {
+export function backgroundTask(update: any): BackgroundUpdate | undefined {
   const state = update.state;
   if (typeof update.toolCallId !== "string" || !["running", "completed", "failed", "stopped"].includes(state))
     return undefined;

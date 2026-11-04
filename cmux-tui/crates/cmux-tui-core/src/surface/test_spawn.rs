@@ -274,4 +274,36 @@ impl Surface {
         }
         Ok(surface)
     }
+
+    /// A hosted terminal surface on `attachment` (a fake host connection), whose launch waits
+    /// for its Activate frame as a created terminal's does (`defer_launch_activation`), with
+    /// the tab and terminal identity `identity`.
+    #[cfg(all(test, unix))]
+    pub(crate) fn spawn_hosted_awaiting_activation_for_test(
+        id: SurfaceId,
+        mux: Weak<Mux>,
+        mut attachment: crate::terminal_host_runtime::HostAttachment,
+        identity: TabResourceIdentity,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let terminal_public_id = terminal_public_id_from_resource_identity(
+            &identity,
+            "a hosted terminal cannot use a browser resource identity",
+        )?;
+        attachment.launch_activation_pending = true;
+        Self::spawn_hosted(
+            id,
+            SurfaceOptions::default(),
+            mux,
+            HostedSurfaceLaunch {
+                adopted: false,
+                attachment,
+                kitty_reservation: None,
+                terminate_on_error: false,
+                defer_launch_activation: true,
+                lifetime: PtyLifetime::SessionOwned,
+                terminal_public_id: Some(terminal_public_id),
+                resource_identity: Some(identity),
+            },
+        )
+    }
 }

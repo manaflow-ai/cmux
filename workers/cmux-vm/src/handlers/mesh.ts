@@ -59,7 +59,7 @@ import { deviceHoldsKey, type DeviceHoldsKey } from "../proofs/device-holds-key.
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreateDevice, tenantMayCreateMesh } from "../proofs/mesh-may-create.ts";
 import { MESH_CREATION_LABEL } from "../proofs/mesh-creation.ts";
-import { ownedDeviceAddressRules, ownedMeshRules, sameMeshSnapshot } from "../proofs/same-mesh.ts";
+import { ownedDeviceAddressRules, ownedMeshRules, sameMeshSnapshot, type OwnedMeshRule } from "../proofs/same-mesh.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { callerActsOnDevice, callerActsOnTunnel, enrolledBy, isTenantAdmin, type CallerActsOnDevice } from "../proofs/device-owner.ts";
 import { tenantOwnsDevice, tenantOwnsMesh, tenantOwnsTunnel, tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
@@ -77,6 +77,18 @@ const tunnelNotFound = () => new NotFound({ message: "Tunnel not found" });
 
 /** A structured Worker log line naming only public ids. */
 const logEvent = (event: string, fields: Record<string, string>) => Effect.sync(() => console.error(JSON.stringify({ event, ...fields })));
+
+/** Phase timings of one request, logged as one event so `wrangler tail` shows where its time went. */
+type Phases = Record<string, string>;
+
+/** Runs `effect` and records its wall time in `into[key]` (milliseconds), success or failure. */
+const phase = <A, E, R>(into: Phases | undefined, key: string, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+  into === undefined
+    ? effect
+    : Effect.gen(function* () {
+        const started = yield* Clock.currentTimeMillis;
+        return yield* effect.pipe(Effect.ensuring(Effect.flatMap(Clock.currentTimeMillis, (at) => Effect.sync(() => { into[key] = String(at - started); }))));
+      });
 
 const now = Effect.map(Clock.currentTimeMillis, (ms) => new Date(ms));
 
@@ -258,6 +270,40 @@ const ruleCreateError = (error: { readonly status: number | null }) =>
 const RULE_RECORD_BATCH = 32;
 
 /**
+ * Deletes `rules` of mesh `meshId` at the provider (8 at a time; a rule already
+ * gone there counts as deleted) and marks the deleted ones in the rule table,
+ * RULE_RECORD_BATCH per update. Every delete of a batch settles before its
+ * update, so a failed delete never leaves a sibling's deleted rule unmarked; the
+ * first failure stops before the next batch. Marked one row per statement, the
+ * deletes waited on the request's one database connection: an attach that
+ * removed a deleted VM's 138 rules took 21 s, nearly all of it these writes.
+ */
+const deleteRules = <C, M>(tenantId: Principal["tenantId"], meshId: string, rules: ReadonlyArray<OwnedMeshRule<C, M>>) =>
+  Effect.gen(function* () {
+    const store = yield* MeshStore;
+    const upstream = yield* UpstreamMesh;
+    for (let start = 0; start < rules.length; start += RULE_RECORD_BATCH) {
+      const settled = yield* Effect.forEach(
+        rules.slice(start, start + RULE_RECORD_BATCH),
+        (proof) =>
+          Effect.either(
+            upstream.deleteRule(proof).pipe(
+              // Already gone upstream (it named a tunnel or VM that was deleted): finish here.
+              Effect.catchIf((error) => error.status === 404, () => Effect.void),
+              Effect.mapError(unavailable),
+              Effect.as(proof.rule.key),
+            ),
+          ),
+        { concurrency: 8 },
+      );
+      const deleted = settled.flatMap((result) => (Either.isRight(result) ? [result.right] : []));
+      yield* store.markRulesDeleted(tenantId, meshId, deleted, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.markRulesDeleted")));
+      const failed = settled.find(Either.isLeft);
+      if (failed !== undefined) return yield* Effect.fail(failed.left);
+    }
+  });
+
+/**
  * Makes the mesh's provider rules equal `desired`: creates every missing rule
  * (8 at a time), and only when all of them exist deletes the surplus, so
  * traffic both the old and the new policy allow never stops. A failed create
@@ -271,12 +317,18 @@ const RULE_RECORD_BATCH = 32;
  * per rule, a new VM in a test mesh of 40 capture devices made ~800 sequential
  * round trips on the request's one database connection and its apply took ~120 s.
  */
-const reconcile = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, ownsMesh: TenantOwnsResource<C, M>, desired: ReadonlyArray<DesiredRule>) =>
+const reconcile = <C, M>(
+  caller: Named<C, Principal>,
+  mesh: Named<M, MeshId>,
+  ownsMesh: TenantOwnsResource<C, M>,
+  desired: ReadonlyArray<DesiredRule>,
+  phases?: Phases,
+) =>
   Effect.gen(function* () {
     const store = yield* MeshStore;
     const upstream = yield* UpstreamMesh;
     const tenantId = caller.value.tenantId;
-    const current = yield* ownedMeshRules(caller, mesh, ownsMesh).pipe(Effect.catchAll(dependencyDown("mesh.listRules")));
+    const current = yield* phase(phases, "listRulesMs", ownedMeshRules(caller, mesh, ownsMesh).pipe(Effect.catchAll(dependencyDown("mesh.listRules"))));
     const plan = planApply(
       current.map((proof) => ({ key: proof.rule.key, proof })),
       desired,
@@ -284,13 +336,17 @@ const reconcile = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, ow
     const members =
       plan.create.length === 0
         ? null
-        : yield* sameMeshSnapshot(
-            caller,
-            mesh,
-            ownsMesh,
-            plan.create.map((rule) => rule.deviceId),
-            plan.create.map((rule) => rule.vmId),
-          ).pipe(Effect.catchAll(dependencyDown("mesh.sameMesh")));
+        : yield* phase(
+            phases,
+            "snapshotMs",
+            sameMeshSnapshot(
+              caller,
+              mesh,
+              ownsMesh,
+              plan.create.map((rule) => rule.deviceId),
+              plan.create.map((rule) => rule.vmId),
+            ).pipe(Effect.catchAll(dependencyDown("mesh.sameMesh"))),
+          );
     const createOne = (rule: DesiredRule) =>
       Effect.gen(function* () {
         const device = parseDeviceId(rule.deviceId);
@@ -366,31 +422,25 @@ const reconcile = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, ow
         recordMs: String(recordMs),
       });
     }
-    yield* Effect.forEach(
-      plan.remove,
-      ({ proof }) =>
-        Effect.gen(function* () {
-          yield* upstream.deleteRule(proof).pipe(
-            // Already gone upstream (it named a tunnel or VM that was deleted): finish here.
-            Effect.catchIf((error) => error.status === 404, () => Effect.void),
-            Effect.mapError(unavailable),
-          );
-          yield* store.markRuleDeleted(tenantId, mesh.value, proof.rule.key, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.markRuleDeleted")));
-        }),
-      { concurrency: 8, discard: true },
-    );
+    if (phases !== undefined) {
+      phases.created = String(plan.create.length);
+      phases.createMs = String(providerMs);
+      phases.recordMs = String(recordMs);
+      phases.removed = String(plan.remove.length);
+    }
+    yield* phase(phases, "removeMs", deleteRules(tenantId, mesh.value, plan.remove.map(({ proof }) => proof)));
     return { created: plan.create.length, deleted: plan.remove.length, ruleCount: desired.length };
   });
 
 /** Re-applies the mesh's current ACL after its devices or VMs changed. */
-const reconcileCurrent = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, ownsMesh: TenantOwnsResource<C, M>) =>
+const reconcileCurrent = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, ownsMesh: TenantOwnsResource<C, M>, phases?: Phases) =>
   Effect.gen(function* () {
     const store = yield* MeshStore;
-    const acl = yield* store.currentAcl(caller.value.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.currentAcl")));
+    const acl = yield* phase(phases, "aclMs", store.currentAcl(caller.value.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.currentAcl"))));
     const document = Option.match(acl, { onNone: () => EMPTY_ACL, onSome: (row) => row.document });
-    const { result } = yield* compileFor(caller.value.tenantId, mesh.value, document, false);
+    const { result } = yield* phase(phases, "compileMs", compileFor(caller.value.tenantId, mesh.value, document, false));
     const desired = yield* compiled(result);
-    return yield* reconcile(caller, mesh, ownsMesh, desired);
+    return yield* reconcile(caller, mesh, ownsMesh, desired, phases);
   });
 
 /** Billing (402) then the budget (429); runs `k` with the proof and releases the reservation afterwards. */
@@ -539,11 +589,9 @@ const closeDevice = <C, D>(
     }
     const at = yield* now;
     const rules = yield* store.listRules(tenantId, row.meshId).pipe(Effect.catchAll(dependencyDown("mesh.listRules")));
-    yield* Effect.forEach(
-      rules.filter((rule) => rule.deviceId === device.value),
-      (rule) => store.markRuleDeleted(tenantId, row.meshId, rule.key, at),
-      { discard: true },
-    ).pipe(Effect.catchAll(dependencyDown("mesh.markRuleDeleted")));
+    yield* store
+      .markRulesDeleted(tenantId, row.meshId, rules.filter((rule) => rule.deviceId === device.value).map((rule) => rule.key), at)
+      .pipe(Effect.catchAll(dependencyDown("mesh.markRulesDeleted")));
     const ownership = yield* OwnershipStore;
     yield* Effect.all([
       ownership.markDeleted(tenantId, "device", device.value, at),
@@ -1150,29 +1198,37 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
             const store = yield* MeshStore;
             const upstream = yield* UpstreamMesh;
             const tenantId = caller.value.tenantId;
+            // Where an attach's time goes (ownership reads, the provider attach, the writer lock, the rule creates),
+            // logged once as mesh_vm_attach for wrangler tail.
+            const phases: Phases = { meshId: mesh.value, vmId: path.vmId };
+            const started = yield* Clock.currentTimeMillis;
             return yield* name(parsed.value, (vm) =>
               Effect.gen(function* () {
-                const ownsVm = yield* tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find")));
+                const ownsVm = yield* phase(phases, "ownsVmMs", tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find"))));
                 if (ownsVm === null) return yield* Effect.fail(vmNotFound());
-                const current = yield* store.memberOf(tenantId, vm.value).pipe(Effect.catchAll(dependencyDown("mesh.memberOf")));
+                const current = yield* phase(phases, "memberOfMs", store.memberOf(tenantId, vm.value).pipe(Effect.catchAll(dependencyDown("mesh.memberOf"))));
                 if (Option.isSome(current) && current.value.meshId !== mesh.value) {
                   return yield* Effect.fail(new Conflict({ message: "This VM is already in another mesh" }));
                 }
                 let member = Option.getOrNull(current);
                 if (member === null) {
-                  const attached = yield* upstream
+                  const attached = yield* phase(phases, "upstreamAttachMs", upstream
                     .attachVm(mesh, vm, { ownsMesh: proofs.owns, ownsVm, meshScope: proofs.scope, vmScope })
                     .pipe(
                       Effect.mapError((error) =>
                         error.status === 404 ? vmNotFound() : error.status === 409 ? new Conflict({ message: "This VM cannot join the mesh right now" }) : unavailable(error),
                       ),
-                    );
+                    ));
                   const row = { meshId: mesh.value, vmId: vm.value, ipv4: attached.ipv4, attachedAt: yield* now };
-                  const inserted = yield* store.attachMember(tenantId, row).pipe(Effect.catchAll(dependencyDown("mesh.attachMember")));
+                  const inserted = yield* phase(phases, "attachMemberMs", store.attachMember(tenantId, row).pipe(Effect.catchAll(dependencyDown("mesh.attachMember"))));
                   if (!inserted) return yield* Effect.fail(new Conflict({ message: "This VM joined a mesh at the same time; retry" }));
                   member = row;
                 }
-                yield* withMeshWriter(tenantId, mesh.value, reconcileCurrent(caller, mesh, proofs.owns));
+                const lockStarted = yield* Clock.currentTimeMillis;
+                yield* phase(phases, "writerMs", withMeshWriter(tenantId, mesh.value, Effect.gen(function* () {
+                  phases.lockMs = String((yield* Clock.currentTimeMillis) - lockStarted);
+                  return yield* reconcileCurrent(caller, mesh, proofs.owns, phases);
+                })));
                 return new MeshMember({
                   meshId: MeshId_(member.meshId),
                   vmId: VmId_(member.vmId),
@@ -1180,6 +1236,10 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
                   attachedAt: member.attachedAt.toISOString(),
                 });
               }),
+            ).pipe(
+              Effect.ensuring(
+                Effect.flatMap(Clock.currentTimeMillis, (at) => logEvent("mesh_vm_attach", { ...phases, totalMs: String(at - started) })),
+              ),
             );
           }),
         ),
@@ -1210,18 +1270,7 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
                   Effect.gen(function* () {
                     // The VM's rules go first: they name the VM, not the network, so leaving would not remove them.
                     const rules = yield* ownedMeshRules(caller, mesh, proofs.owns).pipe(Effect.catchAll(dependencyDown("mesh.listRules")));
-                    yield* Effect.forEach(
-                      rules.filter((proof) => proof.rule.vmId === vm.value),
-                      (proof) =>
-                        Effect.gen(function* () {
-                          yield* upstream.deleteRule(proof).pipe(
-                            Effect.catchIf((error) => error.status === 404, () => Effect.void),
-                            Effect.mapError(unavailable),
-                          );
-                          yield* store.markRuleDeleted(tenantId, mesh.value, proof.rule.key, yield* now).pipe(Effect.catchAll(dependencyDown("mesh.markRuleDeleted")));
-                        }),
-                      { concurrency: 8, discard: true },
-                    );
+                    yield* deleteRules(tenantId, mesh.value, rules.filter((proof) => proof.rule.vmId === vm.value));
                     yield* upstream.detachVm(vm, { ownsVm, vmScope }).pipe(
                       Effect.catchIf((error) => error.status === 404, () => Effect.void),
                       Effect.mapError(unavailable),

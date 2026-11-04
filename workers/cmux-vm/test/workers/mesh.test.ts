@@ -297,6 +297,40 @@ describe("ACL", () => {
     expect(h.upstreamRequests).toHaveLength(before);
   });
 
+  it("removing a VM's many rules marks them deleted with a bounded number of database round trips", async () => {
+    // A VM's rules removed by a reconcile (an ACL apply, or an attach after a member VM was deleted) and by its
+    // detach. Before, each removed rule was marked deleted on its own: on staging an attach that dropped a deleted
+    // VM's 138 rules took 21 s, nearly all of it those sequential writes on the request's one database connection.
+    const key = await h.addKey(A, ALL_SCOPES);
+    const meshId = await createMesh(key);
+    const first = h.addVm(A);
+    const second = h.addVm(A);
+    await attach(key, meshId, first.vmId);
+    await attach(key, meshId, second.vmId);
+    const devices = 10;
+    for (let index = 0; index < devices; index++) await enroll(key, meshId, btoa(`device-key-${String(index).padStart(2, "0")}`.padEnd(32, "x")), `device ${index}`);
+    const allow = ["tcp:22", "tcp:4100", "udp:4101"];
+    expect(await json(await putAcl(key, meshId, 0, [{ src: ["device:*"], dst: [first.vmId, second.vmId], allow }]))).toMatchObject({ rulesCreated: devices * 3 * 2 });
+
+    // The reconcile's removal: 30 rules of the second VM go, the first VM's stay.
+    let callsBefore = h.mesh.storeCallCount();
+    const narrowed = await putAcl(key, meshId, 1, [{ src: ["device:*"], dst: [first.vmId], allow }]);
+    let storeCalls = h.mesh.storeCallCount() - callsBefore;
+    expect(await json(narrowed)).toMatchObject({ version: 2, rulesCreated: 0, rulesDeleted: devices * 3 });
+    // One update per 32 rules, not one per rule (30 here before).
+    expect(storeCalls).toBeLessThan(20);
+    expect(h.mesh.rules.size).toBe(devices * 3);
+    expect(await json(await putAcl(key, meshId, 2, [{ src: ["device:*"], dst: [first.vmId], allow }]))).toMatchObject({ rulesCreated: 0, rulesDeleted: 0 });
+
+    // The detach's removal: the first VM's 30 rules go with it.
+    callsBefore = h.mesh.storeCallCount();
+    expect((await call(`/v1/meshes/${meshId}/vms/${first.vmId}`, key, "DELETE")).status).toBe(204);
+    storeCalls = h.mesh.storeCallCount() - callsBefore;
+    expect(storeCalls).toBeLessThan(20);
+    expect(h.mesh.rules.size).toBe(0);
+    expect(await json(await putAcl(key, meshId, 3, [{ src: ["device:*"], dst: ["vm:*"], allow }]))).toMatchObject({ rulesCreated: devices * 3, rulesDeleted: 0 });
+  });
+
   it("refuses a stale expectedVersion with 409 and changes nothing", async () => {
     const { key, meshId } = await meshWithPeers();
     await putAcl(key, meshId, 0, [{ src: ["device:*"], dst: ["vm:*"], allow: ["icmp"] }]);

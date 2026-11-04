@@ -68,11 +68,17 @@ public protocol TerminalSessionDelegate: AnyObject {
     /// Right-click menu for the terminal. Nil shows the built-in
     /// Copy/Paste/Select All menu.
     func terminalSession(_ session: TerminalSession, contextMenuFor event: NSEvent) -> NSMenu?
+    /// The terminal was shown again (``TerminalRevealReport``): numbers only, for logs and crash telemetry.
+    func terminalSession(_ session: TerminalSession, revealed report: TerminalRevealReport)
+    /// The terminal's pane still showed nothing 500 ms after it was shown again.
+    func terminalSession(_ session: TerminalSession, blankAfterReveal report: TerminalRevealReport)
 }
 
 public extension TerminalSessionDelegate {
     func terminalSession(_ session: TerminalSession, perform action: TerminalHostAction) -> Bool { false }
     func terminalSession(_ session: TerminalSession, contextMenuFor event: NSEvent) -> NSMenu? { nil }
+    func terminalSession(_ session: TerminalSession, revealed report: TerminalRevealReport) {}
+    func terminalSession(_ session: TerminalSession, blankAfterReveal report: TerminalRevealReport) {}
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
         guard let safeURL = TerminalSurfaceView.url(from: url.absoluteString) else { return false }
         if safeURL.isFileURL {

@@ -16,7 +16,9 @@ use cmux_cloud_wire::{
 use cmux_link::dial::Service;
 use cmux_link::elapsed::{Deadline, Elapsed};
 use cmux_link::keyset::{Keyset, read_answer};
-use cmux_link::native_token::{NativeBinding, NativePeer, NativePolicy, ReceiverTime};
+use cmux_link::native_token::{
+    MAX_POLICY_LEASE_MS, NativeBinding, NativePeer, NativePolicy, ReceiverTime,
+};
 use cmux_server::cloud_http::RequestDeadline;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -62,6 +64,11 @@ impl ReceiverSnapshot {
     }
     pub fn keys(&self) -> &Keyset {
         &self.keys
+    }
+
+    /// When the read that made this snapshot started (active clock).
+    pub fn started(&self) -> Instant {
+        self.started
     }
 
     /// Active-clock scheduling projection. Authority checks must use `time`;
@@ -259,7 +266,7 @@ fn validate(p: &CloudVmNetworkPolicyView, b: &ReceiverBinding) -> Result<(), Str
         || p.checked_at > SAFE
         || p.expires_at > SAFE
         || p.expires_at <= p.checked_at
-        || p.expires_at - p.checked_at > 30_000
+        || p.expires_at - p.checked_at > MAX_POLICY_LEASE_MS as i64
         || !hex(&p.policy_digest, 64)
         || !hex(&p.authority_version, 64)
         || p.receiver_generation.as_ref().is_some_and(|generation| !hex(generation, 64))

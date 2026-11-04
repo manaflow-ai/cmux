@@ -703,8 +703,10 @@ fn load_chief_tools(
 }
 
 /// The port to the subagents a move handed to this machine's default acpmux
-/// daemon (placed_agents.rs), linked before the home daemon's link so its
-/// first session list already has them; None when this home placed none, or
+/// daemon (placed_agents.rs). Its link runs beside the home daemon's, never
+/// before it: the brain takes their sessions from this link only
+/// (`Brain::set_reported_elsewhere`), so a slow or absent machine daemon
+/// neither delays the host nor ends them. None when this home placed none, or
 /// when its own daemon is the machine's default one.
 fn place_moved_subagents(
     home: &std::path::Path,
@@ -719,21 +721,12 @@ fn place_moved_subagents(
     }
     let here = Acpmux::joining(machine.clone());
     let port = crate::placed_agents::PlacedPort::new(agents.clone(), here.clone(), placed.clone());
-    let linked = Arc::new((Mutex::new(false), Condvar::new()));
     {
         let tx = tx.clone();
         let port = port.clone();
-        let linked = linked.clone();
         let link_log: crate::brain::Log = Arc::new(|line: &str| log(format!("machine {line}")));
         here.spawn_link(
             Arc::new(move |event| {
-                if matches!(event, AgentEvent::Up(_)) {
-                    *linked
-                        .0
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
-                    linked.1.notify_all();
-                }
                 for event in port.here_events(event) {
                     let _ = tx.send(Input::from(event));
                 }
@@ -741,32 +734,13 @@ fn place_moved_subagents(
             link_log,
         );
     }
-    let (lock, cv) = &*linked;
-    let up = cv
-        .wait_timeout_while(
-            lock.lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-            PLACED_LINK_WAIT,
-            |done| !*done,
-        )
-        .map(|(done, _)| *done)
-        .unwrap_or(false);
     log(format!(
-        "{} subagent session(s) a move handed to this machine run on its acpmux at {}{}",
+        "{} subagent session(s) a move handed to this machine run on its acpmux at {}",
         placed.len(),
         machine.display(),
-        if up {
-            ""
-        } else {
-            " (not answering yet: a subagent it lacks at the first link is reported gone)"
-        }
     ));
     Some(port)
 }
-
-/// How long the host waits for this machine's default daemon before its own
-/// link: a daemon that runs answers in well under a second.
-const PLACED_LINK_WAIT: Duration = Duration::from_secs(15);
 
 fn start(
     paths: &Paths,
@@ -1219,6 +1193,10 @@ fn start(
     // machine's default acpmux daemon (placed_agents.rs); the brain and the
     // spawner use that port, the rest the home daemon's.
     let placed = place_moved_subagents(home, &acpmux_socket, &agents, &tx);
+    let reported_elsewhere = placed
+        .as_ref()
+        .map(|port| port.placed().clone())
+        .unwrap_or_default();
     let brain_agents: Arc<dyn AgentPort> = match &placed {
         Some(port) => port.clone(),
         None => agents.clone(),
@@ -1852,6 +1830,7 @@ fn start(
         ))
     };
     let mut brain = brain;
+    brain.set_reported_elsewhere(reported_elsewhere);
     brain.set_sub_starter(sub_starter);
     let idle = brain.cloud_auto_pause_idle();
     brain.set_cloud_vms(cloud_vms, idle);

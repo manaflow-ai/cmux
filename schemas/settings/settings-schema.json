@@ -388,6 +388,7 @@
               "appearance.favoriteThemes",
               "appearance.rotateFavoriteThemes",
               "appearance.accent",
+              "appearance.themeFile",
               "appearance.highlightColor"
             ],
             "title" : {
@@ -12714,7 +12715,7 @@
       },
       "help" : {
         "key" : "settings.cloud.agentsStartWithoutAsking.help",
-        "text" : "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on."
+        "text" : "Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this."
       },
       "kept_on_reset_all" : false,
       "key" : "cloud.agentsStartWithoutAsking",
@@ -12725,9 +12726,13 @@
         "agent",
         "start",
         "session",
+        "create",
+        "new machine",
+        "move",
         "ask",
         "approve",
         "permission",
+        "bypass",
         "without asking",
         "delegate"
       ],
@@ -12829,7 +12834,7 @@
       },
       "title" : {
         "key" : "settings.cloud.agentsStartWithoutAsking",
-        "text" : "Let Agents Start Cloud Sessions Without Asking"
+        "text" : "Let Agents Use Cloud Without Asking"
       },
       "validation" : "portable"
     },
@@ -22107,6 +22112,148 @@
       "title" : {
         "key" : "settings.appearance.accent",
         "text" : "Accent"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.choice.none",
+        "text" : "None"
+      },
+      "group" : {
+        "key" : "settings.group.appTheme",
+        "text" : "App Theme"
+      },
+      "help" : {
+        "key" : "settings.appearance.themeFile.help",
+        "text" : "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.themeFile",
+      "keywords" : [
+        "theme file",
+        "rice",
+        "ricing",
+        "dotfile",
+        "dotfiles",
+        "look",
+        "config",
+        "themes folder",
+        "json"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "themeFile"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.themeFile.summary",
+        "text" : "A look from ~/.config/cmux/themes"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.themeFile"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.themeFile",
+        "text" : "Theme File"
       },
       "validation" : "portable"
     },

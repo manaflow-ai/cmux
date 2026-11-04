@@ -12,6 +12,7 @@ import type { Principal } from "../domain/principal.ts";
 import { SESSION_SCOPES, scopeSetOf } from "../domain/scopes.ts";
 import { Forbidden, type ServiceUnavailable, Unauthorized, unavailable } from "../errors.ts";
 import { serviceMayActFor, servicePrincipal } from "../proofs/service-may-act-for.ts";
+import { CiTrust, type CiTrustMatch } from "./ci-trust.ts";
 import { ServiceKeys, type ServiceKey } from "./service-keys.ts";
 import {
   API_KEY_PREFIX,
@@ -33,6 +34,7 @@ export const authenticationLayer = Layer.effect(
     const membership = yield* TeamMembership;
     const apiKeys = yield* ApiKeyStore;
     const serviceKeys = yield* ServiceKeys;
+    const ciTrust = yield* CiTrust;
 
     /** A service key acts only for the team its request names, and only when its team list allows that team. */
     const fromServiceKey = (
@@ -48,6 +50,50 @@ export const authenticationLayer = Layer.effect(
             ? Effect.fail(new Forbidden({ message: "This service key may not act for this team" }))
             : Effect.succeed(servicePrincipal(service, team, proof));
         });
+      });
+
+    /**
+     * A GitHub Actions job a CI trust row names acts for that row's team only, as the service `row.id`, confined to
+     * the row's labels, within its VM budget, and with every VM it creates on a run cap.
+     */
+    const fromCiToken = (
+      match: CiTrustMatch,
+    ): Effect.Effect<Principal, Unauthorized | Forbidden, HttpServerRequest.HttpServerRequest> =>
+      Effect.gen(function* () {
+        const { row, expiresAt } = match;
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const named = request.headers[TEAM_HEADER];
+        if (named !== undefined && named !== row.team) return yield* Effect.fail(new Forbidden({ message: "This CI job may not act for this team" }));
+        const identity = { id: row.id, scopes: row.scopes, labels: row.labels, teams: new Set([row.team]) };
+        return yield* name(identity, row.team, (service, team) => {
+          const proof = serviceMayActFor(service, team);
+          if (proof === null) return Effect.fail(new Forbidden({ message: "This CI job may not act for this team" }));
+          const principal: Principal = {
+            ...servicePrincipal(service, team, proof),
+            credentialExpiresAt: expiresAt,
+            agent: { maxVms: row.maxVms, maxUsdPerHour: row.maxUsdPerHour },
+            maxRunSeconds: row.maxRunSeconds,
+          };
+          return Effect.succeed(principal);
+        });
+      });
+
+    const fromBearerJwt = (
+      token: Redacted.Redacted<string>,
+    ): Effect.Effect<Principal, Unauthorized | Forbidden | ServiceUnavailable, HttpServerRequest.HttpServerRequest> =>
+      Effect.gen(function* () {
+        const now = new Date(yield* Clock.currentTimeMillis);
+        const match = yield* ciTrust.verify(Redacted.value(token), now).pipe(
+          Effect.catchTags({
+            CiTokenRejected: () => Effect.fail(unauthorized()),
+            CiTrustUnavailable: (error) =>
+              Effect.logWarning("cmux-vm dependency unavailable").pipe(
+                Effect.annotateLogs({ operation: `github.${error.reason}` }),
+                Effect.zipRight(Effect.fail(unavailable(error))),
+              ),
+          }),
+        );
+        return Option.isSome(match) ? yield* fromCiToken(match.value) : yield* fromSession(token);
       });
 
     const fromApiKey = (
@@ -118,7 +164,7 @@ export const authenticationLayer = Layer.effect(
       bearer: (token) => {
         const raw = Redacted.value(token);
         if (raw.length === 0) return Effect.fail(unauthorized());
-        return raw.startsWith(API_KEY_PREFIX) ? fromApiKey(raw) : fromSession(token);
+        return raw.startsWith(API_KEY_PREFIX) ? fromApiKey(raw) : fromBearerJwt(token);
       },
     });
   }),

@@ -824,6 +824,11 @@ impl Hub {
             {
                 m.delegator = Some(from);
             }
+            // One shared turn path applies the creation snapshot exactly once, including
+            // queued/CLI prompts. A settings edit never changes an already-created chat.
+            if !m.cmux_context_delivered && control != Control::Web {
+                crate::context_inventory::append_snapshot(m.cmux_context.as_deref(), &mut blocks);
+            }
             m.turn_count += 1;
         }
         // A turn on lane reports only reports nothing (`lane_reports.rs`).
@@ -1033,6 +1038,8 @@ impl Hub {
         let _unsent = crate::agent::CutOnDrop(fence.as_ref());
         // Start title generation after the first prompt is written to the harness, while its
         // session-info title can still win before the cheap completion is spent.
+        let delivers_context = control != Control::Web
+            && blocks.iter().any(|b| b.pointer("/_meta/acpmux/contextSource").is_some());
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
@@ -1041,9 +1048,17 @@ impl Hub {
             false,
             false,
             fence.as_ref(),
-            confirm_team_write,
+            confirm_team_write || delivers_context,
             None,
             || {
+                if delivers_context {
+                    session
+                        .meta
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .cmux_context_delivered = true;
+                    self.save_meta(session);
+                }
                 self.mark_team_messages(session, &team_messages);
                 if team_enabled {
                     self.mark_team_work(session, &team_prompt_ids);
@@ -1122,6 +1137,7 @@ impl Hub {
                 let kept = super::fallback_start::ConversationMark::of(session);
                 let turn = session.turn();
                 self.detach_child(session).await;
+                self.resume_before_turn();
                 *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
                 self.set_status(session, SessionStatus::Running);
                 {
@@ -1235,6 +1251,7 @@ impl Hub {
                     (Err(e2), _) => {
                         let turn = session.turn();
                         self.detach_child(session).await;
+                        self.resume_before_turn();
                         *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
                         self.set_status(session, SessionStatus::Running);
                         kept.restore(session);

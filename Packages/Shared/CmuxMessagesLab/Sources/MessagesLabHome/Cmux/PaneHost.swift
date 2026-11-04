@@ -352,6 +352,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var approvalDecision: ((PartRef, Bool) -> Void)?
     /// cmux: a click on an app link (`URL.isCmuxAppLink`): the host runs it; nil opens nothing.
     var onAppLink: ((URL) -> Void)?
+    /// cmux: a click on an agent's pill in an agents row (``HomeAgentFoldRowProvider``): the host opens
+    /// that agent's chat (its id); nil: the click opens and closes the row as before.
+    var onAgentPill: ((String) -> Void)?
     /// cmux: the pointer moved over the transcript (or left it: nil), in screen coordinates; the
     /// host's hover cards for link chips follow it (HomeLinkChip).
     var onPointerMoved: ((CGPoint?) -> Void)?
@@ -843,6 +846,13 @@ final class ChatController: NSObject, NSTextViewDelegate {
             if openLink(hit, at: p) { return }
             // cmux: a reply's quote shows its words in the original (ChatController+ReplyQuote.swift).
             if quoteClicked(hit, at: p) { return }
+            // cmux: a click on an agent's pill opens its chat in the host's agent pane.
+            if let onAgentPill, case let .custom(custom) = hit.row.part,
+               let peer = HomeAgentFoldRowProvider.peer(custom, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY),
+                                                        width: hit.body.width) {
+                onAgentPill(peer)
+                return
+            }
             // cmux: an agents row opens or closes (HomeStore.toggleAgentMessages).
             if intents?.agentRowClicked(hit.row.ref.messageId) == true { return }
             // cmux: a Feed row in the main Chief's transcript opens what it is about (HomeFeedRow.url).

@@ -343,11 +343,6 @@ pub const BACKGROUND_TASKS: &str = "_acpmux/claude/background_tasks";
 /// or Claude Code's error.
 pub const MCP_RECONNECT: &str = "_acpmux/claude/mcp_reconnect";
 
-/// The most categories, memory files, MCP tools and skills a context breakdown
-/// names (`context_breakdown`; the lists the largest first, categories in Claude Code's order): a chat with hundreds of MCP
-/// tools would otherwise log every one at each turn's end.
-const BREAKDOWN_ROWS: usize = 50;
-
 /// The internal ACP request for Claude Code's native, transcript-free `/btw`
 /// control request. The translator turns this into a `side_question`
 /// `control_request` on Claude's running stream-json process.
@@ -1085,10 +1080,10 @@ pub fn is_context_answer(line: &Value) -> bool {
         .is_some_and(|id| id.starts_with("ctx-"))
 }
 
-/// Claude Code's answer to `get_context_usage` (its `/context`), trimmed to
-/// what a client draws: each category's tokens and kind, the memory files,
-/// MCP tools and skills by size (at most `BREAKDOWN_ROWS` of each, the
-/// largest), and the totals; no grid or colors. None without categories: a
+/// Claude Code's answer to `get_context_usage` (its `/context`), retaining
+/// every reported category, memory file, MCP tool and skill with token counts.
+/// Detail rows are sorted by size; presentation-only grid and colors are omitted.
+/// None without categories: a
 /// Claude Code too old to answer, or one that answered something else.
 pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
     let categories = usage.get("categories")?.as_array()?;
@@ -1111,13 +1106,10 @@ pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
             })
             .collect();
         rows.sort_by_key(|row| std::cmp::Reverse(tokens(row)));
-        rows.truncate(BREAKDOWN_ROWS);
         rows
     };
-    // Claude Code names a dozen; the bound keeps a misbehaving answer out of the log.
     let categories: Vec<Value> = categories
         .iter()
-        .take(BREAKDOWN_ROWS)
         .map(|c| {
             let mut kept =
                 json!({"name": c.get("name"), "tokens": tokens(c), "kind": c.get("kind")});

@@ -674,7 +674,9 @@ impl Acpmux {
                         let _ = turn.tx.send(TurnSignal::Lost);
                     }
                     sink(AgentEvent::Down);
-                    if linked && !crate::acpmux_daemon::reachable(&this.socket) {
+                    // A joining link (Acpmux::joining) owns no sessions: a
+                    // daemon that went away may come back, so it retries.
+                    if linked && this.starts && !crate::acpmux_daemon::reachable(&this.socket) {
                         // A handoff, not an end (cx-ebm.54): the next daemon,
                         // started by the client that handed this one off,
                         // adopted the sessions. Join it; never start one.

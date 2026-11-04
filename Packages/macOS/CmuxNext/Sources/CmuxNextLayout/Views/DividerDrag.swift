@@ -130,6 +130,10 @@ struct DividerDrag {
     func apply(at windowPoint: NSPoint, phase: LayoutGesturePhase) {
         guard var drag = screen.activeDrag else { return }
         let point = drag.effective(contentPoint(fromWindow: windowPoint, kind: drag.kind))
+        // A line caught in a clamp (rule D) never shows behind the pointer (`SharedEdgeClamp.follow`).
+        if let clamp = drag.clampHold, !clamp.follow((drag.axis == .horizontal ? point.x : point.y) - drag.grabOffset, on: screen) {
+            drag.clampHold = nil
+        }
         var targets: [DividerDragValue]
         switch drag.kind {
         case let .split(id):

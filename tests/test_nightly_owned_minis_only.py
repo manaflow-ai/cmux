@@ -155,8 +155,11 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
     def test_route_is_the_owned_pool_held_to_its_attempt(self) -> None:
         # promote-nightly-next runs alone (a main dispatch, no build): the owned signing pool. The nightly-only
         # minis' admission (glaeda-nightly-only-admit) refuses every signing-class job, so no publisher may land there.
+        # on a nightly-next push vars.CI_NIGHTLY_SIGN_RUNNER (cmux15) comes first: test_nightly_signing_on_cmux15
         self.assertEqual(manaflow_route("promote-nightly-next"),
-                         "${{  vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
+                         "${{  github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
+                         "vars.CI_NIGHTLY_SIGN_RUNNER || "
+                         "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
         for name in EXCLUSIVE_PUBLISHERS:
             with self.subTest(job=name):
                 route = manaflow_route(name)

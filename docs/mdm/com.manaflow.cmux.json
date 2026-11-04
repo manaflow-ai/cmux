@@ -1479,6 +1479,11 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
+    "appearance.themeFile" : {
+      "description" : "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies.",
+      "title" : "Theme File",
+      "type" : "string"
+    },
     "appearance.wallpaperTint" : {
       "default" : true,
       "description" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",
@@ -1954,8 +1959,8 @@
     },
     "cloud.agentsStartWithoutAsking" : {
       "default" : true,
-      "description" : "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
-      "title" : "Let Agents Start Cloud Sessions Without Asking",
+      "description" : "Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this.",
+      "title" : "Let Agents Use Cloud Without Asking",
       "type" : "boolean"
     },
     "cloud.newWorkspaceFolder" : {

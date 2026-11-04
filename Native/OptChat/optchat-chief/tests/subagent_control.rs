@@ -466,3 +466,44 @@ fn keyed_tells_and_cancels_are_idempotent() {
     let none = run(&mut h, move || a.tell("a9", "hi"));
     assert_eq!(none.unwrap_err(), "no subagent a9");
 }
+
+/// A Chief that moved to a Mac links its home daemon and that Mac's default
+/// daemon (placed_agents.rs) without waiting for the second: a subagent a
+/// move handed to the Mac's daemon is missing from the home daemon's list,
+/// and it is not taken for gone. Its own daemon's list says when it ends.
+#[test]
+fn a_handed_over_subagent_missing_from_the_home_list_is_not_gone() {
+    use optchat_chief::state::SubStatus;
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["long job".into()], None)).unwrap();
+    wait_for(&mut h, |h| !sub_prompts(h).is_empty());
+    let session = sub_session(&h);
+    h.brain
+        .set_reported_elsewhere([session.clone()].into_iter().collect());
+    h.brain
+        .step(Input::from(optchat_chief::acpmux::AgentEvent::Up(
+            Vec::new(),
+        )));
+    settle(&mut h);
+    assert_eq!(
+        h.brain.state().sub("a1").expect("a1").1.status,
+        SubStatus::Running,
+        "the home list does not judge a handed-over subagent"
+    );
+    let closed: cmux_chief::acp::SessionSummary = serde_json::from_value(serde_json::json!({
+        "sessionId": session, "name": "a1", "status": "closed", "harness": "claude",
+    }))
+    .unwrap();
+    h.brain.step(Input::from(
+        optchat_chief::acpmux::AgentEvent::SessionChanged(closed),
+    ));
+    settle(&mut h);
+    assert_ne!(
+        h.brain.state().sub("a1").expect("a1").1.status,
+        SubStatus::Running,
+        "its own daemon's word ends it"
+    );
+}

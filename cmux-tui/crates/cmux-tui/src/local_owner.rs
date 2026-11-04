@@ -796,10 +796,10 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     if let Some(brains) = &spec.chief_brains {
         command.env(cmux_tui_core::chief_brains::ENV, brains);
     }
-    // R-LIFECYCLE stage 1's switch reaches only the owner this call spawns
-    // (headless.rs `take_owner_keepers_switch`).
-    if crate::headless::owner_keepers_switch() {
-        command.env(crate::headless::OWNER_KEEPERS_ENV, "1");
+    // R-LIFECYCLE stage 1's switch, when off, reaches only the owner this
+    // call spawns (headless.rs `take_owner_keepers_switch`); on is the default.
+    if !crate::headless::owner_keepers_switch() {
+        command.env(crate::headless::OWNER_KEEPERS_ENV, "0");
     }
     // The app directory settings this client took at start go to the owner
     // daemon it spawns only (cx-e0cs): the owner takes them out of its own

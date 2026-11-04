@@ -376,7 +376,7 @@ refuses!(vm_receiver_client_read_refuses_wrong_stream, |p, _| p["stream"] =
 refuses!(vm_receiver_client_read_refuses_wrong_operation, |p, _| p["op"] =
     "cloud.vm.self.get".into());
 refuses!(vm_receiver_client_read_refuses_long_lease, |p, _| p["value"]["expires_at"] =
-    (NOW + 30_001).into());
+    (NOW + 120_001).into());
 refuses!(vm_receiver_client_read_refuses_empty_lease, |p, _| p["value"]["expires_at"] = NOW.into());
 refuses!(vm_receiver_client_read_refuses_missing_generation, |p, _| {
     p["value"].as_object_mut().unwrap().remove("receiver_generation");

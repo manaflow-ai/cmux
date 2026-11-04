@@ -171,6 +171,11 @@ pub struct HostState {
     /// The number of the last watch started (`w<N>`); ids never repeat.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub last_watch: u64,
+    /// The cloud peers whose VMs this Chief paused (B4,
+    /// cloud-subagents-DESIGN.md). Saved, so a Chief that restarts or moves to
+    /// another Mac resumes such a VM before it tells a subagent there.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub cloud_paused: std::collections::BTreeSet<String>,
 }
 
 /// One watch the Chief started with `watch`: the host runs `command` off

@@ -161,11 +161,56 @@ def codex_load(sid):
     return False
 
 
+def prompt_text(params):
+    """Match fixture commands on the request; opt in to echoing cmux guidance."""
+    blocks = params.get("prompt", [])
+    if os.environ.get("FAKE_ECHO_GUIDANCE") != "1":
+        blocks = [b for b in blocks if not is_cmux_guidance(b)]
+    return "".join(b.get("text", "") for b in blocks)
+
+
+# The hidden guidance blocks (`context_inventory::override_block`), and only those: the
+# forum's rules, a side question's chat and a message's attachments are cmux-*-context
+# blocks too, and the agent must read them, so their tests read them in the echo.
+GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>")
+
+
+def guidance_text(text):
+    """Recognize a guidance wrapper after an adapter dropped its metadata."""
+    return isinstance(text, str) and text.lstrip().startswith(GUIDANCE_TAGS)
+
+
+def is_cmux_guidance(block):
+    """Identify cmux's hidden first-turn guidance after an adapter drops metadata."""
+    if not isinstance(block, dict):
+        return False
+    source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
+    if source in {"cmux-default", "cmux-user", "cmux-project"}:
+        return True
+    return guidance_text(block.get("text", ""))
+
+
+def codex_transcript_content(params):
+    """Keep the harness's raw context blocks while keeping ordinary fixtures compact."""
+    blocks = [b for b in params.get("prompt", []) if isinstance(b, dict)]
+    if not any(is_cmux_guidance(b) for b in blocks):
+        return [{"type": "input_text", "text": prompt_text(params)}]
+    return [{"type": "input_text", "text": b.get("text", "")} for b in blocks
+            if isinstance(b.get("text"), str)]
+
+
+def codex_visible_text(payload):
+    """Read a fixture rollout like adopt_replay: context is not a person prompt."""
+    content = payload.get("content", [])
+    return "".join(item.get("text", "") for item in content
+                   if isinstance(item, dict) and not guidance_text(item.get("text", "")))
+
+
 def codex_store_prompt(rid, params):
     sid = params["sessionId"]
-    text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    text = prompt_text(params)
     codex_write(sid, "event_msg", {"type": "task_started"})
-    codex_write(sid, "response_item", {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]})
+    codex_write(sid, "response_item", {"type": "message", "role": "user", "content": codex_transcript_content(params)})
     # A turn takes time: it never ends in the millisecond it started.
     time.sleep(0.02)
     reply = "ok: " + text
@@ -173,9 +218,9 @@ def codex_store_prompt(rid, params):
         with open(rollouts[sid]) as f:
             records = [json.loads(line) for line in f if line.strip()]
         reply = json.dumps({
-            "prompts": [r["payload"]["content"][0]["text"] for r in records
+            "prompts": [codex_visible_text(r["payload"]) for r in records
                         if r["type"] == "response_item" and r["payload"].get("role") == "user"
-                        and r["payload"]["content"][0]["text"] != "history-probe"],
+                        and codex_visible_text(r["payload"]) != "history-probe"],
             "sessions": sorted({r["payload"]["id"] for r in records if r["type"] == "session_meta"}),
         })
     # Native rollouts retain the assistant reply as well as the user's prompt.
@@ -200,7 +245,7 @@ def codex_prompt(rid, params):
     """codex-acp: the first prompt runs the turn; a prompt during it joins it.
     At the turn's end only the last joined prompt is answered."""
     sid = params["sessionId"]
-    text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    text = prompt_text(params)
     with lock:
         running = codex_turns.get(sid)
         if running is not None:
@@ -246,7 +291,7 @@ claude_withdrawn = set()
 def claude_prompt(rid, params):
     """Claude Code: a prompt during a turn is a steer, answered "steered" at once."""
     sid = params["sessionId"]
-    text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    text = prompt_text(params)
     with lock:
         steer = sid in claude_turns
         if not steer:
@@ -336,7 +381,7 @@ def handle_prompt(rid, params):
     if os.environ.get("FAKE_RESET_CANCEL_ON_PROMPT") == "1":
         cancelled.discard(sid)
     blocks = params.get("prompt", [])
-    text = "".join(b.get("text", "") for b in blocks)
+    text = prompt_text(params)
     if text.startswith("envs:"):
         names = [name.strip() for name in text[5:].split(",") if name.strip()]
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
@@ -357,9 +402,12 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
         time.sleep(0.05)
         os._exit(0)
-    # "net-refused-later" waits a moment, then fails with a refused connection.
-    if text == "net-refused-later":
-        time.sleep(0.5)
+    # "net-refused-gate: PATH" blocks on the FIFO at PATH (as "gate:"), then fails with a refused
+    # connection: the test's open of the FIFO returns once the agent has the prompt, and the
+    # answer waits until the test closes it.
+    if text.startswith("net-refused-gate:"):
+        with open(text[len("net-refused-gate:"):].split("<", 1)[0].strip()) as gate:
+            gate.read()
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "connection refused: error sending request for url (https://relay.invalid/responses)"}})
         return
     # A harness-level RPC failure whose wording resembles a dead daemon must
@@ -1699,7 +1747,7 @@ def main():
             # file exists: a long answer then waits in the agent host's stdin writer, as it does
             # for a harness that stopped reading.
             hold = os.environ.get("FAKE_ASK_HOLDS_STDIN")
-            if hold and "".join(b.get("text", "") for b in params.get("prompt", [])).startswith("ask:"):
+            if hold and prompt_text(params).startswith("ask:"):
                 import time as clock  # main() binds `time` locally
                 while not os.path.exists(hold):
                     clock.sleep(0.02)
