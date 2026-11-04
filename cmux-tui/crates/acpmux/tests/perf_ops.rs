@@ -76,8 +76,8 @@ impl Daemon {
         let work = scratch.join("work");
         std::fs::create_dir_all(&home).unwrap();
         std::fs::create_dir_all(&work).unwrap();
-        // R-DURABILITY S2c I/O policy A/B: `PERF_OPS_JOURNAL=1` turns `store.journal` on.
-        let journal = std::env::var("PERF_OPS_JOURNAL").is_ok_and(|v| v == "1");
+        // R-DURABILITY S2c I/O policy A/B: a step key with `-journal` turns `store.journal` on.
+        let journal = arm().1;
         std::fs::write(
             home.join("config.json"),
             json!({"harnesses": {"fake": {"argv": ["python3", AGENT]}}, "defaultHarness": "fake",
@@ -91,10 +91,7 @@ impl Daemon {
             .env("ACPMUX_SOCKET", scratch.join("s.sock"))
             .env("ACPMUX_CATALOG_FETCH", "0")
             .env("ACPMUX_LOGIN_ENV", "0")
-            .env(
-                "ACPMUX_TEST_DAEMON_IO",
-                std::env::var("ACPMUX_TEST_DAEMON_IO").unwrap_or_default(),
-            )
+            .env("ACPMUX_TEST_DAEMON_IO", if arm().0 { "default" } else { "utility" })
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -668,28 +665,30 @@ fn disk_stress(dir: &Path) -> Child {
         .expect("start the disk stress")
 }
 
+/// The A/B arm from the fleet step's key (`CMUX_CI_STEP_KEY`; a step takes no other variable):
+/// `iopol-default` or `iopol-utility` (the daemon's disk tier), and `-journal` (`store.journal`).
+/// Outside such a step: the product's utility tier, no journal.
+fn arm() -> (bool, bool) {
+    let key = std::env::var("CMUX_CI_STEP_KEY").unwrap_or_default();
+    (key.contains("iopol-default"), key.contains("-journal"))
+}
+
 /// Acknowledged replies (send to reply) with the daemon's disk I/O policy and the event journal
-/// as the step sets them (`ACPMUX_TEST_DAEMON_IO`, `PERF_OPS_JOURNAL`), light and under STRESS
-/// (16 chats streaming to two attached clients) plus another process's disk stress. Runs only
-/// when `PERF_OPS_IOPOL=1`; `ACPMUX-PERF iopol.*` rows.
+/// as the step key names them ([`arm`]), light and under STRESS (16 chats streaming to two
+/// attached clients) plus another process's disk stress. Runs only in a step whose key contains
+/// `iopol-`; `ACPMUX-PERF iopol.*` rows.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn acked_replies_by_daemon_io_policy() {
-    if std::env::var("PERF_OPS_IOPOL").map_or(true, |v| v != "1") {
-        eprintln!("ACPMUX-PERF iopol SKIP (PERF_OPS_IOPOL=1 runs it)");
+    if !std::env::var("CMUX_CI_STEP_KEY").is_ok_and(|key| key.contains("iopol-")) {
+        eprintln!("ACPMUX-PERF iopol SKIP (runs in a fleet step whose key contains iopol-)");
         return;
     }
     let _ = HERMETIC;
+    let (default_io, journal) = arm();
     let label = format!(
         "{}-{}",
-        std::env::var("ACPMUX_TEST_DAEMON_IO")
-            .ok()
-            .filter(|v| !v.is_empty())
-            .unwrap_or("utility".into()),
-        if std::env::var("PERF_OPS_JOURNAL").is_ok_and(|v| v == "1") {
-            "journal"
-        } else {
-            "nojournal"
-        }
+        if default_io { "default" } else { "utility" },
+        if journal { "journal" } else { "nojournal" }
     );
     let dir = scratch();
     let daemon = Daemon::start(&dir);
