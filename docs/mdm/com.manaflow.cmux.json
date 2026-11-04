@@ -12,6 +12,16 @@
       "title" : "Attachment View",
       "type" : "string"
     },
+    "agentPane.composerRing" : {
+      "default" : "context",
+      "description" : "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them.",
+      "enum" : [
+        "context",
+        "planUsage"
+      ],
+      "title" : "Composer Ring",
+      "type" : "string"
+    },
     "agentPane.display.code.family" : {
       "description" : "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font.",
       "title" : "Chat Code Font",
@@ -23,6 +33,14 @@
       "minimum" : 0.6,
       "title" : "Chat Code Size",
       "type" : "number"
+    },
+    "agentPane.display.commandLabels" : {
+      "default" : [
+
+      ],
+      "description" : "How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label.",
+      "title" : "Command Labels",
+      "type" : "string"
     },
     "agentPane.display.environment.placement" : {
       "default" : "left",

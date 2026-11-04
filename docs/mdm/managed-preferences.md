@@ -283,6 +283,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.presentation` | string | `"transcript"` | `transcript`, `messages` | Chat Presentation |
 | `agentPane.display.harnessPlacement` | string | `"symbols"` | `symbols`, `left`, `top`, `compact` | Model Picker Harness Placement |
 | `agentPane.display.rail.side` | string | `"left"` | `left`, `right` | Prompt Rail Side. The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it. |
+| `agentPane.display.commandLabels` | string | `[]` |  | Command Labels. How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
 | `terminal.linkOpener.default` | string | `"cmux"` |  | Open Program Links In. Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins. |
@@ -617,6 +618,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.editedFiles.maxRows` | real | `5` | 1 to 50 | Edited Files Shown |
 | `agentPane.editedFiles.scope` | string | `"turn"` | `turn`, `session` | Edited Files Card Covers |
 | `agentPane.showContextUsage` | boolean | `true` |  | Show Context Usage. The ring beside the model that fills as the chat uses its context window. |
+| `agentPane.composerRing` | string | `"context"` | `context`, `planUsage` | Composer Ring. What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them. |
 | `agentPane.showDictation` | boolean | `true` |  | Show Dictation Button. The microphone beside Send in every composer, including the New Tab page. |
 | `agentPane.spellChecking` | boolean | `false` |  | Check Spelling While Typing. Underlines misspellings and offers system suggestions in the composer. |
 | `agentPane.attachmentView` | string | `"inline"` | `inline`, `strip`, `both` | Attachment View. How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same. |
