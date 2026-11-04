@@ -271,14 +271,51 @@ class Reconcile(unittest.TestCase):
         self.assertEqual(value["macos_26_large"], "blacksmith-12vcpu-macos-26")
         self.assertEqual(value["_dead"], {})
 
-    def test_a_dead_member_flips_its_pools_to_the_next(self) -> None:
-        value, lines = self.run_once({}, dead={"blacksmith-6vcpu-macos-26"})
+    def test_a_dead_member_flips_its_pools_to_a_next_one_that_started_a_job(self) -> None:
+        value, lines = self.run_once({}, dead={"blacksmith-6vcpu-macos-26"}, served={"blacksmith-12vcpu-macos-26"})
         self.assertEqual(value["macos_26"], "blacksmith-12vcpu-macos-26")
         self.assertEqual(value["macos_26_large"], "blacksmith-12vcpu-macos-26")
         self.assertIn("pools.macos_26: unset -> blacksmith-12vcpu-macos-26", lines)
 
+    def test_a_fallback_with_no_start_is_never_chosen(self) -> None:
+        # 2026-11-04 13:43Z: blacksmith-6vcpu-macos-26 was marked dead on a slow queue and macos_26 moved to
+        # blacksmith-12vcpu-macos-26, which started nothing; run 41841056674 sat queued there for 50 minutes.
+        value, lines = self.run_once({}, dead={"blacksmith-6vcpu-macos-26"})
+        self.assertEqual(value["macos_26"], "blacksmith-6vcpu-macos-26")
+        self.assertEqual(value["macos_26_large"], "blacksmith-12vcpu-macos-26")
+        self.assertIn("pools.macos_26: not blacksmith-12vcpu-macos-26; no job started there in the last 1:00:00", lines)
+        # A start older than STARTED_TTL is no evidence either.
+        old = runner_pools.iso(NOW - runner_pools.STARTED_TTL - dt.timedelta(minutes=1))
+        value, _ = self.run_once({"_started": {"blacksmith-12vcpu-macos-26": old}}, dead={"blacksmith-6vcpu-macos-26"})
+        self.assertEqual(value["macos_26"], "blacksmith-6vcpu-macos-26")
+        self.assertNotIn("_started", value)
+        # A recent one is, and is kept for the next pass.
+        recent = runner_pools.iso(NOW - dt.timedelta(minutes=20))
+        value, _ = self.run_once({"_started": {"blacksmith-12vcpu-macos-26": recent}}, dead={"blacksmith-6vcpu-macos-26"})
+        self.assertEqual(value["macos_26"], "blacksmith-12vcpu-macos-26")
+        self.assertEqual(value["_started"], {"blacksmith-12vcpu-macos-26": recent})
+
+    def test_a_pool_on_a_fallback_stays_only_while_nothing_is_known_about_it(self) -> None:
+        first, _ = self.run_once({}, dead={"blacksmith-6vcpu-macos-26"}, served={"blacksmith-12vcpu-macos-26"})
+        later = NOW + runner_pools.STARTED_TTL + dt.timedelta(minutes=5)
+        current = dict(first, _dead={"blacksmith-6vcpu-macos-26": runner_pools.iso(later - dt.timedelta(minutes=5))})
+        # Every read failed: the pool stays where it is.
+        value, _ = runner_pools.reconcile(current, POOLS, dead_now=(), served_now=(), now=later, covered=set())
+        self.assertEqual(value["macos_26"], "blacksmith-12vcpu-macos-26")
+        # A fresh read that shows no start there for STARTED_TTL: back to the first member.
+        covered = {label for spec in POOLS.values() for label in spec["members"]}
+        value, _ = runner_pools.reconcile(current, POOLS, dead_now=(), served_now=(), now=later, covered=covered)
+        self.assertEqual(value["macos_26"], "blacksmith-6vcpu-macos-26")
+
+    def test_a_start_record_alone_does_not_move_updated(self) -> None:
+        value, _ = self.run_once({}, served={"blacksmith-16vcpu-ubuntu-2404"})
+        again, lines = self.run_once(value, served={"blacksmith-16vcpu-ubuntu-2404"}, now=NOW + dt.timedelta(minutes=10))
+        self.assertEqual(lines, [])
+        self.assertEqual(again["_updated"], value["_updated"])
+        self.assertEqual(again["_started"], {"blacksmith-16vcpu-ubuntu-2404": runner_pools.iso(NOW + dt.timedelta(minutes=10))})
+
     def test_a_mark_holds_until_it_expires_or_the_label_starts_a_job(self) -> None:
-        first, _ = self.run_once({}, dead={"blacksmith-32vcpu-ubuntu-2404"})
+        first, _ = self.run_once({}, dead={"blacksmith-32vcpu-ubuntu-2404"}, served={"blacksmith-16vcpu-ubuntu-2404"})
         self.assertEqual(first["linux"], "blacksmith-16vcpu-ubuntu-2404")
         held, _ = self.run_once(first, now=NOW + dt.timedelta(minutes=20))
         self.assertEqual(held["linux"], "blacksmith-16vcpu-ubuntu-2404")
@@ -328,7 +365,8 @@ class Schema(unittest.TestCase):
     def test_malformed_values_are_repaired_not_crashed_on(self) -> None:
         good, _ = runner_pools.reconcile({}, POOLS, dead_now=(), served_now=(), now=NOW)
         for raw in ('{"_dead":[]}', '{"_dead":{"blacksmith-32vcpu-ubuntu-2404":"2026-10-28T22:00:00"}}',
-                    '{"_dead":{"blacksmith-32vcpu-ubuntu-2404":7}}', '{"linux":"ubuntu-24.04"}', '{"linux":3}',
+                    '{"_dead":{"blacksmith-32vcpu-ubuntu-2404":7}}', '{"_started":[]}',
+                    '{"_started":{"blacksmith-16vcpu-ubuntu-2404":"soon"}}', '{"linux":"ubuntu-24.04"}', '{"linux":3}',
                     '[]', '"x"', 'not json'):
             with self.subTest(raw=raw):
                 current, dropped = runner_pools.parse_value(raw, POOLS)
@@ -338,7 +376,9 @@ class Schema(unittest.TestCase):
                 self.assertEqual(value["_dead"], {})
 
     def test_a_valid_value_round_trips(self) -> None:
-        value, _ = runner_pools.reconcile({}, POOLS, dead_now={"blacksmith-6vcpu-macos-26"}, served_now=(), now=NOW)
+        value, _ = runner_pools.reconcile({}, POOLS, dead_now={"blacksmith-6vcpu-macos-26"},
+                                          served_now={"blacksmith-12vcpu-macos-26"}, now=NOW)
+        self.assertIn("_started", value)
         current, dropped = runner_pools.parse_value(runner_pools.render(value), POOLS)
         self.assertEqual(dropped, [])
         self.assertEqual(runner_pools.render(current), runner_pools.render(value))
@@ -452,8 +492,10 @@ class Main(unittest.TestCase):
         value, _ = runner_pools.reconcile(current, pools, dead_now=(), served_now=(), now=NOW, covered=covered)
         self.assertEqual((value["linux"], value["_dead"]), (first, {}))
         # Health that lists only the other size says nothing about the dead one: kept.
-        covered = runner_pools.evidence_covers(health({second: "started"}), None, pools, now=NOW)
-        value, _ = runner_pools.reconcile(current, pools, dead_now=(), served_now=(), now=NOW, covered=covered)
+        only_second = health({second: "started"})
+        covered = runner_pools.evidence_covers(only_second, None, pools, now=NOW)
+        value, _ = runner_pools.reconcile(current, pools, dead_now=(), served_now=(), now=NOW, covered=covered,
+                                          started_at=runner_pools.start_evidence(only_second, None, now=NOW))
         self.assertEqual(value["linux"], second)
 
     def test_an_unreadable_linux_runner_is_not_overwritten(self) -> None:
@@ -487,7 +529,8 @@ class Main(unittest.TestCase):
         current, _ = runner_pools.parse_value(json.dumps({"linux": "blacksmith-4vcpu-ubuntu-2404"}),
                                               runner_pools.load_pools())
         value, _ = runner_pools.reconcile(current, runner_pools.load_pools(),
-                                          dead_now={"blacksmith-4vcpu-ubuntu-2404"}, served_now=(), now=NOW)
+                                          dead_now={"blacksmith-4vcpu-ubuntu-2404"},
+                                          served_now={"blacksmith-16vcpu-ubuntu-2404"}, now=NOW)
         self.assertEqual(value["linux"], "blacksmith-16vcpu-ubuntu-2404")
         live = {"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}
         self.assertEqual(runner_pools.mirror_writes(value, live, record=MACOS_ONLY_RECORD),
@@ -563,6 +606,45 @@ exit 0
         for step in steps:
             for name in (*runner_pools.MIRRORS, runner_pools.OVERFLOW_RECORD):
                 self.assertEqual(step["env"].get(name), "${{ vars.%s }}" % name)
+
+    def test_a_slow_mac_marked_dead_never_moves_onto_a_size_that_started_nothing(self) -> None:
+        # The 2026-11-04 13:43Z pass, through main(): the janitor saw blacksmith-6vcpu-macos-26's oldest job
+        # waiting past the stall rule, and blacksmith-12vcpu-macos-26 running nothing and with no start.
+        snapshot = copy.deepcopy(RECORDED)
+        snapshot["pools"]["blacksmith-6vcpu-macos-26"].update(queued=4, oldest_queued_minutes=34)
+        snapshot["pools"]["blacksmith-12vcpu-macos-26"] = {"queued": 1, "running": 0, "reserved_queued": 0,
+                                                           "oldest_queued_minutes": 2}
+        snapshot["label_started"] = {"blacksmith-6vcpu-macos-26": runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=3))}
+        switch = self.Switch({"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"})
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": ""}, api=self.Api(snapshot), switch=switch, now=NOW), 0)
+        value = json.loads(switch.writes[0][1])
+        self.assertIn("blacksmith-6vcpu-macos-26", value["_dead"])
+        self.assertEqual(value["macos_26"], "blacksmith-6vcpu-macos-26")
+        self.assertNotIn("blacksmith-12vcpu-macos-26", value.get("_started", {}))
+        # Once the janitor sees a job start on 12 vCPU, it is a live fallback and macos_26 moves there.
+        snapshot["label_started"]["blacksmith-12vcpu-macos-26"] = runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=10))
+        switch = self.Switch({"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"})
+        env = {"RUNNER_POOLS": runner_pools.render(value)}
+        self.assertEqual(runner_pools.main([], env, api=self.Api(snapshot), switch=switch, now=NOW), 0)
+        self.assertEqual(json.loads(switch.writes[0][1])["macos_26"], "blacksmith-12vcpu-macos-26")
+
+    def test_start_evidence_reads_only_fresh_positive_signals(self) -> None:
+        snapshot = copy.deepcopy(RECORDED)
+        snapshot["pools"]["blacksmith-12vcpu-macos-26"] = {"queued": 5, "running": 0, "oldest_queued_minutes": 1}
+        snapshot["label_started"] = {"glaeda-std-xcode-26.6": runner_pools.iso(SNAPSHOT_AT),
+                                     "blacksmith-32vcpu-ubuntu-2404": runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=7))}
+        snapshot["dead_labels"] = [{"label": "blacksmith-16vcpu-ubuntu-2404", "live": ["blacksmith-8vcpu-ubuntu-2404"]}]
+        seen = runner_pools.start_evidence(health({"blacksmith-4vcpu-ubuntu-2404": "started",
+                                                   "blacksmith-16vcpu-ubuntu-2404": "stalled"}), snapshot, now=NOW)
+        self.assertEqual(set(seen), {"blacksmith-4vcpu-ubuntu-2404", "blacksmith-6vcpu-macos-15",
+                                     "blacksmith-6vcpu-macos-26", "blacksmith-32vcpu-ubuntu-2404",
+                                     "blacksmith-8vcpu-ubuntu-2404"})
+        self.assertEqual(seen["blacksmith-32vcpu-ubuntu-2404"], SNAPSHOT_AT - dt.timedelta(minutes=7))
+        # A truncated or stale snapshot, or stale health, shows nothing.
+        self.assertEqual(runner_pools.start_evidence(None, dict(snapshot, truncated=True), now=NOW), {})
+        self.assertEqual(runner_pools.start_evidence(None, snapshot, now=NOW + dt.timedelta(hours=2)), {})
+        self.assertEqual(runner_pools.start_evidence(
+            health({"blacksmith-4vcpu-ubuntu-2404": "started"}, checked=NOW - dt.timedelta(hours=1)), None, now=NOW), {})
 
     def test_nothing_changed_writes_nothing(self) -> None:
         switch = self.Switch({"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"})

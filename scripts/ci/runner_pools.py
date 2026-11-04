@@ -35,8 +35,14 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
   it probes, the janitor's snapshot for the rest. Unknown stays unknown: in watch run 41279880300
   (2026-11-01 06:12-06:23Z) every read returned 403, the marks expired with no evidence at all, and
   the linux pool went from 16 back to the stalled 32 vCPU size;
-- points each pool at its first member with no mark. With every member marked, the pool keeps
-  its first member;
+- points each pool at its first member with no mark. A member after the first becomes the live one
+  only on positive evidence that it starts jobs (start_evidence(), STARTED_TTL): the probe saw it start,
+  or the janitor's snapshot shows a job running there or a start on it. A pool already on such a member
+  stays there while this pass has no fresh evidence about it (unknown stays unknown). With no member
+  both unmarked and shown live, the pool keeps its first member. On 2026-11-04 the stall rule marked
+  blacksmith-6vcpu-macos-26 dead at 13:43Z on a slow queue (run 41836952227 waited 34 minutes and then
+  ran there), and macos_26 moved to blacksmith-12vcpu-macos-26, which had started nothing in days: run
+  41841056674 sat queued there for 50 minutes until it was cancelled;
 - writes RUNNER_POOLS only when something changed. A value that does not match the schema
   (parse_value()) is replaced from the declared defaults, never crashed on.
 
@@ -92,6 +98,13 @@ MIRRORS = {"LINUX_RUNNER": "linux"}
 OVERFLOW_RECORD = "CI_CLOUD_OVERFLOW_SAVED"
 DEAD_KEY = "_dead"
 UPDATED_KEY = "_updated"
+# label -> when it was last seen starting a job (start_evidence()), kept so a fallback member chosen on that
+# evidence is not dropped on a pass whose reads failed. It does not move `_updated`, which dates the marks and
+# the choices (e2e_runner_pool.lingering_dead()).
+STARTED_KEY = "_started"
+# A member after a pool's first is chosen only if it started a job this recently: the janitor's own
+# "dead, not busy" window (simple_pool_picker.BLACKSMITH_DEAD_MINUTES).
+STARTED_TTL = dt.timedelta(minutes=simple_pool_picker.BLACKSMITH_DEAD_MINUTES)
 # A dead mark lasts this long unless seen again. The probe runs every 10 minutes and the janitor
 # sweeps about as often, so a label that is still dead is marked again before its mark expires,
 # and one that recovered is used again within half an hour (or at once when it starts a job).
@@ -180,15 +193,17 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
             clean[name] = value[name]
         else:
             dropped.append(f"{VARIABLE}.{name}={value[name]!r} is not a member of pools.{name}; reset")
-    marks = value.get(DEAD_KEY, {})
-    if isinstance(marks, dict):
-        good = {label: since for label, since in marks.items()
-                if isinstance(label, str) and parse_time(since) is not None}
-        if len(good) != len(marks):
-            dropped.append(f"{VARIABLE}.{DEAD_KEY} holds entries that are not label -> zoned time; dropped")
-        clean[DEAD_KEY] = good
-    else:
-        dropped.append(f"{VARIABLE}.{DEAD_KEY} is not an object; reset")
+    for key in (DEAD_KEY, STARTED_KEY):
+        marks = value.get(key, {})
+        if isinstance(marks, dict):
+            good = {label: since for label, since in marks.items()
+                    if isinstance(label, str) and parse_time(since) is not None}
+            if len(good) != len(marks):
+                dropped.append(f"{VARIABLE}.{key} holds entries that are not label -> zoned time; dropped")
+            if good or key == DEAD_KEY:
+                clean[key] = good
+        else:
+            dropped.append(f"{VARIABLE}.{key} is not an object; reset")
     if isinstance(value.get(UPDATED_KEY), str) and parse_time(value[UPDATED_KEY]) is not None:
         clean[UPDATED_KEY] = value[UPDATED_KEY]
     return clean, dropped
@@ -326,6 +341,49 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
     return dead - started, started, notes
 
 
+def start_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any] | None, *,
+                   now: dt.datetime) -> dict[str, dt.datetime]:
+    """label -> when this pass's fresh evidence last saw it start a job: the positive evidence a fallback needs.
+
+    The probe's "started" (at its `checked`), and from a fresh, complete janitor snapshot a job running there or a
+    dead-label entry's `live` member (at its `generated_at`) and its `label_started` time. A label with a queue
+    and no stall, or one the reads say nothing about, has shown nothing: an idle label and a dead one look alike."""
+    seen: dict[str, dt.datetime] = {}
+
+    def saw(label: object, moment: dt.datetime | None) -> None:
+        if isinstance(label, str) and EPHEMERAL.match(label) and moment is not None \
+                and moment - now <= dt.timedelta(minutes=1) and (label not in seen or moment > seen[label]):
+            seen[label] = moment
+
+    if isinstance(health, Mapping):
+        checked, labels = parse_time(health.get("checked")), health.get("labels")
+        if checked is not None and isinstance(labels, Mapping) and \
+                dt.timedelta(minutes=-1) <= now - checked <= HEALTH_MAX_AGE:
+            for label, state in labels.items():
+                if state == "started":
+                    saw(label, checked)
+    generated = parse_time(snapshot.get("generated_at")) if isinstance(snapshot, Mapping) else None
+    if generated is None or not (dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE) \
+            or pr_runner_pool.snapshot_truncated(snapshot):
+        return seen
+    for label, load in (snapshot.get("pools") or {}).items():
+        try:
+            running = int(load.get("running") or 0) if isinstance(load, Mapping) else 0
+        except (TypeError, ValueError):
+            continue
+        if running > 0:
+            saw(label, generated)
+    starts = snapshot.get("label_started")
+    if isinstance(starts, Mapping):
+        for label, moment in starts.items():
+            saw(label, parse_time(moment))
+    for entry in snapshot.get("dead_labels") or ():
+        if isinstance(entry, Mapping) and isinstance(entry.get("live"), list):
+            for label in entry["live"]:
+                saw(label, generated)
+    return seen
+
+
 def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any] | None,
                     pools: Mapping[str, Mapping[str, Any]], *, now: dt.datetime) -> set[str]:
     """The labels this pass has fresh evidence about, so a dead mark on one may expire.
@@ -349,12 +407,16 @@ def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any
 
 def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]], *,
               dead_now: Iterable[str], served_now: Iterable[str], now: dt.datetime,
-              covered: Iterable[str] | None = None) -> tuple[dict[str, Any], list[str]]:
+              covered: Iterable[str] | None = None,
+              started_at: Mapping[str, dt.datetime] | None = None) -> tuple[dict[str, Any], list[str]]:
     """The next RUNNER_POOLS value and a line per change. `current` is parse_value()'s output.
 
-    `covered` (evidence_covers()) names the labels whose marks may expire; None lets every mark expire."""
+    `covered` (evidence_covers()) names the labels whose marks may expire; None lets every mark expire.
+    `started_at` (start_evidence()) and `served_now` (seen starting now) are the positive evidence a member
+    after a pool's first needs before it is chosen; `current`'s `_started` keeps it for STARTED_TTL."""
     lines: list[str] = []
     marks: dict[str, str] = {}
+    dead_now, served_now = set(dead_now), set(served_now)
     known_now = None if covered is None else set(covered)
     for label, since in (current.get(DEAD_KEY) or {}).items():
         seen = parse_time(since)
@@ -375,10 +437,40 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
         marks[label] = iso(now)
     known = {label for spec in pools.values() for label in members(spec)}
     marks = {label: since for label, since in marks.items() if label in known}
+    starts: dict[str, dt.datetime] = {}
+    for label, since in (current.get(STARTED_KEY) or {}).items():
+        seen = parse_time(since)
+        if seen is not None:
+            starts[label] = seen
+    for label, seen in [*(started_at or {}).items(), *((label, now) for label in served_now)]:
+        if label not in starts or seen > starts[label]:
+            starts[label] = seen
+    for label in dead_now:
+        # Dead this pass: an earlier start no longer vouches for it.
+        if label not in served_now:
+            starts.pop(label, None)
+    starts = {label: seen for label, seen in starts.items()
+              if label in known and dt.timedelta(minutes=-1) <= now - seen < STARTED_TTL}
+    unknown = set() if known_now is None else known - known_now
+
+    def usable(name: str, label: str, index: int) -> bool:
+        if label in marks:
+            return False
+        # The first member is the pool's default; a later one needs a recent start, or is where the pool
+        # already is with nothing known about it this pass.
+        return index == 0 or label in starts or (label == current.get(name) and label in unknown)
+
     value: dict[str, Any] = {}
     for name, spec in sorted(pools.items()):
         candidates = members(spec)
-        chosen = next((label for label in candidates if label not in marks), candidates[0])
+        chosen = next((label for index, label in enumerate(candidates) if usable(name, label, index)),
+                      candidates[0])
+        if candidates[0] in marks:
+            for label in candidates[1:]:
+                if label == chosen:
+                    break
+                if label not in marks:
+                    lines.append(f"pools.{name}: not {label}; no job started there in the last {STARTED_TTL}")
         if current.get(name) != chosen:
             lines.append(f"pools.{name}: {current.get(name) or 'unset'} -> {chosen}")
         value[name] = chosen
@@ -388,6 +480,8 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
         value[UPDATED_KEY] = iso(now)
     else:
         value[UPDATED_KEY] = current[UPDATED_KEY]
+    if starts:
+        value[STARTED_KEY] = {label: iso(seen) for label, seen in sorted(starts.items())}
     return value, lines
 
 
@@ -473,7 +567,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     for note in notes:
         print(note)
     value, lines = reconcile(current, pools, dead_now=dead, served_now=started, now=now,
-                             covered=evidence_covers(health, snapshot, pools, now=now))
+                             covered=evidence_covers(health, snapshot, pools, now=now),
+                             started_at=start_evidence(health, snapshot, now=now))
     for line in lines:
         print(line)
     summary = env.get("GITHUB_STEP_SUMMARY")

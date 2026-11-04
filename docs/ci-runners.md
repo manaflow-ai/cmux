@@ -1019,7 +1019,14 @@ same stall rule as `simple_pool_picker.blacksmith_stalled()`, and the
 dead-label entries once #27114 lands). It marks those labels dead, points each
 pool at its first unmarked member, and writes `RUNNER_POOLS` only on a change.
 A mark expires after 30 minutes unless seen again; a label seen starting a job
-is cleared at once. With every member marked, the pool keeps its first. A
+is cleared at once. A member after the first becomes the live one only on
+positive evidence that it starts jobs: the probe saw it start, or the janitor's
+snapshot shows a job running there or started on it within the last hour
+(kept in `RUNNER_POOLS._started`). On 2026-11-04 a slow but alive 6 vCPU macOS
+26 queue was marked dead and `macos_26` moved to 12 vCPU, which had started
+nothing; a run sat queued there for 50 minutes. A pool already on a fallback
+stays there while a pass has no fresh evidence about it. With no member both
+unmarked and shown live, the pool keeps its first. A
 malformed `RUNNER_POOLS` is rewritten from these declarations, never crashed
 on. Jobs already queued on a dead member keep that label (GitHub binds it when
 it creates the job); moving them is the queue janitor's dead-label re-dispatch
