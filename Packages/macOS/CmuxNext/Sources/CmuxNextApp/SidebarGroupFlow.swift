@@ -94,9 +94,9 @@ struct SidebarGroupFlow {
         let life = bridge.life, ending = life.emptied(by: members, into: id)
         // A pending edit until the store holds the move (cx-odqn): no recompute in between shows the old group.
         let (failed, applied) = bridge.rows.edits.outcome(bridge.rows.edits.add(intent), failed: bridge.saveFailed(intent))
-        life.commit("set-personal-workspace", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) }, until: life.personal.writes.claim(workspaces: members.map { ($0.session, $0.key.rawValue) }),
-                    failed: failed, applied: applied) { connection in
-            for workspace in members {
+        let writes = life.personal.writes, claim = writes.claim(workspaces: members.map { ($0.session, $0.key.rawValue) })
+        life.commit("set-personal-workspace", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) }, until: claim, failed: failed, applied: applied) { connection in
+            for workspace in members { guard await writes.isCurrent(claim, workspace: workspace.session, workspace.key.rawValue) else { continue } // a later move's
                 try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
                                                                   group: .set(id))
             }

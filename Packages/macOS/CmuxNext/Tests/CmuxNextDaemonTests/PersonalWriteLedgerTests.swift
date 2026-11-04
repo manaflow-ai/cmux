@@ -21,8 +21,14 @@ struct PersonalWriteLedgerTests {
         let other = ledger.claim([PersonalWriteLedger.group("g1", "name")])
         #expect(!ledger.isSuperseded(first), "a write to something else supersedes nothing")
         let second = ledger.claim([a])
-        #expect(ledger.isSuperseded(first), "last write wins")
+        #expect(!ledger.isCurrent(first, a), "last write wins for a")
+        #expect(ledger.isCurrent(first, workspace: "s", "b"), "b's move is still the first write's to send")
+        #expect(!ledger.isSuperseded(first), "a move of [a, b] followed by a move of a alone still sends b")
+        #expect(ledger.isCurrent(second, a))
+        let third = ledger.claim([b])
+        #expect(ledger.isSuperseded(first), "every key the first write set was taken by a later one")
         #expect(!ledger.isSuperseded(second))
+        #expect(!ledger.isSuperseded(third))
         #expect(!ledger.isSuperseded(other))
     }
 }
