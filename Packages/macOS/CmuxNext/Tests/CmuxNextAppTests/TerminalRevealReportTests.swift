@@ -93,7 +93,7 @@ struct TerminalRevealReportTests {
         fixture.session.view.isHidden = true
         let kept = try #require(view.presentedFrame, "the hidden terminal kept no frame")
         var old: UInt32 = 0
-        IOSurfaceSetPurgeable(kept, IOSurface.purgeableEmpty, &old) // what memory pressure does to it
+        IOSurfaceSetPurgeable(unsafeBitCast(kept, to: IOSurfaceRef.self), IOSurface.purgeableEmpty, &old) // what memory pressure does to it
         fixture.session.view.isHidden = false
         let second = try #require(fixture.recorder.revealed.last)
         #expect(fixture.recorder.revealed.count == 2)
