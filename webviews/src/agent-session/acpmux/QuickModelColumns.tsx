@@ -35,6 +35,9 @@ import {
   type QuickMenu,
   type QuickModel,
 } from "./QuickModelMenu";
+import { usePopupHost } from "../../ui/UiProvider";
+import { useNativePopup, type NativePopupDescription, type NativePopupEvent, type NativePopupRow } from "../../ui/nativePopup";
+import { QuickNativeRows } from "./quickMenuNative";
 import "./quickModelColumns.css";
 
 type Column = 0 | 1 | 2;
@@ -46,6 +49,13 @@ type TuneRow =
   | { kind: "fast" };
 
 const HUES = [250, 160, 30, 300, 200, 90];
+
+/// The columns' widths, as quickModelColumns.css's grid draws them: rail, models, then settings.
+const RAIL_WIDTH = 48;
+const MODELS_WIDTH = 149;
+const TUNE_WIDTH = 153;
+/// The columns' band in the native popup: the web frame's 259 px less its search row.
+const NATIVE_BAND = 220;
 
 /// The Starred tab's id when the picker sends none (nothing starred yet).
 const STARRED_TAB = "\u0000starred";
@@ -343,6 +353,15 @@ function Columns({
     observer.observe(frame);
     sizeHold.current = observer;
   }, []);
+  // The native popup host (the app's WebPopupHost) draws these columns wherever the page has one;
+  // the stable ids of the rows it is sent.
+  const nativeHost = usePopupHost()?.native;
+  const nativeRows = useRef<QuickNativeRows | null>(null);
+  nativeRows.current ??= new QuickNativeRows();
+  // The settings rows' ids as last described (a highlight event names one), and whether the row a
+  // Return ran closed the menu itself.
+  const describedTune = useRef<string[]>([]);
+  const closedNow = useRef(false);
   const modelsList = useRef<HTMLDivElement | null>(null);
   const railList = useRef<HTMLDivElement | null>(null);
 
@@ -957,6 +976,379 @@ function Columns({
   };
 
   const tabEmpty = !query && !!shown && !shown.fork && rows.length === 0;
+
+  // The native popup: the same columns, rows, checks and picks as the web popover below, described
+  // over the native popup protocol. AppKit draws them and moves the keyboard's highlight; every
+  // choice lands through the paths the web columns use. A page with no native host (the browser
+  // gallery) draws the web popover.
+  const describeNative = (): NativePopupDescription => {
+    const out = nativeRows.current!;
+    out.begin();
+    const after = (run: () => void) => () => {
+      closedNow.current = true;
+      close();
+      run();
+    };
+    // The settings column's rows, in the order the arrows reach them (tuneHl's index).
+    const tuneIds: string[] = [];
+    // The rail.
+    const railRows: NativePopupRow[] = tabs.map((entry, index) => {
+      const family = entry === shownTab && shown ? shown : leadRoute(entry, families.current);
+      const launchOnly = entry.routes.length === 1 && !!family.launch && !family.note;
+      const blocked = entry.routes.every((route) => route.launch) && families.forkReady === false;
+      return out.action(
+        `tab\u0000${entry.key}`,
+        entry.name,
+        () => {
+          setCol(1);
+          showTab(index);
+        },
+        {
+          keepOpen: !launchOnly,
+          checked: !query && entry === shownTab,
+          ...(family.note ? { description: family.note } : {}),
+          ...(blocked ? { disabled: true } : {}),
+          ...(family.starred
+            ? { icon: "browser.omnibox.star" }
+            : symbolOf(family) && family.mark
+              ? { mark: family.mark }
+              : { monogram: initialOf(entry.name) }),
+        },
+      );
+    });
+    if (families.onAddHarness)
+      railRows.push(
+        out.action("add-harness", t("modelPicker.addHarness"), after(() => families.onAddHarness?.()), {
+          icon: "action.add",
+        }),
+      );
+    // The models.
+    const modelNative = (model: QuickModel, index: number): NativePopupRow => {
+      const stars = families.stars;
+      const starred = stars?.has(model) ?? false;
+      const starId = out.id(`star\u0000${keyOf(model)}`);
+      if (stars) out.handlers.set(starId, () => stars.toggle(model));
+      return out.action(
+        `model\u0000${keyOf(model)}`,
+        [model.name, model.tag].filter(Boolean).join(" "),
+        () => {
+          setCol(1);
+          pickModel(index);
+        },
+        {
+          keepOpen: true,
+          checked: isChosen(model),
+          ...(twins.has(model) ? { description: model.id } : {}),
+          ...(model.disabled ? { disabled: true } : {}),
+          ...(stars
+            ? { actions: [{ id: starId, label: starred ? "★" : "☆", keepOpen: true }] }
+            : {}),
+        },
+      );
+    };
+    const modelRows: NativePopupRow[] = [];
+    if (!query && shown?.fork) {
+      modelRows.push(out.section("fork-head", tabName));
+      modelRows.push(
+        out.action(
+          "fork",
+          t("picker.forkTo", { harness: shown.name }),
+          after(() => families.onFork?.(shown.id)),
+          families.forkReady ? {} : { disabled: true },
+        ),
+      );
+    } else if (groups) {
+      let at = 0;
+      for (const group of groups) {
+        modelRows.push(out.section(`group\u0000${group.id}`, group.name));
+        for (const model of group.rows) modelRows.push(modelNative(model, at++));
+      }
+    } else {
+      modelRows.push(out.section("caption", shown?.starred ? t("picker.starred") : tabName));
+      rows.forEach((model, index) => {
+        if (index === legacyFrom) modelRows.push(out.section("legacy", t("picker.legacyModels")));
+        modelRows.push(modelNative(model, index));
+      });
+    }
+    if (query && rows.length === 0) modelRows.push(out.text("no-matches", t("picker.noMatches")));
+    if (tabEmpty)
+      modelRows.push(
+        out.text("empty", shown.note ?? (shown.starred ? t("picker.starredNone") : t("picker.noModelsYet"))),
+      );
+    if (!query && shown?.note && rows.length > 0 && shown.setUp) modelRows.push(out.text("note", shown.note));
+    if (!query && shown?.note && shown.logIn)
+      modelRows.push(out.action("log-in", t("harness.logIn"), after(() => shown.logIn?.())));
+    if (!query && shown?.note && shown.setUp)
+      modelRows.push(out.action("set-up", t("harnesses.install"), after(() => shown.setUp?.())));
+    // The shown model's settings: its levels (highest first), its providers, then Fast.
+    const tuneNative: NativePopupRow[] = [out.section("effort-head", t("effort.title"))];
+    const tuneAction = (key: string, label: string, checked: boolean, disabled: boolean, run: () => void) => {
+      const index = tuneIds.length;
+      const row = out.action(
+        key,
+        label,
+        () => {
+          setCol(2);
+          setTuneKeys(false);
+          setTuneHl(index);
+          run();
+        },
+        { keepOpen: true, checked, ...(disabled ? { disabled: true } : {}) },
+      );
+      tuneIds.push(row.id);
+      return row;
+    };
+    if (focus) {
+      if (ladder.length === 0) tuneNative.push(out.text("effort-none", t("picker.effortNone")));
+      for (const choice of ladder)
+        tuneNative.push(
+          tuneAction(
+            `level\u0000${choice.id}`,
+            choice.name,
+            levelChosen && choice.id === level,
+            focusOff || !canLandEffort,
+            () => pickLevel(choice.id),
+          ),
+        );
+      if (offers.length > 0) tuneNative.push(out.section("provider-head", t("picker.provider")));
+      for (const offer of offers)
+        tuneNative.push(
+          tuneAction(
+            `offer\u0000${keyOf(offer)}`,
+            offer.provider,
+            offer === runningOffer,
+            focusOff || !!offer.disabled,
+            () => pickOffer(offer),
+          ),
+        );
+      if (fastShown) {
+        tuneNative.push(out.separator("fast-sep"));
+        const fastId = out.id("fast");
+        if (!focusOff)
+          out.handlers.set(fastId, (event) => {
+            setCol(2);
+            setTuneKeys(false);
+            setTuneHl(tuneIds.indexOf(fastId));
+            if ((event.value === "true") !== fastOn) toggleFast();
+          });
+        tuneIds.push(fastId);
+        tuneNative.push({
+          id: fastId,
+          kind: "toggle",
+          label: t("picker.chipFast"),
+          checked: fastOn,
+          ...(focusOff ? { disabled: true } : {}),
+        });
+      }
+    }
+    // The chat's readiness spans the columns, as the web note under the search row does.
+    const spanning: NativePopupRow[] = [];
+    if (auth && authNote) {
+      spanning.push(out.text("auth", authNote));
+      if (canSessionLogin(auth.verdict) && auth.onLogin)
+        spanning.push(out.action("auth-login", authLoginText(auth.verdict, t), after(() => auth.onLogin?.())));
+      if (auth.onRefresh)
+        spanning.push(out.action("auth-refresh", t("harnesses.checkAgain"), () => auth.onRefresh?.(), { keepOpen: true }));
+    }
+    // The account avatar and its card, beside the popup.
+    const cardRows: NativePopupRow[] = [
+      { ...out.text("card-who", faceName), ...(faceDetail ? { description: faceDetail } : {}) },
+    ];
+    if (canSignIn)
+      cardRows.push(
+        out.action(
+          "card-sign-in",
+          t("picker.signInTo", { harness: ownerName }),
+          after(() => (owner?.logIn ? owner.logIn() : auth?.onLogin?.())),
+        ),
+      );
+    if (others.length > 0 || accountsLoading || accounts.switchFailed) {
+      cardRows.push(out.section("card-others", t("picker.otherAccounts", { harness: ownerName })));
+      if (onChatTab && accounts.switchFailed) cardRows.push(out.text("card-refused", t("picker.accountSwitchFailed")));
+      if (accountsLoading) cardRows.push(out.text("card-wait", accounts.failed ? t("picker.accountFailed") : "…"));
+      for (const other of others)
+        cardRows.push(
+          out.action(`card\u0000${other.key}`, other.name, () => other.pick(), {
+            // A route that only changes the tab keeps the popup; an account switch closes it itself.
+            keepOpen: true,
+            ...(other.detail ? { description: other.detail } : {}),
+            ...(other.disabled ? { disabled: true } : {}),
+          }),
+        );
+    }
+    if (canAdd || (signedOut && onChatTab && auth?.onRefresh)) {
+      cardRows.push(out.separator("card-sep"));
+      if (canAdd) cardRows.push(out.action("card-add", t(signedOut ? "picker.useApiKey" : "picker.addAccountMore"), openAdd));
+      if (signedOut && onChatTab && auth?.onRefresh)
+        cardRows.push(out.action("card-refresh", t("harnesses.checkAgain"), () => auth.onRefresh?.(), { keepOpen: true }));
+    }
+    const accessory: NativePopupRow = avatarShown
+      ? {
+          id: out.id("account"),
+          kind: "submenu",
+          label: `${ownerName} · ${t("picker.account")}: ${faceName}`,
+          ...(face && !face.glyph ? { monogram: initialOf(face.name) } : { icon: face?.glyph === "key" ? "key.fill" : "account" }),
+          children: cardRows,
+        }
+      : { id: out.id("account"), kind: "action", label: t("picker.account"), icon: "account", disabled: true };
+    // The keyboard's highlight, where the web columns keep it.
+    describedTune.current = tuneIds;
+    const railFocus = tabs.findIndex((entry) => entry === shownTab);
+    const highlighted =
+      col === 0
+        ? railRows[railFocus]?.id
+        : col === 2
+          ? tuneIds[tuneHl]
+          : hl >= 0 && rows[hl]
+            ? out.id(`model\u0000${keyOf(rows[hl])}`)
+            : undefined;
+    return {
+      side,
+      align,
+      width: RAIL_WIDTH + MODELS_WIDTH + TUNE_WIDTH,
+      rows: spanning,
+      search: { id: "query", value: query, placeholder: t("picker.search"), submitOnReturn: true },
+      searchAccessory: accessory,
+      columns: [
+        { id: "rail", label: t("picker.harness"), width: RAIL_WIDTH, rail: true, rows: railRows },
+        { id: "models", label: t("picker.model"), width: MODELS_WIDTH, rows: modelRows },
+        { id: "tune", label: t("effort.title"), rows: tuneNative },
+      ],
+      columnsHeight: NATIVE_BAND,
+      ...(highlighted ? { highlighted } : {}),
+      ...(menu.update
+        ? {
+            footer: [
+              out.text("update-text", menu.update.text),
+              out.action("update", t("harness.update"), after(() => menu.update?.run())),
+            ],
+          }
+        : {}),
+    };
+  };
+  const nativeModel: NativePopupDescription =
+    open && nativeHost ? describeNative() : { side, align, width: RAIL_WIDTH + MODELS_WIDTH + TUNE_WIDTH, rows: [] };
+  const onNativeEvent = (event: NativePopupEvent) => {
+    const out = nativeRows.current!;
+    if (event.type === "search" && event.id === "query") {
+      const value = event.value ?? "";
+      // A digit typed into the empty field picks its row and closes, as 1 to 9 do on the web.
+      if (!query && /^[1-9]$/.test(value)) {
+        const index = Number(value) - 1;
+        if (rows[index]) {
+          pickModel(index);
+          close();
+        }
+        return;
+      }
+      setQuery(value);
+      setModelHl(value ? 0 : -1);
+      setCol(1);
+      setTuneHl(0);
+      return;
+    }
+    // The keyboard's highlight moved (Up, Down, Left, Right): the rail shows that tab, a model row
+    // shows its settings, a settings row is the one Return runs. The pointer's only paints.
+    if (event.type === "highlight" && event.reason === "keyboard" && event.id) {
+      const tabIndex = tabs.findIndex((entry) => out.id(`tab\u0000${entry.key}`) === event.id);
+      if (tabIndex >= 0) {
+        setCol(0);
+        setRailKeys(true);
+        if (tabs[tabIndex] !== shownTab) moveTab(tabIndex);
+        return;
+      }
+      const model = rows.findIndex((row) => out.id(`model\u0000${keyOf(row)}`) === event.id);
+      if (model >= 0) {
+        setCol(1);
+        setModelHl(model);
+        setTuneHl(0);
+        return;
+      }
+      const tune = describedTune.current.indexOf(event.id);
+      if (tune >= 0) {
+        setCol(2);
+        setTuneKeys(true);
+        setTuneHl(tune);
+      }
+      return;
+    }
+    // Return: runs the highlighted row (a launch-only tab starts its harness), then closes.
+    if (event.type === "submit") {
+      const row = event.id;
+      const tabIndex = row ? tabs.findIndex((entry) => out.id(`tab\u0000${entry.key}`) === row) : -1;
+      if (tabIndex >= 0) {
+        setCol(1);
+        showTab(tabIndex);
+        const entry = tabs[tabIndex]!;
+        const family = leadRoute(entry, families.current);
+        if (entry.routes.length === 1 && family.launch && !family.note) return;
+        close();
+        return;
+      }
+      if (row && out.handlers.has(row)) {
+        closedNow.current = false;
+        out.dispatch({ ...event, type: "pick" });
+        // A row that closes the menu itself (fork, log in, Add harness) has already closed it.
+        if (!closedNow.current) close();
+        return;
+      }
+      close();
+      return;
+    }
+    if (event.type === "pick" || event.type === "change") out.dispatch(event);
+  };
+  useNativePopup({
+    open: open && !!nativeHost,
+    model: nativeModel,
+    anchor: () => button.current ?? trigger.current,
+    onEvent: onNativeEvent,
+    onDismiss: (reason) => finish(false, reason === "escape"),
+  });
+  const addAccountDialog = addingAccount && addAccount && adding && (
+    <AddAccountDialog
+      add={addAccount}
+      family={adding.family}
+      {...(adding.apiKey ? { kinds: ["direct-api-key" as const] } : {})}
+      onClose={() => setAddingAccount(false)}
+      onAdded={() => {
+        setAddingAccount(false);
+        onOpenChange(true);
+      }}
+    />
+  );
+  if (nativeHost)
+    return (
+      <>
+        <button
+          ref={(node) => {
+            button.current = node;
+            trigger.current = node;
+          }}
+          type="button"
+          className="ui-button acpmux-picker-button"
+          data-menu={chip["data-menu"]}
+          data-popup-open={open ? "" : undefined}
+          aria-label={chip.label}
+          // tooltip-allow: the chip's title is the model picker's own (ModelPicker), as on the web chip.
+          title={chip.title}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          // A mouse press never focuses the chip: a pick leaves the keyboard in the prompt.
+          onPointerDown={(event) => {
+            if (isMousePress(event)) event.preventDefault();
+          }}
+          onClick={() => finish(!open)}
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowDown" || open) return;
+            event.preventDefault();
+            onOpenChange(true);
+          }}
+        >
+          {children}
+        </button>
+        {addAccountDialog}
+      </>
+    );
   return (
     <>
       <button
@@ -1315,18 +1707,7 @@ function Columns({
           )}
         </div>
       </Popover>
-      {addingAccount && addAccount && adding && (
-        <AddAccountDialog
-          add={addAccount}
-          family={adding.family}
-          {...(adding.apiKey ? { kinds: ["direct-api-key" as const] } : {})}
-          onClose={() => setAddingAccount(false)}
-          onAdded={() => {
-            setAddingAccount(false);
-            onOpenChange(true);
-          }}
-        />
-      )}
+      {addAccountDialog}
     </>
   );
 }
