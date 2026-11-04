@@ -112,10 +112,8 @@ struct Inner {
     durable: tokio::sync::watch::Receiver<u64>,
     /// The store is being dropped: its writer's end is not a failure.
     dropping: Arc<AtomicBool>,
-    /// Held while a checkpoint writes `session.json` files and drops their overlay entries; a
-    /// list reads the overlay and the files under it (`journal_store/meta.rs`).
-    projection: std::sync::RwLock<()>,
-    /// Held while a chat's folder is removed or its `session.json` written by a checkpoint.
+    /// Held while a chat's folder is removed or its `session.json` written from the overlay
+    /// (`journal_store/meta.rs`).
     folders: Mutex<()>,
 }
 
@@ -224,7 +222,6 @@ impl JournalStore {
             acked: Arc::new(AtomicU64::new(0)),
             durable,
             dropping,
-            projection: std::sync::RwLock::new(()),
             folders: Mutex::new(()),
         });
         inner.apply(replay)?;
@@ -410,24 +407,17 @@ impl Store for JournalStore {
         }
         Ok(())
     }
-    /// The chat's log synced and every record appended so far durable: its metadata is a
-    /// journal record until a checkpoint writes `session.json` (S3a). A failed file sync here
-    /// freezes the checkpoint, as one in a checkpoint or at a log's close does: a later sync may
-    /// report success for the pages it dropped.
+    /// The chat's log and metadata durable on disk: its overlay image written to `session.json`
+    /// first ([`meta`]), then the log, its folders and the sessions folder synced. A failed file
+    /// sync freezes the checkpoint, as one in a checkpoint or at a log's close does: a later sync
+    /// may report success for the pages it dropped.
     fn flush_session(&self, id: &str) -> Result<()> {
+        self.inner.settle_meta(id)?;
         Store::flush_session(&self.inner.local, id).inspect_err(|error| {
             if error.chain().any(|cause| cause.is::<SyncFailed>()) {
                 self.inner.freeze(format!("an event log failed to sync: {error:#}"));
             }
-        })?;
-        let lsn = self.inner.journal.last_lsn();
-        if lsn > 0 {
-            self.inner
-                .journal
-                .wait_durable(lsn, SEAL_WAIT)
-                .map_err(|error| anyhow::anyhow!("the event journal: {error}"))?;
-        }
-        Ok(())
+        })
     }
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         Store::events(&self.inner.local, id, after, limit)
@@ -547,7 +537,12 @@ impl Store for JournalStore {
         let _folder = inner.folders.lock_or_recover();
         Store::delete(&inner.local, id)
     }
+    /// The chat's folder, for code that reads or moves its files directly: its overlay image is
+    /// written to `session.json` first ([`meta`]).
     fn session_dir(&self, id: &str) -> Option<PathBuf> {
+        if let Err(error) = self.inner.settle_meta(id) {
+            tracing::warn!(session = %id, "write the chat's metadata before handing out its folder: {error:#}");
+        }
         Store::session_dir(&self.inner.local, id)
     }
     fn handoff_dir(&self) -> Option<PathBuf> {
