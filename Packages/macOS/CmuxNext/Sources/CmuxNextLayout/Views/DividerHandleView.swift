@@ -137,11 +137,6 @@ final class DividerHandleView: NSView {
         return rect.isNull ? .zero : rect
     }
 
-    /// The resize cursor for a point in this handle's bounds, nil where it shows none (outside `cursorClip`).
-    func cursor(atLocal point: CGPoint) -> NSCursor? {
-        cursorRectInBounds.contains(point) ? resizeCursor : nil
-    }
-
     /// One object per axis: the screen sets it again only when it changes (`ScreenDividerPointer`), and macOS 15's
     /// frame-resize cursors may be a new object at each read.
     var resizeCursor: NSCursor { axis == .horizontal ? Self.columnCursor : Self.rowCursor }

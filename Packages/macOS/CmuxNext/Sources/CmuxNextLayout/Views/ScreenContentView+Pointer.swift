@@ -46,8 +46,9 @@ final class ScreenDividerPointer: NSResponder {
 
     /// Shows `handle`'s resize cursor, or gives the cursor back when the pointer left the last one. With no event (the
     /// handles moved under a still pointer) only a change sets it; a pointer event sets it every time, after whatever
-    /// AppKit's cursor rects of the views around set for the same move.
-    func show(_ handle: DividerHandleView?, in screen: NSView, event: NSEvent?) {
+    /// AppKit's cursor rects of the views around set for the same move. `pointer` (window coordinates) is the one the
+    /// hover hit test read (the real pointer, or `debug.mouse`'s).
+    func show(_ handle: DividerHandleView?, in screen: NSView, pointer: NSPoint?, event: NSEvent?) {
         if let handle {
             let cursor = handle.resizeCursor
             guard event != nil || shownCursor != cursor else { return }
@@ -60,7 +61,7 @@ final class ScreenDividerPointer: NSResponder {
         NSCursor.arrow.set()
         // The view under the pointer shows its own cursor again: AppKit reads its cursor rects again for this one change.
         guard let window = screen.window, let content = window.contentView else { return }
-        let point = event?.locationInWindow ?? window.mouseLocationOutsideOfEventStream
+        let point = event?.locationInWindow ?? pointer ?? window.mouseLocationOutsideOfEventStream
         guard let hit = content.hitTest(content.superview?.convert(point, from: nil) ?? point), hit !== screen,
               !(hit is DividerHandleView) else { return }
         window.invalidateCursorRects(for: hit)
@@ -71,5 +72,16 @@ extension ScreenContentView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         dividerPointer.installTrackingArea(in: self)
+    }
+
+    /// Hidden (itself or an ancestor: a workspace switch): it gets no pointer events now, so it gives its cursor back.
+    override func viewDidHide() {
+        super.viewDidHide()
+        refreshDividerHover()
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil { dividerPointer.show(nil, in: self, pointer: nil, event: nil) }
+        super.viewWillMove(toWindow: newWindow)
     }
 }
