@@ -33,7 +33,12 @@ import { environmentSection } from "./environment";
 import { setNativeSessionInfoActions, setNativeSessionInfoHost } from "./host";
 import { useNativeOperations } from "./useNativeOperations";
 import { useNativeSourceFiles } from "./useNativeSourceFiles";
-import { NativeInfoActions, type NativeInfoSection, type NativeSessionInfo as NativeSessionInfoModel } from "./model";
+import {
+  NativeInfoActions,
+  type NativeInfoRow,
+  type NativeInfoSection,
+  type NativeSessionInfo as NativeSessionInfoModel,
+} from "./model";
 import { outputsSection } from "./outputs";
 import { useNativeOverlayReport } from "./overlays";
 import { panelAction } from "./panelActions";
@@ -300,7 +305,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   );
   // The daemon keeps `progress` referentially stable while tokens stream. Derive native rows once
   // per checklist update so unrelated activity does not remap every plan entry on every frame.
-  const progressRows = useMemo(
+  const progressRows = useMemo<NativeInfoRow[] | undefined>(
     () =>
       props.progress?.plan.map((entry, index) => ({
         id: `progress:${index}`,
