@@ -383,7 +383,8 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
         // enforced even for an unterminated response.
         let available = (super::identify::RESPONSE_LIMIT + 2).saturating_sub(line.len());
         let mut chunk = [0_u8; 4096];
-        match connection.read(&mut chunk[..available.min(chunk.len())]) {
+        let read_len = available.min(chunk.len());
+        match connection.read(&mut chunk[..read_len]) {
             Ok(0) => return Probe::Answered,
             Ok(count) => {
                 line.extend_from_slice(&chunk[..count]);
