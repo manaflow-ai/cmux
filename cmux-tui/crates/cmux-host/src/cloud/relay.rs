@@ -337,6 +337,23 @@ async fn or_stop<T>(stop: &mut watch::Receiver<bool>, work: impl Future<Output =
     }
 }
 
+/// Whether Tokio can see this thread's children exit. The agent blocks SIGCHLD for its signalfd and this thread
+/// inherits that mask, so an exit reaches Tokio only through a pidfd (Linux 5.3 on). Unblocking SIGCHLD here
+/// instead would take exits from the agent, which reaps its own jobs only when its signalfd reads one.
+fn child_waits_work() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        // SAFETY: pidfd_open(pid, 0) returns a new descriptor or -1; a descriptor is closed at once.
+        let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, libc::getpid(), 0) };
+        if fd < 0 {
+            return false;
+        }
+        // SAFETY: `fd` is the descriptor pidfd_open just returned, owned by nothing else.
+        unsafe { libc::close(fd as libc::c_int) };
+    }
+    true
+}
+
 impl Relay {
     pub fn spawn<H: Http + Send + 'static>(
         client: CloudClient<H>,
@@ -359,6 +376,11 @@ fn run<H: Http>(
     log: fn(&str),
     mut stop: watch::Receiver<bool>,
 ) {
+    if !child_waits_work() {
+        return log(
+            "relay: no pidfd_open on this kernel, so a chat's process exit could never be seen; relay off",
+        );
+    }
     let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(rt) => rt,
         Err(e) => return log(&format!("relay: runtime: {e}")),

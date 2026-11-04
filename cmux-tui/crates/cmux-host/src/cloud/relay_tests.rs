@@ -271,3 +271,34 @@ fn a_chat_runs_with_its_users_own_groups_only() {
     let out = rt.block_on(runner.command(&["-G".to_owned()]).output()).expect("id runs");
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "65534");
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_chats_process_exit_is_seen_with_sigchld_blocked() {
+    // As in the agent: SIGCHLD blocked before the relay thread starts, so the thread inherits it.
+    let waited = std::thread::spawn(|| {
+        // SAFETY: plain libc signal-set calls on a local set, for this thread only.
+        unsafe {
+            let mut set: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut set);
+            libc::sigaddset(&mut set, libc::SIGCHLD);
+            assert_eq!(libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut()), 0);
+        }
+        assert!(child_waits_work());
+        // SAFETY: geteuid and getegid have no preconditions.
+        let (uid, gid) = unsafe { (libc::geteuid(), libc::getegid()) };
+        let runner = Runner {
+            bin: PathBuf::from("/bin/true"),
+            user: "me".into(),
+            uid,
+            gid,
+            groups: Vec::new(),
+            home: PathBuf::from("/"),
+        };
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(tokio::time::timeout(Duration::from_secs(10), runner.command(&[]).status()))
+    })
+    .join()
+    .unwrap();
+    assert!(waited.expect("the exit is seen within 10 s").expect("true runs").success());
+}
