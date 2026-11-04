@@ -82,7 +82,8 @@ struct WindowLiveResizeGUITests {
     func aBurstOfLiveResizeDragsLaysTheWindowOutOncePerFrameAndEndsAtThePointer(_ edge: Edge, _ on: Bool) throws {
         try WindowLiveResizeFrameTickTests.withSwitch(on) {
             // AppKit's window resize gesture runs in a launched application (the films' app is one).
-            if !NSApp.isRunning { NSApp.finishLaunching() }
+            let app = NSApplication.shared
+            if !app.isRunning { app.finishLaunching() }
             NSApp.activate()
             let layout = ScreenLayout.splits(.split("v", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))
             let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: "p1")
