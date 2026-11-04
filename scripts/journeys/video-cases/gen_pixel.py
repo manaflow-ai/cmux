@@ -425,6 +425,18 @@ def low_prompt_play(speed):
     return [press(J, "grow"), rest(land(speed)), press(K, "shrink"), rest(land(speed))]
 
 
+def low_prompt_reverse_play(speed):
+    """Ctrl-Shift-J on p1 (it grows down; a low prompt takes F2's bottom hold), then Ctrl-Shift-K at 40% of J's spring, before it
+    lands (S4 G1, #35470 5aab4968d19: the reverse press must drop the bottom hold; before the fix it stayed through K's spring).
+    debug.terminal_display per film (present counts)."""
+    response = RESPONSE["move"] / (speed or 1.0)
+    return [{"do": "rpc", "method": "debug.terminal_display", "params": {"action": "start"},
+             "title": "debug.terminal_display start (present counters per film)"},
+            press(J, "grow"), rest(round(0.4 * response, 3), "40% of J's spring"), press(K, "reverse"), rest(land(speed)),
+            {"do": "rpc", "method": "debug.terminal_display", "params": {"action": "stop"}, "keep": "tdisplay",
+             "title": "debug.terminal_display stop (host_present_calls, host_fresh_presents)"}]
+
+
 def held_play(speed):
     return [{"do": "rk_hold", "key": "l", "modifiers": ["control", "shift"], "seconds": 1.5, "mark": "hold",
              "title": "Ctrl-Shift-L held 1.5 s (debug.key auto-repeat)"}, rest(land(speed)),
@@ -552,6 +564,10 @@ def cases():
     out.append(Case(f"px-keys-lowprompt-{T3KP.key}", f"Ctrl-Shift-J, then K, on p1, a shell with its prompt on the last row "
                     f"under an orange bar ({T3KP.text})", T3KP, low_prompt_play, "move", "keys", before=[focus("p1")],
                     play_seconds=lambda s: 2 * (0.1 + land(s)), speeds=SPEEDS_LOWPROMPT))
+    out.append(Case(f"px-keys-lowprompt-reverse-{T3KP.key}", f"Ctrl-Shift-J on p1, then Ctrl-Shift-K at 40% of J's spring, a shell with "
+                    f"its prompt on the last row under an orange bar ({T3KP.text})", T3KP, low_prompt_reverse_play, "move", "keys (reverse)",
+                    before=[focus("p1")], play_seconds=lambda s: 0.2 + 0.4 * RESPONSE["move"] / (s or 1.0) + land(s),
+                    speeds=(("s025", 0.25),)))
     out.append(Case(f"px-keys-held-{T2.key}", f"Ctrl-Shift-L held, then Ctrl-Shift-H x30 every 33 ms, on p0 ({T2.text})", T2,
                     held_play, None, "held keys", before=held_start(), play_seconds=lambda s: 2.6 + 2 * land(s)))
     # Stage S1B 1b (frame-owner-s1b): a tab closes while the held key resizes its pane; every tab outlined, so the judge can
