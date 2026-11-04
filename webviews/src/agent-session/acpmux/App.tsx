@@ -753,7 +753,7 @@ import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { MOTION_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
-import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
+import { holdWebSwap, pageReleaseHold, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
@@ -11976,6 +11976,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             const released = quitting === true ? held.release() : [];
             const chips = released.length ? await giveBackTrustHeld.current(released, false, true, until) : [];
             await settleDraftWithin(composerHandle.current, Math.max(0, until - Date.now()));
+            // Only untouched New Tabs are capped. Keep their page-owned drafts, attachments,
+            // sends, composition and popups; quit and close still hand back their state.
+            if (quitting !== true && newTabNow.current && pageReleaseHold()) return { holdsPageState: true };
             const anchor = transcriptAnchor.current?.();
             const composer = composerHandle.current?.wakeState();
             const attachments = [...chips, ...(composer?.attachments ?? [])];
