@@ -76,14 +76,6 @@ export default agentPaneEntry({
       "No suggestion (an older acpmux, suggestions off, or the first turn): the usual placeholder.",
       withSuggestion(undefined),
     ),
-    "options-switch": variant(
-      "Play: the Options chip lists Prompt suggestions; its On row names the cost (one extra model call per turn).",
-      withSuggestion(SUGGESTION),
-      async (ctx) => {
-        await ctx.click({ selector: ".acpmux-options-trigger" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-options-menu"));
-      },
-    ),
   },
   experiment: {
     definition: promptSuggestionLook,
