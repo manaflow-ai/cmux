@@ -413,6 +413,21 @@ export const COMMAND_RULES: readonly CommandRule[] = [
     },
   },
   {
+    // `until [ -s /tmp/x/review.out ]; do sleep 5; done; cat ...`, `while ! test -f done.txt; ...`:
+    // a loop that waits for a file. Claude's Monitor calls wait this way.
+    id: "wait-for-file",
+    program: ["until", "while"],
+    icon: "history",
+    read: (words) => {
+      const test = words.findIndex((word) => word === "[" || word === "[[" || word === "test");
+      if (test < 0) return undefined;
+      const at = words.findIndex((word, index) => index > test && /^-[efsd]$/.test(word));
+      const file = at < 0 ? undefined : words[at + 1];
+      if (!file || file === "]" || file === "]]") return undefined;
+      return { key: "commandRules.waitingForFile", values: { file: file.split("/").filter(Boolean).pop() ?? file } };
+    },
+  },
+  {
     // `sleep 560`, `sleep 5m`.
     id: "sleep",
     program: "sleep",
@@ -549,6 +564,22 @@ export function ruleOf(command: string): { rule: CommandRule; read: RuleRead; se
   return undefined;
 }
 
+/// The most words a description may have and still be only a nickname for the command ("hold",
+/// "review result"): such a one is not enough on its own.
+const TERSE_WORDS = 2;
+
+/// A description, or, when it is only a word or two (Claude's Monitor calls, which an agent names
+/// "hold" or "review result"), what the command does first and the agent's name for it after:
+/// "Waiting 14m · hold" (Leo, 2026-11-04, on a tray of lines reading "Command hold": "wtf are these
+/// holds"). A long description stays as it is; so does a short one when the command says no more
+/// (Claude named the task only by its description, which then stands for the command too).
+function describedLabel(description: string, command: string, reading: string | undefined): string {
+  if (description.split(/\s+/).length > TERSE_WORDS) return description;
+  if (!reading || command.trim() === description) return description;
+  if (reading.toLowerCase() === description.toLowerCase()) return reading;
+  return `${reading} · ${description}`;
+}
+
 /// What the tray shows for a command: its call's description, else a rule's words, else its program
 /// and main argument; the rule's icon and link either way.
 export function commandRead(
@@ -563,12 +594,13 @@ export function commandRead(
   // own arguments (`--key x-$(date +%s)`) is part of what the rule reads.
   const setupWork = match?.setup ? commandWorkLabel(match.setup) : undefined;
   const ruled = match ? t(match.read.key, match.read.values) : undefined;
-  const label =
-    description ||
+  const reading =
     (ruled && setupWork ? `${setupWork} · ${ruled}` : ruled) ||
     commandWorkLabel(command.command.trim()) ||
-    fallbackLabel(programWords(command.command)) ||
-    command.command;
+    fallbackLabel(programWords(command.command));
+  const label = description
+    ? describedLabel(description, command.command, reading)
+    : reading || command.command;
   return {
     label,
     icon: match?.rule.icon ?? fallbackIcon,

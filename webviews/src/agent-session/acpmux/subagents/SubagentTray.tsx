@@ -638,11 +638,13 @@ export const SubagentTray = memo(function SubagentTray({
       // Named in words (session-info/commandRules.ts); the command as typed is its tooltip and the
       // first line of its tail.
       const read = commandRead(t, item.command);
+      // A subagent's command says whose it is: "Reviewer · Waiting 14m · hold".
+      const named = sendLabel(t, item.command) ?? read.label;
       return (
         <>
           {menu(
             <AgentLine
-              name={sendLabel(t, item.command) ?? read.label}
+              name={item.owner ? `${subagentDisplayName(t, item.owner)} · ${named}` : named}
               title={item.command.command}
               kind={t("tray.kind.command")}
               chevron
