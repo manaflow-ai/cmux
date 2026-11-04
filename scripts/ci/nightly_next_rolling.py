@@ -31,8 +31,11 @@ reaches this rule: the tick runs it only when its `sha` input is empty.
 nightly-next's head comes from `git ls-remote` against the public repository
 (no token, no API budget: on 2026-11-04 an exhausted installation budget failed
 the refs API read and ticks 41791114042 and 41791169626 promoted nothing), and
-from the refs API only when that fails. Every other read goes through the API
-with the job's token (no shallow history). A head neither can read waits, with a
+from the refs API only when that fails. The gap from that head to the tip comes
+from the tick's own checkout of feat-cmux-next (git_oldest_after), and from the
+compare API only when the head is not in it; a tip already on nightly-next
+reads nothing more and waits (there is nothing to promote). Every other read goes through the
+API with the job's token. A head neither can read waits, with a
 warning: the feed watch's dispatch for one commit skips this rule, so that costs
 at most the backstop's delay. Any other failed read, and a gap to the tip that cannot be
 read, promotes, with a warning: the promotion ignores a request that does not
@@ -188,15 +191,57 @@ def oldest_after(api, repo: str, head: str, tip: str):
         return UNKNOWN
 
 
+def git_oldest_after(head: str, tip: str, git=None):
+    """oldest_after from the tick's own checkout of feat-cmux-next (150 commits deep), no API read:
+    None when nothing waits, (sha, committer date) of the oldest commit after head, or UNKNOWN when
+    head is not an ancestor of tip and tip not one of head (a train commit), as the compare API
+    reports those. Raises LookupError when head is not in this checkout (an older or a train head
+    past the shallow history, or no checkout): the caller reads the compare API instead."""
+    def run(*args: str) -> str:
+        if git is not None:
+            return git(*args)
+        return subprocess.run(["git", *args], check=True, capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, timeout=60).stdout
+
+    try:
+        run("cat-file", "-e", f"{head}^{{commit}}")
+        run("cat-file", "-e", f"{tip}^{{commit}}")
+    except (OSError, subprocess.SubprocessError) as error:
+        raise LookupError(f"{head[:12]} or {tip[:12]} is not in this checkout") from error
+
+    def ancestor(a: str, b: str) -> bool:
+        try:
+            run("merge-base", "--is-ancestor", a, b)
+            return True
+        except subprocess.CalledProcessError as error:
+            if error.returncode == 1:
+                return False
+            raise LookupError(f"merge-base {a[:12]} {b[:12]} failed") from error
+        except (OSError, subprocess.SubprocessError) as error:
+            raise LookupError(f"merge-base {a[:12]} {b[:12]} failed") from error
+
+    if head == tip or ancestor(tip, head):
+        return None
+    if not ancestor(head, tip):
+        return UNKNOWN
+    try:
+        first = run("rev-list", "--reverse", "--topo-order", f"{head}..{tip}").split()[0]
+        landed = run("show", "-s", "--format=%cI", first).strip()
+        return first, dt.datetime.fromisoformat(landed.replace("Z", "+00:00"))
+    except (OSError, subprocess.SubprocessError, IndexError, ValueError) as error:
+        raise LookupError(f"could not read the commits after {head[:12]}") from error
+
+
 def gh_api(path: str):
     out = subprocess.run(["gh", "api", path], check=True, capture_output=True, text=True).stdout
     return json.loads(out)
 
 
 def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
-             window_minutes: float = WINDOW_MINUTES, ls_remote=None) -> tuple[bool, str]:
+             window_minutes: float = WINDOW_MINUTES, ls_remote=None, local_gap=None) -> tuple[bool, str]:
     """Read the head with `ls_remote` (main passes git ls-remote) and then the API, the rest
-    through the API (the job's token), and decide.
+    through the API (the job's token), and decide. The gap to the tip comes from `local_gap`
+    (main passes git_oldest_after, the tick's checkout) when it can answer, else the compare API.
 
     nightly-next's head unreadable: wait, with a warning. The rule's purpose is to coalesce, and
     the feed watch (every 10 minutes) dispatches a build for one commit, which skips this rule, so
@@ -215,6 +260,18 @@ def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
         print(f"::warning title=nightly-next rolling rule::could not read nightly-next ({error!r}); "
               "waiting for the feed watch's backstop dispatch")
         return False, f"could not read nightly-next ({error!r}); the feed watch's backstop covers this"
+    # The gap to the tip, from the tick's checkout when it can answer (no API read). Nothing after
+    # nightly-next's head (the tip is on it already, which a finished build or the cron backstop
+    # often finds) needs no promotion and none of the reads below: the request would stop at the
+    # tip with "already on nightly-next".
+    local = None
+    if local_gap is not None:
+        try:
+            local = (local_gap(head, tip),)
+        except LookupError as error:
+            print(f"{error}; reading the gap to the tip through the compare API")
+    if local == (None,):
+        return False, f"nightly-next ({head[:12]}) already has the tip {tip[:12]}; nothing waits to be promoted"
     try:
         base = f"repos/{repo}/actions/workflows/nightly.yml/runs?"
         # One listing of nightly-next's recent push runs: its head's runs, and the newest start.
@@ -231,11 +288,14 @@ def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
         promotions = api(base + urllib.parse.urlencode(
             {"branch": "main", "event": "workflow_dispatch", "per_page": 10}))["workflow_runs"]
 
+        def gap():
+            return local[0] if local is not None else oldest_after(api, repo, head, tip)
+
         def jobs_of(run: dict) -> list[dict]:
             return api(f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
 
         return decide(now, head=head, head_runs=head_runs, jobs_of=jobs_of, promotions=promotions,
-                      oldest_waiting=oldest_after(api, repo, head, tip), window_minutes=window_minutes,
+                      oldest_waiting=gap(), window_minutes=window_minutes,
                       starts=recent)
     except Exception as error:  # noqa: BLE001
         if since_start is not None and since_start < window_minutes:
@@ -254,7 +314,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--window-minutes", type=float, default=WINDOW_MINUTES)
     args = parser.parse_args(argv)
     go, reason = evaluate(dt.datetime.now(dt.timezone.utc), args.repo, args.tip, window_minutes=args.window_minutes,
-                          ls_remote=watch.ls_remote_sha)
+                          ls_remote=watch.ls_remote_sha, local_gap=git_oldest_after)
     print(f"rolling rule: {'promote' if go else 'wait'}: {reason}")
     output = os.environ.get("GITHUB_OUTPUT")
     if output:

@@ -394,5 +394,95 @@ class ApiReadTests(unittest.TestCase):
             self.assertIn("::warning title=nightly-next rolling rule::", result.stdout)
 
 
+
+def git_repo(scratch: str):
+    """A linear history of four commits a minute apart (committer dates set), and a side commit off
+    the second: git(*args) runs in it."""
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t", "HOME": scratch, "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"}
+
+    def git(*args: str, when: str | None = None) -> str:
+        extra = {"GIT_COMMITTER_DATE": when, "GIT_AUTHOR_DATE": when} if when else {}
+        return subprocess.run(["git", "-C", scratch, *args], check=True, capture_output=True, text=True,
+                              env={**env, **extra}).stdout
+
+    git("init", "-q", "-b", "main")
+    shas = []
+    for minutes in (40, 30, 20, 10):
+        git("commit", "-q", "--allow-empty", "-m", f"c{minutes}", when=at(minutes))
+        shas.append(git("rev-parse", "HEAD").strip())
+    git("checkout", "-q", "-b", "side", shas[1])
+    git("commit", "-q", "--allow-empty", "-m", "side", when=at(5))
+    shas.append(git("rev-parse", "HEAD").strip())
+    return git, shas
+
+
+class LocalGapTests(unittest.TestCase):
+    """The gap from nightly-next's head to the tip comes from the tick's checkout of feat-cmux-next
+    (150 commits deep), not the compare API: one REST read less per request job, on a budget that
+    ran dry every hour on 2026-11-04. The compare API stays the fallback when the head is not in
+    the checkout."""
+
+    def setUp(self):
+        self.scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(self.scratch.cleanup)
+        self.git, self.shas = git_repo(self.scratch.name)
+
+    def gap(self, head: str, tip: str):
+        return rolling.git_oldest_after(head, tip, git=lambda *args: self.git(*args))
+
+    def test_the_oldest_commit_after_head_and_when_it_landed(self):
+        sha, landed = self.gap(self.shas[0], self.shas[3])
+        self.assertEqual(sha, self.shas[1])
+        self.assertEqual(landed, NOW - dt.timedelta(minutes=30))
+
+    def test_nothing_waits_at_or_behind_head(self):
+        self.assertIsNone(self.gap(self.shas[3], self.shas[3]))
+        self.assertIsNone(self.gap(self.shas[3], self.shas[1]))
+
+    def test_a_diverged_head_is_unknown(self):
+        self.assertEqual(self.gap(self.shas[4], self.shas[3]), rolling.UNKNOWN)
+
+    def test_a_head_outside_the_checkout_falls_back(self):
+        with self.assertRaises(LookupError):
+            self.gap("e" * 40, self.shas[3])
+
+    def test_evaluate_reads_no_compare_when_the_checkout_answers(self):
+        api = api_for(compare("ahead", [(WAITING, 30)]))
+        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api, ls_remote=lambda repo, branch: HEAD,
+                                      local_gap=lambda head, tip: (WAITING, NOW - dt.timedelta(minutes=4)))
+        self.assertFalse(go, reason)
+        self.assertFalse([p for p in api.paths if "/compare/" in p], api.paths)
+        self.assertFalse([p for p in api.paths if "/git/ref/" in p], api.paths)
+
+    def test_evaluate_reads_compare_when_the_head_is_not_in_the_checkout(self):
+        def missing(head, tip):
+            raise LookupError("not here")
+        api = api_for(compare("ahead", [(WAITING, 30)]))
+        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api, ls_remote=lambda repo, branch: HEAD, local_gap=missing)
+        self.assertTrue(go, reason)
+        self.assertIn(f"repos/o/r/compare/{HEAD}...{TIP}?per_page=1&page=1", api.paths)
+
+    def test_a_tip_already_on_nightly_next_reads_nothing_and_waits(self):
+        """A finished build or the cron backstop often finds the tip promoted: no listing, no jobs
+        read, no request (it would stop at the tip with "already on nightly-next")."""
+        api = api_for(compare("ahead", [(WAITING, 30)]))
+        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api, ls_remote=lambda repo, branch: HEAD,
+                                      local_gap=lambda head, tip: None)
+        self.assertFalse(go, reason)
+        self.assertIn("nothing waits", reason)
+        self.assertEqual(api.paths, [])
+
+    def test_a_real_checkout_at_the_head_reads_nothing(self):
+        api = api_for(compare("ahead", [(WAITING, 30)]))
+        go, reason = rolling.evaluate(NOW, "o/r", self.shas[3], api=api, ls_remote=lambda repo, branch: self.shas[3],
+                                      local_gap=lambda head, tip: self.gap(head, tip))
+        self.assertFalse(go, reason)
+        self.assertEqual(api.paths, [])
+
+    def test_main_reads_the_gap_from_the_checkout(self):
+        self.assertIn("local_gap=git_oldest_after", SCRIPT.read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
