@@ -5,7 +5,9 @@
 export type EnvironmentKind = "local" | "ssh" | "cloud";
 /// `connected`: what acpmux last said of an SSH or Cloud machine it lists; absent when it said nothing.
 /// `state`: its link state as acpmux says it (`connecting`, `connected`, `degraded`, `reconnecting`,
-/// `offline`; acpmux peer_link.rs `PeerState`), absent from an older daemon or relay.
+/// `offline`; acpmux peer_link.rs `PeerState`), absent from an older daemon or relay; or `paused` /
+/// `resuming` for a Cloud machine acpmux has no link to that the account says sleeps
+/// (cloudMachines.ts `withCloudSleep`).
 /// `loadWarning`: a ready machine's load warning (machineResources.ts), as the composer words it.
 export type Environment = {
   id: string;

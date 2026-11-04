@@ -43,6 +43,8 @@ mod chief;
 mod chief_target;
 #[cfg(unix)]
 mod cloud_client_session;
+#[cfg(unix)]
+mod cloud_environment;
 mod cloud_help;
 #[cfg(unix)]
 mod cloud_machine_io;
@@ -524,6 +526,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
+        .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
@@ -631,7 +634,7 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
         return extra_help::print(&command_args);
     }
     // Settings CRUD belongs to the daemon's v2 owner. Keep the app parser for
-    // local-only helpers (`list`, `schema`, `validate`) until those have daemon
+    // local-only helpers (`list --keys`, `schema`, `validate`) until those have daemon
     // equivalents on this surface.
     if daemon_settings_scope(&command_args) {
         return None;
@@ -1203,6 +1206,7 @@ fn scope_help_for(
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
+        #[cfg(unix)]
         "workflow" => Cow::Borrowed(workflow::HELP),
         _ => Cow::Owned(root_help(&catalog.local_server)),
     });

@@ -209,6 +209,7 @@ pub(crate) fn hand_over(home: &Path, host: &str) -> Result<(Option<Handed>, Stri
     }
     let handed = Handed { peer, ids: moved };
     record(home, &handed)?;
+    place(home, &handed.ids, Some(&handed.peer))?;
     let detail = format!(
         "{} working subagents moved to {}",
         handed.ids.len(),
@@ -263,11 +264,68 @@ pub(crate) fn bring_back(home: &Path) -> Result<String, String> {
         ));
     }
     let _ = std::fs::remove_file(home.join(RECORD));
+    place(home, &moved, None)?;
     Ok(format!(
         "{} subagents came back from {}",
         moved.len(),
         handed.peer
     ))
+}
+
+/// Writes, for each of the Chief's subagents whose session is one of `sessions`, its new
+/// `place` (None: the Chief's own machine) and a raised `epoch`, in the home's host state
+/// (`host/spawns`), as one write. The session id stays. The host is stopped while a move runs,
+/// so this is the only writer; a home with no records (or none of these sessions) is left as it is.
+fn place(home: &Path, sessions: &[String], place: Option<&str>) -> Result<(), String> {
+    let db = home.join("optchat/memory.sqlite3");
+    if sessions.is_empty() || !db.is_file() {
+        return Ok(());
+    }
+    let key = format!("{}spawns", crate::state::HOST_PREFIX);
+    let conn = rusqlite::Connection::open(&db).map_err(|e| format!("host state: {e}"))?;
+    let text: Option<String> = conn
+        .query_row("SELECT value FROM state WHERE key = ?1", [&key], |r| {
+            r.get(0)
+        })
+        .ok();
+    let Some(text) = text else { return Ok(()) };
+    let mut spawns: Value =
+        serde_json::from_str(&text).map_err(|e| format!("host state {key}: {e}"))?;
+    if !placed(&mut spawns, sessions, place) {
+        return Ok(());
+    }
+    conn.execute(
+        "UPDATE state SET value = ?1 WHERE key = ?2",
+        rusqlite::params![spawns.to_string(), key],
+    )
+    .map_err(|e| format!("host state: {e}"))?;
+    Ok(())
+}
+
+/// Sets `place` and raises `epoch` on each subagent record in `spawns` (`host/spawns`'s JSON)
+/// whose `session_id` is one of `sessions`. Whether one changed.
+fn placed(spawns: &mut Value, sessions: &[String], place: Option<&str>) -> bool {
+    let mut changed = false;
+    let records = spawns
+        .as_object_mut()
+        .into_iter()
+        .flat_map(|m| m.values_mut());
+    for sub in records.filter_map(|r| r["subs"].as_array_mut()).flatten() {
+        let ours = sub["session_id"]
+            .as_str()
+            .is_some_and(|s| sessions.iter().any(|m| m == s));
+        let Some(fields) = sub.as_object_mut().filter(|_| ours) else {
+            continue;
+        };
+        match place {
+            Some(p) => fields.insert("place".into(), json!(p)),
+            None => fields.remove("place"),
+        };
+        let epoch = fields.get("epoch").and_then(Value::as_u64).unwrap_or(0) + 1;
+        fields.insert("epoch".into(), json!(epoch));
+        changed = true;
+    }
+    changed
 }
 
 #[cfg(test)]
@@ -283,5 +341,35 @@ mod tests {
         assert!(!working_here(&row("local/a", "idle", 0, Value::Null)));
         assert!(!working_here(&row("local/a", "closed", 3, Value::Null)));
         assert!(!working_here(&row("vm-1/a", "running", 0, Value::Null)));
+    }
+
+    #[test]
+    fn a_handed_over_subagent_keeps_its_session_and_the_host_reads_its_new_place() {
+        let mut spawns = json!({"sp1": {"subs": [
+            {"id": "a1", "session_id": "s-work", "title": "worker", "status": "running"},
+            {"id": "a2", "session_id": "s-idle", "status": "reported"},
+        ]}});
+        let ids = vec!["s-work".to_owned()];
+        assert!(placed(&mut spawns, &ids, Some("mini-peer")));
+        let read: std::collections::BTreeMap<String, crate::state::SpawnRecord> =
+            serde_json::from_value(spawns.clone()).unwrap();
+        let (a1, a2) = (&read["sp1"].subs[0], &read["sp1"].subs[1]);
+        assert_eq!(a1.session_id.as_deref(), Some("s-work"));
+        assert_eq!((a1.place.as_deref(), a1.epoch), (Some("mini-peer"), 1));
+        assert_eq!((a2.place.as_deref(), a2.epoch), (None, 0));
+        assert!(placed(&mut spawns, &ids, None));
+        let read: std::collections::BTreeMap<String, crate::state::SpawnRecord> =
+            serde_json::from_value(spawns).unwrap();
+        assert_eq!(
+            (
+                read["sp1"].subs[0].place.as_deref(),
+                read["sp1"].subs[0].epoch
+            ),
+            (None, 2)
+        );
+        assert!(
+            !placed(&mut json!({}), &ids, None),
+            "no records: nothing to write"
+        );
     }
 }

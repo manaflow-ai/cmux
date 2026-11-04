@@ -104,6 +104,17 @@ async function flushFrame() {
 
 const model = () => sent.at(-1)!;
 
+test("a panel over the chat says so, a popover with no foot too, so the App gives it its glass", async () => {
+  const input = props();
+  await render({ ...input, overChat: true });
+  await flushFrame();
+  expect(model()).toMatchObject({ open: true, overChat: true });
+  expect(model()!.foot).toBeUndefined();
+  await render({ ...input, overChat: false });
+  await flushFrame();
+  expect(model()!.overChat).toBeUndefined();
+});
+
 test("the page posts the latest geometry once per frame and withdraws it when hidden", async () => {
   const input = props();
   await render(input);

@@ -87,7 +87,7 @@ enum NotificationHandlers {
             // An empty ledger is refused: the CLI awaits the reason, a palette or key run shows it.
             let awaited = registry.isCapturingWork, none = MiscHandlerStrings.noNotificationToCopy
             context.daemon.send("copy-notification", onFailure: { [weak registry] failure in
-                if !awaited { registry?.refuse(failure.message) }
+                if !awaited { registry?.refuse(failure: failure) }
             }) { connection in
                 guard let entry = try await connection.notificationLedger(limit: 1).first else {
                     throw ActionFailure.invalidTarget(none)
@@ -108,18 +108,16 @@ enum NotificationHandlers {
         })
     }
 
-    /// Removes a panel row. The daemon clears by terminal, so this removes
-    /// every notification of the row's terminal; a row without one is only
-    /// marked read.
+    /// Removes one panel row by its ledger id, whatever posted it (most rows come from agent
+    /// chats and have no terminal); an older daemon clears the row's terminal or marks it read.
     static func dismiss(_ row: NotificationsPanelRow, panel: NotificationsPanelController, _ context: AppActionContext) throws {
         _ = try context.requireConnection()
-        guard let terminal = row.terminal else {
-            guard let surface = row.surface else { throw ActionFailure(message: NotificationsPanelStrings.sourceClosed) }
-            return try acknowledge([surface], context)
-        }
         context.daemon.send("notification.clear") { connection in
-            try await connection.clearNotifications(terminal: terminal)
-            await MainActor.run { panel.reload() }
+            let cleared = try await connection.clearNotification(id: row.id, orTerminal: row.terminal)
+            await MainActor.run {
+                if !cleared, let surface = row.surface { try? acknowledge([surface], context) }
+                panel.reload()
+            }
         }
     }
 

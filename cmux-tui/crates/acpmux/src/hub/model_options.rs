@@ -27,7 +27,7 @@ pub fn web_url_for_session(url: &str, session: &str) -> String {
 
 /// Current value of a select config option, by id.
 pub fn current_option(m: &SessionMeta, id: &str) -> Option<String> {
-    let opts = m.config_options.as_ref().and_then(Value::as_array)?;
+    let opts = m.config_options.as_deref().and_then(Value::as_array)?;
     opts.iter()
         .find(|o| o.get("id").and_then(Value::as_str) == Some(id))
         .and_then(|o| o.get("currentValue").and_then(Value::as_str).map(str::to_owned))
@@ -48,7 +48,7 @@ pub fn current_effort(m: &SessionMeta) -> Option<String> {
 pub fn resolve_config_id(m: &SessionMeta, id: &str) -> String {
     let ids: Vec<String> = m
         .config_options
-        .as_ref()
+        .as_deref()
         .and_then(Value::as_array)
         .map(|a| {
             a.iter()
@@ -73,7 +73,7 @@ pub fn current_model(m: &SessionMeta) -> Option<String> {
     if let Some(r) = &m.model_request {
         return Some(r.clone());
     }
-    if let Some(opts) = m.config_options.as_ref().and_then(Value::as_array) {
+    if let Some(opts) = m.config_options.as_deref().and_then(Value::as_array) {
         for o in opts {
             if o.get("id").and_then(Value::as_str) == Some("model")
                 && let Some(v) = o.get("currentValue").and_then(Value::as_str)

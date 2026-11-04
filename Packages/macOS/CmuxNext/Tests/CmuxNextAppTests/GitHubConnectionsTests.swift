@@ -19,6 +19,8 @@ import Testing
         await model.perform("githubRefresh")
         await model.connect()
         #expect(model.pageState["outcome"] == "needs-action")
+        // Msg 3790: the signed-out card offers the Sign In button.
+        #expect(model.pageState["signIn"]?.stringValue?.isEmpty == false)
         #expect(calls == 0)
         #expect(!model.ready)
     }
