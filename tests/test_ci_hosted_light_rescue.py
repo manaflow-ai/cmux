@@ -95,7 +95,7 @@ def mutations(fake: Fake) -> list[tuple]:
 def sweep(fake: Fake, *, dry_run: bool = False, workflows=("pr-checks.yml",), cursor=None) -> list[str]:
     clock = iter(range(0, 10_000)).__next__
     return rescue.sweep(fake, list(workflows), now=NOW, dry_run=dry_run, sleep=lambda _s: None,
-                        clock=lambda: float(clock()), scan_cursor=cursor)
+                        clock=lambda: float(clock()), scan_state=cursor)
 
 
 class Scope(unittest.TestCase):
@@ -246,12 +246,12 @@ class Sweep(unittest.TestCase):
         fixture_jobs[overflow["id"]] = [job("PR size")]
         fake = Fake(fixture_runs, fixture_jobs)
 
-        cursor = [None]
+        cursor = rescue.ScanState()
         sweep(fake, cursor=cursor)
 
         self.assertIn(("runs", "pr-checks.yml", "in_progress", 2), fake.calls)
         self.assertEqual(mutations(fake), [("cancel", overflow["id"]), ("rerun", overflow["id"])])
-        self.assertIsNotNone(cursor[0])
+        self.assertIsNotNone(cursor.cursor)
 
     def test_a_fair_cursor_reaches_a_newer_eligible_run_behind_40_gated_runs(self):
         """Persistent gated runs must not consume every bounded minute-pass forever."""
@@ -275,7 +275,7 @@ class Sweep(unittest.TestCase):
             return None
 
         before = passes_until_rescue(Fake(fixture_runs, fixture_jobs), limit=3)
-        cursor = [None]
+        cursor = rescue.ScanState()
         after = passes_until_rescue(Fake(fixture_runs, fixture_jobs), cursor=cursor, limit=3)
         self.assertIsNone(before)
         self.assertEqual(after, 3)
@@ -288,7 +288,7 @@ class Sweep(unittest.TestCase):
                 for item in rows}
         jobs[eligible_id] = [job("PR size")]
         fake = Fake({"pr-checks.yml": rows}, jobs)
-        cursor = [None]
+        cursor = rescue.ScanState()
 
         for _ in range(35):
             sweep(fake, cursor=cursor)
@@ -296,6 +296,18 @@ class Sweep(unittest.TestCase):
                 break
 
         self.assertIn(("rerun", eligible_id), mutations(fake))
+
+    def test_cached_candidates_expire_when_they_leave_the_rescue_window(self):
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("build", status="in_progress", runner_id=7)]})
+        cursor = rescue.ScanState()
+        sweep(fake, cursor=cursor)
+        fake.runs_by_workflow.clear()
+        fake.calls.clear()
+
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW + rescue.WINDOW, dry_run=True, scan_state=cursor)
+
+        self.assertEqual(fake.job_reads[7], 1)
+        self.assertEqual(mutations(fake), [])
 
     def test_a_stalled_report_job_is_cancelled_and_its_failed_jobs_re_run(self):
         jobs = [job("Changes", status="completed", runner_id=1, waited=900), job("PR size"), job("UI review advisory")]
