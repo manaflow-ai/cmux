@@ -64,7 +64,7 @@ struct FeatureListTests {
     }
 
     /// CEF's `--enable-features` gets the Chromium name of each enabled `chromium` feature, and nothing for
-    /// an off one or one of another process (`cefTimerSlack` is `TimerSlackMac`).
+    /// an off one or one of another process.
     @Test func enabledChromiumFeaturesNameOnlyTheOnesThatAreOn() {
         func chromium(_ index: Int, _ name: String, _ chromiumName: String) -> Feature {
             Feature(index: index, name: name, owner: "PL-test", description: "A test feature.", kind: .perfPath,

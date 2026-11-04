@@ -23,7 +23,7 @@ inline constexpr std::string_view kPumpTimeSliceSwitch = "cmux-pump-time-slice-u
 // host's UI thread runs Chromium's own pump there, as Chrome's browser process
 // does, so this is Chrome's timer model on every thread. In process the app's
 // UI thread runs CEF's MessagePumpExternal instead, which arms no base timer,
-// so cmux keeps the feature behind cefTimerSlack there.
+// so cmux does not turn the feature on there.
 inline constexpr std::string_view kHostEnabledFeatures = "enable-features=TimerSlackMac";
 
 // `app` (cmux's switches, without leading dashes) for the host. The shim

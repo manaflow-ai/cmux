@@ -91,7 +91,7 @@ import Testing
 /// Chromium thread to one 8 ms grid (MessagePump::AdjustDelayedRunTime), and `BatterySaverModeAlignWakeUps`
 /// lets battery saver widen it to 32 ms in child processes. Both are `FEATURE_DISABLED_BY_DEFAULT`, and
 /// Chrome turns them on only through field trials, which `disable-field-trial-config` leaves off, so cmux
-/// names them. `TimerSlackMac` stays the default-off feature `cefTimerSlack`.
+/// names them. No app feature turns `TimerSlackMac` on.
 @Suite struct CEFSwitchesWakeUpAlignmentTests {
     /// Every fork API from stock CEF past the newest the app knows today.
     nonisolated static let forkAPIs = Array(Int32(0)...40)
@@ -134,8 +134,7 @@ import Testing
         }
     }
 
-    /// `TimerSlackMac` trades the snap for kernel timer tolerance; only the default-off feature
-    /// `cefTimerSlack` turns it on, on no fork API by itself.
+    /// `TimerSlackMac` trades the snap for kernel timer tolerance; no fork API turns it on by itself.
     @Test(arguments: forkAPIs)
     func noForkAPITurnsOnTimerSlackByItself(forkAPIVersion: Int32) {
         #expect(!Self.arguments(forkAPIVersion: forkAPIVersion).contains { $0.contains("TimerSlackMac") })

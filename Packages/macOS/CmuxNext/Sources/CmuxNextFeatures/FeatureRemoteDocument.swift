@@ -8,11 +8,11 @@ public import Foundation
 ///
 /// ```json
 /// { "version": 1,
-///   "default": { "Features": { "cefTimerSlack": "off" }, "FeaturesSerial": 7,
+///   "default": { "Features": { "intentPrewarmHover": "off" }, "FeaturesSerial": 7,
 ///                "FeaturesExpiresAt": "2026-12-01T00:00:00Z",
 ///                "FeaturesMinBuild": 1500, "FeaturesMaxBuild": 1600,
 ///                "FeatureParams": { "agentPageRendererSharing": { "mainFrames": "4" } } },
-///   "cohorts": { "wave-1": { "Features": { "cefTimerSlack": "on" }, "FeaturesSerial": 8 } } }
+///   "cohorts": { "wave-1": { "Features": { "intentPrewarmHover": "on" }, "FeaturesSerial": 8 } } }
 /// ```
 ///
 /// A cohort's key replaces the default's whole, as the daemon's reader does

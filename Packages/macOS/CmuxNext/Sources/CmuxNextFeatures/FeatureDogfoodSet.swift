@@ -23,7 +23,6 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "cefMergedEvents",
         "cefPrefetchBehindFence",
         "cefPumpInputPolicy",
-        "cefTimerSlack",
         "chromiumHostDragIn",
         "chromiumHostFileDialogs",
         "chromiumHostPopupMenus",

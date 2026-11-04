@@ -8,7 +8,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// DevTools session, so the per-renderer reuse switch applies.
     var rendererPaths = false
     /// Chromium `base::Feature`s the app's features turn on (process `chromium` in
-    /// schemas/features/features.d, for example `cefTimerSlack`'s `TimerSlackMac`).
+    /// schemas/features/features.d, for example `chromiumPermissionPromptsFromData`'s).
     var chromiumFeatures: [String] = []
     /// Chromium `base::Feature`s the app's features turn off (process `chromium`, off from any source:
     /// the channel default, the remote document, policy or `CMUX_DISABLE_FEATURES`). They go in one
@@ -191,12 +191,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // deadline CEFLayerHosting sets, so AsyncLiveResize would only lose that sync. A fork without
         // that skip keeps AsyncLiveResize: dropping it would put both waits back on the main thread.
         if !forkFeatures.resizeWaitsOnlyForDeadline { features.append("AsyncLiveResize") }
-        // The app's Chromium features come last, for example `cefTimerSlack` (default off):
-        // `kTimerSlackMac` (base/message_loop/message_pump_apple.mm, message_pump_kqueue.cc) gives each
-        // CFRunLoop and kqueue pump's delayed timer the task's leeway. It changes renderer, GPU and
-        // utility processes and the browser's non-UI threads only: the UI thread's MessagePumpExternal
-        // arms no base timer, and the app's deadline queue gets the leeway from the fork's absolute
-        // run times.
+        // The app's Chromium features come last.
         // A feature the app turns off leaves this entry, so the two lists never name one feature.
         let named = [Self.chromePromptOffFeature] + Self.wakeUpAlignmentFeatures
         let disabled = Set(disabledFeatures)
@@ -248,8 +243,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     ///
     /// `TimerSlackMac` is not in this list: with it on, those pumps return `earliest_time` from
     /// `AdjustDelayedRunTime` and give the kernel the leeway instead of the snap, which the UI
-    /// thread gets only from the absolute run times of p14-energy-046. It stays the default-off
-    /// feature `cefTimerSlack` (``chromiumFeatures``).
+    /// thread gets only from the absolute run times of p14-energy-046. No app feature turns it on.
     static let wakeUpAlignmentFeatures = ["AlignWakeUps", "BatterySaverModeAlignWakeUps"]
 
     /// The first fork API whose `cmux-page-scheme-process-per-site` reads a per-site cap table
