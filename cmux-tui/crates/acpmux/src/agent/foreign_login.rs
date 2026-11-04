@@ -54,6 +54,8 @@ pub(crate) const LOGIN_ENV_OWNERS: &[LoginEnv] = &[
     LoginEnv { key: "ANTHROPIC_AUTH_TOKEN", family: "claude", shared_with_others: true },
     LoginEnv { key: "OPENAI_API_KEY", family: "codex", shared_with_others: true },
     LoginEnv { key: "CODEX_HOME", family: "codex", shared_with_others: false },
+    // Codex's own API-key sign-in (`agent_login.rs` `MODEL_PLANE_ENV`).
+    LoginEnv { key: "CODEX_API_KEY", family: "codex", shared_with_others: false },
     LoginEnv { key: "OPENCODE_CONFIG", family: "opencode", shared_with_others: false },
 ];
 
@@ -119,11 +121,12 @@ pub(crate) fn classify_command(argv: &[String], label: &str) -> Runs {
     if is_host(argv) {
         return Runs::Host;
     }
-    let found = argv_families(argv);
-    match found.as_slice() {
-        [one] => Runs::Agent(one.clone()),
-        [] => canonical(label).map_or(Runs::Unknown, Runs::Agent),
-        _ => Runs::Unknown,
+    match argv_family(argv) {
+        Ok(Some(family)) => Runs::Agent(family),
+        // The command names no agent: its name or label may (`opencode-v2`).
+        Ok(None) => canonical(label).map_or(Runs::Unknown, Runs::Agent),
+        // A runner whose program cannot be told: no name or label decides.
+        Err(Ambiguous) => Runs::Unknown,
     }
 }
 
@@ -156,14 +159,17 @@ fn is_host(argv: &[String]) -> bool {
 
 /// Whether `program` is this binary, or the `cmux-tui` beside it, after
 /// links are resolved.
+/// The installed path counts, as `SelfCommand` names it: after an update
+/// replaced the file, Linux's `current_exe` ends in ` (deleted)`.
 fn is_own_binary(program: &std::path::Path) -> bool {
-    let Ok(this) = std::env::current_exe().and_then(|p| p.canonicalize()) else { return false };
-    let Ok(program) = program.canonicalize() else { return false };
-    program == this
-        || this
-            .parent()
-            .and_then(|dir| dir.join("cmux-tui").canonicalize().ok())
-            .is_some_and(|beside| program == beside)
+    let Ok(this) = crate::self_command::SelfCommand::current().map(|s| s.exe) else {
+        return false;
+    };
+    let beside = this.parent().map(|dir| dir.join("cmux-tui"));
+    let same = |a: &std::path::Path, b: &std::path::Path| {
+        a == b || matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b)
+    };
+    same(program, &this) || beside.is_some_and(|beside| same(program, &beside))
 }
 
 /// The leaf family a command line names by exact program name: its
@@ -173,54 +179,56 @@ fn is_own_binary(program: &std::path::Path) -> bool {
 /// That word names the agent by its executable, its package
 /// (`@agentclientprotocol/claude-agent-acp@0.99`) or, for a script, a folder
 /// of its path when `node` or `bun` runs it (`.../claude-agent-acp/dist/index.js`). Any other option before
-/// it (one that may take a value: `--require x.js`, `--chdir /tmp/codex-acp`)
-/// makes the command unknown: no guess. No substring counts.
-fn argv_families(argv: &[String]) -> Vec<String> {
+/// it (one that may take a value: `--require x.js`, `--chdir /tmp/codex-acp`),
+/// or a runner with no program, is [`Ambiguous`]: no guess, and no label decides. No substring counts.
+fn argv_family(argv: &[String]) -> Result<Option<String>, Ambiguous> {
     let by_name = |name: &str| {
         EXECUTABLES.iter().find(|(exe, _)| *exe == name).map(|(_, family)| family.to_string())
     };
-    let Some((program, rest)) = argv.split_first() else { return Vec::new() };
+    let Some((program, rest)) = argv.split_first() else { return Ok(None) };
     let runner = program_name(program);
     if let Some(family) = by_name(&runner) {
-        return vec![family];
+        return Ok(Some(family));
     }
     if !RUNNERS.contains(&runner.as_str()) {
-        return Vec::new();
+        return Ok(None);
     }
     let mut words = rest.iter();
     let target = loop {
-        let Some(word) = words.next() else { return Vec::new() };
+        let Some(word) = words.next() else { return Err(Ambiguous) };
         if STANDALONE_FLAGS.contains(&word.as_str()) || runner == "bun" && word == "x" {
             continue;
         }
         if word.starts_with('-') {
-            return Vec::new();
+            return Err(Ambiguous);
         }
         if word.contains('=') {
             if runner == "env" {
                 continue;
             }
-            return Vec::new();
+            return Err(Ambiguous);
         }
         break word;
     };
     let package = target.rsplit('/').next().unwrap_or(target);
     let package = package.split('@').find(|p| !p.is_empty()).unwrap_or(package);
     let script_runner = matches!(runner.as_str(), "node" | "bun");
-    by_name(&program_name(package))
-        .or_else(|| {
-            // Only a script names its agent by a folder (`.../claude-agent-acp/dist/index.js`).
-            if !script_runner {
-                return None;
-            }
-            std::path::Path::new(target)
-                .components()
-                .filter_map(|c| c.as_os_str().to_str().map(str::to_lowercase))
-                .find_map(|c| by_name(&c))
-        })
-        .into_iter()
-        .collect()
+    let family = by_name(&program_name(package)).or_else(|| {
+        // Only a script names its agent by a folder (`.../claude-agent-acp/dist/index.js`).
+        if !script_runner {
+            return None;
+        }
+        std::path::Path::new(target)
+            .components()
+            .filter_map(|c| c.as_os_str().to_str().map(str::to_lowercase))
+            .find_map(|c| by_name(&c))
+    });
+    Ok(family)
 }
+
+/// A runner command whose program cannot be told from its words.
+#[derive(Debug)]
+struct Ambiguous;
 
 /// Runner flags that take no value, so the next word may be the program.
 const STANDALONE_FLAGS: [&str; 6] = ["-y", "--yes", "-q", "--quiet", "--bun", "--"];
@@ -318,7 +326,9 @@ mod tests {
         };
         let codex = removed(Runs::Agent("codex".into()));
         assert!(codex.contains(&"CLAUDE_CODE_OAUTH_TOKEN".to_owned()));
-        assert!(removed(Runs::Agent("claude".into())).contains(&"CODEX_HOME".to_owned()));
+        let claude = removed(Runs::Agent("claude".into()));
+        assert!(claude.contains(&"CODEX_HOME".to_owned()));
+        assert!(claude.contains(&"CODEX_API_KEY".to_owned()));
         assert!(removed(Runs::Host).is_empty());
         let unknown = removed(Runs::Unknown);
         for key in ["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "OPENCODE_CONFIG"]
@@ -375,10 +385,17 @@ mod tests {
             &["npx", "--package=claude-agent-acp", "codex-acp"],
             &["node", "--require", "loader.js", "codex-acp"],
             &["node", "FOO=1", "codex-acp"],
-            &["env", "/tmp/codex-acp/bin/tool"],
+            &["npx"],
         ] {
             assert_eq!(classify_command(&argv(words), "custom"), Runs::Unknown, "{words:?}");
+            // Nor does a name or label decide for it.
+            assert_eq!(classify_command(&argv(words), "codex"), Runs::Unknown, "{words:?}");
         }
+        // A runner's program in a folder named like an agent is not that agent.
+        assert_eq!(
+            classify_command(&argv(&["env", "/tmp/codex-acp/bin/tool"]), "x"),
+            Runs::Unknown
+        );
         // `chief` as an ordinary argument is no host.
         assert_eq!(
             classify_command(&argv(&["/usr/bin/codex", "exec", "chief"]), "x"),
