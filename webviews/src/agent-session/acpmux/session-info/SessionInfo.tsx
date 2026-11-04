@@ -279,7 +279,7 @@ export const pushKeepsColumn = (paneWidth: number, room: number, column?: ChatCo
   (room < paneWidth &&
     // Push always takes an exact, user-dragged width. Its CSS pins the original column without
     // rounding the inset, so check that width plus the two minimum page edges fits in the chat.
-    // Default placement still steps in 8s and keeps its existing exact-width guard.
+    // Default placement steps in 2s and keeps its existing exact-width guard.
     (allowGridRounding
       ? paneWidth - room >= transcriptColumn(paneWidth, column).width + 2 * transcriptColumn(0, column).inset
       : transcriptColumn(paneWidth - room, column).width === transcriptColumn(paneWidth, column).width) &&
@@ -302,7 +302,7 @@ export const sessionInfoPushes = (
 /// moves right as the chat widens.
 const columnEnd = (chatWidth: number, column?: ChatColumn) => chatWidth - transcriptColumn(chatWidth, column).inset;
 
-/// A room stepped in 8px increments while the column needs only part of the panel: an even room keeps the
+/// A room stepped in 2px increments while the column needs only part of the panel: an even room keeps the
 /// centered column's inset on a whole pixel (model.ts transcriptColumn), so the column keeps its width.
 /// The room a pushed panel `panel` wide (pushedWidth) takes from the chat's right end: by default only
 /// what the gutter lacks, so the chat narrows gradually from the pane width where the gutter stops
@@ -318,12 +318,11 @@ export const pushedRoom = (paneWidth: number, panel: number, column?: ChatColumn
   const end = paneWidth - panel - 2 * FLOAT_MARGIN - Math.max(0, overflow);
   if (columnEnd(paneWidth, column) <= end) return 0;
   if (paneWidth - all <= 0 || columnEnd(paneWidth - all, column) > end) return all;
-  // The least room, in steps of 8 (each step moves the column's end in by about 4), whose column still
-  // ends by `end`. Rounding a pixel search up to 8 instead could
-  // land 1-3 px past it: columnEnd does not grow steadily with the chat's width. At most about 70 steps,
-  // run once per layout of the panel.
-  let room = 8;
-  while (room < all && columnEnd(paneWidth - room, column) > end) room += 8;
+  // The least room, in steps of 2 (each step moves the column's end in by 1), whose column still
+  // ends by `end`. A coarser step lets a 1 px wider panel flip between push and overlay during a drag.
+  // At most about 300 steps, run once per layout of the panel.
+  let room = 2;
+  while (room < all && columnEnd(paneWidth - room, column) > end) room += 2;
   // Once the chat would end under the panel itself (its page edge under the card), the whole room: the
   // chat's right edge, its scrollbar with it, is then the panel's left margin, as Push always draws it.
   return room >= panel ? all : room;
