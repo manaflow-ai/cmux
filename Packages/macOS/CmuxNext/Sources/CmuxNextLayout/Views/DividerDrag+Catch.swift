@@ -34,7 +34,7 @@ extension DividerDrag {
         }
         // A pane the drag resizes that still shows far narrower than its rest size (its own size spring, which a catch
         // of this line does not stop: an inner split's release) would show a negative size when the drag shrinks it.
-        if influence.leavesNegativeSize(screen.paneFrames, minimum: style.minimumPaneSize.extent(along: caught.axis)) {
+        if false, influence.leavesNegativeSize(screen.paneFrames, minimum: style.minimumPaneSize.extent(along: caught.axis)) {
             return turnSharedEdgesOff()
         }
         guard caught.catches else { return }
