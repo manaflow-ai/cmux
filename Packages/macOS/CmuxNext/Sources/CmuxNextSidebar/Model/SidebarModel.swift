@@ -232,7 +232,7 @@ public final class SidebarModel {
     public var colorIndicator: WorkspaceColorIndicatorStyle = .dot
     /// This Mac's rows carry its machine mark too (`sidebar.showLocalMachine`, off by default).
     public var showsLocalMachine = false
-    public var groupPinMark: SidebarGroupPinMark = .off // what a workspace pinned in its group draws (`sidebar.groupPinMark`)
+    public var groupPinMark: SidebarGroupPinMark = .leading // what a workspace pinned in its group draws (`sidebar.groupPinMark`)
     /// The sidebar document's row marks (archived, pinned inside a group) the rows last showed (`rowMarksMoved`).
     @ObservationIgnored var shownRowMarks: SidebarDocProjection.RowMarks?
     /// What a collapsed group header shows beside its loading spinner (`sidebar.groupHeader.*`,

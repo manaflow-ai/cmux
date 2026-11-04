@@ -54,7 +54,8 @@ import Testing
     }
 
     @Test func theSettingReadsEachLook() {
-        #expect(SidebarSectionsPreferences.defaults.groupPinMark == .off, "a new look is opt-in until one is picked")
+        #expect(SidebarSectionsPreferences.defaults.groupPinMark == .leading, "Aziz picked the pin before the name (2026-11-03)")
+        #expect(SidebarModel(sections: []).groupPinMark == .leading, "the model starts on the default look")
         for mark in SidebarGroupPinMark.allCases {
             var diagnostics: [SettingsDiagnostic] = []
             let root = CmuxNextSettings.JSONValue.object(["sidebar": .object(["groupPinMark": .string(mark.rawValue)])])
@@ -63,7 +64,7 @@ import Testing
         }
         var diagnostics: [SettingsDiagnostic] = []
         let bad = CmuxNextSettings.JSONValue.object(["sidebar": .object(["groupPinMark": .string("sparkles")])])
-        #expect(SidebarSectionsSetting.parse(bad, diagnostics: &diagnostics).groupPinMark == .off)
+        #expect(SidebarSectionsSetting.parse(bad, diagnostics: &diagnostics).groupPinMark == .leading, "a bad value keeps the default")
         #expect(diagnostics.map(\.path) == ["sidebar.groupPinMark"])
     }
 

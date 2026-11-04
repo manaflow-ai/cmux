@@ -6,7 +6,7 @@ public nonisolated enum SidebarGroupPinMark: String, Hashable, Sendable, CaseIte
     case off
     /// A small filled pin in the row's trailing marks, in the tertiary ink.
     case trailing
-    /// A small filled pin before the name, in the group's color.
+    /// A small filled pin before the name, in the group's color. The default (Aziz 2026-11-03: "i like pin before the name").
     case leading
     /// The pinned members sit on a faint wash of the group's color, a shelf at the top of the group.
     case shelf
