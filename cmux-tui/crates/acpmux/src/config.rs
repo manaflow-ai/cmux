@@ -1149,6 +1149,48 @@ impl ArtifactsSyncConfig {
     }
 }
 
+/// Persisted cmux-added prompt overrides. The `user` value applies to every new
+/// prompt on this daemon; project entries are keyed by a canonical working directory.
+/// Harness-owned prompts never live here: this store contains only text the user explicitly
+/// added through the Context viewer.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextOverrides {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub projects: BTreeMap<String, String>,
+}
+
+impl ContextOverrides {
+    pub fn is_empty(&self) -> bool { self.user.is_none() && self.projects.is_empty() }
+
+    pub fn for_project(&self, cwd: &Path) -> Option<(&str, &str)> {
+        let key = cwd.to_string_lossy();
+        self.projects
+            .get(key.as_ref())
+            .map(|text| ("project", text.as_str()))
+            .or_else(|| self.user.as_deref().map(|text| ("user", text)))
+    }
+
+    pub fn set(&mut self, scope: &str, cwd: Option<&Path>, text: Option<String>) -> Result<(), String> {
+        match scope {
+            "user" => self.user = text,
+            "project" => {
+                let cwd = cwd.ok_or("cwd is required for a project override")?;
+                let key = cwd.to_string_lossy().into_owned();
+                if let Some(text) = text {
+                    self.projects.insert(key, text);
+                } else {
+                    self.projects.remove(&key);
+                }
+            }
+            _ => return Err("scope must be user or project".into()),
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -1166,6 +1208,9 @@ pub struct Config {
     pub machine_wake: Option<MachineWakeConfig>,
     #[serde(default, alias = "defaultAgent")]
     pub default_harness: Option<String>,
+    /// User and project cmux-added context shown in the Context viewer and applied to new prompts.
+    #[serde(default, skip_serializing_if = "ContextOverrides::is_empty")]
+    pub context_overrides: ContextOverrides,
     /// More login-shell variables agents get, beyond the allow-list
     /// (`login_env::allowed`): exact names or `PREFIX_*`. Default empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
