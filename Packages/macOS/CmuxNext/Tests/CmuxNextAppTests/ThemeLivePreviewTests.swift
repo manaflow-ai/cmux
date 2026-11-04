@@ -95,6 +95,28 @@ import Testing
         withExtendedLifetime(terminal) {}
     }
 
+    /// The Highlight color picker previews while you choose (Leo, 2026-11-04, on theming: "we have to
+    /// make sure it actually propagates and that it propagates properly"): the Ghostty edits carry the
+    /// previewed color before it is saved, and ending the preview takes it back off.
+    @Test func previewingTheHighlightColorShowsItBeforeItIsSaved() async throws {
+        let (settings, url) = try await make()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let terminal = TerminalThemeSetting(backdropScope: ThemeScope(level: .room))
+        terminal.reload = {}
+        terminal.follow(settings)
+        #expect(GhosttyRuntime.themeEdits.highlight == nil)
+
+        #expect(settings.preview(try descriptor("appearance.highlightColor"), .string("#ff8800")))
+        await settle { GhosttyRuntime.themeEdits.highlight == "#ff8800" }
+        #expect(GhosttyRuntime.themeEdits.highlight == "#ff8800")
+        #expect(settings.snapshot.highlightColor == nil)
+
+        settings.endPreview()
+        await settle { GhosttyRuntime.themeEdits.highlight == nil }
+        #expect(GhosttyRuntime.themeEdits.highlight == nil)
+        withExtendedLifetime(terminal) {}
+    }
+
     @Test func previewingAnAppThemeReachesTheChromeAndEndingRevertsIt() async throws {
         let (settings, url) = try await make()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
