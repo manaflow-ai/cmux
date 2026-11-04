@@ -40,7 +40,9 @@ with open(log, "a") as out:
     markers = {key: os.environ[key] for key in ("CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "CMUX_TAG", "MUX_AGENT_TOKEN_FILE")
                if key in os.environ}
     out.write(json.dumps({"method": "_markers", "params": markers}) + "\n")
-    out.write(json.dumps({"method": "_customize", "params": {"dir": os.environ.get("CMUX_CUSTOMIZE_DIR")}}) + "\n")
+    customize_dir = os.environ.get("CMUX_CUSTOMIZE_DIR")
+    out.write(json.dumps({"method": "_customize", "params": {"dir": customize_dir,
+                                                             "made": bool(customize_dir) and os.path.isdir(customize_dir)}}) + "\n")
     home = os.environ.get("CMUX_CAPTURE_SHELL_HOME") or ""
     zshrc = os.path.join(home, ".zshrc")
     out.write(json.dumps({"method": "_fixture", "params": {"shell_home": home,
@@ -423,13 +425,19 @@ class AppWindowCaptureTests(unittest.TestCase):
                 with self.assertRaisesRegex(tour.TourError, "`env` maps"):
                     tour.load_tour(self.tour)
 
-    def test_customize_gives_the_launch_its_own_empty_customize_folder(self) -> None:
-        # The customize-templates tour writes a customize app there; without the key the
-        # launch never names one, so a tour never reads the runner's own ~/.config/cmux/customize.
+    def test_every_tour_gets_its_own_customize_folder_and_customize_makes_it(self) -> None:
+        # With no CMUX_CUSTOMIZE_DIR the daemon falls back to the runner's own
+        # ~/.config/cmux/customize, so a personal extension there would draw itself into every
+        # tour's shots. Each tour therefore names its own folder, whether or not it writes an app
+        # there; `customize: true` is what makes the folder before the launch.
         done, _ = self.run_tour()
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         entries = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
-        self.assertEqual([e["params"] for e in entries if e["method"] == "_customize"], [{"dir": None}])
+        [plain] = [e["params"]["dir"] for e in entries if e["method"] == "_customize"]
+        self.assertTrue(plain and plain.endswith("/customize"), plain)
+        self.assertFalse(Path(plain).is_relative_to(Path.home() / ".config"), "never the runner's own")
+        [made] = [e["params"]["made"] for e in entries if e["method"] == "_customize"]
+        self.assertFalse(made, "no folder until a tour says it writes an app there")
         self.log.unlink()
         data = json.loads(self.tour.read_text(encoding="utf-8"))
         self.tour.write_text(json.dumps({**data, "customize": True}), encoding="utf-8")
@@ -438,6 +446,9 @@ class AppWindowCaptureTests(unittest.TestCase):
         entries = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
         [folder] = [e["params"]["dir"] for e in entries if e["method"] == "_customize"]
         self.assertTrue(folder and folder.endswith("/customize"), folder)
+        self.assertNotEqual(folder, plain, "each run gets its own work directory")
+        self.assertTrue([e["params"]["made"] for e in entries if e["method"] == "_customize"] == [True],
+                        "customize: true makes the folder before the launch")
         self.assertFalse(Path(folder).is_relative_to(self.root / "out"), "never published as media")
 
     def test_customize_must_be_true_or_false_and_repo_fills_step_words(self) -> None:

@@ -20,7 +20,9 @@ art, a theme) and `cmux settings set` writes there, never to the runner's own
 settings. `customize: true` gives the launch its own empty customize folder
 (`CMUX_CUSTOMIZE_DIR`, `local/customize`'s folder, in the tour's work directory,
 which every terminal of the app has too), so a step can write a customize app
-there and the daemon installs and reloads it. `{repo}` in a step's `cmux`
+there and the daemon installs and reloads it; every tour gets its own folder either
+way, so the runner's own customize app never draws itself into a tour's shots.
+`{repo}` in a step's `cmux`
 words is this checkout; in text typed into a shell (`write --text`) it is filled
 in shell-quoted, so write `{repo}/a`, never `"{repo}"/a`. A step has a `title`
 and optionally:
@@ -1108,9 +1110,16 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     frames = session.shareable(directory / "frames")
     workdir = Path(tempfile.mkdtemp(prefix="cmux-tour.", dir="/tmp"))
     launch_env = dict(tour.get("env") or {})
-    if tour.get("customize"):
-        # The daemon reads CMUX_* from the app's environment (TerminalEnvironment), never a CMUX_NEXT_* knob.
-        launch_env["CMUX_CUSTOMIZE_DIR"] = str(session.shareable(workdir / "customize"))
+    # Every tour gets its own customize folder, named or not: with no CMUX_CUSTOMIZE_DIR the daemon
+    # falls back to the runner's own ~/.config/cmux/customize, so one personal extension there would
+    # draw itself into every tour's shots. The daemon reads CMUX_* from the app's environment
+    # (TerminalEnvironment), never a CMUX_NEXT_* knob.
+    customize = workdir / "customize"
+    # `customize: true` says a step writes an app there, so the folder is made, and made writable
+    # by the console user when that is someone else. A plain tour only names the path: nothing
+    # creates it, so the launch sees an empty customize folder either way.
+    launch_env["CMUX_CUSTOMIZE_DIR"] = str(session.shareable(customize) if tour.get("customize")
+                                           else customize)
     app = App(app_path, session, workdir, fresh_state=fresh_state, settings=tour.get("settings"),
               launch_env=launch_env)
     screen = Screen(session, session.shareable(workdir / "raw"), app)
