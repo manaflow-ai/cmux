@@ -22503,7 +22503,7 @@ struct CMUXCLI {
               - surface [selected]
               Browser surfaces also include their current URL.
               Without --all, --window or --workspace, a last line says how many
-              other windows were left out.
+              other windows were left out (skipped if the window list is unavailable).
 
             Example:
               cmux tree
