@@ -123,9 +123,9 @@ public struct AgentInspectorEvent: Identifiable, Hashable, Sendable {
 @Observable
 public final class AgentEventJournal {
     /// The most rows kept: the Mac's inspector shows its newest 500.
-    public static let limit = 500
+    public nonisolated static let limit = 500
     /// The most characters of one record's JSON shown.
-    public static let maxCharacters = 20_000
+    public nonisolated static let maxCharacters = 20_000
 
     public private(set) var events: [AgentInspectorEvent] = []
     /// Rows dropped for the limit since the last Clear.
