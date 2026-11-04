@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 
 use cmux_cloud_environment::{Environment, Resolver};
+use cmux_json::JsonSet as _;
 use serde_json::Value;
 
 use super::{GlobalArgs, OutputMode, UsageError};
@@ -82,11 +83,12 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     Some(match run(command, &global) {
         Ok(value) => match global.output {
             OutputMode::Human => {
-                println!("{}", value["name"].as_str().unwrap_or("unknown"));
-                if value["restart_required"] == true {
+                let flag = |key: &str| value.get(key).and_then(Value::as_bool) == Some(true);
+                println!("{}", value.get("name").and_then(Value::as_str).unwrap_or("unknown"));
+                if flag("restart_required") {
                     eprintln!(
                         "{}",
-                        if value["restart_scheduled"] == true {
+                        if flag("restart_scheduled") {
                             "The app is restarting. Sign in to Cloud again."
                         } else {
                             "Restart this app and sign in to Cloud again to apply the selection."
@@ -123,9 +125,9 @@ fn run(command: Command, global: &GlobalArgs) -> Result<Value, String> {
     let changed = switching
         && previous.is_none_or(|previous| previous.auth_namespace != selection.auth_namespace);
     let mut value = serde_json::to_value(selection).map_err(|error| error.to_string())?;
-    value["restart_required"] = Value::Bool(scheduled || changed);
-    value["sign_in_required"] = Value::Bool(scheduled || changed);
-    value["restart_scheduled"] = Value::Bool(scheduled);
+    value.set("restart_required", Value::Bool(scheduled || changed));
+    value.set("sign_in_required", Value::Bool(scheduled || changed));
+    value.set("restart_scheduled", Value::Bool(scheduled));
     Ok(value)
 }
 

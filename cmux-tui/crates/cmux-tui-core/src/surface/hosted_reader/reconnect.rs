@@ -299,7 +299,7 @@ impl HostedReader {
                 if !reconnect_mux.terminal_host_connection_lost(surface.id, &identity) {
                     pty.host_connection_state
                         .store(TerminalHostConnectionState::Failed as u8, Ordering::Release);
-                    pty.stream_progress.notify();
+                    pty.reader_gave_up();
                     return None;
                 }
                 // A resync's reconnect that failed is a loss clients have not heard of.
