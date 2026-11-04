@@ -76,6 +76,18 @@ struct WindowLiveResizeFrameTickTests {
         }
     }
 
+    /// The rig window's content view (the layout fills it). AppKit's live resize lays the window's view tree out inside
+    /// each `setFrame` it applies (`_setFrameCommon` -> `_layoutViewTree`, not a window layout pass: `LayoutPassGuard`
+    /// does not count it), so the tree has its final frames before `setFrame` returns. A test window is never in AppKit's
+    /// live resize and its `setFrame` only marks the tree for layout: in a live resize this view lays its tree out when
+    /// the window resizes it, inside the `setFrame`, as AppKit's live resize does.
+    final class LiveResizeContent: NSView {
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            if Motion.isInLiveResize(window) { layoutSubtreeIfNeeded() }
+        }
+    }
+
     /// A shell window (as the app makes it) whose content is a layout of two panes side by side.
     final class Rig {
         let provider = Panes()
@@ -93,7 +105,11 @@ struct WindowLiveResizeFrameTickTests {
             window = ShellWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 560), styleMask: [.titled, .resizable],
                                  backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
-            window.contentView = root
+            let content = LiveResizeContent(frame: NSRect(x: 0, y: 0, width: 900, height: 560))
+            root.frame = content.bounds
+            root.autoresizingMask = [.width, .height]
+            content.addSubview(root)
+            window.contentView = content
             if let visible = NSScreen.main?.visibleFrame { window.setFrameOrigin(NSPoint(x: visible.minX + 40, y: visible.minY + 40)) }
             // Mouse events reach the views only in a window that was ordered in.
             window.orderFrontRegardless()
