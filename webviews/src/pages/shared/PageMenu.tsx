@@ -37,6 +37,7 @@ export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
   }, [returnFocus]);
   const popupHost = usePopupHost();
   // A host that refuses the native rows (an older app, a mock client) gets the actionable page menu.
+  // Callers mount one PageMenu per opening, so the refusal lasts only for this menu.
   const [refused, setRefused] = useState(false);
   if (popupHost?.native && !refused) {
     return (
