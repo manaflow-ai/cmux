@@ -144,64 +144,86 @@ fn canonical(label: &str) -> Option<String> {
 }
 
 /// A command line that starts acpmux harnesses under itself: the Chief
-/// brain, exactly `<cmux-tui|cmux|acpmux> chief acp` as discovery makes it
-/// (`config/discover.rs` `add_chief`). Nothing else keeps every login: not
-/// uniichat (`uniichat-agent` is a network agent and starts no harness), not
-/// a wrapper whose name merely starts with `cmux-`.
+/// brain, `<cli> chief acp` where `<cli>` is this very binary or the
+/// `cmux-tui` beside it, as discovery makes it (`config/discover.rs`
+/// `add_chief`). A `cmux` elsewhere on PATH (another app's CLI, a planted
+/// file) is no host; nor is uniichat (`uniichat-agent` is a network agent and
+/// starts no harness).
 fn is_host(argv: &[String]) -> bool {
-    matches!(argv, [program, chief, acp, ..]
-        if HOST_PROGRAMS.contains(&program_name(program).as_str()) && chief == "chief" && acp == "acp")
+    let [program, chief, acp, ..] = argv else { return false };
+    chief == "chief" && acp == "acp" && is_own_binary(std::path::Path::new(program))
 }
 
-/// acpmux's own multicall binary names.
-const HOST_PROGRAMS: [&str; 3] = ["cmux-tui", "cmux", "acpmux"];
+/// Whether `program` is this binary, or the `cmux-tui` beside it, after
+/// links are resolved.
+fn is_own_binary(program: &std::path::Path) -> bool {
+    let Ok(this) = std::env::current_exe().and_then(|p| p.canonicalize()) else { return false };
+    let Ok(program) = program.canonicalize() else { return false };
+    program == this
+        || this
+            .parent()
+            .and_then(|dir| dir.join("cmux-tui").canonicalize().ok())
+            .is_some_and(|beside| program == beside)
+}
 
-/// The distinct leaf families a command line names by exact program name:
-/// its executable (`/usr/bin/claude`), and when that is a runner (`npx`,
-/// `node`, `env`, `bun`, ...), any later word that is an agent's executable,
-/// package (`@agentclientprotocol/claude-agent-acp@0.99`) or a folder of a
-/// script path (`.../claude-agent-acp/dist/index.js`). No substring counts.
+/// The leaf family a command line names by exact program name: its
+/// executable (`/usr/bin/claude`), or, when that is a runner (`npx`, `node`,
+/// `env`, `bun`, ...), the program the runner starts: its first word after
+/// `K=V` assignments (`env` only) and the flags known to stand alone (`-y`).
+/// That word names the agent by its executable, its package
+/// (`@agentclientprotocol/claude-agent-acp@0.99`) or, for a script, a folder
+/// of its path when `node` or `bun` runs it (`.../claude-agent-acp/dist/index.js`). Any other option before
+/// it (one that may take a value: `--require x.js`, `--chdir /tmp/codex-acp`)
+/// makes the command unknown: no guess. No substring counts.
 fn argv_families(argv: &[String]) -> Vec<String> {
     let by_name = |name: &str| {
         EXECUTABLES.iter().find(|(exe, _)| *exe == name).map(|(_, family)| family.to_string())
     };
     let Some((program, rest)) = argv.split_first() else { return Vec::new() };
-    if let Some(family) = by_name(&program_name(program)) {
+    let runner = program_name(program);
+    if let Some(family) = by_name(&runner) {
         return vec![family];
     }
-    if !RUNNERS.contains(&program_name(program).as_str()) {
+    if !RUNNERS.contains(&runner.as_str()) {
         return Vec::new();
     }
-    let mut found: Vec<String> = Vec::new();
-    // Only words that can be what the runner starts: no option (`-y`,
-    // `--require`), no option's value (`--require loader.js`), no `K=V`
-    // assignment (`env FOO=/tmp/codex-acp tool`).
-    let mut skip_value = false;
-    for word in rest {
-        if std::mem::take(&mut skip_value) {
+    let mut words = rest.iter();
+    let target = loop {
+        let Some(word) = words.next() else { return Vec::new() };
+        if STANDALONE_FLAGS.contains(&word.as_str()) || runner == "bun" && word == "x" {
             continue;
         }
         if word.starts_with('-') {
-            skip_value = !word.contains('=') && OPTIONS_WITH_VALUE.contains(&word.as_str());
-            continue;
+            return Vec::new();
         }
         if word.contains('=') {
-            continue;
+            if runner == "env" {
+                continue;
+            }
+            return Vec::new();
         }
-        let package = word.rsplit('/').next().unwrap_or(word);
-        let package = package.split('@').find(|p| !p.is_empty()).unwrap_or(package);
-        let hit = by_name(&program_name(package)).or_else(|| {
-            std::path::Path::new(word)
+        break word;
+    };
+    let package = target.rsplit('/').next().unwrap_or(target);
+    let package = package.split('@').find(|p| !p.is_empty()).unwrap_or(package);
+    let script_runner = matches!(runner.as_str(), "node" | "bun");
+    by_name(&program_name(package))
+        .or_else(|| {
+            // Only a script names its agent by a folder (`.../claude-agent-acp/dist/index.js`).
+            if !script_runner {
+                return None;
+            }
+            std::path::Path::new(target)
                 .components()
                 .filter_map(|c| c.as_os_str().to_str().map(str::to_lowercase))
                 .find_map(|c| by_name(&c))
-        });
-        if let Some(family) = hit.filter(|f| !found.contains(f)) {
-            found.push(family);
-        }
-    }
-    found
+        })
+        .into_iter()
+        .collect()
 }
+
+/// Runner flags that take no value, so the next word may be the program.
+const STANDALONE_FLAGS: [&str; 6] = ["-y", "--yes", "-q", "--quiet", "--bun", "--"];
 
 /// A program's own name: its file name, lower case, without a Windows or
 /// script extension.
@@ -215,10 +237,6 @@ fn program_name(program: &str) -> String {
         .find_map(|ext| name.strip_suffix(ext).map(str::to_owned))
         .unwrap_or(name)
 }
-
-/// Runner options whose next word is their value, never the program.
-const OPTIONS_WITH_VALUE: [&str; 8] =
-    ["--require", "-r", "--import", "--loader", "--experimental-loader", "-p", "--package", "-C"];
 
 /// Programs that start another program named by their arguments.
 const RUNNERS: [&str; 7] = ["npx", "bunx", "pnpx", "node", "bun", "uvx", "env"];
@@ -314,9 +332,12 @@ mod tests {
     fn a_command_counts_by_the_one_agent_it_names_exactly() {
         let argv = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
         let agent = |f: &str| Runs::Agent(f.into());
+        let this = std::env::current_exe().unwrap().to_string_lossy().into_owned();
         assert_eq!(classify_command(&argv(&["claude", "auth", "status"]), "mine"), agent("claude"));
         assert_eq!(classify_command(&argv(&["/opt/x", "auth"]), "opencode-v2"), agent("opencode"));
-        assert_eq!(classify_command(&argv(&["cmux", "chief", "acp"]), "codex"), Runs::Host);
+        // The host is this very binary running `chief acp`, nothing named like it.
+        assert_eq!(classify_command(&argv(&[&this, "chief", "acp"]), "codex"), Runs::Host);
+        assert_eq!(classify_command(&argv(&["cmux", "chief", "acp"]), "x"), Runs::Unknown);
         // uniichat is a network agent, no host: it keeps no other harness's sign-in.
         assert_eq!(
             classify_command(&argv(&["/App/bin/cmux", "acp", "uniichat-agent"]), "unii"),
@@ -342,16 +363,22 @@ mod tests {
         // A runner's agent, wherever it stands among the runner's arguments.
         for words in [
             &["env", "CLAUDE_CONFIG_DIR=/tmp", "codex-acp"][..],
-            &["node", "--require", "loader.js", "codex-acp"],
+            &["npx", "-y", "codex-acp", "--then", "claude"],
             &["bun", "x", "codex-acp"],
         ] {
             assert_eq!(classify_command(&argv(words), "custom"), agent("codex"), "{words:?}");
         }
-        // Two agents named: neither is trusted, every sign-in goes.
-        assert_eq!(
-            classify_command(&argv(&["npx", "codex-acp", "--then", "claude"]), "mine"),
-            Runs::Unknown
-        );
+        // Any other runner option may take a value: the command is unknown.
+        for words in [
+            &["env", "--chdir", "/tmp/codex-acp", "/bin/tool"][..],
+            &["env", "-C", "/tmp/codex-acp", "/bin/tool"],
+            &["npx", "--package=claude-agent-acp", "codex-acp"],
+            &["node", "--require", "loader.js", "codex-acp"],
+            &["node", "FOO=1", "codex-acp"],
+            &["env", "/tmp/codex-acp/bin/tool"],
+        ] {
+            assert_eq!(classify_command(&argv(words), "custom"), Runs::Unknown, "{words:?}");
+        }
         // `chief` as an ordinary argument is no host.
         assert_eq!(
             classify_command(&argv(&["/usr/bin/codex", "exec", "chief"]), "x"),
@@ -403,16 +430,21 @@ mod tests {
         chiefarg.argv.extend(["exec".into(), "chief".into()]);
         assert_eq!(leaf_family("mine", &chiefarg).as_deref(), Some("codex"));
         // A host is never one agent, whatever its name says.
-        let mut host = profile("/usr/local/bin/cmux", None);
+        let this = std::env::current_exe().unwrap().to_string_lossy().into_owned();
+        let mut host = profile(&this, None);
         host.argv.extend(["chief".into(), "acp".into()]);
         assert_eq!(leaf_family("codex-host", &host), None);
+        // Another program's `chief acp` is no host: it counts by its name.
+        let mut other = profile("/usr/local/bin/cmux", None);
+        other.argv.extend(["chief".into(), "acp".into()]);
+        assert_eq!(leaf_family("codex-host", &other).as_deref(), Some("codex"));
         // A launcher that does not name its agent counts by the profile's name.
         assert_eq!(
             leaf_family("deepseek", &profile("/opt/bin/dsh", None)).as_deref(),
             Some("deepseek")
         );
-        let mut chief = profile("cmux-tui", Some("chief"));
-        chief.argv = vec!["cmux-tui".into(), "chief".into(), "acp".into()];
+        let mut chief = profile(&this, Some("chief"));
+        chief.argv = vec![this.clone(), "chief".into(), "acp".into()];
         assert_eq!(leaf_family("chief", &chief), None);
         let mut stdio = profile("anything", Some("router"));
         stdio.kind = HarnessKind::ClaudeStdio;
