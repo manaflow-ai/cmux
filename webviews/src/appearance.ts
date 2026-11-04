@@ -95,7 +95,19 @@ export function hostTerminalTheme(): DiffViewerTheme | null {
   // The app's one highlight color (WebTheme.swift `terminal.selectionBackground`), so code pages
   // select in it rather than a fixed blue (user 2026-10-28).
   if (typeof terminal.selectionBackground === "string") theme.selectionBackground = terminal.selectionBackground;
+  if (terminal.type === "light" || terminal.type === "dark") theme.type = terminal.type;
   return theme;
+}
+
+/**
+ * The host's terminal theme as one scheme's: its colors when it is that scheme's (or names none),
+ * else only the app's one highlight color. The host sends its App Theme's palette, so a fixed
+ * `markdown.theme` paper of the other scheme keeps the default palette that reads on it, rather
+ * than a light theme's dark-grey code on dark paper.
+ */
+function hostThemeFor(host: DiffViewerTheme | null, scheme: "light" | "dark"): DiffViewerTheme | null {
+  if (!host || !host.type || host.type === scheme) return host;
+  return host.selectionBackground === undefined ? null : { selectionBackground: host.selectionBackground };
 }
 
 /**
@@ -116,8 +128,8 @@ export function followHostTerminalTheme(apply: () => void): () => void {
  */
 export function resolveDiffViewerAppearance(appearance?: DiffViewerAppearance): ResolvedDiffViewerAppearance {
   const host = appearance?.themes ? null : hostTerminalTheme();
-  const lightTheme = { ...defaultLightTheme, ...host, ...appearance?.themes?.light };
-  const darkTheme = { ...defaultDarkTheme, ...host, ...appearance?.themes?.dark };
+  const lightTheme = { ...defaultLightTheme, ...hostThemeFor(host, "light"), ...appearance?.themes?.light };
+  const darkTheme = { ...defaultDarkTheme, ...hostThemeFor(host, "dark"), ...appearance?.themes?.dark };
   lightTheme.foreground = readableColor(lightTheme.foreground, lightTheme.background, defaultLightTheme.foreground);
   lightTheme.selectionForeground = readableColor(
     lightTheme.selectionForeground,
