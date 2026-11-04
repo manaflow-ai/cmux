@@ -37,6 +37,8 @@ jobs:
       ((github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success') &&
       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Room for gh_budget_wait.sh to wait out an exhausted API budget (at most an hour).
+    timeout-minutes: 75
     permissions:
       actions: read
       contents: read
@@ -59,6 +61,22 @@ jobs:
       SOURCE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || github.event.workflow_run.head_branch }}
       SOURCE_REPOSITORY: ${{ github.event_name == 'workflow_dispatch' && github.repository || github.event.workflow_run.head_repository.full_name }}
     steps:
+      # Run 41790985234 (2026-11-04) failed here on its first read with "HTTP 403 API rate
+      # limit exceeded for installation". The wrapper waits for the budget's reset and tries
+      # again (scripts/ci/gh_budget_wait.sh), bounded by this job's timeout.
+      - name: Checkout the rate-limit wrapper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: refs/heads/main
+          path: .preflight-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash .preflight-tooling/scripts/ci/gh_budget_wait.sh --install
+
       - name: Verify source run and recovery artifacts
         id: check
         run: |
@@ -66,6 +84,13 @@ jobs:
           [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "invalid source run id" >&2; exit 1; }
           [[ "$SOURCE_RUN_ATTEMPT" =~ ^[0-9]+$ ]] || { echo "invalid source run attempt" >&2; exit 1; }
           [[ "$SOURCE_HEAD_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo "invalid source head SHA" >&2; exit 1; }
+          # nightly-next continues on its own track (below), so its runs, most of this
+          # workflow's triggers, need no API read to be turned away.
+          if [ "$SOURCE_BRANCH" = nightly-next ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "reason=nightly-next-continues-on-its-own-track" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > "$RUNNER_TEMP/source-run.json"
           python3 - "$RUNNER_TEMP/source-run.json" "$SOURCE_REPOSITORY" "$SOURCE_HEAD_SHA" "$SOURCE_BRANCH" "$SOURCE_RUN_ATTEMPT" <<'PY' > "$RUNNER_TEMP/source-check"
           import json

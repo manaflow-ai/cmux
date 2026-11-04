@@ -28,10 +28,13 @@ main that is still moving nightly-next counts as building for --promotion-minute
 A dispatch for one commit (a person, or the feed watch's starvation guard) never
 reaches this rule: the tick runs it only when its `sha` input is empty.
 
-Every read goes through the API with the job's token (no git remote, no
-shallow history). A failed read of nightly-next waits, with a warning: the feed
-watch's dispatch for one commit skips this rule, so that costs at most the
-backstop's delay. Any other failed read, and a gap to the tip that cannot be
+nightly-next's head comes from `git ls-remote` against the public repository
+(no token, no API budget: on 2026-11-04 an exhausted installation budget failed
+the refs API read and ticks 41791114042 and 41791169626 promoted nothing), and
+from the refs API only when that fails. Every other read goes through the API
+with the job's token (no shallow history). A head neither can read waits, with a
+warning: the feed watch's dispatch for one commit skips this rule, so that costs
+at most the backstop's delay. Any other failed read, and a gap to the tip that cannot be
 read, promotes, with a warning: the promotion ignores a request that does not
 move nightly-next forward.
 
@@ -191,15 +194,23 @@ def gh_api(path: str):
 
 
 def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
-             window_minutes: float = WINDOW_MINUTES) -> tuple[bool, str]:
-    """Read everything through the API (the job's token) and decide.
+             window_minutes: float = WINDOW_MINUTES, ls_remote=None) -> tuple[bool, str]:
+    """Read the head with `ls_remote` (main passes git ls-remote) and then the API, the rest
+    through the API (the job's token), and decide.
 
     nightly-next's head unreadable: wait, with a warning. The rule's purpose is to coalesce, and
     the feed watch (every 10 minutes) dispatches a build for one commit, which skips this rule, so
     a failed read here costs at most that backstop's delay and never a burst of builds. Any other
     failed read promotes, with a warning: the promotion ignores a request that moves nothing."""
+    head = None
+    if ls_remote is not None:
+        try:
+            head = ls_remote(repo, "nightly-next")
+        except Exception as error:  # noqa: BLE001 - the refs API below is the fallback
+            print(f"git ls-remote nightly-next failed ({error!r}); reading it through the API")
     try:
-        head = api(f"repos/{repo}/git/ref/heads/nightly-next")["object"]["sha"]
+        if head is None:
+            head = api(f"repos/{repo}/git/ref/heads/nightly-next")["object"]["sha"]
     except Exception as error:  # noqa: BLE001
         print(f"::warning title=nightly-next rolling rule::could not read nightly-next ({error!r}); "
               "waiting for the feed watch's backstop dispatch")
@@ -242,7 +253,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--tip", required=True, help="the feat-cmux-next commit the tick checked out")
     parser.add_argument("--window-minutes", type=float, default=WINDOW_MINUTES)
     args = parser.parse_args(argv)
-    go, reason = evaluate(dt.datetime.now(dt.timezone.utc), args.repo, args.tip, window_minutes=args.window_minutes)
+    go, reason = evaluate(dt.datetime.now(dt.timezone.utc), args.repo, args.tip, window_minutes=args.window_minutes,
+                          ls_remote=watch.ls_remote_sha)
     print(f"rolling rule: {'promote' if go else 'wait'}: {reason}")
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
