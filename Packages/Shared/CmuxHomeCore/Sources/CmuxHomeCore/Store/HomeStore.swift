@@ -66,6 +66,8 @@ public final class HomeStore {
     @ObservationIgnored var expandedAgentMessages: [ConversationID: Set<String>] = [:]
     /// Per conversation, each agent's newest report time the person opened in the agent pane (``markAgentSeen(_:in:)``).
     @ObservationIgnored var agentSeen: [ConversationID: [String: Date]] = [:]
+    /// Per conversation, where each agent's session runs, by session id (``followAgentSessions(_:in:)``).
+    @ObservationIgnored var agentSessions: [ConversationID: [String: HomeAgentSessionRef]] = [:]
     /// The Feed rows the main Chief's transcript shows, and that conversation (``setFeedRows(_:in:)``).
     @ObservationIgnored var feedRows: (conversation: ConversationID, rows: [HomeFeedRow])?
     @ObservationIgnored var liveBook = HomeLiveBook()
