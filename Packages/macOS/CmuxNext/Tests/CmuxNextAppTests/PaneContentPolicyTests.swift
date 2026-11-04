@@ -324,6 +324,80 @@ struct PaneContentPolicyTests {
         #expect(cut.isEmpty, "\(cut.prefix(3))")
     }
 
+    /// Review of #35470 at 447f784c3cf (G1 a): Ctrl-Shift-J grows p1 down with its prompt in the lower half, so its
+    /// surface keeps the final size on the bottom edge (F2); Ctrl-Shift-K before the landing reverses it. From the reverse
+    /// press's first frame each surface has its pane's size again: the newest press's anchor (`.top`) wins. The bottom
+    /// hold stayed until the landing, so the shrinking pane showed the text with its top step cut off over an empty band.
+    @Test func aReversePressAfterALowPromptGrowsDownFollowsItsPane() async throws {
+        let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.stack), focused: "p1")
+        defer { rig.close() }
+        defer { PaneGroundCoversPaneTests.releaseFrames() }
+        let terminal = try #require(rig.provider.sessions["p1"])
+        // A device attributes query after the prompt: its reply says the lines before it were parsed.
+        terminal.io.send(.output(Data((String(repeating: "line\r\n", count: 200) + "$ \u{1b}[c").utf8)))
+        await terminal.io.nextWrite()
+        PaneGroundCoversPaneTests.ownFrames()
+        #expect(PaneResize.press("p1", .down, model: rig.model, view: rig.root))
+        rig.root.syncWithModel()
+        var held = 0
+        for _ in 1...4 where rig.frame() {
+            let surface = terminal.session.surfaceView.frame.size, host = terminal.session.view
+            if surface.height > host.surfaceSize(forHostSize: host.bounds.size).height + 1 { held += 1 }
+        }
+        try #require(held > 0, "the grow-down press kept no bottom hold: the case under test did not happen")
+        #expect(PaneResize.press("p1", .up, model: rig.model, view: rig.root))
+        rig.root.syncWithModel()
+        var off: [String] = []
+        let frames = try Self.run(rig) { frame in off += try Self.offTheirPanes(["p1", "p2"], in: rig, "reverse frame \(frame)") }
+        off += try Self.offTheirPanes(["p1", "p2"], in: rig, "after the landing")
+        #expect(frames > 3, "the reverse press did not spring (\(frames) frames)")
+        #expect(off.isEmpty, "\(off.count) frames showed a surface off its pane's size after the reverse press: \(off.prefix(3))")
+    }
+
+    /// Review of #35470 at 447f784c3cf (G1 b): a terminal that joins during a key hold (a tab switch) took the press's
+    /// final size as a hold before its area handed it the follow; a second press before the landing left that hold, and
+    /// the landing's release sized the surface from it: the PTY got grid1, grid2, grid1, grid2 for two presses. Each press
+    /// sends one grid, and none goes after the landing.
+    @Test func aTerminalThatJoinsAKeyHoldGetsOneGridPerPressThroughASecondPress() async throws {
+        let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
+        defer { rig.close() }
+        defer { PaneGroundCoversPaneTests.releaseFrames() }
+        let pane = try #require(rig.root.context.hosts["p2"]?.content as? PaneContentView)
+        let io = GridRecordingTerminalIO()
+        let joining = TerminalSession(io: io)
+        defer {
+            joining.close()
+            io.finish()
+        }
+        PaneGroundCoversPaneTests.ownFrames()
+        #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
+        rig.root.syncWithModel()
+        rig.root.layoutSubtreeIfNeeded()
+        for _ in 1...4 { _ = rig.frame() }
+        // The tab switch: the joining terminal takes the pane's content area in the middle of the spring.
+        _ = pane.show(joining.view)
+        rig.root.layoutSubtreeIfNeeded()
+        for _ in 1...2 { _ = rig.frame() }
+        joining.surfaceView.bridge.takeUnretainedValue().input.focusGained()
+        let atJoin = await io.gridsUntilMarker()
+        PaneGroundCoversPaneTests.ownFrames()
+        // A second press before the landing.
+        #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
+        rig.root.syncWithModel()
+        _ = rig.frame()
+        joining.surfaceView.bridge.takeUnretainedValue().input.focusGained()
+        let atSecond = await io.gridsUntilMarker()
+        PaneGroundCoversPaneTests.ownFrames()
+        let frames = try Self.run(rig)
+        joining.surfaceView.bridge.takeUnretainedValue().input.focusGained()
+        let afterLanding = await io.gridsUntilMarker()
+        let final = try #require(joining.surfaceView.fittedGrid)
+        #expect(frames > 3, "the second press did not spring (\(frames) frames)")
+        #expect(atJoin.count == 1, "the join asked the PTY for \(atJoin), not the first press's final grid once")
+        #expect(atSecond == [final], "the second press asked the PTY for \(atSecond), not its final grid \(final) once")
+        #expect(afterLanding.isEmpty, "the landing asked the PTY for \(afterLanding) after the presses' grids")
+    }
+
     /// The grids `pane`'s terminal asked its PTY for since the last call (a focus report after them is the marker).
     static func grids(_ pane: PaneID, _ rig: Rig) async throws -> [TerminalGridSize] {
         let session = try #require(rig.provider.sessions[pane])
