@@ -622,6 +622,9 @@ pub struct Translator {
 struct BackgroundShell {
     sid: String,
     command: String,
+    /// What the Bash call says it does (its `description`): the tray names
+    /// the process by it (webviews `session-info/commandRules.ts`).
+    description: Option<String>,
     task: Option<String>,
     background: bool,
     /// Started in the background (`run_in_background`), not moved there.

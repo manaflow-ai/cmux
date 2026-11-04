@@ -1,7 +1,16 @@
 import type { PageClient } from "../shared/pageClient";
 
 export type Origin = "grok-bot" | "muse" | "dots" | "instinct";
-export type RowID = "claude-code" | "codex" | "claude-memory" | "chatgpt" | "claude" | Origin | "dot";
+export type RowID =
+  | "claude-code"
+  | "codex"
+  | "codex-sessions"
+  | "claude-memory"
+  | "chatgpt"
+  | "claude"
+  | Origin
+  | "dot"
+  | `detected-${number}`;
 export type Phase = "idle" | "detecting" | "ready" | "importing" | "done" | "error";
 export type RowPhase = "idle" | "planning" | "writing" | "done" | "error";
 export interface ImportReport {
@@ -16,6 +25,9 @@ export interface HistoryRow {
   expanded?: boolean;
   source?: string;
   name?: string;
+  title?: string;
+  icon?: string;
+  detected?: boolean;
   text?: string;
   phase: RowPhase;
   report?: ImportReport;
@@ -44,7 +56,7 @@ export const OPS = {
 } as const;
 export const ORIGINS: Origin[] = ["grok-bot", "muse", "dots", "instinct"];
 export const initialRows = (): HistoryRow[] => [
-  ...(["claude-code", "codex", "claude-memory"] as const).map((id) => ({
+  ...(["claude-code", "codex", "codex-sessions", "claude-memory"] as const).map((id) => ({
     id,
     kind: "local" as const,
     selected: false,
@@ -74,7 +86,7 @@ export function canImport(snapshot: HistorySnapshot): boolean {
 }
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-/** One owner for detection, explicit picks and the complete batch. No folder scan requests export discovery. */
+/** One owner for detection, explicit picks and the complete batch. Export discovery is explicit. */
 export class ImportHistoryStore {
   private snapshot: HistorySnapshot;
   private readonly listeners = new Set<() => void>();
@@ -111,18 +123,65 @@ export class ImportHistoryStore {
     return this.snapshot.phase === "importing" || this.snapshot.undoing;
   }
   async start(): Promise<void> {
-    if (this.detecting || this.snapshot.phase !== "idle") return;
+    if (this.snapshot.phase !== "idle") return;
+    await this.detect(false);
+  }
+  async findExports(): Promise<void> {
+    await this.detect(true);
+  }
+  private async detect(exports: boolean): Promise<void> {
+    if (this.detecting || this.busy) return;
     this.detecting = true;
     this.set({ phase: "detecting" });
     try {
       if (!this.client) throw new Error("cmux.importHistory.unavailable");
-      const result = await this.client.call<{ sources: { source: string; title?: string }[] }>(OPS.detect, {});
+      const result = await this.client.call<{
+        sources: { source: string; kind?: string; title?: string; path?: string }[];
+      }>(OPS.detect, exports ? { exports: true } : {});
+      const detected = result.sources ?? [];
       this.set({
         phase: "ready",
-        rows: this.snapshot.rows.map((row) => {
-          const found = result.sources.find((source) => source.source === row.id && row.kind === "local");
-          return found ? { ...row, selected: true, source: found.source } : row;
-        }),
+        rows: this.snapshot.rows
+          .filter((row) => !row.id.startsWith("detected-"))
+          .map((row) => {
+            if (row.kind === "zip" && row.source && !row.detected) return row;
+            const found = detected.find((source) => source.source === row.id || source.kind === row.id);
+            const exportKind =
+              row.id === "chatgpt" ? "chatgpt-export" : row.id === "claude" ? "claude-ai-export" : undefined;
+            const exportFound = exportKind && detected.find((source) => source.kind === exportKind);
+            const match = found ?? exportFound;
+            return match
+              ? {
+                  ...row,
+                  selected: true,
+                  expanded: row.kind === "text" ? true : row.expanded,
+                  source: match.source,
+                  detected: true,
+                  name: match.title ?? match.path,
+                }
+              : row.detected
+                ? { ...row, selected: false, detected: false, source: undefined, name: undefined }
+                : row;
+          })
+          .concat(
+            detected
+              .filter(
+                (source) =>
+                  source.source.startsWith("zip:") &&
+                  !["chatgpt-export", "claude-ai-export"].includes(source.kind ?? ""),
+              )
+              .map((source, index) => ({
+                id: `detected-${index}` as const,
+                kind: "zip" as const,
+                selected: true,
+                source: source.source,
+                name: source.title ?? source.path,
+                title: source.kind === "dots-export" ? "Dot export (.zip)" : "Saved export (.zip)",
+                icon: source.kind === "dots-export" ? "D" : "↗",
+                detected: true,
+                phase: "idle" as const,
+              })),
+          ),
       });
     } catch (error) {
       this.set({ phase: "error", error: message(error) });
@@ -164,12 +223,12 @@ export class ImportHistoryStore {
       this.set({ error: message(error) });
     }
   }
-  async pickZip(id: "chatgpt" | "claude" | "dot"): Promise<void> {
+  async pickZip(id: RowID): Promise<void> {
     if (!this.client || this.busy || this.snapshot.picking) return;
     this.set({ picking: id, error: undefined });
     try {
       const result = await this.client.call<{ source: string; name: string } | null>(OPS.pickZip, {
-        kind: id,
+        kind: id.startsWith("detected-") ? "dot" : id,
       });
       if (!result) return;
       if (id === "dot" && !this.snapshot.rows.some((row) => row.id === "dot")) {
@@ -179,6 +238,7 @@ export class ImportHistoryStore {
       } else
         this.row(id, {
           ...result,
+          detected: false,
           selected: true,
           report: undefined,
           phase: "idle",
@@ -216,8 +276,12 @@ export class ImportHistoryStore {
       try {
         const origin = row.kind === "text" ? (row.id as Origin) : undefined;
         const source = origin
-          ? (await client.call<{ source: string }>(OPS.prepareText, { summaryOrigin: origin, text: row.text ?? "" }))
-              .source
+          ? (
+              await client.call<{ source: string }>(OPS.prepareText, {
+                summaryOrigin: origin,
+                text: row.text ?? "",
+              })
+            ).source
           : row.source;
         if (this.stopped) return;
         if (!source) throw new Error("cmux.importHistory.missing_source");
