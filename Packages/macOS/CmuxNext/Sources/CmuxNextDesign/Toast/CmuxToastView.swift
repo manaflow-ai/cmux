@@ -85,8 +85,10 @@ public final class CmuxToastView: NSView {
         // A toast wider than its row (Details on) gives the room to the message, so Details and
         // close stay at the trailing edge, on the title's line.
         label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        // Fitted to the glass in the scope it draws in, again on every theme change (GlassTextEveryThemeTests).
-        label.themeColor = { Palette.toastText(.primary) }
+        // Fitted to the ground it draws on (the glass, or the opaque surface under Reduce Transparency) in
+        // the scope it draws in, again on every theme change (GlassTextEveryThemeTests).
+        let ground = self.reduceTransparency
+        label.themeColor = { Palette.toastText(.primary, reduceTransparency: ground) }
         // The details stay out of the toast until Details shows them: the pointer on the message shows them.
         label.themedToolTip = toast.detail
         messageLabel = label
@@ -182,7 +184,8 @@ public final class CmuxToastView: NSView {
         // on one line would widen the toast.
         label.setContentCompressionResistancePriority(.fittingSizeCompression, for: .horizontal)
         label.setContentHuggingPriority(.fittingSizeCompression, for: .horizontal)
-        label.themeColor = { Palette.toastText(.secondary) }
+        let ground = self.reduceTransparency
+        label.themeColor = { Palette.toastText(.secondary, reduceTransparency: ground) }
         let document = FlippedDocumentView()
         document.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(label)
@@ -197,7 +200,7 @@ public final class CmuxToastView: NSView {
             line.translatesAutoresizingMaskIntoConstraints = false
             line.setContentCompressionResistancePriority(.fittingSizeCompression, for: .horizontal)
             line.setContentHuggingPriority(.fittingSizeCompression, for: .horizontal)
-            line.themeColor = { Palette.toastText(.tertiary) }
+            line.themeColor = { Palette.toastText(.tertiary, reduceTransparency: ground) }
             // The raw reason, word for word, for a bug report.
             line.themedToolTip = detail
             document.addSubview(line)

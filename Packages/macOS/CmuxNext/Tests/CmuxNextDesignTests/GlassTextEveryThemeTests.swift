@@ -43,28 +43,41 @@ struct GlassTextEveryThemeTests {
         let root = try #require(window.contentView)
         scope.setOverride(try #require(ThemeSpec("Glass \(themes[0].name)")), input: themes[0].input, animated: false)
         scope.root(root)
-        // A Details action, so the toast makes its detail label.
-        let toast = CmuxToastView(toast: CmuxToast(id: "t", message: "Could not save the file", detail: "The disk is full.",
-                                                   action: .details("Details")))
+        // A Details action, so the toast makes its detail label. One toast on the glass, one on the
+        // opaque surface (Reduce Transparency): each fits its text to the ground it shows, as no one
+        // ink reads on both in every theme (Hot Dog Stand: white on the veiled red, black on the lifted one).
+        func makeToast(_ reduceTransparency: ReduceTransparency) -> CmuxToastView {
+            CmuxToastView(toast: CmuxToast(id: "t", message: "Could not save the file", detail: "The disk is full.",
+                                           action: .details("Details")), reduceTransparency: reduceTransparency)
+        }
+        let glassToast = makeToast(ReduceTransparency(system: { false }, changes: NotificationCenter()))
+        let opaqueToast = makeToast(.alwaysOpaque)
         let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Export Your Passwords", lines: ["Open the Passwords app."],
                                                          origin: "cmux", buttons: [.cancel(), .ok("Choose File")]))
-        root.addSubview(toast)
+        root.addSubview(glassToast)
+        root.addSubview(opaqueToast)
         root.addSubview(dialog)
         root.layoutSubtreeIfNeeded()
         var failures: [String] = []
         for theme in themes {
             // The theme changes while the detail is hidden, then Details shows it, as a person sees it.
-            toast.setShowsDetails(false)
+            glassToast.setShowsDetails(false)
+            opaqueToast.setShowsDetails(false)
             scope.setOverride(try #require(ThemeSpec("Glass \(theme.name)")), input: theme.input, animated: false)
-            toast.setShowsDetails(true)
+            glassToast.setShowsDetails(true)
+            opaqueToast.setShowsDetails(true)
             let tokens = scope.tokens
-            let toastGrounds = [Self.ground(.toast, tokens), tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)]
-            let texts: [(String, NSColor?, Double)] = [("toast message", toast.messageLabel?.textColor, ThemeTokens.minimumTextContrast),
-                                                      ("toast detail", toast.detailLabel?.textColor, ThemeTokens.minimumTextContrast)]
-            for (name, color, minimum) in texts {
-                let ink = try Self.rgb(color)
-                for ground in toastGrounds where ink.contrast(with: ground) < minimum - 0.01 {
-                    failures.append(String(format: "%@: %@ %.2f:1", theme.label, name, ink.contrast(with: ground)))
+            let shown: [(String, CmuxToastView, ThemeRGB)] = [
+                ("glass", glassToast, Self.ground(.toast, tokens)),
+                ("opaque", opaqueToast, tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)),
+            ]
+            for (surface, toast, ground) in shown {
+                let texts: [(String, NSColor?)] = [("message", toast.messageLabel?.textColor), ("detail", toast.detailLabel?.textColor)]
+                for (name, color) in texts {
+                    let ink = try Self.rgb(color)
+                    if ink.contrast(with: ground) < ThemeTokens.minimumTextContrast - 0.01 {
+                        failures.append(String(format: "%@: %@ toast %@ %.2f:1", theme.label, surface, name, ink.contrast(with: ground)))
+                    }
                 }
             }
             for label in Self.dialogLabels(in: dialog) {
