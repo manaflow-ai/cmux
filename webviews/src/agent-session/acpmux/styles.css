@@ -133,8 +133,8 @@
    it to the room the pane has). --popup-scroll-cap is that bound for popupHost.ts, so a list longer
    than it scrolls here rather than going past the window's edge as a flat native list. MenuPopup's
    shared portal keeps it above the composer's glass, so its own glass frosts the pills behind it. */
-.acpmux-composer-plus .acpmux-menu{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh);scrollbar-gutter:stable}
-.acpmux-menu.acpmux-composer-plus{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh);scrollbar-gutter:stable;scrollbar-width:none}
+.acpmux-composer-plus .acpmux-menu{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh)}
+.acpmux-menu.acpmux-composer-plus{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh);scrollbar-width:none}
 .acpmux-menu.acpmux-composer-plus::-webkit-scrollbar{width:0;height:0}
 /* Keep the composer's action rows pressable at every edge (composer-chip-press.test.ts probes all
    four row edges) by leaving WebKit's hit-tested mask channel off and moving the visible edge fade
