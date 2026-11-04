@@ -53,6 +53,10 @@ pub(crate) struct Connection {
     /// Each approved tool's sha256 (`cmux_mcp_connect::pin`), by name.
     #[serde(default)]
     pub tool_pin: BTreeMap<String, String>,
+    /// Whether the server has listed its tools once (an empty list counts). After that, an empty
+    /// pin means the person approved no tools, so every tool listed later waits for the person.
+    #[serde(default)]
+    pub tools_listed: bool,
     /// `always`, `ask` or `never`, by tool name.
     #[serde(default)]
     pub tool_policy: BTreeMap<String, String>,
@@ -444,6 +448,7 @@ mod tests {
             scope: scope.into(),
             owner: owner.into(),
             tool_pin: BTreeMap::new(),
+            tools_listed: false,
             tool_policy: BTreeMap::new(),
             tools: vec![],
             state: "connected".into(),
