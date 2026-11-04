@@ -3,6 +3,14 @@
 // reaches a still pointer and stops.
 import { describe, expect, test } from "bun:test";
 import {
+  type ZipMotion,
+  ZIP_HOVER_MS,
+  ZIP_MS,
+  ZIP_RELEASE_MS,
+  zipRetarget,
+  zipSettled,
+  zipStep,
+  zipValue,
   tickLength,
   waveAmplitude,
   waveFollow,
@@ -59,5 +67,67 @@ describe("hover wave model", () => {
     // A longer frame goes further, never past the pointer.
     expect(waveFollow(0, 10, 50)).toBeGreaterThan(waveFollow(0, 10, 16));
     expect(waveFollow(0, 10, 1000)).toBe(10);
+  });
+
+  describe("zipper", () => {
+    const lengths = (values: Map<number, number>, from: number, to: number) =>
+      Array.from({ length: to - from + 1 }, (_, at) => Math.round(tickLength(values.get(from + at) ?? 0) * 100) / 100);
+
+    test("settles on the reference's lengths by whole rows from the hovered row", () => {
+      const motions = new Map<number, ZipMotion>();
+      zipRetarget(motions, 10, 30, 0);
+      expect(lengths(zipStep(motions, 10, 1000), 5, 15)).toEqual([6, 6, 10, 14, 20, 26, 20, 14, 10, 6, 6]);
+      expect(zipSettled(motions, 1000)).toBe(true);
+    });
+
+    test("a row change starts each changed tick from where it is; the hovered one is longest every frame", () => {
+      const motions = new Map<number, ZipMotion>();
+      zipRetarget(motions, 10, 30, 0);
+      // Mid-ease, the pointer moves on two rows.
+      zipRetarget(motions, 12, 30, 1000);
+      // Tick 10 still draws its full length on the move's own instant, so tick 12 takes its own at once.
+      const start = zipStep(motions, 12, 1000);
+      expect(start.get(10)).toBeCloseTo(1, 6);
+      expect(start.get(12)).toBe(1);
+      for (let t = 1000 + 1000 / 60; t <= 1000 + ZIP_MS; t += 1000 / 60) {
+        const values = zipStep(motions, 12, t);
+        const hovered = values.get(12)!;
+        for (const [index, value] of values) if (index !== 12) expect(value).toBeLessThan(hovered);
+      }
+      expect(zipSettled(motions, 1000 + ZIP_MS)).toBe(true);
+    });
+
+    test("a tick already heading to its target keeps its own motion", () => {
+      const motions = new Map<number, ZipMotion>();
+      zipRetarget(motions, 10, 30, 0);
+      const tick13 = motions.get(13)!;
+      // From 10 to 11, tick 13's target goes 0.2 to 0.4; tick 7's (0.2 to 0) changes; tick 14 starts.
+      zipRetarget(motions, 11, 30, 40);
+      expect(motions.get(13)).not.toBe(tick13);
+      expect(motions.get(13)!.from).toBeCloseTo(zipValue(tick13, 40), 6);
+      const tick12 = motions.get(12)!;
+      zipRetarget(motions, 11, 30, 50);
+      expect(motions.get(12)).toBe(tick12);
+    });
+
+    test("the hovered tick grows quickly on arrival, and release shrinks every tick over the ceiling", () => {
+      const motions = new Map<number, ZipMotion>();
+      zipRetarget(motions, 10, 30, 0);
+      expect(motions.get(10)!.ms).toBe(ZIP_HOVER_MS);
+      expect(motions.get(11)!.ms).toBe(ZIP_MS);
+      zipStep(motions, 10, 1000);
+      zipRetarget(motions, undefined, 30, 1000);
+      for (const motion of motions.values()) expect(motion).toMatchObject({ to: 0, ms: ZIP_RELEASE_MS });
+      let last = 1;
+      for (let t = 1000; t <= 1000 + ZIP_RELEASE_MS; t += 1000 / 60) {
+        const value = zipStep(motions, undefined, t).get(10)!;
+        expect(value).toBeLessThanOrEqual(last);
+        last = value;
+      }
+      expect(last).toBeLessThan(0.001);
+      expect(zipStep(motions, undefined, 1000 + ZIP_RELEASE_MS).get(10)).toBe(0);
+      // Halfway through, still an eighth of the way up (not a drop in one frame).
+      expect(zipValue(motions.get(10)!, 1000 + ZIP_RELEASE_MS / 2)).toBeGreaterThan(0.1);
+    });
   });
 });

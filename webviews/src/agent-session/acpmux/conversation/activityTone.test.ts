@@ -30,3 +30,24 @@ test("tone gallery includes readable alternatives on the same fixture", () => {
   expect(gallery).toContain('"transcript-activity-tone": "tertiary"');
   expect(gallery).toContain('"transcript-activity-tone": "readable"');
 });
+
+test("message lines rest in the activity tone and light to the text tone only on hover or focus", () => {
+  // Leo, 2026-11-03, on "Received 6 messages" / "Sent 2 messages" after #34464 drew them in the
+  // text tone at rest: "these are now too lit up by default? they should only be this bright when
+  // u hover over it".
+  const rows = readFileSync(join(import.meta.dir, "AgentMessageRow.css"), "utf8");
+  const lines = ".acpmux-row .cv-tool:is(.cv-sent, .cv-agentmsg__line, .cv-message-group__head, [data-message-run])";
+  const received = ".acpmux-row .cv-received > .cv-disclosure__line";
+  const rest = new RegExp(`${escape(lines)},\\s*${escape(received)} \\{\\s*color: var\\(--cv-activity-text\\);\\s*\\}`);
+  expect(rows).toMatch(rest);
+  expect(rows).toContain(`${lines}:is(:hover, :focus-visible, :has(:focus-visible))`);
+  expect(rows).toContain(`${received}:is(:hover, :has(:focus-visible))`);
+  // No rule draws a message line in the text tone at rest.
+  expect(rows).not.toMatch(
+    new RegExp(`${escape(lines)}(,\\s*\\.acpmux-row \\.cv-agentmsg__card)? \\{\\s*color: var\\(--cv-text\\)`),
+  );
+});
+
+function escape(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

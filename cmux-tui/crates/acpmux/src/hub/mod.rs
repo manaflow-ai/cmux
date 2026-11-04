@@ -75,6 +75,7 @@ mod handoff;
 mod harness_view;
 mod harness_watch;
 mod health_view;
+mod held_asks;
 pub(super) mod idle;
 mod idle_census;
 pub(crate) use idle_census::LaunchServers;
@@ -104,6 +105,7 @@ mod hosts;
 mod lifecycle;
 mod log_deferral;
 mod log_load;
+mod repo_sync;
 mod retention;
 pub use retention::RetentionRequest;
 pub(crate) mod model_availability;
@@ -253,6 +255,8 @@ mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod background_cause;
 pub mod background_turn;
+#[cfg(feature = "sim")]
+mod sim_startup;
 #[cfg(all(test, unix))]
 mod trigger_quiet_tests;
 mod turns;
@@ -269,6 +273,7 @@ mod web_control;
 mod web_token;
 mod work_below;
 pub(crate) mod worktree_care;
+mod wrap_up_offer;
 mod xai;
 pub use web_control::Control;
 pub(crate) use web_control::ModeWrite;
@@ -789,6 +794,8 @@ pub struct Hub {
     pub mesh: std::sync::OnceLock<Arc<dyn crate::mesh::MeshHub>>,
     pub(crate) watches: watches::Watches,
     pub(crate) peer_accepts: outbox::PeerAccepts,
+    /// A peer's live asks for sessions it has not listed yet (`held_asks.rs`).
+    pub(crate) held_peer_asks: held_asks::HeldAsks,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
     /// Pairing tickets and paired machines (`crate::pairing`).
@@ -1002,6 +1009,7 @@ impl Hub {
             mesh: Default::default(),
             watches: Default::default(),
             peer_accepts: Default::default(),
+            held_peer_asks: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
             #[cfg(all(unix, feature = "tailnet"))]

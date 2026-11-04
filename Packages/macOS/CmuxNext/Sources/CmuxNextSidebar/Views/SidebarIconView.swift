@@ -92,6 +92,12 @@ final class SidebarIconView: NSView {
         case let .favicon(favicon)?:
             showFavicon(favicon)
             imageView.isHidden = false
+        case .pagePlaceholder?:
+            // The favicon's slot and size, as a symbol draws (`SidebarFaviconRenditions` has no image to treat yet).
+            let name = WorkspaceIcon.pagePlaceholderSymbol
+            imageView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(SidebarStyle.glyphConfig)
+            inkKey = "symbol|\(name)|\(pointSize)"
+            imageView.isHidden = false
         case .swatch?, nil:
             imageView.image = nil
             imageView.isHidden = true
@@ -106,6 +112,8 @@ final class SidebarIconView: NSView {
         performWithTheme {
             let tint: NSColor? = if case let .symbol(_, tint)? = icon {
                 symbolInk ?? tint.map(SidebarStyle.color) ?? Palette.textSecondary
+            } else if icon == .pagePlaceholder {
+                symbolInk ?? Palette.textSecondary
             } else if icon == nil {
                 Palette.textSecondary
             } else {
