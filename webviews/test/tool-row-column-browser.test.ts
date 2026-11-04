@@ -127,11 +127,11 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
           console.log(`TOOL_ROW_COLUMN ${JSON.stringify({ theme, width, ...m })}`);
           expect(errors).toEqual([]);
           // An opened run draws as Claude Code desktop's (Leo, 2026-11-03: "we're not faithfully
-          // following how they're doing stuff"): no guide line, and its steps show no icons, their
+          // following how they're doing stuff"): no guide line, and its steps keep kind icons, their
           // words still on the header's text column (checked with every row below).
           expect(m.guide.content).toBe("none");
           expect(m.stepIcons.length).toBe(3);
-          for (const visibility of m.stepIcons) expect(visibility).toBe("hidden");
+          for (const visibility of m.stepIcons) expect(visibility).toBe("visible");
           expect(m.headerIcon).toBe("visible");
           // The lone read, the group line, its three steps, the lone failed command, the lone block.
           expect(m.rows.length).toBe(7);
@@ -200,6 +200,42 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
         }
       });
     }
+  for (const [theme, harness, working] of [
+    ["light", "claude", false], ["dark", "codex", false],
+    ["dark", "claude", true], ["light", "codex", true],
+  ] as const)
+    test(`mixed ${theme} ${harness} ${working ? "live" : "finished"} run has one step per call, shared columns and useful drill-in`, async () => {
+      const page = await browser.newPage({ viewport: { width: 900, height: 1000 } });
+      try {
+        const port = (vite.httpServer!.address() as { port: number }).port;
+        await page.goto(`http://127.0.0.1:${port}/test/browser/tool-row-column.html?fixture=mixed&theme=${theme}&width=760&harness=${harness}&working=${working ? 1 : 0}`);
+        const fixture = page.locator("[data-fixture-mixed]");
+        await fixture.getByRole("button", { name: "Ran 2 commands, used 3 tools" }).click();
+        const steps = fixture.locator("[data-mixed-tool-steps]");
+        await expect(steps.locator(":scope > .cv-step").count()).resolves.toBe(5);
+        expect(await steps.locator(".is-run").count()).toBe(0);
+        const geometry = await steps.locator(":scope > .cv-step > .cv-tool").evaluateAll((rows) => rows.map((row) => ({
+          top: row.getBoundingClientRect().top,
+          text: row.querySelector(".cv-tool__text, .cv-command__text")!.getBoundingClientRect().left,
+          icon: getComputedStyle(row.querySelector(".cv-tool__icon")!).visibility,
+        })));
+        for (let at = 0; at < geometry.length; at++) {
+          expect(geometry[at]!.icon).toBe("visible");
+          expect(Math.abs(geometry[at]!.text - geometry[0]!.text)).toBeLessThanOrEqual(0.5);
+          if (at) expect(Math.abs(geometry[at]!.top - geometry[at - 1]!.top - 22)).toBeLessThanOrEqual(0.5);
+        }
+        await steps.getByRole("button", { name: "Find the retry handler" }).click();
+        expect(await steps.textContent()).toContain("src/retry.ts:12: retry(request)");
+        expect(await steps.textContent()).not.toContain('"pattern"');
+        await steps.getByRole("button", { name: "Capture the repaired screen", exact: false }).click();
+        await steps.locator("img").waitFor();
+        await steps.locator("img").evaluate((image) => image.decode());
+        expect(await steps.locator("img").evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
+        expect(await steps.textContent()).not.toContain("Loaded tools");
+        expect(await steps.textContent()).not.toContain("Waiting…");
+      } finally { await page.close(); }
+    });
+
   test("the script gallery uses natural word spacing and aligns Raw with the tool icon column", async () => {
     const page = await browser.newPage({ viewport: { width: 640, height: 820 }, deviceScaleFactor: 2 });
     try {

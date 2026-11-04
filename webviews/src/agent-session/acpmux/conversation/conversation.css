@@ -3083,17 +3083,17 @@ button.cv-video-frames__frame:focus-visible {
    capture they already know how to present. The icons are visible in the shipped/default arm;
    the older icon-free desktop comparison remains available as a gallery arm. */
 .cv-steps {
-  margin: 2px 0 6px;
-  border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
-  border-radius: 12px;
+  margin: 0;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring);
+  border-radius: 8px;
   overflow: hidden;
   background: color-mix(in srgb, var(--cv-card-fill) 72%, transparent);
 }
 .cv-steps > .cv-step {
-  padding: 4px 12px;
+  padding: 0;
 }
 .cv-steps > .cv-step + .cv-step {
-  border-top: var(--cmux-hairline, 0.5px) solid var(--cv-rule);
+  border-top: 0;
 }
 .cv-steps > .cv-step > .cv-tool > .cv-tool__icon {
   visibility: visible;
@@ -3114,6 +3114,7 @@ button.cv-video-frames__frame:focus-visible {
 :root[data-tool-steps-look="shared"] .cv-steps {
   margin: 0;
   border: 0;
+  box-shadow: none;
   border-radius: 0;
   background: transparent;
 }

@@ -14,6 +14,8 @@ import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
+import { ToolRunSteps } from "./ToolRunSteps";
+import { isToolDiscoveryNoise } from "./mcpPresentation";
 import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
@@ -215,12 +217,19 @@ export function thoughtIds(groups: readonly ToolGroup[]): number[] {
 }
 
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
-  const items = row.items;
+  const reveal = useContext(FindReveal);
+  // Keep the original transcript for copy/export and reveal discovery calls when Find names them.
+  const revealing = reveal && isRevealRow(row, reveal);
+  const items = useMemo(
+    () => revealing ? row.items : row.items?.filter((item) => !isToolDiscoveryNoise(item.tool)),
+    [row.items, revealing],
+  );
   const groups = useMemo(() => toolGroups(items ?? []), [items]);
-  const stretches = useMemo(() => runStretches(row, groups), [row, groups]);
+  const foldRun = row.foldRun;
+  const stretches = useMemo(() => runStretches({ foldRun }, groups), [foldRun, groups]);
   const thoughts = useMemo(() => thoughtIds(groups), [groups]);
   const nodes = stretches.map((stretch) => {
-    const drawn = stretch.groups.map((group, offset) => {
+    const drawn = !stretch.fold && stretch.groups.map((group, offset) => {
       const at = stretch.from + offset;
       return groupNode(
         group,
@@ -238,12 +247,11 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
     const key = stretch.from === 0 ? `run:${row.id}` : `run:${row.id}:${first || stretch.from}`;
     return (
       <ToolRun key={key} disclosureKey={key} items={stretch.items}>
-        {drawn}
+        <ToolRunSteps items={stretch.items} rowId={row.id} thoughtsBefore={thoughts[stretch.from] ?? 0} />
       </ToolRun>
     );
   });
   // Find opens what holds its current match in this row only (chatFind.ts).
-  const reveal = useContext(FindReveal);
   // Ids an MCP call names, to the titles the run's other calls give them ("Read Coordination hub").
   const names = useMemo(() => mcpNames(items), [items]);
   return (

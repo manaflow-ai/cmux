@@ -14,6 +14,7 @@ import type { Play } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxPlanEntry } from "../model";
 import type { AgentQuestion } from "../question/model";
 import { QUESTION_RECORD } from "../question/record";
+import { mixedToolTurnFixture } from "./mixedToolRunFixture";
 
 const MINUTE = 60_000;
 const at = (minutes: number) => Date.UTC(2026, 9, 29, 9, 0, 0) + minutes * MINUTE;
@@ -115,6 +116,21 @@ const variant = (look: "shared" | "guide" | "card" | "tree" | "zebra" | "ios-she
   play: openRun,
 });
 
+function mixedVariant(harness: "claude" | "codex", working: boolean): AgentPaneVariant {
+  return {
+    note: `${harness}, ${working ? "live" : "finished"}: raw turn rows project through the app into mixed steps, with discovery noise omitted.`,
+    snapshot: chat(mixedToolTurnFixture(working), { title: "Mixed tool steps", harness, model: harness === "codex" ? "gpt-6-astra" : "claude-opus-5-5", isWorking: working }),
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector(".cv-worked, .cv-tool.is-run"), { capMs: 10_000 });
+      const worked = ctx.document.querySelector(".cv-worked");
+      if (worked?.getAttribute("aria-expanded") === "false") await ctx.click({ selector: ".cv-worked" });
+      await ctx.waitFor(() => ctx.document.querySelector(".cv-tool.is-run"), { capMs: 10_000 });
+      await ctx.click({ selector: ".cv-tool.is-run" });
+      await ctx.waitFor(() => ctx.document.querySelector("[data-mixed-tool-steps]"), { capMs: 10_000 });
+    },
+  };
+}
+
 export default agentPaneEntry({
   id: "agent-pane.claude-desktop-organization",
   title: "Claude desktop organization",
@@ -127,6 +143,10 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/toolGroups.ts",
   ],
   variants: {
+    "mixed-claude": mixedVariant("claude", false),
+    "mixed-codex": mixedVariant("codex", false),
+    "mixed-claude-live": mixedVariant("claude", true),
+    "mixed-codex-live": mixedVariant("codex", true),
     "ios-sheet": variant(
       "ios-sheet",
       "Chosen default: a compact grouped sheet with a kind icon, concise step title and chevron into command/output, diff or capture detail.",

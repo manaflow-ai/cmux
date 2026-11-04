@@ -441,7 +441,7 @@ export function fileName(path: string): string {
 /// (`foldRun`, the Codex-style runs) is one stretch that folds nothing.
 export type RunStretch = { from: number; groups: ToolGroup[]; items: AcpmuxActivity[]; fold: boolean };
 
-export function runStretches(row: AcpmuxRow, groups: readonly ToolGroup[]): RunStretch[] {
+export function runStretches(row: Pick<AcpmuxRow, "foldRun">, groups: readonly ToolGroup[]): RunStretch[] {
   const stretches: RunStretch[] = [];
   let current: RunStretch | undefined;
   const close = () => {
