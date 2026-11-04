@@ -9,6 +9,8 @@ an operating-system error, a store file the table does not pin (a judge reads on
 a blessed result file that is gone or changed, or no film selected. A bless pins the runner it ran with, and refuses
 an uncommitted runner as it refuses uncommitted judges.
 """
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -52,7 +54,10 @@ class Blessed(unittest.TestCase):
 
 class NoVerdictTests(Blessed):
     def test_a_judge_that_loops_is_no_verdict_within_the_film_budget(self):
-        looping = self.judges("judges-loop", keys="def judge(base):\n    while True:\n        pass\n")
+        # The stand-in ends by itself after 60 s (review 5 of #33930, note 3): if the budget kill regresses, a film
+        # process left behind does not spin for ever. The test still proves the 2 s budget.
+        looping = self.judges("judges-loop", keys="import time\ndef judge(base):\n    end = time.monotonic() + 60\n"
+                                                  "    while time.monotonic() < end:\n        pass\n")
         started = time.monotonic()
         code, out = run_cli(self.w, looping, "--film-seconds", "2")
         self.assertEqual(code, 2, out)
@@ -61,10 +66,12 @@ class NoVerdictTests(Blessed):
 
     def test_a_judge_that_catches_every_exception_still_ends_at_the_budget(self):
         stubborn = self.judges("judges-stubborn", keys=textwrap.dedent('''
+            import time
             def judge(base):
-                while True:
+                end = time.monotonic() + 60  # bounded (review 5 of #33930, note 3)
+                while time.monotonic() < end:
                     try:
-                        while True:
+                        while time.monotonic() < end:
                             pass
                     except Exception:
                         pass
@@ -624,6 +631,237 @@ class FourthReviewTests(unittest.TestCase):
         kinds |= {"overlap"}  # add("overlap-fading" if fading else "overlap", ...): the second name of one call
         self.assertEqual(jg.JUDGE_NAMES["video_judge"], frozenset(names))
         self.assertEqual(jg.JUDGE_NAMES["judge_trace"], frozenset(kinds))
+
+
+class FifthReviewTests(unittest.TestCase):
+    """Review 5 of #33930 at f7872ae3a71 (FIX, comment 6621529858), finding A: a name is checked at the severity its
+    judge writes it with (9 video_judge names are never defects), and an absence needs the input of its own check, as
+    the result shows it (a motion window, trace samples, tracked dividers, a divider compared with the trace, the
+    film's movie, panes at rest), not only a motion window. A positive check needs nothing: a judge that did not look,
+    and so missed it, fails. Also its notes: a name that is not text, truth.json read once, the NO VERDICT heading, a
+    skipped unit test."""
+
+    JUDGED = {"frames": 10, "motion": [[0.0, 0.5]], "pacing": {"trace": True}, "tracked_dividers": 2,
+              "model_lag": {"0": 5}, "findings": []}
+
+    def result(self, findings=(), **fields):
+        r = dict(self.JUDGED, findings=list(findings))
+        r.update(fields)
+        return r
+
+    @staticmethod
+    def found(check, severity, frames=(3, 4)):
+        return {"check": check, "severity": severity, "frames": list(frames), "t": [0, 0], "detail": "x"}
+
+    @staticmethod
+    def verdict(result, expect, **inputs):
+        """'holds', 'fails: <why>' or 'NO VERDICT: <why>'."""
+        expect = dict(expect)
+        expect.setdefault("judge", "video_judge")
+        try:
+            why = jg._expectation(result, expect, **inputs)
+        except jg.Unchecked as error:
+            return f"NO VERDICT: {error}"
+        return "holds" if why is None else f"fails: {why}"
+
+    def test_a_note_or_recorder_name_is_checked_at_its_own_severity(self):
+        for name, severity in (("content wait", "note"), ("content size during motion", "note"),
+                               ("capture stall", "recorder"), ("encoder dropped frames", "recorder")):
+            with self.subTest(name=name):
+                reported = self.result([self.found(name, severity)])
+                self.assertEqual(self.verdict(reported, {"check": name}), "holds")
+                self.assertEqual(self.verdict(reported, {"check": name, "frames": [3, 4]}), "holds")
+                self.assertTrue(self.verdict(reported, {"absent_check": name}).startswith("fails: must not report"))
+                self.assertEqual(self.verdict(self.result(), {"absent_check": name}), "holds")
+        # A defect name is not met by a finding of another severity.
+        self.assertTrue(self.verdict(self.result([self.found("jump", "note")]), {"check": "jump"}).startswith("fails"))
+
+    def test_the_severities_are_the_ones_the_judge_writes(self):
+        import ast
+        tree = ast.parse((HERE / "video_judge.py").read_text())
+        written = {}
+
+        def text(node):
+            return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("finding", "grouped_findings"):
+                if len(node.args) < 2 or text(node.args[1]) is None:
+                    continue
+                at = 5 if node.func.id == "finding" else 4
+                severity = text(node.args[at]) if len(node.args) > at else "defect"
+                for kw in node.keywords:
+                    if kw.arg == "severity":
+                        severity = text(kw.value)
+                written.setdefault(text(node.args[1]), set()).add(severity)
+            elif isinstance(node, ast.Dict):  # a finding written as a dict (the model grid); not finding()'s own
+                keys = [text(k) for k in node.keys]
+                if "check" in keys and "severity" in keys and text(node.values[keys.index("check")]) is not None:
+                    written.setdefault(text(node.values[keys.index("check")]), set()).add(
+                        text(node.values[keys.index("severity")]))
+        self.assertTrue(all(len(v) == 1 for v in written.values()), written)
+        self.assertEqual({name: severity for name, (severity, _) in jg.NAMES["video_judge"].items()},
+                         {name: v.pop() for name, v in written.items()})
+        self.assertEqual(jg.JUDGE_NAMES, {judge: frozenset(names) for judge, names in jg.NAMES.items()})
+
+    def test_an_absence_of_a_divider_check_needs_a_tracked_divider(self):
+        untracked = self.result(tracked_dividers=0, model_lag={})
+        for name in ("gap or overlap", "divider not shown", "jump", "jump back", "jump back (animation)",
+                     "shown geometry not in the model"):
+            with self.subTest(name=name):
+                self.assertIn("tracked no divider", self.verdict(untracked, {"absent_check": name}))
+                self.assertEqual(self.verdict(self.result(), {"absent_check": name}), "holds")
+
+    def test_an_absence_of_a_model_check_needs_the_trace(self):
+        untraced = self.result(pacing={"trace": False}, model_lag={})
+        for name in ("content not at final size after motion", "content size during motion", "content wait",
+                     "model edge off the device-pixel grid", "shown geometry not in the model"):
+            with self.subTest(name=name):
+                self.assertIn("no trace samples", self.verdict(untraced, {"absent_check": name}))
+        compared_none = self.result(model_lag={})
+        self.assertIn("compared no tracked divider", self.verdict(compared_none,
+                                                                  {"absent_check": "shown geometry not in the model"}))
+
+    def test_an_absence_of_a_movie_check_needs_the_films_movie(self):
+        for name in ("blank pane", "flash", "content stretched", "reflow"):
+            with self.subTest(name=name):
+                self.assertIn("no movie", self.verdict(self.result(), {"absent_check": name}))
+                self.assertEqual(self.verdict(self.result(), {"absent_check": name}, movie=True), "holds")
+
+    def test_the_movie_is_the_films_movie_in_the_store(self):
+        # The runner reads the movie from the films table (the film's pinned files), not from the result.
+        import test_judge_goldens_truth as truth
+        for with_movie, code_wanted in ((False, 2), (True, 0)):
+            with self.subTest(with_movie=with_movie):
+                w = truth.TruthWorkspace()
+                try:
+                    if with_movie:
+                        (w.gallery / "px-build-120x2" / "px-keys.mov").write_bytes(b"a movie the stand-in judge does not read")
+                    w.write_truth(expect=[{"judge": "video_judge", "absent_check": "flash"}])
+                    self.assertEqual(w.snapshot()[0], 0)
+                    code, out = w.bless()
+                    self.assertEqual(code, code_wanted, out)
+                    if not with_movie:
+                        self.assertIn("no movie", out)
+                finally:
+                    w.close()
+
+    def test_an_absence_of_a_check_that_starts_from_an_input_is_no_verdict(self):
+        # video_judge writes no count of the inputs these checks start from: the result cannot show that they looked.
+        for name in ("main thread missed refreshes before the first frame", "frame gap during slow input"):
+            with self.subTest(name=name):
+                got = self.verdict(self.result(), {"absent_check": name})
+                self.assertTrue(got.startswith("NO VERDICT") and "input" in got, got)
+
+    def test_an_absence_of_gap_or_overlap_on_the_trace_needs_two_panes_at_rest(self):
+        def trace(panes):
+            motion = {"first_frame": 1, "last_frame": 9, "frames": 9, "panes_at_rest": panes}
+            return {"motion": motion, "motions": [{"motion": motion}], "defects": []}
+
+        for name in ("gap", "overlap", "overlap-fading"):
+            with self.subTest(name=name):
+                self.assertIn("2 or more panes at rest", self.verdict(trace(["a"]),
+                                                                       {"judge": "judge_trace", "absent_kind": name}))
+                self.assertEqual(self.verdict(trace(["a", "b"]), {"judge": "judge_trace", "absent_kind": name}), "holds")
+        self.assertEqual(self.verdict(trace(["a"]), {"judge": "judge_trace", "absent_kind": "reverse"}), "holds")
+
+    def test_a_reported_name_fails_its_absence_even_where_its_input_is_not_shown(self):
+        reported = self.result([self.found("jump", "defect")], tracked_dividers=0)
+        self.assertTrue(self.verdict(reported, {"absent_check": "jump"}).startswith("fails: must not report"))
+
+    def test_a_name_that_is_not_text_is_no_verdict_that_names_the_fact(self):
+        import test_judge_goldens_truth as truth
+        w = truth.TruthWorkspace()
+        try:
+            w.write_truth(expect=[{"judge": "video_judge", "absent_check": ["jump"]}])
+            self.assertEqual(w.snapshot()[0], 0)
+            code, out = w.bless()
+            self.assertEqual(code, 2, out)
+            self.assertIn("px-keys-shell-band", out)
+            self.assertNotIn("the runner failed", out)
+        finally:
+            w.close()
+
+    def test_a_run_reads_truth_json_once(self):
+        # Read twice, an edit between the reads checks facts other than the ones that were validated.
+        import test_judge_goldens_truth as truth
+        w = truth.TruthWorkspace()
+        reads, real = [], jg.load_truth
+        try:
+            w.write_truth()
+            self.assertEqual(w.snapshot()[0], 0)
+            self.assertEqual(w.bless()[0], 0)
+
+            def counting(manifest):
+                reads.append(manifest)
+                return real(manifest)
+
+            jg.load_truth = counting
+            code, out = w.run()
+            self.assertEqual(code, 0, out)
+            self.assertEqual(len(reads), 1, out)
+            reads.clear()
+            code, out = w.bless()
+            self.assertEqual(code, 0, out)
+            self.assertEqual(len(reads), 1, out)
+        finally:
+            jg.load_truth = real
+            w.close()
+
+    def test_a_no_verdict_of_an_expectation_is_not_called_a_ruler_fact(self):
+        import test_judge_goldens_truth as truth
+        w = truth.TruthWorkspace()
+        try:
+            (w.judges / "video-cases" / "judge_trace.py").write_text(textwrap.dedent(FourthReviewTests.NO_MOTION_TRACE))
+            w.write_truth(expect=[{"judge": "judge_trace", "absent_kind": "reverse"}])
+            self.assertEqual(w.snapshot()[0], 0)
+            code, out = w.bless()
+            self.assertEqual(code, 2, out)
+            self.assertIn("no motion", out)
+            self.assertNotIn("ruler fact does not hold", out)
+        finally:
+            w.close()
+
+    def test_a_skipped_judge_unit_test_is_no_verdict(self):
+        import test_judge_goldens_truth as truth
+        skipping = truth.PASSING_UNIT_TESTS.replace("def test_b(self): self.assertTrue(True)",
+                                                    "@unittest.skip('its film is not on this machine')\n"
+                                                    "    def test_b(self): self.assertTrue(True)")
+        w = truth.TruthWorkspace(unit=skipping)
+        try:
+            w.write_truth()
+            self.assertEqual(w.snapshot()[0], 0)
+            code, out = w.bless()
+            self.assertEqual(code, 2, out)
+            self.assertIn("skipped", out)
+            (w.judges / "test_video_judge.py").write_text(textwrap.dedent(truth.PASSING_UNIT_TESTS))
+            self.assertEqual(w.bless()[0], 0)
+            (w.judges / "test_video_judge.py").write_text(textwrap.dedent(skipping))
+            code, out = w.run()
+            self.assertEqual(code, 2, out)
+            self.assertIn("skipped", out)
+        finally:
+            w.close()
+
+    def test_the_judges_unit_tests_get_the_store(self):
+        # test_video_judge_classes.py reads its real film from the store the run judges (JUDGE_GOLDENS_STORE).
+        with tempfile.TemporaryDirectory() as tmp:
+            judges = Path(tmp) / "judges"
+            judges.mkdir()
+            (judges / "test_video_judge.py").write_text(textwrap.dedent(f'''
+                import os, unittest
+                class T(unittest.TestCase):
+                    def test_store(self):
+                        self.assertEqual(os.environ.get("JUDGE_GOLDENS_STORE"), {str(Path(tmp) / "store")!r})
+                if __name__ == "__main__":
+                    unittest.main()
+                '''))
+            ran, failed, skipped, _ = jg.unit_tests(judges, store=Path(tmp) / "store")
+            self.assertEqual((ran, failed, skipped), (1, 0, 0))
+        real = (HERE / "test_video_judge_classes.py").read_text()
+        self.assertIn("JUDGE_GOLDENS_STORE", real)
+        # r4, the round the test always read (the store's copy has the same bytes as the scratch folder it read).
+        self.assertIn('"pt-feat-5851715-b-120x1" / "bv-dt-bottom-light-dark-r4"', real)
 
 
 if __name__ == "__main__":
