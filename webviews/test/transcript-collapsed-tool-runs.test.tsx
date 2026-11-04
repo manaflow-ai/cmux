@@ -125,16 +125,19 @@ test("opened, the line shows the rows it holds as they draw on their own", async
   resetTranscriptDisclosure();
   const work = shaped(mixed).find((entry) => entry.id === "work")!;
   const root: Root = createRoot(host);
-  await act(async () => root.render(<ToolRows row={work} sessionId="collapsed" />));
-  const line = host.querySelector<HTMLButtonElement>(".cv-tools > .cv-tool.is-toggle")!;
-  expect(line.getAttribute("aria-expanded")).toBe("false");
-  await act(async () => line.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
-  expect(line.getAttribute("aria-expanded")).toBe("true");
-  // The same rows the run draws when it is not collapsed (Debug toggle codexToolRuns off).
-  const open = host.querySelector(".cv-tool-run")!.textContent;
-  const flat = words({ ...work, foldRun: false }).replace(/\s+/g, "");
-  expect(open?.replace(/\s+/g, "")).toBe(flat);
-  act(() => root.unmount());
+  try {
+    await act(async () => root.render(<ToolRows row={work} sessionId="collapsed" />));
+    const line = host.querySelector<HTMLButtonElement>(".cv-tools > .cv-tool.is-toggle")!;
+    expect(line.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => line.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
+    expect(line.getAttribute("aria-expanded")).toBe("true");
+    // The same rows the run draws when it is not collapsed (Debug toggle codexToolRuns off).
+    const open = host.querySelector(".cv-tool-run")!.textContent;
+    const flat = words({ ...work, foldRun: false }).replace(/\s+/g, "");
+    expect(open?.replace(/\s+/g, "")).toBe(flat);
+  } finally {
+    act(() => root.unmount());
+  }
 });
 
 test("the run the agent works in keeps its call in flight out, on the live line", () => {

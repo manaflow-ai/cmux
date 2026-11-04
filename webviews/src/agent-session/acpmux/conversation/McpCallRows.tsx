@@ -30,7 +30,7 @@ import { isMcpLifecycleOutput, usefulMcpRequest, usefulMcpResponse } from "./mcp
 import { ShellBlock } from "./ShellBlock";
 import { toolFiles } from "../diff";
 import { EditDiff } from "./EditDiff";
-import { ToolImages } from "./ToolRow";
+import { toolIcon, ToolImages } from "./ToolRow";
 import { VideoFramesCard } from "./VideoFramesCard";
 import { videoFrames } from "./videoFrames";
 import { useRowDisclosure, useTranscriptDisclosure } from "./transcriptDisclosure";
@@ -183,9 +183,7 @@ export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActiv
         ref={fold.headerRef}
         onClick={expandable ? fold.toggle : undefined}
       >
-        <span className="cv-tool__icon">
-          <ToolGroup size={16} strokeWidth={1.2} />
-        </span>
+        <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
         <span ref={labelRef} className="cv-tool__text" data-find-skip>
           <ToolLabel text={label} />
           {failure ? (
