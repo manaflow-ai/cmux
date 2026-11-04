@@ -473,10 +473,17 @@ CLAMP_ROOM_PT = 6
 def clamp_before():
     """Before each clamp film: the split x (vertical divider 1) dragged left into b1's minimum, then right by CLAMP_ROOM_PT,
     so every film starts with b1 at its minimum plus the room; then p0 focused for the key."""
+    # Every column back to a third of the viewport first: the key trades p0's and p1's widths (KEYS #34123) and stops at
+    # p1's minimum, while the rebuild's Ctrl-Shift-H takes back a full step, so without this the next film starts with
+    # other widths (ab-s2bdc-813ac15: OFF began with p0's edge at 642.5 pt, ON at 611).
+    widths = []
+    for name in ("p0", "p1", "p3"):
+        widths += [focus(name), {"do": "try_action", "action": "column.widthOneThird", "title": f"set-up: {name}'s column back to a third"}]
+    widths.append(rest(land(SPEEDS_S2BT[0][1]), "the column widths land (their springs at the film's speed)"))
     # The set-up drags find x in the geometry trace's newest sample: before the first film no trace runs (round
     # ab-s2bd-sw-813ac15: "no vertical divider 1 (0 shown)"), and before a later one the newest sample is from the last
     # film, before its rebuild moved x. A trace started here samples the layout as it is (the film's recorder restarts it).
-    return [{"do": "rpc", "method": "debug.motion", "params": {"action": "trace_start", "window": 0},
+    return widths + [{"do": "rpc", "method": "debug.motion", "params": {"action": "trace_start", "window": 0},
              "title": "set-up: a geometry trace, so the set-up drags find x where it is now"},
             G.kit_drag({"divider": 1}, [-80, 0], 400, "minimum", "set-up: the split x 80 pt left (b1 stops at its minimum)"),
             rest(0.6, "the split rests at b1's minimum"),

@@ -259,6 +259,41 @@
    "name": "px-keys-then-clamp-3x-sw-sharededges-off-s0125",
    "steps": [
     {
+     "do": "rk_focus",
+     "pane": "p0",
+     "title": "set-up: focus p0 (cmux pane focus)"
+    },
+    {
+     "do": "try_action",
+     "action": "column.widthOneThird",
+     "title": "set-up: p0's column back to a third"
+    },
+    {
+     "do": "rk_focus",
+     "pane": "p1",
+     "title": "set-up: focus p1 (cmux pane focus)"
+    },
+    {
+     "do": "try_action",
+     "action": "column.widthOneThird",
+     "title": "set-up: p1's column back to a third"
+    },
+    {
+     "do": "rk_focus",
+     "pane": "p3",
+     "title": "set-up: focus p3 (cmux pane focus)"
+    },
+    {
+     "do": "try_action",
+     "action": "column.widthOneThird",
+     "title": "set-up: p3's column back to a third"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.15,
+     "title": "the column widths land (their springs at the film's speed)"
+    },
+    {
      "do": "rpc",
      "method": "debug.motion",
      "params": {
@@ -424,6 +459,41 @@
    "do": "px_film",
    "name": "px-keys-then-clamp-3x-sw-sharededges-on-s0125",
    "steps": [
+    {
+     "do": "rk_focus",
+     "pane": "p0",
+     "title": "set-up: focus p0 (cmux pane focus)"
+    },
+    {
+     "do": "try_action",
+     "action": "column.widthOneThird",
+     "title": "set-up: p0's column back to a third"
+    },
+    {
+     "do": "rk_focus",
+     "pane": "p1",
+     "title": "set-up: focus p1 (cmux pane focus)"
+    },
+    {
+     "do": "try_action",
+     "action": "column.widthOneThird",
+     "title": "set-up: p1's column back to a third"
+    },
+    {
+     "do": "rk_focus",
+     "pane": "p3",
+     "title": "set-up: focus p3 (cmux pane focus)"
+    },
+    {
+     "do": "try_action",
+     "action": "column.widthOneThird",
+     "title": "set-up: p3's column back to a third"
+    },
+    {
+     "do": "wait",
+     "seconds": 2.15,
+     "title": "the column widths land (their springs at the film's speed)"
+    },
     {
      "do": "rpc",
      "method": "debug.motion",
